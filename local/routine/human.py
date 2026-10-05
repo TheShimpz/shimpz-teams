@@ -92,7 +92,12 @@ def _end_changed(self, team_id: str, value: record.Run) -> None:
     The run must still be frozen when it ends: a replay that resumed it meanwhile owns it now.
     """
     if not routine_manage.end_frozen(
-        self, team_id, value.run_id, "failed", {"code": "team-context-changed", "actions": []}
+        self,
+        team_id,
+        value.run_id,
+        "failed",
+        # The run failed at the step it was frozen at.
+        {"code": "team-context-changed", "actions": [], "step": value.step, "steps": value.steps},
     ):
         raise _not_frozen()
     cancel_routine_challenge(self, team_id, value.run_id)
@@ -286,21 +291,23 @@ def resume_routine_integrations(
     return _replay(self, _Frozen(team_id, value, routine, pending), (provider, api_key), progress, None)
 
 
-def _thaw(state: record.TeamRoutines, run_id: str, now: int) -> tuple[record.TeamRoutines, str | None]:
-    """Resume the run only while it is still frozen and its Routine is not being deleted."""
+def _thaw(
+    state: record.TeamRoutines, run_id: str, now: int, requests_used: int
+) -> tuple[record.TeamRoutines, str | None]:
+    """Resume the run only while it is still frozen and its Routine is not being deleted, keeping its answer count."""
     try:
-        return record.thaw(state, run_id, now)
+        return record.thaw(state, run_id, now, requests_used)
     except record.RoutineStateError:
         return state, None
 
 
-def _resume(self, team_id: str, run_id: str, challenge_id: str | None) -> record.Lease:
+def _resume(self, team_id: str, run_id: str, challenge_id: str | None, requests_used: int) -> record.Lease:
     """Thaw the run; an answered run consumes its challenge in the same step, so a run that stays frozen keeps it."""
     now = int(time.time())
     thawed: list[str] = []
 
     def thaw() -> None:
-        state_token = routine_state.update(self, team_id, lambda state: _thaw(state, run_id, now))
+        state_token = routine_state.update(self, team_id, lambda state: _thaw(state, run_id, now, requests_used))
         if state_token is None:
             raise _not_frozen()
         thawed.append(state_token)
@@ -336,7 +343,7 @@ def _replay(
     ):
         with self._lock(team_id):
             _current_context(self, team_id, value, pending, frozen.requirement)
-            lease = _resume(self, team_id, value.run_id, challenge_id)
+            lease = _resume(self, team_id, value.run_id, challenge_id, requests_used)
         routine_state.call(lambda: self.routine_store.delete_continuation(team_id, value.run_id))
         run = routine_run._Run(team_id, value.run_id, lease, token, provider, routine, transcripts, requests_used)
         outcome = routine_compiled.execute(self, run, value, progress, pending)

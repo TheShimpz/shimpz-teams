@@ -7,6 +7,7 @@ from action import human as action_human
 from action import result as action_result
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
+from routine import plan as routine_plan
 from tests import human_request_fixtures
 
 
@@ -393,6 +394,27 @@ class ChatOrchestratorTests(unittest.TestCase):
                 "Loop",
                 strategy(accept_input, lambda _request: {"message": "ok"}),
             )
+
+    def test_a_turn_with_its_own_round_limit_runs_every_round_and_may_keep_no_invoked_actions(self):
+        """A compiled Routine run has one round per plan step and learns nothing (ADR-0092, 2026-10-05, scale)."""
+        rounds = chat_orchestrator.MAX_ACTION_ROUNDS * 3
+        turns = [suspended(interrupt_id=f"interrupt-{index}") for index in range(rounds)] + [completed()]
+        outcome = chat_orchestrator.run(
+            FakeRuntime(turns),
+            context(),
+            "Many steps",
+            strategy(accept_input, lambda _request: {"message": "ok"}, max_rounds=rounds, record_invoked=False),
+        )
+        self.assertEqual((outcome.reply, outcome.actions), ("Done", ()))
+        turns = [suspended(interrupt_id=f"interrupt-{index}") for index in range(rounds + 1)]
+        with self.assertRaisesRegex(chat_orchestrator.ChatOrchestrationError, "round limit"):
+            chat_orchestrator.run(
+                FakeRuntime(turns),
+                context(),
+                "Too many",
+                strategy(accept_input, lambda _request: {"message": "ok"}, max_rounds=rounds),
+            )
+        self.assertGreaterEqual(chat_orchestrator.MAX_RESUMABLE_ROUNDS, routine_plan.MAX_STEPS)
 
     def test_two_assistants_can_own_the_same_local_action_id(self):
         shared = brain_runtime_client.RuntimeAction(

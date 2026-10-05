@@ -97,10 +97,13 @@ class VerifierRuntime:
         self.result = results.get(self._request.interrupt_id)
         return brain_runtime_client.RuntimeTurn("completed", "", ())
 
-    def dispatching(self, _request, _operation_id, _workload="") -> None:
+    def dispatching(self, _request, _operation_id, _workload="", _evidence=None) -> None:
         return
 
     def failed(self, _request, _evidence, _exc) -> None:
+        return
+
+    def returned(self) -> None:
         return
 
     @staticmethod
@@ -110,6 +113,11 @@ class VerifierRuntime:
     @staticmethod
     def purpose(_context, _request, _assistant_name, _summary) -> None:
         return
+
+    @staticmethod
+    def strategy() -> dict[str, object]:
+        """One verifier round, and nothing kept for learning."""
+        return {"max_rounds": 1, "record_invoked": False}
 
 
 def _drift() -> ApiProblem:
@@ -341,6 +349,7 @@ def _judge(self, team_id: str, assessment: Assessment, result: object, protected
     except routine_plan.PlanError, routine_cursor.CursorError, routine_store.RoutineStoreError, ValueError:
         return "inconclusive"
     _seal(self, team_id, completed)
+    routine_compiled.record_recovered(self, team_id, cursor, assessment.plan, protected)
     return "occurred"
 
 
@@ -429,7 +438,10 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     # The resolved hold's evidence goes; a later hold of this continuation seals its own.
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, incident_id))
     lease = record.lease_of(lease_token, record.HUMAN_LEASE)
-    run = routine_run._Run(team_id, incident_id, lease, token, _provider(self, team_id), routine)
+    # The logical run's answered human requests carry on; a continuation never gets a fresh allowance.
+    run = routine_run._Run(
+        team_id, incident_id, lease, token, _provider(self, team_id), routine, (), value.requests_used
+    )
     active = value.active_seconds_left if seconds is None else min(seconds, value.active_seconds_left)
     with routine_run.registered(self, team_id, incident_id, token, active):
         outcome = routine_compiled.execute(self, run, value, progress)

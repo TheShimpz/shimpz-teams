@@ -15,7 +15,10 @@ from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
 
+# A chat turn's Action rounds; a compiled Routine run has one round per step of its plan (ADR-0092 amendment,
+# 2026-10-05, scale), so a resumed continuation admits the larger of the two and each turn enforces its own.
 MAX_ACTION_ROUNDS = 8
+MAX_RESUMABLE_ROUNDS = 256
 
 
 class ChatOrchestrationError(RuntimeError):
@@ -105,6 +108,10 @@ class ChatStrategy:
     cancelled: CancellationCheck = lambda: False
     validate_context: ContextCheck = lambda: None
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
+    # The turn's own Action round limit, and whether it keeps what each Action was for chat Skill learning; a compiled
+    # run has a round per step and learns nothing, so its continuation never grows with completed steps.
+    max_rounds: int = MAX_ACTION_ROUNDS
+    record_invoked: bool = True
 
 
 def _brain_call[T](strategy: ChatStrategy, call: Callable[[], T]) -> T:
@@ -210,7 +217,7 @@ def _drive(
     declared = chat_attachments.admitted_actions(context)
     contracts = {assistant.id: brain_runtime_client.contract_digest(assistant) for assistant in context.assistants}
 
-    for _round in range(continuation.round_index, MAX_ACTION_ROUNDS + 1):
+    for _round in range(continuation.round_index, strategy.max_rounds + 1):
         if strategy.cancelled():
             raise ChatStoppedError("chat turn stopped")
         if turn.status == "completed":
@@ -231,7 +238,7 @@ def _drive(
                 routine=turn.routine,
                 restricted_actions=chat_attachments.restricted_actions(context),
             )
-        if _round == MAX_ACTION_ROUNDS:
+        if _round == strategy.max_rounds:
             raise ChatOrchestrationError("Brain exceeded the Action round limit")
 
         with strategy.progress.span("action-preparation"):
@@ -275,6 +282,8 @@ def _drive(
                 except action_human.HumanRequestSuspensionError as exc:
                     return ChatHumanSuspension(checkpoint, request, exc.request, tuple(results))
             results[request.interrupt_id] = result
+            if not strategy.record_invoked:
+                continue
             batch_invoked.append(
                 InvokedAction(
                     assistant_id=request.assistant_id,

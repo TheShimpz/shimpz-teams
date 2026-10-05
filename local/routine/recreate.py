@@ -26,6 +26,7 @@ from local.routine import source as routine_source
 from local.routine import state as routine_state
 from local.routine import turn as routine_turn
 from routine import change as routine_change
+from routine import grant as routine_grant
 from routine import hold as routine_hold
 from routine import plan as routine_plan
 from routine import record
@@ -33,7 +34,9 @@ from routine import request as routine_request
 from routine.request import Request as RoutineRequest
 
 # The compile's registered deadline, after which the watchdog stops it like an overdue run.
-RECREATE_SECONDS = 120
+# Recriar's whole execution: the compile, which Brain bounds at four minutes for a Routine of hundreds of steps, and
+# its commit (ADR-0092 amendment, 2026-10-05, scale).
+RECREATE_SECONDS = 300
 
 
 def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
@@ -133,7 +136,10 @@ def _definition(
     return dataclasses.replace(value, grant={**value.grant, "selected": {"field": list(field), "label": label}})
 
 
-def _compile(self, team_id: str, source: routine_source.Source, credential: tuple[str, str], runtime) -> object:
+def _compile(
+    self, team_id: str, source: routine_source.Source, credential: tuple[str, str], runtime, capacity: int
+) -> object:
+    """Compile the sealed words once; ``capacity`` is the Team's daily steps with the replaced Routine's own back."""
     provider, api_key = credential
     try:
         config = self.inference_store.load(team_id)
@@ -143,7 +149,7 @@ def _compile(self, team_id: str, source: routine_source.Source, credential: tupl
         raise _unavailable()
     try:
         compiled = inference_recreate.compile_routine(
-            self.brain_runtime, (config.provider, config.model, api_key), source.parts, runtime
+            self.brain_runtime, (config.provider, config.model, api_key), source.parts, runtime, capacity
         )
     except brain_runtime_client.BrainRuntimeError as exc:
         raise _unavailable() from exc
@@ -177,7 +183,8 @@ def recreate(self, team_id: str, card, expected: routine_hold.Expected, context,
         network_id, active, runtime, scope = _contracts(self, team_id)
         if network_id != card.incarnation:
             raise _problem(HTTPStatus.CONFLICT, "the recovery card is stale; open it again", "routine-card-stale")
-        compiled = _compile(self, team_id, source, credential, runtime)
+        others = tuple(item for item in state.routines if item.routine_id != card.routine_id)
+        compiled = _compile(self, team_id, source, credential, runtime, routine_grant.capacity(others))
         with self._lock(team_id):
             # Nothing the compile saw may have changed by the time its change commits.
             fresh = _contracts(self, team_id)

@@ -264,7 +264,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             )
 
     def test_segment_callbacks_require_fresh_action_and_human_evidence(self) -> None:
-        action = SimpleNamespace(summary="Action", input_schema={}, human_requests=(), input_files=())
+        action = SimpleNamespace(summary="Action", input_schema={}, output_schema={}, human_requests=(), input_files=())
         help_url = "https://keys.example.com/api-keys"
         stored = SimpleNamespace(help_url=help_url)
         contract = SimpleNamespace(name="Reviewed Assistant", actions={"action": action}, stored_inputs={"key": stored})

@@ -106,14 +106,25 @@ class SimulatedDayTests(unittest.TestCase):
         self.assertEqual(record.next_due(delivered, due - 1), due)
 
     def test_the_team_window_counts_every_start_and_frees_one_at_a_time(self) -> None:
-        starts = tuple(("a" * 32, 1000 + index) for index in range(routine_starts.TEAM_CEILING))
+        starts = tuple(("a" * 32, 1000 + index, 1) for index in range(routine_starts.TEAM_CEILING))
         self.assertEqual(routine_starts.free_at(starts, "b" * 32, None, 1000 + 86_399), 1000 + 86_400)
         self.assertEqual(routine_starts.free_at(starts, "b" * 32, None, 1000 + 86_400), 1000 + 86_400)
-        self.assertEqual(len(routine_starts.started(starts, "b" * 32, 1000 + 86_400)), routine_starts.TEAM_CEILING)
+        self.assertEqual(len(routine_starts.started(starts, "b" * 32, 1000 + 86_400, 1)), routine_starts.TEAM_CEILING)
+
+    def test_the_team_window_reserves_every_step_each_start_may_run(self) -> None:
+        """At most 20,000 business steps start in any rolling 24 hours, whatever started them (scale)."""
+        steps = routine_starts.routine_plan.MAX_DAILY_STEPS
+        starts = (("a" * 32, 1000, steps - 300), ("b" * 32, 2000, 200), ("a" * 32, 3000, 100))
+        # Exactly full: the next start of even one step waits until enough of the window's starts leave it.
+        self.assertEqual(routine_starts.free_at(starts, "c" * 32, None, 4000, 1), 1000 + 86_400)
+        partial = starts[1:]
+        self.assertEqual(routine_starts.free_at(partial, "c" * 32, None, 4000, 300), 4000)
+        self.assertEqual(routine_starts.free_at(partial, "c" * 32, None, 4000, steps - 299), 2000 + 86_400)
+        self.assertEqual(routine_starts.free_at(partial, "c" * 32, None, 4000, steps), 3000 + 86_400)
 
     def test_the_team_window_frees_its_oldest_start_whichever_routine_made_it(self) -> None:
         # Sorted by Routine id, "a" at 5 would look older than "b" at 0 and hold the ceiling 5 seconds too long.
-        starts = (("b" * 32, 0), ("a" * 32, 5))
+        starts = (("b" * 32, 0, 1), ("a" * 32, 5, 1))
         with mock.patch.object(routine_starts, "TEAM_CEILING", 2):
             self.assertEqual(routine_starts.free_at(starts, "c" * 32, None, 10), 86_400)
             self.assertEqual(routine_starts.free_at(starts, "a" * 32, 2, 10), 86_400)

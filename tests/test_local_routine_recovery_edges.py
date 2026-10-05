@@ -221,7 +221,7 @@ class CardEdgeTests(RecoveryCase):
             self.assertEqual(caught.exception.code, "routine-incident-unavailable")
             snapshot = mock.Mock()
             with mock.patch.object(service.routine_store, "cursor", return_value=None):
-                self.assertEqual(routine_incident._held_step(service, "team_1", snapshot), ("", ""))
+                self.assertEqual(routine_incident._held_step(service, "team_1", snapshot), ("", "", 0, 0))
 
     def as_card(self, service, run_id: str) -> dict[str, object]:
         from local import audit as local_audit
@@ -268,8 +268,9 @@ class RunTimeTests(RecoveryCase):
             self.assertEqual(self.verify(service, value, run_id), "absent")
             self.assertEqual(self.resume(service, value, run_id), "recovered")
         # The failed segment's 100 seconds were charged before the hold, and the continuation started from the rest.
-        self.assertEqual(held.active_seconds_left, record.ACTIVE_SECONDS - 100)
-        self.assertEqual(seen[-1], record.ACTIVE_SECONDS - 100)
+        budget = routine_plan.active_seconds(len(value.plan["steps"]))
+        self.assertEqual(held.active_seconds_left, budget - 100)
+        self.assertEqual(seen[-1], budget - 100)
 
     def held_with(self, directory, assistant, box):
         original = self.service

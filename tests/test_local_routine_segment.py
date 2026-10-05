@@ -41,6 +41,10 @@ class Compiled(Runtime):
     def logical_operation(_request) -> None:
         return None
 
+    @staticmethod
+    def strategy() -> dict[str, object]:
+        return {"max_rounds": 1, "record_invoked": False}
+
 
 class RoutineSegmentTests(LocalContractCase):
     def request(self, routine: RoutineSegment | None) -> SegmentRequest:

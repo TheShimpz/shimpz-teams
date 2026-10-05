@@ -80,45 +80,70 @@ def _filler(index: int, size: int) -> dict[str, object]:
     return {"member": f"z{index:03d}" + "m" * (member - 4), "source": "literal", "value": "v" * (size - 44 - member)}
 
 
-def _bounded_steps(size: int = routine.MAX_STEPS_BYTES) -> list[dict[str, object]]:
-    """A projection of exactly ``size`` encoded bytes, its inputs at their character bounds in four-byte text."""
+def _bounded_step(position: int = 1, size: int = routine.MAX_STEP_VIEW_BYTES) -> dict[str, object]:
+    """One projected step of exactly ``size`` encoded bytes, its inputs at their character bounds in four-byte text."""
     stored = sorted(f"s{index:02d}" + "s" * 37 for index in range(routine.MAX_STEP_STORED_INPUTS))
-    steps = [
-        {"id": f"s{index}", "assistant": ASSISTANT, "action": ACTION, "inputs": [], "stored_inputs": stored}
-        for index in range(routine.MAX_ROUTINE_STEPS)
-    ]
-    for index in range(routine.MAX_STEP_INPUTS * len(steps)):
+    step = {"position": position, "assistant": ASSISTANT, "action": ACTION, "inputs": [], "stored_inputs": stored}
+    for index in range(routine.MAX_STEP_INPUTS):
         member = f"m{index:03d}" + WIDE * (routine.MAX_MEMBER_CHARS - 4)
         item = {"member": member, "source": "literal", "value": WIDE * routine.MAX_PREVIEW_CHARS}
-        if routine.encoded_bytes(steps) + routine.encoded_bytes(item) + 1 > size - 49:
+        if routine.encoded_bytes(step) + routine.encoded_bytes(item) + 1 > size - 49:
             break
-        steps[index % len(steps)]["inputs"].append(item)
-    room = size - routine.encoded_bytes(steps)
+        step["inputs"].append(item)
+    room = size - routine.encoded_bytes(step)
     count = -(-room // 292)
     sizes = [room // count + (1 if index < room % count else 0) for index in range(count)]
-    steps[-1]["inputs"].extend(_filler(index, item) for index, item in enumerate(sizes))
-    return steps
+    step["inputs"].extend(_filler(index, item) for index, item in enumerate(sizes))
+    return step
+
+
+def _largest_summary() -> dict[str, object]:
+    """A plan summary at every bound: sixteen runs of the longest identifiers, the largest counts and revision."""
+    runs = [[ASSISTANT[:-2] + f"{index:02d}", ACTION, 1 if index < 15 else 241] for index in range(16)]
+    return {
+        "revision": 2**31 - 1,
+        "plan_digest": "sha256:" + "f" * 64,
+        "steps": routine.MAX_ROUTINE_STEPS,
+        "actions": runs,
+        "more": 0,
+    }
 
 
 class RoutineListBoundTests(unittest.TestCase):
     """A Team's whole Routine list fits its allowance with every field at its producer bound (ADR-0086)."""
 
-    def test_the_projection_is_refused_one_byte_past_its_bound_or_with_a_lone_surrogate(self) -> None:
-        steps = _bounded_steps()
-        self.assertEqual(routine.encoded_bytes(steps), routine.MAX_STEPS_BYTES)
-        self.assertEqual(routine.canonical_steps(steps), steps)
+    def test_a_step_projection_is_refused_one_byte_past_its_bound_or_with_a_lone_surrogate(self) -> None:
+        step = _bounded_step(7)
+        self.assertEqual(routine.encoded_bytes(step), routine.MAX_STEP_VIEW_BYTES)
+        self.assertEqual(routine.canonical_step(step, 7), step)
         # One ASCII character becomes a two-byte one: the same characters, one byte more.
-        filler = steps[-1]["inputs"][-1]
+        filler = step["inputs"][-1]
         filler["value"] = "\u00e9" + filler["value"][1:]
-        self.assertEqual(routine.encoded_bytes(steps), routine.MAX_STEPS_BYTES + 1)
-        self.assertIsNone(routine.canonical_steps(steps))
-        lone = [{"id": "s", "assistant": "a", "action": "b", "inputs": [], "stored_inputs": []}]
-        lone[0]["inputs"].append({"member": "m\ud800", "source": "literal", "value": "1"})
-        self.assertIsNone(routine.canonical_steps(lone))
+        self.assertEqual(routine.encoded_bytes(step), routine.MAX_STEP_VIEW_BYTES + 1)
+        self.assertIsNone(routine.canonical_step(step, 7))
+        lone = {"position": 1, "assistant": "a", "action": "b", "inputs": [], "stored_inputs": []}
+        lone["inputs"].append({"member": "m\ud800", "source": "literal", "value": "1"})
+        self.assertIsNone(routine.canonical_step(lone, 1))
         # A literal's preview escapes a lone surrogate, so every projection Team makes stays encodable.
         self.assertEqual(routine.literal_preview("a\ud800"), '"a\\ud800"')
 
-    def test_a_created_notice_of_the_largest_projection_fits_one_batch_alone(self) -> None:
+    def test_a_page_of_the_largest_steps_fits_its_bound_and_the_api_cap(self) -> None:
+        steps = [_bounded_step(position) for position in range(1, 4)]
+        page = {
+            "routine_id": "0" * 32,
+            "revision": 2**31 - 1,
+            "plan_digest": "sha256:" + "f" * 64,
+            "total": routine.MAX_ROUTINE_STEPS,
+            "offset": 0,
+            "steps": steps,
+            "next": 3,
+        }
+        self.assertEqual(routine.canonical_page(page), page)
+        # Within the Local API's 128 KiB response cap, with its trace id.
+        self.assertLess(routine.encoded_bytes({**page, "trace_id": "f" * 32}), 128 * 1024)
+        self.assertIsNone(routine.canonical_page({**page, "steps": [*steps, _bounded_step(4)], "next": 4}))
+
+    def test_a_created_notice_of_the_largest_summary_fits_a_batch_many_times(self) -> None:
         notice = {
             "team_id": "t" * 40,
             "notice_id": "0" * 32,
@@ -130,13 +155,15 @@ class RoutineListBoundTests(unittest.TestCase):
             "created_at": "2026-10-05T09:00:00Z",
             "detail": {
                 "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
-                "steps": _bounded_steps(),
-                "output": {"mode": "changes", "step": f"s{routine.MAX_ROUTINE_STEPS - 1}"},
+                "plan": _largest_summary(),
+                "output": {"mode": "changes", "step": routine.MAX_ROUTINE_STEPS},
                 "schedule": {"kind": "weekly", "weekday": 6, "time": "23:59"},
                 "timezone": "/".join(["Z" * 32] * 3),
             },
         }
-        batch = {"notices": [notice], "more": False}
+        self.assertLessEqual(routine.encoded_bytes(_largest_summary()), routine.MAX_SUMMARY_BYTES)
+        notices = [{**notice, "notice_id": f"{index:032x}"} for index in range(20)]
+        batch = {"notices": notices, "more": False}
         self.assertEqual(routine.canonical_notice_batch(batch), batch)
 
     def test_a_list_at_every_bound_fits_its_allowance(self) -> None:
@@ -145,8 +172,8 @@ class RoutineListBoundTests(unittest.TestCase):
             "routine_id": "0" * 32,
             "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
             "quote": quote,
-            "steps": _bounded_steps(),
-            "output": {"mode": "changes", "step": f"s{routine.MAX_ROUTINE_STEPS - 1}"},
+            "plan": _largest_summary(),
+            "output": {"mode": "changes", "step": routine.MAX_ROUTINE_STEPS},
             "schedule": {
                 "kind": "continuous",
                 "gap": routine.MAX_CONTINUOUS_GAP_SECONDS,
@@ -175,6 +202,8 @@ class RoutineListBoundTests(unittest.TestCase):
             "created_at": "2026-10-05T09:00:00Z",
             "assistant_id": ASSISTANT,
             "action": ACTION,
+            "step": routine.MAX_ROUTINE_STEPS,
+            "steps": routine.MAX_ROUTINE_STEPS,
         }
         listed = {
             "team_id": "t" * 40,

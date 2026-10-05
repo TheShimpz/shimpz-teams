@@ -27,13 +27,16 @@ def _instant(epoch: int) -> str:
 
 
 def routine_view(value: record.Routine) -> dict[str, object]:
-    """A Routine as its Supervisor inspects it: what it is, when it runs, its plan's safe projection, and its output."""
+    """A Routine as its Supervisor inspects it: what it is, when it runs, its plan's summary, and its output.
+
+    Its steps are read page by page (``routine_steps``), bound to the summary's revision.
+    """
     return {
         "routine_id": value.routine_id,
         "name": value.name,
         "quote": value.quote,
-        "steps": routine_grant.steps(value.plan, value.grant),
-        "output": dict(value.plan["output"]),
+        "plan": routine_grant.summary(value.plan, value.revision),
+        "output": routine_grant.disposition(value.plan),
         "schedule": dict(value.schedule),
         "timezone": value.timezone,
         "assistant_ids": [assistant for assistant, _digest in value.assistants],
@@ -64,9 +67,29 @@ def incident_view(value: record.Incident) -> dict[str, object]:
         "routine_id": value.routine_id,
         "quote": value.quote,
         "created_at": _instant(value.created_at),
-        "assistant_id": value.assistant_id or None,
-        "action": value.action or None,
+        **routine_hold.step_detail(routine_hold.held_step(value)),
     }
+
+
+def routine_steps(self, team_id: str, routine_id: str, revision: int, offset: int) -> dict[str, object]:
+    """One page of a Routine's current plan from ``offset``, only for the revision the reader names.
+
+    A revision that is no longer current is refused, so a reader never combines two revisions' steps (ADR-0092
+    amendment, 2026-10-05, scale).
+    """
+    team_id = validate_team_id(team_id)
+    state = routine_state.load(self, team_id)
+    try:
+        value = record.routine(state, routine_id)
+    except record.RoutineStateError as exc:
+        raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found") from exc
+    if value.deleting:
+        raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found")
+    if value.revision != revision:
+        raise _problem(HTTPStatus.CONFLICT, "Routine revision changed", "routine-revision-changed")
+    if not 0 <= offset < len(value.plan["steps"]):
+        raise _problem(HTTPStatus.NOT_FOUND, "Routine steps are unavailable", "routine-steps-not-found")
+    return routine_grant.page(value.routine_id, value.revision, value.plan, value.grant, offset)
 
 
 def list_routines(self, team_id: str) -> dict[str, object]:
@@ -78,6 +101,15 @@ def list_routines(self, team_id: str) -> dict[str, object]:
         "runs": [run_view(item) for item in state.runs],
         "incidents": [incident_view(item) for item in state.incidents if item.status == "unresolved"],
     }
+
+
+def _snapshot(self, team_id: str, run_id: str) -> routine_incident.Recovery | None:
+    """An ended run's sealed recovery snapshot, or None when it has none or it cannot be read."""
+    try:
+        sealed = routine_state.call(lambda: self.routine_store.recovery(team_id, run_id))
+        return None if sealed is None else routine_incident.read_recovery(sealed, run_id)
+    except ApiProblem:
+        return None
 
 
 def _discard(self, team_id: str, run_id: str, generation: str, *, incident: bool, live: bool) -> None:
@@ -98,6 +130,9 @@ def _discard(self, team_id: str, run_id: str, generation: str, *, incident: bool
             ) from exc
     if live:
         return
+    if not incident:
+        # The run ended for good: its terminal record proves which steps never started, before its cursor goes.
+        routine_incident.seal_terminal(self, team_id, run_id, _snapshot(self, team_id, run_id))
     routine_state.call(lambda: self.routine_store.delete_continuation(team_id, run_id))
     # An incident keeps its own sealed copy of the recovery snapshot.
     routine_state.call(lambda: self.routine_store.delete_recovery(team_id, run_id))

@@ -136,7 +136,7 @@ class AutomaticTests(AutomaticCase):
                 self.assertEqual(record.routine(state, value.routine_id).paused, paused)
                 # The held run's one notice says it is held, or why recovery paused its Routine.
                 notice = state.notices[-1]
-                step = {"assistant_id": ASSISTANT, "action": "create-record"}
+                step = {"assistant_id": ASSISTANT, "action": "create-record", "step": 2, "steps": 2}
                 expected = ("held", step) if reason is None else ("paused", {**step, "reason": reason})
                 self.assertEqual((notice.notice_id, (notice.outcome, notice.detail)), (run_id, expected))
                 # Each call and its whole output cap are paid before the call; with no key, nothing is asked.
@@ -820,7 +820,7 @@ class ContinuationDeadlineTests(BalanceCase):
         self.assertEqual((self.status, state.incidents), ("recovered", ()))
         # Recorded complete from the sealed cursor, with its Actions, and its failure streak reset.
         self.assertEqual(state.notices[-1].outcome, "recovered")
-        self.assertEqual(state.notices[-1].detail["actions"][-1], ["shimpz-cloudflare", "create-record"])
+        self.assertEqual(state.notices[-1].detail["plan"]["actions"][-1][:2], ["shimpz-cloudflare", "create-record"])
         self.assertEqual((routine_value.failures, routine_value.paused), (0, False))
 
     def test_a_persons_stop_after_the_last_step_still_stops_the_run(self) -> None:
@@ -842,7 +842,9 @@ class ContinuationDeadlineTests(BalanceCase):
                     state, routine_value = self.cut_after_the_last_step(cause, exhaust)
                     # Not failed with no Actions: the sealed completion is recorded and the streak reset.
                     self.assertEqual((self.status, state.notices[-1].outcome), ("recovered", "recovered"))
-                    self.assertEqual(state.notices[-1].detail["actions"][-1], ["shimpz-cloudflare", "create-record"])
+                    self.assertEqual(
+                        state.notices[-1].detail["plan"]["actions"][-1][:2], ["shimpz-cloudflare", "create-record"]
+                    )
                     self.assertEqual((state.runs, routine_value.failures), ((), 0))
 
     def test_a_sealed_completion_never_touches_a_run_whose_lease_changed(self) -> None:

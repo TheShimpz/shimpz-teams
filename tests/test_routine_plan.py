@@ -103,13 +103,13 @@ class PlanAdmissionTests(unittest.TestCase):
         self.assertEqual(document["steps"][0]["input"]["title"]["value"], "Changed")
 
     def test_the_closed_shape_version_timezone_and_bounds_are_enforced(self) -> None:
-        nine = [{**_document()["steps"][0], "id": f"step{index}"} for index in range(9)]
+        too_many = [{**_document()["steps"][0], "id": f"step{index}"} for index in range(routine_plan.MAX_STEPS + 1)]
         cases = (
             ([], "plan-invalid"),
             ({**_document(), "extra": 1}, "plan-invalid"),
             (_document(version=1), "plan-invalid"),
             (_document(steps=[]), "plan-invalid"),
-            (_document(steps=nine), "plan-invalid"),
+            (_document(steps=too_many), "plan-invalid"),
             (_document(steps={}), "plan-invalid"),
             (_document(timezone="Mars/Olympus"), "plan-timezone-invalid"),
             (_document(timezone=None), "plan-timezone-invalid"),
@@ -520,3 +520,222 @@ class PlanResolutionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScaleTests(unittest.TestCase):
+    """One Action many times with its own inputs, plans of hundreds of steps (ADR-0092 amendment, 2026-10-05, scale)."""
+
+    @staticmethod
+    def _publish(step_id: str, **inputs: dict[str, object]) -> dict[str, object]:
+        return {"id": step_id, "assistant": "shimpz-blog", "action": "publish-post", "pin": PIN, "input": inputs}
+
+    def test_one_action_runs_many_times_each_with_its_own_required_and_optional_inputs(self) -> None:
+        steps = [
+            self._publish("first", title={"kind": "literal", "value": "One"}, count={"kind": "literal", "value": 1}),
+            self._publish("second", title={"kind": "literal", "value": "Two"}, note={"kind": "literal", "value": None}),
+            self._publish("third", title={"kind": "step_text", "step": "first", "pointer": "/id"}),
+        ]
+        document = {**_document(steps=steps), "output": {"mode": "show", "step": "third"}}
+        plan = routine_plan.admit(document, CONTRACTS)
+        self.assertEqual([step.action for step in plan.steps], ["publish-post"] * 3)
+        # An optional member is present only where the plan sets it; nothing fills one in.
+        members = [sorted(step.inputs) for step in plan.steps]
+        self.assertEqual(members, [["count", "title"], ["note", "title"], ["title"]])
+        self.assertEqual([plan.position(step.step_id) for step in plan.steps], [1, 2, 3])
+        # A required member is never defaulted: a step without it is refused.
+        missing = {**document, "steps": [*steps, self._publish("fourth", count={"kind": "literal", "value": 4})]}
+        with self.assertRaises(routine_plan.PlanError) as caught:
+            routine_plan.admit(missing, CONTRACTS)
+        self.assertEqual(caught.exception.code, "plan-input-mismatch")
+
+    def test_a_plan_of_the_most_steps_is_admitted_and_one_more_is_refused(self) -> None:
+        steps = [
+            self._publish(f"s{index}", title={"kind": "literal", "value": f"Post {index}"})
+            for index in range(routine_plan.MAX_STEPS)
+        ]
+        document = {**_document(steps=steps), "output": {"mode": "changes", "step": "s255"}}
+        plan = routine_plan.admit(document, CONTRACTS)
+        self.assertEqual((len(plan.steps), plan.position("s255"), plan.shown().step_id), (256, 256, "s255"))
+        self.assertTrue(routine_plan.well_formed(document))
+        over = {**document, "steps": [*steps, self._publish("s256", title={"kind": "literal", "value": "x"})]}
+        self.assertFalse(routine_plan.well_formed(over))
+
+    def test_a_resolved_input_over_its_bound_is_refused_before_any_dispatch(self) -> None:
+        step = self._publish("only", title={"kind": "step_output", "step": "earlier", "pointer": ""})
+        plan = routine_plan.admit(
+            {
+                **_document(steps=[self._publish("earlier", title={"kind": "literal", "value": "x"}), step]),
+                "output": {"mode": "none", "step": None},
+            },
+            {
+                ("shimpz-blog", "publish-post"): routine_plan.ActionContract(
+                    PIN, {"type": "object", "properties": {"title": {"type": "string"}}}
+                )
+            },
+        )
+        validated: list[object] = []
+        large = "x" * routine_plan.MAX_RESOLVED_INPUT_BYTES
+        with self.assertRaises(routine_plan.PlanError) as caught:
+            routine_plan.resolve(plan, plan.steps[1], {("earlier", ""): large}, 0, validated.append)
+        self.assertEqual((caught.exception.code, validated), ("plan-input-too-large", []))
+        fits = "x" * (routine_plan.MAX_RESOLVED_INPUT_BYTES - 64)
+        resolved = routine_plan.resolve(plan, plan.steps[1], {("earlier", ""): fits}, 0, validated.append)
+        self.assertEqual(resolved, {"title": fits})
+
+
+# The output schema of the step an input copies its value from: one member secret by name, one inside an object.
+SOURCE = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "token": {"type": "string"},
+        "meta": {"type": "object", "properties": {"api_key": {"type": "string"}, "label": {"type": "string"}}},
+    },
+}
+
+
+class InputPreviewTests(unittest.TestCase):
+    """What a run's step record shows of the inputs one attempt was given: redacted before any cut (scale)."""
+
+    def plan(self, inputs: dict[str, object], source: dict[str, object] = SOURCE, share=SHARE) -> routine_plan.Plan:
+        contracts = {
+            ("shimpz-blog", "publish-post"): routine_plan.ActionContract(PIN, PUBLISH, (), source),
+            ("shimpz-blog", "share-post"): routine_plan.ActionContract(OTHER_PIN, share),
+        }
+        steps = [
+            {
+                "id": "publish",
+                "assistant": "shimpz-blog",
+                "action": "publish-post",
+                "pin": PIN,
+                "input": {
+                    "title": {"kind": "literal", "value": "Weekly report"},
+                },
+            },
+            {"id": "share", "assistant": "shimpz-blog", "action": "share-post", "pin": OTHER_PIN, "input": inputs},
+        ]
+        return routine_plan.admit({**_document(steps=steps), "output": {"mode": "none", "step": None}}, contracts)
+
+    def preview(self, inputs, resolved, selected, protected=(), source=SOURCE, share=SHARE) -> list[dict[str, object]]:
+        plan = self.plan(inputs, source, share)
+        return routine_plan.input_preview(plan, plan.steps[1], resolved, selected, protected)
+
+    def test_a_value_copied_from_a_secret_source_position_is_withheld_whole(self) -> None:
+        for kind in ("step_output", "step_text"):
+            for pointer in ("/token", "/meta/api_key"):
+                inputs = {"post_id": {"kind": kind, "step": "publish", "pointer": pointer}}
+                with self.subTest(kind=kind, pointer=pointer):
+                    shown = self.preview(inputs, {"post_id": "s3cr3t"}, {("publish", pointer): "s3cr3t"})
+                    self.assertEqual(shown, [{"member": "post_id", "source": kind, "value": None}])
+
+    def test_a_secret_root_or_a_dependent_schema_on_the_way_withholds_the_copied_value(self) -> None:
+        note = {"type": "object", "properties": {"note": {"type": "string"}}}
+        sources = (
+            {**SOURCE, "writeOnly": True},
+            {
+                "type": "object",
+                "properties": {
+                    "meta": {**note, "dependentSchemas": {"flag": {"properties": {"note": {"writeOnly": True}}}}}
+                },
+            },
+            {"type": "object", "dependentSchemas": {"flag": {"properties": {"meta": {"format": "password"}}}}},
+        )
+        for kind in ("step_output", "step_text"):
+            for source in sources:
+                inputs = {"post_id": {"kind": kind, "step": "publish", "pointer": "/meta/note"}}
+                with self.subTest(kind=kind, source=source):
+                    selected = {("publish", "/meta/note"): "private"}
+                    shown = self.preview(inputs, {"post_id": "private"}, selected, source=source)
+                    self.assertEqual(shown, [{"member": "post_id", "source": kind, "value": None}])
+
+    def test_a_schema_secret_is_redacted_by_its_original_key_before_any_key_is_renamed(self) -> None:
+        meta = {
+            "type": "object",
+            "properties": {"entry": {"type": "string", "writeOnly": True}, "flag": {"type": "string"}},
+            "dependentSchemas": {"flag": {"properties": {"other": {"format": "password"}}}},
+        }
+        source = {"type": "object", "properties": {"meta": meta}}
+        value = {"entry": "private-ordinary-value", "flag": "on", "other": "second-private-value"}
+        inputs = {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/meta"}}
+        for protected in ((), ("entry",), ("other", "flag")):
+            with self.subTest(protected=protected):
+                shown = self.preview(inputs, {"post_id": value}, {("publish", "/meta"): value}, protected, source)
+                self.assertNotIn("private", shown[0]["value"])
+
+    def test_no_key_is_renamed_before_the_destination_schema_is_walked(self) -> None:
+        meta = {
+            "type": "object",
+            "properties": {"api_key": {"type": "string"}, "other": {"type": "string"}},
+            "dependentSchemas": {"api_key": {"properties": {"other": {"writeOnly": True}}}},
+        }
+        share = {**SHARE, "properties": {**SHARE["properties"], "meta": meta}}
+        value = {"api_key": "k-1", "other": "private-other-value"}
+        inputs = {
+            "meta": {"kind": "step_output", "step": "publish", "pointer": "/meta"},
+            "post_id": {"kind": "literal", "value": "p-1"},
+        }
+        for protected in ((), ("api_key",)):
+            with self.subTest(protected=protected):
+                selected = {("publish", "/meta"): value}
+                shown = self.preview(inputs, {"meta": value, "post_id": "p-1"}, selected, protected, share=share)
+                self.assertNotIn("private", shown[0]["value"])
+                self.assertNotIn("k-1", shown[0]["value"])
+
+    def test_a_key_holding_an_injected_value_is_renamed_without_colliding(self) -> None:
+        injected = 'quote"and\ncontrol'
+        value = {f"k {injected}": "v", "[redacted] 0": "kept", "plain": "ok"}
+        inputs = {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/id"}}
+        shown = self.preview(inputs, {"post_id": value}, {("publish", "/id"): value}, (injected,))
+        self.assertEqual(shown[0]["value"], '{"[redacted] 0":"kept","[redacted] 1":"v","plain":"ok"}')
+
+    def test_secret_positions_inside_a_copied_value_and_at_its_destination_are_redacted(self) -> None:
+        meta = {"api_key": "k-123", "label": "public"}
+        inputs = {
+            "post_id": {"kind": "step_text", "step": "publish", "pointer": "/meta"},
+            "tags": {"kind": "literal", "value": ["a"]},
+        }
+        shown = self.preview(inputs, {"post_id": "flattened text", "tags": ["a"]}, {("publish", "/meta"): meta})
+        # A step_text member shows the value it was rendered from, redacted, never the flattened text.
+        self.assertEqual(shown[0]["value"], '{"api_key":"[redacted]","label":"public"}')
+        self.assertEqual(shown[1], {"member": "tags", "source": "literal", "value": '["a"]'})
+        destination = {
+            "post_id": {"kind": "literal", "value": "p-1"},
+            "secret_note": {"kind": "step_output", "step": "publish", "pointer": "/id"},
+        }
+        shown = self.preview(destination, {"post_id": "p-1", "secret_note": "plain"}, {("publish", "/id"): "plain"})
+        self.assertEqual(shown[1], {"member": "secret_note", "source": "step_output", "value": '"[redacted]"'})
+
+    def test_credentials_and_injected_values_are_redacted_before_any_cut(self) -> None:
+        credential = "sk-" + "a" * 40
+        injected = 'quote"and\ncontrol'
+        value = {"label": f"see {injected} here", "nested": [credential], credential: "x", "ok": "fine"}
+        inputs = {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/id"}}
+        shown = self.preview(inputs, {"post_id": value}, {("publish", "/id"): value}, (injected,))
+        text = shown[0]["value"]
+        self.assertNotIn(credential[:12], text)
+        self.assertNotIn("quote", text)
+        self.assertIn('"ok":"fine"', text)
+        self.assertLessEqual(len(text), 120)
+
+    def test_an_unreadable_value_is_withheld_and_a_clock_shows_its_rendered_value(self) -> None:
+        inputs = {
+            "post_id": {"kind": "step_output", "step": "publish", "pointer": "/id"},
+            "at": {"kind": "run_clock", "format": "epoch_seconds"},
+        }
+        shown = self.preview(inputs, {"post_id": "x", "at": 7}, {})
+        self.assertEqual(
+            shown,
+            [
+                {"member": "at", "source": "run_clock", "value": "7"},
+                {"member": "post_id", "source": "step_output", "value": None},
+            ],
+        )
+
+    def test_a_value_nested_past_the_depth_bound_is_redacted_whole(self) -> None:
+        deep: object = "leaf"
+        for _depth in range(routine_plan.MAX_SAFE_OUTPUT_DEPTH + 2):
+            deep = [deep]
+        inputs = {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/id"}}
+        shown = self.preview(inputs, {"post_id": deep}, {("publish", "/id"): deep})
+        self.assertIn("[redacted]", shown[0]["value"])
+        self.assertNotIn("leaf", shown[0]["value"])

@@ -124,6 +124,10 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(change.to_dict(), _change())
         update = _change(op="update", routine_id="c" * 32, expected_revision=2)
         self.assertEqual(routine_change.parse(update).to_dict(), update)
+        # One Action as many times as the person asks, each step with its own inputs (ADR-0092, 2026-10-05, scale).
+        step = _change()["steps"][0]
+        many = _change(steps=[{**step, "id": f"s{index}"} for index in range(256)])
+        self.assertEqual(len(routine_change.parse(many).steps), 256)
 
     def test_anything_outside_the_closed_shape_is_refused(self) -> None:
         step = _change()["steps"][0]
@@ -142,7 +146,14 @@ class ParseTests(unittest.TestCase):
             _change(schedule={"kind": "daily"}),
             _change(timezone="../etc"),
             _change(steps=[]),
-            _change(steps=[step] * 9),
+            _change(steps=[{**step, "id": f"s{index}"} for index in range(257)]),
+            # Within the step count, but over the canonical byte bound of one change.
+            _change(
+                steps=[
+                    {**step, "id": f"s{index}", "input": {"title": {**literal, "value": "x" * 2100}}}
+                    for index in range(256)
+                ]
+            ),
             _change(steps=[{**step, "pin": PIN}]),
             _change(steps=[{**step, "id": "Bad"}]),
             _change(steps=[{**step, "assistant": "Blog"}]),
@@ -283,7 +294,7 @@ class CompileTests(unittest.TestCase):
                 _compile(value)
             self.assertEqual(caught.exception.code, code)
 
-    def test_every_scalar_needs_exactly_one_typed_origin_or_the_whole_default(self) -> None:
+    def test_every_scalar_needs_exactly_one_typed_origin_and_never_a_default(self) -> None:
         message = "Daily, publish Report in en with 0.5 ratio, 7 tags, true"
         shown = {"mode": "show", "step": "publish", "instruction": "publish"}
         base = _change(request="Daily, publish", steps=[_change()["steps"][0]], output=shown)
@@ -291,8 +302,6 @@ class CompileTests(unittest.TestCase):
         accepted = (
             ("ratio", 0.5, [_message("0.5")]),
             ("count", 7, [_message("7")]),
-            ("count", 3, [{"at": "", "from": "default", "text": None, "region": None, "instruction": None}]),
-            ("draft", False, [{"at": "", "from": "default", "text": None, "region": None, "instruction": None}]),
             ("meta", {"lang": "en"}, [{**_message("en"), "at": "/lang"}]),
             ("tags", ["Report", "en"], [{**_message("Report"), "at": "/0"}, {**_message("en"), "at": "/1"}]),
         )
@@ -304,22 +313,12 @@ class CompileTests(unittest.TestCase):
         refused = (
             ("count", 7, [_message("7.0")]),
             ("ratio", 0.5, [_message(".5")]),
-            ("count", 4, [{"at": "", "from": "default", "text": None, "region": None, "instruction": None}]),
-            ("title", "Report", [{"at": "", "from": "default", "text": None, "region": None, "instruction": None}]),
             ("draft", True, [_message("true")]),
             ("meta", {"lang": "en"}, [_message("en")]),
             ("meta", {}, [_message("en")]),
             ("tags", ["Report", "en"], [{**_message("Report"), "at": "/0"}]),
             ("tags", ["Report"], [{**_message("Report"), "at": "/0"}, {**_message("Report"), "at": "/0"}]),
             ("tags", ["Report"], [{**_message("Report"), "at": "/3"}]),
-            (
-                "count",
-                3,
-                [
-                    {"at": "", "from": "default", "text": None, "region": None, "instruction": None},
-                    _message("7"),
-                ],
-            ),
             ("title", None, [_message("Report")]),
             ("title", "Report", [{**_message("Report"), "at": "/0"}]),
         )
@@ -330,6 +329,15 @@ class CompileTests(unittest.TestCase):
                 with self.assertRaises(routine_change.ChangeError) as caught:
                     _compile(changed, message)
                 self.assertEqual(caught.exception.code, "routine-literal-unproven")
+        # A schema default never fills a member, even one equal to its declared default: the person's words must
+        # (ADR-0092 amendment, 2026-10-05, scale).
+        default = {"at": "", "from": "default", "text": None, "region": None, "instruction": None}
+        for name, value in (("count", 3), ("draft", False), ("title", "Report")):
+            changed = copy.deepcopy(base)
+            _literal(changed, name, value, [default])
+            with self.subTest(default=name), self.assertRaises(routine_change.ChangeError) as caught:
+                _compile(changed, message)
+            self.assertEqual(caught.exception.code, "routine-change-invalid")
 
     def test_an_update_keeps_exactly_the_current_revisions_sources(self) -> None:
         first = _compile(_change())
@@ -529,6 +537,8 @@ class QuestionTests(unittest.TestCase):
             (valid, 3),
             (_question(COUNT, [5, 5]), 2),
             (_question(COUNT, [float("nan"), 1]), 2),
+            # Its options together within the bound Brain holds a whole Routine outcome to (scale).
+            (_question(COUNT, ["x" * 400_000, "y" * 400_000]), 2),
             # Every option carries its own reply: one well-formed line each, never one shared or one missing.
             ({**valid, "question": {**valid["question"], "replies": ["Done.", " padded"]}}, 2),
             ({**valid, "question": {**valid["question"], "replies": ["line break", "Done."]}}, 2),

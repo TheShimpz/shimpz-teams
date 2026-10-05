@@ -1,23 +1,24 @@
 """A Routine change the Brain compiled from the user's own message, and Team's authoritative check of it (ADR-0092).
 
 The Brain proposes one closed change: ``create``, or ``update`` of a listed Routine at the revision it saw, with a short
-name, the user's own words that state the standing request, a schedule, an optional timezone, and at most eight ordered
-steps. Each step names one exact Assistant Action and gives every input member one source: a literal with its
-provenance, a run-clock token, an earlier step's output selected by an RFC 6901 pointer with the user's own words that
-relate the two (``step_output``, or ``step_text`` for its plain text), or, in an update, the member's source kept
-exactly as the current revision has it. The change also says what a completed run does with its result (``output``,
-ADR-0092 amendment, 2026-10-05): show one step's result, show it only when it changed, hand it on, or show none, with
-the user's own said words that chose it; an update may keep the current one.
+name, the user's own words that state the standing request, a schedule, an optional timezone, and at most 256 ordered
+steps, one Action as often as the user asks. Each step names one exact Assistant Action and gives every input member one
+source: a literal with its provenance, a run-clock token, an earlier step's output selected by an RFC 6901 pointer with
+the user's own words that relate the two (``step_output``, or ``step_text`` for its plain text), or, in an update, the
+member's source kept exactly as the current revision has it. The change also says what a completed run does with its
+result (``output``, ADR-0092 amendment, 2026-10-05): show one step's result, show it only when it changed, hand it on,
+or show none, with the user's own said words that chose it; an update may keep the current one.
 
 Team recomputes everything against the Routine's words, the person's own kinded parts each parsed on its own
 (``Words``); the standing request must stand in a said part's own words. ``continues`` says whether the change continues
 the person's Routine draft, whose parts then belong to its words (ADR-0092 amendment, 2026-10-05). The user's own words
 are the text outside quoted, fenced, and block-quoted regions. Every scalar of a literal must equal text cited from
-those words, or from one quoted region that unquoted words adopt, or the whole literal must equal its destination's
-declared schema default; only the one field a Routine question leaves open is instead filled from the option the user
-selects (``Question``). Mechanical provenance proves where a value came from, never that the user meant it; the compiled
-plan is then admitted against the exact current Action contracts, which derive every pin, so no field of the change can
-assert approval or elevate authority.
+those words, or from one quoted region that unquoted words adopt; only the one field a Routine question leaves open is
+instead filled from the option the user selects (``Question``). A schema default never fills a member: a required member
+the user left open is asked, and an optional one stays absent (ADR-0092 amendment, 2026-10-05, scale). Mechanical
+provenance proves where a value came from, never that the user meant it; the compiled plan is then admitted against the
+exact current Action contracts, which derive every pin, so no field of the change can assert approval or elevate
+authority.
 """
 
 from __future__ import annotations
@@ -36,7 +37,10 @@ from routine import plan as routine_plan
 from routine import request as routine_request
 from routine import schedule as routine_schedule
 
-MAX_CHANGE_BYTES = 96 * 1024
+# One compiled change, canonical; a question's filled candidates together stay within MAX_QUESTION_BYTES, the bound
+# Brain also holds its whole Routine outcome to (ADR-0092 amendment, 2026-10-05, scale).
+MAX_CHANGE_BYTES = 512 * 1024
+MAX_QUESTION_BYTES = 768 * 1024
 MAX_ORIGINS = 64
 _ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _NUMBER_RE = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\Z")
@@ -150,7 +154,6 @@ def _origin(value: object) -> bool:
     shapes = {
         "message": _text(text) and region is None and instruction is None,
         "quote": _text(text) and type(region) is int and region >= 0 and _text(instruction),
-        "default": value["at"] == "" and text is None and region is None and instruction is None,
         "answer": value == ANSWER,
     }
     return routine_plan.pointer_tokens(value["at"]) is not None and shapes.get(kind, False)
@@ -368,10 +371,8 @@ def _cited(origin: Mapping[str, object], target: object, words: Words) -> bool:
     return type(parsed) is type(target) and parsed == target
 
 
-def _literal(
-    source: Mapping[str, object], member: Mapping[str, object], words: Words, *, selected: bool = False
-) -> dict[str, object]:
-    """A literal whose every scalar has exactly one origin, or whose whole value is its destination's default.
+def _literal(source: Mapping[str, object], words: Words, *, selected: bool = False) -> dict[str, object]:
+    """A literal whose every scalar has exactly one origin in the user's words; never a schema default.
 
     Only the member a bound Routine question leaves open, ``selected``, holds the value of the option the user picks.
     """
@@ -383,14 +384,6 @@ def _literal(
     leaves = list(_leaves(value))
     covered: list[str] = []
     for origin in source["origins"]:
-        if origin["from"] == "default":
-            default_valid = "default" in member and routine_plan.canonical(member["default"]) == (
-                routine_plan.canonical(value)
-            )
-            if not default_valid:
-                raise ChangeError("routine-literal-unproven")
-            covered.extend(leaves)
-            continue
         try:
             target = routine_plan.select(value, origin["at"])
         except routine_plan.PlanError as exc:
@@ -411,7 +404,6 @@ def _pending(proof: dict[str, object]) -> dict[str, object]:
 def _plan_source(
     name: str,
     source: Mapping[str, object],
-    schema: Mapping[str, object],
     kept: tuple[Mapping[str, object], Mapping[str, object]] | None,
     words: Words,
     selected: bool,
@@ -425,9 +417,7 @@ def _plan_source(
     if selected and kind != "literal":
         raise ChangeError("routine-change-invalid")
     if kind == "literal":
-        properties = schema.get("properties", {})
-        member = properties.get(name) if isinstance(properties, dict) else None
-        literal = _literal(source, member if isinstance(member, dict) else {}, words, selected=selected)
+        literal = _literal(source, words, selected=selected)
         return literal, _pending({"origins": [_cited_span(origin, words) for origin in source["origins"]]})
     if kind == "run_clock":
         return {"kind": "run_clock", "format": source["format"]}, _pending({})
@@ -533,7 +523,7 @@ def compile_change(
         same = before is not None and (before["assistant"], before["action"]) == (raw["assistant"], raw["action"])
         kept = (before["input"], current[1].get(raw["id"], {})) if same else None
         admitted = {
-            name: _plan_source(name, source, contract.input_schema, kept, words, selected == (raw["id"], name))
+            name: _plan_source(name, source, kept, words, selected == (raw["id"], name))
             for name, source in raw["input"].items()
         }
         identity = {"id": raw["id"], "assistant": raw["assistant"], "action": raw["action"]}
@@ -612,6 +602,13 @@ def parse_question(value: object, options: int) -> Question:
     question = value["question"]
     if not isinstance(question, dict) or set(question) != _QUESTION_FIELDS:
         raise ChangeError("routine-question-invalid")
+    try:
+        whole = len(json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8"))
+    except (TypeError, ValueError) as exc:
+        raise ChangeError("routine-question-invalid") from exc
+    if whole > MAX_QUESTION_BYTES:
+        # Its every option is one whole change: together they stay within the bound Brain holds its outcome to.
+        raise ChangeError("routine-question-invalid")
     field, values, replies = _field(question["field"]), question["values"], question["replies"]
     if (
         field is None
@@ -622,11 +619,8 @@ def parse_question(value: object, options: int) -> Question:
         or not all(map(_reply, replies))
     ):
         raise ChangeError("routine-question-invalid")
-    try:
-        distinct = len({routine_plan.canonical(item) for item in values}) == len(values)
-    except (TypeError, ValueError) as exc:
-        raise ChangeError("routine-question-invalid") from exc
-    if not distinct:
+    # The whole question already encoded as JSON, so every value has its canonical form.
+    if len({routine_plan.canonical(item) for item in values}) != len(values):
         raise ChangeError("routine-question-invalid")
     candidate = {key: value[key] for key in _FIELDS}
     try:

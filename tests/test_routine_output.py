@@ -20,6 +20,7 @@ from test_routine_plan import CONTRACTS, _document
 from protocol.http.v1 import routine as http_routine
 from routine import change as routine_change
 from routine import cursor as routine_cursor
+from routine import grant as routine_grant
 from routine import plan as routine_plan
 from routine import record
 from routine import request as routine_request
@@ -85,18 +86,22 @@ class DispositionTests(unittest.TestCase):
             routine_plan.admit(missing, CONTRACTS)
 
     def test_the_protocol_admits_exactly_a_disposition_of_the_projected_steps(self) -> None:
-        steps = [{"id": "zones"}, {"id": "records"}]
+        # On the wire the shown step is its position among the plan's ``steps`` (ADR-0092, 2026-10-05, scale).
+        steps = 2
         self.assertEqual(
-            http_routine.canonical_disposition({"mode": "show", "step": "records"}, steps),
-            {"mode": "show", "step": "records"},
+            http_routine.canonical_disposition({"mode": "show", "step": 2}, steps), {"mode": "show", "step": 2}
         )
         self.assertEqual(
             http_routine.canonical_disposition({"mode": "none", "step": None}, steps), {"mode": "none", "step": None}
         )
         for value, projected in (
-            ({"mode": "show", "step": "other"}, steps),
-            ({"mode": "show", "step": "zones"}, "steps"),
-            ({"mode": "chain", "step": "zones"}, steps),
+            ({"mode": "show", "step": 3}, steps),
+            ({"mode": "show", "step": 0}, steps),
+            ({"mode": "show", "step": "records"}, steps),
+            ({"mode": "show", "step": True}, steps),
+            ({"mode": "show", "step": 1}, "steps"),
+            ({"mode": "show", "step": 1}, 0),
+            ({"mode": "chain", "step": 1}, steps),
             ({"mode": "show"}, steps),
             ([], steps),
         ):
@@ -107,7 +112,7 @@ class DispositionTests(unittest.TestCase):
 class ProjectionTests(unittest.TestCase):
     def test_a_result_is_shown_complete_in_sorted_order_when_it_fits(self) -> None:
         safe = routine_plan.output_safe(ZONES, {})
-        shown = routine_plan.output_shown("zones", safe)
+        shown = routine_plan.output_shown(1, safe)
         first = {
             "kind": "fields",
             "fields": [
@@ -178,7 +183,7 @@ class ProjectionTests(unittest.TestCase):
         # The safe form keeps every key and text exactly; only the shown form escapes and shortens them.
         self.assertEqual([key for key, _value in safe["fields"]], sorted(result))
         self.assertIn(["\u202e", _text("a\u0000b")], safe["fields"])
-        shown = routine_plan.output_shown("zones", safe)
+        shown = routine_plan.output_shown(1, safe)
         labels = [key for key, _value in shown["value"]["fields"]]
         self.assertEqual(len(labels), len(set(labels)))
         self.assertIn('""', labels)
@@ -189,8 +194,8 @@ class ProjectionTests(unittest.TestCase):
         # A shortened key is a cut, so the output says it is truncated.
         self.assertTrue(shown["truncated"])
         self.assertEqual(http_routine.canonical_output(shown), shown)
-        self.assertFalse(routine_plan.output_shown("zones", routine_plan.output_safe({"k": 1}, {}))["truncated"])
-        many = routine_plan.output_shown("zones", routine_plan.output_safe({"same": 0, "same (2)": 1}, {}))
+        self.assertFalse(routine_plan.output_shown(1, routine_plan.output_safe({"k": 1}, {}))["truncated"])
+        many = routine_plan.output_shown(1, routine_plan.output_safe({"same": 0, "same (2)": 1}, {}))
         self.assertEqual([label for label, _value in many["value"]["fields"]], ["same", "same (2)"])
         # Two keys whose labels read alike at the full label length are numbered apart, which cuts one: truncated.
         alike = routine_plan.output_shown(
@@ -222,19 +227,19 @@ class ProjectionTests(unittest.TestCase):
         self.assertIsNone(routine_plan.output_compared({"kind": "number", "value": float("inf")}))
 
     def test_a_number_is_shown_as_its_exact_text(self) -> None:
-        shown = routine_plan.output_shown("zones", routine_plan.output_safe([0.0001, 1.23456, 10**30, 10**400], {}))
+        shown = routine_plan.output_shown(1, routine_plan.output_safe([0.0001, 1.23456, 10**30, 10**400], {}))
         items = shown["value"]["items"]
         self.assertEqual(items[:3], [_shown_number("0.0001"), _shown_number("1.23456"), _shown_number(str(10**30))])
         # A number too long for a number node is shown as its exact text, cut like any text.
         self.assertEqual(items[3], _text(str(10**400)[:299] + "…", cut=True))
         self.assertTrue(shown["truncated"])
         self.assertEqual(http_routine.canonical_output(shown), shown)
-        sixty_five = routine_plan.output_shown("zones", routine_plan.output_safe(10**64, {}))
+        sixty_five = routine_plan.output_shown(1, routine_plan.output_safe(10**64, {}))
         self.assertEqual(sixty_five["value"], _text(str(10**64)))
 
     def test_a_large_result_is_cut_down_a_fixed_ladder_until_it_fits(self) -> None:
         rows = [{"name": f"zone-{index}.example", "note": "é" * 400} for index in range(400)]
-        shown = routine_plan.output_shown("zones", routine_plan.output_safe({"zones": rows}, {}))
+        shown = routine_plan.output_shown(1, routine_plan.output_safe({"zones": rows}, {}))
         self.assertTrue(shown["truncated"])
         self.assertLessEqual(http_routine.encoded_bytes(shown), http_routine.MAX_OUTPUT_BYTES)
         self.assertEqual(http_routine.canonical_output(shown), shown)
@@ -242,17 +247,17 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(zones["omitted"], 400 - len(zones["items"]))
         self.assertTrue(zones["items"][0]["fields"][1][1]["cut"])
         # Containers past the depth bound are elided; a value nothing can shrink enough is elided whole.
-        deep = routine_plan.output_shown("zones", routine_plan.output_safe({"a": {"b": {"c": {"d": {"e": 1}}}}}, {}))
+        deep = routine_plan.output_shown(1, routine_plan.output_safe({"a": {"b": {"c": {"d": {"e": 1}}}}}, {}))
         self.assertEqual(json.dumps(deep).count('"elided"'), 1)
         self.assertTrue(deep["truncated"])
         huge = {"kind": "text", "value": "é" * 20_000, "cut": False}
-        cut = routine_plan.output_shown("zones", huge)
+        cut = routine_plan.output_shown(1, huge)
         self.assertLessEqual(len(cut["value"]["value"]), http_routine.MAX_OUTPUT_TEXT_CHARS)
         wide = {"kind": "fields", "fields": [[f"{index:02d}" + "é" * 60, huge] for index in range(24)], "omitted": 0}
         with mock.patch.object(routine_plan, "OUTPUT_LEVELS", ((24, 24, 300),)):
             self.assertEqual(
-                routine_plan.output_shown("zones", wide),
-                {"step": "zones", "state": "shown", "value": {"kind": "elided"}, "truncated": True},
+                routine_plan.output_shown(1, wide),
+                {"step": 1, "state": "shown", "value": {"kind": "elided"}, "truncated": True},
             )
         self.assertEqual(routine_plan.output_safe([[[[[[1]]]]]], {})["kind"], "list")
         with mock.patch.object(routine_plan, "MAX_SAFE_OUTPUT_DEPTH", 1):
@@ -263,8 +268,8 @@ class ProjectionTests(unittest.TestCase):
             with self.subTest(result=result), self.assertRaises(routine_plan.OutputError):
                 routine_plan.output_safe(result, {})
         self.assertEqual(
-            routine_plan.output_state("zones", "unavailable"),
-            {"step": "zones", "state": "unavailable", "value": None, "truncated": False},
+            routine_plan.output_state(1, "unavailable"),
+            {"step": 1, "state": "unavailable", "value": None, "truncated": False},
         )
         small = routine_plan.output_safe(ZONES, {})
         self.assertEqual(routine_plan.output_compared(small), routine_plan.canonical(small))
@@ -272,10 +277,10 @@ class ProjectionTests(unittest.TestCase):
             self.assertIsNone(routine_plan.output_compared(small))
 
     def test_the_protocol_admits_exactly_closed_output_nodes(self) -> None:
-        shown = routine_plan.output_shown("zones", routine_plan.output_safe(ZONES, {}))
+        shown = routine_plan.output_shown(1, routine_plan.output_safe(ZONES, {}))
         self.assertEqual(http_routine.canonical_output(shown), shown)
         for state in ("unchanged", "unavailable"):
-            value = routine_plan.output_state("zones", state)
+            value = routine_plan.output_state(1, state)
             self.assertEqual(http_routine.canonical_output(value), value)
         nested = {"kind": "list", "items": [], "omitted": 0}
         for _depth in range(http_routine.MAX_OUTPUT_DEPTH):
@@ -287,7 +292,7 @@ class ProjectionTests(unittest.TestCase):
             {**shown, "truncated": 0},
             {**shown, "value": None},
             {**shown, "state": "unchanged"},
-            {**routine_plan.output_state("zones", "unchanged"), "truncated": True},
+            {**routine_plan.output_state(1, "unchanged"), "truncated": True},
             {**shown, "value": {"kind": "text", "value": "a\u202eb", "cut": False}},
             {**shown, "value": {"kind": "text", "value": "x" * 301, "cut": False}},
             {**shown, "value": {"kind": "text", "value": "x"}},
@@ -366,7 +371,8 @@ class CursorSlotTests(unittest.TestCase):
         )
         self.result = {"id": "post-1", "meta": {"a/b": [["news"]]}}
         node = routine_plan.output_safe(self.result, {})
-        self.slot = {"step": "publish", "output": routine_plan.output_shown("publish", node), "digest": "e" * 64}
+        # The slot keeps its step's id; its output names the step by position, as the wire does.
+        self.slot = {"step": "publish", "output": routine_plan.output_shown(1, node), "digest": "e" * 64}
 
     def test_only_the_shown_step_keeps_its_slot_and_it_outlives_later_steps(self) -> None:
         advanced = routine_cursor.complete(self.cursor, self.plan, self.result, self.slot)
@@ -392,14 +398,15 @@ class CursorSlotTests(unittest.TestCase):
             )
 
     def test_a_slot_outside_its_closed_shape_is_refused(self) -> None:
-        unavailable = {"step": "publish", "output": routine_plan.output_state("publish", "unavailable"), "digest": None}
+        unavailable = {"step": "publish", "output": routine_plan.output_state(1, "unavailable"), "digest": None}
         self.assertEqual(routine_cursor.complete(self.cursor, self.plan, self.result, unavailable).shown, unavailable)
         for slot in (
             {**self.slot, "extra": 1},
             {**self.slot, "digest": "E" * 64},
             {**self.slot, "output": {"step": "publish"}},
-            {**self.slot, "output": routine_plan.output_state("other", "unavailable")},
-            {**self.slot, "output": routine_plan.output_state("publish", "unchanged")},
+            {**self.slot, "output": routine_plan.output_state(2, "unavailable")},
+            {**self.slot, "output": routine_plan.output_state(1, "unchanged")},
+            {**self.slot, "step": 1},
             {**unavailable, "digest": "e" * 64},
             [],
         ):
@@ -423,20 +430,26 @@ def _completed(mode: str, *, notice_version: int = 0, digest: str = "", shown: d
     return record.finish(state, claim.run.run_id, lease, base.NINE + 5, "done", {}, shown)
 
 
+def _summary(state: record.TeamRoutines) -> dict[str, object]:
+    """The compact plan summary a completed run's notice carries for its only Routine."""
+    (value,) = state.routines
+    return routine_grant.summary(value.plan, value.revision)
+
+
 class CompletionTests(unittest.TestCase):
     def setUp(self) -> None:
         node = routine_plan.output_safe(ZONES, {})
-        self.output = routine_plan.output_shown("check", node)
+        self.output = routine_plan.output_shown(1, node)
         self.shown = {"step": "check", "output": self.output, "digest": "a" * 64}
 
     def test_show_publishes_the_result_every_run_and_unavailable_when_it_was_not_kept(self) -> None:
         state = _completed("show", shown=self.shown)
         (notice,) = state.notices
-        self.assertEqual(notice.detail, {"actions": [["dns", "check"]], "output": self.output})
+        self.assertEqual(notice.detail, {"plan": _summary(state), "output": self.output})
         self.assertEqual(state.routines[0].failures, 0)
         self.assertEqual(state.routines[0].output_digest, "")
         (missing,) = _completed("show").notices
-        self.assertEqual(missing.detail["output"], routine_plan.output_state("check", "unavailable"))
+        self.assertEqual(missing.detail["output"], routine_plan.output_state(1, "unavailable"))
         wrong = {**self.shown, "step": "other"}
         self.assertEqual(_completed("show", shown=wrong).notices[0].detail["output"]["state"], "unavailable")
 
@@ -448,7 +461,7 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual((quiet.notices, quiet.routines[0].failures, quiet.runs), ((), 0, ()))
         # A run with a notice of its own gets its terminal version, saying unchanged instead of repeating the result.
         answered = _completed("changes", notice_version=1, digest="a" * 64, shown=self.shown)
-        self.assertEqual(answered.notices[0].detail["output"], routine_plan.output_state("check", "unchanged"))
+        self.assertEqual(answered.notices[0].detail["output"], routine_plan.output_state(1, "unchanged"))
         # A result too large to compare is always shown, and leaves no baseline a later result could match.
         incomparable = _completed("changes", digest="a" * 64, shown={**self.shown, "digest": None})
         self.assertEqual(incomparable.notices[0].detail["output"], self.output)
@@ -462,9 +475,10 @@ class CompletionTests(unittest.TestCase):
         quiet = _completed("none")
         self.assertEqual((quiet.notices, quiet.routines[0].failures), ((), 0))
         answered = _completed("none", notice_version=1)
-        self.assertEqual(answered.notices[0].detail, {"actions": [["dns", "check"]], "output": None})
+        self.assertEqual(answered.notices[0].detail, {"plan": _summary(answered), "output": None})
         chained = _completed("chain")
-        self.assertEqual(chained.notices[0].detail, {"actions": [["dns", "check"], ["dns", "notify"]], "output": None})
+        self.assertEqual(chained.notices[0].detail, {"plan": _summary(chained), "output": None})
+        self.assertEqual(chained.notices[0].detail["plan"]["actions"], [["dns", "check", 1], ["dns", "notify", 1]])
 
     def test_the_watchdog_completes_a_run_through_the_same_disposition(self) -> None:
         value = dataclasses.replace(base.routine(), output_digest="")

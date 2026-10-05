@@ -34,7 +34,11 @@ def run_once(state: record.TeamRoutines, start: int, end: int, outcome: str = "d
     state = base.at(state, ROUTINE_ID, start)
     state, claim = record.claim(state, start, base.KEY)
     lease = record.lease_of(claim.lease_token, base.KEY)
-    detail = routine_fixture.DONE if outcome == "done" else {"code": "assistant-rpc-failed", "actions": []}
+    detail = (
+        routine_fixture.DONE
+        if outcome == "done"
+        else {"code": "assistant-rpc-failed", "actions": [], "step": None, "steps": None}
+    )
     return record.finish(state, claim.run.run_id, lease, end, outcome, detail)
 
 

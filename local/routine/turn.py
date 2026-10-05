@@ -34,14 +34,29 @@ from routine.request import Request as RoutineRequest
 DEFAULT_TIMEZONE = "UTC"
 
 
-def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
-    """The Team's Routines as data for the Brain: enough to name one and to keep its steps; never an input value."""
+def _state(self, team_id: str) -> record.TeamRoutines:
     try:
-        state = self.routine_store.load(team_id)
+        return self.routine_store.load(team_id)
     except routine_store.RoutineStoreError as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE, "Team Routine state is unavailable", code="routine-state-unavailable"
         ) from exc
+
+
+def routine_capacity(self, team_id: str) -> int:
+    """The daily business steps the Team leaves a new Routine, after every Routine's allocation, paused ones included.
+
+    A deleting Routine keeps its share until it is gone. An update has its target's own allocation back.
+    """
+    return routine_grant.capacity(_state(self, team_id).routines)
+
+
+def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
+    """The Team's Routines as data for the Brain: enough to name one and to keep its steps; never an input value.
+
+    Each names the daily business steps its cap allocates, which an update of it has back.
+    """
+    state = _state(self, team_id)
     return tuple(
         {
             "routine_id": item.routine_id,
@@ -50,6 +65,7 @@ def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
             "schedule": dict(item.schedule),
             "timezone": item.timezone,
             "revision": item.revision,
+            "daily_steps": routine_grant.daily_steps(item),
             "steps": [
                 {
                     "id": step["id"],

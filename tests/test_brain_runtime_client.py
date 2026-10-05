@@ -222,6 +222,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                     "id": "upload",
                     "summary": "Upload.",
                     "input_schema": {"type": "object"},
+                    "output_schema": {},
                     "authorization": True,
                     "input_files": ["document"],
                 },
@@ -231,6 +232,23 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         )
         client.start(base, "Hello", conversation=())
         self.assertEqual(json.loads(connection.requests[0][2])["attachments"], [])
+
+    def test_the_routine_compiler_gets_output_schemas_and_the_teams_daily_capacity(self):
+        """Only the compiler reads them (ADR-0092, 2026-10-05, scale); a changed output schema is a new contract."""
+        base = context(self.secret)
+        output = {"type": "object", "properties": {"id": {"type": "string"}}}
+        action = brain_runtime_client.RuntimeAction("publish", "Publish.", {"type": "object"}, output_schema=output)
+        assistant = dataclasses.replace(base.assistants[0], actions=(action,))
+        client, connection = self.client(
+            _Response({"status": "completed", "clarification": None, "reply": "Done.", "actions": []})
+        )
+        client.start(dataclasses.replace(base, assistants=(assistant,), routine_capacity=123), "Hi", conversation=())
+        payload = json.loads(connection.requests[0][2])
+        self.assertEqual(
+            (payload["routine_capacity"], payload["assistants"][0]["actions"][0]["output_schema"]), (123, output)
+        )
+        bare = dataclasses.replace(assistant, actions=(dataclasses.replace(action, output_schema={}),))
+        self.assertNotEqual(brain_runtime_client.contract_digest(assistant), brain_runtime_client.contract_digest(bare))
 
     def test_an_invalid_conversation_is_refused_before_any_request(self):
         oversized = tuple(

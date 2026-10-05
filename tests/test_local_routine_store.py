@@ -13,6 +13,7 @@ from unittest import mock
 
 import routine_fixture
 
+from local.chat import continuation as local_chat_continuation
 from local.routine import store as routine_store
 from routine import hold as routine_hold
 from routine import record
@@ -53,7 +54,7 @@ def busy_state() -> record.TeamRoutines:
     state, first = record.claim(state, now, KEY)
     lease = record.lease_of(first.lease_token, KEY)
     state = record.bind_generation(state, first.run.run_id, lease, now, NETWORK)
-    state = record.freeze(state, first.run.run_id, lease, now, "human", "dns", "replace-dns-record")
+    state = record.freeze(state, first.run.run_id, lease, now, ("human", "dns", "check", 1))
     state, second = record.claim(state, now, KEY)
     lease = record.lease_of(second.lease_token, KEY)
     state = record.bind_generation(state, second.run.run_id, lease, now, NETWORK)
@@ -101,10 +102,10 @@ class RoundTripTests(StoreCase):
                 record.Notice(
                     f"{index:032x}",
                     "a" * 32,
-                    "",
-                    "created",
+                    f"{index:032x}",
+                    "done",
                     NINE,
-                    routine_fixture.large_definition(),
+                    routine_fixture.large_completion(),
                     1,
                     "\U0001f600" * 500,
                 )
@@ -118,6 +119,55 @@ class RoundTripTests(StoreCase):
             self.assertRaisesRegex(routine_store.RoutineStoreError, "byte limit"),
         ):
             put(self.store, "team_2", worst)
+
+    def test_the_largest_state_a_team_can_admit_fits_its_derived_bound(self):
+        """Every definition at the Team's budget, every notice, start, receipt, and incident at its own (scale)."""
+
+        def large(routine_id: str, inputs: int) -> record.Routine:
+            plan = routine_fixture.plan_document(timezone="America/Sao_Paulo")
+            plan["steps"] = [
+                {
+                    **plan["steps"][0],
+                    "id": f"s{index}",
+                    "input": {f"m{member}": {"kind": "literal", "value": "\u00e9" * 8} for member in range(inputs)},
+                }
+                for index in range(routine_store.routine_plan.MAX_STEPS)
+            ]
+            plan["output"] = {"mode": "none", "step": None}
+            value = dataclasses.replace(
+                routine(routine_id), plan=plan, name="\U0001f600" * 80, quote="\U0001f600" * 500
+            )
+            return routine_fixture.granted(value)
+
+        state = record.TeamRoutines()
+        for index, inputs in enumerate((6, 6)):
+            state = record.add_routine(state, large(f"{index:032x}", inputs))
+        for index in range(2, record.MAX_ROUTINES):
+            state = record.add_routine(state, routine(f"{index:032x}"))
+        definitions = sum(routine_store.routine_grant.definition_bytes(item) for item in state.routines)
+        self.assertGreater(definitions, routine_store.routine_plan.TEAM_DEFINITION_BYTES * 0.9)
+        quote = "\U0001f600" * 500
+        notices = tuple(
+            record.Notice(
+                f"{index:032x}", "a" * 32, f"{index:032x}", "done", NINE, routine_fixture.large_completion(), 1, quote
+            )
+            for index in range(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES)
+        )
+        incidents = tuple(
+            record.Incident(f"{index:032x}", "a" * 32, f"{NETWORK}:routine:{index:032x}", NINE, quote=quote)
+            for index in range(record.MAX_INCIDENTS)
+        )
+        worst = dataclasses.replace(
+            state,
+            notices=notices,
+            starts=tuple(("a" * 32, NINE + index, 256) for index in range(record.routine_starts.TEAM_CEILING)),
+            receipts=tuple((f"{index:064x}", NINE) for index in range(record.MAX_RECEIPTS)),
+            incidents=incidents,
+            discards=tuple(
+                (f"{index:032x}", f"{NETWORK}:routine:{index:032x}") for index in range(record.MAX_DISCARDS)
+            ),
+        )
+        self.assertLessEqual(len(routine_store._encode(worst, "team_1")), routine_store.MAX_STATE_BYTES)
 
     def test_the_keyring_must_live_outside_the_state_root(self):
         root = Path(self.directory.name)
@@ -172,6 +222,8 @@ class TamperTests(StoreCase):
             "unknown status": lambda value: value["runs"][0].update(status="paused"),
             "orphan run": lambda value: value["runs"][0].update(routine_id="f" * 32),
             "active time": lambda value: value["runs"][0].update(active_seconds_left=record.ACTIVE_SECONDS + 1),
+            "answered requests": lambda value: value["runs"][0].update(requests_used=17),
+            "answered requests type": lambda value: value["runs"][0].update(requests_used=True),
             "notice detail": lambda value: value["notices"][0].update(detail={"actions": [["dns", "x"]], "result": 1}),
             "notice version": lambda value: value["notices"][0].update(version=0),
             "notice quote": lambda value: value["notices"][0].update(quote=""),
@@ -191,11 +243,19 @@ class TamperTests(StoreCase):
             ),
             "rollup minute": lambda value: value["routines"][0].update(rollup_minute=-1),
             "starts shape": lambda value: value.update(starts=[["a" * 32]]),
-            "start routine": lambda value: value.update(starts=[["not-a-routine", 5]]),
-            "start instant": lambda value: value.update(starts=[["a" * 32, -1]]),
-            "starts out of order": lambda value: value.update(starts=[["a" * 32, 9], ["a" * 32, 5]]),
+            "start without steps": lambda value: value.update(starts=[["a" * 32, 5]]),
+            "start routine": lambda value: value.update(starts=[["not-a-routine", 5, 1]]),
+            "start instant": lambda value: value.update(starts=[["a" * 32, -1, 1]]),
+            "start of no step": lambda value: value.update(starts=[["a" * 32, 5, 0]]),
+            "start of too many steps": lambda value: value.update(starts=[["a" * 32, 5, 257]]),
+            "start steps type": lambda value: value.update(starts=[["a" * 32, 5, True]]),
+            "starts out of order": lambda value: value.update(starts=[["a" * 32, 9, 1], ["a" * 32, 5, 1]]),
             "too many starts": lambda value: value.update(
-                starts=[["a" * 32, index] for index in range(record.routine_starts.TEAM_CEILING + 1)]
+                starts=[["a" * 32, index, 1] for index in range(record.routine_starts.TEAM_CEILING + 1)]
+            ),
+            # A definition the Team's budgets never admit is never loaded either (ADR-0092, 2026-10-05, scale).
+            "definition over its budget": lambda value: value["routines"][0]["grant"]["sources"]["check"].update(
+                {f"m{index}": value["routines"][0]["grant"]["output"] for index in range(4000)}
             ),
         }
         for name, mutate in mutations.items():
@@ -211,7 +271,7 @@ class TamperTests(StoreCase):
     def test_an_altered_incident_fails_closed(self):
         state = busy_state()
         held = next(item for item in state.runs if item.status == "held")
-        put(self.store, "team_1", routine_hold.settle_hold(state, held.run_id, NINE, 1, ("dns", "replace-dns-record")))
+        put(self.store, "team_1", routine_hold.settle_hold(state, held.run_id, NINE, 1, ("dns", "check", 1, 1)))
         base = json.loads(self.state_file().read_text())
         self.assertEqual(base["incidents"][0]["assistant_id"], "dns")
         mutations = {
@@ -221,6 +281,12 @@ class TamperTests(StoreCase):
             "action type": {"action": 1},
             "time beyond the run's": {"active_seconds_left": record.ACTIVE_SECONDS + 1},
             "time type": {"active_seconds_left": True},
+            "answered requests past the turn's": {"requests_used": 17},
+            "a step with no position": {"step": 0},
+            "a position past its plan": {"step": 2, "steps": 1},
+            "a plan of too many steps": {"step": 1, "steps": 257},
+            "position type": {"step": True},
+            "no step but a position": {"assistant_id": "", "action": "", "step": 1, "steps": 1},
         }
         for name, change in mutations.items():
             with self.subTest(name=name):
@@ -228,7 +294,7 @@ class TamperTests(StoreCase):
                 value["incidents"][0].update(change)
                 self.assert_refused(value)
         value = json.loads(json.dumps(base))
-        value["incidents"][0].update(assistant_id="", action="")
+        value["incidents"][0].update(assistant_id="", action="", step=0, steps=0)
         self.write(value)
         self.assertEqual(self.store.load("team_1").incidents[0].action, "")
 
@@ -267,7 +333,7 @@ class ContinuationTests(StoreCase):
             self.store.continuation("team_1", "b" * 32)
 
     def test_invalid_missing_and_tampered_continuations_fail_closed(self):
-        for payload in (b"", "text", b"x" * (routine_store.MAX_CONTINUATION_BYTES + 1)):
+        for payload in (b"", "text", b"x" * (local_chat_continuation.MAX_ROUTINE_BYTES + 1)):
             with self.subTest(size=len(payload)), self.assertRaisesRegex(routine_store.RoutineStoreError, "invalid"):
                 self.store.put_continuation("team_1", "a" * 32, payload)
         with self.assertRaisesRegex(routine_store.RoutineStoreError, "Routine run is invalid"):
@@ -460,8 +526,8 @@ class StartWindowTests(StoreCase):
         first = 1_790_000_000
         starts: record.routine_starts.Starts = ()
         for routine_id, offset in (("a" * 32, 0), ("b" * 32, 3), ("a" * 32, 8), ("b" * 32, 11)):
-            starts = record.routine_starts.started(starts, routine_id, first + offset)
-        self.assertEqual([at - first for _routine_id, at in starts], [0, 3, 8, 11])
+            starts = record.routine_starts.started(starts, routine_id, first + offset, 1)
+        self.assertEqual([at - first for _routine_id, at, _steps in starts], [0, 3, 8, 11])
         state = dataclasses.replace(busy_state(), starts=starts)
         rolled = dataclasses.replace(state.routines[0], rollup_minute=first - first % 60, rollup_runs=12)
         state = dataclasses.replace(state, routines=(rolled, *state.routines[1:]))

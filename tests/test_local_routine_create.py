@@ -134,19 +134,14 @@ class DirectCreationTests(LocalContractCase):
                 "",
                 {
                     "name": "Weekly zones",
-                    "steps": [
-                        {
-                            "id": "zones",
-                            "assistant": ASSISTANT,
-                            "action": "list-zones",
-                            "inputs": [
-                                {"member": "page", "source": "literal", "value": "1"},
-                                {"member": "per_page", "source": "literal", "value": "25"},
-                            ],
-                            "stored_inputs": [],
-                        }
-                    ],
-                    "output": {"mode": "show", "step": "zones"},
+                    "plan": {
+                        "revision": 1,
+                        "plan_digest": routine_grant.plan_digest(routine.plan),
+                        "steps": 1,
+                        "actions": [[ASSISTANT, "list-zones", 1]],
+                        "more": 0,
+                    },
+                    "output": {"mode": "show", "step": 1},
                     "schedule": SCHEDULE,
                     "timezone": "America/Sao_Paulo",
                 },
@@ -362,6 +357,10 @@ class DirectCreationTests(LocalContractCase):
             self.assertEqual(runtime.contexts[0].routines, ())
             self.chat(service, _body(nonce="c" * 32))
             self.assertEqual(runtime.contexts[1].routines[0]["steps"][0]["inputs"], ["page", "per_page"])
+            # The Brain learns each Routine's daily steps and the Team's capacity left (ADR-0092, 2026-10-05, scale).
+            self.assertEqual(runtime.contexts[0].routine_capacity, routine_plan.MAX_DAILY_STEPS)
+            self.assertEqual(runtime.contexts[1].routines[0]["daily_steps"], 1)
+            self.assertEqual(runtime.contexts[1].routine_capacity, routine_plan.MAX_DAILY_STEPS - 1)
             changed = service.routine_store.load("team_1")
             (current,) = changed.routines
             self.assertEqual((current.revision, current.schedule["time"], current.plan), (2, "10:00", routine.plan))

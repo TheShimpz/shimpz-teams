@@ -7,9 +7,11 @@ keyring: neither name is a Routine Team directory or the Routine keyring, so eac
 binds the Team and its incarnation (its network id), the Routine, run, logical operation, attempt, and recording
 instant, so a body is readable only by the same incarnation of the same Team as exactly that attempt. Each body names
 its incarnation under that authentication, so another incarnation's authentic body is left out while any corrupted
-body fails the read. A body is at most 16 KiB, expires after seven days, and a Team keeps at most 10 MiB, the oldest
-giving way first: bodies are diagnostics, never the compact safety evidence an incident keeps. A body never holds a
-password or any other value Team injected.
+body fails the read. Beside them the family keeps each run's step records, what each step's attempt did with the
+redacted inputs it was given, and the run's terminal record, which proves how far the run went (ADR-0092 amendment,
+2026-10-05, scale). Every body expires after seven days, and a Team keeps at most 24 MiB of them, the oldest giving way
+first whatever its kind: bodies are display records, never the compact safety evidence an incident keeps. A body never
+holds a password or any other value Team injected.
 """
 
 from __future__ import annotations
@@ -41,9 +43,19 @@ from storage import private_state
 ROOT = Path("/var/lib/shimpz-local/routines/state/diagnostics")
 KEY_PATH = Path("/var/lib/shimpz-local/routines/key/diagnostics.key")
 RETENTION_SECONDS = 7 * 86_400
-MAX_FILE_BYTES = 16 * 1024
 MAX_PLAINTEXT_BYTES = 12 * 1024
-MAX_TEAM_BYTES = 10 * 1024 * 1024
+# A step record: one run step's wire view and the run binding beside it; a run's terminal record is small.
+MAX_STEP_PLAINTEXT_BYTES = http_routine.MAX_STEP_VIEW_BYTES + 2 * 1024
+MAX_RUN_PLAINTEXT_BYTES = 2 * 1024
+MAX_TEAM_BYTES = 24 * 1024 * 1024
+
+
+def sealed_bound(plaintext: int) -> int:
+    """A sealed file's bytes for this much plaintext: its AES-GCM tag, base64, and JSON envelope."""
+    return 4 * -(-(plaintext + 16) // 3) + 256
+
+
+MAX_FILE_BYTES = sealed_bound(MAX_STEP_PLAINTEXT_BYTES)
 _TEAM_DIR_RE = re.compile(r"[0-9a-f]{64}\Z")
 _INCARNATION_RE = re.compile(r"[0-9a-f]{64}\Z")
 _NAME_RE = re.compile(
@@ -51,6 +63,28 @@ _NAME_RE = re.compile(
     r"(?P<operation>[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(?P<attempt>[0-9]{1,2})"
     r"\.diagnostic\Z"
 )
+_STEP_NAME_RE = re.compile(
+    r"(?P<at>[0-9]{1,12})\.(?P<routine>[0-9a-f]{32})\.(?P<run>[0-9a-f]{32})\.(?P<sequence>[0-9]{1,5})\.step\Z"
+)
+_RUN_NAME_RE = re.compile(r"(?P<at>[0-9]{1,12})\.(?P<routine>[0-9a-f]{32})\.(?P<run>[0-9a-f]{32})\.run\Z")
+# Each kind of body by its name.
+_KINDS = {"diagnostic": _NAME_RE, "step": _STEP_NAME_RE, "run": _RUN_NAME_RE}
+
+
+def _bound_of(kind: str) -> int:
+    """A kind's plaintext bound."""
+    return {"diagnostic": MAX_PLAINTEXT_BYTES, "step": MAX_STEP_PLAINTEXT_BYTES, "run": MAX_RUN_PLAINTEXT_BYTES}[kind]
+
+
+def _forms(secret: str) -> set[bytes]:
+    """Every form a protected value can take in a body: raw, JSON-escaped, or preview-escaped, each escaped again."""
+    once = json.dumps(secret, ensure_ascii=False)[1:-1]
+    shown = http_routine.escaped(once)
+    return {
+        text.encode()
+        for value in (secret, once, shown)
+        for text in (value, json.dumps(value, ensure_ascii=False)[1:-1])
+    }
 
 
 class DiagnosticStoreError(RuntimeError):
@@ -75,6 +109,8 @@ class Diagnostic:
     attempt: int
     assistant_id: str
     action: str
+    # The 1-based position of the attempt's step in its plan, which names a repeated Action exactly.
+    step: int
     recorded_at: int
     failure: dict[str, object] | None = None
     condition: str | None = None
@@ -87,6 +123,7 @@ class Diagnostic:
             "attempt": self.attempt,
             "assistant_id": self.assistant_id,
             "action": self.action,
+            "step": self.step,
             "recorded_at": instant.isoformat().replace("+00:00", "Z"),
             "failure": self.failure,
             "condition": self.condition,
@@ -108,8 +145,73 @@ def _incarnation(value: object) -> str:
     return value
 
 
+def _instant_text(epoch: int) -> str:
+    return datetime.datetime.fromtimestamp(epoch, datetime.UTC).isoformat().replace("+00:00", "Z")
+
+
+@dataclass(frozen=True, slots=True)
+class RunBinding:
+    """The run a record belongs to and the exact revision of its Routine it executed."""
+
+    routine_id: str
+    run_id: str
+    revision: int
+    plan_digest: str
+    total: int
+
+    def document(self) -> dict[str, object]:
+        return {
+            "routine_id": self.routine_id,
+            "revision": self.revision,
+            "plan_digest": self.plan_digest,
+            "total": self.total,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class StepRecord:
+    """What one step's attempt did: its status, how long it took, and the redacted inputs it was given."""
+
+    binding: RunBinding
+    position: int
+    assistant_id: str
+    action: str
+    status: str
+    attempt: int
+    duration_ms: int | None
+    recorded_at: int
+    inputs: list[dict[str, object]] | None
+
+    def view(self) -> dict[str, object]:
+        """The wire form of this step, which ``routine.canonical_run_step`` admits."""
+        return {
+            "position": self.position,
+            "status": self.status,
+            "assistant_id": self.assistant_id,
+            "action": self.action,
+            "attempt": self.attempt,
+            "duration_ms": self.duration_ms,
+            "recorded_at": _instant_text(self.recorded_at),
+            "inputs": self.inputs,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RunRecord:
+    """A run's terminal record: how many steps its sealed cursor completed, and whether the next one was dispatched."""
+
+    binding: RunBinding
+    reached: int
+    dispatched: bool
+    recorded_at: int
+
+
+class RunChangedError(DiagnosticStoreError):
+    """A page named a snapshot of a run's records that no longer holds."""
+
+
 class DiagnosticStore:
-    """Every Local Team's encrypted Routine diagnostics, in one blob family with its own keyring."""
+    """Every Local Team's encrypted Routine diagnostics and run records, in one blob family with its own keyring."""
 
     def __init__(self, root: Path = ROOT, key_path: Path = KEY_PATH) -> None:
         self.root = Path(root)
@@ -131,47 +233,81 @@ class DiagnosticStore:
             or http_routine.ROUTINE_ID_RE.fullmatch(diagnostic.run_id) is None
         ):
             raise DiagnosticStoreError("Routine diagnostic is invalid")
-        payload = json.dumps(view, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-        if len(payload) > MAX_PLAINTEXT_BYTES:
-            raise DiagnosticStoreError("Routine diagnostic exceeds its fixed byte limit")
-        if any(secret and secret.encode() in payload for secret in protected):
-            raise DiagnosticStoreError("Routine diagnostic would hold a protected value")
-        name = diagnostic.name()
-        with self._guard:
-            key = _PRIVATE.key(self.key_path, "Routine diagnostic keyring", allow_create=True)
-            nonce = os.urandom(12)
-            envelope = json.dumps(
-                {
-                    "algorithm": "AES-256-GCM",
-                    # The authenticated origin: the AAD binds it, so a reader can tell another incarnation's body
-                    # from a corrupted one.
-                    "incarnation": incarnation,
-                    "nonce": base64.b64encode(nonce).decode("ascii"),
-                    "ciphertext": base64.b64encode(
-                        AESGCM(key).encrypt(nonce, payload, _aad(team, incarnation, name))
-                    ).decode("ascii"),
-                },
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("ascii")
-            # The family's own directory is as private as each Team's, not left to the process umask.
-            _PRIVATE.require_private_directory(self.root, "Routine diagnostic")
-            directory = self._team_dir(team)
-            self._make_room(directory, diagnostic, len(envelope))
-            _PRIVATE.atomic_write(directory / name, envelope, "Routine diagnostic")
+        attempt = (diagnostic.routine_id, diagnostic.run_id, diagnostic.operation_id, str(diagnostic.attempt))
 
-    def _make_room(self, directory: Path, diagnostic: Diagnostic, size: int) -> None:
-        """Remove expired bodies and this attempt's earlier body, then the oldest while the new one does not fit."""
-        entries = self._entries(directory)
-        kept = []
-        for name, match, existing in entries:
-            same = (match["routine"], match["run"], match["operation"], int(match["attempt"])) == (
-                diagnostic.routine_id,
-                diagnostic.run_id,
-                diagnostic.operation_id,
-                diagnostic.attempt,
+        def replaced(kind: str, match: re.Match[str]) -> bool:
+            return kind == "diagnostic" and (match["routine"], match["run"], match["operation"], match["attempt"]) == (
+                attempt
             )
-            if same or int(match["at"]) <= diagnostic.recorded_at - RETENTION_SECONDS:
+
+        with self._guard:
+            self._seal(
+                team, incarnation, (diagnostic.name(), "diagnostic", diagnostic.recorded_at), view, protected, replaced
+            )
+
+    def record_step(self, team_id: str, incarnation: str, step: StepRecord, protected: Iterable[str]) -> None:
+        """Seal one step record under the run's next sequence; a later one of the same position supersedes it."""
+        team, incarnation = validate_team_id(team_id), _incarnation(incarnation)
+        document = {**step.binding.document(), **step.view()}
+        if not _step_document(document, step.binding.run_id):
+            raise DiagnosticStoreError("Routine step record is invalid")
+        binding = step.binding
+        with self._guard:
+            entries = [item for item in self._entries(self._team_dir(team)) if item[2]["run"] == binding.run_id]
+            sequence = 1 + max((int(match["sequence"]) for _n, kind, match, _s in entries if kind == "step"), default=0)
+            name = f"{step.recorded_at}.{binding.routine_id}.{binding.run_id}.{sequence}.step"
+            self._seal(team, incarnation, (name, "step", step.recorded_at), document, protected, lambda *_args: False)
+
+    def record_run(self, team_id: str, incarnation: str, run: RunRecord) -> None:
+        """Seal a run's terminal record, which proves which of its steps never started."""
+        team, incarnation = validate_team_id(team_id), _incarnation(incarnation)
+        binding = run.binding
+        document = {**binding.document(), "reached": run.reached, "dispatched": run.dispatched}
+        if not _run_document(document, binding):
+            raise DiagnosticStoreError("Routine run record is invalid")
+        name = f"{run.recorded_at}.{binding.routine_id}.{binding.run_id}.run"
+
+        def replaced(kind: str, match: re.Match[str]) -> bool:
+            return kind == "run" and match["run"] == binding.run_id
+
+        with self._guard:
+            self._seal(team, incarnation, (name, "run", run.recorded_at), document, (), replaced)
+
+    def _seal(self, team: str, incarnation: str, named, document, protected: Iterable[str], replaced) -> None:
+        """Encrypt one body of its kind, then make room for it and write it; the caller holds the guard."""
+        name, kind, recorded_at = named
+        payload = json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        if len(payload) > _bound_of(kind):
+            raise DiagnosticStoreError("Routine diagnostic exceeds its fixed byte limit")
+        if any(form in payload for secret in protected if secret for form in _forms(secret)):
+            raise DiagnosticStoreError("Routine diagnostic would hold a protected value")
+        key = _PRIVATE.key(self.key_path, "Routine diagnostic keyring", allow_create=True)
+        nonce = os.urandom(12)
+        envelope = json.dumps(
+            {
+                "algorithm": "AES-256-GCM",
+                # The authenticated origin: the AAD binds it, so a reader can tell another incarnation's body from a
+                # corrupted one.
+                "incarnation": incarnation,
+                "nonce": base64.b64encode(nonce).decode("ascii"),
+                "ciphertext": base64.b64encode(
+                    AESGCM(key).encrypt(nonce, payload, _aad(team, incarnation, name))
+                ).decode("ascii"),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        # The family's own directory is as private as each Team's, not left to the process umask.
+        _PRIVATE.require_private_directory(self.root, "Routine diagnostic")
+        directory = self._team_dir(team)
+        self._make_room(directory, recorded_at, len(envelope), replaced)
+        _PRIVATE.atomic_write(directory / name, envelope, "Routine diagnostic")
+
+    def _make_room(self, directory: Path, recorded_at: int, size: int, replaced) -> None:
+        """Remove expired and replaced bodies, then the oldest of any kind while the new one does not fit."""
+        kept = []
+        for name, kind, match, existing in self._entries(directory):
+            if replaced(kind, match) or int(match["at"]) <= recorded_at - RETENTION_SECONDS:
                 self._unlink(directory / name)
             else:
                 kept.append((name, existing))
@@ -190,23 +326,59 @@ class DiagnosticStore:
         directory = self._team_dir(team)
         found = []
         with self._guard:
-            for name, match, _size in self._entries(directory):
-                if match["run"] != run_id or int(match["at"]) <= now - RETENTION_SECONDS:
+            for name, kind, match, _size in self._entries(directory):
+                if kind != "diagnostic" or match["run"] != run_id or int(match["at"]) <= now - RETENTION_SECONDS:
                     continue
-                opened = self._open(directory / name, team, incarnation, name)
-                if opened is not None:
-                    found.append(_diagnostic(match, opened))
+                opened = self._open(directory / name, team, incarnation, name, MAX_PLAINTEXT_BYTES)
+                view = None if opened is None else http_routine.canonical_diagnostic(opened)
+                if opened is not None and view is None:
+                    raise DiagnosticStoreError("Routine diagnostic is malformed")
+                if view is not None:
+                    found.append(_diagnostic(match, view))
         found.sort(key=lambda item: (item.recorded_at, item.operation_id, item.attempt))
         return tuple(found[-http_routine.MAX_RUN_DIAGNOSTICS :])
 
-    def _open(self, path: Path, team: str, incarnation: str, name: str) -> dict[str, object] | None:
+    def run_steps(self, team_id: str, incarnation: str, run_id: str, now: int, page: tuple[str, int]):
+        """One run's retained records as one snapshot, assembled under the guard: ``(snapshot, records, run)``.
+
+        ``page`` names the snapshot a reader holds (``latest`` for a fresh one) and its offset; a snapshot whose
+        retained bodies changed since, by expiry, eviction, or a new record, raises RunChangedError.
+        """
+        team, incarnation = validate_team_id(team_id), _incarnation(incarnation)
+        directory = self._team_dir(team)
+        with self._guard:
+            retained = [
+                item
+                for item in self._entries(directory)
+                if item[1] in ("step", "run")
+                and item[2]["run"] == run_id
+                and int(item[2]["at"]) > now - RETENTION_SECONDS
+            ]
+            snapshot = _snapshot(directory, retained)
+            if page[0] not in ("latest", snapshot):
+                raise RunChangedError("Routine run records changed")
+            steps: dict[int, tuple[int, dict[str, object]]] = {}
+            run = None
+            for name, kind, match, _size in retained:
+                opened = self._open(directory / name, team, incarnation, name, _bound_of(kind))
+                if opened is None:
+                    continue
+                if kind == "run":
+                    run = opened
+                    continue
+                sequence = int(match["sequence"])
+                if opened.get("position") not in steps or steps[opened["position"]][0] < sequence:
+                    steps[opened["position"]] = (sequence, opened)
+        return snapshot, {position: item for position, (_sequence, item) in steps.items()}, run
+
+    def _open(self, path: Path, team: str, incarnation: str, name: str, maximum: int) -> dict[str, object] | None:
         """Decrypt one body under the incarnation it names; another incarnation's authentic body is never shown.
 
         The body names its incarnation and the AAD binds that name with the Team, the file name, and the content, so
         only an authentic body of another incarnation is left out: any corruption, including a changed incarnation,
         Team, or name, fails authentication and closes the read.
         """
-        raw = _PRIVATE.read_private_file(path, MAX_FILE_BYTES, "Routine diagnostic")
+        raw = _PRIVATE.read_private_file(path, sealed_bound(maximum), "Routine diagnostic")
         if raw is None:
             return None
         try:
@@ -224,7 +396,7 @@ class DiagnosticStore:
         try:
             payload = AESGCM(_PRIVATE.key(self.key_path, "Routine diagnostic keyring")).decrypt(
                 _PRIVATE.decode_part(envelope["nonce"], expected=12),
-                _PRIVATE.decode_part(envelope["ciphertext"], minimum=17, maximum=MAX_PLAINTEXT_BYTES + 16),
+                _PRIVATE.decode_part(envelope["ciphertext"], minimum=17, maximum=maximum + 16),
                 _aad(team, envelope["incarnation"], name),
             )
         except InvalidTag as exc:
@@ -232,31 +404,34 @@ class DiagnosticStore:
         if envelope["incarnation"] != incarnation:
             return None
         try:
-            view = http_routine.canonical_diagnostic(strict_json.loads(payload))
-        except UnicodeDecodeError, ValueError:
-            view = None
-        if view is None:
+            value = strict_json.loads(payload)
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise DiagnosticStoreError("Routine diagnostic is malformed") from exc
+        if not isinstance(value, dict):
             raise DiagnosticStoreError("Routine diagnostic is malformed")
-        return view
+        return value
 
-    def _entries(self, directory: Path) -> list[tuple[str, re.Match[str], int]]:
-        """The Team's diagnostic files, oldest first; a non-file where one belongs fails closed."""
+    def _entries(self, directory: Path) -> list[tuple[str, str, re.Match[str], int]]:
+        """The Team's bodies of every kind, oldest first; a non-file where one belongs fails closed."""
         try:
             with os.scandir(directory) as scanned:
                 entries = []
                 for entry in scanned:
-                    match = _NAME_RE.fullmatch(entry.name)
-                    if match is None:
+                    found = next(
+                        ((kind, match) for kind, pattern in _KINDS.items() if (match := pattern.fullmatch(entry.name))),
+                        None,
+                    )
+                    if found is None:
                         continue
                     metadata = entry.stat(follow_symlinks=False)
                     if not stat.S_ISREG(metadata.st_mode):
                         raise DiagnosticStoreError("Routine diagnostics failed their ownership contract")
-                    entries.append((entry.name, match, metadata.st_size))
+                    entries.append((entry.name, found[0], found[1], metadata.st_size))
         except FileNotFoundError:
             return []
         except OSError as exc:
             raise DiagnosticStoreError("Routine diagnostics could not be listed") from exc
-        return sorted(entries, key=lambda item: (int(item[1]["at"]), item[0]))
+        return sorted(entries, key=lambda item: (int(item[2]["at"]), item[0]))
 
     @staticmethod
     def _unlink(path: Path) -> None:
@@ -266,20 +441,20 @@ class DiagnosticStore:
             raise DiagnosticStoreError("Routine diagnostic could not be removed") from exc
 
     def delete_routine(self, team_id: str, routine_id: str) -> None:
-        """Remove a deleted Routine's diagnostic bodies; its incidents keep the safety records."""
+        """Remove a deleted Routine's bodies of every kind; its incidents keep the safety records."""
         directory = self._team_dir(validate_team_id(team_id))
         with self._guard:
-            for name, match, _size in self._entries(directory):
+            for name, _kind, match, _size in self._entries(directory):
                 if match["routine"] == routine_id:
                     self._unlink(directory / name)
 
     def delete(self, team_id: str) -> None:
-        """Remove every diagnostic of a deleted Team; an absent Team is already clean."""
+        """Remove every body of a deleted Team; an absent Team is already clean."""
         with self._guard:
             self._remove(self._team_dir(validate_team_id(team_id)))
 
     def delete_all(self) -> None:
-        """Remove every Team's diagnostics and the diagnostic keyring, as a Space reset does."""
+        """Remove every Team's bodies and the diagnostic keyring, as a Space reset does."""
         with self._guard:
             try:
                 names = sorted(entry.name for entry in os.scandir(self.root) if _TEAM_DIR_RE.fullmatch(entry.name))
@@ -292,7 +467,7 @@ class DiagnosticStore:
             self._unlink(self.key_path)
 
     def _remove(self, directory: Path) -> None:
-        for name, _match, _size in self._entries(directory):
+        for name, _kind, _match, _size in self._entries(directory):
             self._unlink(directory / name)
         try:
             directory.rmdir()
@@ -300,6 +475,53 @@ class DiagnosticStore:
             return
         except OSError as exc:
             raise DiagnosticStoreError("Routine diagnostics could not be removed") from exc
+
+
+def _snapshot(directory: Path, retained: list[tuple[str, str, re.Match[str], int]]) -> str:
+    """The identity of exactly these sealed bodies: their names and the digests of their sealed bytes.
+
+    Every write seals under a fresh nonce, so a body rewritten or recreated under a reused name never reproduces it.
+    """
+    digest = hashlib.sha256()
+    for name, _kind, _match, _size in retained:
+        raw = _PRIVATE.read_private_file(directory / name, MAX_FILE_BYTES, "Routine diagnostic") or b""
+        digest.update(json.dumps([name, hashlib.sha256(raw).hexdigest()]).encode() + b"\n")
+    return digest.hexdigest()[:32]
+
+
+def _bound(document: dict[str, object]) -> bool:
+    return (
+        http_routine.ROUTINE_ID_RE.fullmatch(str(document.get("routine_id"))) is not None
+        and type(document.get("revision")) is int
+        and 1 <= document["revision"] < 2**31
+        and http_routine.PLAN_DIGEST_RE.fullmatch(str(document.get("plan_digest"))) is not None
+        and type(document.get("total")) is int
+        and 1 <= document["total"] <= http_routine.MAX_ROUTINE_STEPS
+    )
+
+
+def _step_document(document: dict[str, object], run_id: str) -> bool:
+    """One sealed step record: its run binding and exactly one run step's wire view."""
+    view = {key: document.get(key) for key in document if key not in ("routine_id", "revision", "plan_digest", "total")}
+    return (
+        http_routine.ROUTINE_ID_RE.fullmatch(run_id) is not None
+        and _bound(document)
+        and type(view.get("position")) is int
+        and view.get("status") in http_routine.RUN_STEP_STATUSES
+        and view["position"] <= document["total"]
+        and http_routine.canonical_run_step(view, view["position"]) is not None
+    )
+
+
+def _run_document(document: dict[str, object], binding: RunBinding) -> bool:
+    return (
+        http_routine.ROUTINE_ID_RE.fullmatch(binding.run_id) is not None
+        and _bound(document)
+        and set(document) == {"routine_id", "revision", "plan_digest", "total", "reached", "dispatched"}
+        and type(document["reached"]) is int
+        and 0 <= document["reached"] <= document["total"]
+        and type(document["dispatched"]) is bool
+    )
 
 
 def evidence(exc: BaseException) -> tuple[dict[str, object] | None, str | None] | None:
@@ -345,6 +567,7 @@ def _diagnostic(match: re.Match[str], view: dict[str, object]) -> Diagnostic:
         attempt=view["attempt"],
         assistant_id=view["assistant_id"],
         action=view["action"],
+        step=view["step"],
         recorded_at=int(match["at"]),
         failure=view["failure"],
         condition=view["condition"],
@@ -363,6 +586,86 @@ def run_diagnostics(self, team_id: str, run_id: str, now: int) -> dict[str, obje
         ) from exc
     view = http_routine.canonical_diagnostics(
         {"team_id": team_id, "run_id": run_id, "diagnostics": [item.view() for item in found]}
+    )
+    if view is None:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE, "Routine diagnostics are unavailable", code="routine-state-unavailable"
+        )
+    return view
+
+
+def _gap(position: int, status: str) -> dict[str, object]:
+    return {
+        "position": position,
+        "status": status,
+        "assistant_id": None,
+        "action": None,
+        "attempt": None,
+        "duration_ms": None,
+        "recorded_at": None,
+        "inputs": None,
+    }
+
+
+def _binding_of(records: dict[int, dict[str, object]], run: dict[str, object] | None) -> dict[str, object] | None:
+    """The run binding every retained record agrees on, or None when none is retained; a disagreement fails closed."""
+    bindings = {
+        json.dumps({key: item[key] for key in ("routine_id", "revision", "plan_digest", "total")}, sort_keys=True)
+        for item in [*records.values(), *([run] if run is not None else [])]
+    }
+    if len(bindings) > 1:
+        raise DiagnosticStoreError("Routine run records disagree")
+    return json.loads(bindings.pop()) if bindings else None
+
+
+def _page_steps(records, run, total: int, offset: int) -> list[dict[str, object]]:
+    """Whole consecutive positions from ``offset``: a step's latest record, or the gap the run's own records prove."""
+    reached = None if run is None else (run["reached"], run["dispatched"])
+    chosen: list[dict[str, object]] = []
+    used = 2
+    for position in range(offset + 1, total + 1):
+        if position in records:
+            entry = {key: records[position][key] for key in http_routine.RUN_STEP_FIELDS}
+        elif reached is not None and (position > reached[0] + 1 or (position == reached[0] + 1 and not reached[1])):
+            entry = _gap(position, "not_run")
+        else:
+            entry = _gap(position, "unavailable")
+        cost = http_routine.encoded_bytes(entry) + 1
+        if chosen and (len(chosen) == http_routine.MAX_PAGE_STEPS or used + cost > http_routine.MAX_PAGE_BYTES):
+            break
+        chosen.append(entry)
+        used += cost
+    return chosen
+
+
+def run_steps(self, team_id: str, run_id: str, snapshot: str, offset: int, now: int) -> dict[str, object]:
+    """A Supervisor's page of one run's steps, bound to its own revision and one snapshot of its records."""
+    team_id = validate_team_id(team_id)
+    incarnation = self.assistant_lifecycle._network(team_id).id
+    try:
+        token, records, run = self.routine_diagnostics.run_steps(team_id, incarnation, run_id, now, (snapshot, offset))
+        binding = _binding_of(records, run)
+    except RunChangedError as exc:
+        raise ApiProblem(HTTPStatus.CONFLICT, "Routine run records changed", code="routine-run-changed") from exc
+    except DiagnosticStoreError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE, "Routine diagnostics are unavailable", code="routine-state-unavailable"
+        ) from exc
+    if binding is None or not 0 <= offset < binding["total"]:
+        raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine run steps are unavailable", code="routine-run-steps-not-found")
+    steps = _page_steps(records, run, binding["total"], offset)
+    following = offset + len(steps)
+    view = http_routine.canonical_run_steps(
+        {
+            "team_id": team_id,
+            "run_id": run_id,
+            **binding,
+            "snapshot": token,
+            "ended": run is not None,
+            "offset": offset,
+            "steps": steps,
+            "next": None if following == binding["total"] else following,
+        }
     )
     if view is None:
         raise ApiProblem(

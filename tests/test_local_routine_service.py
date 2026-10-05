@@ -29,6 +29,8 @@ from local.routine import run as routine_run
 from local.routine import store as routine_store
 from local.routine import turn as routine_turn
 from local.routine import watchdog as routine_watchdog
+from routine import grant as routine_grant
+from routine import hold as routine_hold
 from routine import pin as routine_pin
 from routine import record
 from tests import human_request_fixtures
@@ -206,8 +208,9 @@ class RunTests(RoutineServiceCase):
         self.assertEqual(result["status"], "done")
         self.assertEqual(state.runs, ())
         ((outcome, detail),) = [(item.outcome, item.detail) for item in state.notices]
-        self.assertEqual((outcome, detail["actions"]), ("done", record.plan_actions(state.routines[0].plan)))
-        self.assertEqual((detail["output"]["step"], detail["output"]["state"]), ("zones", "shown"))
+        summary = routine_grant.summary(state.routines[0].plan, 1)
+        self.assertEqual((outcome, detail["plan"]), ("done", summary))
+        self.assertEqual((detail["output"]["step"], detail["output"]["state"]), (1, "shown"))
         # A healthy compiled run never asks the Brain anything.
         self.assertEqual(runtime.contexts, [])
 
@@ -256,7 +259,7 @@ class RunTests(RoutineServiceCase):
         self.assertFalse(record.routine(state, value.routine_id).needs_reconfirm)
         self.assertEqual(
             [(item.outcome, item.detail) for item in state.notices],
-            [("failed", {"code": "team-context-unavailable", "actions": []})],
+            [("failed", {"code": "team-context-unavailable", "actions": [], "step": None, "steps": None})],
         )
 
     def test_an_unreadable_or_malformed_registry_never_marks_the_routine_changed_or_strands_a_run(self) -> None:
@@ -274,7 +277,10 @@ class RunTests(RoutineServiceCase):
                 state = self.state(service)
                 self.assertEqual(state.runs, ())
                 self.assertFalse(record.routine(state, value.routine_id).needs_reconfirm)
-                self.assertEqual(state.notices[-1].detail, {"code": "team-context-unavailable", "actions": []})
+                self.assertEqual(
+                    state.notices[-1].detail,
+                    {"code": "team-context-unavailable", "actions": [], "step": None, "steps": None},
+                )
 
     def test_an_assistant_the_team_no_longer_runs_marks_the_routine_changed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -377,7 +383,7 @@ class FreezeTests(RoutineServiceCase):
             state = self.state(service)
         self.assertEqual(resumed["status"], "done")
         detail = state.notices[-1].detail
-        self.assertEqual((state.runs, detail["actions"]), ((), record.plan_actions(state.routines[0].plan)))
+        self.assertEqual((state.runs, detail["plan"]), ((), routine_grant.summary(state.routines[0].plan, 1)))
         self.assertEqual(detail["output"]["state"], "shown")
 
     def test_a_rename_never_ends_a_frozen_run(self) -> None:
@@ -594,14 +600,17 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
             service.routine_store.put_continuation("team_1", "f" * 32, b"orphaned continuation")
             routine_watchdog.check(service, startup=True)
             state = self.state(service)
-            self.assertEqual((state.runs, state.notices[-1].detail), ((), {"code": "interrupted", "actions": []}))
+            self.assertEqual(
+                (state.runs, state.notices[-1].detail),
+                ((), {"code": "interrupted", "actions": [], "step": None, "steps": None}),
+            )
             self.assertEqual(service.routine_store.continuations("team_1"), ())
             self.routine(service)
             running = service.claim_routine_run()
             routine_run.register_routine_run(service, "team_1", running["run_id"], "token", 600)
             service._active_chat_tokens["team_1"] = "token"
             with mock.patch.object(
-                record, "expired", return_value=(record.run(self.state(service), running["run_id"]),)
+                routine_hold, "expired", return_value=(record.run(self.state(service), running["run_id"]),)
             ):
                 routine_watchdog.check(service)
             self.assertIn("token", service._cancelled_chat_tokens)

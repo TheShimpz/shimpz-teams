@@ -32,6 +32,7 @@ from local.routine import run as routine_run
 from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
 from routine import cursor as routine_cursor
+from routine import grant as routine_grant
 from routine import plan as routine_plan
 from routine import record
 
@@ -123,10 +124,10 @@ class ExecutionTests(CompiledRunCase):
         }
         records = {"kind": "list", "items": [], "omitted": 0}
         shown = {"kind": "fields", "fields": [["pagination", pagination], ["records", records]], "omitted": 0}
-        output = {"step": "records", "state": "shown", "value": shown, "truncated": False}
+        output = {"step": 2, "state": "shown", "value": shown, "truncated": False}
         self.assertEqual(
             [(item.outcome, item.detail) for item in state.notices],
-            [("done", {"actions": record.plan_actions(value.plan), "output": output})],
+            [("done", {"plan": routine_grant.summary(value.plan, value.revision), "output": output})],
         )
         self.assertEqual(leftovers, ((), ()))
 
@@ -163,7 +164,10 @@ class ExecutionTests(CompiledRunCase):
                 self.assertEqual(self.run_without_key(service, claim)["status"], "failed")
             state = self.state(service)
         self.assertEqual(invoked, [])
-        self.assertEqual((state.notices[-1].detail, state.incidents), ({"code": "plan-pin-drift", "actions": []}, ()))
+        self.assertEqual(
+            (state.notices[-1].detail, state.incidents),
+            ({"code": "plan-pin-drift", "actions": [], "step": None, "steps": None}, ()),
+        )
 
     def test_a_human_request_freezes_mid_plan_and_the_answer_never_reruns_the_prefix(self) -> None:
         calls: list[tuple[str, str]] = []
@@ -189,7 +193,8 @@ class ExecutionTests(CompiledRunCase):
         # The replay is the same logical operation.
         self.assertEqual(calls[1][1], calls[2][1])
         detail = state.notices[-1].detail
-        self.assertEqual((detail["actions"], detail["output"]["state"]), (record.plan_actions(value.plan), "shown"))
+        summary = routine_grant.summary(value.plan, value.revision)
+        self.assertEqual((detail["plan"], detail["output"]["state"]), (summary, "shown"))
 
     def test_a_reopened_run_that_cannot_read_its_cursor_is_held_with_its_completed_prefix(self) -> None:
         """Whether a run already acted comes from durable state, never from a runtime that failed to open it."""
@@ -216,7 +221,7 @@ class ExecutionTests(CompiledRunCase):
         self.assertEqual((resumed["status"], brain.calls, calls), ("held", [], ["list-zones", "list-dns-records"]))
         self.assertEqual([item.incident_id for item in state.incidents], [run_id])
         # The unreadable cursor leaves the held notice without a step; it never blocks the incident.
-        self.assertEqual(state.notices[-1].detail, {"assistant_id": None, "action": None})
+        self.assertEqual(state.notices[-1].detail, {"assistant_id": None, "action": None, "step": None, "steps": None})
         # The completed first step and the dispatched second one stay as evidence, never cleaned up as a failure.
         self.assertEqual(recovered.cursor.step, 1)
         self.assertIsNotNone(recovered.cursor.operation_id)
@@ -399,7 +404,10 @@ class WatchdogRecoveryTests(CompiledRunCase):
             service, _run_id, actions = self.crashed(directory, patch)
             state = self.state(service)
         self.assertEqual((actions, state.incidents), ([], ()))
-        self.assertEqual([item.detail for item in state.notices], [{"code": "interrupted", "actions": []}])
+        self.assertEqual(
+            [item.detail for item in state.notices],
+            [{"code": "interrupted", "actions": [], "step": None, "steps": None}],
+        )
 
 
 class AssistantProcess:
@@ -451,7 +459,8 @@ class RealRpcTests(CompiledRunCase):
         self.assertNotEqual(first["operation_id"], second["operation_id"])
         self.assertEqual(set(first["integrations"]), {"cloudflare"})
         detail = state.notices[-1].detail
-        self.assertEqual((detail["actions"], detail["output"]["state"]), (record.plan_actions(value.plan), "shown"))
+        summary = routine_grant.summary(value.plan, value.revision)
+        self.assertEqual((detail["plan"], detail["output"]["state"]), (summary, "shown"))
 
 
 class StopTests(CompiledRunCase):
@@ -656,7 +665,7 @@ class ShownResultTests(CompiledRunCase):
                 compiled.resume(None, {"routine-step-1": RECORDS})
         self.assertEqual(
             unavailable,
-            {"step": "records", "output": routine_plan.output_state("records", "unavailable"), "digest": None},
+            {"step": "records", "output": routine_plan.output_state(2, "unavailable"), "digest": None},
         )
         self.assertEqual(lost.exception.code, "routine-cursor-unavailable")
 

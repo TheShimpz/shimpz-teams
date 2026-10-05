@@ -7,6 +7,7 @@ through their recovery cards (ADR-0092).
 
 from __future__ import annotations
 
+import re
 import time
 from http import HTTPStatus
 
@@ -59,9 +60,10 @@ def _run_id(route: strict_http.ControllerRouteMatch) -> str:
 def _machine(handler, operation: str) -> dict[str, object]:
     service = handler.server.controller.chat_turn_service
     if operation == "routine-claim":
-        if http_routine.canonical_claim_request(handler._body(max_bytes=BODY_LIMITS[operation])) is None:
+        request = http_routine.canonical_claim_request(handler._body(max_bytes=BODY_LIMITS[operation]))
+        if request is None:
             raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "Routine claim is invalid", code="invalid-body")
-        run = service.claim_routine_run()
+        run = service.claim_routine_run(request["long"])
         return {"run": run, "next_due_at": None if run is not None else service.next_routine_due()}
     if operation == "routine-notices":
         return service.routine_notices()
@@ -84,6 +86,34 @@ def _run(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict
     if body != {}:
         raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "request requires an empty object", code="invalid-body")
     return service.stop_routine(team_id, run_id)
+
+
+_COUNT_RE = re.compile(r"(?:0|[1-9][0-9]{0,9})\Z")
+
+
+def _steps(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
+    """One page of a Routine's steps, from an offset, for exactly the revision the reader names."""
+    routine_id, revision, offset = (route.params[key] for key in ("routine_id", "revision", "offset"))
+    if (
+        http_routine.ROUTINE_ID_RE.fullmatch(routine_id) is None
+        or _COUNT_RE.fullmatch(revision) is None
+        or _COUNT_RE.fullmatch(offset) is None
+        or not 1 <= int(revision) < 2**31
+    ):
+        raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine steps are unavailable", code="routine-steps-not-found")
+    service = handler.server.controller.chat_turn_service
+    return service.routine_steps(team_id, routine_id, int(revision), int(offset))
+
+
+def _run_steps(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
+    """One page of what a run did, from an offset, for exactly the snapshot of its records the reader holds."""
+    run_id, snapshot, offset = _run_id(route), route.params["snapshot"], route.params["offset"]
+    if (snapshot != "latest" and http_routine.SNAPSHOT_RE.fullmatch(snapshot) is None) or _COUNT_RE.fullmatch(
+        offset
+    ) is None:
+        raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine run steps are unavailable", code="routine-run-steps-not-found")
+    service = handler.server.controller.chat_turn_service
+    return service.routine_run_steps(team_id, run_id, snapshot, int(offset), int(time.time()))
 
 
 def _incident_id(route: strict_http.ControllerRouteMatch) -> str:
@@ -118,6 +148,8 @@ def _session(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> 
     service = handler.server.controller.chat_turn_service
     operations = {
         "routine-list": lambda: service.list_routines(team_id),
+        "routine-steps": lambda: _steps(handler, route, team_id),
+        "routine-run-steps": lambda: _run_steps(handler, route, team_id),
         "routine-diagnostics": lambda: service.routine_run_diagnostics(team_id, _run_id(route), int(time.time())),
         "routine-delete": lambda: service.delete_routine(team_id, route.params["routine_id"]),
         "routine-card-open": lambda: _card(handler, route, team_id),

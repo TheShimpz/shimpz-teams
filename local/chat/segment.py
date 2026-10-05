@@ -2,7 +2,7 @@
 
 import functools
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http import HTTPStatus
@@ -73,6 +73,21 @@ class SegmentRequest:
     # The authenticated request of a new chat turn; only while it may still change a Routine, and only without files,
     # does the Brain see the Team's Routines and its Routine tool (ADR-0092).
     routine_request: RoutineRequest | None = None
+
+
+def _observed(invoke: Callable[[], object], runtime, action_request, evidence) -> object:
+    """One Action call of a compiled run: its failure is kept, and its own time ends at its return (ADR-0092, scale).
+
+    The time ends before Team journals, seals, or projects anything of the call.
+    """
+    try:
+        return invoke()
+    except ApiProblem as exc:
+        runtime.failed(action_request, evidence, exc)
+        raise
+    finally:
+        # Every exit ends the Action's own time, a Stop's included; failed() already ended it first.
+        runtime.returned()
 
 
 def runtime_assistant(active: _ActiveAssistant, genesis: str) -> brain_runtime_client.RuntimeAssistant:
@@ -184,6 +199,7 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         routine_earlier=request.routine_request.earlier if mutable else (),
         routine_draft=_draft_parts(request.routine_request) if mutable else (),
         routine_answer=request.routine_request.answer if mutable else None,
+        routine_capacity=self._routine_capacity(request.team_id) if mutable else None,
         knowledge_writable=routine is None,
         locale=request.locale,
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),
@@ -256,23 +272,23 @@ def _run_chat_segment_with_metadata(
         transcript = action_human.transcript_for(request.transcripts, action_request.interrupt_id)
         if not isinstance(private_inputs, action_execution.RpcPrivateInputs):
             raise action_journal.ActionJournalConflictError("Action private input evidence is unavailable")
-        if request.routine is not None:
-            # A compiled run's cursor names this logical operation and its exact input before the RPC (ADR-0092).
-            request.routine.runtime.dispatching(action_request, operation_id, active.container_id)
         evidence = action_execution.ActionInvocationEvidence(
             private_inputs,
             transcript,
             action_execution.stored_input_origin(action_request),
             operation_id,
         )
-        try:
+
+        def invoke() -> object:
             return self._invoke_chat_action(
                 request.team_id, request.token, action_request, active.container_id, evidence
             )
-        except ApiProblem as exc:
-            if request.routine is not None:
-                request.routine.runtime.failed(action_request, evidence, exc)
-            raise
+
+        if request.routine is None:
+            return invoke()
+        # A compiled run's cursor names this logical operation and its exact input before the RPC (ADR-0092).
+        request.routine.runtime.dispatching(action_request, operation_id, active.container_id, evidence)
+        return _observed(invoke, request.routine.runtime, action_request, evidence)
 
     def human_requirement(
         action_request: brain_runtime_client.ActionRequest,
@@ -392,6 +408,7 @@ def _run_chat_segment_with_metadata(
             raise_problem=self._raise_chat_problem,
             human_requirement=human_requirement,
             progress=request.progress,
+            **({} if request.routine is None else request.routine.runtime.strategy()),
         ),
         message=request.message,
         continuation=request.continuation,

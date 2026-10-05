@@ -60,25 +60,30 @@ def granted(value):
     return dataclasses.replace(value, grant=grant(value.plan, value.revision))
 
 
-# A completed run's notice detail: the Actions it carried out.
-DONE = {"actions": [["dns", "check"]], "output": None}
+# A completed run's notice detail: the summary of the plan it carried out.
+DONE = {
+    "plan": {
+        "revision": 1,
+        "plan_digest": "sha256:" + "d" * 64,
+        "steps": 1,
+        "actions": [["dns", "check", 1]],
+        "more": 0,
+    },
+    "output": None,
+}
 
 
-def large_definition() -> dict[str, object]:
-    """A created notice's detail of about 70 KiB encoded: one fits a notice batch, two exceed its byte bound."""
-    inputs = [{"member": f"m{index:03d}", "source": "literal", "value": '"' * 120} for index in range(30)]
-    steps = [
-        {"id": f"s{index}", "assistant": "dns", "action": "check", "inputs": inputs, "stored_inputs": []}
-        for index in range(8)
+def large_completion() -> dict[str, object]:
+    """A completed run's detail at about its largest: a shown output near its 16 KiB bound and a full summary."""
+    from routine import grant as routine_grant
+    from routine import plan as routine_plan
+
+    plan = plan_document()
+    plan["steps"] = [
+        {**plan["steps"][0], "id": f"s{index}", "action": "check" if index % 2 else "notify"} for index in range(256)
     ]
-    output = {"mode": "show", "step": "s7"}
-    return {
-        "name": "Large",
-        "steps": steps,
-        "output": output,
-        "schedule": {"kind": "daily", "time": "09:00"},
-        "timezone": "UTC",
-    }
+    node = routine_plan.output_safe({f"k{index:02d}": "\u0001" * 300 for index in range(24)}, {})
+    return {"plan": routine_grant.summary(plan, 1), "output": routine_plan.output_shown(256, node)}
 
 
 def set_aside(service, team_id: str, incident_id: str, choice: str = "run"):

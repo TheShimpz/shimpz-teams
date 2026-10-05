@@ -392,11 +392,16 @@ class HostedChatLifecycleTests(unittest.TestCase):
 
     def test_hosted_team_context_contains_and_routes_two_active_assistants(self) -> None:
         place_action = types.SimpleNamespace(
-            summary="Find a place.", input_schema={"type": "object"}, human_requests=(), input_files=()
+            summary="Find a place.",
+            input_schema={"type": "object"},
+            output_schema={"type": "object"},
+            human_requests=(),
+            input_files=(),
         )
         weather_action = types.SimpleNamespace(
             summary="Read current weather.",
             input_schema={"type": "object"},
+            output_schema={"type": "object"},
             human_requests=(),
             input_files=(),
         )

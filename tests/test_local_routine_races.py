@@ -100,7 +100,8 @@ class NoticeTests(FrozenCase):
                 (claim["run_id"], claim["run_id"], "frozen", 1),
             )
             self.assertEqual(
-                notice.detail, {"request_kind": "human", "assistant_id": ASSISTANT, "action": "list-zones"}
+                notice.detail,
+                {"request_kind": "human", "assistant_id": ASSISTANT, "action": "list-zones", "step": 1, "steps": 1},
             )
             service.acknowledge_routine_notices(
                 {"deliveries": [{"team_id": "team_1", "notice_id": claim["run_id"], "version": 1}]}
@@ -142,7 +143,7 @@ class EndingRaceTests(FrozenCase):
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             snapshot = record.run(self.state(service), claim["run_id"])
             now = int(time.time())
-            service.routine_store.update("team_1", lambda state: record.thaw(state, claim["run_id"], now))
+            service.routine_store.update("team_1", lambda state: record.thaw(state, claim["run_id"], now, 0))
             with self.assertRaises(local_app.ApiProblem) as changed:
                 routine_human._end_changed(service, "team_1", snapshot)
             with (
@@ -175,7 +176,10 @@ class ExecutionBoundTests(RoutineServiceCase):
             claim = service.claim_routine_run()
             with mock.patch.object(routine_turn, "current_contracts", return_value={ASSISTANT: "sha256:" + "0" * 64}):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
-            self.assertEqual(self.state(service).notices[-1].detail, {"code": "team-context-changed", "actions": []})
+            self.assertEqual(
+                self.state(service).notices[-1].detail,
+                {"code": "team-context-changed", "actions": [], "step": None, "steps": None},
+            )
             self.assertEqual(runtime.contexts, [])
 
     def test_a_segment_out_of_active_time_is_stopped_and_ends_failed(self) -> None:
@@ -191,9 +195,12 @@ class ExecutionBoundTests(RoutineServiceCase):
             run = routine_run._Run("team_1", claim["run_id"], lease, "token", "openai", self.state(service).routines[0])
             # Nothing was dispatched, so a stop that ran out of active time fails the run instead of holding it.
             value = record.run(self.state(service), claim["run_id"])
-            outcome = routine_compiled._ended(service, run, value, [], stopped)
+            outcome = routine_compiled._ended(service, run, value, None, stopped)
             self.assertEqual(outcome, "failed")
-            self.assertEqual(self.state(service).notices[-1].detail, {"code": "active-time-exceeded", "actions": []})
+            self.assertEqual(
+                self.state(service).notices[-1].detail,
+                {"code": "active-time-exceeded", "actions": [], "step": None, "steps": None},
+            )
 
 
 class WatchdogRaceTests(RoutineServiceCase):

@@ -23,6 +23,7 @@ from local.errors import ApiProblemError
 from local.validation import validate_team_name
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
+from routine import plan as routine_plan
 
 SCHEMA_VERSION = 7
 MAX_INVOKED_ACTIONS = 512
@@ -30,6 +31,21 @@ MAX_IDENTITY_ASSISTANTS = 16
 MAX_IDENTITY_FILES = 8
 # A turn's wall-clock admission in epoch milliseconds, within the exact JSON integer range.
 MAX_STARTED_MS = 2**53 - 1
+# A frozen Routine run's continuation (ADR-0092 amendment, 2026-10-05, scale): what a chat continuation may hold, beside
+# the one pending request's resolved input, every step's interrupt id, and the unfinished Action's earlier answers at
+# their longest, each control character escaped to six bytes; and the record its store keeps, with its kind, its
+# release bindings, and the base64 plaintext.
+MAX_ROUTINE_PLAINTEXT_BYTES = (
+    local_chat_continuation_store.MAX_PLAINTEXT_BYTES
+    + routine_plan.MAX_RESOLVED_INPUT_BYTES
+    + routine_plan.MAX_STEPS * 32
+    + (action_human.MAX_REQUESTS_PER_ACTION - 1) * (6 * max(action_human.LENGTH_KINDS.values()) + 512)
+)
+MAX_ROUTINE_BYTES = (
+    4 * -(-MAX_ROUTINE_PLAINTEXT_BYTES // 3)
+    + local_chat_continuation_store.MAX_BINDINGS * (local_chat_continuation_store.MAX_BINDING_BYTES + 3)
+    + 256
+)
 _IMAGE = re.compile(r"(?:sha256:[0-9a-f]{64}|[^\s\x00-\x1f\x7f]{1,512}@sha256:[0-9a-f]{64})\Z")
 _NETWORK_ID = re.compile(r"[^\s\x00-\x1f\x7f]{1,256}\Z")
 _CONTAINER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}\Z")
@@ -346,8 +362,13 @@ def encode(
     kind: str,
     requirements: tuple[object, ...],
     pending: PendingLocalChat,
+    *,
+    limit: int = local_chat_continuation_store.MAX_PLAINTEXT_BYTES,
 ) -> tuple[tuple[str, ...], bytes]:
-    """Encode one authenticated plaintext payload and its AAD release bindings."""
+    """Encode one authenticated plaintext payload and its AAD release bindings, within its store's ``limit``.
+
+    A chat keeps the chat store's bound; a frozen Routine run's store derives its own (``local.routine.store``).
+    """
     body = {
         "schema": SCHEMA_VERSION,
         "kind": kind,
@@ -364,7 +385,7 @@ def encode(
         ).encode("utf-8")
     except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise ContinuationCodecError("continuation could not be encoded") from exc
-    if not 1 <= len(payload) <= local_chat_continuation_store.MAX_PLAINTEXT_BYTES:
+    if not 1 <= len(payload) <= limit:
         raise ContinuationCodecError("continuation exceeds its fixed byte limit")
     bindings = _bindings(kind, requirements, pending)
     # Never persist what a restart cannot restore: an undecodable record would stop Local Team at startup.
@@ -463,7 +484,7 @@ def _continuation(value: object) -> chat_orchestrator.ChatContinuation:
             )
         )
     round_index = raw["round_index"]
-    if type(round_index) is not int or not 0 <= round_index < chat_orchestrator.MAX_ACTION_ROUNDS:
+    if type(round_index) is not int or not 0 <= round_index < chat_orchestrator.MAX_RESUMABLE_ROUNDS:
         raise ContinuationCodecError("continuation round is malformed")
     file_actions = raw["file_actions"]
     if type(file_actions) is not int or not 0 <= file_actions <= action_files.MAX_FILE_ACTIONS_PER_TURN:

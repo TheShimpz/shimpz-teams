@@ -24,7 +24,9 @@ from protocol.http.v1 import payload as http_payload
 
 RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8080")
 TOKEN_FILE = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))
-MAX_RESPONSE_BYTES = 256 * 1024
+# A turn's whole response: a Routine outcome Brain bounds at 768 KiB (its change or question, reply, and clarification)
+# beside the turn's reply, usage, and envelope (ADR-0092 amendment, 2026-10-05, scale).
+MAX_RESPONSE_BYTES = 1024 * 1024
 MAX_REPLY_CHARS = 60_000
 MAX_ACTION_REQUESTS = 64
 MAX_ACTION_LABELS = 64
@@ -59,6 +61,9 @@ class RuntimeAction:
     authorization: bool = False
     # The input properties that carry one Team file id each (ADR-0093).
     input_files: tuple[str, ...] = ()
+    # The reviewed output schema, which only the Routine compiler reads to relate one step's result to a later step's
+    # input (ADR-0092 amendment, 2026-10-05, scale); the chat agent's tools never carry it.
+    output_schema: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +79,7 @@ def _action_wire(action: RuntimeAction) -> dict[str, object]:
         "id": action.id,
         "summary": action.summary,
         "input_schema": dict(action.input_schema),
+        "output_schema": dict(action.output_schema),
         "authorization": action.authorization,
         "input_files": list(action.input_files),
     }
@@ -109,6 +115,9 @@ class RuntimeContext:
     routine_draft: tuple[tuple[str, str], ...] = ()
     # The answer a composed reply gave to the draft's question, which the request then states instead of its message.
     routine_answer: str | None = None
+    # The daily business steps the Team leaves a new Routine (ADR-0092 amendment, 2026-10-05, scale): advisory, so the
+    # compiler offers only daily caps the Team can admit; Team rechecks at commit. Only beside ``routines``.
+    routine_capacity: int | None = None
     # False in a Routine run, whose memory and skills the Brain may read but never change.
     knowledge_writable: bool = True
     # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
@@ -217,7 +226,9 @@ MAX_REQUEST_BYTES = 4 * 1024 * 1024
 # A resume keys each result by its interrupt id: at most 256 characters, quoted, plus a colon and a comma.
 _RESULT_KEY_BYTES = 256 + 4
 CONNECT_TIMEOUT_SECONDS = 5.0
-RESPONSE_TIMEOUT_SECONDS = 65.0
+# Brain answers a turn only when it ends, and compiling a Routine of hundreds of steps may take its model up to four
+# minutes (ADR-0092 amendment, 2026-10-05, scale); Stop still aborts at once.
+RESPONSE_TIMEOUT_SECONDS = 300.0
 # An optional purpose sentence may delay a person's prompt only this long in total, connection included (ADR-0090).
 PURPOSE_DEADLINE_SECONDS = 15.0
 
@@ -311,6 +322,7 @@ class BrainRuntimeClient:
             "routine_earlier": list(context.routine_earlier),
             "routine_draft": [{"kind": kind, "text": text} for kind, text in context.routine_draft],
             "routine_answer": context.routine_answer,
+            "routine_capacity": context.routine_capacity,
             "knowledge_writable": context.knowledge_writable,
             "attachments": [dict(item) for item in context.attachments],
         }

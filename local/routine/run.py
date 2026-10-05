@@ -79,10 +79,10 @@ def _chat_busy(self, team_id: str) -> bool:
     )
 
 
-def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str):
-    """Sweep, check the oldest due Routine's pinned contracts, then lease one run of it."""
+def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str, long: bool):
+    """Sweep, check the oldest due Routine's pinned contracts, then lease one run of it, a long one only if allowed."""
     state = record.sweep(state, now)
-    due = record.claimable(state, now)
+    due = record.claimable(state, now, long)
     if due is None:
         return state, None
     pinned = dict(due.assistants)
@@ -94,7 +94,7 @@ def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str):
     if current != pinned:
         changed = sorted(assistant for assistant, digest in pinned.items() if current.get(assistant) != digest)
         return record.mark_scope_changed(state, due.routine_id, now, changed), None
-    return record.claim(state, now, key)
+    return record.claim(state, now, key, long)
 
 
 def team_provider(self, team_id: str) -> str | None:
@@ -124,22 +124,24 @@ def _readable_states(self, teams: tuple[str, ...]) -> dict[str, record.TeamRouti
     return states
 
 
-def _claim_team(self, team_id: str, now: int, key: str):
+def _claim_team(self, team_id: str, now: int, key: str, long: bool):
     """Lease one due run of the Team, or None; a Team whose state cannot be changed is audited and passed over."""
     # Teardown holds the Team lifecycle lock while it takes the Routine lock; the contract check inside the claim
     # needs the lifecycle lock too, so it is taken first here, in the same order, never inside the Routine lock.
     with self._lock(team_id):
         try:
-            return routine_state.update(self, team_id, lambda state: _claim(self, team_id, state, now, key))
+            return routine_state.update(self, team_id, lambda state: _claim(self, team_id, state, now, key, long))
         except ApiProblem, record.RoutineStateError:
             _state_unavailable(team_id)
             return None
 
 
-def claim_routine_run(self) -> dict[str, object] | None:
+def claim_routine_run(self, long: bool = True) -> dict[str, object] | None:
     """Lease one due run, choosing the least recently served Team first; None when nothing may start now.
 
     Any Team with a configured model may be claimed, whether or not Admin holds its key: a healthy run needs none.
+    Without ``long``, Admin already holds a long run in a worker, so only a short run is claimed (ADR-0092 amendment,
+    2026-10-05, scale).
     """
     try:
         key = local_authority.routine_key_fingerprint()
@@ -157,7 +159,7 @@ def claim_routine_run(self) -> dict[str, object] | None:
             except ApiProblem:
                 # Nothing more starts for this Team until what its ended runs hold is removed.
                 continue
-        claim = _claim_team(self, team_id, now, key)
+        claim = _claim_team(self, team_id, now, key, long)
         if claim is not None:
             local_audit.record_request("routine-claim", result="ok", team_id=team_id, detail=claim.run.run_id)
             return {
@@ -170,6 +172,7 @@ def claim_routine_run(self) -> dict[str, object] | None:
                 "revision": claim.revision,
                 "plan_digest": claim.plan_digest,
                 "mode": claim.mode,
+                "active_seconds": claim.active_seconds,
             }
     return None
 
@@ -196,7 +199,9 @@ def _finish(self, run: _Run, outcome: str, detail: dict[str, object], shown: dic
         try:
             return record.finish(state, run.run_id, run.lease, now, outcome, detail, shown), outcome
         except record.RoutineStateError:
-            return record.end(state, run.run_id, now, "failed", {"code": "lease-expired", "actions": []}), "failed"
+            return record.end(
+                state, run.run_id, now, "failed", {"code": "lease-expired", "actions": [], "step": None, "steps": None}
+            ), "failed"
 
     return routine_state.update(self, run.team_id, finish)
 
@@ -253,8 +258,8 @@ def _deadline_cut(self, run: _Run) -> bool:
         return registration is not None and registration.token == run.token and registration.overdue
 
 
-def suspended(self, run: _Run, segment) -> str:
-    """A compiled run paused for a person or an Integration: keep its continuation and freeze it."""
+def suspended(self, run: _Run, segment, step: int) -> str:
+    """A compiled run paused for a person or an Integration at the step ``step``: keep its continuation, freeze it."""
     outcome = segment.outcome
     pending = PendingLocalChat(
         continuation=outcome.continuation,
@@ -266,7 +271,7 @@ def suspended(self, run: _Run, segment) -> str:
         requests_used=run.requests_used,
         paused_batch=segment.paused_batch,
     )
-    return _freeze(self, run, pending, segment)
+    return _freeze(self, run, pending, segment, step)
 
 
 def _frozen_request(segment) -> tuple[str, tuple[object, ...], str, str] | None:
@@ -285,7 +290,7 @@ def _frozen_request(segment) -> tuple[str, tuple[object, ...], str, str] | None:
     return "integrations", segment.integrations, requirement.assistant_id, requirement.action_ids[0]
 
 
-def _freeze(self, run: _Run, pending: PendingLocalChat, segment) -> str:
+def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: int) -> str:
     """Keep a paused run for a human: its continuation first, then the frozen record commits the freeze."""
     team_id, run_id = run.team_id, run.run_id
     frozen = _frozen_request(segment)
@@ -294,9 +299,12 @@ def _freeze(self, run: _Run, pending: PendingLocalChat, segment) -> str:
         response.secret for transcript in pending.transcripts for response in transcript.responses
     ):
         self._commit_chat_terminal(team_id, run.token)
-        return _end(self, team_id, run_id, "failed", {"code": "request-unavailable", "actions": []})
+        placed = {"step": step, "steps": len(run.routine.plan["steps"])}
+        return _end(self, team_id, run_id, "failed", {"code": "request-unavailable", "actions": [], **placed})
     kind, requirements, assistant_id, action = frozen
-    bindings, payload = local_chat_continuations.encode(kind, requirements, pending)
+    bindings, payload = local_chat_continuations.encode(
+        kind, requirements, pending, limit=local_chat_continuations.MAX_ROUTINE_PLAINTEXT_BYTES
+    )
     blob = json.dumps(
         {"kind": kind, "bindings": list(bindings), "payload": base64.b64encode(payload).decode("ascii")},
         separators=(",", ":"),
@@ -307,12 +315,15 @@ def _freeze(self, run: _Run, pending: PendingLocalChat, segment) -> str:
 
     def freeze(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
         try:
-            return record.freeze(state, run_id, run.lease, now, kind, assistant_id, action), "frozen"
+            return record.freeze(state, run_id, run.lease, now, (kind, assistant_id, action, step)), "frozen"
         except record.RoutineStateError as exc:
             if str(exc) == "routine-deleting":
                 # The deletion stops every run it saw leased; one reaching its pause meanwhile ends stopped.
                 return record.end(state, run_id, now, "stopped", {"actions": []}), "stopped"
-            return record.end(state, run_id, now, "failed", {"code": "freeze-unavailable", "actions": []}), "failed"
+            placed = {"step": step, "steps": len(run.routine.plan["steps"])}
+            return record.end(state, run_id, now, "failed", {"code": "freeze-unavailable", "actions": [], **placed}), (
+                "failed"
+            )
 
     outcome: list[str] = []
     # The freeze is written under the guard a Stop cancels under: a Stop either wins first and the run ends stopped,

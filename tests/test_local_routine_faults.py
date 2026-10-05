@@ -74,7 +74,11 @@ class RunFaultTests(RoutineServiceCase):
             _controller, service, claim = self.paused(directory, totp)
             result = self.run_claim(service, claim)
             self.assertEqual(result["status"], "failed")
-            self.assertEqual(self.state(service).notices[-1].detail, {"code": "request-unavailable", "actions": []})
+            self.assertEqual(
+                self.state(service).notices[-1].detail,
+                # The run ends at the step that asked, by its position.
+                {"code": "request-unavailable", "actions": [], "step": 1, "steps": 1},
+            )
             self.assertEqual(service.routine_store.continuations("team_1"), ())
 
     def test_a_freeze_that_stop_wins_or_that_cannot_be_recorded_keeps_no_continuation(self) -> None:
@@ -87,7 +91,9 @@ class RunFaultTests(RoutineServiceCase):
             _controller, service, claim = self.paused(directory)
             with mock.patch.object(record, "freeze", side_effect=record.RoutineStateError("frozen-limit")):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
-            self.assertEqual(self.state(service).notices[-1].detail["code"], "freeze-unavailable")
+            detail = self.state(service).notices[-1].detail
+            # It fails at the step that asked, by its position.
+            self.assertEqual((detail["code"], detail["step"], detail["steps"]), ("freeze-unavailable", 1, 1))
             self.assertEqual(service.routine_store.continuations("team_1"), ())
 
     def test_a_missing_integration_freezes_the_run_and_a_resume_continues_it(self) -> None:
@@ -455,7 +461,10 @@ class TeamIsolationTests(RoutineServiceCase):
             routine_watchdog.check(service)
 
             state = self.state(service)
-            self.assertEqual((state.runs, state.notices[-1].detail), ((), {"code": "interrupted", "actions": []}))
+            self.assertEqual(
+                (state.runs, state.notices[-1].detail),
+                ((), {"code": "interrupted", "actions": [], "step": None, "steps": None}),
+            )
             local_app.local_audit.record.assert_any_call(
                 "routine-watchdog",
                 result="error",

@@ -40,6 +40,8 @@ from routine import pin as routine_pin
 from routine import plan as routine_plan
 from routine import record
 
+# What a step record's duration is measured with: its own clock, apart from the active-time accounting's.
+_STEP_CLOCK = time.perf_counter
 # Team-detected faults that hold a run for policy, never admitting absence or a retry (ADR-0092 section 6): a secret
 # echo, an invalid result or frame, or an undeclared human request, which Team refuses as an invalid result.
 _POLICY_CODES = frozenset({"assistant-secret-exposure", "invalid-action-output"})
@@ -76,6 +78,18 @@ class CompiledRunError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class _Attempt:
+    """The dispatched step's attempt, in memory only: its position, start, exact input, and the values Team injected."""
+
+    position: int
+    started: float
+    input: Mapping[str, object]
+    protected: tuple[str, ...]
+    # When the Action returned or raised, before Team sealed or projected anything of it.
+    ended: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class _Seal:
     """Where the run's cursor is sealed, its Team, and where each failed attempt's diagnostic is kept."""
 
@@ -104,10 +118,20 @@ class CompiledRuntime:
         self._reply = reply
         # Where each failed attempt's injected private values are kept in memory for this execution's recovery.
         self._protected = {} if protected is None else protected
+        # The dispatched step's attempt, which its step record describes once it ends (ADR-0092, 2026-10-05, scale).
+        self._attempt: _Attempt | None = None
+
+    @property
+    def plan(self) -> routine_plan.Plan:
+        return self._plan
 
     @staticmethod
     def interrupt(index: int) -> str:
         return f"routine-step-{index}"
+
+    def strategy(self) -> dict[str, object]:
+        """How the turn loop drives this run: one Action round per step, and no invoked Actions kept for learning."""
+        return {"max_rounds": len(self._plan.steps), "record_invoked": False}
 
     def _turn(self) -> brain_runtime_client.RuntimeTurn:
         if self.cursor.done(self._plan):
@@ -148,9 +172,15 @@ class CompiledRuntime:
             return self.cursor.operation_id
         return None
 
+    def returned(self) -> None:
+        """The dispatched Action returned or raised: its duration ends here, before any Team work on its result."""
+        if self._attempt is not None and self._attempt.ended is None:
+            self._attempt = dataclasses.replace(self._attempt, ended=_STEP_CLOCK())
+
     def resume(self, _context, results: Mapping[str, object]) -> brain_runtime_client.RuntimeTurn:
         """Seal the completed step's selected values, before the journal may drop its receipts, then go on."""
         result = results.get(self.interrupt(self.cursor.step))
+        dispatched = self.cursor
         try:
             advanced = advance(self._seal.store, self._seal.team_id, self.cursor, self._plan, result)
         except routine_cursor.CursorError as exc:
@@ -158,9 +188,42 @@ class CompiledRuntime:
         except routine_store.RoutineStoreError as exc:
             raise CompiledRunError("routine-cursor-unavailable") from exc
         self.seal(advanced)
+        self.record_step("done", dispatched)
         return self._turn()
 
-    def dispatching(self, request: brain_runtime_client.ActionRequest, operation_id: str, workload: str = "") -> None:
+    def record_step(self, status: str, cursor: routine_cursor.Cursor | None = None) -> None:
+        """Seal what the dispatched attempt did, once, after it ended; a record that cannot be kept is audited only.
+
+        A step record is a display record, never safety evidence: a failure to keep one never changes the run. A
+        ``stopped`` attempt was cut by Stop or the run's deadline, and says nothing about whether it acted.
+        """
+        attempt, cursor = self._attempt, cursor or self.cursor
+        if attempt is None:
+            return
+        step = self._plan.steps[attempt.position - 1]
+        inputs = routine_plan.input_preview(self._plan, step, attempt.input, cursor.selections(), attempt.protected)
+        binding = cursor.binding
+        run = routine_diagnostics.RunBinding(
+            binding.routine_id, binding.run_id, binding.revision, self._plan.digest, len(self._plan.steps)
+        )
+        # A wait has no end yet, and a verified occurrence's time is verification's, never the Action's own.
+        ended = _STEP_CLOCK() if attempt.ended is None else attempt.ended
+        elapsed = None if status in ("waiting", "recovered") else int((ended - attempt.started) * 1000)
+        self._attempt = None
+        made = (attempt.position, step.assistant_id, step.action, status, max(cursor.attempts, 1), elapsed)
+        record = routine_diagnostics.StepRecord(run, *made, int(time.time()), inputs)
+        if http_routine.encoded_bytes(record.view()) > http_routine.MAX_STEP_VIEW_BYTES:
+            record = dataclasses.replace(record, inputs=None)
+        try:
+            self._seal.diagnostics.record_step(self._seal.team_id, binding.incarnation, record, attempt.protected)
+        except routine_diagnostics.DiagnosticStoreError:
+            local_audit.record_request(
+                "routine-step-record", result="error", team_id=self._seal.team_id, detail=binding.run_id
+            )
+
+    def dispatching(
+        self, request: brain_runtime_client.ActionRequest, operation_id: str, workload: str = "", evidence=None
+    ) -> None:
         """Seal the dispatch's logical operation, exact input, and workload before its RPC; a replay keeps both."""
         if request.interrupt_id != self.interrupt(self.cursor.step):
             raise CompiledRunError("routine-step-changed")
@@ -176,6 +239,8 @@ class CompiledRuntime:
         except routine_cursor.CursorError as exc:
             raise CompiledRunError(exc.code) from exc
         self.seal(dispatched)
+        protected = () if evidence is None else routine_diagnostics.protected(evidence)
+        self._attempt = _Attempt(self.cursor.step + 1, _STEP_CLOCK(), dict(request.input), protected)
 
     def failed(
         self,
@@ -190,11 +255,13 @@ class CompiledRuntime:
         cannot be kept is audited and the failure goes on unchanged. Team's classification of the failure is safety
         evidence and is sealed in the cursor first: a cursor that cannot keep it fails the run closed.
         """
+        self.returned()
         try:
             classified = routine_cursor.failed(self.cursor, fault_of(exc))
         except routine_cursor.CursorError as error:
             raise CompiledRunError(error.code) from error
         self.seal(classified)
+        self.record_step("stopped" if getattr(exc, "code", "") == "chat-stopped" else "failed")
         # Only in memory, and only for this execution's automatic recovery: a recovered result is checked against the
         # exact private values this attempt was given, never against values a later call may have instead.
         self._protected[evidence.operation_id] = routine_diagnostics.protected(evidence)
@@ -209,6 +276,7 @@ class CompiledRuntime:
             self.cursor.attempts,
             request.assistant_id,
             request.action,
+            self.cursor.step + 1,
             int(time.time()),
             *found,
         )
@@ -227,6 +295,18 @@ class CompiledRuntime:
         return
 
 
+def record_recovered(self, team_id: str, cursor: routine_cursor.Cursor, plan: routine_plan.Plan, protected) -> None:
+    """A verified occurrence completed the held step: its record says recovered, with the inputs it was given."""
+    runtime = CompiledRuntime(_Seal(team_id, self.routine_store, self.routine_diagnostics), plan, cursor, "")
+    try:
+        step = plan.steps[cursor.step]
+        resolved = routine_plan.resolve(plan, step, cursor.selections(), cursor.started_at, lambda value: value)
+    except routine_plan.PlanError:
+        resolved = {}
+    runtime._attempt = _Attempt(cursor.step + 1, _STEP_CLOCK(), resolved, tuple(protected))
+    runtime.record_step("recovered", cursor)
+
+
 def advance(
     store: routine_store.RoutineStore,
     team_id: str,
@@ -238,7 +318,7 @@ def advance(
     shown_step = plan.shown()
     slot = None
     if not cursor.done(plan) and shown_step is not None and plan.steps[cursor.step].step_id == shown_step.step_id:
-        slot = _slot(store, team_id, cursor.binding, shown_step, result)
+        slot = _slot(store, team_id, cursor.binding, (shown_step, cursor.step + 1), result)
     return routine_cursor.complete(cursor, plan, result, slot)
 
 
@@ -246,20 +326,22 @@ def _slot(
     store: routine_store.RoutineStore,
     team_id: str,
     binding: routine_cursor.Binding,
-    step: routine_plan.Step,
+    shown: tuple[routine_plan.Step, int],
     result: object,
 ) -> dict[str, object]:
     """One shown step's result as its notice will show it, with the keyed digest a change is compared on.
 
-    A result that cannot be projected is kept as unavailable, so the run still completes and says so.
+    The output names the step by its position, as the wire does. A result that cannot be projected is kept as
+    unavailable, so the run still completes and says so.
     """
+    step, position = shown
     try:
         node = routine_plan.output_safe(result, step.output_schema)
     except routine_plan.OutputError:
-        return {"step": step.step_id, "output": routine_plan.output_state(step.step_id, "unavailable"), "digest": None}
+        return {"step": step.step_id, "output": routine_plan.output_state(position, "unavailable"), "digest": None}
     material = routine_plan.output_compared(node)
     digest = None if material is None else store.output_digest(team_id, binding, step.step_id, material)
-    return {"step": step.step_id, "output": routine_plan.output_shown(step.step_id, node), "digest": digest}
+    return {"step": step.step_id, "output": routine_plan.output_shown(position, node), "digest": digest}
 
 
 def sealed_shown(self, team_id: str, value: record.Run) -> dict[str, object] | None:
@@ -405,14 +487,19 @@ def _uncertain(self, value: record.Run, batches: list) -> bool:
         return True
 
 
-def _ended(self, run: routine_run._Run, value: record.Run, batches: list, exc: ApiProblem | CompiledRunError) -> str:
+def _ended(
+    self, run: routine_run._Run, value: record.Run, segment: RoutineSegment | None, exc: ApiProblem | CompiledRunError
+) -> str:
     """How a segment that raised ends: stopped, failed with nothing dispatched, or held for recovery.
 
     Whether anything was dispatched is read from the run's sealed cursor, snapshot, and journal, never from a runtime
     that may have failed to open them, so a reopened run that already acted is never cleaned up as a failure.
     """
-    uncertain = _uncertain(self, value, batches)
+    uncertain = _uncertain(self, value, [] if segment is None else segment.batches)
     code = exc.code
+    if code == "chat-stopped" and segment is not None:
+        # An attempt still in flight when Stop or the deadline cut the segment is recorded as stopped.
+        segment.runtime.record_step("stopped")
     if code == "chat-stopped":
         with self._active_chat_guard:
             registration = self._routine_runs.get(run.run_id)
@@ -424,9 +511,17 @@ def _ended(self, run: routine_run._Run, value: record.Run, batches: list, exc: A
         elif not uncertain:
             return routine_run._end(self, run.team_id, run.run_id, "stopped", {"actions": []})
     if not uncertain and progress(self, run.team_id, value) == "none":
-        return routine_run._end(self, run.team_id, run.run_id, "failed", {"code": code, "actions": []})
+        return routine_run._end(self, run.team_id, run.run_id, "failed", {"code": code, "actions": [], **_at(segment)})
     routine_incident.hold(self, run.team_id, run.run_id, run.lease)
     return "held"
+
+
+def _at(segment: RoutineSegment | None) -> dict[str, object]:
+    """The step a failed run stopped at, by position among its plan's steps, only once that step was dispatched."""
+    if segment is None or segment.runtime.cursor.operation_id is None:
+        return {"step": None, "steps": None}
+    runtime = segment.runtime
+    return {"step": runtime.cursor.step + 1, "steps": len(runtime.plan.steps)}
 
 
 def execute(
@@ -443,12 +538,14 @@ def execute(
         # A failed segment's active time is charged under its live lease before it is fenced, so a hold carries the
         # balance the run really has left.
         routine_run._spend(self, run.team_id, run.run_id, run.lease, int(time.monotonic() - started))
-        return _ended(self, run, value, [] if segment is None else segment.batches, exc)
+        return _ended(self, run, value, segment, exc)
     routine_run._spend(self, run.team_id, run.run_id, run.lease, int(time.monotonic() - started))
     if isinstance(outcome.outcome, chat_orchestrator.ChatOutcome):
         shown = segment.runtime.cursor.shown
         return routine_run.finished(self, run, value, lambda: _sealed_done(self, run.team_id, value), shown)
-    return routine_run.suspended(self, run, outcome)
+    # The run waits at its current step, which its notice and its step record name by position.
+    segment.runtime.record_step("waiting")
+    return routine_run.suspended(self, run, outcome, segment.runtime.cursor.step + 1)
 
 
 def run_routine(
@@ -482,7 +579,9 @@ def run_routine(
         # Rechecked in the slot: an Assistant changed since the claim never runs under a contract nobody pinned.
         refused = routine_run._context_refusal(self, team_id, dict(routine.assistants))
         if refused is not None:
-            outcome = routine_run._end(self, team_id, run_id, "failed", {"code": refused, "actions": []})
+            outcome = routine_run._end(
+                self, team_id, run_id, "failed", {"code": refused, "actions": [], "step": None, "steps": None}
+            )
         else:
             generation = routine_run._bind(self, team_id, run_id, lease)
             bound = dataclasses.replace(value, generation=generation)

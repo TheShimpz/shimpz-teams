@@ -60,7 +60,7 @@ def two_runs() -> tuple[record.TeamRoutines, str]:
     lease = record.lease_of(bound.lease_token, KEY)
     state = record.bind_generation(state, bound.run.run_id, lease, NINE, NETWORK)
     # A frozen run holds no execution slot, so the Team may lease its other due Routine.
-    state = record.freeze(state, bound.run.run_id, lease, NINE, "human", "dns", "replace-dns-record")
+    state = record.freeze(state, bound.run.run_id, lease, NINE, ("human", "dns", "check", 1))
     state, fresh = record.claim(state, NINE, KEY)
     assert fresh is not None
     return state, bound.run.run_id
@@ -115,6 +115,7 @@ class RoutineLifecycleTests(unittest.TestCase):
                 attempt=1,
                 assistant_id="dns",
                 action="replace-dns-record",
+                step=1,
                 recorded_at=NINE,
                 condition="timeout",
             ),
@@ -165,7 +166,9 @@ class RoutineLifecycleTests(unittest.TestCase):
     def test_queued_discards_are_cleaned_before_state_and_kept_when_cleanup_fails(self):
         # An ended run leaves the runs list and queues what it held; an interrupted drain leaves that queue behind.
         state, run_id = two_runs()
-        state = record.end(state, run_id, NINE, "failed", {"code": "lease-expired", "actions": []})
+        state = record.end(
+            state, run_id, NINE, "failed", {"code": "lease-expired", "actions": [], "step": None, "steps": None}
+        )
         generation = f"{NETWORK}:routine:{run_id}"
         self.assertEqual(state.discards, ((run_id, generation),))
         put(self.subject.routine_store, "team_1", state)

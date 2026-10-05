@@ -26,6 +26,7 @@ from action import journal as action_journal
 from core import strict_json
 from local import audit as local_audit
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import diagnostics as routine_diagnostics
 from local.routine import state as routine_state
 from local.routine import store as routine_store
 from local.validation import validate_team_id
@@ -232,22 +233,22 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
     return routine_state.update(self, team_id, settle)
 
 
-def _held_step(self, team_id: str, snapshot: Recovery | None) -> tuple[str, str]:
+def _held_step(self, team_id: str, snapshot: Recovery | None) -> routine_hold.HeldStep:
     """The Assistant Action the held run's sealed cursor stopped at; none when no cursor is sealed or readable.
 
     It only labels the run's notice, so a cursor that cannot be read never keeps the incident from being indexed.
     """
     if snapshot is None:
-        return "", ""
+        return routine_hold.UNKNOWN_STEP
     try:
         cursor = self.routine_store.cursor(team_id, snapshot.binding)
     except routine_store.RoutineStoreError:
-        return "", ""
+        return routine_hold.UNKNOWN_STEP
     if cursor is None:
-        return "", ""
+        return routine_hold.UNKNOWN_STEP
     steps = snapshot.plan["steps"]
-    step = steps[min(cursor.step, len(steps) - 1)]
-    return step["assistant"], step["action"]
+    index = min(cursor.step, len(steps) - 1)
+    return steps[index]["assistant"], steps[index]["action"], index + 1, len(steps)
 
 
 def reconcile_team(self, team_id: str) -> None:
@@ -325,7 +326,9 @@ def _release(self, team_id: str, item: record.Incident) -> None:
     """
     sealed = routine_state.call(lambda: self.routine_store.incident(team_id, item.incident_id))
     if sealed is not None:
-        fingerprint = read_evidence(sealed, item.incident_id)["fingerprint"]
+        held = read_evidence(sealed, item.incident_id)
+        seal_terminal(self, team_id, item.incident_id, held["recovery"])
+        fingerprint = held["fingerprint"]
         if fingerprint is not None:
             try:
                 self.action_state.release_archive(item.generation, fingerprint)
@@ -335,6 +338,31 @@ def _release(self, team_id: str, item: record.Incident) -> None:
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, item.incident_id))
     routine_state.update(self, team_id, lambda state: (routine_hold.release_incident(state, item.incident_id), None))
     self.routine_cards.discard(team_id, item.incident_id)
+
+
+def seal_terminal(self, team_id: str, run_id: str, snapshot: Recovery | None) -> None:
+    """Seal an ended run's terminal record from its sealed snapshot and cursor, before they are removed.
+
+    It proves which steps never started (ADR-0092 amendment, 2026-10-05, scale). It is a display record: when the
+    snapshot or cursor cannot prove anything, none is kept, and a failure to keep one is audited only.
+    """
+    if snapshot is None or snapshot.binding.run_id != run_id:
+        return
+    try:
+        cursor = self.routine_store.cursor(team_id, snapshot.binding)
+    except routine_store.RoutineStoreError:
+        cursor = None
+    if cursor is None or cursor.plan != snapshot.plan_digest:
+        return
+    binding = snapshot.binding
+    run = routine_diagnostics.RunBinding(
+        binding.routine_id, run_id, binding.revision, snapshot.plan_digest, len(snapshot.plan["steps"])
+    )
+    terminal = routine_diagnostics.RunRecord(run, cursor.step, cursor.operation_id is not None, int(time.time()))
+    try:
+        self.routine_diagnostics.record_run(team_id, binding.incarnation, terminal)
+    except routine_diagnostics.DiagnosticStoreError:
+        local_audit.record_request("routine-run-record", result="error", team_id=team_id, detail=run_id)
 
 
 def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:

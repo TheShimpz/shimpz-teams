@@ -43,17 +43,20 @@ def _answer(**changes: object) -> dict[str, object]:
 class RecreateCompileTests(unittest.TestCase):
     def test_only_the_message_and_current_contracts_are_sent_and_the_answer_is_closed(self) -> None:
         client = Client(_answer())
-        compiled = recreate.compile_routine(client, CREDENTIALS, _said("Todo dia às 9h, liste as zonas"), (ASSISTANT,))
+        words = _said("Todo dia às 9h, liste as zonas")
+        compiled = recreate.compile_routine(client, CREDENTIALS, words, (ASSISTANT,), 20_000)
         self.assertEqual((compiled.routine, compiled.clarification), (CHANGE, None))
         ((payload, provider, model),) = client.sent
         self.assertEqual((provider, model), CREDENTIALS[:2])
-        self.assertEqual(set(payload), {"provider", "locale", "message", "draft", "assistants"})
+        self.assertEqual(set(payload), {"provider", "locale", "message", "draft", "assistants", "capacity"})
+        # The Team's daily steps left for the recreated Routine, advisory to the compiler (ADR-0092, scale).
+        self.assertEqual(payload["capacity"], 20_000)
         self.assertEqual(payload["assistants"][0]["actions"][0]["id"], "list-zones")
         self.assertEqual((payload["message"], payload["draft"]), ("Todo dia às 9h, liste as zonas", []))
         # Every sealed part before the last goes as the compile's draft, kinds included, exactly and in order.
         cited = Client(_answer())
         words = (("cited", "liste as zonas"), ("said", "faça isso a cada 30 segundos"), ("said", "Até 100 por dia"))
-        recreate.compile_routine(cited, CREDENTIALS, words, (ASSISTANT,))
+        recreate.compile_routine(cited, CREDENTIALS, words, (ASSISTANT,), 20_000)
         self.assertEqual(cited.sent[0][0]["message"], "Até 100 por dia")
         self.assertEqual(
             cited.sent[0][0]["draft"],
@@ -64,14 +67,16 @@ class RecreateCompileTests(unittest.TestCase):
             CREDENTIALS,
             _said("x"),
             (ASSISTANT,),
+            20_000,
         )
         self.assertEqual(asked.clarification, CLARIFICATION)
         # Every closed reason the Brain compiler refuses with, including a timing outside the Routine contract.
-        for reason in ("unsupported", "schedule"):
+        for reason in ("unsupported", "schedule", "budget", "too-large"):
             refused = _answer(routine=None, reply=None, refusal=reason)
             with self.subTest(reason=reason):
                 self.assertEqual(
-                    recreate.compile_routine(Client(refused), CREDENTIALS, _said("x"), (ASSISTANT,)), reason
+                    recreate.compile_routine(Client(refused), CREDENTIALS, _said("x"), (ASSISTANT,), 20_000),
+                    reason,
                 )
 
     def test_an_invalid_request_or_answer_fails_closed(self) -> None:
@@ -85,7 +90,9 @@ class RecreateCompileTests(unittest.TestCase):
             (CREDENTIALS, (("said", "x"),) * 14, (ASSISTANT,)),
         ):
             with self.subTest(words=str(words)[:20]), self.assertRaises(brain_runtime_client.BrainRuntimeError):
-                recreate.compile_routine(Client(_answer()), credentials, words, assistants)
+                recreate.compile_routine(Client(_answer()), credentials, words, assistants, 20_000)
+        with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+            recreate.compile_routine(Client(_answer()), CREDENTIALS, _said("x"), (ASSISTANT,), "20000")
         for answer in (
             None,
             {**_answer(), "extra": 1},
@@ -96,7 +103,7 @@ class RecreateCompileTests(unittest.TestCase):
             _answer(routine={**CHANGE, "question": {}}, clarification={"question": "?"}),
         ):
             with self.subTest(answer=answer), self.assertRaises(brain_runtime_client.BrainRuntimeError):
-                recreate.compile_routine(Client(answer), CREDENTIALS, _said("x"), (ASSISTANT,))
+                recreate.compile_routine(Client(answer), CREDENTIALS, _said("x"), (ASSISTANT,), 20_000)
 
 
 class RuntimeClientCompileTests(unittest.TestCase):
@@ -109,7 +116,7 @@ class RuntimeClientCompileTests(unittest.TestCase):
         usage = dict.fromkeys(brain_runtime_client.brain_usage.FIELDS, 0)
         client = self.client({**_answer(), "usage": usage})
         with mock.patch.object(brain_runtime_client.brain_usage, "record") as metered:
-            compiled = recreate.compile_routine(client, CREDENTIALS, _said("x"), (ASSISTANT,))
+            compiled = recreate.compile_routine(client, CREDENTIALS, _said("x"), (ASSISTANT,), 20_000)
         self.assertEqual(compiled.routine, CHANGE)
         self.assertEqual(client._post.call_args.args[0], "/v1/routine-compile")
         metered.assert_called_once_with("routine-compile", "openai", "gpt-6.1-sol", mock.ANY)
@@ -119,7 +126,7 @@ class RuntimeClientCompileTests(unittest.TestCase):
                 mock.patch.object(brain_runtime_client.brain_usage, "record") as unmetered,
                 self.assertRaises(brain_runtime_client.BrainRuntimeError),
             ):
-                recreate.compile_routine(self.client(answer), CREDENTIALS, _said("x"), (ASSISTANT,))
+                recreate.compile_routine(self.client(answer), CREDENTIALS, _said("x"), (ASSISTANT,), 20_000)
             unmetered.assert_not_called()
 
 

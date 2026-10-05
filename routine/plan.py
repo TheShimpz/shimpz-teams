@@ -1,15 +1,16 @@
 """The compiled plan of a Routine and the resolution of each step's inputs, without I/O (ADR-0092 section 3).
 
-A plan is versioned declarative JSON: at most eight ordered steps, each naming one exact Assistant Action by its
-complete pin and giving each top-level input member exactly one value: a ``literal``, a ``run_clock`` token rendered
-from the run's one immutable start instant in the plan's timezone, or a ``step_output`` that copies one JSON value,
-selected by an RFC 6901 pointer, from a completed earlier step of the same run. There is no coercion, interpolation,
-expression, branch, loop, or cross-run lookup. Outputs can only fill inputs: they never choose an Assistant, an Action,
-a schedule, or a step. A missing path, an invalid index or escape, and a value its destination schema refuses (null
-included) fail closed. Only the selected values are retained, never a complete output, and a literal that a secret
-belongs in is refused: such a value must be the Action's declared Stored Input. An Action that declares a file input
-is refused in v1: a Routine holds no file grant, so no literal id or copied output may stand for an attached file
-(ADR-0093).
+A plan is versioned declarative JSON: at most 256 ordered steps (its admission budget below), each naming one exact
+Assistant Action by its complete pin, the same Action as often as the person asks with its own inputs, and giving each
+top-level input member it holds exactly one value: a ``literal``, a ``run_clock`` token rendered from the run's one
+immutable start instant in the plan's timezone, or a ``step_output`` that copies one JSON value, selected by an RFC 6901
+pointer, from a completed earlier step of the same run. Every required member is present; an optional one only when the
+person set it. There is no coercion, interpolation, expression, branch, loop, or cross-run lookup. Outputs can only fill
+inputs: they never choose an Assistant, an Action, a schedule, or a step. A missing path, an invalid index or escape,
+and a value its destination schema refuses (null included) fail closed. Only the selected values are retained, never a
+complete output, and a literal that a secret belongs in is refused: such a value must be the Action's declared Stored
+Input. An Action that declares a file input is refused in v1: a Routine holds no file grant, so no literal id or copied
+output may stand for an attached file (ADR-0093).
 
 A plan also states what a completed run does with its result (ADR-0092 amendment, 2026-10-05, output): ``show`` one
 step's result to the person after every run, show it only when it ``changes``, hand it to a later step (``chain``), or
@@ -36,8 +37,46 @@ from protocol.http.v1 import routine as http_routine
 from routine import schedule
 
 VERSION = 2
-MAX_STEPS = 8
-MAX_PLAN_BYTES = 64 * 1024
+
+# The one admission budget (ADR-0092 amendment, 2026-10-05, scale). A plan holds at most 256 steps and one Action may
+# repeat with its own inputs. Every other bound of a Routine's scale is stated here or derives from these, so none is
+# an isolated maximum: a definition (its canonical plan and grant) fits its Routine's share and the Team's aggregate, so
+# the Team's one state file holds every Routine at its bound; a step's resolved input fits one frozen continuation; a
+# revision's active time grows with its steps up to a ceiling; and the business steps a Team's runs may start in any
+# rolling 24 hours are capped. The wire bounds live in the standalone Team HTTP protocol, which this reads, never the
+# reverse.
+MAX_STEPS = http_routine.MAX_ROUTINE_STEPS
+# The canonical plan document of one revision.
+MAX_PLAN_BYTES = 256 * 1024
+# One Routine's canonical plan and grant together; the grant repeats per input what granted it, so it is bounded here
+# rather than compacted.
+MAX_DEFINITION_BYTES = 512 * 1024
+# Every definition a Team holds, together: at most two Routines at their own bound, or many smaller ones.
+TEAM_DEFINITION_BYTES = 1024 * 1024
+# One step's fully resolved input, canonical: literals, run-clock tokens, and values earlier steps returned. A larger
+# one is refused before its dispatch, so a frozen run's continuation always holds its one pending request.
+MAX_RESOLVED_INPUT_BYTES = 128 * 1024
+# The business steps a Team's runs may start in any rolling 24 hours. Each start reserves its revision's whole step
+# count; verifier calls and the one retry are bounded apart by each run's recovery budgets, and a continuation after a
+# hold or a person's answer starts nothing.
+MAX_DAILY_STEPS = 20_000
+# A claimed run must start its segment within this window; the segment then extends its lease over its active time.
+START_LEASE_SECONDS = 900
+LEASE_MARGIN_SECONDS = 300
+SHORT_ACTIVE_SECONDS = http_routine.SHORT_ACTIVE_SECONDS
+MAX_ACTIVE_SECONDS = http_routine.MAX_ACTIVE_SECONDS
+
+
+def active_seconds(steps: int) -> int:
+    """The active time one run of a revision with ``steps`` steps may spend, which a hold never refills."""
+    return http_routine.active_seconds(steps)
+
+
+def long_run(steps: int) -> bool:
+    """Whether a run of this many steps is long: Admin's workers hold at most one long run at a time."""
+    return active_seconds(steps) > SHORT_ACTIVE_SECONDS
+
+
 MAX_RETAINED_BYTES = 128 * 1024
 MAX_POINTER = 256
 STEP_ID_RE = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
@@ -88,6 +127,8 @@ class Step:
     inputs: Mapping[str, Mapping[str, object]]
     # The Action's reviewed output schema, which orders and redacts a shown result; never part of the document.
     output_schema: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+    # The Action's reviewed input schema, which redacts the inputs a run's step record shows; never in the document.
+    input_schema: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +138,10 @@ class Plan:
     digest: str
     # What a completed run does with its result: {"mode": one of OUTPUT_MODES, "step": the shown step id or None}.
     output: Mapping[str, object] = dataclasses.field(default_factory=lambda: {"mode": "none", "step": None})
+
+    def position(self, step_id: str) -> int:
+        """A step's 1-based position, which names it on the wire (ADR-0092 amendment, 2026-10-05, scale)."""
+        return next(index for index, step in enumerate(self.steps, start=1) if step.step_id == step_id)
 
     def shown(self) -> Step | None:
         """The step whose result a completed run shows, or None when the plan shows none."""
@@ -228,7 +273,8 @@ def _step(raw: object, contracts: Mapping[tuple[str, str], ActionContract], earl
         raise PlanError("plan-secret-literal")
     for name, source in inputs.items():
         _typed(name, source, schema)
-    return Step(step_id, assistant_id, action, pin, copy.deepcopy(inputs), copy.deepcopy(contract.output_schema))
+    schemas = (copy.deepcopy(contract.output_schema), copy.deepcopy(dict(schema)))
+    return Step(step_id, assistant_id, action, pin, copy.deepcopy(inputs), *schemas)
 
 
 def _matches(value: object, pattern: re.Pattern[str]) -> bool:
@@ -308,6 +354,8 @@ def secret_position(root: Mapping[str, Any], name: str, candidates: list[Mapping
 
 # Stands for an input member that a run fills, not a literal: it counts for presence and is never checked as a secret.
 _NOT_LITERAL = object()
+# Stands for a value not at hand, such as an earlier step's output on the way to the value a pointer selects.
+UNKNOWN = object()
 # Applicators whose effect at a position is not modelled; anything they reach that could hold a secret refuses.
 _UNMODELLED = frozenset({"if", "then", "else", "not", "contains", "unevaluatedItems", "contentSchema", "propertyNames"})
 
@@ -337,8 +385,9 @@ def applicable(root: Mapping[str, Any], subschema: object, depth: int, value: ob
         if isinstance(subschema.get(combinator), list):
             members.extend(subschema[combinator])
     dependent = subschema.get("dependentSchemas")
-    if isinstance(dependent, dict) and isinstance(value, dict):
-        members.extend(dependent[key] for key in value if key in dependent)
+    if isinstance(dependent, dict) and (value is UNKNOWN or isinstance(value, dict)):
+        # A position whose value is unknown may hold any member, so every dependent schema applies.
+        members.extend(item for key, item in dependent.items() if value is UNKNOWN or key in value)
     found: list[Mapping[str, Any]] = [subschema]
     for member in members:
         found.extend(applicable(root, member, depth + 1, value))
@@ -490,6 +539,9 @@ def resolve(
             resolved[name] = chosen if source["kind"] == "step_output" else _text_within(chosen)
         else:
             raise PlanError("plan-reference-missing")
+    if len(canonical(resolved)) > MAX_RESOLVED_INPUT_BYTES:
+        # A frozen run's continuation keeps its one pending request whole, so a larger input never dispatches.
+        raise PlanError("plan-input-too-large")
     try:
         validate(resolved)
     except ValueError as exc:
@@ -744,3 +796,125 @@ def _output_text(node: dict[str, object], chars: int) -> tuple[dict[str, object]
     if len(text) <= chars:
         return {"kind": "text", "value": text, "cut": False}, False
     return {"kind": "text", "value": text[: max(chars - 1, 0)] + "…", "cut": True}, True
+
+
+# What a run's step record shows of the inputs one attempt was given (ADR-0092 amendment, 2026-10-05, scale): each
+# member as the escaped preview of a redacted copy of its value. A value copied from an earlier step is first walked
+# under that step's reviewed output schema along its pointer, so a secret position on the way withholds the whole
+# preview and one inside it is redacted; every member is then redacted under the Action's own input schema, every
+# credential-shaped string or key is redacted, and every string holding a value Team injected into the attempt is
+# redacted, all before any cut. A ``step_text`` member shows the value it was rendered from, never the flattened text.
+INPUT_REDACTED = "[redacted]"
+
+
+def input_preview(
+    plan: Plan, step: Step, resolved: Mapping[str, object], selected: Mapping[tuple[str, str], object], protected
+) -> list[dict[str, object]]:
+    """Each input member of one attempt, sorted, as ``{member, source, value}`` with a redacted preview or None."""
+    previews = []
+    for member in sorted(step.inputs):
+        source = step.inputs[member]
+        try:
+            value = _shown_input(plan, step, member, resolved, selected, tuple(protected))
+        except PlanError, RecursionError, KeyError, TypeError, ValueError:
+            value = _WITHHELD
+        preview = None if value is _WITHHELD else http_routine.literal_preview(value)
+        previews.append({"member": member, "source": source["kind"], "value": preview})
+    return previews
+
+
+_WITHHELD = object()
+
+
+def _shown_input(plan, step, member, resolved, selected, protected) -> object:
+    source = step.inputs[member]
+    value = resolved[member]
+    if source["kind"] in BINDINGS:
+        origin = next(item for item in plan.steps if item.step_id == source["step"])
+        root = dict(origin.output_schema)
+        subschema = _pointed(root, source["pointer"])
+        if subschema is None:
+            return _WITHHELD
+        tokens = pointer_tokens(source["pointer"])
+        name = tokens[-1] if tokens else ""
+        value = _redacted(selected[(source["step"], source["pointer"])], root, subschema, name, 0)
+    root = dict(step.input_schema)
+    member_schema = member_schemas(applicable(root, root, 0, dict(resolved)), member)
+    # Every schema is walked against the original keys first; injected values and keys are scrubbed only after.
+    return _scrubbed(_redacted(value, root, member_schema, member, 0), protected)
+
+
+def _pointed(root: dict, pointer: str) -> dict | None:
+    """The subschemas a pointer reaches in a source output schema, or None when a position on its way may be secret.
+
+    The root and every position on the way count, each with every dependent schema it might apply.
+    """
+    subschema: object = root
+    if secret_position(root, "", applicable(root, root, 0, UNKNOWN)):
+        return None
+    for token in pointer_tokens(pointer) or ():
+        candidates = applicable(root, subschema, 0, UNKNOWN)
+        reached = member_schemas(candidates, token)
+        if _INDEX_RE.fullmatch(token) is not None:
+            reached["allOf"].extend(item_schemas(candidates, int(token))["allOf"])
+        if secret_position(root, token, applicable(root, reached, 0, UNKNOWN)):
+            return None
+        subschema = reached
+    return subschema if isinstance(subschema, dict) else {}
+
+
+def _scrubbed(value: object, protected: tuple[str, ...]) -> object:
+    """The value with injected values and their keys, and credential-shaped keys, hidden; after every schema walk.
+
+    It works structurally, before any encoding, so no escaping can carry an injected value past it.
+    """
+    if isinstance(value, str):
+        return INPUT_REDACTED if any(secret and secret in value for secret in protected) else value
+    if isinstance(value, list):
+        return [_scrubbed(item, protected) for item in value]
+    if isinstance(value, dict):
+
+        def hidden(key: str) -> bool:
+            return assistant_manifest.resembles_credential(key) or any(secret and secret in key for secret in protected)
+
+        names = _hidden(value, hidden)
+        return {names[key]: _scrubbed(item, protected) for key, item in value.items()}
+    return value
+
+
+def _hidden(value: dict, hide: Callable[[str], bool]) -> dict[str, str]:
+    """Each key mapped to itself or, when hidden, to a redacted name no other key of the value holds."""
+    taken, names, count = set(value), {}, 0
+    for key in sorted(value):
+        if not hide(key):
+            names[key] = key
+            continue
+        while f"{INPUT_REDACTED} {count}" in taken:
+            count += 1
+        names[key] = f"{INPUT_REDACTED} {count}"
+        taken.add(names[key])
+    return names
+
+
+def _redacted(value: object, root: dict, subschema: object, name: str, depth: int) -> object:
+    """A copy with every secret position, credential-shaped string, and credential-shaped key redacted."""
+    if depth > MAX_SAFE_OUTPUT_DEPTH:
+        return INPUT_REDACTED
+    candidates = applicable(root, subschema, 0, value)
+    if secret_position(root, name, candidates):
+        return INPUT_REDACTED
+    if isinstance(value, dict):
+        # Keys stay as they are, so a later schema walk still sees every member; only the final scrub renames them.
+        return {
+            key: INPUT_REDACTED
+            if assistant_manifest.resembles_credential(key)
+            else _redacted(item, root, member_schemas(candidates, key), key, depth + 1)
+            for key, item in sorted(value.items())
+        }
+    if isinstance(value, list):
+        return [
+            _redacted(item, root, item_schemas(candidates, index), name, depth + 1) for index, item in enumerate(value)
+        ]
+    if isinstance(value, str) and assistant_manifest.resembles_credential(value):
+        return INPUT_REDACTED
+    return value

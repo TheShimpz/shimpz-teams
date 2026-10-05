@@ -96,7 +96,7 @@ class SupervisorQuietWindowTests(unittest.TestCase):
             list_teams=lambda: {"teams": []},
             create_team=lambda team_id, team_name: {"team_id": team_id, "team_name": team_name},
             chat_turn_service=SimpleNamespace(
-                claim_routine_run=lambda: None,
+                claim_routine_run=lambda _long: None,
                 next_routine_due=lambda: None,
                 routine_notices=lambda: {"notices": []},
             ),
@@ -159,7 +159,7 @@ class SupervisorQuietWindowTests(unittest.TestCase):
     def test_machine_calls_supervisor_reads_and_refused_authority_stay_idle(self) -> None:
         self.assertEqual(self.request("GET", "/healthz"), 200)
         self.assertEqual(self.request("GET", "/v1/activity"), 200)
-        self.assertEqual(self.request("POST", "/v1/routines/claim", {}), 200)
+        self.assertEqual(self.request("POST", "/v1/routines/claim", {"long": True}), 200)
         self.assertEqual(self.request("GET", "/v1/routines/notices"), 200)
         self.assertEqual(self.request("GET", "/v1/teams"), 200)
         with mock.patch.object(server.local_authority, "verify", side_effect=local_authority.SupervisorDeniedError):

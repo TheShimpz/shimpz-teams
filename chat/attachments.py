@@ -31,6 +31,7 @@ def runtime_action(action_id: str, action: ActionSpec) -> brain_runtime_client.R
         input_schema=action.input_schema,
         authorization=any(kind in input_file_validator.AUTHORIZATION_REQUESTS for kind in action.human_requests),
         input_files=tuple(action.input_files),
+        output_schema=action.output_schema,
     )
 
 

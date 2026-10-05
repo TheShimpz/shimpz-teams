@@ -25,6 +25,7 @@ from local.routine import source as routine_source
 from local.routine import turn as routine_turn
 from local.routine import watchdog as routine_watchdog
 from protocol.http.v1 import routine as http_routine
+from routine import plan as routine_plan
 from routine import record
 from routine import request as routine_request
 
@@ -273,6 +274,8 @@ class RodarTests(CardCase):
                 request_kind="human",
                 assistant_id=ASSISTANT,
                 action="list-zones",
+                step=1,
+                steps=1,
             )
             service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, runs=(busy,)), None))
             self.refused(service, run_id, "run", "routine-busy")
@@ -303,6 +306,8 @@ class RecriarTests(CardCase):
         )
         self.assertEqual(payload["provider"]["api_key"], CREDENTIAL[1])
         self.assertEqual([item["id"] for item in payload["assistants"]], [ASSISTANT])
+        # The Team's daily steps with the replaced Routine's own allocation back (ADR-0092, 2026-10-05, scale).
+        self.assertEqual(payload["capacity"], routine_plan.MAX_DAILY_STEPS)
         (routine,) = state.routines
         self.assertEqual(
             (routine.routine_id, routine.revision, routine.paused, routine.timezone),
@@ -631,7 +636,7 @@ class AuditFollowUpTests(CardCase):
                 run_id,
                 "held",
                 0,
-                {"assistant_id": ASSISTANT, "action": "create-record"},
+                {"assistant_id": ASSISTANT, "action": "create-record", "step": 2, "steps": 2},
                 1,
                 "Every day at 9",
             )

@@ -81,6 +81,9 @@ class SegmentStrategy:
     ).throw(chat_orchestrator.ChatOrchestrationError("Action human requests are unavailable"))
     finalize: Callable[[], None] = lambda: None
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
+    # A compiled Routine run's own round limit and its choice to keep no invoked Actions (ADR-0092, 2026-10-05, scale).
+    max_rounds: int = chat_orchestrator.MAX_ACTION_ROUNDS
+    record_invoked: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +232,8 @@ def drive(
         cancelled=strategy.cancelled,
         validate_context=strategy.validate_context,
         progress=strategy.progress,
+        max_rounds=strategy.max_rounds,
+        record_invoked=strategy.record_invoked,
     )
     if continuation is None:
         outcome = chat_orchestrator.run_until_pause(

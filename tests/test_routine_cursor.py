@@ -122,7 +122,7 @@ class CursorTests(unittest.TestCase):
             routine_plan.canonical({**document, "budgets": {**document["budgets"], "retries": 2}}),
             routine_plan.canonical({**document, "attempts": 0}),
             routine_plan.canonical({**document, "commitment": None}),
-            routine_plan.canonical({**document, "step": 9}),
+            routine_plan.canonical({**document, "step": routine_plan.MAX_STEPS + 1}),
             routine_plan.canonical({**document, "plan": "sha256:x"}),
             routine_plan.canonical({**document, "selected": [["publish", "/id", 1], ["publish", "/id", 2]]}),
             routine_plan.canonical({**document, "selected": [["Publish", "/id", 1]]}),

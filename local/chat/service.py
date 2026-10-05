@@ -247,6 +247,7 @@ class ChatTurnService:
     _relocalized_human = local_chat_human.relocalized
     _expire_human_challenges = local_chat_human._expire_human_challenges
     _chat_routines = local_routine_turn.chat_routines
+    _routine_capacity = local_routine_turn.routine_capacity
     _routine_change = local_routine_turn.admit_change
     _routine_question = local_routine_question.admit
     _routine_need = local_routine_turn.admit_need
@@ -261,6 +262,7 @@ class ChatTurnService:
     run_routine = local_routine_compiled.run_routine
     _stop_routine_run = local_routine_run.halt_routine_run
     list_routines = local_routine_manage.list_routines
+    routine_steps = local_routine_manage.routine_steps
     delete_routine = local_routine_manage.delete_routine
     open_routine_challenge = local_routine_human.open_routine_challenge
     resume_routine_human = local_routine_human.resume_routine_human
@@ -271,6 +273,7 @@ class ChatTurnService:
     acknowledge_routine_notices = local_routine_notices.acknowledge_notices
     stop_routine = local_routine_notices.stop_routine
     routine_run_diagnostics = local_routine_diagnostics.run_diagnostics
+    routine_run_steps = local_routine_diagnostics.run_steps
 
     _invoke_chat_action = local_chat_execution._invoke_chat_action
     _chat_identity = staticmethod(local_chat_execution._chat_identity)

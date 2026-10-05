@@ -18,7 +18,18 @@ from protocol.http.v1 import payload as http_payload
 from routine import request as routine_request
 
 REFUSALS = frozenset(
-    {"not-recurring", "quoted", "secret", "unspecified", "unsupported", "schedule", "unproven", "unavailable"}
+    {
+        "not-recurring",
+        "quoted",
+        "secret",
+        "unspecified",
+        "unsupported",
+        "schedule",
+        "unproven",
+        "unavailable",
+        "budget",
+        "too-large",
+    }
 )
 
 
@@ -51,12 +62,14 @@ def compile_routine(
     credentials: tuple[str, str, str],
     parts: tuple[routine_request.Part, ...],
     assistants: Sequence[RuntimeAssistant],
+    capacity: int,
 ) -> Compiled | str:
     """``credentials`` is the Team's provider, model, and key; returns the change or the closed refusal reason.
 
     ``parts`` are the Routine's sealed words, oldest first: the last is the compile's message and the others its draft.
+    ``capacity`` is the daily business steps the Team leaves the recreated Routine, advisory to the compiler.
     """
-    if not _valid(credentials, parts, assistants):
+    if not _valid(credentials, parts, assistants) or type(capacity) is not int:
         raise BrainRuntimeError("Brain runtime Routine compile request is invalid")
     provider, model, api_key = credentials
     payload = {
@@ -64,6 +77,7 @@ def compile_routine(
         "locale": None,
         "message": parts[-1][1],
         "draft": [{"kind": kind, "text": text} for kind, text in parts[:-1]],
+        "capacity": capacity,
         "assistants": [
             {
                 "id": assistant.id,

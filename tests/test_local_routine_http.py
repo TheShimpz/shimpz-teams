@@ -18,7 +18,7 @@ import routine_fixture
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from test_local_authority import _claims, _segment
-from test_local_chat_scope import LOOKUP_RESULT
+from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 from test_local_routine_service import (
     API_KEY,
     API_KEY_SHA256,
@@ -42,7 +42,8 @@ from tests import human_request_fixtures
 
 TOKEN = "t" * 43
 EMPTY = b"{}"
-CLAIM = b"{}"
+# Admin claims saying whether it can take a long run now (ADR-0092 amendment, 2026-10-05, scale).
+CLAIM = b'{"long":true}'
 
 
 class RoutineHttpCase(RoutineServiceCase):
@@ -183,7 +184,7 @@ class SchedulerRouteTests(RoutineHttpCase):
             status, _type, raw = self.request("POST", "/v1/routines/claim", b'{"any":1}')
             self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
             # No model key gates a claim any more: the retired providers list is refused like any other body.
-            for invalid in (b'{"providers":["openai"]}', b'{"providers":[]}', b"[]"):
+            for invalid in (b'{"providers":["openai"]}', b'{"providers":[]}', b"[]", b"{}", b'{"long":1}'):
                 status, _type, raw = self.request("POST", "/v1/routines/claim", invalid)
                 self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
             status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
@@ -347,6 +348,7 @@ class SessionRouteTests(RoutineHttpCase):
                 attempt=1,
                 assistant_id="shimpz-cloudflare",
                 action="list-zones",
+                step=1,
                 recorded_at=int(time.time()),
                 condition="stderr-output",
             )
@@ -481,10 +483,12 @@ class NoticeBacklogTests(RoutineHttpCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.serve(directory, Runtime())
             value = self.routine(service)
-            large = routine_fixture.large_definition()
+            large = routine_fixture.large_completion()
             notices = tuple(
-                record.Notice(f"{index:032x}", value.routine_id, "", "created", int(time.time()), large, 1, value.quote)
-                for index in range(9)
+                record.Notice(
+                    f"{index:032x}", value.routine_id, f"{index:032x}", "done", int(time.time()), large, 1, value.quote
+                )
+                for index in range(20)
             )
             service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, notices=notices), None))
             delivered = 0
@@ -505,7 +509,7 @@ class NoticeBacklogTests(RoutineHttpCase):
                 self.assertEqual(status, 200)
                 delivered += len(deliveries)
                 more = batch["more"]
-            self.assertEqual((delivered, self.state(service).notices), (9, ()))
+            self.assertEqual((delivered, self.state(service).notices), (20, ()))
 
 
 class ProtocolViewTests(RoutineHttpCase):
@@ -542,25 +546,55 @@ class ProtocolViewTests(RoutineHttpCase):
 
 
 class RoutineListBoundTests(RoutineHttpCase):
-    def test_a_team_at_its_routine_limit_lists_every_plan_admitted_at_its_bound(self) -> None:
-        """Eight Routines whose plans fill their admission bound list whole, past every other route's response cap."""
+    def test_a_team_at_its_routine_limit_lists_every_routine_by_its_summary_and_pages_its_steps(self) -> None:
+        """Eight Routines of 256 steps list whole by their summaries; each one's steps are read page by page (scale)."""
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.serve(directory, Runtime())
-            inputs = {f"m{index:03d}": "ordinary public value " * 5 for index in range(http_routine.MAX_STEP_INPUTS)}
-            plan = self.plan(service, *((f"s{index}", "list-zones", inputs) for index in range(6)))
-            self.assertLessEqual(len(routine_plan.canonical(plan)), routine_plan.MAX_PLAN_BYTES)
-            for _index in range(http_routine.MAX_ROUTINES):
-                self.routine(service, plan=plan)
+            steps = tuple(
+                (f"s{index}", "list-zones" if index % 2 else "list-dns-records", LOOKUP_INPUT)
+                for index in range(routine_plan.MAX_STEPS)
+            )
+            plan = self.plan(service, *steps)
+            # Two Routines of 256 steps fill most of the Team's definition budget; the others are small.
+            routines = [self.routine(service, plan=plan) for _index in range(2)]
+            routines += [self.routine(service) for _index in range(http_routine.MAX_ROUTINES - 2)]
             with mock.patch.object(local_authority, "verify", return_value=self.session):
                 status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
             self.assertEqual(status, 200)
-            # Larger than Admin's 256 KiB cap for every other Team response, within the list's own allowance.
-            self.assertGreater(len(raw), 256 * 1024)
             self.assertLessEqual(len(raw), http_routine.MAX_ROUTINE_LIST_BYTES)
             listed = json.loads(raw)
             self.assertEqual(len(listed["routines"]), http_routine.MAX_ROUTINES)
             for item in listed["routines"]:
                 self.assertEqual(http_routine.canonical_routine_view(item), item)
+            summaries = [
+                (item["plan"]["steps"], len(item["plan"]["actions"]), item["plan"]["more"])
+                for item in listed["routines"]
+            ]
+            self.assertEqual(sorted(summaries)[-2:], [(256, 16, 240), (256, 16, 240)])
+            # The steps of one revision, page by page, each whole and in order, and only for that revision.
+            first = routines[0]
+            base = f"/v1/teams/team_1/routines/{first.routine_id}/revisions"
+            positions, offset = [], 0
+            with mock.patch.object(local_authority, "verify", return_value=self.session):
+                while offset is not None:
+                    status, _type, raw = self.request("GET", f"{base}/{first.revision}/steps/{offset}")
+                    page = {key: value for key, value in json.loads(raw).items() if key != "trace_id"}
+                    self.assertEqual((status, http_routine.canonical_page(page)), (200, page))
+                    positions.extend(step["position"] for step in page["steps"])
+                    offset = page["next"]
+                for path, code in (
+                    (f"{base}/{first.revision + 1}/steps/0", "routine-revision-changed"),
+                    (f"{base}/{first.revision}/steps/256", "routine-steps-not-found"),
+                    (f"{base}/0/steps/0", "routine-steps-not-found"),
+                    (f"{base}/01/steps/0", "routine-steps-not-found"),
+                    (f"{base}/{first.revision}/steps/-1", "routine-steps-not-found"),
+                    (f"/v1/teams/team_1/routines/{'f' * 32}/revisions/1/steps/0", "routine-not-found"),
+                    (f"/v1/teams/team_1/routines/{'F' * 32}/revisions/1/steps/0", "routine-steps-not-found"),
+                ):
+                    with self.subTest(path=path):
+                        status, _type, raw = self.request("GET", path)
+                        self.assertEqual(json.loads(raw)["code"], code)
+            self.assertEqual(positions, list(range(1, 257)))
             # Every other Routine route keeps the API cap: the same body there is refused whole.
             large = {"team_id": "team_1", "padding": "x" * server.MAX_API_RESPONSE_BYTES}
             diagnostics = f"/v1/teams/team_1/routines/runs/{'0' * 32}/diagnostics"
@@ -570,3 +604,23 @@ class RoutineListBoundTests(RoutineHttpCase):
             ):
                 status, _type, raw = self.request("GET", diagnostics)
             self.assertEqual((status, raw), (500, b'{"error":"response exceeded its limit"}'))
+
+
+class RunStepsRouteTests(RoutineHttpCase):
+    def test_a_runs_step_page_is_read_only_for_a_valid_snapshot_and_offset(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.serve(directory, Runtime())
+            base = f"/v1/teams/team_1/routines/runs/{'d' * 32}/steps"
+            view = {"team_id": "team_1", "run_id": "d" * 32}
+            with (
+                mock.patch.object(local_authority, "verify", return_value=self.session),
+                mock.patch.object(service, "routine_run_steps", return_value=view) as read,
+            ):
+                for path in (f"{base}/LATEST/0", f"{base}/{'g' * 32}/0", f"{base}/latest/-1", f"{base}/latest/01"):
+                    with self.subTest(path=path):
+                        status, _type, raw = self.request("GET", path)
+                        self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-run-steps-not-found"))
+                read.assert_not_called()
+                status, _type, raw = self.request("GET", f"{base}/{'a' * 32}/64")
+            self.assertEqual(status, 200)
+            self.assertEqual(read.call_args.args[:4], ("team_1", "d" * 32, "a" * 32, 64))

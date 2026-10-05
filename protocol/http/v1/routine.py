@@ -8,13 +8,14 @@ import json
 import math
 import re
 import unicodedata
+from collections.abc import Callable
 from fractions import Fraction
 
 MAX_ROUTINES = 8
 MAX_ROUTINE_QUOTE_CHARS = 500
 MAX_ROUTINE_NAME_CHARS = 80
-# The ordered Actions of a compiled plan (ADR-0092 section 3).
-MAX_ROUTINE_STEPS = 8
+# The ordered Actions of a compiled plan (ADR-0092 section 3, amended 2026-10-05 for scale): one Action may repeat.
+MAX_ROUTINE_STEPS = 256
 # A Team's starts in any rolling 24 hours, and the bound on the sum of its Routines' caps (ADR-0092 section 9).
 MAX_DAILY_RUNS = 1000
 # A continuous Routine starts its next run this long, at least, after the previous one ended; at most a day.
@@ -183,17 +184,21 @@ def _scope_changed(detail: dict[str, object]) -> bool:
 
 # A Routine's plan as a Supervisor inspects it (ADR-0092): each step's Action, every input's source, and the Stored
 # Inputs its Action uses by name only. A literal shows as a bounded preview of its JSON text; plan admission already
-# refuses a literal where a secret belongs, and a Stored Input's value never enters a plan.
+# refuses a literal where a secret belongs, and a Stored Input's value never enters a plan. On the wire a step is named
+# by its 1-based position, never its internal id, a reference names its earlier step so, and a plan is read page by
+# page, bound to its revision (ADR-0092 amendment, 2026-10-05, scale).
 MAX_PREVIEW_CHARS = 120
 MAX_STEP_INPUTS = 64
 MAX_STEP_STORED_INPUTS = 8
 MAX_MEMBER_CHARS = 128
 MAX_POINTER_CHARS = 256
-# The projection's encoded size at most. A plan admitted within 64 KiB projects to about its own size; a literal's
-# preview escapes again, so Team refuses a plan whose projection outgrows this bound, never truncates it.
-MAX_STEPS_BYTES = 96 * 1024
+# One projected step's encoded size at most: plan admission refuses a step whose projection outgrows it, never cuts it.
+MAX_STEP_VIEW_BYTES = 24 * 1024
+# A page of projected steps: whole steps only, at most this many and this many encoded bytes, so one always fits.
+MAX_PAGE_STEPS = 64
+MAX_PAGE_BYTES = 96 * 1024
 CLOCK_FORMATS = frozenset({"date", "time", "datetime", "epoch_seconds"})
-STEP_ID_RE = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
+PLAN_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
 # A lone surrogate is unsafe too: it has no UTF-8 encoding, so it is escaped in a preview and refused elsewhere.
 _PLAN_UNSAFE_RE = re.compile(r"[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ud800-\udfff\ufeff]")
@@ -220,7 +225,11 @@ def _plain(value: object, maximum: int) -> bool:
     return isinstance(value, str) and 0 < len(value) <= maximum and _PLAN_UNSAFE_RE.search(value) is None
 
 
-def _input(value: object, earlier: tuple[str, ...]) -> bool:
+def _position(value: object, maximum: int = MAX_ROUTINE_STEPS) -> bool:
+    return type(value) is int and 1 <= value <= maximum
+
+
+def _input(value: object, position: int) -> bool:
     source = value.get("source") if isinstance(value, dict) else None
     if not isinstance(source, str) or source not in _INPUT_FIELDS or set(value) != _INPUT_FIELDS[source]:
         return False
@@ -232,7 +241,7 @@ def _input(value: object, earlier: tuple[str, ...]) -> bool:
         return isinstance(value["value"], str) and value["value"] in CLOCK_FORMATS
     pointer = value["pointer"]
     return (
-        value["step"] in earlier
+        _position(value["step"], position - 1)
         and isinstance(pointer, str)
         and len(pointer) <= MAX_POINTER_CHARS
         and _POINTER_RE.fullmatch(pointer) is not None
@@ -240,51 +249,112 @@ def _input(value: object, earlier: tuple[str, ...]) -> bool:
     )
 
 
-def _step(value: object, earlier: tuple[str, ...]) -> bool:
-    if not isinstance(value, dict) or set(value) != {"id", "assistant", "action", "inputs", "stored_inputs"}:
-        return False
-    inputs, stored = value["inputs"], value["stored_inputs"]
+def _members(items: object, admit: Callable[[object], bool]) -> bool:
+    """A step's inputs: at most MAX_STEP_INPUTS, each admitted, in member order with no member twice."""
     return (
-        _identity(value["id"], STEP_ID_RE)
-        and value["id"] not in earlier
+        isinstance(items, list)
+        and len(items) <= MAX_STEP_INPUTS
+        and all(admit(item) for item in items)
+        and [item["member"] for item in items] == sorted({item["member"] for item in items})
+    )
+
+
+def canonical_step(value: object, position: int) -> dict[str, object] | None:
+    """One projected step at exactly ``position``, referring only to earlier positions, within its byte bound."""
+    if not isinstance(value, dict) or set(value) != {"position", "assistant", "action", "inputs", "stored_inputs"}:
+        return None
+    inputs, stored = value["inputs"], value["stored_inputs"]
+    valid = (
+        _position(position)
+        and value["position"] == position
+        and type(value["position"]) is int
         and _identity(value["assistant"], ASSISTANT_ID_RE)
         and _identity(value["action"], ACTION_ID_RE)
-        and isinstance(inputs, list)
-        and len(inputs) <= MAX_STEP_INPUTS
-        and all(_input(item, earlier) for item in inputs)
-        and [item["member"] for item in inputs] == sorted({item["member"] for item in inputs})
+        and _members(inputs, lambda item: _input(item, position))
         and isinstance(stored, list)
         and len(stored) <= MAX_STEP_STORED_INPUTS
         and all(_identity(item, ASSISTANT_ID_RE) for item in stored)
         and stored == sorted(set(stored))
+        and encoded_bytes(value) <= MAX_STEP_VIEW_BYTES
+    )
+    return copy.deepcopy(value) if valid else None
+
+
+def _paged(value: dict[str, object], step: Callable[[object, int], object]) -> bool:
+    """Whole consecutive steps of ``total`` from ``offset``, the next offset or null, within the page's bounds."""
+    total, offset, steps = value["total"], value["offset"], value["steps"]
+    return (
+        _position(total)
+        and type(offset) is int
+        and 0 <= offset < total
+        and isinstance(steps, list)
+        and 0 < len(steps) <= min(MAX_PAGE_STEPS, total - offset)
+        and all(step(item, offset + index + 1) is not None for index, item in enumerate(steps))
+        and value["next"] == (None if offset + len(steps) == total else offset + len(steps))
+        and encoded_bytes(steps) <= MAX_PAGE_BYTES
     )
 
 
-def canonical_steps(value: object) -> list[dict[str, object]] | None:
-    """A Routine plan's safe projection: one to eight ordered steps, each referring only to earlier ones."""
-    if not isinstance(value, list) or not 0 < len(value) <= MAX_ROUTINE_STEPS:
+def canonical_page(value: object) -> dict[str, object] | None:
+    """One page of a revision's projected steps, naming the revision and digest so no reader mixes two revisions."""
+    fields = {"routine_id", "revision", "plan_digest", "total", "offset", "steps", "next"}
+    if not isinstance(value, dict) or set(value) != fields:
         return None
-    earlier: tuple[str, ...] = ()
-    for step in value:
-        if not _step(step, earlier):
-            return None
-        earlier = (*earlier, step["id"])
-    return copy.deepcopy(value) if encoded_bytes(value) <= MAX_STEPS_BYTES else None
+    valid = (
+        _identity(value["routine_id"], ROUTINE_ID_RE)
+        and _revision(value["revision"])
+        and _identity(value["plan_digest"], PLAN_DIGEST_RE)
+        and _paged(value, canonical_step)
+    )
+    return copy.deepcopy(value) if valid else None
+
+
+# A revision's summary, which list views and notices carry instead of steps: its digest, step count, and Actions as at
+# most 16 runs of consecutive equal Actions; ``more`` counts the steps after them.
+MAX_SUMMARY_RUNS = 16
+
+
+def canonical_summary(value: object) -> dict[str, object] | None:
+    """A plan summary: its runs cover the first steps in order, each differs from the one before, and none is empty."""
+    if not isinstance(value, dict) or set(value) != {"revision", "plan_digest", "steps", "actions", "more"}:
+        return None
+    runs, more, total = value["actions"], value["more"], value["steps"]
+    valid = (
+        _revision(value["revision"])
+        and _identity(value["plan_digest"], PLAN_DIGEST_RE)
+        and _position(total)
+        and isinstance(runs, list)
+        and 0 < len(runs) <= MAX_SUMMARY_RUNS
+        and all(
+            isinstance(run, list)
+            and len(run) == 3
+            and _identity(run[0], ASSISTANT_ID_RE)
+            and _identity(run[1], ACTION_ID_RE)
+            and _position(run[2])
+            for run in runs
+        )
+        and all(runs[index][:2] != runs[index - 1][:2] for index in range(1, len(runs)))
+        and type(more) is int
+        and more >= 0
+        and (more == 0 or len(runs) == MAX_SUMMARY_RUNS)
+        and sum(run[2] for run in runs) + more == total
+    )
+    return copy.deepcopy(value) if valid else None
 
 
 # What a completed run does with its result (ADR-0092 amendment, 2026-10-05, output): show one step's result after every
-# run, only when it changed, hand it to a later step, or show none of it. show and changes name the shown step.
+# run, only when it changed, hand it to a later step, or show none of it. show and changes name the shown step, on the
+# wire by its position.
 OUTPUT_MODES = ("show", "changes", "chain", "none")
 SHOWN_MODES = frozenset({"show", "changes"})
 
 
-def canonical_disposition(value: object, steps: object) -> dict[str, object] | None:
-    """A plan's output disposition, whose shown step is one of the projected steps, or None."""
+def canonical_disposition(value: object, total: object) -> dict[str, object] | None:
+    """A plan's output disposition, whose shown step is the position of one of its ``total`` steps, or None."""
     if not isinstance(value, dict) or set(value) != {"mode", "step"} or value["mode"] not in OUTPUT_MODES:
         return None
-    ids = [step["id"] for step in steps] if isinstance(steps, list) else []
     shown = value["step"]
-    valid = isinstance(shown, str) and shown in ids if value["mode"] in SHOWN_MODES else shown is None
+    valid = _position(total) and (_position(shown, total) if value["mode"] in SHOWN_MODES else shown is None)
     return {"mode": value["mode"], "step": shown} if valid else None
 
 
@@ -367,12 +437,12 @@ def _output_node(value: object, depth: int) -> bool:
 
 
 def canonical_output(value: object) -> dict[str, object] | None:
-    """A completed run's result as shown: its step and state, and for a shown one its bounded projection."""
+    """A completed run's result as shown: its step's position and state, and for a shown one its bounded projection."""
     if not isinstance(value, dict) or set(value) != {"step", "state", "value", "truncated"}:
         return None
     state, node = value["state"], value["value"]
     valid = (
-        _identity(value["step"], STEP_ID_RE)
+        _position(value["step"])
         and state in OUTPUT_STATES
         and type(value["truncated"]) is bool
         and (_output_node(node, 0) if state == "shown" else node is None and value["truncated"] is False)
@@ -382,53 +452,61 @@ def canonical_output(value: object) -> dict[str, object] | None:
 
 
 def _defined(detail: dict[str, object]) -> bool:
-    """What a created or changed Routine does: its name, its plan's projection, its result's disposition, and when."""
+    """What a created or changed Routine does: its name, its plan's summary, its result's disposition, and when."""
+    summary = canonical_summary(detail["plan"])
     return (
         canonical_name(detail["name"]) == detail["name"]
-        and canonical_steps(detail["steps"]) is not None
-        and canonical_disposition(detail["output"], detail["steps"]) == detail["output"]
+        and summary is not None
+        and canonical_disposition(detail["output"], summary["steps"]) == detail["output"]
         and canonical_schedule(detail["schedule"]) == detail["schedule"]
         and canonical_timezone(detail["timezone"]) is not None
     )
 
 
-def _frozen(detail: dict[str, object]) -> bool:
-    """The one request a frozen run waits for: its kind and the Assistant Action that asked."""
-    return (
-        detail["request_kind"] in ("human", "integrations")
-        and _identity(detail["assistant_id"], ASSISTANT_ID_RE)
-        and _identity(detail["action"], ACTION_ID_RE)
-    )
+def _placed(step: object, steps: object) -> bool:
+    """A step's 1-based position among its plan's ``steps``, which names a repeated Action exactly."""
+    return _position(steps) and _position(step, steps)
 
 
 def _completed(detail: dict[str, object]) -> bool:
-    """The ordered Assistant Actions a completed run carried out, and the result it shows, if any; never an input."""
-    return (
-        _actions(detail["actions"])
-        and 0 < len(detail["actions"]) <= MAX_ROUTINE_STEPS
-        and (detail["output"] is None or canonical_output(detail["output"]) is not None)
+    """The summary of the plan a completed run carried out, and the result it shows, if any; never an input."""
+    summary = canonical_summary(detail["plan"])
+    output = detail["output"]
+    return summary is not None and (
+        output is None or (canonical_output(output) is not None and output["step"] <= summary["steps"])
     )
 
 
-def _step_pair(assistant_id: object, action: object) -> bool:
-    if assistant_id is None and action is None:
-        return True
-    return _identity(assistant_id, ASSISTANT_ID_RE) and _identity(action, ACTION_ID_RE)
-
-
 def _held_step(detail: dict[str, object]) -> bool:
-    """The step a held run stopped at, or both null when the run sealed no plan before it was held."""
-    return _step_pair(detail["assistant_id"], detail["action"])
+    """The step a held run stopped at and its position, or all null when the run sealed no plan before it was held."""
+    if detail["assistant_id"] is None:
+        return detail["action"] is None and detail["step"] is None and detail["steps"] is None
+    return (
+        _identity(detail["assistant_id"], ASSISTANT_ID_RE)
+        and _identity(detail["action"], ACTION_ID_RE)
+        and _placed(detail["step"], detail["steps"])
+    )
 
 
-_STEP_FIELDS = {"assistant_id", "action"}
+_STEP_FIELDS = {"assistant_id", "action", "step", "steps"}
 
-# Each outcome's exact detail fields and their check. denied and stopped name the Actions that completed; held,
-# paused, and user-skipped name the step whose possible effects are unresolved, and user-skipped the card choice that
-# set the run aside.
+
+def _frozen(detail: dict[str, object]) -> bool:
+    """The one request a frozen run waits for: its kind, the Assistant Action that asked, and that step's position."""
+    kind = detail["request_kind"]
+    return kind in ("human", "integrations") and detail["assistant_id"] is not None and _held_step(detail)
+
+
+def _failed_at(detail: dict[str, object]) -> bool:
+    """The step a failed run stopped at, by position, or both null when it failed before any step."""
+    return (detail["step"], detail["steps"]) == (None, None) or _placed(detail["step"], detail["steps"])
+
+
+# Each outcome's exact detail fields and check: denied and stopped name the Actions that completed; held, paused, and
+# user-skipped name the step whose effects are unresolved, and user-skipped the card choice that set the run aside.
 _DETAILS = {
-    "done": ({"actions", "output"}, _completed),
-    "recovered": ({"actions", "output"}, _completed),
+    "done": ({"plan", "output"}, _completed),
+    "recovered": ({"plan", "output"}, _completed),
     "held": (_STEP_FIELDS, _held_step),
     "paused": (_STEP_FIELDS | {"reason"}, lambda detail: _held_step(detail) and detail["reason"] in PAUSE_REASONS),
     "user-skipped": (
@@ -438,15 +516,15 @@ _DETAILS = {
     "skipped": ({"missed"}, lambda detail: type(detail["missed"]) is int and detail["missed"] >= 1),
     "healthy": ({"runs"}, lambda detail: type(detail["runs"]) is int and 1 <= detail["runs"] <= MAX_ROLLUP_RUNS),
     "scope-changed": ({"assistants"}, _scope_changed),
-    "frozen": ({"request_kind", "assistant_id", "action"}, _frozen),
+    "frozen": ({"request_kind", "assistant_id", "action", "step", "steps"}, _frozen),
     "failed": (
-        {"code", "actions"},
-        lambda detail: _identity(detail["code"], ERROR_CODE_RE) and _actions(detail["actions"]),
+        {"code", "actions", "step", "steps"},
+        lambda detail: _identity(detail["code"], ERROR_CODE_RE) and _actions(detail["actions"]) and _failed_at(detail),
     ),
     "denied": ({"actions"}, lambda detail: _actions(detail["actions"])),
     "stopped": ({"actions"}, lambda detail: _actions(detail["actions"])),
-    "created": ({"name", "steps", "output", "schedule", "timezone"}, _defined),
-    "changed": ({"name", "steps", "output", "schedule", "timezone"}, _defined),
+    "created": ({"name", "plan", "output", "schedule", "timezone"}, _defined),
+    "changed": ({"name", "plan", "output", "schedule", "timezone"}, _defined),
 }
 
 
@@ -461,7 +539,7 @@ def canonical_notice_detail(outcome: object, detail: object) -> dict[str, object
 # Views a Local Team returns to Admin for Routines. Admin admits each only in exactly this closed form.
 MAX_NOTICE_BATCH = 1024
 # The encoded notice list of one batch, under the Local API's 128 KiB response cap with room for its envelope. The
-# largest notice, a created or changed Routine's projection of at most MAX_STEPS_BYTES, fits alone.
+# largest notice, a completed run's shown output of at most MAX_OUTPUT_BYTES beside its plan summary, fits many times.
 MAX_NOTICE_BATCH_BYTES = 112 * 1024
 RUN_STATUSES = frozenset({"leased", "frozen", "held"})
 # The model providers a Local Team can use; a claim names its Team's, so Admin sends that provider's key.
@@ -501,15 +579,16 @@ def _optional(value: object, pattern: re.Pattern[str]) -> bool:
 
 
 def canonical_routine_view(value: object) -> dict[str, object] | None:
-    """One Routine as a Supervisor sees it, with its name and its plan's safe projection."""
+    """One Routine as a Supervisor sees it: its name, its revision's plan summary (steps are paged), and disposition."""
     fields = {"routine_id", "name", "quote", "schedule", "timezone", "assistant_ids", "next_run_at", "needs_reconfirm"}
-    if not isinstance(value, dict) or set(value) != fields | {"deleting", "paused", "steps", "output"}:
+    if not isinstance(value, dict) or set(value) != fields | {"deleting", "paused", "plan", "output"}:
         return None
+    summary = canonical_summary(value["plan"])
     valid = (
         _identity(value["routine_id"], ROUTINE_ID_RE)
         and canonical_name(value["name"]) == value["name"]
-        and canonical_steps(value["steps"]) is not None
-        and canonical_disposition(value["output"], value["steps"]) == value["output"]
+        and summary is not None
+        and canonical_disposition(value["output"], summary["steps"]) == value["output"]
         and value["quote"] is not None
         and canonical_quote(value["quote"]) == value["quote"]
         and value["schedule"] is not None
@@ -548,8 +627,8 @@ def canonical_run_view(value: object) -> dict[str, object] | None:
 
 
 def canonical_incident_view(value: object) -> dict[str, object] | None:
-    """One unresolved incident of a held run, which a recovery card settles; it outlives a deleted Routine."""
-    fields = {"incident_id", "routine_id", "quote", "created_at", "assistant_id", "action"}
+    """One unresolved incident of a held run, its held step by position; it outlives a deleted Routine."""
+    fields = {"incident_id", "routine_id", "quote", "created_at", "assistant_id", "action", "step", "steps"}
     if not isinstance(value, dict) or set(value) != fields:
         return None
     valid = (
@@ -558,19 +637,20 @@ def canonical_incident_view(value: object) -> dict[str, object] | None:
         and value["quote"] is not None
         and canonical_quote(value["quote"]) == value["quote"]
         and _instant(value["created_at"])
-        and _step_pair(value["assistant_id"], value["action"])
+        and _held_step(value)
     )
     return copy.deepcopy(value) if valid else None
 
 
 # The unresolved incidents a Team holds at most, which its Routine list carries (ADR-0092).
 MAX_UNRESOLVED_INCIDENTS = 32
-# A Team's whole Routine list, encoded: the one response above the Local API's 128 KiB cap. Beside its projection, a
-# Routine view holds at most 8 KiB (a name, a quote, a schedule, a timezone, and its Assistants), a run view 1 KiB, an
-# incident view 4 KiB (a quote), and the envelope 4 KiB. These margins hold for the identifiers a Local Team produces:
-# an installed Assistant's id of at most 40 characters and a reviewed Action's of at most 80.
+# A plan summary encoded at most: 16 runs of a Local Team's Assistant id (<= 40 chars), Action id (<= 80), and count.
+MAX_SUMMARY_BYTES = 4 * 1024
+# A Team's whole Routine list, encoded: the one response above the Local API's 128 KiB cap. Beside its summary, a
+# Routine view holds at most 8 KiB, a run view 1 KiB, an incident view 4 KiB, and the envelope 4 KiB, for a Local
+# Team's identifiers (Assistant ids of at most 40 characters, Action ids of at most 80); steps are paged, never listed.
 MAX_ROUTINE_LIST_BYTES = (
-    MAX_ROUTINES * (MAX_STEPS_BYTES + 8 * 1024 + 1024) + MAX_UNRESOLVED_INCIDENTS * 4 * 1024 + 4 * 1024
+    MAX_ROUTINES * (MAX_SUMMARY_BYTES + 8 * 1024 + 1024) + MAX_UNRESOLVED_INCIDENTS * 4 * 1024 + 4 * 1024
 )
 # A held run's recovery card (ADR-0092 section 7, amended 2026-10-02): exactly Rodar, Recriar, and Excluir, in this
 # order, none recommended. Team answers only Rodar and Recriar; Excluir is the Routine's own confirmed deletion.
@@ -582,12 +662,10 @@ NONCE_RE = re.compile(r"[0-9a-f]{32}\Z")
 CARD_STATUSES = {"run": "requested", "recreate": "recreated"}
 # Whether the held step's failure has a diagnostic: recorded (and shown), none kept, or one that could not be read.
 CARD_EVIDENCE = ("recorded", "absent", "unavailable")
-MAX_PLAN_STEPS = 8
 
 
 def _card_step(value: dict[str, object]) -> bool:
-    step, steps = value["step"], value["steps"]
-    return type(step) is int and type(steps) is int and 1 <= step <= steps <= MAX_PLAN_STEPS
+    return _placed(value["step"], value["steps"])
 
 
 def _card_evidence(value: dict[str, object]) -> bool:
@@ -692,11 +770,22 @@ def canonical_challenge_open(value: object) -> dict[str, str] | None:
 
 
 def canonical_claim_request(value: object) -> dict[str, object] | None:
-    """Admin's claim is exactly an empty object: no model key gates it, because a healthy run needs none."""
-    return {} if value == {} else None
+    """Admin's claim says only whether it can take a long run now (it holds one at most); no model key gates it."""
+    if not isinstance(value, dict) or set(value) != {"long"} or type(value["long"]) is not bool:
+        return None
+    return {"long": value["long"]}
 
 
-PLAN_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+# A run's active time grows with its revision's steps to a ceiling, and past 600 s it is long (ADR-0092, scale).
+SHORT_ACTIVE_SECONDS = 600
+MAX_ACTIVE_SECONDS = 7200
+
+
+def active_seconds(steps: int) -> int:
+    """The active execution time a revision of ``steps`` steps may spend in one run: 600 s for eight, 7,200 at most."""
+    return min(360 + 30 * steps, MAX_ACTIVE_SECONDS)
+
+
 # How a claimed run was scheduled: by its firings, or continuously after the previous run ended (ADR-0092).
 RUN_MODES = ("scheduled", "continuous")
 
@@ -721,11 +810,13 @@ def canonical_claim(value: object) -> dict[str, object] | None:
     run, hint = value["run"], value["next_due_at"]
     if run is None:
         return {"run": None, "next_due_at": hint} if hint is None or (type(hint) is int and hint > 0) else None
-    fields = {"team_id", "run_id", "routine_id", "lease_token", "lease_expires_at", "provider"}
+    fields = {"team_id", "run_id", "routine_id", "lease_token", "lease_expires_at", "provider", "active_seconds"}
     valid = (
         hint is None
         and isinstance(run, dict)
         and set(run) == fields | {"revision", "plan_digest", "mode"}
+        and type(run["active_seconds"]) is int
+        and 0 < run["active_seconds"] <= MAX_ACTIVE_SECONDS
         and _identity(run["team_id"], TEAM_ID_RE)
         and _identity(run["run_id"], ROUTINE_ID_RE)
         and _identity(run["routine_id"], ROUTINE_ID_RE)
@@ -774,7 +865,7 @@ _FAILURE_FIELDS = frozenset(
     {"error_type", "message", "provider", "http_status", "response_excerpt", "redacted", "truncated"}
 )
 _DIAGNOSTIC_FIELDS = frozenset(
-    {"operation_id", "attempt", "assistant_id", "action", "recorded_at", "failure", "condition"}
+    {"operation_id", "attempt", "assistant_id", "action", "step", "recorded_at", "failure", "condition"}
 )
 
 
@@ -815,6 +906,7 @@ def canonical_diagnostic(value: object) -> dict[str, object] | None:
         and 1 <= value["attempt"] <= MAX_DIAGNOSTIC_ATTEMPTS
         and _identity(value["assistant_id"], ASSISTANT_ID_RE)
         and _identity(value["action"], ACTION_ID_RE)
+        and _position(value["step"])
         and _instant(value["recorded_at"])
         and (failure is None) != (condition is None)
         and (failure is None or canonical_failure(failure) is not None)
@@ -841,3 +933,67 @@ def canonical_diagnostics(value: object) -> dict[str, object] | None:
     keys = [(item["recorded_at"], item["operation_id"], item["attempt"]) for item in admitted]
     unique = len({(item["operation_id"], item["attempt"]) for item in admitted}) == len(admitted)
     return {**value, "diagnostics": admitted} if unique and keys == sorted(keys) else None
+
+
+# What one run did, step by step (ADR-0092 amendment, 2026-10-05, scale): each step's status, attempt, duration, and
+# inputs as redacted previews (null when a source's secrecy is unknown). A missing position is ``not_run`` only when
+# the run's terminal record proves it, else ``unavailable``; pages bind the run's revision and one records snapshot.
+RUN_STEP_STATUSES = ("done", "recovered", "failed", "stopped", "waiting")
+RUN_STEP_GAPS = ("not_run", "unavailable")
+RUN_INPUT_SOURCES = frozenset({"literal", "run_clock", "step_output", "step_text"})
+SNAPSHOT_RE = re.compile(r"[0-9a-f]{32}\Z")
+RUN_STEP_FIELDS = frozenset(
+    {"position", "status", "assistant_id", "action", "attempt", "duration_ms", "recorded_at", "inputs"}
+)
+
+
+def _run_input(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"member", "source", "value"}
+        and _plain(value["member"], MAX_MEMBER_CHARS)
+        and isinstance(value["source"], str)
+        and value["source"] in RUN_INPUT_SOURCES
+        and (value["value"] is None or _plain(value["value"], MAX_PREVIEW_CHARS))
+    )
+
+
+def canonical_run_step(value: object, position: int) -> dict[str, object] | None:
+    """One run step at ``position``: what its attempt did, or only that it never ran or cannot be shown."""
+    if not isinstance(value, dict) or set(value) != RUN_STEP_FIELDS or value.get("position") != position:
+        return None
+    status, duration = value["status"], value["duration_ms"]
+    if status in RUN_STEP_GAPS:
+        valid = all(value[key] is None for key in RUN_STEP_FIELDS - {"position", "status"})
+    else:
+        valid = (
+            status in RUN_STEP_STATUSES
+            and _identity(value["assistant_id"], ASSISTANT_ID_RE)
+            and _identity(value["action"], ACTION_ID_RE)
+            and type(value["attempt"]) is int
+            and 1 <= value["attempt"] <= MAX_DIAGNOSTIC_ATTEMPTS
+            and (duration is None or (type(duration) is int and 0 <= duration < 2**53))
+            and (status != "recovered" or duration is None)
+            and _instant(value["recorded_at"])
+            and (value["inputs"] is None or _members(value["inputs"], _run_input))
+        )
+    valid = valid and _position(position) and type(value["position"]) is int
+    return copy.deepcopy(value) if valid and encoded_bytes(value) <= MAX_STEP_VIEW_BYTES else None
+
+
+def canonical_run_steps(value: object) -> dict[str, object] | None:
+    """One page of a run's steps from ``offset``: whole consecutive positions of its own revision's plan."""
+    fields = {"team_id", "run_id", "routine_id", "revision", "plan_digest", "total", "snapshot", "ended"}
+    if not isinstance(value, dict) or set(value) != fields | {"offset", "steps", "next"}:
+        return None
+    valid = (
+        _identity(value["team_id"], TEAM_ID_RE)
+        and _identity(value["run_id"], ROUTINE_ID_RE)
+        and _identity(value["routine_id"], ROUTINE_ID_RE)
+        and _revision(value["revision"])
+        and _identity(value["plan_digest"], PLAN_DIGEST_RE)
+        and _identity(value["snapshot"], SNAPSHOT_RE)
+        and type(value["ended"]) is bool
+        and _paged(value, canonical_run_step)
+    )
+    return copy.deepcopy(value) if valid else None

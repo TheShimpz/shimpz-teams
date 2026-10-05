@@ -71,16 +71,18 @@ def _recover(service, team_id: str, value: record.Run) -> str | None:
             return record.complete_recovered(state, value.run_id, value.lease_sha256, now, shown), "done"
         if progress == "partial":
             return routine_hold.hold_recovered(state, value.run_id, value.lease_sha256), "held"
-        return record.end(state, value.run_id, now, "failed", {"code": "interrupted", "actions": []}), "failed"
+        return record.end(
+            state, value.run_id, now, "failed", {"code": "interrupted", "actions": [], "step": None, "steps": None}
+        ), "failed"
 
     return service.routine_store.update(team_id, recover)
 
 
 def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bool) -> None:
     state = service.routine_store.load(team_id)
-    stale = {item.run_id: item for item in record.expired(state, now)}
+    stale = {item.run_id: item for item in routine_hold.expired(state, now)}
     if key is not None:
-        stale.update({item.run_id: item for item in record.rekeyed(state, key)})
+        stale.update({item.run_id: item for item in routine_hold.rekeyed(state, key)})
     if startup:
         # After a restart nothing runs any segment, so every leased run is recovered at once.
         stale.update({item.run_id: item for item in state.runs if item.status == "leased"})

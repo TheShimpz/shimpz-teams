@@ -7,8 +7,9 @@ selected, each step input's validated provenance with the message, receipt, revi
 granted it, the words that chose what a run does with its result (ADR-0092 amendment, 2026-10-05, output), and the
 Stored Inputs each step's Action uses, by name only. It holds no secret: a literal never holds one,
 and a Stored Input appears only as its declared id. Provenance is kept only as spans of the committed message, never as
-the cited prose, so words around a value never persist. A Supervisor inspects a Routine through ``steps``, a projection
-of its plan that shows each literal as a bounded preview and every reference by its step and pointer.
+the cited prose, so words around a value never persist. Every literal is the person's own: a cited span, an adopted
+quote, or a bound answer, never a schema default (ADR-0092 amendment, 2026-10-05, scale). A Supervisor inspects a
+Routine through its plan's safe projection, its summary, and its pages.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
@@ -103,7 +104,7 @@ def _origin(value: object) -> bool:
             and _span(value["span"])
             and _span(value["instruction"])
         )
-    return set(value) == {"at", "from"} and kind in ("default", "answer")
+    return set(value) == {"at", "from"} and kind == "answer"
 
 
 def _granted(value: object, revision: int, message: str, receipt: str) -> bool:
@@ -191,23 +192,147 @@ def valid(value: object, plan: Mapping[str, object], revision: int) -> bool:
     )
 
 
-def _input(member: str, source: Mapping[str, object]) -> dict[str, object]:
+# What a Supervisor sees of a revision's plan (ADR-0092 amendment, 2026-10-05, scale). On the wire a step is named by
+# its 1-based position in its revision's plan, never by its internal id: a projected step shows its Action, each input's
+# source (a literal as a bounded preview, a reference by the earlier step's position and its pointer), and the Stored
+# Inputs its Action uses by name only. Every list view and notice carries a compact summary of the revision instead of
+# its steps; the steps themselves are read page by page, each page bound to its revision and plan digest.
+
+
+def _positions(plan: Mapping[str, object]) -> dict[str, int]:
+    return {step["id"]: index for index, step in enumerate(plan["steps"], start=1)}
+
+
+def _input(member: str, source: Mapping[str, object], positions: Mapping[str, int]) -> dict[str, object]:
     if source["kind"] == "literal":
         return {"member": member, "source": "literal", "value": http_routine.literal_preview(source["value"])}
     if source["kind"] == "run_clock":
         return {"member": member, "source": "run_clock", "value": source["format"]}
-    return {"member": member, "source": source["kind"], "step": source["step"], "pointer": source["pointer"]}
+    return {"member": member, "source": source["kind"], "step": positions[source["step"]], "pointer": source["pointer"]}
 
 
-def steps(plan: Mapping[str, object], value: Mapping[str, object]) -> list[dict[str, object]]:
-    """The plan's safe projection: each step's Action, every input's source, and its Stored Inputs by name only."""
-    return [
-        {
-            "id": step["id"],
-            "assistant": step["assistant"],
-            "action": step["action"],
-            "inputs": [_input(member, step["input"][member]) for member in sorted(step["input"])],
-            "stored_inputs": list(value["stored_inputs"][step["id"]]),
-        }
-        for step in plan["steps"]
-    ]
+def step(plan: Mapping[str, object], grant: Mapping[str, object], position: int) -> dict[str, object]:
+    """The projection of the step at ``position``: its Action, every input's source, and its Stored Inputs by name."""
+    positions = _positions(plan)
+    value = plan["steps"][position - 1]
+    return {
+        "position": position,
+        "assistant": value["assistant"],
+        "action": value["action"],
+        "inputs": [_input(member, value["input"][member], positions) for member in sorted(value["input"])],
+        "stored_inputs": list(grant["stored_inputs"][value["id"]]),
+    }
+
+
+def steps_fit(plan: Mapping[str, object], grant: Mapping[str, object]) -> bool:
+    """Whether every step's projection stays within its own wire bound, so every page of the plan is deliverable."""
+    return all(
+        http_routine.canonical_step(step(plan, grant, position), position) is not None
+        for position in range(1, len(plan["steps"]) + 1)
+    )
+
+
+def summary(plan: Mapping[str, object], revision: int) -> dict[str, object]:
+    """The revision's compact summary: its step count and its Actions as runs, at most 16, with the steps after them."""
+    runs: list[list[object]] = []
+    for value in plan["steps"]:
+        pair = [value["assistant"], value["action"]]
+        if runs and runs[-1][:2] == pair:
+            runs[-1][2] += 1
+        else:
+            runs.append([*pair, 1])
+    kept = runs[: http_routine.MAX_SUMMARY_RUNS]
+    total = len(plan["steps"])
+    return {
+        "revision": revision,
+        "plan_digest": plan_digest(plan),
+        "steps": total,
+        "actions": kept,
+        "more": total - sum(run[2] for run in kept),
+    }
+
+
+def disposition(plan: Mapping[str, object]) -> dict[str, object]:
+    """The plan's output disposition on the wire: its shown step by position, or none."""
+    output = plan["output"]
+    shown = output["step"]
+    return {"mode": output["mode"], "step": None if shown is None else _positions(plan)[shown]}
+
+
+def page(
+    routine_id: str, revision: int, plan: Mapping[str, object], grant: Mapping[str, object], offset: int
+) -> dict[str, object]:
+    """Whole consecutive projected steps from ``offset``, as many as fit one page, and where the next page starts."""
+    total = len(plan["steps"])
+    chosen: list[dict[str, object]] = []
+    used = 2
+    for position in range(offset + 1, total + 1):
+        projected = step(plan, grant, position)
+        cost = http_routine.encoded_bytes(projected) + 1
+        if chosen and (len(chosen) == http_routine.MAX_PAGE_STEPS or used + cost > http_routine.MAX_PAGE_BYTES):
+            break
+        chosen.append(projected)
+        used += cost
+    following = offset + len(chosen)
+    return {
+        "routine_id": routine_id,
+        "revision": revision,
+        "plan_digest": plan_digest(plan),
+        "total": total,
+        "offset": offset,
+        "steps": chosen,
+        "next": None if following == total else following,
+    }
+
+
+def definition(value: object) -> dict[str, object]:
+    """What a created or changed notice says a Routine does: its name, its plan's summary, and when."""
+    return {
+        "name": value.name,
+        "plan": summary(value.plan, value.revision),
+        "output": disposition(value.plan),
+        "schedule": dict(value.schedule),
+        "timezone": value.timezone,
+    }
+
+
+# A Routine's share of its Team's budgets (ADR-0092 amendment, 2026-10-05, scale): its definition's canonical bytes, and
+# the business steps its rolling 24-hour cap allocates. Paused Routines count, so resuming one never needs room it
+# lacks; a deleting one keeps its share until it is gone.
+
+
+def fits(value: object) -> bool:
+    """Whether every projected step of a Routine is within its wire bound and its definition within its own budget."""
+    return steps_fit(value.plan, value.grant) and definition_bytes(value) <= routine_plan.MAX_DEFINITION_BYTES
+
+
+def definition_bytes(value: object) -> int:
+    """The canonical bytes of a Routine's plan and grant, which its definition budget bounds."""
+    return len(routine_plan.canonical(value.plan)) + len(routine_plan.canonical(value.grant))
+
+
+def daily_steps(value: object) -> int:
+    """The business steps a Routine's rolling 24-hour cap allocates: every start may run every step."""
+    return http_routine.daily_cap(value.schedule) * len(value.plan["steps"])
+
+
+def capacity(routines: Sequence[object]) -> int:
+    """The daily business steps left for a new or changed Routine after these Routines' allocations."""
+    return routine_plan.MAX_DAILY_STEPS - sum(daily_steps(item) for item in routines)
+
+
+def daily_rate_allows(routines: Sequence[object], schedule_value: dict[str, object]) -> bool:
+    """Whether the Routines' rolling 24-hour caps, with this schedule's, fit under the Team ceiling together."""
+    total = sum((http_routine.daily_cap(item.schedule) for item in routines), http_routine.daily_cap(schedule_value))
+    return total <= http_routine.MAX_DAILY_RUNS
+
+
+def over_budget(others: Sequence[object], admitted: object) -> str | None:
+    """Which Team budget a definition outgrows beside the Team's other Routines, or None: rate, steps, or bytes."""
+    if not daily_rate_allows(others, admitted.schedule):
+        return "routine-rate-limit"
+    if daily_steps(admitted) > capacity(others):
+        return "routine-step-budget"
+    if sum(definition_bytes(item) for item in (*others, admitted)) > routine_plan.TEAM_DEFINITION_BYTES:
+        return "routine-team-budget"
+    return None

@@ -13,18 +13,24 @@ import dataclasses
 import secrets
 from dataclasses import dataclass
 
+from routine import plan as routine_plan
 from routine import record
+
+# The step a held run stopped at: its Assistant, Action, 1-based position, and its plan's step count; all empty when
+# the run sealed no cursor (ADR-0092 amendment, 2026-10-05, scale).
+HeldStep = tuple[str, str, int, int]
+UNKNOWN_STEP: HeldStep = ("", "", 0, 0)
 
 
 def settle_hold(
-    state: record.TeamRoutines, run_id: str, now: int, revision: int | None = None, step: tuple[str, str] = ("", "")
+    state: record.TeamRoutines, run_id: str, now: int, revision: int | None = None, step: HeldStep = UNKNOWN_STEP
 ) -> record.TeamRoutines:
     """A held run's incident is durable and its batch archived: index the incident and end the run in one write.
 
     The run's live state is queued for removal like any ended run's; its archived journal marker stays with the
     incident. A claim reserved this incident's room, so it never displaces an unresolved one. ``revision`` is the one
     the run's recovery snapshot binds; without one, the run executed the Routine's current revision. ``step`` is the
-    Assistant Action its sealed cursor stopped at, which the run's held notice names.
+    Assistant Action its sealed cursor stopped at, with its position, which the run's held notice names.
     """
     value = record.run(state, run_id)
     if value.status != "held":
@@ -33,7 +39,7 @@ def settle_hold(
     executed = current.revision if revision is None else revision
     if type(executed) is not int or executed < 1:
         raise record.RoutineStateError("incident-invalid")
-    state, value = record._run_notice(state, value, "held", now, _step_detail(step))
+    state, value = record._run_notice(state, value, "held", now, step_detail(step))
     incident = record.Incident(
         run_id,
         value.routine_id,
@@ -45,6 +51,9 @@ def settle_hold(
         assistant_id=step[0],
         action=step[1],
         active_seconds_left=value.active_seconds_left,
+        step=step[2],
+        steps=step[3],
+        requests_used=value.requests_used,
     )
     kept = list(state.incidents)
     while len(kept) >= record.MAX_INCIDENTS:
@@ -94,10 +103,12 @@ def reopen_incident(
         value.created_at,
         lease_sha256=record.lease_sha256(token),
         lease_key=record.HUMAN_LEASE,
-        lease_expires_at=now + record.LEASE_SECONDS,
+        # The continuation runs at once, over the run's active time left.
+        lease_expires_at=now + value.active_seconds_left + routine_plan.LEASE_MARGIN_SECONDS,
         active_seconds_left=value.active_seconds_left,
         generation=generation,
         notice_version=value.notice_version,
+        requests_used=value.requests_used,
     )
     return (
         dataclasses.replace(
@@ -111,9 +122,15 @@ def reopen_incident(
     )
 
 
-def _step_detail(step: tuple[str, str]) -> dict[str, object]:
-    assistant_id, action = step
-    return {"assistant_id": assistant_id or None, "action": action or None}
+def step_detail(step: HeldStep) -> dict[str, object]:
+    assistant_id, action, position, steps = step
+    if not assistant_id:
+        return {"assistant_id": None, "action": None, "step": None, "steps": None}
+    return {"assistant_id": assistant_id, "action": action, "step": position, "steps": steps}
+
+
+def held_step(value: record.Incident) -> HeldStep:
+    return (value.assistant_id, value.action, value.step, value.steps)
 
 
 def _incident_notice(
@@ -170,7 +187,7 @@ def skip_incident(
     if value.status != "unresolved":
         raise record.RoutineStateError("incident-not-unresolved")
     _expect(state, value, expected)
-    detail = {**_step_detail((value.assistant_id, value.action)), "choice": choice}
+    detail = {**step_detail(held_step(value)), "choice": choice}
     state, value = _incident_notice(state, value, "user-skipped", now, detail)
     state = record.rebase_continuous(state, value.routine_id, now)
     return _replace_incident(state, dataclasses.replace(value, status="skipped"))
@@ -212,7 +229,7 @@ def pause_incident(state: record.TeamRoutines, incident_id: str, now: int, reaso
     if value.status != "unresolved" or reason not in record.PAUSE_REASONS:
         raise record.RoutineStateError("incident-not-unresolved")
     state = record.set_paused(state, value.routine_id, True)
-    detail = {**_step_detail((value.assistant_id, value.action)), "reason": reason}
+    detail = {**step_detail(held_step(value)), "reason": reason}
     state, value = _incident_notice(state, value, "paused", now, detail)
     return _replace_incident(state, value)
 
@@ -243,7 +260,12 @@ def refund_incident(state: record.TeamRoutines, incident_id: str, generation: st
     value = next((item for item in state.incidents if item.incident_id == incident_id), None)
     if value is None or value.status != "unresolved" or value.generation != generation or seconds <= 0:
         return state
-    refunded = min(record.ACTIVE_SECONDS, value.active_seconds_left + seconds)
+    # Never beyond the active time its revision gave the run: a hold never refills it. A run whose Routine changed or
+    # went can never continue, so it gets nothing back.
+    current = next((item for item in state.routines if item.routine_id == value.routine_id), None)
+    if current is None or current.revision != value.revision:
+        return state
+    refunded = min(routine_plan.active_seconds(len(current.plan["steps"])), value.active_seconds_left + seconds)
     return _replace_incident(state, dataclasses.replace(value, active_seconds_left=refunded))
 
 
@@ -268,4 +290,25 @@ def hold_recovered(state: record.TeamRoutines, run_id: str, lease_sha256: str) -
         raise record.RoutineStateError("generation-invalid")
     return record._replace_run(
         state, dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
+    )
+
+
+# What Team's watchdog fences or ends: runs nothing may drive any more.
+
+
+def expired(state: record.TeamRoutines, now: int) -> tuple[record.Run, ...]:
+    """Leased runs whose lease or active time ran out; the caller stops each and decides its outcome."""
+    return tuple(
+        item
+        for item in state.runs
+        if item.status == "leased" and (item.lease_expires_at <= now or item.active_seconds_left <= 0)
+    )
+
+
+def rekeyed(state: record.TeamRoutines, key_fingerprint: str) -> tuple[record.Run, ...]:
+    """Machine-leased runs claimed under a routine key that is no longer current."""
+    return tuple(
+        item
+        for item in state.runs
+        if item.status == "leased" and item.lease_key not in {key_fingerprint, record.HUMAN_LEASE}
     )

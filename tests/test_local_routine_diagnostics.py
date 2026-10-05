@@ -42,6 +42,7 @@ def _diagnostic(**changes: object) -> diagnostics.Diagnostic:
         attempt=1,
         assistant_id="shimpz-cloudflare",
         action="replace-dns-record",
+        step=1,
         recorded_at=NOW,
         failure=FAILURE,
     )
@@ -287,6 +288,193 @@ class RunDiagnosticsViewTests(unittest.TestCase):
                 (caught.exception.status, caught.exception.code),
                 (HTTPStatus.SERVICE_UNAVAILABLE, "routine-state-unavailable"),
             )
+
+
+BINDING = diagnostics.RunBinding(ROUTINE, RUN, 2, "sha256:" + "f" * 64, 4)
+INPUTS = [{"member": "page", "source": "literal", "value": "1"}]
+
+
+def _step(position: int = 1, status: str = "done", **changes: object) -> diagnostics.StepRecord:
+    value = diagnostics.StepRecord(BINDING, position, "shimpz-cloudflare", "list-zones", status, 1, 812, NOW, INPUTS)
+    return dataclasses.replace(value, **changes)
+
+
+class StepRecordCase(unittest.TestCase):
+    """A store and a service whose run step pages read it."""
+
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.store = diagnostics.DiagnosticStore(self.root / "bodies", self.root / "key" / "aes256.key")
+        self.service = SimpleNamespace(
+            assistant_lifecycle=SimpleNamespace(_network=lambda _team_id: SimpleNamespace(id=INCARNATION)),
+            routine_diagnostics=self.store,
+        )
+
+    def page(self, snapshot: str = "latest", offset: int = 0) -> dict[str, object]:
+        return diagnostics.run_steps(self.service, "team_1", RUN, snapshot, offset, NOW + 10)
+
+
+class StepRecordTests(StepRecordCase):
+    """What each step of a run did, its terminal record, and pages of one snapshot (ADR-0092, 2026-10-05, scale)."""
+
+    def test_a_run_shows_each_steps_latest_record_and_proves_which_never_started(self) -> None:
+        self.store.record_step("team_1", INCARNATION, _step(1, "failed", attempt=1, duration_ms=10), ())
+        self.store.record_step("team_1", INCARNATION, _step(1, "done", attempt=2), ())
+        self.store.record_step("team_1", INCARNATION, _step(2, "recovered", duration_ms=None, inputs=None), ())
+        live = self.page()
+        self.assertEqual(http_routine.canonical_run_steps(live), live)
+        statuses = [(step["status"], step["attempt"]) for step in live["steps"]]
+        # A live run proves nothing about the steps it has no record of.
+        self.assertEqual(statuses, [("done", 2), ("recovered", 1), ("unavailable", None), ("unavailable", None)])
+        self.assertFalse(live["ended"])
+        # Its terminal record proves the steps after the one it reached and dispatched never started.
+        self.store.record_run("team_1", INCARNATION, diagnostics.RunRecord(BINDING, 2, True, NOW + 1))
+        ended = self.page()
+        self.assertEqual([step["status"] for step in ended["steps"]], ["done", "recovered", "unavailable", "not_run"])
+        self.store.record_run("team_1", INCARNATION, diagnostics.RunRecord(BINDING, 2, False, NOW + 2))
+        self.assertEqual([step["status"] for step in self.page()["steps"]][2:], ["not_run", "not_run"])
+        self.assertEqual((ended["revision"], ended["total"], ended["plan_digest"]), (2, 4, BINDING.plan_digest))
+
+    def test_a_page_names_its_snapshot_and_a_changed_record_set_refuses_the_next_page(self) -> None:
+        self.store.record_step("team_1", INCARNATION, _step(1), ())
+        first = self.page()
+        self.assertEqual(self.page(first["snapshot"])["snapshot"], first["snapshot"])
+        for change in ("new record", "rewritten"):
+            with self.subTest(change=change):
+                if change == "new record":
+                    self.store.record_step("team_1", INCARNATION, _step(2), ())
+                elif change == "rewritten":
+                    # The same name, size, and instant, sealed again under a fresh nonce.
+                    (path,) = [
+                        item for item in self.store._team_dir("team_1").iterdir() if item.name.endswith(".2.step")
+                    ]
+                    stats, raw = path.stat(), path.read_bytes()
+                    document = {**BINDING.document(), **_step(2).view()}
+                    with self.store._guard:
+                        self.store._seal(
+                            "team_1", INCARNATION, (path.name, "step", NOW), document, (), lambda *_args: False
+                        )
+                    os.utime(path, ns=(stats.st_atime_ns, stats.st_mtime_ns))
+                    self.assertEqual((len(path.read_bytes()), path.stat().st_mtime_ns), (len(raw), stats.st_mtime_ns))
+                    self.assertNotEqual(path.read_bytes(), raw)
+                with self.assertRaises(ApiProblemError) as caught:
+                    self.page(first["snapshot"])
+                self.assertEqual(
+                    (caught.exception.status, caught.exception.code), (HTTPStatus.CONFLICT, "routine-run-changed")
+                )
+                first = self.page()
+        # Expiry changes the retained set too.
+        with self.assertRaises(ApiProblemError) as caught:
+            diagnostics.run_steps(
+                self.service, "team_1", RUN, first["snapshot"], 0, NOW + diagnostics.RETENTION_SECONDS
+            )
+        self.assertEqual(caught.exception.code, "routine-run-changed")
+
+    def test_pages_of_many_steps_stay_within_their_bound(self) -> None:
+        binding = dataclasses.replace(BINDING, total=200)
+        wide = [{"member": f"m{index:02d}", "source": "literal", "value": "x" * 120} for index in range(40)]
+        for position in range(1, 201):
+            self.store.record_step("team_1", INCARNATION, _step(position, binding=binding, inputs=wide), ())
+        positions, offset, snapshot = [], 0, "latest"
+        while offset is not None:
+            page = self.page(snapshot, offset)
+            self.assertLessEqual(http_routine.encoded_bytes(page["steps"]), http_routine.MAX_PAGE_BYTES)
+            self.assertLess(http_routine.encoded_bytes({**page, "trace_id": "f" * 32}), 128 * 1024)
+            positions.extend(step["position"] for step in page["steps"])
+            snapshot, offset = page["snapshot"], page["next"]
+        self.assertEqual(positions, list(range(1, 201)))
+
+    def test_records_of_disagreeing_revisions_or_none_at_all_never_show(self) -> None:
+        with self.assertRaises(ApiProblemError) as caught:
+            self.page()
+        self.assertEqual(
+            (caught.exception.status, caught.exception.code), (HTTPStatus.NOT_FOUND, "routine-run-steps-not-found")
+        )
+        self.store.record_step("team_1", INCARNATION, _step(1), ())
+        with self.assertRaises(ApiProblemError) as caught:
+            self.page(offset=4)
+        self.assertEqual(caught.exception.code, "routine-run-steps-not-found")
+        self.store.record_step("team_1", INCARNATION, _step(2, binding=dataclasses.replace(BINDING, revision=3)), ())
+        with self.assertRaises(ApiProblemError) as caught:
+            self.page()
+        self.assertEqual(caught.exception.code, "routine-state-unavailable")
+        # Another incarnation's records are left out, as its diagnostics are.
+        self.store.record_step("team_2", OTHER_INCARNATION, _step(1), ())
+        with self.assertRaises(ApiProblemError) as caught:
+            diagnostics.run_steps(self.service, "team_2", RUN, "latest", 0, NOW + 10)
+        self.assertEqual(caught.exception.code, "routine-run-steps-not-found")
+
+    def test_only_a_valid_secret_free_record_is_ever_sealed(self) -> None:
+        invalid = (
+            _step(5),
+            _step(1, "not_run"),
+            _step(1, attempt=0),
+            _step(1, binding=dataclasses.replace(BINDING, run_id="bad")),
+            _step(1, binding=dataclasses.replace(BINDING, plan_digest="x")),
+            _step(1, inputs=[{"member": "page", "source": "secret", "value": "1"}]),
+        )
+        for item in invalid:
+            with self.subTest(item=item), self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "invalid"):
+                self.store.record_step("team_1", INCARNATION, item, ())
+        with self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "protected value"):
+            self.store.record_step("team_1", INCARNATION, _step(1), ("list-zones",))
+        # A protected value is found however the body escapes it: as JSON text or as a preview's escapes.
+        for value in ('a"b', "a\nb", "a\u200bb"):
+            escaped = _step(1, inputs=[{"member": "page", "source": "literal", "value": json.dumps(value)[1:-1]}])
+            with self.subTest(value=value), self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "protected"):
+                self.store.record_step("team_1", INCARNATION, escaped, (value,))
+        with self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "invalid"):
+            self.store.record_run("team_1", INCARNATION, diagnostics.RunRecord(BINDING, 5, True, NOW))
+        with (
+            mock.patch.object(diagnostics, "MAX_STEP_PLAINTEXT_BYTES", 64),
+            self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "byte limit"),
+        ):
+            self.store.record_step("team_1", INCARNATION, _step(1), ())
+
+    def test_deleting_a_routine_removes_its_step_and_run_records(self) -> None:
+        self.store.record_step("team_1", INCARNATION, _step(1), ())
+        self.store.record_run("team_1", INCARNATION, diagnostics.RunRecord(BINDING, 1, False, NOW))
+        self.store.record("team_1", INCARNATION, _diagnostic(), ())
+        self.assertEqual(len(list(self.store._team_dir("team_1").iterdir())), 3)
+        self.store.delete_routine("team_1", ROUTINE)
+        self.assertEqual(list(self.store._team_dir("team_1").iterdir()), [])
+        # Failure diagnostics never read a step record.
+        self.store.record_step("team_1", INCARNATION, _step(1), ())
+        self.assertEqual(self.store.read("team_1", INCARNATION, RUN, NOW + 10), ())
+
+    def test_a_record_that_does_not_open_fails_the_page_closed(self) -> None:
+        self.store.record_step("team_1", INCARNATION, _step(1), ())
+        (path,) = list(self.store._team_dir("team_1").iterdir())
+        envelope = json.loads(path.read_bytes())
+        path.write_bytes(json.dumps({**envelope, "nonce": envelope["nonce"][::-1]}).encode())
+        with self.assertRaises(ApiProblemError) as caught:
+            self.page()
+        self.assertEqual(caught.exception.code, "routine-state-unavailable")
+
+
+class StepRecordOrderTests(StepRecordCase):
+    def test_the_latest_record_by_sequence_wins_even_after_the_clock_stepped_back(self) -> None:
+        self.store.record_step("team_1", INCARNATION, _step(1, "failed", recorded_at=NOW + 5), ())
+        self.store.record_step("team_1", INCARNATION, _step(1, "done", recorded_at=NOW), ())
+        self.assertEqual(self.page()["steps"][0]["status"], "done")
+
+    def test_a_record_that_is_not_an_object_or_a_page_that_is_not_canonical_fails_closed(self) -> None:
+        name = f"{NOW}.{ROUTINE}.{RUN}.1.step"
+        with self.store._guard:
+            self.store._seal("team_1", INCARNATION, (name, "step", NOW), ["not", "an", "object"], (), lambda *_a: False)
+        with self.assertRaises(ApiProblemError) as caught:
+            self.page()
+        self.assertEqual(caught.exception.code, "routine-state-unavailable")
+        self.store.delete("team_1")
+        self.store.record_step("team_1", INCARNATION, _step(1), ())
+        with (
+            mock.patch.object(diagnostics.http_routine, "canonical_run_steps", return_value=None),
+            self.assertRaises(ApiProblemError) as caught,
+        ):
+            self.page()
+        self.assertEqual(caught.exception.code, "routine-state-unavailable")
 
 
 if __name__ == "__main__":

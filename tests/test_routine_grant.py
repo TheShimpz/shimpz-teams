@@ -1,4 +1,4 @@
-"""A Routine revision keeps the evidence of the request that granted it, and shows its plan safely (ADR-0092)."""
+"""A Routine revision keeps the evidence of the request that granted it (ADR-0092)."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ class GrantTests(unittest.TestCase):
                         "origins": [
                             {"at": "", "from": "message", "span": [0, 1]},
                             {"at": "/a", "from": "quote", "region": 0, "span": [2, 3], "instruction": [4, 5]},
-                            {"at": "/b", "from": "default"},
+                            {"at": "/b", "from": "answer"},
                         ]
                     },
                     "by": None,
@@ -114,7 +114,9 @@ class GrantTests(unittest.TestCase):
             lambda value: value["sources"]["zones"]["page"].update(proof={"origins": []}),
             lambda value: value["sources"]["zones"]["page"].update(proof={"origins": [{"at": ""}]}),
             lambda value: value["sources"]["zones"]["page"].update(proof={"origins": ["x"]}),
-            lambda value: value["sources"]["zones"]["page"].update(proof={"origins": [{"at": 1, "from": "default"}]}),
+            lambda value: value["sources"]["zones"]["page"].update(proof={"origins": [{"at": 1, "from": "answer"}]}),
+            # A schema default never grants a value (ADR-0092 amendment, 2026-10-05, scale).
+            lambda value: value["sources"]["zones"]["page"].update(proof={"origins": [{"at": "", "from": "default"}]}),
             lambda value: value["sources"]["zones"]["page"].update(
                 proof={"origins": [{"at": "", "from": "message", "span": [0, 1], "text": "API_KEY=x"}]}
             ),
@@ -128,7 +130,7 @@ class GrantTests(unittest.TestCase):
                 proof={"origins": [{"at": "", "from": "quote", "region": 0, "span": [0, 1], "instruction": "x"}]}
             ),
             lambda value: value["sources"]["zones"]["page"].update(
-                proof={"origins": [{"at": "", "from": "default", "x": 1}]}
+                proof={"origins": [{"at": "", "from": "answer", "x": 1}]}
             ),
             lambda value: value["sources"]["zones"]["page"].update(
                 proof={"origins": [{"at": "", "from": "elsewhere"}]}
@@ -161,32 +163,6 @@ class GrantTests(unittest.TestCase):
         selected = {**complete, "selected": {"field": ["input", "zones", "page"], "label": "Página 1"}}
         self.assertTrue(routine_grant.valid(selected, PLAN, 2))
         self.assertFalse(routine_grant.valid(None, PLAN, 2))
-
-    def test_the_projection_shows_each_step_its_sources_and_stored_inputs_by_name_only(self) -> None:
-        grant = routine_fixture.grant(PLAN)
-        grant["stored_inputs"]["records"] = ["api"]
-        self.assertEqual(
-            routine_grant.steps(PLAN, grant),
-            [
-                {
-                    "id": "zones",
-                    "assistant": "dns",
-                    "action": "list-zones",
-                    "inputs": [{"member": "page", "source": "literal", "value": r'{"n":"a\u202eb"}'}],
-                    "stored_inputs": [],
-                },
-                {
-                    "id": "records",
-                    "assistant": "dns",
-                    "action": "list-records",
-                    "inputs": [
-                        {"member": "day", "source": "run_clock", "value": "date"},
-                        {"member": "zone", "source": "step_output", "step": "zones", "pointer": "/zones/0/id"},
-                    ],
-                    "stored_inputs": ["api"],
-                },
-            ],
-        )
 
 
 if __name__ == "__main__":

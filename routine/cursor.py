@@ -19,7 +19,7 @@ from core import strict_json
 from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
 
-VERSION = 2
+VERSION = 3
 MAX_CURSOR_BYTES = 256 * 1024
 # The initial automatic recovery bounds; consumption is persisted before any paid dispatch.
 BUDGETS = (
@@ -190,7 +190,14 @@ def complete(cursor: Cursor, plan: routine_plan.Plan, result: object, shown: dic
         raise CursorError(exc.code) from exc
     shown_step = plan.shown()
     if (shown is not None) != (shown_step is not None and shown_step.step_id == step_id) or (
-        shown is not None and (not isinstance(shown, dict) or shown.get("step") != step_id)
+        shown is not None
+        and (
+            not isinstance(shown, dict)
+            or shown.get("step") != step_id
+            or not isinstance(shown.get("output"), dict)
+            # Its output names the same step by position, as the wire does.
+            or shown["output"].get("step") != cursor.step + 1
+        )
     ):
         raise CursorError("cursor-shown-invalid")
     selected = (*cursor.selected, *((step_id, pointer, value) for pointer, value in sorted(chosen.items())))
@@ -383,7 +390,8 @@ def _shown_valid(shown: object) -> bool:
     output, digest = http_routine.canonical_output(shown["output"]), shown["digest"]
     return (
         output is not None
-        and output["step"] == shown["step"]
+        and isinstance(shown["step"], str)
+        and routine_plan.STEP_ID_RE.fullmatch(shown["step"]) is not None
         and output["state"] in ("shown", "unavailable")
         and (digest is None or (isinstance(digest, str) and _HEX64_RE.fullmatch(digest) is not None))
         and (digest is None or output["state"] == "shown")
