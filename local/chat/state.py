@@ -21,7 +21,15 @@ from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import stored_input_unavailable
+from local.errors import (
+    assistant_registry_drift,
+    docker_unavailable,
+    inference_not_configured,
+    inference_provider_mismatch,
+    ownership_conflict,
+    selected_file_not_found,
+    stored_input_unavailable,
+)
 from local.install.runtime import AssistantSpec
 from local.labels import ASSISTANT_LABEL
 from storage import files as team_storage
@@ -45,7 +53,7 @@ def _chat_file_metadata(
     try:
         return self.storage.metadata(team_id, file_ids, metadata_connection)
     except team_storage.StorageNotFoundError as exc:
-        raise ApiProblem(HTTPStatus.NOT_FOUND, "selected file not found", code="file-not-found") from exc
+        raise selected_file_not_found() from exc
     except team_storage.StorageInputError as exc:
         raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc), code="invalid-files") from exc
     except team_storage.StorageError as exc:
@@ -62,7 +70,7 @@ def _team_assistants(self, team_id: str, *, scan: bool = True) -> tuple[str, str
         team_name = self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
         network_id = getattr(network, "id", None)
         if not isinstance(network_id, str) or not network_id:
-            raise ApiProblem(HTTPStatus.CONFLICT, "Team resource ownership conflict", code="ownership-conflict")
+            raise ownership_conflict()
         active_assistants = self._active_chat_assistants(team_id, network.name) if scan else ()
     return team_name, network_id, {active.spec.assistant_id: active for active in active_assistants}
 
@@ -99,17 +107,9 @@ def _chat_setup(
         try:
             config = self.inference_store.load(team_id)
         except inference_config.InferenceConfigError as exc:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Team model provider is not configured",
-                code="inference-not-configured",
-            ) from exc
+            raise inference_not_configured() from exc
         if config.provider != provider:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "configured model provider changed; retry",
-                code="inference-provider-mismatch",
-            )
+            raise inference_provider_mismatch()
     return team_name, network_id, assistants, files, config
 
 
@@ -206,11 +206,7 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
             **self.assistant_lifecycle._assistant_filters(team_id)
         )
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Docker is unavailable",
-            code="docker-unavailable",
-        ) from exc
+        raise docker_unavailable() from exc
     active: list[_ActiveAssistant] = []
     egress_proxy = None
     bindings_by_id = (
@@ -227,11 +223,7 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
         assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
         binding = bindings_by_id.get(assistant_id)
         if binding is None:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "an installed Assistant is no longer allowlisted",
-                code="assistant-registry-drift",
-            )
+            raise assistant_registry_drift()
         spec = self.registry.spec(binding)
         self.assistant_lifecycle._validate_container(
             container,

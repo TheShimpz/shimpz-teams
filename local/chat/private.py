@@ -18,7 +18,7 @@ from integrations import store as integration_store
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import stored_input_unavailable
+from local.errors import action_file_unavailable, integration_contract_unavailable, stored_input_unavailable
 from local.install.runtime import AssistantSpec
 from local.validation import validate_team_id
 
@@ -141,11 +141,7 @@ def _require_action_rpc_envelope(
             () if action_spec is None else action_spec.input_files, request.input, selected or {}
         )
     except action_files.FileDeliveryError as exc:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "the attached file is unavailable for this Action; attach it again",
-            code="action-file-unavailable",
-        ) from exc
+        raise action_file_unavailable() from exc
     try:
         return action_execution.require_rpc_envelope(
             active,
@@ -220,11 +216,7 @@ def list_assistant_integrations(self, team_id: str) -> dict[str, object]:
         except integration_store.OAuthIntegrationStoreError as exc:
             self._raise_integration_problem(exc)
         except integration_flow.IntegrationFlowError as exc:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Assistant integration contract is unavailable",
-                code="assistant-integration-contract-invalid",
-            ) from exc
+            raise integration_contract_unavailable() from exc
     return {"team_id": team_id, **payload}
 
 

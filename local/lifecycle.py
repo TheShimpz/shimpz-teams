@@ -15,6 +15,12 @@ from local import names as local_names
 from local import prepare as local_prepare
 from local.assistant.egress import PROFILE
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import (
+    assistant_icon_unavailable,
+    docker_unavailable,
+    team_destroy_failed,
+    team_resources_ownership_conflict,
+)
 from local.labels import (
     ASSISTANT_LABEL,
     IMAGE_LABEL,
@@ -65,11 +71,7 @@ def _team_assistant_containers(self, team_id: str) -> list:
     try:
         return self.client.containers.list(**self.assistant_lifecycle._assistant_filters(team_id))
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Docker is unavailable",
-            code="docker-unavailable",
-        ) from exc
+        raise docker_unavailable() from exc
 
 
 def _validate_destroy_containers(self, containers: list, team_id: str, network) -> None:
@@ -77,11 +79,7 @@ def _validate_destroy_containers(self, containers: list, team_id: str, network) 
         assistant_id = container.labels.get(ASSISTANT_LABEL)
         spec = self.registry.get(team_id, assistant_id)
         if spec is None or network is None:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Team resources failed their ownership contract",
-                code="ownership-conflict",
-            )
+            raise team_resources_ownership_conflict()
         self.assistant_lifecycle._validate_container_profile(container, team_id, spec, network.name)
 
 
@@ -104,11 +102,7 @@ def _remove_team_helpers(self, team_id: str) -> None:
     try:
         local_prepare.remove_helpers(self.client, self.space_id, team_id)
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Docker could not destroy the Team",
-            code="docker-remove-failed",
-        ) from exc
+        raise team_destroy_failed() from exc
 
 
 def _remove_team_assistants(self, team_id: str, containers: list) -> int:
@@ -116,20 +110,12 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
         assistant_id = container.labels[ASSISTANT_LABEL]
         spec = self.registry.get(team_id, assistant_id)
         if spec is None:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Team resources failed their ownership contract",
-                code="ownership-conflict",
-            )
+            raise team_resources_ownership_conflict()
         retired_image_id = self.assistant_lifecycle._retired_image_id(container)
         try:
             container.remove(force=True)
         except DockerException as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Docker could not destroy the Team",
-                code="docker-remove-failed",
-            ) from exc
+            raise team_destroy_failed() from exc
         if retired_image_id is not None and spec.provenance == "published":
             self.assistant_lifecycle._queue_residue(retired_image_id)
         self.assistant_lifecycle._blocked_action_workloads.discard(container.id)
@@ -140,11 +126,7 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
             continue
         spec = self.registry.get(team_id, assistant_id)
         if spec is None:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Team resources failed their ownership contract",
-                code="ownership-conflict",
-            )
+            raise team_resources_ownership_conflict()
         self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
         _retire_team_binding(self, team_id, assistant_id)
     self.assistant_lifecycle.sweep_residues()
@@ -162,11 +144,7 @@ def _retire_team_binding(self, team_id: str, assistant_id: str) -> None:
             binding, self.registry.bindings, lambda: self.registry.delete(team_id, assistant_id)
         )
     except icons.AssistantIconError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant icon storage is unavailable",
-            code="assistant-icon-unavailable",
-        ) from exc
+        raise assistant_icon_unavailable() from exc
 
 
 def _delete_team_persistence(self, team_id: str) -> bool:
@@ -193,11 +171,7 @@ def _remove_team_network(self, network) -> bool:
     try:
         network.remove()
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Docker could not destroy the Team",
-            code="docker-remove-failed",
-        ) from exc
+        raise team_destroy_failed() from exc
     return True
 
 

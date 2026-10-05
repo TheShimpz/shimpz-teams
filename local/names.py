@@ -21,6 +21,7 @@ from docker.errors import APIError
 from core import strict_json
 from inference import config as inference_config
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import ownership_conflict
 from local.labels import TEAM_LABEL, TEAM_NAME_LABEL
 from local.validation import validate_team_id
 from protocol.http.v1 import payload as http_payload
@@ -172,7 +173,7 @@ def _named_teams(self) -> list[tuple[str, str, object]]:
     for network in self.assistant_lifecycle._managed_team_networks():
         team_id = (network.attrs.get("Labels") or {}).get(TEAM_LABEL)
         if not isinstance(team_id, str):
-            raise ApiProblem(HTTPStatus.CONFLICT, "Team resource ownership conflict", code="ownership-conflict")
+            raise ownership_conflict()
         validate_team_id(team_id)
         teams.append((team_id, display_name(self, team_id, network), network))
     return teams

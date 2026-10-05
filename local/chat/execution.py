@@ -23,7 +23,13 @@ from local import audit as local_audit
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import stored_input_unavailable
+from local.errors import (
+    action_state_unavailable,
+    chat_stopped,
+    integration_contract_unavailable,
+    stored_input_unavailable,
+    team_context_changed,
+)
 
 
 def project_action_result(
@@ -187,11 +193,7 @@ def _invoke_chat_action(
         container = self.assistant_lifecycle._assistant_container(team_id, assistant_id)
         self.assistant_lifecycle._validate_container(container, team_id, spec, network.name)
         if container.id != frozen_container_id:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Team capabilities changed; retry",
-                code="team-context-changed",
-            )
+            raise team_context_changed()
         with self._active_chat_guard:
             if (
                 self._active_chat_tokens.get(team_id) != token
@@ -250,19 +252,11 @@ def _raise_chat_problem(reason: str, exc: BaseException | None) -> NoReturn:
             code="internal-error",
         )
     if reason == "context-changed":
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Team capabilities changed; retry",
-            code="team-context-changed",
-        )
+        raise team_context_changed()
     if isinstance(exc, action_journal.ActionJournalError):
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Team Action execution state is unavailable",
-            code="action-state-unavailable",
-        ) from exc
+        raise action_state_unavailable() from exc
     if isinstance(exc, chat_orchestrator.ChatStoppedError):
-        raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped") from exc
+        raise chat_stopped() from exc
     if isinstance(exc, chat_orchestrator.ChatOrchestrationError):
         raise ApiProblem(
             HTTPStatus.BAD_GATEWAY,
@@ -320,11 +314,7 @@ def _require_chat_private_inputs(
         integration_flow.IntegrationFlowError,
         integration_store.OAuthIntegrationStoreError,
     ) as exc:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Assistant integration contract is unavailable",
-            code="assistant-integration-contract-invalid",
-        ) from exc
+        raise integration_contract_unavailable() from exc
     return bool(requirements.integrations)
 
 
@@ -339,8 +329,4 @@ def _validate_chat_context(
 ) -> None:
     current = self._chat_setup(team_id, file_ids, provider, assistant_ids, metadata_connection, scan_empty_scope=False)
     if self._chat_identity(*current) != identity:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Team capabilities changed; retry",
-            code="team-context-changed",
-        )
+        raise team_context_changed()

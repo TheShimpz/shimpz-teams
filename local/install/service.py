@@ -9,6 +9,7 @@ from http import HTTPStatus
 
 from install import artifact_trust, bindings, icons
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import assistant_icon_unavailable
 from local.install import developers, preview, snapshots
 from local.install.registry import is_successor
 from local.validation import validate_team_id
@@ -149,11 +150,7 @@ def _install_local_snapshot(self, team_id: str, image_id: str, *, fresh_only: bo
             code="assistant-binding-conflict",
         ) from exc
     except icons.AssistantIconError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant icon storage is unavailable",
-            code="assistant-icon-unavailable",
-        ) from exc
+        raise assistant_icon_unavailable() from exc
     if existing is not None:
         _discard_local_icon(self, existing)
     return {
@@ -229,11 +226,7 @@ def _discard_local_icon(self, binding: bindings.DynamicAssistantBinding) -> None
     try:
         self.assistant_icons.discard_binding(binding, self.registry.bindings)
     except icons.AssistantIconError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant icon storage is unavailable",
-            code="assistant-icon-unavailable",
-        ) from exc
+        raise assistant_icon_unavailable() from exc
 
 
 def install_publication(
@@ -273,11 +266,7 @@ def install_publication(
             code="assistant-binding-conflict",
         ) from exc
     except icons.AssistantIconError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant icon storage is unavailable",
-            code="assistant-icon-unavailable",
-        ) from exc
+        raise assistant_icon_unavailable() from exc
     if existing is not None:
         _discard_icon(self, str(existing.resolution["source_digest"]))
     return result
@@ -370,11 +359,7 @@ def _discard_icon(self, source_digest: str) -> None:
     try:
         self.assistant_icons.discard_unreferenced(source_digest, self.registry.bindings)
     except icons.AssistantIconError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant icon storage is unavailable",
-            code="assistant-icon-unavailable",
-        ) from exc
+        raise assistant_icon_unavailable() from exc
 
 
 def _install_bound_publication(

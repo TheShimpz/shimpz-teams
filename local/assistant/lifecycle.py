@@ -14,6 +14,7 @@ from install import bindings, icons
 from local.assistant import isolation as local_container_policy
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import assistant_icon_unavailable, assistant_registry_drift, assistant_replace_failed
 from local.install import snapshots as local_snapshots
 from local.install.runtime import AssistantSpec
 from local.validation import validate_team_id
@@ -235,11 +236,7 @@ def _replace_unready_assistant(
         self._assistant_language_cache.discard(existing.id)
         existing.remove(force=True)
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Docker could not replace the Assistant",
-            code="docker-remove-failed",
-        ) from exc
+        raise assistant_replace_failed() from exc
     if authorize_start is None:
         self._create_assistant_container(team_id, spec, network, image)
     else:
@@ -275,11 +272,7 @@ def _replace_outdated_assistant(
         self._assistant_language_cache.discard(existing.id)
         existing.remove(force=True)
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Docker could not replace the Assistant",
-            code="docker-remove-failed",
-        ) from exc
+        raise assistant_replace_failed() from exc
     if spec.allowed_hosts:
         self._release_assistant_egress(
             team_id,
@@ -496,11 +489,7 @@ def update_assistant(
             self._clear_update(transaction)
             if isinstance(exc, ApiProblem):
                 raise
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Docker could not replace the Assistant",
-                code="docker-remove-failed",
-            ) from exc
+            raise assistant_replace_failed() from exc
         try:
             self._commit_replacement(
                 team_id,
@@ -742,11 +731,7 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
         spec = self.registry.get(team_id, assistant_id)
         if spec is None:
             # A container without its binding cannot be validated, so it is never removed as if it were owned.
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "an installed Assistant is no longer allowlisted",
-                code="assistant-registry-drift",
-            )
+            raise assistant_registry_drift()
         self._validate_container_profile(container, team_id, spec, network.name)
         retired_image_id = _retired_image_id(container)
         remaining_egress = (
@@ -789,11 +774,7 @@ def _retire_binding(self, team_id: str, assistant_id: str, binding) -> None:
     try:
         self.icons.retire(binding, self.registry.bindings, lambda: self.registry.delete(team_id, assistant_id))
     except icons.AssistantIconError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant icon storage is unavailable",
-            code="assistant-icon-unavailable",
-        ) from exc
+        raise assistant_icon_unavailable() from exc
 
 
 @_serialize_against_local_team_chat

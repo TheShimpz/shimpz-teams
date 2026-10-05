@@ -8,6 +8,7 @@ from assistant import language as assistant_language
 from install import icons
 from local.chat.types import ActiveAssistant
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import assistant_registry_drift, docker_unavailable
 from local.labels import ASSISTANT_LABEL
 from local.validation import validate_assistant_id, validate_team_id
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
@@ -84,11 +85,7 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
         try:
             containers = self.client.containers.list(**self.assistant_lifecycle._assistant_filters(team_id))
         except DockerException as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Docker is unavailable",
-                code="docker-unavailable",
-            ) from exc
+            raise docker_unavailable() from exc
         bindings_by_id = (
             {binding.assistant_id: binding for binding in self.registry.team_bindings(team_id)} if containers else {}
         )
@@ -97,11 +94,7 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
             assistant_id = labels.get(ASSISTANT_LABEL)
             binding = bindings_by_id.get(assistant_id)
             if binding is None:
-                raise ApiProblem(
-                    HTTPStatus.CONFLICT,
-                    "an installed Assistant is no longer allowlisted",
-                    code="assistant-registry-drift",
-                )
+                raise assistant_registry_drift()
             spec, version = self.registry.versioned(binding)
             config, environment = self.assistant_lifecycle._validate_container_profile(
                 container,

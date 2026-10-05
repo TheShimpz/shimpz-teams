@@ -13,6 +13,7 @@ from integrations import flow as integration_flow
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import action_state_unavailable, chat_stopped, team_context_changed
 
 
 def _commit_suspension(
@@ -36,7 +37,7 @@ def _commit_suspension(
         payload.continuation,
         lambda: self._commit_chat_terminal(team_id, token),
         lambda: challenge_store.cancel_team(team_id),
-        lambda: ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped"),
+        chat_stopped,
         rollback,
     )
 
@@ -59,19 +60,11 @@ def _purge_human_pending(self, pending: _PendingLocalChat) -> None:
     """Remove exactly the Action batch the paused turn holds; a newer turn's batch in its generation stays."""
     generation = pending.identity[1] if len(pending.identity) == 5 else None
     if not isinstance(generation, str) or not isinstance(pending.paused_batch, str):
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Team capabilities changed; retry",
-            code="team-context-changed",
-        )
+        raise team_context_changed()
     try:
         self.action_state.purge_batch(generation, pending.paused_batch)
     except action_journal.ActionJournalError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Team Action execution state is unavailable",
-            code="action-state-unavailable",
-        ) from exc
+        raise action_state_unavailable() from exc
 
 
 def _terminal_human_failure(
@@ -85,7 +78,7 @@ def _terminal_human_failure(
     self._delete_chat_continuation(team_id)
     self._purge_human_pending(pending)
     if not self._commit_chat_terminal(team_id, token):
-        raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
+        raise chat_stopped()
     return {
         "team_id": team_id,
         "status": "human-denied",
@@ -197,11 +190,7 @@ def _end_drifted_turn(self, team_id: str, challenge: object) -> NoReturn:
         self._delete_withdrawn_continuation(team_id, challenge)
         if human:
             self._purge_human_pending(challenge.payload)
-    raise ApiProblem(
-        HTTPStatus.CONFLICT,
-        "Team capabilities changed; retry",
-        code="team-context-changed",
-    )
+    raise team_context_changed()
 
 
 def _paused_setup(self, team_id: str, provider: str, challenge: object) -> tuple[_PendingLocalChat, tuple[object, ...]]:

@@ -59,7 +59,7 @@ from local.chat import state as local_chat_state
 from local.chat.service import ChatTurnService
 from local.composition import AssistantLifecycleDependencies, ChatTurnDependencies
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import stored_input_unavailable
+from local.errors import action_file_unavailable, docker_unavailable, stored_input_unavailable, team_context_changed
 from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
 from local.install import automatic as local_automatic_updates
 from local.install import collector as local_snapshot_collector
@@ -514,11 +514,7 @@ class LocalController:
             if self.client.ping() is not True:
                 raise DockerException("unexpected Docker ping response")
         except DockerException as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Docker is unavailable",
-                code="docker-unavailable",
-            ) from exc
+            raise docker_unavailable() from exc
         return {"status": "ok"}
 
     def _action_files(
@@ -538,11 +534,7 @@ class LocalController:
                 lambda file_id: self.storage.get(team_id, file_id),
             )
         except (action_files.FileDeliveryError, team_storage.StorageError) as exc:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "the attached file is unavailable for this Action; attach it again",
-                code="action-file-unavailable",
-            ) from exc
+            raise action_file_unavailable() from exc
 
     def invoke(
         self,
@@ -580,11 +572,7 @@ class LocalController:
                 active = self.chat_turn_service._active_action_containers.get(team_id)
                 frozen_container = active[1] if active is not None else None
             if frozen_container is not None and frozen_container.id != container.id:
-                raise ApiProblem(
-                    HTTPStatus.CONFLICT,
-                    "Team capabilities changed; retry",
-                    code="team-context-changed",
-                )
+                raise team_context_changed()
             private = action_execution.resolve_invocation_evidence(
                 evidence,
                 lambda: self.chat_turn_service._resolve_action_integrations(team_id, spec, action),

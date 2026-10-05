@@ -8,6 +8,7 @@ from assistant import manifest as assistant_manifest
 from local.assistant import isolation as local_container_policy
 from local.assistant.egress import PROFILE
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import assistant_isolation_drift, assistant_registry_drift, docker_unavailable
 from local.install import snapshots as local_snapshots
 from local.install.runtime import AssistantSpec
 from local.labels import (
@@ -57,11 +58,7 @@ def _assistant_specs(self, team_id: str, *, running_only: bool = False) -> tuple
     try:
         containers = self.client.containers.list(**self._assistant_filters(team_id))
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Docker is unavailable",
-            code="docker-unavailable",
-        ) from exc
+        raise docker_unavailable() from exc
     bindings_by_id = (
         {binding.assistant_id: binding for binding in self.registry.team_bindings(team_id)} if containers else {}
     )
@@ -72,11 +69,7 @@ def _assistant_specs(self, team_id: str, *, running_only: bool = False) -> tuple
         assistant_id = labels.get(ASSISTANT_LABEL) if isinstance(labels, dict) else None
         binding = bindings_by_id.get(assistant_id) if isinstance(assistant_id, str) else None
         if binding is None:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "an installed Assistant is no longer allowlisted",
-                code="assistant-registry-drift",
-            )
+            raise assistant_registry_drift()
         # Convert before accepting container labels so every matched runtime contract is validated.
         spec = self.registry.spec(binding)
         expected_labels = self._base_labels(team_id, "assistant")
@@ -87,11 +80,7 @@ def _assistant_specs(self, team_id: str, *, running_only: bool = False) -> tuple
             or not isinstance(container.status, str)
             or assistant_id in seen
         ):
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "the installed Assistant failed its isolation profile",
-                code="assistant-isolation-drift",
-            )
+            raise assistant_isolation_drift()
         seen.add(assistant_id)
         if not running_only or container.status == "running":
             specs.append(spec)
@@ -130,11 +119,7 @@ def _trusted_image(self, spec: AssistantSpec):
                 code="image-pull-failed",
             ) from exc
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Docker is unavailable",
-            code="docker-unavailable",
-        ) from exc
+        raise docker_unavailable() from exc
     repo_digests = image.attrs.get("RepoDigests") or []
     labels = (image.attrs.get("Config") or {}).get("Labels") or {}
     if (
@@ -166,11 +151,7 @@ def _staged_image(self, spec: AssistantSpec):
             code="local-image-missing",
         ) from exc
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Docker is unavailable",
-            code="docker-unavailable",
-        ) from exc
+        raise docker_unavailable() from exc
     attrs = image.attrs
     architecture = spec.platform.rpartition("/")[2] if isinstance(spec.platform, str) else None
     if (
@@ -231,11 +212,7 @@ def _validate_container_profile(
         self.cpuset_cpus,
     )
     if admitted is None:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "the installed Assistant failed its isolation profile",
-            code="assistant-isolation-drift",
-        )
+        raise assistant_isolation_drift()
     return admitted
 
 
@@ -257,11 +234,7 @@ def _validate_container_egress_environment(
     if reviewed_hosts:
         expected_proxy_environment = self._validate_egress_policy(team_id, spec, reviewed_hosts)
     if not local_container_policy.egress_environment_valid(environment, expected_proxy_environment):
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "the installed Assistant failed its isolation profile",
-            code="assistant-isolation-drift",
-        )
+        raise assistant_isolation_drift()
     return reviewed_hosts
 
 

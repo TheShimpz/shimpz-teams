@@ -10,6 +10,7 @@ from docker.errors import DockerException, NotFound
 from action import execution as action_execution
 from action import files as action_files
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import action_file_unavailable
 from local.install.runtime import AssistantSpec
 
 HEALTH_TIMEOUT_SECONDS = 15
@@ -82,11 +83,7 @@ def _rpc(
     try:
         deadline = action_files.rpc_deadline(payload.get("files", {}))
     except action_files.FileDeliveryError as exc:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "the attached file is unavailable for this Action; attach it again",
-            code="action-file-unavailable",
-        ) from exc
+        raise action_file_unavailable() from exc
     return _exchange(self, container, action_id, encoded, deadline)
 
 

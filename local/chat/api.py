@@ -15,6 +15,7 @@ from local.chat.segment import SegmentRequest as _ChatSegmentRequest
 from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.chat.types import ResponseRequest as _ResponseRequest
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import chat_stopped, integration_contract_unavailable, team_context_changed
 from local.routine import draft as routine_draft
 from local.routine import lineage as routine_lineage
 from local.routine import question as routine_question
@@ -129,7 +130,7 @@ def _segment_response(
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
         if not commit(terminal):
-            raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
+            raise chat_stopped()
         body: dict[str, object] = {
             "team_id": team_id,
             "team_name": segment.team_name,
@@ -357,16 +358,8 @@ def resume_chat_integrations(
                         "Assistant integration request expired; retry the message",
                         code="assistant-integration-challenge-expired",
                     ),
-                    context_error=lambda: ApiProblem(
-                        HTTPStatus.CONFLICT,
-                        "Team capabilities changed; retry",
-                        code="team-context-changed",
-                    ),
-                    contract_error=lambda: ApiProblem(
-                        HTTPStatus.CONFLICT,
-                        "Assistant integration contract is unavailable",
-                        code="assistant-integration-contract-invalid",
-                    ),
+                    context_error=team_context_changed,
+                    contract_error=integration_contract_unavailable,
                     end_drifted=lambda challenge: local_chat_pause._end_drifted_turn(self, team_id, challenge),
                 )
             )

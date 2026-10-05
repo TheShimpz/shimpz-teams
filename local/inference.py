@@ -7,6 +7,7 @@ from typing import NoReturn
 
 from inference import config as inference_config
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import inference_not_configured
 from local.validation import validate_team_id
 
 
@@ -25,11 +26,7 @@ def inference_status(self, team_id: str) -> dict[str, str]:
         try:
             config = self.inference_store.load(team_id)
         except inference_config.InferenceConfigMissingError as exc:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Team model provider is not configured",
-                code="inference-not-configured",
-            ) from exc
+            raise inference_not_configured() from exc
         except inference_config.InferenceConfigError as exc:
             _raise_inference_problem(exc)
     return {"team_id": team_id, "provider": config.provider, "model": config.model, "effort": config.effort}

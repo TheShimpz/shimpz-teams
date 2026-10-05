@@ -13,6 +13,7 @@ from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from local import prepare as local_prepare
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import action_state_unavailable, selected_file_not_found, team_context_changed
 from local.validation import brain_thread_id as _brain_thread_id
 from prepare import helper as preparation_helper
 from prepare import service as preparation
@@ -69,9 +70,9 @@ def turn_attachments(
             HTTPStatus.SERVICE_UNAVAILABLE, "attached files could not be prepared", code="attachments-unavailable"
         ) from exc
     except chat_attachments.AttachmentIntegrityError as exc:
-        raise ApiProblem(HTTPStatus.CONFLICT, "Team capabilities changed; retry", code="team-context-changed") from exc
+        raise team_context_changed() from exc
     except team_storage.StorageNotFoundError as exc:
-        raise ApiProblem(HTTPStatus.NOT_FOUND, "selected file not found", code="file-not-found") from exc
+        raise selected_file_not_found() from exc
     except team_storage.StorageError as exc:
         self._raise_storage_problem(exc)
     interrupt()
@@ -89,7 +90,7 @@ def turn_started(self, team_id: str, file_ids: Sequence[str]) -> tuple[str, ...]
     try:
         return self.storage.reference(team_id, file_ids)
     except team_storage.StorageNotFoundError as exc:
-        raise ApiProblem(HTTPStatus.NOT_FOUND, "selected file not found", code="file-not-found") from exc
+        raise selected_file_not_found() from exc
     except team_storage.StorageError as exc:
         self._raise_storage_problem(exc)
 
@@ -163,11 +164,7 @@ def forget_file(self, team_id: str, file_id: str, network: object) -> None:
             # but the paused one (or settled residue a restart left); ending the generation's settled state is exact.
             self.action_state.end_settled(network.id)
         except action_journal.ActionJournalError as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Team Action execution state is unavailable",
-                code="action-state-unavailable",
-            ) from exc
+            raise action_state_unavailable() from exc
     try:
         self.brain_runtime.delete_thread(_brain_thread_id(self.space_id, team_id, network.id))
     except brain_runtime_client.BrainRuntimeError as exc:

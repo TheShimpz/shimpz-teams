@@ -12,6 +12,13 @@ from docker.errors import DockerException, NotFound
 from core.container import network as network_policy
 from egress import policy as egress_policy
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import (
+    assistant_registry_drift,
+    docker_unavailable,
+    egress_proxy_drift,
+    egress_proxy_unavailable,
+    ownership_conflict,
+)
 from local.install.runtime import AssistantSpec
 from local.labels import (
     ASSISTANT_LABEL,
@@ -230,11 +237,7 @@ def _proxy_image_drifted(client, attrs: dict) -> bool:
     except NotFound:
         return True
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant egress proxy is unavailable",
-            code="egress-proxy-unavailable",
-        ) from exc
+        raise egress_proxy_unavailable() from exc
     return not network_policy.image_identity_valid(attrs, expected, expected_id)
 
 
@@ -245,19 +248,11 @@ def _egress_proxy(self, network_name: str):
         or _CONTAINER_NAME.fullmatch(ASSISTANT_EGRESS_CONTAINER) is None
         or not network_policy.image_reference_valid(network_policy.ASSISTANT_EGRESS_IMAGE)
     ):
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant egress proxy is unavailable",
-            code="egress-proxy-unavailable",
-        )
+        raise egress_proxy_unavailable()
     try:
         proxy = self.client.containers.get(ASSISTANT_EGRESS_CONTAINER)
     except (NotFound, DockerException) as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant egress proxy is unavailable",
-            code="egress-proxy-unavailable",
-        ) from exc
+        raise egress_proxy_unavailable() from exc
     attrs = proxy.attrs
     config = attrs.get("Config") or {}
     host = attrs.get("HostConfig") or {}
@@ -290,18 +285,10 @@ def _egress_proxy(self, network_name: str):
             code="egress-proxy-drift",
         )
     if _team_attachment_drifted(attrs, network_name):
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Assistant egress proxy failed its Team attachment contract",
-            code="egress-proxy-drift",
-        )
+        raise egress_proxy_drift()
     if proxy.status != "running":
         # A proxy whose profile and attachment hold is only stopped, as during a release swap or restart: retryable.
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant egress proxy is unavailable",
-            code="egress-proxy-unavailable",
-        )
+        raise egress_proxy_unavailable()
     return proxy
 
 
@@ -330,11 +317,7 @@ def _connect_egress_proxy(self, network, proxy=None) -> None:
                 ) from exc
         attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
     if not isinstance(attached, dict) or ASSISTANT_EGRESS_ALIAS not in (attached.get("Aliases") or []):
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Assistant egress proxy failed its Team attachment contract",
-            code="egress-proxy-drift",
-        )
+        raise egress_proxy_drift()
 
 
 def _reconcile_egress_proxy_attachment(self, team_id: str, network_name: str, proxy=None) -> None:
@@ -343,18 +326,10 @@ def _reconcile_egress_proxy_attachment(self, team_id: str, network_name: str, pr
     if isinstance(attached, dict):
         if ASSISTANT_EGRESS_ALIAS in (attached.get("Aliases") or []):
             return
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Assistant egress proxy failed its Team attachment contract",
-            code="egress-proxy-drift",
-        )
+        raise egress_proxy_drift()
     network = self._network(team_id)
     if network.name != network_name:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Team resource ownership conflict",
-            code="ownership-conflict",
-        )
+        raise ownership_conflict()
     self._connect_egress_proxy(network, proxy)
 
 
@@ -373,11 +348,7 @@ def _disconnect_egress_proxy(self, network) -> None:
             code="egress-proxy-unavailable",
         ) from exc
     if network.name in ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}):
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Assistant egress proxy failed its Team attachment contract",
-            code="egress-proxy-drift",
-        )
+        raise egress_proxy_drift()
 
 
 def _disconnect_egress_proxy_if_attached(self, network) -> None:
@@ -391,11 +362,7 @@ def _disconnect_egress_proxy_if_attached(self, network) -> None:
         ) from exc
     endpoints = network.attrs.get("Containers") or {}
     if not isinstance(endpoints, dict):
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Team resource ownership conflict",
-            code="ownership-conflict",
-        )
+        raise ownership_conflict()
     if any(endpoint.get("Name") == ASSISTANT_EGRESS_CONTAINER for endpoint in endpoints.values()):
         self._disconnect_egress_proxy(network)
 
@@ -410,33 +377,21 @@ def _managed_team_networks(self) -> list:
     try:
         return self.client.networks.list(filters={"label": labels})
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Docker is unavailable",
-            code="docker-unavailable",
-        ) from exc
+        raise docker_unavailable() from exc
 
 
 def _team_requires_egress_proxy(self, team_id: str, network) -> bool:
     try:
         containers = self.client.containers.list(**self._assistant_filters(team_id))
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Docker is unavailable",
-            code="docker-unavailable",
-        ) from exc
+        raise docker_unavailable() from exc
     seen: set[str] = set()
     requires_proxy = False
     for container in containers:
         assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
         spec = self.registry.get(team_id, assistant_id)
         if spec is None or assistant_id in seen:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "an installed Assistant is no longer allowlisted",
-                code="assistant-registry-drift",
-            )
+            raise assistant_registry_drift()
         seen.add(assistant_id)
         _config, environment = self._validate_container_profile(
             container,
@@ -457,17 +412,9 @@ def _reconcile_egress_proxy_attachments(self) -> None:
         try:
             team_id = validate_team_id(team_id)
         except ApiProblem as exc:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Team resource ownership conflict",
-                code="ownership-conflict",
-            ) from exc
+            raise ownership_conflict() from exc
         if team_id in seen:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Team resource ownership conflict",
-                code="ownership-conflict",
-            )
+            raise ownership_conflict()
         seen.add(team_id)
         self._validate_network(network, team_id)
         try:
@@ -492,22 +439,14 @@ def _team_has_egress_assistant(self, team_id: str, *, excluding: str | None = No
     try:
         containers = self.client.containers.list(**self._assistant_filters(team_id))
     except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Docker is unavailable",
-            code="docker-unavailable",
-        ) from exc
+        raise docker_unavailable() from exc
     for container in containers:
         assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
         if assistant_id == excluding:
             continue
         spec = self.registry.get(team_id, assistant_id)
         if spec is None:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "an installed Assistant is no longer allowlisted",
-                code="assistant-registry-drift",
-            )
+            raise assistant_registry_drift()
         self._validate_container_profile(
             container,
             team_id,
@@ -581,15 +520,11 @@ def _validate_network(self, network, team_id: str, *, refresh: bool = True) -> s
         or attrs.get("Internal") is not True
         or attrs.get("Attachable") is not False
     ):
-        raise ApiProblem(HTTPStatus.CONFLICT, "Team resource ownership conflict", code="ownership-conflict")
+        raise ownership_conflict()
     try:
         return validate_team_name(labels.get(TEAM_NAME_LABEL))
     except ApiProblem as exc:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Team resource ownership conflict",
-            code="ownership-conflict",
-        ) from exc
+        raise ownership_conflict() from exc
 
 
 def _network(self, team_id: str, *, required: bool = True):

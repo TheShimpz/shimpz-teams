@@ -8,6 +8,7 @@ from http import HTTPStatus
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import inference_not_configured, inference_provider_mismatch, ownership_conflict, team_context_changed
 from local.validation import validate_assistant_id, validate_team_id
 from protocol.http.v1 import payload as http_payload
 
@@ -39,7 +40,7 @@ def _action_label_snapshot(
         self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
         network_id = getattr(network, "id", None)
         if not isinstance(network_id, str) or not network_id:
-            raise ApiProblem(HTTPStatus.CONFLICT, "Team resource ownership conflict", code="ownership-conflict")
+            raise ownership_conflict()
         active = next(
             (
                 item
@@ -57,17 +58,9 @@ def _action_label_snapshot(
         try:
             config = self.inference_store.load(team_id)
         except inference_config.InferenceConfigError as exc:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Team model provider is not configured",
-                code="inference-not-configured",
-            ) from exc
+            raise inference_not_configured() from exc
         if config.provider != provider:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "configured model provider changed; retry",
-                code="inference-provider-mismatch",
-            )
+            raise inference_provider_mismatch()
         return ActionLabelSnapshot(
             network_id=network_id,
             assistant_version=active.spec.version,
@@ -117,11 +110,7 @@ def action_labels(
         ) from exc
     after = self._action_label_snapshot(team_id, assistant_id, provider)
     if after != before:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Team capabilities changed; retry",
-            code="team-context-changed",
-        )
+        raise team_context_changed()
     return {
         "team_id": team_id,
         "assistant": assistant_id,
@@ -192,21 +181,13 @@ def _capability_plan_snapshot(self, team_id: str, provider: str) -> CapabilityPl
         self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
         network_id = getattr(network, "id", None)
         if not isinstance(network_id, str) or not network_id:
-            raise ApiProblem(HTTPStatus.CONFLICT, "Team resource ownership conflict", code="ownership-conflict")
+            raise ownership_conflict()
         try:
             config = self.inference_store.load(team_id)
         except inference_config.InferenceConfigError as exc:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Team model provider is not configured",
-                code="inference-not-configured",
-            ) from exc
+            raise inference_not_configured() from exc
         if config.provider != provider:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "configured model provider changed; retry",
-                code="inference-provider-mismatch",
-            )
+            raise inference_provider_mismatch()
         return CapabilityPlanSnapshot(network_id, config.provider, config.model)
 
 
@@ -236,11 +217,7 @@ def capability_plan(
         ) from exc
     after = self._capability_plan_snapshot(team_id, provider)
     if after != before:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Team capabilities changed; retry",
-            code="team-context-changed",
-        )
+        raise team_context_changed()
     return {
         "team_id": team_id,
         "status": plan.status,
@@ -363,11 +340,7 @@ def intent_route(
         ) from exc
     after = self._capability_plan_snapshot(team_id, provider)
     if after != before:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Team capabilities changed; retry",
-            code="team-context-changed",
-        )
+        raise team_context_changed()
     return {
         "team_id": team_id,
         "intent": route.intent,
