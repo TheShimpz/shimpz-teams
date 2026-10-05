@@ -106,6 +106,7 @@ def _compile(value: dict[str, object], message: str = MESSAGE, **kwargs: object)
         kwargs.pop("current", None),
         kwargs.pop("default_timezone", "America/Sao_Paulo"),
         kwargs.pop("selected", None),
+        kwargs.pop("kept_schedule", None),
     )
 
 
@@ -371,6 +372,61 @@ class CompileTests(unittest.TestCase):
         with self.assertRaises(routine_change.ChangeError) as unrecorded:
             _compile(update, current=(current, {}))
         self.assertEqual(unrecorded.exception.code, "routine-kept-invalid")
+
+    def test_a_continuous_daily_cap_must_be_a_count_the_persons_own_words_write(self) -> None:
+        """A cap is never a safe default (ADR-0092 section 9): the compiler cannot choose one the person never gave."""
+
+        def continuous(cap: int, message: str, **kwargs: object) -> routine_change.Compiled:
+            value = _change(schedule={"kind": "continuous", "gap": 30, "cap": cap})
+            return _compile(value, f"{message}\n{MESSAGE}", **kwargs)
+
+        for cap, message in (
+            (500, "At most 500 runs a day."),
+            (1000, "Até 1.000 execuções por dia."),
+            (1000, "Up to 1,000 runs a day."),
+            (100, "Até 100 execuções por dia"),
+        ):
+            with self.subTest(message=message):
+                self.assertEqual(continuous(cap, message).schedule["cap"], cap)
+        for cap, message in (
+            # The owner's incident shape: an interval with no daily limit, which the compiler then filled itself.
+            (100, "Every 30 seconds."),
+            # A count is whole: 100 is not a part of 1000, nor of 1.5 or 2100.
+            (100, "At most 1000 runs a day."),
+            (15, "At most 1.5 thousand runs."),
+            (100, "Since 2100, at most a few runs."),
+            # A count in quoted or block-quoted text is not the person's own.
+            (250, 'She wrote "250 a day".'),
+            (250, "> 250 a day"),
+        ):
+            with self.subTest(message=message), self.assertRaises(routine_change.ChangeError) as caught:
+                continuous(cap, message)
+            self.assertEqual(caught.exception.code, "routine-cap-unproven")
+        # Only a continuous schedule has a cap; every other one is untouched by this rule.
+        self.assertEqual(_compile(_change()).schedule["kind"], "weekly")
+
+    def test_an_update_may_keep_the_current_daily_cap_but_never_choose_another(self) -> None:
+        first = _compile(_change(schedule={"kind": "continuous", "gap": 30, "cap": 500}), f"500 a day\n{MESSAGE}")
+        kept = {"kind": "continuous", "gap": 30, "cap": 500}
+        update = _change(
+            op="update",
+            routine_id="c" * 32,
+            expected_revision=1,
+            request="then share it",
+            schedule={"kind": "continuous", "gap": 10, "cap": 500},
+        )
+        current = (first.document, first.sources)
+        self.assertEqual(_compile(update, current=current, kept_schedule=kept).schedule["cap"], 500)
+        for schedule in ({"kind": "continuous", "gap": 10, "cap": 1000}, {"kind": "continuous", "gap": 10, "cap": 500}):
+            hourly = {"kind": "hourly", "every": 1}
+            for before in (kept, hourly) if schedule["cap"] == 1000 else (hourly, None):
+                changed = {**update, "schedule": schedule}
+                with (
+                    self.subTest(schedule=schedule, before=before),
+                    self.assertRaises(routine_change.ChangeError) as caught,
+                ):
+                    _compile(changed, current=current, kept_schedule=before)
+                self.assertEqual(caught.exception.code, "routine-cap-unproven")
 
     def test_the_change_must_fit_the_current_contracts_zone_and_operation(self) -> None:
         cases = (

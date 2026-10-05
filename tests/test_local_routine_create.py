@@ -454,6 +454,40 @@ class DirectCreationTests(LocalContractCase):
         self.assertEqual(source.parts, (("said", "Every Monday at 9:00, list my zones, page 1"), ("said", "50")))
         self.assertEqual(source.selected, (("input", "zones", "per_page"), {"kind": "literal", "value": 50}))
 
+    def test_a_cap_option_whose_label_does_not_state_its_cap_is_refused_before_it_is_shown(self) -> None:
+        """The label is the person's answer once picked; an option's cap that label never states is the compiler's."""
+        clarification = {
+            "question": "Up to how many runs a day?",
+            "options": [{"label": "Up to 100", "description": ""}, {"label": "Up to 500", "description": ""}],
+            "default_index": None,
+        }
+        candidate = _change(request="Every 30 seconds, list my zones", schedule=None)
+
+        class Asking(Runtime):
+            def __init__(self, proposed: dict[str, object]) -> None:
+                super().__init__()
+                self.proposed = proposed
+
+            def start(self, context, message, *, conversation=()):
+                self.contexts.append(context)
+                reply = http_payload.render_clarification(clarification)
+                return brain_runtime_client.RuntimeTurn(
+                    "completed", reply, (), clarification=clarification, routine=self.proposed
+                )
+
+        for values in (
+            [{"kind": "continuous", "gap": 30, "cap": 1000}, {"kind": "continuous", "gap": 30, "cap": 500}],
+            [{"kind": "continuous", "gap": 30, "cap": 500}, {"kind": "continuous", "gap": 30, "cap": 100}],
+        ):
+            proposed = {**candidate, "question": {"field": {"kind": "schedule"}, "values": values, "reply": "Pronto."}}
+            runtime = Asking(proposed)
+            with self.subTest(values=values), tempfile.TemporaryDirectory() as directory:
+                _controller, service = self.controller(directory, runtime)
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    self.chat(service, _body("Every 30 seconds, list my zones, page 1 with 25 per page"))
+                self.assertEqual(caught.exception.code, "routine-cap-unproven")
+                self.assertEqual(service.routine_store.load("team_1").routines, ())
+
     def test_do_this_every_30_seconds_creates_the_earlier_work_after_its_cap_question_and_seals_both(self) -> None:
         """The owner's incident: the work named by an earlier send, the timing by the message, the cap asked once."""
         now = int(time.time())

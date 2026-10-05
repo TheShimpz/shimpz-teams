@@ -53,8 +53,8 @@ def admit(self, response: object, proposed: object, clarification: dict[str, obj
     routine_id = head.routine_id or record.new_id()
     now = int(time.time())
     routines = []
-    for change in question.changes:
-        value = routine_turn.definition(change, request, assistants, scope, existing, question.selected)
+    for label, change in zip(labels, question.changes, strict=True):
+        value = routine_turn.definition(change, request, assistants, scope, existing, question.selected, label)
         # Each option must also schedule; only the answer's commit schedules it for real.
         routine_turn.scheduled(value, now)
         routines.append(dataclasses.replace(value, routine_id=routine_id))

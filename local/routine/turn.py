@@ -122,13 +122,18 @@ def definition(
     scope: dict[str, str],
     existing: record.Routine | None,
     selected: tuple[str, str] | None = None,
+    label: str | None = None,
 ) -> record.Routine:
     """The Routine a change defines, admitted against the user's own words and the exact current contracts.
 
-    ``selected`` is the one step input a bound Routine question fills from the option the user picks. A change that
-    continues the person's draft, which ``continued`` proved the request froze, holds the draft's parts in its words.
+    ``selected`` is the one step input a bound Routine question fills from the option the user picks, and ``label``
+    that option's label: the person's own answer once they pick it, so the option is admitted with it as their last
+    said part, exactly the words its commit then binds. A change that continues the person's draft, which
+    ``continued`` proved the request froze, holds the draft's parts in its words.
     """
     parts = request.parts(change.continues)
+    if label is not None:
+        parts = (*parts, (routine_request.SAID, label))
     try:
         compiled = routine_change.compile_change(
             change,
@@ -138,6 +143,7 @@ def definition(
             None if existing is None else (existing.plan, existing.grant["sources"]),
             request.timezone or DEFAULT_TIMEZONE,
             selected,
+            None if existing is None else existing.schedule,
         )
     except routine_change.ChangeError as exc:
         raise refused(exc) from exc

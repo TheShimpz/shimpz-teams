@@ -29,7 +29,8 @@ from routine.request import Draft, Request
 
 FIRST = "cria uma rotina que faz isso a cada 30 segundos"
 SECOND = "Uma rotina para listar minhas zonas, página 1 com 25 por página, como solicitei anteriormente"
-THIRD = "A cada 30 segundos"
+# The third message states the timing and the daily cap, which only the person's own words or answer may give.
+THIRD = "A cada 30 segundos, até 100 por dia"
 NEED = {
     "question": "Qual trabalho a rotina deve repetir?",
     "options": [{"label": "Listar minhas zonas", "description": ""}, {"label": "Outra coisa", "description": ""}],
@@ -376,12 +377,13 @@ class DraftJourneyTests(LocalContractCase):
         self.assertIsNone(runtime.contexts[2].routines)
 
     def test_a_creation_by_any_path_revokes_an_older_card(self) -> None:
-        created = _change(request=THIRD, schedule=CONTINUOUS[1], continues=True)
+        third = "A cada 30 segundos, até 500 por dia"
+        created = _change(request=third, schedule=CONTINUOUS[1], continues=True)
         runtime = Scripted(_turn(_cap_question(False), CAP), _turn(created), _turn(None))
         with tempfile.TemporaryDirectory() as directory:
             service = self.service(directory, runtime)
             self.chat(service, SECOND)
-            self.chat(service, THIRD)
+            self.chat(service, third)
             self.chat(service, _composed(SECOND, CAP["question"], "Até 100 por dia"))
             (routine,) = service.routine_store.load("team_1").routines
         self.assertEqual(routine.schedule, CONTINUOUS[1])
@@ -469,7 +471,7 @@ class DraftJourneyTests(LocalContractCase):
         self.assertEqual(after, changed)
 
     def test_a_committed_create_retried_touches_no_newer_draft(self) -> None:
-        created = _change(request=SECOND, schedule=CONTINUOUS[0])
+        created = _change(request=SECOND, schedule={"kind": "hourly", "every": 1})
         runtime = Scripted(_turn(created), _turn(_need(), NEED), _turn(created))
         with tempfile.TemporaryDirectory() as directory:
             service = self.service(directory, runtime)
