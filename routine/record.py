@@ -826,30 +826,24 @@ def finish(
 ) -> TeamRoutines:
     """A worker ends its leased run with a durable notice; only its live lease may.
 
-    A completed run (done or recovered) ends through its Routine's output disposition, with ``shown``, the bounded
-    result its sealed cursor kept; any other outcome publishes ``detail``.
+    A completed run ends by its Routine's output disposition with ``shown``; any other outcome publishes ``detail``.
     """
     value = _live(state, run_id, lease, now)
     if outcome not in _RUN_OUTCOMES:
         raise RoutineStateError("invalid-outcome")
-    if outcome in _COMPLETED:
+    if outcome in {"done", "recovered"}:
         state = _completion(state, value, outcome, now, shown)
     else:
         state = _run_notice(state, value, outcome, now, detail)[0]
     return _without_run(state, run_id, now)
 
 
-_COMPLETED = frozenset({"done", "recovered"})
-
-
 def _completion(state: TeamRoutines, value: Run, outcome: str, now: int, shown: dict | None) -> TeamRoutines:
     """How a completed run tells the person, by its Routine's output disposition (ADR-0092 amendment, 2026-10-05).
 
-    ``show`` publishes the shown step's result every run; ``changes`` publishes it only when its keyed digest differs
-    from the last one a notice showed, which it then records in the same write; ``chain`` keeps the compact completion
-    notice or minute rollup; ``none`` publishes nothing. A result the run should show but did not keep is published as
-    unavailable, never as an ordinary completion. A run that already has a notice of its own, such as one a person
-    answered, always gets its terminal version, which says unchanged instead of repeating an unchanged result.
+    ``show`` publishes the result every run; ``changes`` only when its keyed digest differs from the last one shown,
+    recorded in the same write; ``chain`` keeps the compact notice or rollup; ``none`` publishes nothing. A result not
+    kept is shown unavailable; a run with a notice of its own always gets its terminal version, saying unchanged.
     """
     current = routine(state, value.routine_id)
     disposition = current.plan["output"]
@@ -857,13 +851,13 @@ def _completion(state: TeamRoutines, value: Run, outcome: str, now: int, shown: 
     detail: dict[str, object] = {"actions": plan_actions(current.plan), "output": None}
     if mode in routine_plan.SHOWN_MODES:
         valid = shown is not None and shown.get("step") == step
-        output = shown["output"] if valid else _unshown(step, "unavailable")
+        output = shown["output"] if valid else routine_plan.output_state(step, "unavailable")
         digest = shown["digest"] if valid else None
         if mode == "changes" and output["state"] == "shown":
             if digest is not None and digest == current.output_digest:
                 if not value.notice_version:
                     return _quiet(state, current)
-                output = _unshown(step, "unchanged")
+                output = routine_plan.output_state(step, "unchanged")
             else:
                 state = _replace_routine(state, dataclasses.replace(current, output_digest=digest or ""))
         return _run_notice(state, value, outcome, now, {**detail, "output": output})[0]
@@ -871,10 +865,6 @@ def _completion(state: TeamRoutines, value: Run, outcome: str, now: int, shown: 
         return _quiet(state, current)
     rolled = _healthy(state, value, now) if outcome == "done" and mode == "chain" else None
     return rolled if rolled is not None else _run_notice(state, value, outcome, now, detail)[0]
-
-
-def _unshown(step: str, output_state: str) -> dict[str, object]:
-    return {"step": step, "state": output_state, "value": None, "truncated": False}
 
 
 def _quiet(state: TeamRoutines, current: Routine) -> TeamRoutines:
@@ -928,37 +918,10 @@ def end(
     return _without_run(state, run_id, now)
 
 
-def fence(state: TeamRoutines, run_id: str, lease: Lease, now: int) -> TeamRoutines:
-    """Stop the live lease of a run that must be held (ADR-0092): no worker may advance it, nothing ends it yet."""
-    value = _live(state, run_id, lease, now)
-    if not value.generation:
-        raise RoutineStateError("generation-invalid")
-    held = dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
-    return _replace_run(state, held)
-
-
-def hold_recovered(state: TeamRoutines, run_id: str, lease_sha256: str) -> TeamRoutines:
-    """Team's watchdog holds a leased run nothing runs any more whose durable state shows it may have acted.
-
-    Only the exact lease the watchdog read is fenced, so a run that ended or was claimed again meanwhile is untouched.
-    """
-    value = _leased(state, run_id)
-    if not secrets.compare_digest(value.lease_sha256, lease_sha256):
-        raise RoutineStateError("run-changed")
-    if not value.generation:
-        raise RoutineStateError("generation-invalid")
-    return _replace_run(
-        state, dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
-    )
-
-
 def complete_recovered(
     state: TeamRoutines, run_id: str, lease_sha256: str, now: int, shown: dict[str, object] | None = None
 ) -> TeamRoutines:
-    """Team's watchdog ends a leased run whose sealed cursor completed every step before its end was recorded.
-
-    It ends exactly as the worker would have, through the Routine's output disposition with ``shown`` from that cursor.
-    """
+    """Team's watchdog ends a leased run whose sealed cursor completed every step, as the worker would have."""
     value = _leased(state, run_id)
     if not secrets.compare_digest(value.lease_sha256, lease_sha256):
         raise RoutineStateError("run-changed")

@@ -23,6 +23,7 @@ from local.routine import manage as routine_manage
 from local.routine import run as routine_run
 from local.routine import source as routine_source
 from local.routine import store as routine_store
+from routine import hold as routine_hold
 from routine import record
 
 INTERVAL_SECONDS = 30
@@ -69,7 +70,7 @@ def _recover(service, team_id: str, value: record.Run) -> str | None:
         if progress == "done":
             return record.complete_recovered(state, value.run_id, value.lease_sha256, now, shown), "done"
         if progress == "partial":
-            return record.hold_recovered(state, value.run_id, value.lease_sha256), "held"
+            return routine_hold.hold_recovered(state, value.run_id, value.lease_sha256), "held"
         return record.end(state, value.run_id, now, "failed", {"code": "interrupted", "actions": []}), "failed"
 
     return service.routine_store.update(team_id, recover)

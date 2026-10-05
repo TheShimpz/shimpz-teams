@@ -584,7 +584,7 @@ class IncidentNoticeTests(unittest.TestCase):
     def held(self) -> tuple[record.TeamRoutines, str]:
         state, claim, lease = bound()
         run_id = claim.run.run_id
-        return record.fence(state, run_id, lease, NINE), run_id
+        return routine_hold.fence(state, run_id, lease, NINE), run_id
 
     def test_a_hold_names_its_step_and_its_notice_goes_on_through_the_incident(self):
         state, run_id = self.held()
@@ -720,7 +720,7 @@ class RecoveredRunTests(unittest.TestCase):
     def test_a_recovered_run_is_held_or_done_only_under_the_lease_the_watchdog_read(self):
         state, claim, _lease = bound()
         run_id, lease_sha256 = claim.run.run_id, claim.run.lease_sha256
-        held = record.run(record.hold_recovered(state, run_id, lease_sha256), run_id)
+        held = record.run(routine_hold.hold_recovered(state, run_id, lease_sha256), run_id)
         self.assertEqual((held.status, held.lease_sha256, held.lease_expires_at), ("held", "", 0))
         done = record.complete_recovered(state, run_id, lease_sha256, NINE + 5)
         self.assertEqual(done.runs, ())
@@ -731,14 +731,16 @@ class RecoveredRunTests(unittest.TestCase):
         )
         unbound, unclaimed, _lease = claimed()
         for transition, code in (
-            (lambda: record.hold_recovered(state, run_id, "0" * 64), "run-changed"),
+            (lambda: routine_hold.hold_recovered(state, run_id, "0" * 64), "run-changed"),
             (lambda: record.complete_recovered(state, run_id, "0" * 64, NINE), "run-changed"),
             (
-                lambda: record.hold_recovered(unbound, unclaimed.run.run_id, unclaimed.run.lease_sha256),
+                lambda: routine_hold.hold_recovered(unbound, unclaimed.run.run_id, unclaimed.run.lease_sha256),
                 "generation-invalid",
             ),
             (
-                lambda: record.hold_recovered(record.hold_recovered(state, run_id, lease_sha256), run_id, lease_sha256),
+                lambda: routine_hold.hold_recovered(
+                    routine_hold.hold_recovered(state, run_id, lease_sha256), run_id, lease_sha256
+                ),
                 "run-not-running",
             ),
         ):
@@ -890,7 +892,7 @@ class HoldTimeTests(unittest.TestCase):
         state, claim, lease = bound()
         run_id = claim.run.run_id
         state = record.spend(state, run_id, lease, NINE, 250)
-        state = routine_hold.settle_hold(record.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
+        state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
         self.assertEqual(routine_hold.incident(state, run_id).active_seconds_left, record.ACTIVE_SECONDS - 250)
         reopened, _token = routine_hold.reopen_incident(
             state, run_id, NINE + 2, record.generation_for("net_1", run_id, "s1")
@@ -905,7 +907,7 @@ class HoldTimeTests(unittest.TestCase):
     def test_recovery_time_is_charged_and_refunded_only_against_the_same_held_run(self):
         state, claim, lease = bound()
         run_id = claim.run.run_id
-        state = routine_hold.settle_hold(record.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
+        state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
         charged = routine_hold.charge_incident(state, run_id, 60)
         self.assertEqual(routine_hold.incident(charged, run_id).active_seconds_left, record.ACTIVE_SECONDS - 60)
         for seconds in (0, -1, True, record.ACTIVE_SECONDS + 1):
@@ -972,7 +974,7 @@ class ContinuousTests(unittest.TestCase):
         run_id = claim.run.run_id
         lease = record.lease_of(claim.lease_token, KEY)
         state = record.bind_generation(state, run_id, lease, NINE, "net_1")
-        state = routine_hold.settle_hold(record.fence(state, run_id, lease, NINE), run_id, NINE + 1)
+        state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1)
         # Held for a day: the gap after the held run's own end has long passed, but the incident still holds it.
         skipped_at = NINE + 86_400
         self.assertIsNone(record.claimable(state, skipped_at))

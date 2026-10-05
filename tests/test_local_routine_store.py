@@ -57,7 +57,7 @@ def busy_state() -> record.TeamRoutines:
     state, second = record.claim(state, now, KEY)
     lease = record.lease_of(second.lease_token, KEY)
     state = record.bind_generation(state, second.run.run_id, lease, now, NETWORK)
-    state = record.fence(state, second.run.run_id, lease, now)
+    state = routine_hold.fence(state, second.run.run_id, lease, now)
     state, third = record.claim(state, now, KEY)
     lease = record.lease_of(third.lease_token, KEY)
     state = record.bind_generation(state, third.run.run_id, lease, now, NETWORK)

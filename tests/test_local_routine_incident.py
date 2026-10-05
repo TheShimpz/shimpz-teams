@@ -55,7 +55,7 @@ class IncidentCase(RoutineServiceCase):
 
     def fence(self, service, run_id: str, lease: record.Lease) -> None:
         service.routine_store.update(
-            "team_1", lambda state: (record.fence(state, run_id, lease, int(time.time())), None)
+            "team_1", lambda state: (routine_hold.fence(state, run_id, lease, int(time.time())), None)
         )
 
 
@@ -719,7 +719,7 @@ class IncidentRecordTests(IncidentCase):
             "d" * 32, "a" * 32, "leased", 0, lease_sha256="1" * 64, lease_key="2" * 64, lease_expires_at=99
         )
         with self.assertRaisesRegex(record.RoutineStateError, "generation-invalid"):
-            record.fence(
+            routine_hold.fence(
                 dataclasses.replace(base, routines=(routine,), runs=(unbound,)),
                 "d" * 32,
                 record.Lease("1" * 64, "2" * 64),

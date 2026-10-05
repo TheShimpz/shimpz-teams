@@ -181,7 +181,7 @@ def hold(self, team_id: str, run_id: str, lease: record.Lease) -> None:
 
     def fence(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
         try:
-            return record.fence(state, run_id, lease, now), True
+            return routine_hold.fence(state, run_id, lease, now), True
         except record.RoutineStateError:
             return state, False
 

@@ -245,3 +245,27 @@ def refund_incident(state: record.TeamRoutines, incident_id: str, generation: st
         return state
     refunded = min(record.ACTIVE_SECONDS, value.active_seconds_left + seconds)
     return _replace_incident(state, dataclasses.replace(value, active_seconds_left=refunded))
+
+
+def fence(state: record.TeamRoutines, run_id: str, lease: record.Lease, now: int) -> record.TeamRoutines:
+    """Stop the live lease of a run that must be held (ADR-0092): no worker may advance it, nothing ends it yet."""
+    value = record._live(state, run_id, lease, now)
+    if not value.generation:
+        raise record.RoutineStateError("generation-invalid")
+    held = dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
+    return record._replace_run(state, held)
+
+
+def hold_recovered(state: record.TeamRoutines, run_id: str, lease_sha256: str) -> record.TeamRoutines:
+    """Team's watchdog holds a leased run nothing runs any more whose durable state shows it may have acted.
+
+    Only the exact lease the watchdog read is fenced, so a run that ended or was claimed again meanwhile is untouched.
+    """
+    value = record._leased(state, run_id)
+    if not secrets.compare_digest(value.lease_sha256, lease_sha256):
+        raise record.RoutineStateError("run-changed")
+    if not value.generation:
+        raise record.RoutineStateError("generation-invalid")
+    return record._replace_run(
+        state, dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
+    )
