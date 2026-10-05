@@ -5,6 +5,8 @@ from __future__ import annotations
 import dataclasses
 import tempfile
 from http import HTTPStatus
+from types import SimpleNamespace
+from unittest import mock
 
 from local_assistant_fixture import mutating_spec
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
@@ -128,6 +130,30 @@ class VerificationTests(RecoveryCase):
             self.assertEqual(self.cursor(service, run_id).step, 2)
             self.assertEqual(self.resume(service, value, run_id), "recovered")
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
+
+    def test_a_recovered_result_the_verifier_could_not_check_for_the_originals_secrets_is_inconclusive(self) -> None:
+        """A recovered value continues and may be shown only when the original Action's secret check covers it."""
+        original = routine_recovery._protected
+        unprotected = (
+            {"stored_inputs": ("api-token",), "human_requests": ()},
+            {"integrations": ("cloudflare",)},
+            {"human_requests": ("input:password",)},
+        )
+        for changes in unprotected:
+            assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
+            with tempfile.TemporaryDirectory() as directory, self.subTest(changes=changes):
+                service, _brain, value, run_id = self.held(directory, assistant)
+
+                def narrowed(assessment, changes=changes):
+                    return original(
+                        dataclasses.replace(assessment, action=dataclasses.replace(assessment.action, **changes))
+                    )
+
+                with mock.patch.object(routine_recovery, "_protected", side_effect=narrowed):
+                    self.assertEqual(self.verify(service, value, run_id), "inconclusive")
+                self.assertEqual(self.cursor(service, run_id).step, 1)
+        # Without the verifier's own declarations, nothing proves the check either.
+        self.assertFalse(original(SimpleNamespace(action=SimpleNamespace(human_requests=()), verifier_action=None)))
 
     def test_an_occurrence_without_a_valid_recovered_result_is_inconclusive(self) -> None:
         for verdict in ({"outcome": "occurred"}, {"outcome": "occurred", "result": {"record": {}}}, {"x": 1}):

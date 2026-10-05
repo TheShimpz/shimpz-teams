@@ -297,6 +297,9 @@ MAX_OUTPUT_ITEMS = 50
 MAX_OUTPUT_FIELDS = 24
 MAX_OUTPUT_TEXT_CHARS = 300
 MAX_OUTPUT_KEY_CHARS = 64
+# A number is its exact JSON text, so no consumer rounds it; a longer one is shown as text.
+MAX_OUTPUT_NUMBER_CHARS = 64
+_OUTPUT_NUMBER_RE = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\Z")
 MAX_OUTPUT_BYTES = 16 * 1024
 
 
@@ -312,7 +315,12 @@ def _scalar_node(value: dict[str, object]) -> bool:
         "redacted": lambda: set(value) == {"kind"},
         "elided": lambda: set(value) == {"kind"},
         "bool": lambda: set(value) == {"kind", "value"} and type(item) is bool,
-        "number": lambda: set(value) == {"kind", "value"} and type(item) in (int, float) and math.isfinite(item),
+        "number": lambda: (
+            set(value) == {"kind", "value"}
+            and isinstance(item, str)
+            and len(item) <= MAX_OUTPUT_NUMBER_CHARS
+            and _OUTPUT_NUMBER_RE.fullmatch(item) is not None
+        ),
         "text": lambda: (
             set(value) == {"kind", "value", "cut"}
             and type(value["cut"]) is bool

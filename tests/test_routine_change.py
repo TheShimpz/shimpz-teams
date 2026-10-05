@@ -215,21 +215,26 @@ class WordsTests(unittest.TestCase):
 class CompileTests(unittest.TestCase):
     def test_a_message_that_refers_to_an_earlier_send_compiles_its_work_and_values_from_it(self) -> None:
         earlier = ('publish "Weekly report" with 5 items, then share it to #news',)
+        message = "Every Monday at 9, do this, then share it"
+        change = _change(
+            request="Every Monday at 9, do this", output={"mode": "chain", "step": None, "instruction": "do this"}
+        )
         compiled = routine_change.compile_change(
-            routine_change.parse(
-                _change(
-                    request="Every Monday at 9, do this",
-                    output={"mode": "chain", "step": None, "instruction": "do this"},
-                )
-            ),
-            _words("Every Monday at 9, do this", earlier),
-            CONTRACTS,
-            None,
-            "America/Sao_Paulo",
+            routine_change.parse(change), _words(message, earlier), CONTRACTS, None, "America/Sao_Paulo"
         )
         self.assertEqual(compiled.quote, "Every Monday at 9, do this")
         # The request's span lies inside the message, after the earlier send and its separator.
         self.assertEqual(compiled.quote_span[0], len(earlier[0]) + 2)
+        # The words relating two steps are the person's said words: a relation only the earlier send holds is unproven.
+        with self.assertRaises(routine_change.ChangeError) as cited:
+            routine_change.compile_change(
+                routine_change.parse(change),
+                _words("Every Monday at 9, do this", earlier),
+                CONTRACTS,
+                None,
+                "America/Sao_Paulo",
+            )
+        self.assertEqual(cited.exception.code, "routine-reference-unproven")
         with self.assertRaises(routine_change.ChangeError) as caught:
             routine_change.compile_change(
                 routine_change.parse(_change(request="publish")),

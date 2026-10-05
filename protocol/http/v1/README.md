@@ -155,7 +155,7 @@ steps it carried out, never their input, and its `output`; `recovered` is a run 
 hold. `output` is `null` unless the Routine shows a result (`show` or `changes`): then it is
 `routine.canonical_output`, `{step, state, value, truncated}`, with `state` `shown` and `value` Team's bounded, redacted
 projection of that step's validated result, or `unchanged` or `unavailable` with `value` `null`. A projection node is
-one closed variant: `{kind: null}`, `{kind: bool, value}`, `{kind: number, value}` (finite), `{kind: text, value, cut}`
+one closed variant: `{kind: null}`, `{kind: bool, value}`, `{kind: number, value}` (its exact JSON number text, at most 64 characters, so no consumer rounds it; a longer number is shown as text), `{kind: text, value, cut}`
 (at most 300 characters, every control or invisible character escaped), `{kind: redacted}`, `{kind: elided}` (past the
 depth bound), `{kind: list, items, omitted}` (at most 50 items), or `{kind: fields, fields, omitted}` (at most 24 distinct
 `[label, node]` pairs, each label at most 64 characters), with containers nested at most four deep and the whole output

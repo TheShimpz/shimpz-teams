@@ -1825,12 +1825,14 @@
   "routine_views": {
     "output": {
       "valid": [
-        {"step": "zones", "state": "shown", "value": {"kind": "fields", "fields": [["zones", {"kind": "list", "items": [{"kind": "fields", "fields": [["name", {"kind": "text", "value": "example.com", "cut": false}], ["paused", {"kind": "bool", "value": false}], ["plan", {"kind": "null"}], ["records", {"kind": "number", "value": 12}], ["token", {"kind": "redacted"}]], "omitted": 0}, {"kind": "elided"}], "omitted": 3}]], "omitted": 0}, "truncated": true},
+        {"step": "zones", "state": "shown", "value": {"kind": "fields", "fields": [["zones", {"kind": "list", "items": [{"kind": "fields", "fields": [["name", {"kind": "text", "value": "example.com", "cut": false}], ["paused", {"kind": "bool", "value": false}], ["plan", {"kind": "null"}], ["records", {"kind": "number", "value": "12"}], ["token", {"kind": "redacted"}]], "omitted": 0}, {"kind": "elided"}], "omitted": 3}]], "omitted": 0}, "truncated": true},
         {"step": "zones", "state": "unchanged", "value": null, "truncated": false},
         {"step": "zones", "state": "unavailable", "value": null, "truncated": false}
       ],
       "invalid": [
-        {"step": "zones", "state": "hidden", "value": {"kind": "fields", "fields": [["zones", {"kind": "list", "items": [{"kind": "fields", "fields": [["name", {"kind": "text", "value": "example.com", "cut": false}], ["paused", {"kind": "bool", "value": false}], ["plan", {"kind": "null"}], ["records", {"kind": "number", "value": 12}], ["token", {"kind": "redacted"}]], "omitted": 0}, {"kind": "elided"}], "omitted": 3}]], "omitted": 0}, "truncated": true},
+        {"step": "zones", "state": "shown", "value": {"kind": "number", "value": 12}, "truncated": true},
+        {"step": "zones", "state": "shown", "value": {"kind": "number", "value": "012"}, "truncated": true},
+        {"step": "zones", "state": "hidden", "value": {"kind": "fields", "fields": [["zones", {"kind": "list", "items": [{"kind": "fields", "fields": [["name", {"kind": "text", "value": "example.com", "cut": false}], ["paused", {"kind": "bool", "value": false}], ["plan", {"kind": "null"}], ["records", {"kind": "number", "value": "12"}], ["token", {"kind": "redacted"}]], "omitted": 0}, {"kind": "elided"}], "omitted": 3}]], "omitted": 0}, "truncated": true},
         {"step": "zones", "state": "shown", "value": null, "truncated": true},
         {"step": "zones", "state": "unchanged", "value": {"kind": "null"}, "truncated": false},
         {"step": "zones", "state": "unavailable", "value": null, "truncated": true},
@@ -1839,7 +1841,7 @@
         {"step": "zones", "state": "shown", "value": {"kind": "list", "items": [], "omitted": -1}, "truncated": true},
         {"step": "zones", "state": "shown", "value": {"kind": "number", "value": true}, "truncated": true},
         {"step": "zones", "state": "shown", "value": {"kind": "script", "value": "x"}, "truncated": true},
-        {"step": "Zones", "state": "shown", "value": {"kind": "fields", "fields": [["zones", {"kind": "list", "items": [{"kind": "fields", "fields": [["name", {"kind": "text", "value": "example.com", "cut": false}], ["paused", {"kind": "bool", "value": false}], ["plan", {"kind": "null"}], ["records", {"kind": "number", "value": 12}], ["token", {"kind": "redacted"}]], "omitted": 0}, {"kind": "elided"}], "omitted": 3}]], "omitted": 0}, "truncated": true}
+        {"step": "Zones", "state": "shown", "value": {"kind": "fields", "fields": [["zones", {"kind": "list", "items": [{"kind": "fields", "fields": [["name", {"kind": "text", "value": "example.com", "cut": false}], ["paused", {"kind": "bool", "value": false}], ["plan", {"kind": "null"}], ["records", {"kind": "number", "value": "12"}], ["token", {"kind": "redacted"}]], "omitted": 0}, {"kind": "elided"}], "omitted": 3}]], "omitted": 0}, "truncated": true}
       ]
     },
     "routine": {

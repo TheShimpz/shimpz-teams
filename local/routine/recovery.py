@@ -72,6 +72,8 @@ class Assessment:
     action: object
     network_id: str
     state: str | None
+    # The verifier Action the failed step's Action declares, under the same pin; None when it declares none.
+    verifier_action: object = None
 
     @property
     def cursor(self) -> routine_cursor.Cursor:
@@ -147,9 +149,11 @@ def assess(self, team_id: str, incident_id: str) -> Assessment:
     if cursor.done(plan):
         return Assessment(opened, plan, None, network_id, None)
     step = plan.steps[cursor.step]
-    action = active[step.assistant_id].spec.actions[step.action]
+    actions = active[step.assistant_id].spec.actions
+    action = actions[step.action]
+    verifier = actions.get(action.verifier["action"]) if action.verifier else None
     state = _operation_state(self, team_id, incident_id, cursor.operation_id)
-    return Assessment(opened, plan, action, network_id, state)
+    return Assessment(opened, plan, action, network_id, state, verifier)
 
 
 def proven(assessment: Assessment) -> str:
@@ -326,7 +330,7 @@ def _judge(self, team_id: str, assessment: Assessment, result: object) -> str:
     if outcome == "not_occurred":
         _seal(self, team_id, routine_cursor.proven_absent(cursor))
         return "absent"
-    if outcome != "occurred":
+    if outcome != "occurred" or not _protected(assessment):
         return "inconclusive"
     try:
         recovered = assistant_spec.validate_action_payload(
@@ -337,6 +341,22 @@ def _judge(self, team_id: str, assessment: Assessment, result: object) -> str:
         return "inconclusive"
     _seal(self, team_id, completed)
     return "occurred"
+
+
+def _protected(assessment: Assessment) -> bool:
+    """Whether the verifier's own call already refused every private value the original Action's result could echo.
+
+    A recovered result continues the run and may be shown, so it must pass the original Action's secret-echo check.
+    That holds only when the verifier was given each Stored Input and Integration the original was, and the original
+    declares no password request, whose answer only the original run held; otherwise the effect stays inconclusive.
+    """
+    original, verifier = assessment.action, assessment.verifier_action
+    return (
+        verifier is not None
+        and "input:password" not in original.human_requests
+        and set(original.stored_inputs) <= set(verifier.stored_inputs)
+        and set(original.integrations) <= set(verifier.integrations)
+    )
 
 
 def verify(self, team_id: str, incident_id: str, token: str) -> str:
@@ -359,12 +379,8 @@ def verify(self, team_id: str, incident_id: str, token: str) -> str:
         spent = routine_cursor.spend(assessment.cursor, "verifications", 1)
     except routine_cursor.CursorError:
         return "exhausted"
-    assessment = Assessment(
-        routine_incident.OpenedRecovery(assessment.opened.recovery, _seal(self, team_id, spent)),
-        assessment.plan,
-        assessment.action,
-        assessment.network_id,
-        assessment.state,
+    assessment = dataclasses.replace(
+        assessment, opened=routine_incident.OpenedRecovery(assessment.opened.recovery, _seal(self, team_id, spent))
     )
     result = _call_verifier(self, team_id, token, assessment, request)
     return "inconclusive" if result is None else _judge(self, team_id, assessment, result)

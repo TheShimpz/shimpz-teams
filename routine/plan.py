@@ -532,8 +532,13 @@ def _text_lines(value: object, depth: int) -> list[str]:
 
 
 def _text_within(value: object) -> str:
+    """The value's text when it is encodable and within its bound; anything else is refused before dispatch."""
     rendered = text(value)
-    if len(rendered.encode("utf-8")) > MAX_TEXT_BYTES:
+    try:
+        size = len(rendered.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise PlanError("plan-input-type") from exc
+    if size > MAX_TEXT_BYTES:
         raise PlanError("plan-input-type")
     return rendered
 
@@ -583,7 +588,11 @@ class OutputError(ValueError):
 
 
 def output_safe(result: object, schema: object) -> dict[str, object]:
-    """The complete safe form of one validated result under its Action's reviewed output schema."""
+    """The complete safe form of one validated result under its Action's reviewed output schema.
+
+    It keeps every key, text, and number exactly as the result has them, apart from what it redacts, so a change is
+    compared on the complete data; escaping, shortening, and every cut belong to the shown form alone.
+    """
     root = schema if isinstance(schema, dict) else {}
     try:
         return _output_node(result, root, root, "", 0)
@@ -592,15 +601,22 @@ def output_safe(result: object, schema: object) -> dict[str, object]:
 
 
 def output_compared(node: dict[str, object]) -> bytes | None:
-    """The canonical bytes a change is compared on, or None when they are too large to compare."""
-    encoded = canonical(node)
+    """The exact canonical bytes a change is compared on, or None when they are too large to compare."""
+    try:
+        encoded = json.dumps(node, ensure_ascii=True, allow_nan=False, sort_keys=True, separators=(",", ":")).encode()
+    except ValueError:
+        return None
     return encoded if len(encoded) <= MAX_COMPARED_OUTPUT_BYTES else None
 
 
 def output_shown(step: str, node: dict[str, object]) -> dict[str, object]:
-    """The safe form cut to the first bounds whose whole shown output fits; the last step elides it entirely."""
+    """The safe form as shown, cut to the first bounds whose whole output fits; the last step elides it entirely.
+
+    Every key and text is escaped, a long key shortened, a number written as its exact JSON text, and every cut,
+    shortening, omission, and elision marks the output truncated.
+    """
     for limits in OUTPUT_LEVELS:
-        value, truncated = _output_bounded(node, limits, 0)
+        value, truncated = _output_display(node, limits, 0)
         candidate = {"step": step, "state": "shown", "value": value, "truncated": truncated}
         if http_routine.encoded_bytes(candidate) <= MAX_OUTPUT_BYTES:
             return candidate
@@ -634,14 +650,12 @@ def _output_scalar(value: object) -> dict[str, object]:
         return {"kind": "null"}
     if isinstance(value, bool):
         return {"kind": "bool", "value": value}
-    if isinstance(value, int | float):
-        if not math.isfinite(value):
-            raise OutputError("routine-output-unavailable")
+    if isinstance(value, int) or (isinstance(value, float) and math.isfinite(value)):
         return {"kind": "number", "value": value}
     if isinstance(value, str):
         if assistant_manifest.resembles_credential(value):
             return dict(OUTPUT_REDACTED)
-        return {"kind": "text", "value": http_routine.escaped(value), "cut": False}
+        return {"kind": "text", "value": value, "cut": False}
     raise OutputError("routine-output-unavailable")
 
 
@@ -658,45 +672,44 @@ def _output_fields(value: dict, root: dict, candidates: list, depth: int) -> dic
         try:
             member = member_schemas(candidates, key)
         except PlanError:
-            fields.append([output_label(key), dict(OUTPUT_REDACTED)])
+            fields.append([key, dict(OUTPUT_REDACTED)])
             continue
-        fields.append([output_label(key), _output_node(value[key], root, member, key, depth + 1)])
-    return {"kind": "fields", "fields": _output_distinct(fields), "omitted": 0}
+        fields.append([key, _output_node(value[key], root, member, key, depth + 1)])
+    return {"kind": "fields", "fields": fields, "omitted": 0}
 
 
-def _output_distinct(fields: list[list[object]]) -> list[list[object]]:
-    """The fields with every repeated label numbered, since escaping or shortening may make two keys read alike."""
-    seen: set[str] = set()
-    for field in fields:
-        label, number = field[0], 1
-        while field[0] in seen:
-            number += 1
-            field[0] = f"{label[: MAX_OUTPUT_KEY_CHARS - 6]} ({number})"
-        seen.add(field[0])
-    return fields
-
-
-def output_label(key: str) -> str:
-    """A key as shown: escaped, quoted when empty, and a long one shortened with a digest so labels stay distinct."""
+def output_label(key: str) -> tuple[str, bool]:
+    """A key as shown, and whether it was shortened: escaped, quoted when empty, a long one cut with a digest."""
     label = http_routine.escaped(key) or '""'
     if len(label) <= MAX_OUTPUT_KEY_CHARS:
-        return label
-    return (
-        label[: MAX_OUTPUT_KEY_CHARS - 8] + "…" + hashlib.sha256(key.encode("utf-8", "surrogatepass")).hexdigest()[:7]
-    )
+        return label, False
+    digest = hashlib.sha256(key.encode("utf-8", "surrogatepass")).hexdigest()[:7]
+    return label[: MAX_OUTPUT_KEY_CHARS - 8] + "…" + digest, True
 
 
-def _output_bounded(
+def _output_labels(keys: list[str]) -> tuple[list[str], bool]:
+    """Each key's label, numbering any that read alike after escaping or shortening, and whether any was shortened."""
+    labels: list[str] = []
+    shortened = False
+    for key in keys:
+        label, cut = output_label(key)
+        shortened = shortened or cut
+        shown, number = label, 1
+        while shown in labels:
+            number += 1
+            shown = f"{label[: MAX_OUTPUT_KEY_CHARS - 6]} ({number})"
+        labels.append(shown)
+    return labels, shortened
+
+
+def _output_display(
     node: dict[str, object], limits: tuple[int, int, int], depth: int
 ) -> tuple[dict[str, object], bool]:
-    """The node cut to ``limits``, and whether anything was cut, omitted, or elided."""
+    """One safe node as shown within ``limits``, and whether anything was cut, shortened, omitted, or elided."""
     items, fields, chars = limits
     kind = node["kind"]
-    if kind == "text":
-        text = node["value"]
-        if len(text) <= chars:
-            return dict(node), False
-        return {"kind": "text", "value": text[: max(chars - 1, 0)] + "…", "cut": True}, True
+    if kind in ("text", "number"):
+        return _output_text(node, chars)
     if kind not in ("list", "fields"):
         return dict(node), False
     if depth >= MAX_OUTPUT_DEPTH:
@@ -704,11 +717,28 @@ def _output_bounded(
     entries = node["items"] if kind == "list" else node["fields"]
     kept = entries[: items if kind == "list" else fields]
     truncated = len(kept) < len(entries)
-    bounded = []
-    for entry in kept:
-        child, cut = _output_bounded(entry if kind == "list" else entry[1], limits, depth + 1)
+    labels: list[str] = []
+    if kind == "fields":
+        labels, shortened = _output_labels([key for key, _value in kept])
+        truncated = truncated or shortened
+    shown = []
+    for index, entry in enumerate(kept):
+        child, cut = _output_display(entry if kind == "list" else entry[1], limits, depth + 1)
         truncated = truncated or cut
-        bounded.append(child if kind == "list" else [entry[0], child])
+        shown.append(child if kind == "list" else [labels[index], child])
     omitted = node["omitted"] + len(entries) - len(kept)
     key = "items" if kind == "list" else "fields"
-    return {"kind": kind, key: bounded, "omitted": omitted}, truncated
+    return {"kind": kind, key: shown, "omitted": omitted}, truncated
+
+
+def _output_text(node: dict[str, object], chars: int) -> tuple[dict[str, object], bool]:
+    """Escaped text or a number's exact JSON text, cut to ``chars``; a number too long for its node is shown as text."""
+    if node["kind"] == "number":
+        text = json.dumps(node["value"])
+        if len(text) <= http_routine.MAX_OUTPUT_NUMBER_CHARS:
+            return {"kind": "number", "value": text}, False
+    else:
+        text = http_routine.escaped(node["value"])
+    if len(text) <= chars:
+        return {"kind": "text", "value": text, "cut": False}, False
+    return {"kind": "text", "value": text[: max(chars - 1, 0)] + "…", "cut": True}, True

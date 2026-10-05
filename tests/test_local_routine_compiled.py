@@ -113,11 +113,11 @@ class ExecutionTests(CompiledRunCase):
         pagination = {
             "kind": "fields",
             "fields": [
-                ["count", {"kind": "number", "value": 0}],
-                ["page", {"kind": "number", "value": 1}],
-                ["per_page", {"kind": "number", "value": 25}],
-                ["total_count", {"kind": "number", "value": 0}],
-                ["total_pages", {"kind": "number", "value": 0}],
+                ["count", {"kind": "number", "value": "0"}],
+                ["page", {"kind": "number", "value": "1"}],
+                ["per_page", {"kind": "number", "value": "25"}],
+                ["total_count", {"kind": "number", "value": "0"}],
+                ["total_pages", {"kind": "number", "value": "0"}],
             ],
             "omitted": 0,
         }
@@ -659,3 +659,15 @@ class ShownResultTests(CompiledRunCase):
             {"step": "records", "output": routine_plan.output_state("records", "unavailable"), "digest": None},
         )
         self.assertEqual(lost.exception.code, "routine-cursor-unavailable")
+
+    def test_a_result_with_a_number_too_long_for_a_float_completes_and_shows_it_exactly(self) -> None:
+        huge = {"records": [], "pagination": {**RECORDS["pagination"], "count": 10**400}}
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, _brain, value = self.compiled(directory, None)
+            compiled = self.shown_runtime(service, value)
+            turn = compiled.resume(None, {"routine-step-1": huge})
+            shown = compiled.cursor.shown
+        self.assertEqual((turn.status, shown["output"]["state"]), ("completed", "shown"))
+        pagination = dict(shown["output"]["value"]["fields"])["pagination"]
+        self.assertEqual(dict(pagination["fields"])["count"]["value"], str(10**400)[:299] + "…")
+        self.assertIsNotNone(shown["digest"])

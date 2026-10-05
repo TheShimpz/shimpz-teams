@@ -41,6 +41,11 @@ def _number(value: float) -> dict[str, object]:
     return {"kind": "number", "value": value}
 
 
+def _shown_number(text: str) -> dict[str, object]:
+    """A number as shown: its exact JSON text, so no consumer rounds it."""
+    return {"kind": "number", "value": text}
+
+
 class DispositionTests(unittest.TestCase):
     def test_a_plan_names_one_closed_disposition_whose_shown_step_is_its_own(self) -> None:
         for output in (
@@ -120,7 +125,11 @@ class ProjectionTests(unittest.TestCase):
             pagination,
             [
                 "pagination",
-                {"kind": "fields", "fields": [["page", _number(1)], ["per_page", _number(50)]], "omitted": 0},
+                {
+                    "kind": "fields",
+                    "fields": [["page", _shown_number("1")], ["per_page", _shown_number("50")]],
+                    "omitted": 0,
+                },
             ],
         )
         self.assertEqual(zones[1]["items"][0], first)
@@ -162,26 +171,60 @@ class ProjectionTests(unittest.TestCase):
         unreadable = {"type": "object", "patternProperties": {"(?<=a)b": {"type": "string"}}}
         self.assertEqual(routine_plan.output_safe({"ab": "x"}, unreadable)["fields"], [["ab", {"kind": "redacted"}]])
 
-    def test_keys_and_text_are_escaped_and_labels_stay_distinct(self) -> None:
+    def test_keys_and_text_are_escaped_and_labels_stay_distinct_only_when_shown(self) -> None:
         long = "k" * 100
         result = {"\u202e": "a\u0000b", "\\u202e": 1, "": 2, long: 3, long + "x": 4}
         safe = routine_plan.output_safe(result, {})
-        labels = [key for key, _value in safe["fields"]]
+        # The safe form keeps every key and text exactly; only the shown form escapes and shortens them.
+        self.assertEqual([key for key, _value in safe["fields"]], sorted(result))
+        self.assertIn(["\u202e", _text("a\u0000b")], safe["fields"])
+        shown = routine_plan.output_shown("zones", safe)
+        labels = [key for key, _value in shown["value"]["fields"]]
         self.assertEqual(len(labels), len(set(labels)))
         self.assertIn('""', labels)
         self.assertIn("\\u202e", labels)
         self.assertIn("\\u202e (2)", labels)
+        self.assertIn(["\\u202e (2)", _text("a\\u0000b")], shown["value"]["fields"])
         self.assertTrue(all(len(label) <= http_routine.MAX_OUTPUT_KEY_CHARS for label in labels))
-        self.assertIn(["\\u202e (2)", _text("a\\u0000b")], safe["fields"])
-        shown = routine_plan.output_shown("zones", safe)
+        # A shortened key is a cut, so the output says it is truncated.
+        self.assertTrue(shown["truncated"])
         self.assertEqual(http_routine.canonical_output(shown), shown)
-        many = routine_plan.output_safe({str(index): 0 for index in range(30)}, {})
-        repeated = [["same", _number(index)] for index in range(5)]
-        self.assertEqual(
-            [label for label, _value in routine_plan._output_distinct(repeated)],
-            ["same", "same (2)", "same (3)", "same (4)", "same (5)"],
+        self.assertFalse(routine_plan.output_shown("zones", routine_plan.output_safe({"k": 1}, {}))["truncated"])
+        many = routine_plan.output_shown("zones", routine_plan.output_safe({"same": 0, "same (2)": 1}, {}))
+        self.assertEqual([label for label, _value in many["value"]["fields"]], ["same", "same (2)"])
+        labels, shortened = routine_plan._output_labels(["same"] * 5)
+        self.assertEqual((labels, shortened), (["same", "same (2)", "same (3)", "same (4)", "same (5)"], False))
+
+    def test_a_change_is_compared_on_the_exact_data_never_its_shown_form(self) -> None:
+        long = "k" * 100
+        label, _cut = routine_plan.output_label(long)
+        pairs = (
+            ({"v": "\u202e"}, {"v": "\\u202e"}),
+            ({long: 1}, {label: 1}),
+            ({"n": 0.1}, {"n": 0.10000000000000002}),
+            ({"n": 10**400}, {"n": 10**400 + 1}),
         )
-        self.assertEqual(len(many["fields"]), 30)
+        for first, second in pairs:
+            with self.subTest(first=str(first)[:40]):
+                material = [
+                    routine_plan.output_compared(routine_plan.output_safe(item, {})) for item in (first, second)
+                ]
+                self.assertNotEqual(*material)
+        # A change only inside redacted content compares equal.
+        hidden = [routine_plan.output_safe({"token": value}, {}) for value in ("a", "b")]
+        self.assertEqual(*[routine_plan.output_compared(node) for node in hidden])
+        self.assertIsNone(routine_plan.output_compared({"kind": "number", "value": float("inf")}))
+
+    def test_a_number_is_shown_as_its_exact_text(self) -> None:
+        shown = routine_plan.output_shown("zones", routine_plan.output_safe([0.0001, 1.23456, 10**30, 10**400], {}))
+        items = shown["value"]["items"]
+        self.assertEqual(items[:3], [_shown_number("0.0001"), _shown_number("1.23456"), _shown_number(str(10**30))])
+        # A number too long for a number node is shown as its exact text, cut like any text.
+        self.assertEqual(items[3], _text(str(10**400)[:299] + "…", cut=True))
+        self.assertTrue(shown["truncated"])
+        self.assertEqual(http_routine.canonical_output(shown), shown)
+        sixty_five = routine_plan.output_shown("zones", routine_plan.output_safe(10**64, {}))
+        self.assertEqual(sixty_five["value"], _text(str(10**64)))
 
     def test_a_large_result_is_cut_down_a_fixed_ladder_until_it_fits(self) -> None:
         rows = [{"name": f"zone-{index}.example", "note": "é" * 400} for index in range(400)]
@@ -210,7 +253,7 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(routine_plan.output_safe([[1]], {})["items"][0]["items"][0], {"kind": "elided"})
 
     def test_a_result_that_cannot_be_projected_is_unavailable_and_compared_only_when_small(self) -> None:
-        for result in (float("nan"), {"bad": object()}):
+        for result in (float("nan"), float("inf"), {"bad": object()}):
             with self.subTest(result=result), self.assertRaises(routine_plan.OutputError):
                 routine_plan.output_safe(result, {})
         self.assertEqual(
@@ -243,6 +286,11 @@ class ProjectionTests(unittest.TestCase):
             {**shown, "value": {"kind": "text", "value": "x" * 301, "cut": False}},
             {**shown, "value": {"kind": "text", "value": "x"}},
             {**shown, "value": {"kind": "number", "value": True}},
+            {**shown, "value": {"kind": "number", "value": 12}},
+            {**shown, "value": {"kind": "number", "value": "01"}},
+            {**shown, "value": {"kind": "number", "value": "1."}},
+            {**shown, "value": {"kind": "number", "value": "NaN"}},
+            {**shown, "value": {"kind": "number", "value": "1" * 65}},
             {**shown, "value": {"kind": "number", "value": float("inf")}},
             {**shown, "value": {"kind": "bool", "value": 1}},
             {**shown, "value": {"kind": "null", "value": None}},
@@ -295,6 +343,10 @@ class TextTests(unittest.TestCase):
         ):
             routine_plan.resolve(plan, plan.steps[1], selected, 0, lambda value: value)
         document["steps"][1]["input"]["post_id"]["step"] = "share"
+        # A value that cannot be encoded as text is refused as a mistyped input, before any dispatch.
+        unencodable = {("publish", "/meta"): "lone \ud800 surrogate", ("publish", "/meta/a~1b/0"): ["x"]}
+        with self.assertRaisesRegex(routine_plan.PlanError, "plan-input-type"):
+            routine_plan.resolve(plan, plan.steps[1], unencodable, 0, lambda value: value)
         with self.assertRaisesRegex(routine_plan.PlanError, "plan-reference-invalid"):
             routine_plan.admit(document, CONTRACTS)
 

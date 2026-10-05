@@ -432,7 +432,8 @@ def _plan_source(
     if kind == "run_clock":
         return {"kind": "run_clock", "format": source["format"]}, _pending({})
     if kind in routine_plan.BINDINGS:
-        relation_span = words.span(source["instruction"])
+        # The words that relate two steps are the person's own said words, never only a cited send's.
+        relation_span = words.said_span(source["instruction"])
         if relation_span is None:
             raise ChangeError("routine-reference-unproven")
         relation = _pending({"instruction": list(relation_span)})
