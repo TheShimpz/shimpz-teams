@@ -401,6 +401,10 @@ class CompileTests(unittest.TestCase):
             # Only a complete count: never a decimal, signed, exponent, or overlong fragment, nor a bad group.
             (100, "At most 100.25 runs a day."),
             (100, "At most -100 runs a day."),
+            (100, "At most \u2212100 runs a day."),
+            (100, "At most \uff0d100 runs a day."),
+            (100, "At most 100\u066b25 runs a day."),
+            (100, "At most \u0661100 runs a day."),
             (3, "At most 1e3 runs a day."),
             (1000, "At most 1,0000 runs a day."),
             (999, "At most " + "9" * 5000 + " runs a day."),

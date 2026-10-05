@@ -40,9 +40,14 @@ _NUMBER_RE = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\Z
 # A whole count as a person writes it ("1000", "1.000", "1,000"), at most seven digits or 999,999,999, and only a
 # complete one: never a fragment of a longer number, a decimal, a signed number, or an exponent ("100.25", "-100",
 # "1e3", "1,0000").
+# Any sign or decimal mark a number may carry, ASCII or not, and a digit of any script, so "−100" (U+2212), "100٫25",
+# or "١100" holds no count.
+_SIGNS = r"+\-\u2012\u2013\u2212\ufe62\ufe63\uff0b\uff0d"
+_MARKS = r".,\u066b\u066c\uff0c\uff0e"
 _COUNT_RE = re.compile(
-    r"(?<![0-9.,+-])(?<![0-9][eE])(?<![0-9][eE][+-])(?:[0-9]{1,3}(?:[.,][0-9]{3}){1,2}|[0-9]{1,7})"
-    r"(?![0-9]|[.,][0-9]|[eE][+-]?[0-9])"
+    rf"(?<![\d{_MARKS}{_SIGNS}])(?<!\d[eE])(?<!\d[eE][{_SIGNS}])"
+    r"(?:[0-9]{1,3}(?:[.,][0-9]{3}){1,2}|[0-9]{1,7})"
+    rf"(?!\d|[{_MARKS}]\d|[eE][{_SIGNS}]?\d)"
 )
 # The user's own words exclude quoted, fenced, and block-quoted material, exactly as the Brain separates them.
 _QUOTED_RE = re.compile(
