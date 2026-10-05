@@ -175,12 +175,12 @@ class AutomaticTests(AutomaticCase):
         observed: list[tuple[int, float]] = []
         real_verify = routine_recovery.verify
 
-        def watching(service, team_id, incident_id, token):
+        def watching(service, team_id, incident_id, token, protected=None):
             # While the episode works, its whole time is already spent durably and it is registered to its deadline.
             cursor = routine_recovery.routine_incident.open_recovery(service, team_id, incident_id).cursor
             registration = service._routine_runs[incident_id]
             observed.append((cursor.remaining("recovery_seconds"), registration.deadline - time.monotonic()))
-            return real_verify(service, team_id, incident_id, token)
+            return real_verify(service, team_id, incident_id, token, protected)
 
         with (
             tempfile.TemporaryDirectory() as directory,
@@ -389,12 +389,12 @@ class RunBalanceTests(BalanceCase):
         observed: list[tuple[int, int, float]] = []
         real_verify = routine_recovery.verify
 
-        def watching(service, team_id, incident_id, token):
+        def watching(service, team_id, incident_id, token, protected=None):
             cursor = routine_recovery.routine_incident.open_recovery(service, team_id, incident_id).cursor
             held = routine_hold.incident(service.routine_store.load(team_id), incident_id)
             left = service._routine_runs[incident_id].deadline - time.monotonic()
             observed.append((cursor.remaining("recovery_seconds"), held.active_seconds_left, left))
-            return real_verify(service, team_id, incident_id, token)
+            return real_verify(service, team_id, incident_id, token, protected)
 
         assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
         with tempfile.TemporaryDirectory() as directory:

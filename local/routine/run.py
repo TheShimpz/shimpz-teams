@@ -38,6 +38,9 @@ class _Run:
     # The human answers this logical run already gave, kept for deterministic replay if it freezes again.
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
+    # The private values Team injected into each operation's last failed attempt, by operation id, held in memory only
+    # for this execution's one automatic recovery episode, which checks a recovered result against them (ADR-0092).
+    protected: dict[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

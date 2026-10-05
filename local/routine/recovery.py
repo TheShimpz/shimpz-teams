@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 from docker.errors import DockerException
 
+from action import execution as action_execution
 from action import journal as action_journal
 from assistant import spec as assistant_spec
 from chat import orchestrator as chat_orchestrator
@@ -72,8 +73,6 @@ class Assessment:
     action: object
     network_id: str
     state: str | None
-    # The verifier Action the failed step's Action declares, under the same pin; None when it declares none.
-    verifier_action: object = None
 
     @property
     def cursor(self) -> routine_cursor.Cursor:
@@ -149,11 +148,9 @@ def assess(self, team_id: str, incident_id: str) -> Assessment:
     if cursor.done(plan):
         return Assessment(opened, plan, None, network_id, None)
     step = plan.steps[cursor.step]
-    actions = active[step.assistant_id].spec.actions
-    action = actions[step.action]
-    verifier = actions.get(action.verifier["action"]) if action.verifier else None
+    action = active[step.assistant_id].spec.actions[step.action]
     state = _operation_state(self, team_id, incident_id, cursor.operation_id)
-    return Assessment(opened, plan, action, network_id, state, verifier)
+    return Assessment(opened, plan, action, network_id, state)
 
 
 def proven(assessment: Assessment) -> str:
@@ -320,7 +317,7 @@ def _call_verifier(self, team_id: str, token: str, assessment: Assessment, reque
     return runtime.result if isinstance(result.outcome, chat_orchestrator.ChatOutcome) else None
 
 
-def _judge(self, team_id: str, assessment: Assessment, result: object) -> str:
+def _judge(self, team_id: str, assessment: Assessment, result: object, protected: tuple[str, ...] | None = None) -> str:
     """Admit the verifier's evidence: complete the step on occurrence, record proven absence, else inconclusive."""
     verifier, cursor = assessment.action.verifier, assessment.cursor
     try:
@@ -330,12 +327,16 @@ def _judge(self, team_id: str, assessment: Assessment, result: object) -> str:
     if outcome == "not_occurred":
         _seal(self, team_id, routine_cursor.proven_absent(cursor))
         return "absent"
-    if outcome != "occurred" or not _protected(assessment):
+    if outcome != "occurred" or protected is None:
         return "inconclusive"
     try:
         recovered = assistant_spec.validate_action_payload(
             assessment.action, "output", routine_plan.select(result, verifier["result"])
         )
+        # A recovered result continues the run and may be shown, so it must pass the secret-echo check of the very
+        # attempt it stands for: against the private values that attempt was given, held in memory since it failed.
+        if action_execution.contains_secret(recovered, dict(enumerate(map(str, protected)))):
+            return "inconclusive"
         completed = routine_compiled.advance(self.routine_store, team_id, cursor, assessment.plan, recovered)
     except routine_plan.PlanError, routine_cursor.CursorError, routine_store.RoutineStoreError, ValueError:
         return "inconclusive"
@@ -343,23 +344,9 @@ def _judge(self, team_id: str, assessment: Assessment, result: object) -> str:
     return "occurred"
 
 
-def _protected(assessment: Assessment) -> bool:
-    """Whether the verifier's own call already refused every private value the original Action's result could echo.
-
-    A recovered result continues the run and may be shown, so it must pass the original Action's secret-echo check.
-    That holds only when the verifier was given each Stored Input and Integration the original was, and the original
-    declares no password request, whose answer only the original run held; otherwise the effect stays inconclusive.
-    """
-    original, verifier = assessment.action, assessment.verifier_action
-    return (
-        verifier is not None
-        and "input:password" not in original.human_requests
-        and set(original.stored_inputs) <= set(verifier.stored_inputs)
-        and set(original.integrations) <= set(verifier.integrations)
-    )
-
-
-def verify(self, team_id: str, incident_id: str, token: str) -> str:
+def verify(
+    self, team_id: str, incident_id: str, token: str, protected: dict[str, tuple[str, ...]] | None = None
+) -> str:
     """Verify a held run's failed step with no model, spending one verification of its budget before the call.
 
     Returns ``occurred``, ``absent``, ``none``, ``inconclusive``, ``unverifiable``, or ``exhausted``.
@@ -383,7 +370,12 @@ def verify(self, team_id: str, incident_id: str, token: str) -> str:
         assessment, opened=routine_incident.OpenedRecovery(assessment.opened.recovery, _seal(self, team_id, spent))
     )
     result = _call_verifier(self, team_id, token, assessment, request)
-    return "inconclusive" if result is None else _judge(self, team_id, assessment, result)
+    if result is None:
+        return "inconclusive"
+    # Without the failed attempt's own private values in memory, as after a restart, nothing proves the recovered
+    # result echoes none of them: the effect stays inconclusive.
+    original = None if protected is None else protected.get(assessment.cursor.operation_id)
+    return _judge(self, team_id, assessment, result, original)
 
 
 def refusal(cursor: routine_cursor.Cursor) -> str | None:
@@ -636,7 +628,7 @@ def _episode(self, run: routine_run._Run, api_key: str, reservation: _Reservatio
         return reservation.expired.is_set() or _clock() >= reservation.deadline
 
     # Nothing is dispatched once the reservation has run out, not even the verifier.
-    verdict = "exhausted" if expired() else verify(self, team_id, incident_id, run.token)
+    verdict = "exhausted" if expired() else verify(self, team_id, incident_id, run.token, run.protected)
     if verdict == "absent" and not expired() and not self._chat_cancelled(run.token):
         verdict = _decide(self, team_id, incident_id, (run.provider, api_key), None)
     if _stopped(self, run.token, reservation):

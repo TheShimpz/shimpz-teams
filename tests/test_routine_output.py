@@ -192,6 +192,12 @@ class ProjectionTests(unittest.TestCase):
         self.assertFalse(routine_plan.output_shown("zones", routine_plan.output_safe({"k": 1}, {}))["truncated"])
         many = routine_plan.output_shown("zones", routine_plan.output_safe({"same": 0, "same (2)": 1}, {}))
         self.assertEqual([label for label, _value in many["value"]["fields"]], ["same", "same (2)"])
+        # Two keys whose labels read alike at the full label length are numbered apart, which cuts one: truncated.
+        alike = routine_plan.output_shown(
+            "zones", routine_plan.output_safe({"\u202e" + "x" * 58: 1, "\\u202e" + "x" * 58: 2}, {})
+        )
+        self.assertEqual([len(label) for label, _value in alike["value"]["fields"]], [64, 62])
+        self.assertTrue(alike["truncated"])
         labels, shortened = routine_plan._output_labels(["same"] * 5)
         self.assertEqual((labels, shortened), (["same", "same (2)", "same (3)", "same (4)", "same (5)"], False))
 

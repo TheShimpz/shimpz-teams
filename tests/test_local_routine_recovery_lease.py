@@ -333,8 +333,13 @@ class StopPrecedenceTests(AutomaticCase):
                 mock.patch.object(routine_recovery, "_episode", side_effect=episode),
             ):
                 service, _brain, value, run_id = self.held(directory, assistant)
+                # The failed attempt's private values, held in memory for this execution's recovery: none here.
+                operation_id = routine_recovery.routine_incident.open_recovery(service, "team_1", run_id).cursor
+                protected = {operation_id.operation_id: ()}
                 with service._exclusive_chat_turn("team_1") as token:
-                    run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)
+                    run = mock.Mock(
+                        team_id="team_1", run_id=run_id, provider="openai", token=token, protected=protected
+                    )
                     outcome = routine_recovery.automatic(service, run, "k")
                 state = self.state(service)
                 self.assertEqual(outcome, "held")

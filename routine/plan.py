@@ -698,6 +698,8 @@ def _output_labels(keys: list[str]) -> tuple[list[str], bool]:
         while shown in labels:
             number += 1
             shown = f"{label[: MAX_OUTPUT_KEY_CHARS - 6]} ({number})"
+            # Numbering a label that reads alike may cut it further, which is a cut like any other.
+            shortened = shortened or len(label) > MAX_OUTPUT_KEY_CHARS - 6
         labels.append(shown)
     return labels, shortened
 

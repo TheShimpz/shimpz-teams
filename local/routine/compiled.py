@@ -90,11 +90,20 @@ class CompiledRuntime:
     ``start`` and ``resume`` return the current step as one Action request, or a completed turn after the last step.
     """
 
-    def __init__(self, seal: _Seal, plan: routine_plan.Plan, cursor: routine_cursor.Cursor, reply: str) -> None:
+    def __init__(
+        self,
+        seal: _Seal,
+        plan: routine_plan.Plan,
+        cursor: routine_cursor.Cursor,
+        reply: str,
+        protected: dict[str, tuple[str, ...]] | None = None,
+    ) -> None:
         self._seal = seal
         self._plan = plan
         self.cursor = cursor
         self._reply = reply
+        # Where each failed attempt's injected private values are kept in memory for this execution's recovery.
+        self._protected = {} if protected is None else protected
 
     @staticmethod
     def interrupt(index: int) -> str:
@@ -186,6 +195,9 @@ class CompiledRuntime:
         except routine_cursor.CursorError as error:
             raise CompiledRunError(error.code) from error
         self.seal(classified)
+        # Only in memory, and only for this execution's automatic recovery: a recovered result is checked against the
+        # exact private values this attempt was given, never against values a later call may have instead.
+        self._protected[evidence.operation_id] = routine_diagnostics.protected(evidence)
         found = routine_diagnostics.evidence(exc)
         if found is None:
             return
@@ -269,7 +281,13 @@ def _plan(self, team_id: str, routine: record.Routine) -> routine_plan.Plan:
         raise CompiledRunError(exc.code) from exc
 
 
-def runtime(self, team_id: str, value: record.Run, routine: record.Routine) -> CompiledRuntime:
+def runtime(
+    self,
+    team_id: str,
+    value: record.Run,
+    routine: record.Routine,
+    protected: dict[str, tuple[str, ...]] | None = None,
+) -> CompiledRuntime:
     """The run's compiled runtime: its recovery snapshot sealed, and its cursor reopened or started."""
     network_id = record.network_of(value.generation, value.run_id)
     binding = routine_cursor.Binding(network_id, routine.routine_id, routine.revision, value.run_id)
@@ -284,7 +302,7 @@ def runtime(self, team_id: str, value: record.Run, routine: record.Routine) -> C
         raise CompiledRunError("cursor-plan-changed")
     started = cursor or routine_cursor.start(plan, binding, int(time.time()))
     compiled = CompiledRuntime(
-        _Seal(team_id, self.routine_store, self.routine_diagnostics), plan, started, routine.name
+        _Seal(team_id, self.routine_store, self.routine_diagnostics), plan, started, routine.name, protected
     )
     if cursor is None:
         compiled.seal(started)
@@ -317,7 +335,9 @@ def request(
         provider=run.provider,
         api_key="",
         token=run.token,
-        routine=RoutineSegment(value.run_id, value.generation, runtime(self, run.team_id, value, run.routine)),
+        routine=RoutineSegment(
+            value.run_id, value.generation, runtime(self, run.team_id, value, run.routine, run.protected)
+        ),
         progress=progress or chat_progress.Reporter(),
         **resumed,
     )

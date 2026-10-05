@@ -5,8 +5,6 @@ from __future__ import annotations
 import dataclasses
 import tempfile
 from http import HTTPStatus
-from types import SimpleNamespace
-from unittest import mock
 
 from local_assistant_fixture import mutating_spec
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
@@ -78,9 +76,12 @@ class RecoveryCase(CompiledRunCase):
         return service, brain, value, claim["run_id"]
 
     @staticmethod
-    def verify(service, value, run_id: str) -> str:
+    def verify(service, value, run_id: str, protected: tuple[str, ...] | None = ()) -> str:
+        """Verify as the run's own recovery episode does, holding its failed attempt's private values in memory."""
+        operation_id = routine_incident.open_recovery(service, "team_1", run_id).cursor.operation_id
+        held = None if protected is None else {operation_id: protected}
         with service._exclusive_chat_turn("team_1", value.routine_id) as token:
-            return routine_recovery.verify(service, "team_1", run_id, token)
+            return routine_recovery.verify(service, "team_1", run_id, token, held)
 
     @staticmethod
     def resume(service, value, run_id: str) -> str:
@@ -131,29 +132,20 @@ class VerificationTests(RecoveryCase):
             self.assertEqual(self.resume(service, value, run_id), "recovered")
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
 
-    def test_a_recovered_result_the_verifier_could_not_check_for_the_originals_secrets_is_inconclusive(self) -> None:
-        """A recovered value continues and may be shown only when the original Action's secret check covers it."""
-        original = routine_recovery._protected
-        unprotected = (
-            {"stored_inputs": ("api-token",), "human_requests": ()},
-            {"integrations": ("cloudflare",)},
-            {"human_requests": ("input:password",)},
-        )
-        for changes in unprotected:
+    def test_a_recovered_result_is_checked_against_the_failed_attempts_own_private_values(self) -> None:
+        """A recovered value continues and may be shown only when it echoes nothing the original attempt was given.
+
+        A credential may change between the failed attempt and its verification, so the verifier's own check is not
+        enough: the attempt's private values are held in memory for its recovery, and without them, as after a
+        restart, the effect stays inconclusive.
+        """
+        for protected in (("rec-1",), ("prefix-rec-1-suffix", "rec-1"), None):
             assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
-            with tempfile.TemporaryDirectory() as directory, self.subTest(changes=changes):
+            with tempfile.TemporaryDirectory() as directory, self.subTest(protected=protected):
                 service, _brain, value, run_id = self.held(directory, assistant)
-
-                def narrowed(assessment, changes=changes):
-                    return original(
-                        dataclasses.replace(assessment, action=dataclasses.replace(assessment.action, **changes))
-                    )
-
-                with mock.patch.object(routine_recovery, "_protected", side_effect=narrowed):
-                    self.assertEqual(self.verify(service, value, run_id), "inconclusive")
-                self.assertEqual(self.cursor(service, run_id).step, 1)
-        # Without the verifier's own declarations, nothing proves the check either.
-        self.assertFalse(original(SimpleNamespace(action=SimpleNamespace(human_requests=()), verifier_action=None)))
+                self.assertEqual(self.verify(service, value, run_id, protected), "inconclusive")
+                cursor = self.cursor(service, run_id)
+            self.assertEqual((cursor.step, cursor.shown), (1, None))
 
     def test_an_occurrence_without_a_valid_recovered_result_is_inconclusive(self) -> None:
         for verdict in ({"outcome": "occurred"}, {"outcome": "occurred", "result": {"record": {}}}, {"x": 1}):
