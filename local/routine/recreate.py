@@ -82,14 +82,16 @@ def _admitted(
 
 
 def _proposed(change: routine_change.Change, field: tuple[str, ...]) -> object:
-    """What one option of a recompiled question proposes for its open field, as the admitted Routine would hold it."""
+    """What one option of a question about ``field`` proposes for it, as the admitted Routine would hold it.
+
+    An input option always holds that step's member, as a literal the selected answer fills.
+    """
     if field == ("schedule",):
         return change.schedule
     if field == ("timezone",):
         return change.timezone
-    step = next((item for item in change.steps if item["id"] == field[1]), None)
-    source = None if step is None else step["input"].get(field[2])
-    return None if source is None else {"kind": source["kind"], "value": source.get("value")}
+    step = next(item for item in change.steps if item["id"] == field[1])
+    return {"kind": "literal", "value": step["input"][field[2]]["value"]}
 
 
 def _definition(
@@ -118,16 +120,16 @@ def _definition(
     except routine_change.ChangeError as exc:
         raise _refused() from exc
     field, wanted = source.selected
+    if question.field != field:
+        raise _refused()
     # Only the option holding the value the person once selected is admitted, whatever order the options came in;
     # its label is the person's own sealed answer, never one the recompile wrote.
     chosen = [change for change in question.changes if _same(_proposed(change, field), wanted)]
-    if question.field != field or len(chosen) != 1:
+    if len(chosen) != 1:
         raise _refused()
     label = request.message
     cap_label = label if routine_change.caps_vary(question) else None
     value = _admitted(chosen[0], request, active, scope, question.selected, cap_label)
-    if not _same(routine_source.field_value(value, field), wanted):
-        raise _refused()
     return dataclasses.replace(value, grant={**value.grant, "selected": {"field": list(field), "label": label}})
 
 

@@ -367,6 +367,47 @@ class RecriarTests(CardCase):
         self.assertEqual(routine.schedule, DAILY)
         self.assertEqual(routine.grant["selected"], {"field": ["schedule"], "label": "At 9"})
 
+    def test_a_recompiled_input_question_selects_the_sealed_member_value_or_refuses(self) -> None:
+        """An input question is answered by the member value the person once selected; any other field refuses."""
+        asked = _change()
+        del asked["steps"][0]["input"]["per_page"]
+        asked["question"] = {
+            "field": {"kind": "input", "step": "zones", "member": "per_page"},
+            "values": [50, 25],
+            "replies": ["Pronto: 50.", "Pronto: 25."],
+        }
+        options = [{"label": "50 per page", "description": ""}, {"label": "25 per page", "description": ""}]
+        clarification = {"question": "How many per page?", "options": options, "default_index": None}
+        selected = (("input", "zones", "per_page"), {"kind": "literal", "value": 25})
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, value, run_id = self.held_with(
+                directory, _compiled(asked, clarification), _compiled(asked, clarification)
+            )
+            self.seal_answer(service, value, "25 per page", (("schedule",), DAILY))
+            self.refused(service, run_id, "recreate", "routine-recreate-refused")
+            service.routine_store.delete_source("team_1", value.routine_id)
+            self.seal_answer(service, value, "25 per page", selected)
+            self.answer(service, run_id, self.card(service, run_id), "recreate")
+            (routine,) = self.state(service).routines
+        self.assertEqual(routine.plan["steps"][0]["input"]["per_page"], {"kind": "literal", "value": 25})
+        self.assertEqual(routine.grant["selected"], {"field": list(selected[0]), "label": "25 per page"})
+
+    def test_a_recompiled_zone_question_selects_the_sealed_zone(self) -> None:
+        asked = _change()
+        asked["question"] = {
+            "field": {"kind": "timezone"},
+            "values": ["UTC", "Europe/Lisbon"],
+            "replies": ["Pronto: UTC.", "Pronto: Lisboa."],
+        }
+        options = [{"label": "UTC", "description": ""}, {"label": "Lisbon", "description": ""}]
+        clarification = {"question": "Which zone?", "options": options, "default_index": None}
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, value, run_id = self.held_with(directory, _compiled(asked, clarification))
+            self.seal_answer(service, value, "Lisbon", (("timezone",), "Europe/Lisbon"))
+            self.answer(service, run_id, self.card(service, run_id), "recreate")
+            (routine,) = self.state(service).routines
+        self.assertEqual((routine.timezone, routine.grant["selected"]["label"]), ("Europe/Lisbon", "Lisbon"))
+
     def test_a_recompiled_cap_question_selects_the_sealed_cap_in_any_option_order(self) -> None:
         """Only the option holding the sealed value is admitted, its cap proven by the person's own sealed label."""
         selected = {"kind": "continuous", "gap": 30, "cap": 500}
