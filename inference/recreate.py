@@ -15,7 +15,9 @@ from action import journal as action_journal
 from inference.client import BrainRuntimeError, RuntimeAssistant, _action_wire
 from protocol.http.v1 import payload as http_payload
 
-REFUSALS = frozenset({"not-recurring", "quoted", "secret", "unspecified", "unsupported", "unproven", "unavailable"})
+REFUSALS = frozenset(
+    {"not-recurring", "quoted", "secret", "unspecified", "unsupported", "schedule", "unproven", "unavailable"}
+)
 MAX_MESSAGE_CHARS = 16_000
 
 

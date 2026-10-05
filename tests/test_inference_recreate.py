@@ -52,8 +52,11 @@ class RecreateCompileTests(unittest.TestCase):
             (ASSISTANT,),
         )
         self.assertEqual(asked.clarification, CLARIFICATION)
-        refused = _answer(routine=None, reply=None, refusal="unsupported")
-        self.assertEqual(recreate.compile_routine(Client(refused), CREDENTIALS, "x", (ASSISTANT,)), "unsupported")
+        # Every closed reason the Brain compiler refuses with, including a timing outside the Routine contract.
+        for reason in ("unsupported", "schedule"):
+            refused = _answer(routine=None, reply=None, refusal=reason)
+            with self.subTest(reason=reason):
+                self.assertEqual(recreate.compile_routine(Client(refused), CREDENTIALS, "x", (ASSISTANT,)), reason)
 
     def test_an_invalid_request_or_answer_fails_closed(self) -> None:
         for credentials, message, assistants in (
