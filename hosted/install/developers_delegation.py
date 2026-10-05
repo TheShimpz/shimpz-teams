@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
 from core import base64url
+from hosted.install.developers_client import read_service_token
 from install.contract import ContractValidationError, ContractValidator
 
 _MAX_TOKEN_BYTES = 8192
@@ -52,7 +53,7 @@ class DevelopersDelegationVerifier:
         *,
         replay_guard: ReplayGuard | None = None,
     ) -> None:
-        self._service_token = _read_service_token(service_token_file)
+        self._service_token = read_service_token(service_token_file, "Developers Controller service token")
         self._public_key = _read_public_key(public_key_file)
         self._replay_guard = replay_guard or ReplayGuard()
 
@@ -78,16 +79,6 @@ class DevelopersDelegationVerifier:
         _verify_request_binding(claims, request)
         self._replay_guard.consume(claims["jti"], claims["exp"], now=current)
         return claims
-
-
-def _read_service_token(path: Path) -> str:
-    try:
-        value = path.read_text(encoding="ascii").strip()
-    except (OSError, UnicodeError) as exc:
-        raise RuntimeError("Developers Controller service token is unavailable") from exc
-    if not 32 <= len(value) <= 256 or not value.isascii() or any(character.isspace() for character in value):
-        raise RuntimeError("Developers Controller service token is invalid")
-    return value
 
 
 def _read_public_key(path: Path) -> Ed25519PublicKey:

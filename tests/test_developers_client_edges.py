@@ -83,10 +83,10 @@ class DevelopersClientEdgeTests(unittest.TestCase):
     def test_token_and_schema_helpers_reject_invalid_inputs(self) -> None:
         missing = Path(self.directory.name) / "missing"
         with self.assertRaises(RuntimeError):
-            developers_client._read_service_token(missing)
+            developers_client.read_service_token(missing, "token")
         self.token.write_text("short", encoding="ascii")
         with self.assertRaises(RuntimeError):
-            developers_client._read_service_token(self.token)
+            developers_client.read_service_token(self.token, "token")
 
         with (
             mock.patch.object(

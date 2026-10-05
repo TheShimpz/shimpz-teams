@@ -31,7 +31,7 @@ class InstallAuthorizationDeniedError(DevelopersClientError):
 
 class DevelopersClient:
     def __init__(self, service_token_file: Path) -> None:
-        self._service_token = _read_service_token(service_token_file)
+        self._service_token = read_service_token(service_token_file, "Controller-to-Developers service token")
 
     def resolve(self, source_digest: str) -> dict[str, Any]:
         status, value = self._request(
@@ -131,13 +131,14 @@ class DevelopersClient:
         return response.status, raw
 
 
-def _read_service_token(path: Path) -> str:
+def read_service_token(path: Path, name: str) -> str:
+    """Read one file-backed service bearer between the Controller and Developers, in either direction."""
     try:
         value = path.read_text(encoding="ascii").strip()
     except (OSError, UnicodeError) as exc:
-        raise RuntimeError("Controller-to-Developers service token is unavailable") from exc
+        raise RuntimeError(f"{name} is unavailable") from exc
     if not 32 <= len(value) <= 256 or not value.isascii() or any(character.isspace() for character in value):
-        raise RuntimeError("Controller-to-Developers service token is invalid")
+        raise RuntimeError(f"{name} is invalid")
     return value
 
 

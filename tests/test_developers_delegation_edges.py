@@ -51,16 +51,10 @@ class DevelopersDelegationEdgeTests(unittest.TestCase):
         ):
             verifier.verify(headers, action="assistant:install", now=1_000)
 
-    def test_key_and_service_token_files_fail_closed(self) -> None:
+    def test_public_key_files_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             missing = root / "missing"
-            with self.assertRaises(RuntimeError):
-                delegation._read_service_token(missing)
-            token = root / "token"
-            token.write_text("short", encoding="ascii")
-            with self.assertRaises(RuntimeError):
-                delegation._read_service_token(token)
             with self.assertRaises(RuntimeError):
                 delegation._read_public_key(missing)
             public = root / "public.pem"
