@@ -164,6 +164,7 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         runtime_assistant(active, scope.genesis_by_id[active.spec.assistant_id]) for active in scope.assistants
     )
     config = scope.config
+    mutable = _routine_mutable(request)
     return brain_runtime_client.RuntimeContext(
         thread_id=scope.thread_id,
         team_name=scope.team_name,
@@ -174,7 +175,8 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         effort=config.effort,
         memories=None if routine is not None else tuple(memories),
         skills=None if routine is not None else chat_knowledge.turn_skills(skills, runtime_assistants),
-        routines=self._chat_routines(request.team_id) if _routine_mutable(request) else None,
+        routines=self._chat_routines(request.team_id) if mutable else None,
+        routine_earlier=request.routine_request.earlier if mutable else (),
         knowledge_writable=routine is None,
         locale=request.locale,
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),

@@ -1,11 +1,11 @@
 """The private creation source of a Routine, which Recriar compiles from again (ADR-0092 amendment, 2026-10-02).
 
-A Routine created from a person's own chat message keeps that exact message, and the value the person selected when
-the planner asked about one field, sealed apart from the plaintext Routine state and bound to its Team incarnation and
-Routine. It is written before the state write that creates the Routine, so a crash leaves at worst an unreferenced
-record, which the watchdog removes; it is never replaced by a later update, and it goes when the Routine is deleted. It
-is not shown, audited, sent to diagnostics, or kept in any Brain history: only Recriar reads it, to recompile the
-Routine from scratch in place.
+A Routine created from a person's own chat message keeps that exact message, the person's own earlier sends it cited
+(ADR-0092 amendment, 2026-10-04), and the value the person selected when the planner asked about one field, sealed apart
+from the plaintext Routine state and bound to its Team incarnation and Routine. It is written before the state write
+that creates the Routine, so a crash leaves at worst an unreferenced record, which the watchdog removes; it is never
+replaced by a later update, and it goes when the Routine is deleted. It is not shown, audited, sent to diagnostics, or
+kept in any Brain history: only Recriar reads it, to recompile the Routine from scratch in place.
 """
 
 from __future__ import annotations
@@ -17,21 +17,24 @@ from core import strict_json
 from local.routine import state as routine_state
 from routine import plan as routine_plan
 from routine import record
+from routine import request as routine_request
 
-VERSION = 1
-_FIELDS = frozenset({"version", "routine_id", "incarnation", "message", "selected"})
-MAX_MESSAGE_CHARS = 16_000
+VERSION = 2
+_FIELDS = frozenset({"version", "routine_id", "incarnation", "message", "earlier", "selected"})
+MAX_MESSAGE_CHARS = routine_request.MAX_MESSAGE_CHARS
 
 
 @dataclass(frozen=True, slots=True)
 class Source:
-    """The exact message that created a Routine and the one field value its person selected, if any."""
+    """The message that created a Routine, the earlier sends it cited, and the one field value selected, if any."""
 
     routine_id: str
     incarnation: str
     message: str
     # (field, value): ("schedule",), ("timezone",), or ("input", step, member), and the value that field held.
     selected: tuple[tuple[str, ...], object] | None = None
+    # The person's own earlier sends the message cited, oldest first, exactly as the creating turn froze them.
+    earlier: tuple[str, ...] = ()
 
     def encode(self) -> bytes:
         selected = None if self.selected is None else {"field": list(self.selected[0]), "value": self.selected[1]}
@@ -41,6 +44,7 @@ class Source:
                 "routine_id": self.routine_id,
                 "incarnation": self.incarnation,
                 "message": self.message,
+                "earlier": list(self.earlier),
                 "selected": selected,
             }
         )
@@ -79,7 +83,13 @@ def decode(payload: bytes, routine_id: str) -> Source:
         raise routine_state.unavailable() from exc
     if not isinstance(value, dict) or set(value) != _FIELDS or value["version"] != VERSION:
         raise routine_state.unavailable()
-    message, selected = value["message"], value["selected"]
+    message, selected, earlier = value["message"], value["selected"], value["earlier"]
+    if (
+        not isinstance(earlier, list)
+        or len(earlier) > routine_request.MAX_EARLIER
+        or any(routine_request.canonical_earlier(item) is None for item in earlier)
+    ):
+        raise routine_state.unavailable()
     if (
         value["routine_id"] != routine_id
         or not isinstance(value["incarnation"], str)
@@ -97,7 +107,7 @@ def decode(payload: bytes, routine_id: str) -> Source:
         if field is None:
             raise routine_state.unavailable()
         selected = (field, selected["value"])
-    source = Source(routine_id, value["incarnation"], message, selected)
+    source = Source(routine_id, value["incarnation"], message, selected, tuple(earlier))
     if source.encode() != payload:
         raise routine_state.unavailable()
     return source

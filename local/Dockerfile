@@ -67,7 +67,8 @@ COPY local/routine/__init__.py local/routine/card.py local/routine/compiled.py l
     local/routine/human.py \
     local/routine/lifecycle.py \
     local/routine/incident.py local/routine/lineage.py local/routine/manage.py \
-    local/routine/notices.py local/routine/question.py local/routine/recovery.py local/routine/recreate.py \
+    local/routine/notices.py local/routine/question.py local/routine/recent.py local/routine/recovery.py \
+    local/routine/recreate.py \
     local/routine/run.py local/routine/source.py local/routine/state.py \
     local/routine/store.py \
     local/routine/turn.py \

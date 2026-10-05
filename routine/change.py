@@ -1,18 +1,18 @@
 """A Routine change the Brain compiled from the user's own message, and Team's authoritative check of it (ADR-0092).
 
-The Brain proposes one closed change: ``create``, or ``update`` of a listed Routine at the revision it saw, with a
-short name, the user's own words that state the standing request, a schedule, an optional timezone, and at most eight
-ordered steps. Each step names one exact Assistant Action and gives every input member one source: a literal with its
+The Brain proposes one closed change: ``create``, or ``update`` of a listed Routine at the revision it saw, with a short
+name, the user's own words that state the standing request, a schedule, an optional timezone, and at most eight ordered
+steps. Each step names one exact Assistant Action and gives every input member one source: a literal with its
 provenance, a run-clock token, an earlier step's output selected by an RFC 6901 pointer with the user's own words that
 relate the two, or, in an update, the member's source kept exactly as the current revision has it.
 
-Team recomputes everything against the committed message. The user's own words are the text outside quoted, fenced,
-and block-quoted regions. Every scalar of a literal must equal text cited from those words, or from one quoted region
-that unquoted words adopt, or the whole literal must equal its destination's declared schema default; only the one
-field a Routine question leaves open is instead filled from the option the user selects (``Question``). Mechanical
-provenance proves where a value came from, never that the user meant it; the compiled plan is then admitted against the
-exact current Action contracts, which derive every pin, so no field of the change can assert approval or elevate
-authority.
+Team recomputes everything against the committed message and the person's own earlier sends it cites, each parsed on its
+own; the standing request must be the message's own words. The user's own words are the text outside quoted, fenced, and
+block-quoted regions. Every scalar of a literal must equal text cited from those words, or from one quoted region that
+unquoted words adopt, or the whole literal must equal its destination's declared schema default; only the one field a
+Routine question leaves open is instead filled from the option the user selects (``Question``). Mechanical provenance
+proves where a value came from, never that the user meant it; the compiled plan is then admitted against the exact
+current Action contracts, which derive every pin, so no field of the change can assert approval or elevate authority.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from assistant import manifest as assistant_manifest
 from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
+from routine import request as routine_request
 from routine import schedule as routine_schedule
 
 MAX_CHANGE_BYTES = 96 * 1024
@@ -189,19 +190,43 @@ def parse(value: object) -> Change:
 
 
 class Words:
-    """Where a message's text may come from: the user's own words, and its numbered quoted regions."""
+    """Where a Routine's text may come from: the user's own words and the numbered quoted regions of each part.
 
-    def __init__(self, message: str) -> None:
-        self.message = message
-        self.quoted = [(match.start(), match.end()) for match in _QUOTED_RE.finditer(message)]
+    The parts are the person's own earlier sends the message refers to, oldest first, then the message itself. Each is
+    parsed on its own, so no quoted region or stretch of own words ever crosses from one part into another; they join
+    with one separator only to give every span one coordinate space.
+    """
+
+    def __init__(self, message: str, earlier: tuple[str, ...] = ()) -> None:
+        parts = (*earlier, message)
+        self.message = routine_request.SEPARATOR.join(parts)
+        self.quoted: list[tuple[int, int]] = []
         self.own: list[tuple[int, int]] = []
+        offset = 0
+        for part in parts:
+            self._parse(part, offset)
+            offset += len(part) + len(routine_request.SEPARATOR)
+        # Where the message itself starts: the standing request must be its own words.
+        self.current = len(self.message) - len(message)
+
+    def _parse(self, part: str, offset: int) -> None:
         cursor = 0
-        for start, end in self.quoted:
+        for match in _QUOTED_RE.finditer(part):
+            start, end = match.start(), match.end()
+            self.quoted.append((offset + start, offset + end))
             if start > cursor:
-                self.own.append((cursor, start))
+                self.own.append((offset + cursor, offset + start))
             cursor = max(cursor, end)
-        if cursor < len(message):
-            self.own.append((cursor, len(message)))
+        if cursor < len(part):
+            self.own.append((offset + cursor, offset + len(part)))
+
+    def current_span(self, text: str) -> tuple[int, int] | None:
+        """Where the text first stands inside one stretch of the message's own words, never an earlier send's."""
+        for start, end in self.own if text else ():
+            found = self.message.find(text, start, end) if start >= self.current else -1
+            if found >= 0:
+                return found, found + len(text)
+        return None
 
     def mine(self, text: str) -> bool:
         """Whether the text is the user's own words, inside one stretch of them."""
@@ -367,7 +392,7 @@ def compile_change(
     """
     if (change.op == "update") != (current is not None):
         raise ChangeError("routine-change-invalid")
-    quote_span = words.span(change.request)
+    quote_span = words.current_span(change.request)
     if quote_span is None:
         raise ChangeError("routine-request-unproven")
     if assistant_manifest.resembles_credential(change.request) or assistant_manifest.resembles_credential(change.name):

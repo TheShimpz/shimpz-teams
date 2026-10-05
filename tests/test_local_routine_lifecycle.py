@@ -21,6 +21,7 @@ from local.routine import card as routine_card
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import lifecycle as routine_lifecycle
 from local.routine import lineage as routine_lineage
+from local.routine import recent as routine_recent
 from local.routine import store as routine_store
 from local.validation import routine_thread_id
 from routine import record
@@ -84,6 +85,7 @@ class RoutineLifecycleTests(unittest.TestCase):
             action_state=SimpleNamespace(purge=lambda generation: self.events.append(("purge", generation))),
             routine_human_challenges=action_challenges.HumanChallengeStore(),
             routine_lineage=routine_lineage.LineageBook(),
+            routine_recent=routine_recent.RecentBook(),
             routine_cards=routine_card.CardBook(),
         )
 

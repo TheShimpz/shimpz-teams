@@ -26,6 +26,7 @@ from local.routine import turn as routine_turn
 from local.routine import watchdog as routine_watchdog
 from protocol.http.v1 import routine as http_routine
 from routine import record
+from routine import request as routine_request
 
 PRINCIPAL = "a" * 32
 CREDENTIAL = ("openai", "sk-test-0123456789")
@@ -115,9 +116,10 @@ class CardCase(RecoveryCase):
         self.card(service, run_id)
 
     @staticmethod
-    def seal(service, value: record.Routine, message: str = MESSAGE, selected=None) -> None:
+    def seal(service, value: record.Routine, message: str = MESSAGE, selected=None, earlier=()) -> None:
         network = service.assistant_lifecycle._network("team_1").id
-        routine_source.seal(service, "team_1", routine_source.Source(value.routine_id, network, message, selected))
+        source = routine_source.Source(value.routine_id, network, message, selected, earlier)
+        routine_source.seal(service, "team_1", source)
 
 
 class CardViewTests(CardCase):
@@ -305,6 +307,24 @@ class RecriarTests(CardCase):
         self.assertIn("changed", outcomes)
         # The source is the creation message, never replaced by the recreated revision.
         self.assertEqual(source.message, MESSAGE)
+
+    def test_recriar_recompiles_with_the_sealed_earlier_sends_and_admits_their_words(self) -> None:
+        """A Routine whose message referred to earlier work recompiles from exactly that sealed source."""
+        earlier = "list my zones, page 1 with 25 per page"
+        cited = _change(request="Every day at 9, do this")
+        with tempfile.TemporaryDirectory() as directory:
+            service, brain, value, run_id = self.held_with(directory, _compiled(cited), _compiled(cited))
+            # Without its earlier send the same change cites words the message lacks, so it is refused.
+            self.seal(service, value, message="Every day at 9, do this")
+            self.refused(service, run_id, "recreate", "routine-recreate-refused")
+            service.routine_store.delete_source("team_1", value.routine_id)
+            self.seal(service, value, message="Every day at 9, do this", earlier=(earlier,))
+            self.assertEqual(
+                self.answer(service, run_id, self.card(service, run_id), "recreate")["status"], "recreated"
+            )
+            (routine,) = self.state(service).routines
+        self.assertEqual([payload["earlier"] for payload, _provider, _model in brain.compiled], [[], [earlier]])
+        self.assertEqual(routine.grant["message"], routine_request.commitment("Every day at 9, do this", (earlier,)))
 
     def test_a_question_is_answered_only_by_the_value_the_person_once_selected(self) -> None:
         asked = _change(schedule=None)

@@ -45,5 +45,6 @@ class ChatTurnDependencies:
     routine_store: object | None = None
     routine_human_challenges: object | None = None
     routine_lineage: object | None = None
+    routine_recent: object | None = None
     routine_cards: object | None = None
     routine_diagnostics: object | None = None

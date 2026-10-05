@@ -215,11 +215,22 @@ def chat(
         usage = brain_usage.TurnUsage.start()
         principal = local_audit.human_principal()
         bound = None if principal is None or file_ids else self.routine_lineage.bound(team_id, principal, message)
+        composed = routine_lineage.composed(message)
+        # Every admitted send is recorded once; a send with files or a composed answer is a barrier (ADR-0092). None:
+        # this identity cannot change a Routine (reused with another message or person, or no room to freeze its run).
+        earlier = (
+            ()
+            if principal is None
+            else self.routine_recent.admit(team_id, principal, identity, message, not file_ids and not composed)
+        )
+        bound = None if earlier is None else bound
         # A message that answers a clarification may change a Routine only through the question it is bound to.
         routine_request = (
             None
-            if principal is None or (bound is None and routine_lineage.composed(message))
-            else RoutineRequest(principal, message, identity["issued_at"], identity["nonce"], timezone, locale)
+            if principal is None or earlier is None or (bound is None and composed)
+            else RoutineRequest(
+                principal, message, identity["issued_at"], identity["nonce"], timezone, locale, earlier=earlier
+            )
         )
         if bound is not None:
             return routine_question.answer(self, team_id, token, routine_request, bound)

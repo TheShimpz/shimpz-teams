@@ -1,6 +1,7 @@
 """Recriar's one compile of a held Routine's creation message, as Team asks it (ADR-0092 amendment, 2026-10-02).
 
-Team sends only the Routine's sealed creation message and the Team's current Assistant contracts. The Brain compiles it
+Team sends only the Routine's sealed creation message, the earlier sends of the person it cited, and the Team's
+current Assistant contracts. The Brain compiles it
 from scratch, as a chat create would, with no turn, tools, history, or Routine to keep members from. The answer is the
 create change and, when the planner asks about one field, its question; or one closed refusal. Team alone admits the
 change against the message and the exact current contracts, and commits it in place of the current Routine.
@@ -14,11 +15,12 @@ from dataclasses import dataclass
 from action import journal as action_journal
 from inference.client import BrainRuntimeError, RuntimeAssistant, _action_wire
 from protocol.http.v1 import payload as http_payload
+from routine import request as routine_request
 
 REFUSALS = frozenset(
     {"not-recurring", "quoted", "secret", "unspecified", "unsupported", "schedule", "unproven", "unavailable"}
 )
-MAX_MESSAGE_CHARS = 16_000
+MAX_MESSAGE_CHARS = routine_request.MAX_MESSAGE_CHARS
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +31,9 @@ class Compiled:
     clarification: dict[str, object] | None
 
 
-def _valid(credentials: tuple[str, str, str], message: str, assistants: Sequence[RuntimeAssistant]) -> bool:
+def _valid(
+    credentials: tuple[str, str, str], message: str, assistants: Sequence[RuntimeAssistant], earlier: tuple[str, ...]
+) -> bool:
     provider, model, api_key = credentials
     return (
         provider in {"anthropic", "openai"}
@@ -41,20 +45,30 @@ def _valid(credentials: tuple[str, str, str], message: str, assistants: Sequence
         and isinstance(message, str)
         and 0 < len(message) <= MAX_MESSAGE_CHARS
         and 0 < len(assistants) <= 16
+        and len(earlier) <= routine_request.MAX_EARLIER
+        and all(routine_request.canonical_earlier(item) is not None for item in earlier)
     )
 
 
 def compile_routine(
-    client: object, credentials: tuple[str, str, str], message: str, assistants: Sequence[RuntimeAssistant]
+    client: object,
+    credentials: tuple[str, str, str],
+    message: str,
+    assistants: Sequence[RuntimeAssistant],
+    earlier: tuple[str, ...] = (),
 ) -> Compiled | str:
-    """``credentials`` is the Team's provider, model, and key; returns the change or the closed refusal reason."""
-    if not _valid(credentials, message, assistants):
+    """``credentials`` is the Team's provider, model, and key; returns the change or the closed refusal reason.
+
+    ``earlier`` holds the sealed earlier sends the message cited, oldest first.
+    """
+    if not _valid(credentials, message, assistants, earlier):
         raise BrainRuntimeError("Brain runtime Routine compile request is invalid")
     provider, model, api_key = credentials
     payload = {
         "provider": {"provider": provider, "model": model, "api_key": api_key},
         "locale": None,
         "message": message,
+        "earlier": list(earlier),
         "assistants": [
             {
                 "id": assistant.id,

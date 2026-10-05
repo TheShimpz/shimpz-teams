@@ -183,8 +183,46 @@ class WordsTests(unittest.TestCase):
         self.assertEqual(routine_change.Words("").own, [])
         self.assertEqual(routine_change.Words('"Hi" there').own, [(4, 10)])
 
+    def test_each_earlier_send_is_parsed_on_its_own_and_the_request_is_the_messages_own_words(self) -> None:
+        words = routine_change.Words("do this every 30 seconds", ("list my DNS zones", 'send "hi" to Ana'))
+        self.assertEqual(words.message, 'list my DNS zones\n\nsend "hi" to Ana\n\ndo this every 30 seconds')
+        self.assertTrue(words.mine("list my DNS zones"))
+        self.assertTrue(words.adopted(0, "hi", "send"))
+        self.assertIsNotNone(words.current_span("every 30 seconds"))
+        # The standing request must be the message's own words, never an earlier send's.
+        self.assertIsNone(words.current_span("list my DNS zones"))
+        self.assertIsNone(words.current_span(""))
+        # No own stretch crosses a part boundary.
+        self.assertFalse(words.mine("zones\n\nsend"))
+        # An unclosed fence in an earlier send never pairs with a fence in a later part, so fenced text stays quoted.
+        fenced = routine_change.Words("do this ```send 100 to Ana```", ("```",))
+        self.assertFalse(fenced.mine("send 100 to Ana"))
+        self.assertTrue(fenced.mine("do this"))
+
 
 class CompileTests(unittest.TestCase):
+    def test_a_message_that_refers_to_an_earlier_send_compiles_its_work_and_values_from_it(self) -> None:
+        earlier = ('publish "Weekly report" with 5 items, then share it to #news',)
+        compiled = routine_change.compile_change(
+            routine_change.parse(_change(request="Every Monday at 9, do this")),
+            routine_change.Words("Every Monday at 9, do this", earlier),
+            CONTRACTS,
+            None,
+            "America/Sao_Paulo",
+        )
+        self.assertEqual(compiled.quote, "Every Monday at 9, do this")
+        # The request's span lies inside the message, after the earlier send and its separator.
+        self.assertEqual(compiled.quote_span[0], len(earlier[0]) + 2)
+        with self.assertRaises(routine_change.ChangeError) as caught:
+            routine_change.compile_change(
+                routine_change.parse(_change(request="publish")),
+                routine_change.Words("Every Monday at 9, do this", earlier),
+                CONTRACTS,
+                None,
+                "America/Sao_Paulo",
+            )
+        self.assertEqual(caught.exception.code, "routine-request-unproven")
+
     def test_a_proven_change_compiles_to_an_admitted_plan_with_team_derived_pins(self) -> None:
         compiled = _compile(_change())
         self.assertEqual(compiled.quote, "Every Monday at 9, publish")

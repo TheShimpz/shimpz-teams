@@ -43,8 +43,13 @@ class RecreateCompileTests(unittest.TestCase):
         self.assertEqual((compiled.routine, compiled.clarification), (CHANGE, None))
         ((payload, provider, model),) = client.sent
         self.assertEqual((provider, model), CREDENTIALS[:2])
-        self.assertEqual(set(payload), {"provider", "locale", "message", "assistants"})
+        self.assertEqual(set(payload), {"provider", "locale", "message", "earlier", "assistants"})
         self.assertEqual(payload["assistants"][0]["actions"][0]["id"], "list-zones")
+        self.assertEqual(payload["earlier"], [])
+        # The sealed earlier sends a creation cited go with its message, exactly and in order.
+        cited = Client(_answer())
+        recreate.compile_routine(cited, CREDENTIALS, "faça isso a cada hora", (ASSISTANT,), ("liste as zonas",))
+        self.assertEqual(cited.sent[0][0]["earlier"], ["liste as zonas"])
         asked = recreate.compile_routine(
             Client(_answer(routine={**CHANGE, "question": {}}, clarification=CLARIFICATION)),
             CREDENTIALS,
@@ -67,6 +72,9 @@ class RecreateCompileTests(unittest.TestCase):
         ):
             with self.subTest(message=message[:3]), self.assertRaises(brain_runtime_client.BrainRuntimeError):
                 recreate.compile_routine(Client(_answer()), credentials, message, assistants)
+        for earlier in (("a", "b", "c", "d"), (" padded",), ("x" * 2_001,)):
+            with self.subTest(earlier=earlier[0][:3]), self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                recreate.compile_routine(Client(_answer()), CREDENTIALS, "x", (ASSISTANT,), earlier)
         for answer in (
             None,
             {**_answer(), "extra": 1},

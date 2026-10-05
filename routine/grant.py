@@ -1,13 +1,13 @@
 """The evidence of the request that granted a Routine revision, and its plan's safe projection (ADR-0092).
 
 Each committed revision keeps minimal Team-owned evidence of what authorized it, bound to the receipt of the request
-that made it, the revision it defines, and its plan digest: a commitment to the user's message, where in that message
-the user's own words state the request, the option a bound question's answer selected, each step input's validated
-provenance with the message, receipt, revision, and selected answer that first granted it, and the Stored Inputs each
-step's Action uses, by name only. It holds no secret: a literal never holds one, and a Stored Input appears only as
-its declared id. Provenance is kept only as spans of the committed message, never as the cited prose, so words around
-a value never persist. A Supervisor inspects a Routine through ``steps``, a projection of its plan that shows each
-literal as a bounded preview and every reference by its step and pointer.
+that made it, the revision it defines, and its plan digest: a commitment to the user's message and the earlier sends of
+theirs it cites, where in that message the user's own words state the request, the option a bound question's answer
+selected, each step input's validated provenance with the message, receipt, revision, and selected answer that first
+granted it, and the Stored Inputs each step's Action uses, by name only. It holds no secret: a literal never holds one,
+and a Stored Input appears only as its declared id. Provenance is kept only as spans of the committed message, never as
+the cited prose, so words around a value never persist. A Supervisor inspects a Routine through ``steps``, a projection
+of its plan that shows each literal as a bounded preview and every reference by its step and pointer.
 """
 
 from __future__ import annotations
@@ -19,12 +19,14 @@ from collections.abc import Mapping
 
 from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
+from routine import request as routine_request
 
 FIELDS = frozenset({"receipt", "revision", "plan", "message", "quote", "selected", "sources", "stored_inputs"})
 _PARTIAL = FIELDS - {"receipt", "revision", "plan"}
 _HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
 MAX_ORIGINS = 64
-MAX_MESSAGE_CHARS = 16_000
+# Spans index the Routine's words: the message and the earlier sends it cites, joined (ADR-0092, 2026-10-04).
+MAX_MESSAGE_CHARS = routine_request.MAX_SOURCE_CHARS
 
 
 def plan_digest(plan: Mapping[str, object]) -> str:
@@ -32,14 +34,17 @@ def plan_digest(plan: Mapping[str, object]) -> str:
 
 
 def evidence(
-    message: str,
+    commitment: str,
     quote: tuple[int, int],
     sources: Mapping[str, Mapping[str, Mapping[str, object]]],
     stored_inputs: Mapping[str, list[str]],
 ) -> dict[str, object]:
-    """A revision's evidence before it commits; the commit binds its receipt, revision, and plan digest."""
+    """A revision's evidence before it commits; the commit binds its receipt, revision, and plan digest.
+
+    ``commitment`` commits to the Routine's words: the message and the earlier sends it cites (``Request.commitment``).
+    """
     return {
-        "message": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+        "message": commitment,
         "quote": list(quote),
         "selected": None,
         "sources": copy.deepcopy(dict(sources)),

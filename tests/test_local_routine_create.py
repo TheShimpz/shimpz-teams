@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import tempfile
 import threading
@@ -27,6 +26,7 @@ from protocol.http.v1 import payload as http_payload
 from routine import grant as routine_grant
 from routine import plan as routine_plan
 from routine import record
+from routine import request as routine_request
 
 PRINCIPAL = "a" * 32
 ASSISTANT = "shimpz-cloudflare"
@@ -156,7 +156,7 @@ class DirectCreationTests(LocalContractCase):
             (grant["receipt"], grant["revision"], grant["plan"], grant["selected"]),
             (receipt, 1, routine_grant.plan_digest(routine.plan), None),
         )
-        self.assertEqual(grant["message"], hashlib.sha256(MESSAGE.encode()).hexdigest())
+        self.assertEqual(grant["message"], routine_request.commitment(MESSAGE, ()))
         self.assertEqual(MESSAGE[slice(*grant["quote"])], _change()["request"])
         page = grant["sources"]["zones"]["page"]
         (origin,) = page["proof"]["origins"]
@@ -451,6 +451,48 @@ class DirectCreationTests(LocalContractCase):
         self.assertEqual(source.message, "Every Monday at 9:00, list my zones, page 1")
         self.assertEqual(source.selected, (("input", "zones", "per_page"), {"kind": "literal", "value": 50}))
 
+    def test_do_this_every_30_seconds_creates_the_earlier_work_after_its_cap_question_and_seals_both(self) -> None:
+        """The owner's incident: the work named by an earlier send, the timing by the message, the cap asked once."""
+        now = int(time.time())
+        earlier = "list my zones, page 1 with 25 per page"
+        message = "do this every 30 seconds"
+        clarification = {
+            "question": "Up to how many runs a day?",
+            "options": [{"label": "Up to 100", "description": ""}, {"label": "Up to 500", "description": ""}],
+            "default_index": 0,
+        }
+        candidate = _change(request=message, schedule=None)
+        values = [{"kind": "continuous", "gap": 30, "cap": 100}, {"kind": "continuous", "gap": 30, "cap": 500}]
+        proposed = {**candidate, "question": {"field": {"kind": "schedule"}, "values": values, "reply": "Pronto."}}
+
+        class Asking(Runtime):
+            def start(self, context, message, *, conversation=()):
+                self.contexts.append(context)
+                if len(self.contexts) == 1:
+                    return brain_runtime_client.RuntimeTurn("completed", "Zones listed.", ())
+                reply = http_payload.render_clarification(clarification)
+                return brain_runtime_client.RuntimeTurn(
+                    "completed", reply, (), clarification=clarification, routine=proposed
+                )
+
+        runtime = Asking()
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.controller(directory, runtime)
+            self.chat(service, _body(earlier, nonce="c" * 32, issued_at=now + 1))
+            asked = self.chat(service, _body(message, nonce="d" * 32, issued_at=now + 2))
+            answer = f"{message}\n\nPergunta: {clarification['question']}\nResposta: Up to 500"
+            self.chat(service, _body(answer, nonce="e" * 32, issued_at=now + 3))
+            (routine,) = service.routine_store.load("team_1").routines
+            source = routine_source.load(service, "team_1", routine.routine_id)
+        self.assertEqual(asked["clarification"], clarification)
+        # The Brain saw the earlier send only on the turn that asked; the answer reselected nothing.
+        self.assertEqual([context.routine_earlier for context in runtime.contexts], [(), (earlier,)])
+        self.assertEqual(routine.schedule, {"kind": "continuous", "gap": 30, "cap": 500})
+        self.assertEqual(routine.quote, message)
+        self.assertEqual(routine.grant["message"], routine_request.commitment(message, (earlier,)))
+        self.assertEqual((source.message, source.earlier), (message, (earlier,)))
+        self.assertEqual(source.selected, (("schedule",), {"kind": "continuous", "gap": 30, "cap": 500}))
+
     def test_an_update_from_another_message_keeps_what_granted_each_kept_input(self) -> None:
         """A kept input still names the message, receipt, revision, and answer that first granted it."""
         with tempfile.TemporaryDirectory() as directory:
@@ -471,7 +513,7 @@ class DirectCreationTests(LocalContractCase):
             (updated,) = service.routine_store.load("team_1").routines
         before, after = created.grant, updated.grant
         self.assertEqual((after["revision"], after["selected"]), (2, None))
-        self.assertEqual(after["message"], hashlib.sha256(other.encode()).hexdigest())
+        self.assertEqual(after["message"], routine_request.commitment(other, ()))
         self.assertNotEqual(after["receipt"], before["receipt"])
         # Each kept input keeps its proof against the first message, and the answer selected for it.
         self.assertEqual(after["sources"], before["sources"])

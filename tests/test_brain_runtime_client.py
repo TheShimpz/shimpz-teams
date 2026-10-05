@@ -592,11 +592,12 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                 "steps": [{"id": "list", "assistant": "dns", "action": "list-zones", "inputs": []}],
             },
         )
-        chat = dataclasses.replace(context(self.secret), routines=routines)
+        chat = dataclasses.replace(context(self.secret), routines=routines, routine_earlier=("liste as zonas",))
         # Local Team admits the change's closed shape against the committed message; the client only bounds where.
         self.assertEqual(client.start(chat, "Toda segunda às 9h, confira o DNS", conversation=()).routine, change)
         sent = json.loads(connection.requests[0][2])
         self.assertEqual((sent["routines"], sent["knowledge_writable"]), ([dict(routines[0])], True))
+        self.assertEqual(sent["routine_earlier"], ["liste as zonas"])
         question = {
             "question": "Qual?",
             "options": [{"label": "A", "description": ""}, {"label": "B", "description": ""}],

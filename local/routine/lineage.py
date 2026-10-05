@@ -44,6 +44,8 @@ class Question:
     routines: tuple[record.Routine, ...]
     reply: str
     expires_at: float = 0.0
+    # The person's own earlier sends the asking request cited, frozen with it; an answer never reselects them.
+    earlier: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

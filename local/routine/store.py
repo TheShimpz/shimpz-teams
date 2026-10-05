@@ -48,7 +48,8 @@ _CONTINUATION_NAME_RE = re.compile(r"[0-9a-f]{32}\.continuation\Z")
 _CURSOR_NAME_RE = re.compile(r"[0-9a-f]{32}\.cursor\Z")
 _RECOVERY_NAME_RE = re.compile(r"[0-9a-f]{32}\.recovery\Z")
 _SOURCE_NAME_RE = re.compile(r"[0-9a-f]{32}\.source\Z")
-# A Routine's creation message of at most 16,000 characters, at four bytes each, and the value its person selected.
+# A Routine's creation message of at most 16,000 characters and the at most 6,000 of the earlier sends it cites, at
+# four bytes each, and the value its person selected.
 MAX_SOURCE_BYTES = 128 * 1024
 _ROUTINE_FIELDS = frozenset(
     {

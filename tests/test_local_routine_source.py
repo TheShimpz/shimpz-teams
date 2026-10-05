@@ -29,16 +29,27 @@ class SourceDecodeTests(unittest.TestCase):
         self.assertEqual(routine_source.decode(SOURCE.encode(), ROUTINE_ID), SOURCE)
         bare = routine_source.Source(ROUTINE_ID, "network-1", "x")
         self.assertEqual(routine_source.decode(bare.encode(), ROUTINE_ID), bare)
+        # A source that cited earlier sends keeps them exactly, oldest first.
+        cited = routine_source.Source(ROUTINE_ID, "network-1", "do this hourly", earlier=("list my zones", "only .com"))
+        self.assertEqual(routine_source.decode(cited.encode(), ROUTINE_ID), cited)
+        self.assertNotEqual(
+            cited.commitment, routine_source.Source(ROUTINE_ID, "network-1", "do this hourly").commitment
+        )
 
     def test_unreadable_foreign_or_malformed_records_fail_closed(self) -> None:
         for payload in (
             b"\xff",
             b"{",
             b"[]",
-            _record(version=2),
+            _record(version=1),
             _record(extra=1),
             _record(routine_id="b" * 32),
             _record(message=""),
+            # The earlier sends are a list of at most three exact sends: nothing else is ever cited.
+            _record(earlier="list my zones"),
+            _record(earlier=["a", "b", "c", "d"]),
+            _record(earlier=[" list my zones"]),
+            _record(earlier=["x" * 2_001]),
             _record(selected=["schedule"]),
             _record(selected={"field": ["schedule"]}),
             _record(selected={"field": ["weekday"], "value": 1}),

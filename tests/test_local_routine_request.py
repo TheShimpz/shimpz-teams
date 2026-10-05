@@ -67,6 +67,20 @@ class RequestIdentityTests(unittest.TestCase):
             self.assertNotEqual(other, receipt)
 
 
+class CommitmentTests(unittest.TestCase):
+    def test_the_commitment_binds_each_part_never_only_their_joined_text(self) -> None:
+        # Both join to the same text, but parsed part by part one holds the payment as own words and one fences it.
+        split = Request(PRINCIPAL, "repeat this", 1, NONCE, earlier=("```", "send 100 to Ana```")).commitment
+        joined = Request(PRINCIPAL, "repeat this", 1, NONCE, earlier=("```\n\nsend 100 to Ana```",)).commitment
+        self.assertNotEqual(split, joined)
+        self.assertNotEqual(Request(PRINCIPAL, "repeat this", 1, NONCE).commitment, split)
+        # The receipt still binds only the current message: a resend never becomes another request.
+        self.assertEqual(
+            Request(PRINCIPAL, "repeat this", 1, NONCE, earlier=("a",)).receipt("c" * 64),
+            Request(PRINCIPAL, "repeat this", 1, NONCE).receipt("c" * 64),
+        )
+
+
 class LocalChatRequestTests(LocalContractCase):
     def chat(self, body: dict[str, object], *, principal: str | None = PRINCIPAL) -> Runtime:
         runtime = Runtime()
@@ -78,6 +92,37 @@ class LocalChatRequestTests(LocalContractCase):
                 with local_audit.bind_request_principal(local_audit.AuditPrincipal(principal, "human")):
                     controller.chat_turn_service.chat("team_1", body, "openai", "sk-test-0123456789")
         return runtime
+
+    def sends(self, *bodies: dict[str, object]) -> Runtime:
+        runtime = Runtime()
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, runtime)
+            with local_audit.bind_request_principal(local_audit.AuditPrincipal(PRINCIPAL, "human")):
+                for body in bodies:
+                    controller.chat_turn_service.chat("team_1", body, "openai", "sk-test-0123456789")
+        return runtime
+
+    def test_a_send_that_refers_to_earlier_work_carries_the_persons_earlier_send_to_the_brain(self) -> None:
+        now = int(time.time())
+        first = _body(message="lista minhas zonas dns", request={"issued_at": now + 1, "nonce": "1" * 32})
+        second = _body(
+            message="cria uma rotina que faz isso a cada 30 segundos",
+            request={"issued_at": now + 2, "nonce": "2" * 32},
+        )
+        contexts = self.sends(first, second).contexts
+        self.assertEqual([context.routine_earlier for context in contexts], [(), ("lista minhas zonas dns",)])
+        # A composed clarification answer in between is a barrier: the older send is never offered.
+        answer = _body(
+            message="lista minhas zonas dns\n\nPergunta: Qual zona?\nResposta: Todas",
+            request={"issued_at": now + 2, "nonce": "3" * 32},
+        )
+        later = {**second, "request": {"issued_at": now + 3, "nonce": "4" * 32}}
+        self.assertEqual(self.sends(first, answer, later).contexts[-1].routine_earlier, ())
+        # The same identity reused for another message can change no Routine at all.
+        reused = {**second, "message": "apague minhas zonas", "request": second["request"]}
+        self.assertEqual([context.routines for context in self.sends(first, second, reused).contexts][2], None)
+        # A request that cannot change a Routine carries no earlier send either.
+        self.assertEqual(self.chat(_body(), principal=None).contexts[0].routine_earlier, ())
 
     def test_a_fresh_human_request_without_files_sees_the_teams_routines(self) -> None:
         self.assertEqual(self.chat(_body()).contexts[0].routines, ())

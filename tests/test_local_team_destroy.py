@@ -18,12 +18,21 @@ from local import app as local_app
 from local.chat.types import PendingLocalChat
 from local.routine import card as routine_card
 from local.routine import lineage as routine_lineage
+from local.routine import recent as routine_recent
 from routine import record as routine_record
 
 
 def _expired_human(team_id: str, generation: str) -> action_challenges.PendingHumanChallenge:
     pending = PendingLocalChat(object(), (), (), "openai", ("identity", generation, "", "", ""), paused_batch="f" * 64)
     return action_challenges.PendingHumanChallenge("e" * 32, team_id, 0.0, SimpleNamespace(), pending)
+
+
+def _routine_books(controller: local_app.LocalController) -> None:
+    """The Team's in-memory Routine books a destroy must empty: challenges, questions, recent sends, and cards."""
+    controller.routine_human_challenges = action_challenges.HumanChallengeStore()
+    controller.routine_lineage = routine_lineage.LineageBook()
+    controller.routine_recent = routine_recent.RecentBook()
+    controller.routine_cards = routine_card.CardBook()
 
 
 class LocalTeamDestroyTests(LocalContractCase):
@@ -97,9 +106,7 @@ class LocalTeamDestroyTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy") or True)
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-        controller.routine_human_challenges = action_challenges.HumanChallengeStore()
-        controller.routine_lineage = routine_lineage.LineageBook()
-        controller.routine_cards = routine_card.CardBook()
+        _routine_books(controller)
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -215,9 +222,7 @@ class LocalTeamDestroyTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-        controller.routine_human_challenges = action_challenges.HumanChallengeStore()
-        controller.routine_lineage = routine_lineage.LineageBook()
-        controller.routine_cards = routine_card.CardBook()
+        _routine_books(controller)
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -283,9 +288,7 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller.action_state = SimpleNamespace(purge=fail_purge)
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-        controller.routine_human_challenges = action_challenges.HumanChallengeStore()
-        controller.routine_lineage = routine_lineage.LineageBook()
-        controller.routine_cards = routine_card.CardBook()
+        _routine_books(controller)
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),

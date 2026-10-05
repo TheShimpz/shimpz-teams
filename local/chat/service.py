@@ -33,6 +33,7 @@ from local.routine import lineage as local_routine_lineage
 from local.routine import manage as local_routine_manage
 from local.routine import notices as local_routine_notices
 from local.routine import question as local_routine_question
+from local.routine import recent as local_routine_recent
 from local.routine import recovery as local_routine_recovery
 from local.routine import run as local_routine_run
 from local.routine import turn as local_routine_turn
@@ -64,6 +65,7 @@ class ChatTurnService:
         self.routine_store = dependencies.routine_store
         self.routine_diagnostics = dependencies.routine_diagnostics
         self.routine_lineage = dependencies.routine_lineage or local_routine_lineage.LineageBook()
+        self.routine_recent = dependencies.routine_recent or local_routine_recent.RecentBook()
         # Recovery cards of held runs, each answerable once by the person it was opened for (ADR-0092).
         self.routine_cards = dependencies.routine_cards or local_routine_card.CardBook()
         # Routine challenges live apart from chat's one per Team, so a frozen run never blocks chat (ADR-0086).

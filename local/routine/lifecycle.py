@@ -24,6 +24,7 @@ def delete_team_routines(self, team_id: str) -> None:
         _delete_team_routines(self, team_id)
     self.routine_human_challenges.cancel_team(team_id)
     self.routine_lineage.drop(team_id)
+    self.routine_recent.drop(team_id)
     self.routine_cards.drop(team_id)
 
 
@@ -61,6 +62,7 @@ def delete_all_routines(self) -> None:
     """
     self.routine_human_challenges.cancel_all()
     self.routine_lineage.clear()
+    self.routine_recent.clear()
     self.routine_cards.clear()
     with self.routine_store.exclusive():
         try:

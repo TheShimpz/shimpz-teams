@@ -8,6 +8,7 @@ import unittest
 import routine_fixture
 
 from routine import grant as routine_grant
+from routine import request as routine_request
 
 PLAN = {
     "version": 1,
@@ -53,7 +54,10 @@ class GrantTests(unittest.TestCase):
             # A reference proved now, and a token kept from the first revision with what granted it.
             "records": {"zone": {"proof": {"instruction": [0, 4]}, "by": None}, "day": {"proof": {}, "by": first}},
         }
-        partial = routine_grant.evidence("Every day, list", (0, 9), sources, {"zones": [], "records": ["token", "api"]})
+        # The evidence commits to the Routine's words as the structured request committed them, never one joined text.
+        commitment = routine_request.commitment("Every day, list", ())
+        partial = routine_grant.evidence(commitment, (0, 9), sources, {"zones": [], "records": ["token", "api"]})
+        self.assertEqual(partial["message"], commitment)
         partial["selected"] = {"field": ["input", "zones", "page"], "label": "Página 1"}
         complete = routine_grant.complete(partial, "e" * 64, 2, PLAN)
         self.assertTrue(routine_grant.valid(complete, PLAN, 2))

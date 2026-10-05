@@ -126,7 +126,7 @@ def definition(
     try:
         compiled = routine_change.compile_change(
             change,
-            routine_change.Words(request.message),
+            routine_change.Words(request.message, request.earlier),
             # Every Routine pins its Actions in one fixed locale; each pin still covers the whole language pack.
             contracts(assistants, routine_pin.SCOPE_LOCALE),
             None if existing is None else (existing.plan, existing.grant["sources"]),
@@ -151,7 +151,7 @@ def definition(
         compiled.document,
         anchor=0,
         next_run_at=0,
-        grant=routine_grant.evidence(request.message, compiled.quote_span, compiled.sources, stored),
+        grant=routine_grant.evidence(request.commitment, compiled.quote_span, compiled.sources, stored),
     )
 
 
@@ -223,7 +223,11 @@ def admit_change(self, response: object, proposed: dict[str, object]) -> Callabl
     existing = current(self, response.team_id, change)
     value = definition(change, request, assistants, dict(response.segment.contracts), existing)
     value = scheduled(value, int(time.time()))
-    source = routine_source.Source(value.routine_id, network_id, request.message) if change.op == "create" else None
+    source = (
+        routine_source.Source(value.routine_id, network_id, request.message, earlier=request.earlier)
+        if change.op == "create"
+        else None
+    )
     return writer(
         self, response.team_id, (change.op, change.expected_revision), value, request, network_id, source=source
     )

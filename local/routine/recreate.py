@@ -122,7 +122,7 @@ def _compile(self, team_id: str, source: routine_source.Source, credential: tupl
         raise _unavailable()
     try:
         compiled = inference_recreate.compile_routine(
-            self.brain_runtime, (config.provider, config.model, api_key), source.message, runtime
+            self.brain_runtime, (config.provider, config.model, api_key), source.message, runtime, source.earlier
         )
     except brain_runtime_client.BrainRuntimeError as exc:
         raise _unavailable() from exc
@@ -140,7 +140,9 @@ def recreate(self, team_id: str, card, expected: routine_hold.Expected, context,
     if source is None or source.commitment != card.source or source.incarnation != card.incarnation:
         raise _problem(HTTPStatus.CONFLICT, "the Routine's creation message is gone", "routine-source-unavailable")
     # The card's nonce is this request's own: a replayed answer finds its card consumed and never compiles again.
-    request = RoutineRequest(principal, source.message, int(time.time()), card.nonce, current.timezone)
+    request = RoutineRequest(
+        principal, source.message, int(time.time()), card.nonce, current.timezone, earlier=source.earlier
+    )
     # A change the Team could not hold anyway never pays for a compile; its write checks again. It adds the changed
     # notice, and the held run's own notice again unless that one is still undelivered and so only replaced.
     state = routine_state.load(self, team_id)

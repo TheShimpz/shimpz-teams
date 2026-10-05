@@ -75,6 +75,7 @@ from local.routine import card as local_routine_card
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import lifecycle as local_routine_lifecycle
 from local.routine import lineage as local_routine_lineage
+from local.routine import recent as local_routine_recent
 from local.routine import store as local_routine_store
 from local.routine import watchdog as local_routine_watchdog
 from local.validation import brain_thread_id as _local_brain_thread_id
@@ -324,6 +325,8 @@ class LocalController:
         )
         self.routine_human_challenges = action_challenges.HumanChallengeStore()
         self.routine_lineage = local_routine_lineage.LineageBook()
+        # The person's recent sends a Routine request may refer to; destroying a Team or resetting forgets them.
+        self.routine_recent = local_routine_recent.RecentBook()
         # One book of open recovery cards, shared with chat, so destroying a Team or resetting the Space drops them.
         self.routine_cards = local_routine_card.CardBook()
         self.oauth_pkce = dependencies.oauth_pkce or integration_pkce.OAuthPKCEChallengeStore()
@@ -404,6 +407,7 @@ class LocalController:
                 human_challenges=getattr(self, "human_challenges", None),
                 routine_human_challenges=getattr(self, "routine_human_challenges", None),
                 routine_lineage=getattr(self, "routine_lineage", None),
+                routine_recent=getattr(self, "routine_recent", None),
                 routine_cards=getattr(self, "routine_cards", None),
                 oauth_pkce=getattr(self, "oauth_pkce", None),
                 oauth_service=getattr(self, "oauth_service", None),

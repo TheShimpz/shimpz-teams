@@ -56,6 +56,7 @@ def admit(self, response: object, proposed: object, clarification: dict[str, obj
         head.expected_revision,
         tuple(routines),
         question.reply,
+        earlier=request.earlier,
     )
 
 
@@ -87,7 +88,9 @@ def answer(self, team_id: str, token: str, request: RoutineRequest, bound: routi
         source = None
         if question.op == "create":
             selected = (question.field, routine_source.field_value(value, question.field))
-            source = routine_source.Source(value.routine_id, network_id, question.message, selected)
+            source = routine_source.Source(
+                value.routine_id, network_id, question.message, selected, earlier=question.earlier
+            )
         write = routine_turn.writer(
             self, team_id, (question.op, question.expected_revision), value, request, network_id, source=source
         )

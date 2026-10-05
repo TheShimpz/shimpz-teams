@@ -102,6 +102,8 @@ class RuntimeContext:
     skills: tuple[dict[str, object], ...] | None = None
     # The Team's Routines as data (ADR-0086); None withholds the Brain's Routine tool.
     routines: tuple[dict[str, object], ...] | None = None
+    # The person's own earlier sends a Routine request may cite (ADR-0092, 2026-10-04); only beside ``routines``.
+    routine_earlier: tuple[str, ...] = ()
     # False in a Routine run, whose memory and skills the Brain may read but never change.
     knowledge_writable: bool = True
     # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
@@ -301,6 +303,7 @@ class BrainRuntimeClient:
             "memories": None if context.memories is None else [dict(entry) for entry in context.memories],
             "skills": None if context.skills is None else [dict(skill) for skill in context.skills],
             "routines": None if context.routines is None else [dict(item) for item in context.routines],
+            "routine_earlier": list(context.routine_earlier),
             "knowledge_writable": context.knowledge_writable,
             "attachments": [dict(item) for item in context.attachments],
         }
