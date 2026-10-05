@@ -1,7 +1,7 @@
 """Recriar's one compile of a held Routine's creation message, as Team asks it (ADR-0092 amendment, 2026-10-02).
 
-Team sends only the Routine's sealed creation message, the earlier sends of the person it cited, and the Team's
-current Assistant contracts. The Brain compiles it
+Team sends only the Routine's sealed words, the person's own kinded parts whose last is the creating said text (ADR-0092
+amendment, 2026-10-05), and the Team's current Assistant contracts. The Brain compiles it
 from scratch, as a chat create would, with no turn, tools, history, or Routine to keep members from. The answer is the
 create change and, when the planner asks about one field, its question; or one closed refusal. Team alone admits the
 change against the message and the exact current contracts, and commits it in place of the current Routine.
@@ -20,7 +20,6 @@ from routine import request as routine_request
 REFUSALS = frozenset(
     {"not-recurring", "quoted", "secret", "unspecified", "unsupported", "schedule", "unproven", "unavailable"}
 )
-MAX_MESSAGE_CHARS = routine_request.MAX_MESSAGE_CHARS
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +31,7 @@ class Compiled:
 
 
 def _valid(
-    credentials: tuple[str, str, str], message: str, assistants: Sequence[RuntimeAssistant], earlier: tuple[str, ...]
+    credentials: tuple[str, str, str], parts: tuple[routine_request.Part, ...], assistants: Sequence[RuntimeAssistant]
 ) -> bool:
     provider, model, api_key = credentials
     return (
@@ -42,33 +41,29 @@ def _valid(
         and isinstance(api_key, str)
         and 0 < len(api_key) <= 16 * 1024
         and "\0" not in api_key
-        and isinstance(message, str)
-        and 0 < len(message) <= MAX_MESSAGE_CHARS
         and 0 < len(assistants) <= 16
-        and len(earlier) <= routine_request.MAX_EARLIER
-        and all(routine_request.canonical_earlier(item) is not None for item in earlier)
+        and routine_request.canonical_parts([{"kind": kind, "text": text} for kind, text in parts]) == parts
     )
 
 
 def compile_routine(
     client: object,
     credentials: tuple[str, str, str],
-    message: str,
+    parts: tuple[routine_request.Part, ...],
     assistants: Sequence[RuntimeAssistant],
-    earlier: tuple[str, ...] = (),
 ) -> Compiled | str:
     """``credentials`` is the Team's provider, model, and key; returns the change or the closed refusal reason.
 
-    ``earlier`` holds the sealed earlier sends the message cited, oldest first.
+    ``parts`` are the Routine's sealed words, oldest first: the last is the compile's message and the others its draft.
     """
-    if not _valid(credentials, message, assistants, earlier):
+    if not _valid(credentials, parts, assistants):
         raise BrainRuntimeError("Brain runtime Routine compile request is invalid")
     provider, model, api_key = credentials
     payload = {
         "provider": {"provider": provider, "model": model, "api_key": api_key},
         "locale": None,
-        "message": message,
-        "earlier": list(earlier),
+        "message": parts[-1][1],
+        "draft": [{"kind": kind, "text": text} for kind, text in parts[:-1]],
         "assistants": [
             {
                 "id": assistant.id,

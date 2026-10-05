@@ -104,6 +104,11 @@ class RuntimeContext:
     routines: tuple[dict[str, object], ...] | None = None
     # The person's own earlier sends a Routine request may cite (ADR-0092, 2026-10-04); only beside ``routines``.
     routine_earlier: tuple[str, ...] = ()
+    # The person's Routine draft as the request froze it, kinded parts oldest first (ADR-0092, 2026-10-05); only beside
+    # ``routines``.
+    routine_draft: tuple[tuple[str, str], ...] = ()
+    # The answer a composed reply gave to the draft's question, which the request then states instead of its message.
+    routine_answer: str | None = None
     # False in a Routine run, whose memory and skills the Brain may read but never change.
     knowledge_writable: bool = True
     # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
@@ -304,6 +309,8 @@ class BrainRuntimeClient:
             "skills": None if context.skills is None else [dict(skill) for skill in context.skills],
             "routines": None if context.routines is None else [dict(item) for item in context.routines],
             "routine_earlier": list(context.routine_earlier),
+            "routine_draft": [{"kind": kind, "text": text} for kind, text in context.routine_draft],
+            "routine_answer": context.routine_answer,
             "knowledge_writable": context.knowledge_writable,
             "attachments": [dict(item) for item in context.attachments],
         }
@@ -372,18 +379,16 @@ class BrainRuntimeClient:
 
     @staticmethod
     def _parse_routine(value: dict[str, object]) -> dict[str, object] | None:
-        """A completed turn's one compiled Routine change, or the Routine question beside exactly its clarification.
+        """A completed turn's one Routine outcome: a compiled change, or a question beside exactly its clarification.
 
-        Local Team admits its shape.
+        A Routine question is the change's own ``question`` or a ``need`` outcome; a ``discard`` asks nothing. Local
+        Team admits its shape.
         """
         routine = value["routine"]
         if routine is None:
             return None
-        if (
-            not isinstance(routine, dict)
-            or value["status"] != "completed"
-            or (value["clarification"] is None) == ("question" in routine)
-        ):
+        asks = isinstance(routine, dict) and ("question" in routine or routine.get("op") == "need")
+        if not isinstance(routine, dict) or value["status"] != "completed" or (value["clarification"] is None) == asks:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         return routine
 

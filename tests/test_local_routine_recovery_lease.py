@@ -71,7 +71,9 @@ class RecoveryLeaseTests(AutomaticCase):
         with tempfile.TemporaryDirectory() as directory, self.capturing(box):
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             network = service.assistant_lifecycle._network("team_1").id
-            routine_source.seal(service, "team_1", routine_source.Source(value.routine_id, network, MESSAGE))
+            routine_source.seal(
+                service, "team_1", routine_source.Source(value.routine_id, network, (("said", MESSAGE),))
+            )
 
             class Deleting(Compiler):
                 def routine_compile(self, payload, provider, model):

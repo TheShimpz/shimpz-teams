@@ -1,9 +1,10 @@
 """Local Routine persistence: one private state file per Team and its sealed run records (ADR-0086, ADR-0092).
 
 A Team's Routines, runs, notices, and incident index live in one private JSON file that every transition replaces
-atomically. A frozen run's secret-free continuation, a compiled run's cursor, an incident's compact evidence, and a
-Routine's creation source are each encrypted separately, bound by their AAD to exactly what they belong to; each is
-written before the state that relies on it, so a crash leaves at worst an unreferenced one, which recovery removes.
+atomically. A frozen run's secret-free continuation, a compiled run's cursor, an incident's compact evidence, a
+Routine's creation source, and a person's Routine draft are each encrypted separately, bound by their AAD to exactly
+what they belong to; each is written before the state that relies on it, so a crash leaves at worst an unreferenced one,
+which recovery removes.
 """
 
 from __future__ import annotations
@@ -48,9 +49,12 @@ _CONTINUATION_NAME_RE = re.compile(r"[0-9a-f]{32}\.continuation\Z")
 _CURSOR_NAME_RE = re.compile(r"[0-9a-f]{32}\.cursor\Z")
 _RECOVERY_NAME_RE = re.compile(r"[0-9a-f]{32}\.recovery\Z")
 _SOURCE_NAME_RE = re.compile(r"[0-9a-f]{32}\.source\Z")
-# A Routine's creation message of at most 16,000 characters and the at most 6,000 of the earlier sends it cites, at
-# four bytes each, and the value its person selected.
-MAX_SOURCE_BYTES = 128 * 1024
+_DRAFT_NAME_RE = re.compile(r"[0-9a-f]{64}\.draft\Z")
+# A Routine's words of at most 54,104 characters (``routine.request.MAX_SOURCE_CHARS``), at most six bytes each once
+# JSON-escaped, and the value its person selected.
+MAX_SOURCE_BYTES = 512 * 1024
+# A draft of at most 32,000 characters at six JSON bytes each, and its question.
+MAX_DRAFT_BYTES = 256 * 1024
 _ROUTINE_FIELDS = frozenset(
     {
         "routine_id",
@@ -147,7 +151,8 @@ _PRIVATE = private_state.PrivateState(
     RoutineStoreError,
     "Routine state is malformed",
     "Routine continuation is malformed",
-    (MAX_CONTINUATION_BYTES * 2) + 128,
+    # The largest sealed record, a creation source, base64-encoded.
+    (max(MAX_CONTINUATION_BYTES, MAX_SOURCE_BYTES) * 2) + 128,
 )
 
 
@@ -495,6 +500,21 @@ def _source_aad(team_id: str, routine_id: str) -> bytes:
     return json.dumps(["shimpz-local-routine-source-v1", team_id, routine_id], separators=(",", ":")).encode()
 
 
+def _draft_aad(team_id: str, person: str) -> bytes:
+    return json.dumps(["shimpz-local-routine-draft-v1", team_id, person], separators=(",", ":")).encode()
+
+
+def _person(value: object) -> str:
+    """A person's draft key: the SHA-256 of their principal, so no principal ever names a file."""
+    if not isinstance(value, str) or not value:
+        raise RoutineStoreError("Routine draft person is invalid")
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+class RoutineRecordInvalidError(RoutineStoreError):
+    """A sealed record is malformed or fails authentication: proven unusable, unlike an unavailable one."""
+
+
 def _incident_aad(team_id: str, incident_id: str) -> bytes:
     return json.dumps(["shimpz-local-routine-incident-v1", team_id, incident_id], separators=(",", ":")).encode()
 
@@ -517,12 +537,15 @@ class RoutineStore:
         self._epoch = 0
 
     def lock(self, team_id: object) -> threading.RLock:
-        team = _team_id(team_id)
+        return self._directory_lock(self._team_dir(_team_id(team_id)).name)
+
+    def _directory_lock(self, name: str) -> threading.RLock:
+        """One Team directory's lock, keyed by its name, so a sweep can lock a directory it cannot name a Team of."""
         with self._guard:
-            lock = self._locks.get(team)
+            lock = self._locks.get(name)
             if lock is None:
                 lock = threading.RLock()
-                self._locks[team] = lock
+                self._locks[name] = lock
             return lock
 
     def _team_dir(self, team_id: str) -> Path:
@@ -629,33 +652,111 @@ class RoutineStore:
             _PRIVATE.atomic_write(self._team_dir(team) / name, encoded, label)
 
     def _sealed_read(self, team: str, name: str, aad: bytes, label: str, maximum: int) -> bytes | None:
+        """One sealed record, or None when absent.
+
+        A record that is malformed or fails authentication raises RoutineRecordInvalidError; an unreadable file, a
+        broken ownership contract, or an unavailable keyring raises plain RoutineStoreError.
+        """
         raw = _PRIVATE.read_private_file(self._team_dir(team) / name, maximum * 2 + 256, label)
         if raw is None:
             return None
         try:
             envelope = strict_json.loads(raw)
         except (UnicodeDecodeError, ValueError) as exc:
-            raise RoutineStoreError(f"{label} is malformed") from exc
+            raise RoutineRecordInvalidError(f"{label} is malformed") from exc
         if (
             not isinstance(envelope, dict)
             or set(envelope) != {"algorithm", "nonce", "ciphertext"}
             or envelope["algorithm"] != "AES-256-GCM"
         ):
-            raise RoutineStoreError(f"{label} is malformed")
+            raise RoutineRecordInvalidError(f"{label} is malformed")
+        key = _PRIVATE.key(self.key_path, "Routine keyring")
         try:
-            return AESGCM(_PRIVATE.key(self.key_path, "Routine keyring")).decrypt(
-                _PRIVATE.decode_part(envelope["nonce"], expected=12),
-                _PRIVATE.decode_part(envelope["ciphertext"], minimum=17, maximum=maximum + 16),
-                aad,
-            )
+            nonce = _PRIVATE.decode_part(envelope["nonce"], expected=12)
+            ciphertext = _PRIVATE.decode_part(envelope["ciphertext"], minimum=17, maximum=maximum + 16)
+        except RoutineStoreError as exc:
+            raise RoutineRecordInvalidError(f"{label} is malformed") from exc
+        try:
+            return AESGCM(key).decrypt(nonce, ciphertext, aad)
         except InvalidTag as exc:
-            raise RoutineStoreError(f"{label} authentication failed") from exc
+            raise RoutineRecordInvalidError(f"{label} authentication failed") from exc
 
     def _sealed_delete(self, team: str, name: str, label: str) -> None:
         try:
             (self._team_dir(team) / name).unlink(missing_ok=True)
         except OSError as exc:
             raise RoutineStoreError(f"{label} could not be removed") from exc
+
+    @staticmethod
+    def _durable_unlink(directory: Path, name: str, label: str) -> None:
+        """Remove one file and fsync its directory, so a removal survives a crash; an absent file is already removed."""
+        try:
+            (directory / name).unlink()
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise RoutineStoreError(f"{label} could not be removed") from exc
+        try:
+            descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        except OSError as exc:
+            raise RoutineStoreError(f"{label} could not be removed") from exc
+
+    def put_draft(self, team_id: object, principal: object, payload: object) -> None:
+        """Seal one person's Routine draft, replacing the one they had; the caller holds the Team's Routine lock."""
+        team, person = _team_id(team_id), _person(principal)
+        if not isinstance(payload, bytes) or not 1 <= len(payload) <= MAX_DRAFT_BYTES:
+            raise RoutineStoreError("Routine draft is invalid")
+        self._sealed_write(team, f"{person}.draft", payload, _draft_aad(team, person), "Routine draft")
+
+    def draft(self, team_id: object, principal: object) -> bytes | None:
+        """One person's sealed draft, or None; a malformed or unauthenticated one raises RoutineRecordInvalidError.
+
+        An unreadable file, a broken ownership contract, or an unavailable keyring stays RoutineStoreError: those prove
+        nothing about the draft, so they never read as its absence.
+        """
+        team, person = _team_id(team_id), _person(principal)
+        return self._sealed_read(team, f"{person}.draft", _draft_aad(team, person), "Routine draft", MAX_DRAFT_BYTES)
+
+    def delete_draft(self, team_id: object, principal: object) -> None:
+        """Remove one person's draft durably; an absent draft is already removed."""
+        team, person = _team_id(team_id), _person(principal)
+        with self.lock(team):
+            self._durable_unlink(self._team_dir(team), f"{person}.draft", "Routine draft")
+
+    def sweep_drafts(self, cutoff: float) -> int:
+        """Remove every draft last written before ``cutoff`` in every Team directory, including one with no Routine.
+
+        Each directory is swept under its own lock, so a draft written meanwhile is never removed; nothing is swept
+        while a Space reset holds the store. Returns how many drafts were removed.
+        """
+        removed = 0
+        for name in self._owned_directories():
+            directory = self.root / name
+            with self._directory_lock(name):
+                with self._guard:
+                    if self._closed:
+                        return removed
+                try:
+                    with os.scandir(directory) as entries:
+                        drafts = [
+                            (entry.name, entry.stat(follow_symlinks=False))
+                            for entry in entries
+                            if _DRAFT_NAME_RE.fullmatch(entry.name)
+                        ]
+                except FileNotFoundError:
+                    continue
+                except OSError as exc:
+                    raise RoutineStoreError("Routine drafts could not be listed") from exc
+                if any(not stat.S_ISREG(item.st_mode) or item.st_uid != os.geteuid() for _name, item in drafts):
+                    raise RoutineStoreError("Routine draft failed its ownership contract")
+                for entry in (name for name, item in drafts if item.st_mtime < cutoff):
+                    self._durable_unlink(directory, entry, "Routine draft")
+                    removed += 1
+        return removed
 
     def continuation(self, team_id: object, run_id: object) -> bytes:
         team, run = _team_id(team_id), _run_id(run_id)

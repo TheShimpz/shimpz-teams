@@ -10,7 +10,9 @@ from local import app as local_app
 from local.routine import source as routine_source
 
 ROUTINE_ID = "a" * 32
-SOURCE = routine_source.Source(ROUTINE_ID, "network-1", "Every day at 9, list my zones", (("schedule",), {"k": 1}))
+SOURCE = routine_source.Source(
+    ROUTINE_ID, "network-1", (("said", "Every day at 9, list my zones"),), (("schedule",), {"k": 1})
+)
 
 
 def _record(**changes: object) -> bytes:
@@ -27,13 +29,17 @@ class SourceDecodeTests(unittest.TestCase):
 
     def test_the_exact_canonical_record_round_trips(self) -> None:
         self.assertEqual(routine_source.decode(SOURCE.encode(), ROUTINE_ID), SOURCE)
-        bare = routine_source.Source(ROUTINE_ID, "network-1", "x")
+        bare = routine_source.Source(ROUTINE_ID, "network-1", (("said", "x"),))
         self.assertEqual(routine_source.decode(bare.encode(), ROUTINE_ID), bare)
-        # A source that cited earlier sends keeps them exactly, oldest first.
-        cited = routine_source.Source(ROUTINE_ID, "network-1", "do this hourly", earlier=("list my zones", "only .com"))
-        self.assertEqual(routine_source.decode(cited.encode(), ROUTINE_ID), cited)
-        self.assertNotEqual(
-            cited.commitment, routine_source.Source(ROUTINE_ID, "network-1", "do this hourly").commitment
+        # A source keeps every kinded part exactly, oldest first: earlier sends, a draft's words, and an answer.
+        words = (("cited", "list my zones"), ("said", "do this every 30 seconds"), ("said", "Up to 100 a day"))
+        kept = routine_source.Source(ROUTINE_ID, "network-1", words)
+        self.assertEqual(routine_source.decode(kept.encode(), ROUTINE_ID), kept)
+        self.assertNotEqual(kept.commitment, routine_source.Source(ROUTINE_ID, "network-1", words[1:]).commitment)
+        # The longest words a Routine can hold still seal.
+        longest = (*(("said", "x" * 4_000),) * 8, *(("cited", "y" * 2_000),) * 3, ("said", "z" * 16_000))
+        self.assertEqual(
+            routine_source.decode(routine_source.Source(ROUTINE_ID, "n", longest).encode(), ROUTINE_ID).parts, longest
         )
 
     def test_unreadable_foreign_or_malformed_records_fail_closed(self) -> None:
@@ -44,12 +50,18 @@ class SourceDecodeTests(unittest.TestCase):
             _record(version=1),
             _record(extra=1),
             _record(routine_id="b" * 32),
-            _record(message=""),
-            # The earlier sends are a list of at most three exact sends: nothing else is ever cited.
-            _record(earlier="list my zones"),
-            _record(earlier=["a", "b", "c", "d"]),
-            _record(earlier=[" list my zones"]),
-            _record(earlier=["x" * 2_001]),
+            # The words are 1 to 13 kinded parts, the last said, each a bounded text without NUL, within the bound.
+            _record(parts=[]),
+            _record(parts="x"),
+            _record(parts=[{"kind": "said", "text": ""}]),
+            _record(parts=[{"kind": "said", "text": "a\u0000b"}]),
+            _record(parts=[{"kind": "said", "text": "x" * 16_001}]),
+            _record(parts=[{"kind": "cited", "text": "x"}]),
+            _record(parts=[{"kind": "quoted", "text": "x"}]),
+            _record(parts=[{"kind": "said"}]),
+            _record(parts=[{"kind": "said", "text": 1}]),
+            _record(parts=[{"kind": "said", "text": "x"}] * 14),
+            _record(parts=[{"kind": "said", "text": "x" * 16_000}] * 4),
             _record(selected=["schedule"]),
             _record(selected={"field": ["schedule"]}),
             _record(selected={"field": ["weekday"], "value": 1}),

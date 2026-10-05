@@ -22,7 +22,7 @@ from routine.request import Request as RoutineRequest
 CLARIFICATION = {
     "question": "When?",
     "options": [{"label": "At 10", "description": ""}, {"label": "At 9", "description": ""}],
-    "default_index": 0,
+    "default_index": None,
 }
 
 

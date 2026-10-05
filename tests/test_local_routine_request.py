@@ -13,7 +13,7 @@ from local import app as local_app
 from local import audit as local_audit
 from local.chat import segment as local_chat_segment
 from protocol.http.v1 import payload as http_payload
-from routine.request import Request
+from routine.request import Draft, Request, commitment
 
 PRINCIPAL = "a" * 32
 NONCE = "b" * 32
@@ -70,15 +70,27 @@ class RequestIdentityTests(unittest.TestCase):
 class CommitmentTests(unittest.TestCase):
     def test_the_commitment_binds_each_part_never_only_their_joined_text(self) -> None:
         # Both join to the same text, but parsed part by part one holds the payment as own words and one fences it.
-        split = Request(PRINCIPAL, "repeat this", 1, NONCE, earlier=("```", "send 100 to Ana```")).commitment
-        joined = Request(PRINCIPAL, "repeat this", 1, NONCE, earlier=("```\n\nsend 100 to Ana```",)).commitment
+        split = commitment(Request(PRINCIPAL, "repeat this", 1, NONCE, earlier=("```", "send 100 to Ana```")).parts())
+        joined = commitment(Request(PRINCIPAL, "repeat this", 1, NONCE, earlier=("```\n\nsend 100 to Ana```",)).parts())
         self.assertNotEqual(split, joined)
-        self.assertNotEqual(Request(PRINCIPAL, "repeat this", 1, NONCE).commitment, split)
+        self.assertNotEqual(commitment(Request(PRINCIPAL, "repeat this", 1, NONCE).parts()), split)
+        # A part's kind is committed too: a said part never reads as a cited one.
+        self.assertNotEqual(commitment((("cited", "a"), ("said", "b"))), commitment((("said", "a"), ("said", "b"))))
         # The receipt still binds only the current message: a resend never becomes another request.
         self.assertEqual(
             Request(PRINCIPAL, "repeat this", 1, NONCE, earlier=("a",)).receipt("c" * 64),
             Request(PRINCIPAL, "repeat this", 1, NONCE).receipt("c" * 64),
         )
+
+    def test_the_words_hold_the_draft_only_when_the_request_continues_it(self) -> None:
+        draft = Draft("1" * 32, "network-1", (("said", "cria uma rotina a cada 30 segundos"),))
+        request = Request(PRINCIPAL, "composed", 1, NONCE, earlier=("liste",), draft=draft, answer="Listar domínios")
+        self.assertEqual(request.said, "Listar domínios")
+        self.assertEqual(request.parts(), (("cited", "liste"), ("said", "Listar domínios")))
+        self.assertEqual(request.parts(True), (*draft.parts, ("cited", "liste"), ("said", "Listar domínios")))
+        self.assertEqual(Request(PRINCIPAL, "plain", 1, NONCE).parts(True), (("said", "plain"),))
+        # The receipt binds the message the person sent, never the answer taken from it.
+        self.assertEqual(request.receipt("c" * 64), Request(PRINCIPAL, "composed", 1, NONCE).receipt("c" * 64))
 
 
 class LocalChatRequestTests(LocalContractCase):

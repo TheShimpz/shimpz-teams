@@ -276,7 +276,9 @@ class CreateTests(NamedTeamCase):
         issued = int(time.time())
         recent.admit("team_c", "p", {"issued_at": issued + 1, "nonce": "a" * 32}, "send 100 to Ana", True)
         created = self.call(local_names.create_team, "team_c", "Research")
-        self.assertEqual(recent.admit("team_c", "p", {"issued_at": issued + 2, "nonce": "b" * 32}, "do that", True), ())
+        self.assertEqual(
+            recent.admit("team_c", "p", {"issued_at": issued + 2, "nonce": "b" * 32}, "do that", True).earlier, ()
+        )
         self.assertTrue(created["created"])
         self.assertIsNone(self.controller.team_names.load("team_c", "c" * 64))
         self.assertEqual(self.controller.team_names.load("team_c", NETWORK_A), None)

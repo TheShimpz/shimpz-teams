@@ -144,6 +144,11 @@ def _routine_mutable(request: SegmentRequest) -> bool:
     return request.routine is None and grant is not None and not request.file_ids and grant.fresh(int(time.time()))
 
 
+def _draft_parts(request: RoutineRequest) -> tuple[tuple[str, str], ...]:
+    """The person's Routine draft the request froze, which a create may continue (ADR-0092 amendment, 2026-10-05)."""
+    return () if request.draft is None else request.draft.parts
+
+
 @dataclass(frozen=True, slots=True)
 class _TurnScope:
     thread_id: str
@@ -177,6 +182,8 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         skills=None if routine is not None else chat_knowledge.turn_skills(skills, runtime_assistants),
         routines=self._chat_routines(request.team_id) if mutable else None,
         routine_earlier=request.routine_request.earlier if mutable else (),
+        routine_draft=_draft_parts(request.routine_request) if mutable else (),
+        routine_answer=request.routine_request.answer if mutable else None,
         knowledge_writable=routine is None,
         locale=request.locale,
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),

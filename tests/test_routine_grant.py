@@ -55,7 +55,7 @@ class GrantTests(unittest.TestCase):
             "records": {"zone": {"proof": {"instruction": [0, 4]}, "by": None}, "day": {"proof": {}, "by": first}},
         }
         # The evidence commits to the Routine's words as the structured request committed them, never one joined text.
-        commitment = routine_request.commitment("Every day, list", ())
+        commitment = routine_request.commitment((("said", "Every day, list"),))
         partial = routine_grant.evidence(commitment, (0, 9), sources, {"zones": [], "records": ["token", "api"]})
         self.assertEqual(partial["message"], commitment)
         partial["selected"] = {"field": ["input", "zones", "page"], "label": "Página 1"}

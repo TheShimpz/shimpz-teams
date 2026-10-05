@@ -1,9 +1,11 @@
 """What a Local chat turn knows about the Team's Routines, and how its compiled change commits (ADR-0086, ADR-0092).
 
 A Routine is created or changed only from the authenticated user's own chat message, with no confirmation card. The
-Brain's isolated compiler proposes the change; Team admits it against the committed message, the exact contracts of
-the Assistants the turn saw, and the request's fresh identity, then commits the Routine, its notice, and the request's
-receipt in one write exactly when the reply commits, under the Team lifecycle lock and the Stop guard.
+Brain's isolated compiler proposes the change; Team admits it against the Routine's words, the exact contracts of the
+Assistants the turn saw, and the request's fresh identity, then commits the Routine, its notice, and the request's
+receipt in one write exactly when the reply commits, under the Team lifecycle lock and the Stop guard. When the person's
+words leave a piece missing, the compiler asks instead, and the turn keeps the person's Routine draft for the answer to
+continue; a person may also discard it (ADR-0092 amendment, 2026-10-05).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from install import bindings
 from local import audit as local_audit
 from local.chat import segment as local_chat_segment
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import draft as routine_draft
 from local.routine import source as routine_source
 from local.routine import state as routine_state
 from local.routine import store as routine_store
@@ -24,6 +27,7 @@ from routine import grant as routine_grant
 from routine import pin as routine_pin
 from routine import plan as routine_plan
 from routine import record
+from routine import request as routine_request
 from routine.request import Request as RoutineRequest
 
 # The zone of a Routine whose message named none and whose browser reported none.
@@ -121,12 +125,14 @@ def definition(
 ) -> record.Routine:
     """The Routine a change defines, admitted against the user's own words and the exact current contracts.
 
-    ``selected`` is the one step input a bound Routine question fills from the option the user picks.
+    ``selected`` is the one step input a bound Routine question fills from the option the user picks. A change that
+    continues the person's draft, which ``continued`` proved the request froze, holds the draft's parts in its words.
     """
+    parts = request.parts(change.continues)
     try:
         compiled = routine_change.compile_change(
             change,
-            routine_change.Words(request.message, request.earlier),
+            routine_change.Words(parts),
             # Every Routine pins its Actions in one fixed locale; each pin still covers the whole language pack.
             contracts(assistants, routine_pin.SCOPE_LOCALE),
             None if existing is None else (existing.plan, existing.grant["sources"]),
@@ -151,7 +157,7 @@ def definition(
         compiled.document,
         anchor=0,
         next_run_at=0,
-        grant=routine_grant.evidence(request.commitment, compiled.quote_span, compiled.sources, stored),
+        grant=routine_grant.evidence(routine_request.commitment(parts), compiled.quote_span, compiled.sources, stored),
     )
 
 
@@ -174,8 +180,10 @@ def writer(
 ) -> Callable[[], None]:
     """The write that commits a scheduled Routine, its notice, and the request's receipt in one transition.
 
-    ``change`` is the operation and, for an update, the revision the request saw. A create seals its ``source`` first,
-    under the same Team lock as the write, so the watchdog never sweeps it in between.
+    ``change`` is the operation and, for an update, the revision the request saw. A create first proves the request was
+    not already committed, then removes the person's Routine draft, exactly the one the request froze (a bound create
+    question binds only inside that same draft), then seals its ``source``, all under the same Team lock as the write,
+    so neither a retry nor the watchdog ever crosses it. A committed request's retry touches nothing again.
     """
     op, expected_revision = change
     receipt = request.receipt(network_id)
@@ -195,9 +203,15 @@ def writer(
         if not request.fresh(int(time.time())):
             raise expired()
         with self.routine_store.lock(team_id):
-            if source is not None:
-                routine_source.seal(self, team_id, source)
-            outcome = routine_state.update(self, team_id, apply)
+            if op == "create":
+                if record.has_receipt(routine_state.load(self, team_id), receipt, int(time.time())):
+                    outcome = "repeated"
+                else:
+                    routine_draft.discard(self, team_id, request)
+                    routine_source.seal(self, team_id, source)
+                    outcome = routine_state.update(self, team_id, apply)
+            else:
+                outcome = routine_state.update(self, team_id, apply)
         if outcome not in {"ok", "repeated"}:
             raise ApiProblem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine change", code=outcome)
         local_audit.record_request(
@@ -205,6 +219,12 @@ def writer(
         )
 
     return write
+
+
+def continued(request: RoutineRequest, continues: bool, network_id: str) -> None:
+    """A change that continues the person's draft needs the draft the request froze, from this Team incarnation."""
+    if continues and (request.draft is None or request.draft.incarnation != network_id):
+        raise ApiProblem(HTTPStatus.CONFLICT, "Team capabilities changed; retry", code="team-context-changed")
 
 
 def admit_change(self, response: object, proposed: dict[str, object]) -> Callable[[], None]:
@@ -220,17 +240,59 @@ def admit_change(self, response: object, proposed: dict[str, object]) -> Callabl
             HTTPStatus.BAD_GATEWAY, "Brain could not complete the Team turn", code="brain-runtime-failed"
         ) from exc
     request, network_id, assistants = checked(self, response)
+    continued(request, change.continues, network_id)
     existing = current(self, response.team_id, change)
     value = definition(change, request, assistants, dict(response.segment.contracts), existing)
     value = scheduled(value, int(time.time()))
     source = (
-        routine_source.Source(value.routine_id, network_id, request.message, earlier=request.earlier)
+        routine_source.Source(value.routine_id, network_id, request.parts(change.continues))
         if change.op == "create"
         else None
     )
     return writer(
         self, response.team_id, (change.op, change.expected_revision), value, request, network_id, source=source
     )
+
+
+def _unasked(clarification: dict[str, object] | None) -> bool:
+    """Whether a Routine question is missing, or recommends an option, which no Routine question ever does."""
+    return clarification is None or clarification["default_index"] is not None
+
+
+def admit_need(self, response: object, proposed: object, clarification: dict | None) -> Callable[[], None]:
+    """Admit a ``need`` question: the person's words leave a piece missing, so the turn asks and keeps their draft.
+
+    The write keeps the Routine's words as the person's draft, with the question it asks, as the reply commits.
+    """
+    try:
+        continues = routine_change.parse_need(proposed)
+    except routine_change.ChangeError as exc:
+        raise ApiProblem(
+            HTTPStatus.BAD_GATEWAY, "Brain could not complete the Team turn", code="brain-runtime-failed"
+        ) from exc
+    if _unasked(clarification):
+        raise ApiProblem(HTTPStatus.BAD_GATEWAY, "Brain could not complete the Team turn", code="brain-runtime-failed")
+    request, network_id, _assistants = checked(self, response)
+    continued(request, continues, network_id)
+    parts = request.parts(continues)
+    return lambda: routine_draft.save(self, response.team_id, request, network_id, parts, clarification["question"])
+
+
+def admit_discard(self, response: object, proposed: object) -> Callable[[], None]:
+    """Admit a ``discard``: the person asked to drop the Routine being set up; the write removes their draft."""
+    try:
+        routine_change.parse_discard(proposed)
+    except routine_change.ChangeError as exc:
+        raise ApiProblem(
+            HTTPStatus.BAD_GATEWAY, "Brain could not complete the Team turn", code="brain-runtime-failed"
+        ) from exc
+    request, _network_id, _assistants = checked(self, response)
+
+    def write() -> None:
+        with self.routine_store.lock(response.team_id):
+            routine_draft.discard(self, response.team_id, request)
+
+    return write
 
 
 class ContractsUnavailableError(Exception):

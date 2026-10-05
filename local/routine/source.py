@@ -1,7 +1,8 @@
 """The private creation source of a Routine, which Recriar compiles from again (ADR-0092 amendment, 2026-10-02).
 
-A Routine created from a person's own chat message keeps that exact message, the person's own earlier sends it cited
-(ADR-0092 amendment, 2026-10-04), and the value the person selected when the planner asked about one field, sealed apart
+A Routine created from a person's own chat keeps its exact words, the person's own kinded parts: the message or answer
+that created it, the messages and answers of the draft it continued, the earlier sends those cited (ADR-0092 amendments,
+2026-10-04 and 2026-10-05), and any option label the person selected; and the value that selection filled, sealed apart
 from the plaintext Routine state and bound to its Team incarnation and Routine. It is written before the state write
 that creates the Routine, so a crash leaves at worst an unreferenced record, which the watchdog removes; it is never
 replaced by a later update, and it goes when the Routine is deleted. It is not shown, audited, sent to diagnostics, or
@@ -19,22 +20,20 @@ from routine import plan as routine_plan
 from routine import record
 from routine import request as routine_request
 
-VERSION = 2
-_FIELDS = frozenset({"version", "routine_id", "incarnation", "message", "earlier", "selected"})
-MAX_MESSAGE_CHARS = routine_request.MAX_MESSAGE_CHARS
+VERSION = 3
+_FIELDS = frozenset({"version", "routine_id", "incarnation", "parts", "selected"})
 
 
 @dataclass(frozen=True, slots=True)
 class Source:
-    """The message that created a Routine, the earlier sends it cited, and the one field value selected, if any."""
+    """The Routine's words when it was created, and the one field value the person selected, if any."""
 
     routine_id: str
     incarnation: str
-    message: str
+    # The person's own kinded parts, oldest first, exactly as the creating request committed them; the last is said.
+    parts: tuple[routine_request.Part, ...]
     # (field, value): ("schedule",), ("timezone",), or ("input", step, member), and the value that field held.
     selected: tuple[tuple[str, ...], object] | None = None
-    # The person's own earlier sends the message cited, oldest first, exactly as the creating turn froze them.
-    earlier: tuple[str, ...] = ()
 
     def encode(self) -> bytes:
         selected = None if self.selected is None else {"field": list(self.selected[0]), "value": self.selected[1]}
@@ -43,8 +42,7 @@ class Source:
                 "version": VERSION,
                 "routine_id": self.routine_id,
                 "incarnation": self.incarnation,
-                "message": self.message,
-                "earlier": list(self.earlier),
+                "parts": [{"kind": kind, "text": text} for kind, text in self.parts],
                 "selected": selected,
             }
         )
@@ -83,19 +81,12 @@ def decode(payload: bytes, routine_id: str) -> Source:
         raise routine_state.unavailable() from exc
     if not isinstance(value, dict) or set(value) != _FIELDS or value["version"] != VERSION:
         raise routine_state.unavailable()
-    message, selected, earlier = value["message"], value["selected"], value["earlier"]
+    parts, selected = routine_request.canonical_parts(value["parts"]), value["selected"]
     if (
-        not isinstance(earlier, list)
-        or len(earlier) > routine_request.MAX_EARLIER
-        or any(routine_request.canonical_earlier(item) is None for item in earlier)
-    ):
-        raise routine_state.unavailable()
-    if (
-        value["routine_id"] != routine_id
+        parts is None
+        or value["routine_id"] != routine_id
         or not isinstance(value["incarnation"], str)
         or not value["incarnation"]
-        or not isinstance(message, str)
-        or not 0 < len(message) <= MAX_MESSAGE_CHARS
     ):
         raise routine_state.unavailable()
     if selected is not None:
@@ -107,7 +98,7 @@ def decode(payload: bytes, routine_id: str) -> Source:
         if field is None:
             raise routine_state.unavailable()
         selected = (field, selected["value"])
-    source = Source(routine_id, value["incarnation"], message, selected, tuple(earlier))
+    source = Source(routine_id, value["incarnation"], parts, selected)
     if source.encode() != payload:
         raise routine_state.unavailable()
     return source

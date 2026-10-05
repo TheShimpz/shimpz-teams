@@ -6,13 +6,15 @@ steps. Each step names one exact Assistant Action and gives every input member o
 provenance, a run-clock token, an earlier step's output selected by an RFC 6901 pointer with the user's own words that
 relate the two, or, in an update, the member's source kept exactly as the current revision has it.
 
-Team recomputes everything against the committed message and the person's own earlier sends it cites, each parsed on its
-own; the standing request must be the message's own words. The user's own words are the text outside quoted, fenced, and
-block-quoted regions. Every scalar of a literal must equal text cited from those words, or from one quoted region that
-unquoted words adopt, or the whole literal must equal its destination's declared schema default; only the one field a
-Routine question leaves open is instead filled from the option the user selects (``Question``). Mechanical provenance
-proves where a value came from, never that the user meant it; the compiled plan is then admitted against the exact
-current Action contracts, which derive every pin, so no field of the change can assert approval or elevate authority.
+Team recomputes everything against the Routine's words, the person's own kinded parts each parsed on its own
+(``Words``); the standing request must stand in a said part's own words. ``continues`` says whether the change continues
+the person's Routine draft, whose parts then belong to its words (ADR-0092 amendment, 2026-10-05). The user's own words
+are the text outside quoted, fenced, and block-quoted regions. Every scalar of a literal must equal text cited from
+those words, or from one quoted region that unquoted words adopt, or the whole literal must equal its destination's
+declared schema default; only the one field a Routine question leaves open is instead filled from the option the user
+selects (``Question``). Mechanical provenance proves where a value came from, never that the user meant it; the compiled
+plan is then admitted against the exact current Action contracts, which derive every pin, so no field of the change can
+assert approval or elevate authority.
 """
 
 from __future__ import annotations
@@ -41,7 +43,9 @@ _QUOTED_RE = re.compile(
     r"|(?:^|(?<=\s))'[^'\n]*'(?=\s|$|[.,;:!?])|^[ \t]*>[^\n]*",
     re.MULTILINE,
 )
-_FIELDS = frozenset({"op", "routine_id", "expected_revision", "name", "request", "schedule", "timezone", "steps"})
+_FIELDS = frozenset(
+    {"op", "routine_id", "expected_revision", "name", "request", "schedule", "timezone", "steps", "continues"}
+)
 _STEP_FIELDS = frozenset({"id", "assistant", "action", "input"})
 _SOURCE_FIELDS = {
     "literal": frozenset({"kind", "value", "origins"}),
@@ -75,6 +79,8 @@ class Change:
     schedule: dict[str, object]
     timezone: str | None
     steps: tuple[dict[str, object], ...]
+    # Whether the change continues the person's Routine draft; an update never does.
+    continues: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -86,6 +92,7 @@ class Change:
             "schedule": dict(self.schedule),
             "timezone": self.timezone,
             "steps": copy.deepcopy(list(self.steps)),
+            "continues": self.continues,
         }
 
 
@@ -99,7 +106,7 @@ class Compiled:
     timezone: str
     document: dict[str, object]
     plan: routine_plan.Plan
-    # Where the user's own words state the request, as a span of the committed message.
+    # Where the user's own words state the request, as a span of the Routine's joined words.
     quote_span: tuple[int, int] = (0, 0)
     # Each step input's validated provenance, by step id and member: a literal's origins, a reference's
     # relating words, or nothing for a run-clock token.
@@ -174,9 +181,12 @@ def parse(value: object) -> Change:
     )
     timezone = value["timezone"]
     schedule = http_routine.canonical_schedule(value["schedule"])
+    continues = value["continues"]
     if (
         len(encoded) > MAX_CHANGE_BYTES
         or not target
+        or type(continues) is not bool
+        or (continues and op != "create")
         or http_routine.canonical_name(value["name"]) is None
         or http_routine.canonical_quote(value["request"]) is None
         or schedule is None
@@ -186,47 +196,48 @@ def parse(value: object) -> Change:
         or not all(map(_step, steps))
     ):
         raise ChangeError("routine-change-invalid")
-    return Change(op, routine_id, revision, value["name"], value["request"], schedule, timezone, tuple(steps))
+    return Change(
+        op, routine_id, revision, value["name"], value["request"], schedule, timezone, tuple(steps), continues
+    )
 
 
 class Words:
     """Where a Routine's text may come from: the user's own words and the numbered quoted regions of each part.
 
-    The parts are the person's own earlier sends the message refers to, oldest first, then the message itself. Each is
-    parsed on its own, so no quoted region or stretch of own words ever crosses from one part into another; they join
-    with one separator only to give every span one coordinate space.
+    The parts are the person's own kinded texts, oldest first (``routine.request``). Each is parsed on its own, so no
+    quoted region or stretch of own words ever crosses from one part into another; they join with one separator only
+    to give every span one coordinate space. Only a said part's own words may state the standing request.
     """
 
-    def __init__(self, message: str, earlier: tuple[str, ...] = ()) -> None:
-        parts = (*earlier, message)
-        self.message = routine_request.SEPARATOR.join(parts)
+    def __init__(self, parts: tuple[routine_request.Part, ...]) -> None:
+        self.message = routine_request.SEPARATOR.join(text for _kind, text in parts)
         self.quoted: list[tuple[int, int]] = []
         self.own: list[tuple[int, int]] = []
+        # The own stretches of said parts, where the standing request must stand.
+        self.said: list[tuple[int, int]] = []
         offset = 0
-        for part in parts:
-            self._parse(part, offset)
+        for kind, part in parts:
+            self._parse(part, offset, kind == routine_request.SAID)
             offset += len(part) + len(routine_request.SEPARATOR)
-        # Where the message itself starts: the standing request must be its own words.
-        self.current = len(self.message) - len(message)
 
-    def _parse(self, part: str, offset: int) -> None:
+    def _parse(self, part: str, offset: int, said: bool) -> None:
         cursor = 0
+        stretches = []
         for match in _QUOTED_RE.finditer(part):
             start, end = match.start(), match.end()
             self.quoted.append((offset + start, offset + end))
             if start > cursor:
-                self.own.append((offset + cursor, offset + start))
+                stretches.append((offset + cursor, offset + start))
             cursor = max(cursor, end)
         if cursor < len(part):
-            self.own.append((offset + cursor, offset + len(part)))
+            stretches.append((offset + cursor, offset + len(part)))
+        self.own.extend(stretches)
+        if said:
+            self.said.extend(stretches)
 
-    def current_span(self, text: str) -> tuple[int, int] | None:
-        """Where the text first stands inside one stretch of the message's own words, never an earlier send's."""
-        for start, end in self.own if text else ():
-            found = self.message.find(text, start, end) if start >= self.current else -1
-            if found >= 0:
-                return found, found + len(text)
-        return None
+    def said_span(self, text: str) -> tuple[int, int] | None:
+        """Where the text first stands inside one stretch of a said part's own words, never a cited send's."""
+        return self._find(self.said, text)
 
     def mine(self, text: str) -> bool:
         """Whether the text is the user's own words, inside one stretch of them."""
@@ -234,7 +245,10 @@ class Words:
 
     def span(self, text: str) -> tuple[int, int] | None:
         """Where the text first stands inside one stretch of the user's own words, or None."""
-        for start, end in self.own if text else ():
+        return self._find(self.own, text)
+
+    def _find(self, stretches: list[tuple[int, int]], text: str) -> tuple[int, int] | None:
+        for start, end in stretches if text else ():
             found = self.message.find(text, start, end)
             if found >= 0:
                 return found, found + len(text)
@@ -392,7 +406,7 @@ def compile_change(
     """
     if (change.op == "update") != (current is not None):
         raise ChangeError("routine-change-invalid")
-    quote_span = words.current_span(change.request)
+    quote_span = words.said_span(change.request)
     if quote_span is None:
         raise ChangeError("routine-request-unproven")
     if assistant_manifest.resembles_credential(change.request) or assistant_manifest.resembles_credential(change.name):
@@ -503,3 +517,26 @@ def parse_question(value: object, options: int) -> Question:
     except ChangeError as exc:
         raise ChangeError("routine-question-invalid") from exc
     return Question(field, changes, question["reply"])
+
+
+def kind(value: object) -> str:
+    """Which Routine outcome a completed turn proposes: a ``change``, a ``need`` question, or a ``discard``.
+
+    A ``need`` question asks the person for a piece their words leave missing and carries no candidate change; a
+    ``discard`` drops the person's Routine draft (ADR-0092 amendment, 2026-10-05). Only the shape is read here.
+    """
+    op = value.get("op") if isinstance(value, dict) else None
+    return op if op in {"need", "discard"} else "change"
+
+
+def parse_need(value: object) -> bool:
+    """Admit one ``need`` outcome in its closed shape; returns whether it continues the person's draft."""
+    if not isinstance(value, dict) or set(value) != {"op", "continues"} or type(value["continues"]) is not bool:
+        raise ChangeError("routine-change-invalid")
+    return value["continues"]
+
+
+def parse_discard(value: object) -> None:
+    """Admit one ``discard`` outcome in its closed shape."""
+    if value != {"op": "discard"}:
+        raise ChangeError("routine-change-invalid")

@@ -65,7 +65,7 @@ COPY local/chat/__init__.py local/chat/api.py local/chat/attachments.py local/ch
     local/chat/state.py local/chat/types.py ./local/chat/
 COPY local/routine/__init__.py local/routine/card.py local/routine/compiled.py local/routine/diagnostics.py \
     local/routine/human.py \
-    local/routine/lifecycle.py \
+    local/routine/draft.py local/routine/lifecycle.py \
     local/routine/incident.py local/routine/lineage.py local/routine/manage.py \
     local/routine/notices.py local/routine/question.py local/routine/recent.py local/routine/recovery.py \
     local/routine/recreate.py \

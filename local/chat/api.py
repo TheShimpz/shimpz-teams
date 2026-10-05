@@ -15,10 +15,12 @@ from local.chat.segment import SegmentRequest as _ChatSegmentRequest
 from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.chat.types import ResponseRequest as _ResponseRequest
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import draft as routine_draft
 from local.routine import lineage as routine_lineage
 from local.routine import question as routine_question
 from local.validation import validate_chat_assistant_ids, validate_team_id
 from protocol.http.v1 import payload as http_payload
+from routine import change as routine_change
 from routine import schedule as routine_schedule
 from routine.request import Request as RoutineRequest
 
@@ -49,6 +51,19 @@ def _pending_chat_continuation(self, team_id: str, locale: str | None = None) ->
     if existing_integration is not None:
         return self._integration_response(existing_integration)
     return None
+
+
+def _routine_write(self, response: _ResponseRequest, terminal: chat_orchestrator.ChatOutcome):
+    """The write of a turn's Routine outcome; the caller holds the lifecycle lock until it commits."""
+    outcome = routine_change.kind(terminal.routine)
+    if outcome == "need":
+        return self._routine_need(response, terminal.routine, terminal.clarification)
+    if outcome == "discard":
+        return self._routine_discard(response, terminal.routine)
+    if terminal.clarification is not None:
+        # Every option's Routine is admitted before the question is shown; only a bound answer commits one.
+        return self._routine_question(response, terminal.routine, terminal.clarification)
+    return self._routine_change(response, terminal.routine)
 
 
 def _segment_response(
@@ -97,25 +112,19 @@ def _segment_response(
             ) from exc
 
     def commit(terminal: chat_orchestrator.ChatOutcome) -> bool:
-        if terminal.routine is None or terminal.clarification is not None:
-            # A Routine question changes nothing until a bound answer selects one of its options.
+        if terminal.routine is None:
             return self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal))
-        # A compiled Routine change commits with the reply, in one write under the lifecycle lock and the Stop guard;
-        # when Stop wins, nothing is created (ADR-0092).
+        # A Routine outcome commits with the reply, in one write under the lifecycle lock, the Stop guard, and the
+        # Routine lock: a change, a question with the person's draft, or a discarded draft. When Stop wins, nothing
+        # changes (ADR-0092).
         with self._lock(team_id):
-            write = self._routine_change(response, terminal.routine)
+            write = _routine_write(self, response, terminal)
             return self._commit_chat_terminal(team_id, token, lambda: (write(), save_knowledge(terminal)))
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
-        question = None
-        if terminal.routine is not None and terminal.clarification is not None:
-            # Every option's Routine is admitted before the question is shown; only a bound answer commits one.
-            question = self._routine_question(response, terminal.routine, terminal.clarification)
         if not commit(terminal):
             raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
-        if question is not None:
-            self.routine_lineage.record(team_id, question)
         body: dict[str, object] = {
             "team_id": team_id,
             "team_name": segment.team_name,
@@ -159,6 +168,43 @@ def _timezone(value: object) -> str | None:
     except routine_schedule.ScheduleError as exc:
         raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "timezone is invalid", code="invalid-timezone") from exc
     return value
+
+
+def _same_draft(question: routine_lineage.Question, request: RoutineRequest) -> bool:
+    """Whether a bound question may still bind: an update question always; a create one only in its own draft."""
+    frozen = None if request.draft is None else request.draft.generation
+    return question.op != "create" or question.generation == frozen
+
+
+def _routine_request(
+    self, team_id: str, principal: str, identity: dict[str, object], send: tuple[str, list, str | None, str | None]
+) -> RoutineRequest | None:
+    """The Routine request this send carries, built only from what Team itself admitted and froze for it.
+
+    Every admitted send is recorded once; a send with files or a composed answer is a barrier (ADR-0092). None: this
+    identity cannot change a Routine (reused with another message or person, or no room to freeze its run). A send
+    without files also freezes the person's Routine draft, and a composed reply to the draft's question takes only its
+    answer as the request's said text (ADR-0092 amendment, 2026-10-05).
+    """
+    message, file_ids, timezone, locale = send
+    composed = routine_lineage.composed(message)
+    draft = None if file_ids else routine_draft.current(self, team_id, principal)
+    admitted = self.routine_recent.admit(team_id, principal, identity, message, not file_ids and not composed, draft)
+    if admitted is None:
+        return None
+    frozen = admitted.draft
+    texts = frozenset() if frozen is None else frozen.texts
+    return RoutineRequest(
+        principal,
+        message,
+        identity["issued_at"],
+        identity["nonce"],
+        timezone,
+        locale,
+        earlier=tuple(text for text in admitted.earlier if text not in texts),
+        draft=frozen,
+        answer=routine_draft.answer(frozen, message) if composed else None,
+    )
 
 
 def chat(
@@ -214,24 +260,22 @@ def chat(
         # The turn is admitted: its duration runs from here to its terminal, across every resume.
         usage = brain_usage.TurnUsage.start()
         principal = local_audit.human_principal()
-        bound = None if principal is None or file_ids else self.routine_lineage.bound(team_id, principal, message)
-        composed = routine_lineage.composed(message)
-        # Every admitted send is recorded once; a send with files or a composed answer is a barrier (ADR-0092). None:
-        # this identity cannot change a Routine (reused with another message or person, or no room to freeze its run).
-        earlier = (
-            ()
-            if principal is None
-            else self.routine_recent.admit(team_id, principal, identity, message, not file_ids and not composed)
-        )
-        bound = None if earlier is None else bound
-        # A message that answers a clarification may change a Routine only through the question it is bound to.
         routine_request = (
             None
-            if principal is None or earlier is None or (bound is None and composed)
-            else RoutineRequest(
-                principal, message, identity["issued_at"], identity["nonce"], timezone, locale, earlier=earlier
-            )
+            if principal is None
+            else _routine_request(self, team_id, principal, identity, (message, file_ids, timezone, locale))
         )
+        bound = None
+        if routine_request is not None and not file_ids:
+            bound = self.routine_lineage.bound(team_id, principal, message)
+        if bound is not None and not _same_draft(bound.question, routine_request):
+            # A create question binds only inside the very draft its turn wrote; any later draft revoked it.
+            bound = None
+        composed = routine_lineage.composed(message)
+        if routine_request is not None and composed and bound is None and routine_request.answer is None:
+            # A composed answer may change a Routine only through the question it is bound to: the pending
+            # question's own option, or the answer to the draft's last question.
+            routine_request = None
         if bound is not None:
             return routine_question.answer(self, team_id, token, routine_request, bound)
         segment = self._run_chat_segment(

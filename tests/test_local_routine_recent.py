@@ -5,12 +5,20 @@ from __future__ import annotations
 import unittest
 
 from local.routine import recent
+from routine.request import Draft
 
 EPOCH = 1_000
 
 
 def _identity(issued_at: int, nonce: str) -> dict[str, object]:
     return {"issued_at": issued_at, "nonce": nonce * 32}
+
+
+def _earlier(admitted: recent.Admitted | None) -> tuple[str, ...] | None:
+    return None if admitted is None else admitted.earlier
+
+
+DRAFT = Draft("1" * 32, "network-1", (("said", "cria uma rotina a cada 30 segundos"),), ("Qual trabalho?", "2" * 64))
 
 
 class RecentBookTests(unittest.TestCase):
@@ -20,7 +28,7 @@ class RecentBookTests(unittest.TestCase):
 
     def send(self, issued_at: int, nonce: str, message: str, citable: bool = True, principal: str = "p") -> tuple:
         self.clock[0] = max(self.clock[0], issued_at)
-        return self.book.admit("team_1", principal, _identity(issued_at, nonce), message, citable)
+        return _earlier(self.book.admit("team_1", principal, _identity(issued_at, nonce), message, citable))
 
     def test_a_send_cites_the_consecutive_run_before_it_up_to_three_oldest_first(self) -> None:
         self.assertEqual(self.send(1_001, "a", "list my DNS zones"), ())
@@ -70,11 +78,11 @@ class RecentBookTests(unittest.TestCase):
         book = recent.RecentBook(now=lambda: EPOCH)
         identity = {"issued_at": EPOCH + 1, "nonce": "f" * 32}
         book.admit("team_1", "p", {"issued_at": EPOCH + 1, "nonce": "e" * 32}, "list my DNS zones", True)
-        self.assertEqual(book.admit("team_1", "p", identity, "do this", True), ("list my DNS zones",))
+        self.assertEqual(_earlier(book.admit("team_1", "p", identity, "do this", True)), ("list my DNS zones",))
         for index in range(recent.MAX_FROZEN - 2):
             book.admit("team_1", "p", {"issued_at": EPOCH + 1, "nonce": f"{index:032x}"}, "x", True)
-        self.assertIsNone(book.admit("team_1", "p", {"issued_at": EPOCH + 1, "nonce": "d" * 32}, "y", True))
-        self.assertEqual(book.admit("team_1", "p", identity, "do this", True), ("list my DNS zones",))
+        self.assertIsNone(_earlier(book.admit("team_1", "p", {"issued_at": EPOCH + 1, "nonce": "d" * 32}, "y", True)))
+        self.assertEqual(_earlier(book.admit("team_1", "p", identity, "do this", True)), ("list my DNS zones",))
 
     def test_a_send_refused_at_capacity_stays_refused_and_never_acquires_later_history(self) -> None:
         clock = [EPOCH + 800]
@@ -84,13 +92,13 @@ class RecentBookTests(unittest.TestCase):
         for index in range(recent.MAX_FROZEN):
             book.admit("team_1", "p", {"issued_at": EPOCH + 1, "nonce": f"{index:032x}"}, "x", True)
         refused = {"issued_at": EPOCH + 860, "nonce": "f" * 32}
-        self.assertIsNone(book.admit("team_1", "p", refused, "do this every 30 seconds", True))
+        self.assertIsNone(_earlier(book.admit("team_1", "p", refused, "do this every 30 seconds", True)))
         # Every live run expires, newer work is sent, and the refused identity, still fresh, is retried.
         clock[0] = EPOCH + 1_000
         self.assertEqual(
-            book.admit("team_1", "p", {"issued_at": clock[0] + 1, "nonce": "e" * 32}, "send 100", True), ()
+            _earlier(book.admit("team_1", "p", {"issued_at": clock[0] + 1, "nonce": "e" * 32}, "send 100", True)), ()
         )
-        self.assertIsNone(book.admit("team_1", "p", refused, "do this every 30 seconds", True))
+        self.assertIsNone(_earlier(book.admit("team_1", "p", refused, "do this every 30 seconds", True)))
 
     def test_placement_follows_the_canonical_identity_freshness(self) -> None:
         self.send(1_001, "a", "A")
@@ -104,12 +112,12 @@ class RecentBookTests(unittest.TestCase):
     def test_an_identity_issued_too_far_ahead_is_refused_for_good(self) -> None:
         self.clock[0] = 1_001
         ahead = _identity(1_001 + recent.http_payload.REQUEST_IDENTITY_SKEW_SECONDS + 1, "a")
-        self.assertIsNone(self.book.admit("team_1", "p", ahead, "do this every 30 seconds", True))
+        self.assertIsNone(_earlier(self.book.admit("team_1", "p", ahead, "do this every 30 seconds", True)))
         # Newer work is sent; once the early identity is fresh, its retry still changes no Routine.
         self.clock[0] = 1_003
         self.book.admit("team_1", "p", _identity(1_003 + 60, "b"), "send 100 to Ana", True)
         self.clock[0] = 1_004
-        self.assertIsNone(self.book.admit("team_1", "p", ahead, "do this every 30 seconds", True))
+        self.assertIsNone(_earlier(self.book.admit("team_1", "p", ahead, "do this every 30 seconds", True)))
 
     def test_a_frozen_run_expires_with_its_identity(self) -> None:
         self.send(1_001, "a", "A")
@@ -124,11 +132,26 @@ class RecentBookTests(unittest.TestCase):
         self.assertEqual(self.send(1_002, "b", "again"), ())
         # Only identities issued after the drop are placed again.
         self.assertEqual(self.send(1_001, "z", "again"), ())
-        self.assertEqual(self.book.admit("team_2", "p", _identity(1_002, "b"), "again", True), ("B",))
+        self.assertEqual(_earlier(self.book.admit("team_2", "p", _identity(1_002, "b"), "again", True)), ("B",))
         self.clock[0] = 1_003
         self.book.clear()
-        self.assertEqual(self.book.admit("team_2", "p", _identity(1_004, "d"), "again", True), ())
-        self.assertEqual(self.book.admit("team_2", "p", _identity(1_003, "c"), "again", True), ())
+        self.assertEqual(_earlier(self.book.admit("team_2", "p", _identity(1_004, "d"), "again", True)), ())
+        self.assertEqual(_earlier(self.book.admit("team_2", "p", _identity(1_003, "c"), "again", True)), ())
+
+    def test_a_first_admission_freezes_the_draft_it_saw_and_a_retry_keeps_exactly_it(self) -> None:
+        first = self.book.admit("team_1", "p", _identity(1_001, "a"), "A cada 30 segundos", True, DRAFT)
+        self.assertEqual(first.draft, DRAFT)
+        # A retry of the same identity keeps the draft its first admission saw, whatever the draft is now.
+        newer = Draft("3" * 32, "network-1", (("said", "outra"),))
+        self.assertIs(self.book.admit("team_1", "p", _identity(1_001, "a"), "A cada 30 segundos", True, newer), first)
+        self.assertIs(self.book.admit("team_1", "p", _identity(1_001, "a"), "A cada 30 segundos", True, None), first)
+
+    def test_an_identity_team_cannot_place_gets_no_draft(self) -> None:
+        # Issued before the record began, as a retry from before a restart: it cites nothing and continues no draft.
+        lost = self.book.admit("team_1", "p", _identity(EPOCH, "a"), "A cada 30 segundos", True, DRAFT)
+        self.assertEqual(lost, recent.Admitted())
+        # A fresh send after the restart may continue the draft that survived it.
+        self.assertEqual(self.book.admit("team_1", "p", _identity(1_001, "b"), "x", True, DRAFT).draft, DRAFT)
 
 
 if __name__ == "__main__":

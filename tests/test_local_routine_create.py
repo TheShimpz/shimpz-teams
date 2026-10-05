@@ -43,6 +43,7 @@ def _change(**changes: object) -> dict[str, object]:
         "op": "create",
         "routine_id": None,
         "expected_revision": None,
+        "continues": False,
         "name": "Weekly zones",
         "request": "Every Monday at 9:00, list my zones",
         "schedule": SCHEDULE,
@@ -84,7 +85,7 @@ def _body(message: str = MESSAGE, *, nonce: str = "b" * 32, issued_at: int | Non
         "assistant_ids": [ASSISTANT],
         "conversation": [],
         "locale": "pt",
-        "request": {"issued_at": int(time.time()) if issued_at is None else issued_at, "nonce": nonce},
+        "request": {"issued_at": int(time.time()) + 1 if issued_at is None else issued_at, "nonce": nonce},
         "timezone": "America/Sao_Paulo",
     }
 
@@ -156,7 +157,7 @@ class DirectCreationTests(LocalContractCase):
             (grant["receipt"], grant["revision"], grant["plan"], grant["selected"]),
             (receipt, 1, routine_grant.plan_digest(routine.plan), None),
         )
-        self.assertEqual(grant["message"], routine_request.commitment(MESSAGE, ()))
+        self.assertEqual(grant["message"], routine_request.commitment((("said", MESSAGE),)))
         self.assertEqual(MESSAGE[slice(*grant["quote"])], _change()["request"])
         page = grant["sources"]["zones"]["page"]
         (origin,) = page["proof"]["origins"]
@@ -177,12 +178,14 @@ class DirectCreationTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem):
                 routine_source.decode(sealed, "f" * 32)
             # An orphan a crash left behind goes with the next watchdog pass; the listed Routine's source stays.
-            service.routine_store.put_source("team_1", "f" * 32, routine_source.Source("f" * 32, "n", "x").encode())
+            service.routine_store.put_source(
+                "team_1", "f" * 32, routine_source.Source("f" * 32, "n", (("said", "x"),)).encode()
+            )
             routine_watchdog.check(service)
             self.assertEqual(service.routine_store.sources("team_1"), (routine.routine_id,))
             routine_manage.delete_routine(service, "team_1", routine.routine_id)
             self.assertEqual(service.routine_store.sources("team_1"), ())
-        self.assertEqual((source.message, source.selected), (MESSAGE, None))
+        self.assertEqual((source.parts, source.selected), ((("said", MESSAGE),), None))
         self.assertNotIn("ignore that", plaintext)
 
     def test_citation_text_around_a_value_never_persists_and_a_secret_request_is_refused(self) -> None:
@@ -396,7 +399,7 @@ class DirectCreationTests(LocalContractCase):
         clarification = {
             "question": question,
             "options": [{"label": "25", "description": ""}, {"label": "50", "description": ""}],
-            "default_index": 0,
+            "default_index": None,
         }
         candidate = _change(request=original)
         del candidate["steps"][0]["input"]["per_page"]
@@ -448,7 +451,7 @@ class DirectCreationTests(LocalContractCase):
             self.chat(service, _body(answer + "50", nonce="d" * 32))
             (routine,) = service.routine_store.load("team_1").routines
             source = routine_source.load(service, "team_1", routine.routine_id)
-        self.assertEqual(source.message, "Every Monday at 9:00, list my zones, page 1")
+        self.assertEqual(source.parts, (("said", "Every Monday at 9:00, list my zones, page 1"), ("said", "50")))
         self.assertEqual(source.selected, (("input", "zones", "per_page"), {"kind": "literal", "value": 50}))
 
     def test_do_this_every_30_seconds_creates_the_earlier_work_after_its_cap_question_and_seals_both(self) -> None:
@@ -459,7 +462,7 @@ class DirectCreationTests(LocalContractCase):
         clarification = {
             "question": "Up to how many runs a day?",
             "options": [{"label": "Up to 100", "description": ""}, {"label": "Up to 500", "description": ""}],
-            "default_index": 0,
+            "default_index": None,
         }
         candidate = _change(request=message, schedule=None)
         values = [{"kind": "continuous", "gap": 30, "cap": 100}, {"kind": "continuous", "gap": 30, "cap": 500}]
@@ -489,8 +492,10 @@ class DirectCreationTests(LocalContractCase):
         self.assertEqual([context.routine_earlier for context in runtime.contexts], [(), (earlier,)])
         self.assertEqual(routine.schedule, {"kind": "continuous", "gap": 30, "cap": 500})
         self.assertEqual(routine.quote, message)
-        self.assertEqual(routine.grant["message"], routine_request.commitment(message, (earlier,)))
-        self.assertEqual((source.message, source.earlier), (message, (earlier,)))
+        # The sealed words and the grant hold the earlier send, the message, and the label the person selected.
+        words = (("cited", earlier), ("said", message), ("said", "Up to 500"))
+        self.assertEqual(routine.grant["message"], routine_request.commitment(words))
+        self.assertEqual(source.parts, words)
         self.assertEqual(source.selected, (("schedule",), {"kind": "continuous", "gap": 30, "cap": 500}))
 
     def test_an_update_from_another_message_keeps_what_granted_each_kept_input(self) -> None:
@@ -513,7 +518,7 @@ class DirectCreationTests(LocalContractCase):
             (updated,) = service.routine_store.load("team_1").routines
         before, after = created.grant, updated.grant
         self.assertEqual((after["revision"], after["selected"]), (2, None))
-        self.assertEqual(after["message"], routine_request.commitment(other, ()))
+        self.assertEqual(after["message"], routine_request.commitment((("said", other),)))
         self.assertNotEqual(after["receipt"], before["receipt"])
         # Each kept input keeps its proof against the first message, and the answer selected for it.
         self.assertEqual(after["sources"], before["sources"])
@@ -532,7 +537,7 @@ class DirectCreationTests(LocalContractCase):
             clarification = {
                 "question": question,
                 "options": [{"label": "25", "description": ""}, {"label": "50", "description": ""}],
-                "default_index": 0,
+                "default_index": None,
             }
             update = _change(op="update", routine_id=created.routine_id, expected_revision=1, request=other)
             update["steps"][0]["input"] = {"page": {"kind": "kept"}}
@@ -555,10 +560,11 @@ class DirectCreationTests(LocalContractCase):
         self.assertEqual(updated.revision, 2)
         self.assertEqual(updated.plan["steps"][0]["input"]["per_page"], {"kind": "literal", "value": 25})
         # An update never replaces what created the Routine: Recriar still starts from the first message.
-        self.assertEqual(source.message, "Every Monday at 9:00, list my zones, page 1")
+        self.assertEqual(source.parts, (("said", "Every Monday at 9:00, list my zones, page 1"), ("said", "50")))
         self.assertEqual(source.selected, (("input", "zones", "per_page"), {"kind": "literal", "value": 50}))
 
-    def test_a_free_text_or_unbound_answer_never_changes_a_routine(self) -> None:
+    def test_a_free_text_answer_continues_the_draft_with_only_its_own_words(self) -> None:
+        """A free-text answer, or a label once the pending question is gone, continues the person's draft."""
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, runtime, answer = self.asked(directory)
             runtime.changes.extend([None, None])
@@ -566,8 +572,13 @@ class DirectCreationTests(LocalContractCase):
             service.routine_lineage.clear()
             self.chat(service, _body(answer + "50", nonce="e" * 32))
             state = service.routine_store.load("team_1")
-        # Each answer reached the Brain with no Routine tool, so the model's question never becomes a grant.
-        self.assertEqual([context.routines for context in runtime.contexts[1:]], [None, None])
+        asked = (("said", "Every Monday at 9:00, list my zones, page 1"),)
+        # The Brain gets the draft and the answer alone as the said text, never the question or the composed message.
+        self.assertEqual(
+            [(context.routine_draft, context.routine_answer) for context in runtime.contexts[1:]],
+            [(asked, "100"), (asked, "50")],
+        )
+        self.assertTrue(all(context.routines is not None for context in runtime.contexts[1:]))
         self.assertEqual((state.routines, state.receipts), ((), ()))
 
     def test_a_multiline_answer_is_never_a_fresh_grant_even_when_the_model_cites_the_question(self) -> None:

@@ -7,8 +7,10 @@ that composes the original request, the question, and the chosen label (ADR-0081
 this question for the same principal, with one of its own labels, binds; the Routine of that option is then committed
 as it was admitted, so the selection changes only the bound field, and neither the model's question text nor an
 unselected option ever becomes the user's grant. The candidate stays until its Routine commits, so a failed or stopped
-answer may be retried, and expires after 15 minutes. Every other message that composes a clarification answer cannot
-change a Routine at all, so a restart, an expired or mismatched lineage, or a free-text answer fails closed.
+answer may be retried, and expires after 15 minutes. A create question binds only inside the person's Routine draft its
+own turn wrote, so a discarded, replaced, or completed draft revokes it. Any other composed answer to a create question,
+a free-text one or one after a restart, continues that draft through the planner instead (ADR-0092 amendment,
+2026-10-05); every other composed answer cannot change a Routine at all.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from routine import record
+from routine import request as routine_request
 
 LINEAGE_SECONDS = 900
 # The header of a composed answer: a blank line, then "<question label>: <question>", then "<answer label>: ". Whatever
@@ -44,8 +47,11 @@ class Question:
     routines: tuple[record.Routine, ...]
     reply: str
     expires_at: float = 0.0
-    # The person's own earlier sends the asking request cited, frozen with it; an answer never reselects them.
-    earlier: tuple[str, ...] = ()
+    # The Routine's words the asking request compiled from, frozen with it; an answer never reselects them.
+    words: tuple[routine_request.Part, ...] = ()
+    # The person's Routine draft the same commit wrote with a create question; only that draft lets it bind
+    # (ADR-0092 amendment, 2026-10-05). None for an update question, or when the words did not fit a draft.
+    generation: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,11 +62,24 @@ class Answer:
     index: int
 
     @property
+    def label(self) -> str:
+        return self.question.labels[self.index]
+
+    @property
+    def words(self) -> tuple[routine_request.Part, ...]:
+        """The Routine's words: the asking request's, then the selected label, the person's own answer."""
+        return (*self.question.words, (routine_request.SAID, self.label))
+
+    @property
     def routine(self) -> record.Routine:
-        """The selected option's Routine, its evidence naming the field and the label the answer selected."""
+        """The selected option's Routine, its evidence naming the field, the label, and the words with that answer.
+
+        The label is appended after every span the option's evidence already holds, so none of them moves.
+        """
         value = self.question.routines[self.index]
-        selected = {"field": list(self.question.field), "label": self.question.labels[self.index]}
-        return dataclasses.replace(value, grant={**value.grant, "selected": selected})
+        selected = {"field": list(self.question.field), "label": self.label}
+        message = routine_request.commitment(self.words)
+        return dataclasses.replace(value, grant={**value.grant, "selected": selected, "message": message})
 
 
 def composed(message: str) -> bool:
@@ -68,7 +87,8 @@ def composed(message: str) -> bool:
     return _COMPOSED_RE.search(message) is not None
 
 
-def _label(value: str) -> bool:
+def label(value: str) -> bool:
+    """Whether text can be a composed answer's question or answer label: 1-40 characters, no colon or newline."""
     return 0 < len(value) <= _LABEL_CHARS and ":" not in value and "\n" not in value
 
 
@@ -81,10 +101,10 @@ def _selected(question: Question, message: str) -> int | None:
     if len(lines) != 2:
         return None
     asked, answered = lines
-    if not asked.endswith(": " + question.question) or not _label(asked[: -len(question.question) - 2]):
+    if not asked.endswith(": " + question.question) or not label(asked[: -len(question.question) - 2]):
         return None
-    label, separator, answer = answered.partition(": ")
-    if not separator or not _label(label) or answer not in question.labels:
+    answer_label, separator, answer = answered.partition(": ")
+    if not separator or not label(answer_label) or answer not in question.labels:
         return None
     return question.labels.index(answer)
 

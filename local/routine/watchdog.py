@@ -17,6 +17,7 @@ from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError
 from local.routine import compiled as routine_compiled
+from local.routine import draft as routine_draft
 from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
 from local.routine import run as routine_run
@@ -129,6 +130,13 @@ def check(service, *, startup: bool = False) -> None:
             if startup:
                 raise
             _audit("routine-watchdog", "team-check-failed", team_id)
+    # A Routine draft nobody continued expires, even in a Team that has no Routine yet (ADR-0092, 2026-10-05).
+    try:
+        service.routine_store.sweep_drafts(now - routine_draft.DRAFT_SECONDS)
+    except routine_store.RoutineStoreError:
+        if startup:
+            raise
+        _audit("routine-watchdog", "draft-sweep-failed")
 
 
 class RoutineWatchdog:

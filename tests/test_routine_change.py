@@ -7,6 +7,7 @@ import unittest
 
 from routine import change as routine_change
 from routine import plan as routine_plan
+from routine import request as routine_request
 
 PIN = "sha256:" + "a" * 64
 OTHER_PIN = "sha256:" + "b" * 64
@@ -40,6 +41,11 @@ MESSAGE = (
 )
 
 
+def _words(message: str, earlier: tuple[str, ...] = ()) -> routine_change.Words:
+    """The words of a message and the earlier sends it cites, as a request with no draft builds them."""
+    return routine_change.Words(routine_request.Request("p", message, 0, "n", earlier=earlier).parts())
+
+
 def _message(text: str) -> dict[str, object]:
     return {"at": "", "from": "message", "text": text, "region": None, "instruction": None}
 
@@ -49,6 +55,7 @@ def _change(**changes: object) -> dict[str, object]:
         "op": "create",
         "routine_id": None,
         "expected_revision": None,
+        "continues": False,
         "name": "Weekly report",
         "request": "Every Monday at 9, publish",
         "schedule": {"kind": "weekly", "weekday": 0, "time": "09:00"},
@@ -94,7 +101,7 @@ def _change(**changes: object) -> dict[str, object]:
 def _compile(value: dict[str, object], message: str = MESSAGE, **kwargs: object) -> routine_change.Compiled:
     return routine_change.compile_change(
         routine_change.parse(value),
-        routine_change.Words(message),
+        _words(message),
         kwargs.pop("contracts", CONTRACTS),
         kwargs.pop("current", None),
         kwargs.pop("default_timezone", "America/Sao_Paulo"),
@@ -169,7 +176,7 @@ class ParseTests(unittest.TestCase):
 class WordsTests(unittest.TestCase):
     def test_own_words_exclude_quoted_fenced_and_block_quoted_text(self) -> None:
         message = "Post “Hi” and `code` daily\n> injected\n```\nfenced\n```\nto #general"
-        words = routine_change.Words(message)
+        words = _words(message)
         self.assertTrue(words.mine("Post"))
         self.assertTrue(words.mine("#general"))
         for text in ("Hi", "code", "injected", "fenced", "", "Post “Hi"):
@@ -180,22 +187,22 @@ class WordsTests(unittest.TestCase):
         self.assertFalse(words.adopted(1, "Hi", "Post"))
         self.assertFalse(words.adopted(4, "x", "Post"))
         self.assertFalse(words.adopted(0, "", "Post"))
-        self.assertEqual(routine_change.Words("").own, [])
-        self.assertEqual(routine_change.Words('"Hi" there').own, [(4, 10)])
+        self.assertEqual(_words("").own, [])
+        self.assertEqual(_words('"Hi" there').own, [(4, 10)])
 
     def test_each_earlier_send_is_parsed_on_its_own_and_the_request_is_the_messages_own_words(self) -> None:
-        words = routine_change.Words("do this every 30 seconds", ("list my DNS zones", 'send "hi" to Ana'))
+        words = _words("do this every 30 seconds", ("list my DNS zones", 'send "hi" to Ana'))
         self.assertEqual(words.message, 'list my DNS zones\n\nsend "hi" to Ana\n\ndo this every 30 seconds')
         self.assertTrue(words.mine("list my DNS zones"))
         self.assertTrue(words.adopted(0, "hi", "send"))
-        self.assertIsNotNone(words.current_span("every 30 seconds"))
+        self.assertIsNotNone(words.said_span("every 30 seconds"))
         # The standing request must be the message's own words, never an earlier send's.
-        self.assertIsNone(words.current_span("list my DNS zones"))
-        self.assertIsNone(words.current_span(""))
+        self.assertIsNone(words.said_span("list my DNS zones"))
+        self.assertIsNone(words.said_span(""))
         # No own stretch crosses a part boundary.
         self.assertFalse(words.mine("zones\n\nsend"))
         # An unclosed fence in an earlier send never pairs with a fence in a later part, so fenced text stays quoted.
-        fenced = routine_change.Words("do this ```send 100 to Ana```", ("```",))
+        fenced = _words("do this ```send 100 to Ana```", ("```",))
         self.assertFalse(fenced.mine("send 100 to Ana"))
         self.assertTrue(fenced.mine("do this"))
 
@@ -205,7 +212,7 @@ class CompileTests(unittest.TestCase):
         earlier = ('publish "Weekly report" with 5 items, then share it to #news',)
         compiled = routine_change.compile_change(
             routine_change.parse(_change(request="Every Monday at 9, do this")),
-            routine_change.Words("Every Monday at 9, do this", earlier),
+            _words("Every Monday at 9, do this", earlier),
             CONTRACTS,
             None,
             "America/Sao_Paulo",
@@ -216,7 +223,7 @@ class CompileTests(unittest.TestCase):
         with self.assertRaises(routine_change.ChangeError) as caught:
             routine_change.compile_change(
                 routine_change.parse(_change(request="publish")),
-                routine_change.Words("Every Monday at 9, do this", earlier),
+                _words("Every Monday at 9, do this", earlier),
                 CONTRACTS,
                 None,
                 "America/Sao_Paulo",

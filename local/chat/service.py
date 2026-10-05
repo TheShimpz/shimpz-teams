@@ -249,6 +249,8 @@ class ChatTurnService:
     _chat_routines = local_routine_turn.chat_routines
     _routine_change = local_routine_turn.admit_change
     _routine_question = local_routine_question.admit
+    _routine_need = local_routine_turn.admit_need
+    _routine_discard = local_routine_turn.admit_discard
     _recover_routine_run = local_routine_recovery.automatic
     open_routine_card = local_routine_card.open_card
     answer_routine_card = local_routine_card.answer_card

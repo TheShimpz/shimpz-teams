@@ -29,6 +29,7 @@ from routine import change as routine_change
 from routine import hold as routine_hold
 from routine import plan as routine_plan
 from routine import record
+from routine import request as routine_request
 from routine.request import Request as RoutineRequest
 
 # The compile's registered deadline, after which the watchdog stops it like an overdue run.
@@ -68,8 +69,10 @@ def _same(left: object, right: object) -> bool:
 
 
 def _admitted(change: routine_change.Change, request: RoutineRequest, active, scope, selected=None) -> record.Routine:
+    """A recompiled create admitted against every sealed part: the words that once granted the Routine, whole."""
     if change.op != "create":
         raise _refused()
+    change = dataclasses.replace(change, continues=request.draft is not None)
     try:
         return routine_turn.definition(change, request, active, scope, None, selected)
     except ApiProblem as exc:
@@ -122,7 +125,7 @@ def _compile(self, team_id: str, source: routine_source.Source, credential: tupl
         raise _unavailable()
     try:
         compiled = inference_recreate.compile_routine(
-            self.brain_runtime, (config.provider, config.model, api_key), source.message, runtime, source.earlier
+            self.brain_runtime, (config.provider, config.model, api_key), source.parts, runtime
         )
     except brain_runtime_client.BrainRuntimeError as exc:
         raise _unavailable() from exc
@@ -140,9 +143,10 @@ def recreate(self, team_id: str, card, expected: routine_hold.Expected, context,
     if source is None or source.commitment != card.source or source.incarnation != card.incarnation:
         raise _problem(HTTPStatus.CONFLICT, "the Routine's creation message is gone", "routine-source-unavailable")
     # The card's nonce is this request's own: a replayed answer finds its card consumed and never compiles again.
-    request = RoutineRequest(
-        principal, source.message, int(time.time()), card.nonce, current.timezone, earlier=source.earlier
-    )
+    # The sealed words stand as the person's request again: the last part is said and the others are its draft.
+    words = source.parts
+    draft = routine_request.Draft("", card.incarnation, words[:-1]) if len(words) > 1 else None
+    request = RoutineRequest(principal, words[-1][1], int(time.time()), card.nonce, current.timezone, draft=draft)
     # A change the Team could not hold anyway never pays for a compile; its write checks again. It adds the changed
     # notice, and the held run's own notice again unless that one is still undelivered and so only replaced.
     state = routine_state.load(self, team_id)

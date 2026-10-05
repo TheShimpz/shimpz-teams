@@ -44,6 +44,7 @@ def _change(**changes: object) -> dict[str, object]:
         "op": "create",
         "routine_id": None,
         "expected_revision": None,
+        "continues": False,
         "name": "Daily zones",
         "request": "Every day at 9, list my zones",
         "schedule": DAILY,
@@ -118,7 +119,8 @@ class CardCase(RecoveryCase):
     @staticmethod
     def seal(service, value: record.Routine, message: str = MESSAGE, selected=None, earlier=()) -> None:
         network = service.assistant_lifecycle._network("team_1").id
-        source = routine_source.Source(value.routine_id, network, message, selected, earlier)
+        parts = (*(("cited", text) for text in earlier), ("said", message))
+        source = routine_source.Source(value.routine_id, network, parts, selected)
         routine_source.seal(service, "team_1", source)
 
 
@@ -306,7 +308,7 @@ class RecriarTests(CardCase):
         self.assertEqual(outcomes["user-skipped"].detail["choice"], "recreate")
         self.assertIn("changed", outcomes)
         # The source is the creation message, never replaced by the recreated revision.
-        self.assertEqual(source.message, MESSAGE)
+        self.assertEqual(source.parts, (("said", MESSAGE),))
 
     def test_recriar_recompiles_with_the_sealed_earlier_sends_and_admits_their_words(self) -> None:
         """A Routine whose message referred to earlier work recompiles from exactly that sealed source."""
@@ -323,8 +325,14 @@ class RecriarTests(CardCase):
                 self.answer(service, run_id, self.card(service, run_id), "recreate")["status"], "recreated"
             )
             (routine,) = self.state(service).routines
-        self.assertEqual([payload["earlier"] for payload, _provider, _model in brain.compiled], [[], [earlier]])
-        self.assertEqual(routine.grant["message"], routine_request.commitment("Every day at 9, do this", (earlier,)))
+        self.assertEqual(
+            [payload["draft"] for payload, _provider, _model in brain.compiled],
+            [[], [{"kind": "cited", "text": earlier}]],
+        )
+        self.assertEqual(
+            routine.grant["message"],
+            routine_request.commitment((("cited", earlier), ("said", "Every day at 9, do this"))),
+        )
 
     def test_a_question_is_answered_only_by_the_value_the_person_once_selected(self) -> None:
         asked = _change(schedule=None)
@@ -336,7 +344,7 @@ class RecriarTests(CardCase):
         clarification = {
             "question": "When?",
             "options": [{"label": "At 10", "description": ""}, {"label": "At 9", "description": ""}],
-            "default_index": 0,
+            "default_index": None,
         }
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held_with(

@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import dataclasses
 import time
+from collections.abc import Callable
 from http import HTTPStatus
 
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import draft as routine_draft
 from local.routine import lineage as routine_lineage
 from local.routine import source as routine_source
 from local.routine import turn as routine_turn
@@ -25,8 +27,16 @@ from routine import record
 from routine.request import Request as RoutineRequest
 
 
-def admit(self, response: object, proposed: object, clarification: dict[str, object]) -> routine_lineage.Question:
-    """Admit a completed turn's Routine question: every option's Routine, before the question reaches the user."""
+def admit(self, response: object, proposed: object, clarification: dict[str, object] | None) -> Callable[[], None]:
+    """Admit a completed turn's Routine question: every option's Routine, before the question reaches the user.
+
+    The returned write runs exactly when the reply commits: a create question keeps the Routine's words as the person's
+    draft, so a typed or free-text answer continues it (ADR-0092 amendment, 2026-10-05), and records the question bound
+    to that very draft; an update question only records itself.
+    """
+    if clarification is None or clarification["default_index"] is not None or len(clarification["options"]) < 2:
+        # A Routine question recommends nothing, and one field with a single value leaves nothing to ask.
+        raise ApiProblem(HTTPStatus.BAD_GATEWAY, "Brain could not complete the Team turn", code="brain-runtime-failed")
     labels = tuple(option["label"] for option in clarification["options"])
     try:
         question = routine_change.parse_question(proposed, len(labels))
@@ -34,8 +44,9 @@ def admit(self, response: object, proposed: object, clarification: dict[str, obj
         raise ApiProblem(
             HTTPStatus.BAD_GATEWAY, "Brain could not complete the Team turn", code="brain-runtime-failed"
         ) from exc
-    request, _network_id, assistants = routine_turn.checked(self, response)
+    request, network_id, assistants = routine_turn.checked(self, response)
     head = question.changes[0]
+    routine_turn.continued(request, head.continues, network_id)
     existing = routine_turn.current(self, response.team_id, head)
     scope = dict(response.segment.contracts)
     routine_id = head.routine_id or record.new_id()
@@ -46,7 +57,8 @@ def admit(self, response: object, proposed: object, clarification: dict[str, obj
         # Each option must also schedule; only the answer's commit schedules it for real.
         routine_turn.scheduled(value, now)
         routines.append(dataclasses.replace(value, routine_id=routine_id))
-    return routine_lineage.Question(
+    words = request.parts(head.continues)
+    asked = routine_lineage.Question(
         request.principal,
         request.message,
         clarification["question"],
@@ -56,8 +68,18 @@ def admit(self, response: object, proposed: object, clarification: dict[str, obj
         head.expected_revision,
         tuple(routines),
         question.reply,
-        earlier=request.earlier,
+        words=words,
     )
+
+    def write() -> None:
+        generation = None
+        if head.op == "create":
+            generation = routine_draft.save(
+                self, response.team_id, request, network_id, words, clarification["question"]
+            )
+        self.routine_lineage.record(response.team_id, dataclasses.replace(asked, generation=generation))
+
+    return write
 
 
 def _current(self, team_id: str, value: record.Routine) -> tuple[str, str]:
@@ -77,7 +99,9 @@ def _current(self, team_id: str, value: record.Routine) -> tuple[str, str]:
 def answer(self, team_id: str, token: str, request: RoutineRequest, bound: routine_lineage.Answer) -> dict[str, object]:
     """Commit the Routine the selected option completes, with its reply, exactly when Stop did not win the turn.
 
-    The question stays pending until that commit, so a failed or stopped answer may be sent again.
+    The question stays pending until that commit, so a failed or stopped answer may be sent again. A create question
+    commits only while the person's draft is still the one it was asked in, which the commit then removes; its source
+    and evidence keep the asking words and the selected label, the person's own answer.
     """
     if not request.fresh(int(time.time())):
         raise routine_turn.expired()
@@ -88,11 +112,15 @@ def answer(self, team_id: str, token: str, request: RoutineRequest, bound: routi
         source = None
         if question.op == "create":
             selected = (question.field, routine_source.field_value(value, question.field))
-            source = routine_source.Source(
-                value.routine_id, network_id, question.message, selected, earlier=question.earlier
-            )
+            source = routine_source.Source(value.routine_id, network_id, bound.words, selected)
         write = routine_turn.writer(
-            self, team_id, (question.op, question.expected_revision), value, request, network_id, source=source
+            self,
+            team_id,
+            (question.op, question.expected_revision),
+            value,
+            request,
+            network_id,
+            source=source,
         )
         committed = self._commit_chat_terminal(team_id, token, write)
     if not committed:

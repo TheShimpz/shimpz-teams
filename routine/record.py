@@ -325,6 +325,11 @@ def _receipt(state: TeamRoutines, receipt: str, expires_at: int, now: int) -> tu
     return dataclasses.replace(state, receipts=(*live, (receipt, expires_at))), True
 
 
+def has_receipt(state: TeamRoutines, receipt: str, now: int) -> bool:
+    """Whether a request with this receipt already changed a Routine and its receipt is still live."""
+    return any(key == receipt and expires > now for key, expires in state.receipts)
+
+
 def change_room(state: TeamRoutines, now: int, notices: int) -> str | None:
     """Why one more Routine change adding ``notices`` new notices cannot be admitted now; None when it fits.
 
