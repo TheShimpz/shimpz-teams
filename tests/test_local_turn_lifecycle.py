@@ -49,14 +49,11 @@ class PausingRuntime:
     purpose = staticmethod(lambda *_args: None)
 
     def __init__(self, refusal: str) -> None:
-        self.refusal = refusal
+        self.resume = mock.Mock(side_effect=AssertionError(refusal))
 
     @staticmethod
     def start(_context, _message, *, conversation=()):
         return brain_runtime_client.RuntimeTurn("action-required", "", (LIST_ZONES,))
-
-    def resume(self, _context, _results):
-        raise AssertionError(self.refusal)
 
 
 def _chat(controller: local_app.LocalController, message: str, **fields: object) -> dict[str, object]:
@@ -102,9 +99,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
 
     def test_local_snapshot_persists_an_integration_pause(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            controller = self._chat_controller(
-                directory, PausingRuntime("the missing Integration must pause before Brain resume")
-            )
+            runtime = PausingRuntime("the missing Integration must pause before Brain resume")
+            controller = self._chat_controller(directory, runtime)
             controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare")
             paused = _chat(controller, "List zones")
             stored = controller.chat_continuations.current("team_1")
@@ -115,6 +111,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(paused["challenge_id"], stored.challenge_id)
         self.assertTrue(state_exists)
         self.assertTrue(key_exists)
+        runtime.resume.assert_not_called()
 
     def test_local_human_approval_replays_the_same_action_before_brain_resume(self) -> None:
         request = LIST_ZONES
@@ -245,7 +242,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
 
     def test_denied_human_request_purges_the_action_batch_without_brain_resume(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            controller = self._chat_controller(directory, PausingRuntime("a denied Action must not resume the Brain"))
+            runtime = PausingRuntime("a denied Action must not resume the Brain")
+            controller = self._chat_controller(directory, runtime)
             _suspend(controller, self._approval_request())
             paused = _chat(controller, "List zones")
             denied = _resume(controller, {"challenge_id": paused["challenge_id"], "decision": "deny"})
@@ -253,10 +251,12 @@ class LocalTurnLifecycleTests(LocalContractCase):
 
         self.assertEqual(denied["status"], "human-denied")
         self.assertEqual(batches, (0,))
+        runtime.resume.assert_not_called()
 
     def test_restart_purges_an_expired_human_continuation_and_unblocks_the_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            controller = self._chat_controller(directory, PausingRuntime("an expired Action must not resume the Brain"))
+            runtime = PausingRuntime("an expired Action must not resume the Brain")
+            controller = self._chat_controller(directory, runtime)
             admitted = self._approval_request()
             _suspend(controller, admitted)
             paused = _chat(controller, "List zones")
@@ -290,10 +290,12 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(after, (0,))
         self.assertIsNone(reopened.current("team_1"))
         self.assertEqual(next_batch.generation, "a" * 64)
+        runtime.resume.assert_not_called()
 
     def test_running_controller_purges_an_expired_human_challenge(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            controller = self._chat_controller(directory, PausingRuntime("an expired Action must not resume the Brain"))
+            runtime = PausingRuntime("an expired Action must not resume the Brain")
+            controller = self._chat_controller(directory, runtime)
             admitted = self._approval_request()
             _suspend(controller, admitted)
             _chat(controller, "List zones")
@@ -313,6 +315,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(batches, (0,))
         self.assertIsNone(controller.chat_continuations.current("team_1"))
         self.assertEqual(next_batch.generation, "a" * 64)
+        runtime.resume.assert_not_called()
 
     def test_unavailable_strong_local_auth_assurance_auto_blocks_without_a_fake_prompt(self) -> None:
         for kind in sorted(action_human.AUTH_KINDS - {"auth:password"}):
@@ -329,6 +332,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 self.assertEqual(batches, (0,))
                 self.assertIsNone(controller.chat_turn_service.human_challenges.current("team_1"))
                 self.assertIsNone(controller.chat_turn_service.chat_continuations.current("team_1"))
+                runtime.resume.assert_not_called()
 
     def test_local_reauthentication_pauses_for_supervisor_assurance(self) -> None:
         admitted = _identity_request("auth:password")
@@ -343,6 +347,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             self.assertEqual(response["request"]["kind"], "auth:password")
             self.assertIsNotNone(controller.chat_turn_service.human_challenges.current("team_1"))
             self.assertIsNotNone(controller.chat_turn_service.chat_continuations.current("team_1"))
+            runtime.resume.assert_not_called()
 
     def test_failed_reauthentication_resume_requires_a_fresh_request_without_wedging_team(self) -> None:
         request = LIST_ZONES

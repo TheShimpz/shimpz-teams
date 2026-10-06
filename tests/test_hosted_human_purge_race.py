@@ -207,7 +207,11 @@ class HostedHumanPurgeRaceTests(unittest.TestCase):
         config = hosted_lifecycle.inference_config.normalize()
         body = {"provider": config.provider, "model": config.model, "effort": config.effort}
         lease = SimpleNamespace(container_id=GENERATION, owner="account_1")
-        paused, refused, save = self._pause_racing(lambda: hosted_lifecycle._configure_inference("team_1", body, lease))
+        chat_lock = runtime_state._chat_lock_for("team_1")
+        self.assertTrue(chat_lock.acquire(blocking=False))
+        paused, refused, save = self._pause_racing(
+            lambda: hosted_lifecycle._configure_inference("team_1", body, lease), chat_lock
+        )
 
         published = self.challenges.current("team_1")
         self.assertIsNotNone(published, "the paused turn returned a challenge that no longer exists")
@@ -216,8 +220,8 @@ class HostedHumanPurgeRaceTests(unittest.TestCase):
         self.assertEqual([error.status for error in refused], [HTTPStatus.CONFLICT])
         save.assert_not_called()
 
-    def _pause_racing(self, race) -> tuple[dict, list[runtime_state.ApiError], mock.Mock]:
-        """Pause the executing segment, which holds the Team chat slot, while ``race`` runs right after its publish.
+    def _pause_racing(self, race, chat_lock) -> tuple[dict, list[runtime_state.ApiError], mock.Mock]:
+        """Pause the executing segment, which holds the acquired Team chat slot, while ``race`` runs after its publish.
 
         Returns the pause response, the ApiErrors ``race`` raised, and the inference save mock.
         """
@@ -233,8 +237,6 @@ class HostedHumanPurgeRaceTests(unittest.TestCase):
             return challenge
 
         outcome = SimpleNamespace(request=self.requirement.request, continuation=self.pending.continuation)
-        chat_lock = runtime_state._chat_lock_for("team_1")
-        self.assertTrue(chat_lock.acquire(blocking=False))
         try:
             with (
                 mock.patch.object(self.challenges, "create", side_effect=publish_then_race),
@@ -262,7 +264,9 @@ class HostedHumanPurgeRaceTests(unittest.TestCase):
     def test_a_repeated_create_cannot_withdraw_the_challenge_an_executing_turn_publishes(self) -> None:
         # Repeating creation of an existing Team rewrites its inference, so it waits for the Team chat slot too.
         self.challenges.cancel_team("team_1")
-        paused, refused, save = self._pause_racing(self._repeat_create)
+        chat_lock = runtime_state._chat_lock_for("team_1")
+        self.assertTrue(chat_lock.acquire(blocking=False))
+        paused, refused, save = self._pause_racing(self._repeat_create, chat_lock)
 
         published = self.challenges.current("team_1")
         self.assertIsNotNone(published, "the paused turn returned a challenge that no longer exists")
