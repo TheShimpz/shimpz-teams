@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 
 from action import challenges as action_challenges
@@ -114,10 +115,11 @@ def _text(
     return value
 
 
-def _component_id(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) > 80 or http_payload.ACTION_ID_RE.fullmatch(value) is None:
+def _component_id(value: object, label: str, canonical: Callable[[object], str | None]) -> str:
+    identifier = canonical(value)
+    if identifier is None:
         raise ContinuationCodecError(f"{label} is malformed")
-    return value
+    return identifier
 
 
 def _interrupt_id(value: object) -> str:
@@ -325,7 +327,7 @@ def _release_images(pending: PendingLocalChat) -> dict[str, str]:
     for raw in identity["assistants"]:
         if not isinstance(raw, list) or len(raw) != 3:
             raise ContinuationCodecError("continuation Assistant identity is malformed")
-        assistant = _component_id(raw[0], "continuation Assistant identity")
+        assistant = _component_id(raw[0], "continuation Assistant identity", http_payload.canonical_assistant_id)
         image = raw[1]
         if not isinstance(image, str) or _IMAGE.fullmatch(image) is None:
             raise ContinuationCodecError("continuation Assistant release is malformed")
@@ -338,17 +340,21 @@ def _bindings(kind: str, requirements: tuple[object, ...], pending: PendingLocal
     bindings: set[str] = set()
     if kind == "integrations":
         for requirement in requirements:
-            assistant = _component_id(requirement.assistant_id, "continuation binding Assistant")
+            assistant = _component_id(
+                requirement.assistant_id, "continuation binding Assistant", http_payload.canonical_assistant_id
+            )
             image = images.get(assistant)
             if image is None:
                 raise ContinuationCodecError("continuation release binding is malformed")
             for action_id in requirement.action_ids:
-                action = _component_id(action_id, "continuation binding Action")
+                action = _component_id(action_id, "continuation binding Action", http_payload.canonical_action_id)
                 bindings.add(f"{assistant}/{action}/{image}/-")
     elif kind == "human" and len(requirements) == 1:
         requirement = requirements[0]
-        assistant = _component_id(requirement.assistant_id, "continuation binding Assistant")
-        action = _component_id(requirement.action_id, "continuation binding Action")
+        assistant = _component_id(
+            requirement.assistant_id, "continuation binding Assistant", http_payload.canonical_assistant_id
+        )
+        action = _component_id(requirement.action_id, "continuation binding Action", http_payload.canonical_action_id)
         image = images.get(assistant)
         if image is None or not isinstance(requirement.request, action_human.HumanRequest):
             raise ContinuationCodecError("continuation release binding is malformed")
@@ -414,8 +420,10 @@ def _action_request(value: object) -> brain_runtime_client.ActionRequest:
         raise ContinuationCodecError("continuation Action input is malformed")
     return brain_runtime_client.ActionRequest(
         interrupt_id=_interrupt_id(raw["interrupt_id"]),
-        assistant_id=_component_id(raw["assistant_id"], "continuation Action Assistant"),
-        action=_component_id(raw["action"], "continuation Action"),
+        assistant_id=_component_id(
+            raw["assistant_id"], "continuation Action Assistant", http_payload.canonical_assistant_id
+        ),
+        action=_component_id(raw["action"], "continuation Action", http_payload.canonical_action_id),
         input=action_input,
     )
 
@@ -476,8 +484,8 @@ def _continuation(value: object) -> chat_orchestrator.ChatContinuation:
             raise ContinuationCodecError("invoked Action is malformed")
         invoked.append(
             chat_orchestrator.InvokedAction(
-                _component_id(entry["assistant_id"], "invoked Action Assistant"),
-                _component_id(entry["action"], "invoked Action"),
+                _component_id(entry["assistant_id"], "invoked Action Assistant", http_payload.canonical_assistant_id),
+                _component_id(entry["action"], "invoked Action", http_payload.canonical_action_id),
                 tuple(inputs),
                 entry["contract"],
                 entry["learnable"],
@@ -511,7 +519,7 @@ def _identity(value: object) -> tuple[object, ...]:
     for item in _sequence(raw["assistants"], MAX_IDENTITY_ASSISTANTS, "continuation Assistants"):
         if not isinstance(item, list) or len(item) != 3:
             raise ContinuationCodecError("continuation Assistant identity is malformed")
-        assistant = _component_id(item[0], "continuation Assistant identity")
+        assistant = _component_id(item[0], "continuation Assistant identity", http_payload.canonical_assistant_id)
         image = item[1]
         container = item[2]
         if (
@@ -570,7 +578,8 @@ def _pending(value: object) -> PendingLocalChat:
         "pending continuation",
     )
     assistant_ids = tuple(
-        _component_id(item, "pending Assistant") for item in _sequence(raw["assistant_ids"], 16, "pending Assistants")
+        _component_id(item, "pending Assistant", http_payload.canonical_assistant_id)
+        for item in _sequence(raw["assistant_ids"], 16, "pending Assistants")
     )
     if len(assistant_ids) != len(set(assistant_ids)) or tuple(sorted(assistant_ids)) != assistant_ids:
         raise ContinuationCodecError("pending Assistants are malformed")
@@ -665,15 +674,15 @@ def _integration_requirement(value: object) -> integration_challenges.Integratio
             raise ContinuationCodecError("integration requirement is malformed")
         integrations.append(
             (
-                _component_id(item[0], "integration id"),
-                _component_id(item[1], "integration provider"),
+                _component_id(item[0], "integration id", http_payload.canonical_identifier),
+                _component_id(item[1], "integration provider", http_payload.canonical_identifier),
                 _tuple_text(item[2], 128, "integration scopes"),
             )
         )
     if not integrations:
         raise ContinuationCodecError("integration requirement is malformed")
     return integration_challenges.IntegrationRequirement(
-        _component_id(raw["assistant_id"], "integration Assistant"),
+        _component_id(raw["assistant_id"], "integration Assistant", http_payload.canonical_assistant_id),
         str(_text(raw["assistant_name"], 80, "integration Assistant name")),
         _tuple_text(raw["action_ids"], 80, "integration Actions"),
         tuple(integrations),
@@ -717,9 +726,9 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
     if not help_url_valid or not purpose_valid or not file_valid:
         raise ContinuationCodecError("human requirement presentation is malformed")
     return action_challenges.HumanRequirement(
-        _component_id(raw["assistant_id"], "human Assistant"),
+        _component_id(raw["assistant_id"], "human Assistant", http_payload.canonical_assistant_id),
         str(_text(raw["assistant_name"], 80, "human Assistant name")),
-        _component_id(raw["action_id"], "human Action"),
+        _component_id(raw["action_id"], "human Action", http_payload.canonical_action_id),
         str(_text(raw["action_summary"], 500, "human Action summary")),
         _interrupt_id(raw["interrupt_id"]),
         request,

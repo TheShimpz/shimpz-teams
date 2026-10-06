@@ -23,7 +23,7 @@ class ContinuationCodecPrimitiveEdgeTests(unittest.TestCase):
             (continuation._sequence, ([1, 2], 1, "sequence")),
             (continuation._text, (None, 8, "text")),
             (continuation._text, (" padded ", 20, "text")),
-            (continuation._component_id, ("INVALID ID", "component")),
+            (continuation._component_id, ("INVALID ID", "component", continuation.http_payload.canonical_action_id)),
             (continuation._interrupt_id, ("invalid id",)),
         )
         for operation, arguments in invalid:

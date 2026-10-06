@@ -10,6 +10,7 @@ from assistant import manifest
 from inference import client as brain_client
 from integrations import flow, pkce, service
 from integrations import store as integration_store
+from local.chat import continuation
 from local.install import snapshots
 from protocol.http.v1 import payload as http_payload
 from storage import private_state
@@ -20,6 +21,10 @@ ACTION_KIND = (("dns.read", "zone_get", "a" * 128), ("a" * 129, "dns..read", "A"
 
 
 def _cases():
+    error = continuation.ContinuationCodecError
+    yield continuation._component_id, error, http_payload.canonical_assistant_id, ASSISTANT_KIND
+    yield continuation._component_id, error, http_payload.canonical_identifier, IDENTIFIER_KIND
+    yield continuation._component_id, error, http_payload.canonical_action_id, ACTION_KIND
     yield flow._component_id, flow.IntegrationFlowError, http_payload.canonical_assistant_id, ASSISTANT_KIND
     yield flow._component_id, flow.IntegrationFlowError, http_payload.canonical_identifier, IDENTIFIER_KIND
     yield flow._component_id, flow.IntegrationFlowError, http_payload.canonical_action_id, ACTION_KIND
