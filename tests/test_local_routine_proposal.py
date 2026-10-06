@@ -383,6 +383,7 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertNotIn("routine_proposal", response)
         question = {"code": "routine-schedule-unstated", "options": [], "value": None}
         self.assertEqual((runtime.contexts[0].routine_question, runtime.contexts[1].routine_question), (None, question))
+        self.assertEqual([context.routine_mode for context in runtime.contexts], [False, True])
 
     def test_only_a_target_chosen_by_its_exact_json_text_skips_the_brain(self) -> None:
         original = "Liste os registros DNS a cada 30 segundos"
@@ -468,6 +469,13 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(
             (partial["reply"], "routine_proposal" in partial, "routine_question" in partial), ("Pronto.", False, False)
         )
+        # The Brain sees the work to run again: the remembered zone needs a fresh source.
+        (slot,) = runtime.contexts[1].routine_rerun
+        kinds = {item["member"]: item["kind"] for item in slot["inputs"]}
+        self.assertEqual(
+            (slot["action"], kinds), ("list-dns-records", {"page": "value", "per_page": "value", "zone_id": "fresh"})
+        )
+        self.assertIsNone(runtime.contexts[0].routine_rerun)
         self.assertEqual(rerun["reply"], "Pronto.")
         zone_id = next(item for item in rerun["routine_proposal"]["steps"][1]["inputs"] if item["member"] == "zone_id")
         self.assertEqual(zone_id["where"]["value_json"], '"shimpz.com"')

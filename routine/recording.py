@@ -628,7 +628,7 @@ def _only_sources(send: Send, state: _Assignment) -> bool:
     """Whether every call the slots did not take is a read-only call returning a fresh value they sent."""
     sent = [json.loads(text) for text in state.backward]
     return all(
-        occurrence.read_only and any(_returned(occurrence, value) for value in sent)
+        occurrence.read_only and any(returned(occurrence, value) for value in sent)
         for place, occurrence in enumerate(send.occurrences)
         if place not in state.taken
     )
@@ -657,12 +657,12 @@ def _fills(
             before, after = _json_text(value), _json_text(sent)
             if forward.setdefault(before, after) != after or backward.setdefault(after, before) != before:
                 return None
-            if not any(item is not occurrence and _returned(item, sent) for item in send.occurrences):
+            if not any(item is not occurrence and returned(item, sent) for item in send.occurrences):
                 return None
     return forward, backward
 
 
-def _returned(occurrence: trace.Occurrence, value: object) -> bool:
+def returned(occurrence: trace.Occurrence, value: object) -> bool:
     """Whether a call returned the value at a position it kept."""
     result = occurrence.result
     return any(result.available(_pointer(position[0])) for position in _positions(result.value, value))

@@ -202,6 +202,8 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         routines=_listed(self, request) if mutable else None,
         routine_capacity=self._routine_capacity(request.team_id) if mutable else None,
         routine_question=_pending_question(self, request) if mutable else None,
+        routine_mode=mutable and routine_recorder.routine_mode(_span(self, request)),
+        routine_rerun=routine_recorder.rerun_work(_span(self, request)) if mutable else None,
         knowledge_writable=routine is None,
         locale=request.locale,
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),
@@ -216,9 +218,13 @@ def _listed(self, request: SegmentRequest) -> tuple[dict[str, object], ...]:
     return routines
 
 
+def _span(self, request: SegmentRequest) -> routine_recorder.Span | None:
+    return self.routine_recordings.live(request.team_id, request.recording)
+
+
 def _pending_question(self, request: SegmentRequest) -> dict[str, object] | None:
     """The question Team asked in the recording this send continues, which the Brain sees beside the person's words."""
-    span = self.routine_recordings.live(request.team_id, request.recording)
+    span = _span(self, request)
     return None if span is None or span.asked is None else span.asked.wire
 
 

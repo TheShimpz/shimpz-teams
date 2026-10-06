@@ -114,6 +114,11 @@ class RuntimeContext:
     # The question Team asked about the recording this chat continues (ADR-0101), ``{code, options, value}``, which
     # the person may answer in their own words; None when none is pending. Only beside ``routines``.
     routine_question: Mapping[str, object] | None = None
+    # Advisory: whether the chat is about a Routine, read with no model from the recording span (ADR-0101). The Brain
+    # still follows what the current message asks.
+    routine_mode: bool = False
+    # The work a pending unsourced or rerun question asks to run again, in order, bounded and redacted; None otherwise.
+    routine_rerun: tuple[Mapping[str, object], ...] | None = None
     # False in a Routine run, whose memory and skills the Brain may read but never change.
     knowledge_writable: bool = True
     # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
@@ -332,6 +337,8 @@ class BrainRuntimeClient:
             "routines": None if context.routines is None else [dict(item) for item in context.routines],
             "routine_capacity": context.routine_capacity,
             "routine_question": None if context.routine_question is None else dict(context.routine_question),
+            "routine_mode": context.routine_mode,
+            "routine_rerun": None if context.routine_rerun is None else [dict(item) for item in context.routine_rerun],
             "knowledge_writable": context.knowledge_writable,
             "attachments": [dict(item) for item in context.attachments],
         }

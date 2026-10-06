@@ -290,6 +290,74 @@ def _latest_answer(message: str) -> str | None:
     return None
 
 
+def routine_mode(span: Span | None) -> bool:
+    """Whether the Brain should treat this chat as about a Routine: advisory only, and read with no model.
+
+    It is when any segment the person wrote in the span states a schedule, or the span holds a record intent or a
+    pending Team question. The Brain still reads what the current message asks before it acts or records.
+    """
+    if span is None:
+        return False
+    if span.intent is not None or span.asked is not None:
+        return True
+    return any(phrase.stated(segment) for send in span.sends for segment in send.person)
+
+
+# The longest literal a rerun's work shows the Brain, as JSON text; a longer one is withheld.
+MAX_RERUN_LITERAL_CHARS = 1024
+_RERUN_SHOWN = frozenset({"routine-binding-unsourced", "routine-work-rerun"})
+
+
+def rerun_work(span: Span | None) -> tuple[dict[str, object], ...] | None:
+    """The work a pending unsourced or rerun question asks the Brain to run again, in order, bounded and redacted.
+
+    Each entry is one call, or ``count`` consecutive identical ones: its Action and each input member's kind. A value
+    input shows its exact JSON text unless the span protects it or it is too long, and whether it is a target the
+    person chose; a fresh input shows only the Action Team found its earlier value in, which must run again first.
+    """
+    if span is None or span.asked is None or span.asked.manifest is None or span.asked.code not in _RERUN_SHOWN:
+        return None
+    entries: list[dict[str, object]] = []
+    for slot in span.asked.manifest.slots:
+        entry = {
+            "assistant": slot.action[0],
+            "action": slot.action[1],
+            "count": 1,
+            "inputs": [_rerun_input(span, slot, item) for item in slot.inputs],
+        }
+        if entries and {**entries[-1], "count": 1} == entry:
+            entries[-1]["count"] += 1
+        else:
+            entries.append(entry)
+    return tuple(entries)
+
+
+def _rerun_input(span: Span, slot: routine_recording.Slot, item: tuple[str, str, object]) -> dict[str, object]:
+    member, kind, value = item
+    shown = {"member": member, "kind": kind, "value": None, "chosen": False, "source": None}
+    if kind == "value":
+        text = json.dumps(value, ensure_ascii=False)
+        visible = len(text) <= MAX_RERUN_LITERAL_CHARS and not trace.exposes(text, span.protection.values)
+        chosen = any(
+            (binding.action, binding.member) == (slot.action, member)
+            and json.dumps(binding.chosen, ensure_ascii=False) == text
+            for binding in span.asked.chosen
+        )
+        return {**shown, "value": text if visible else None, "chosen": chosen}
+    if kind == "fresh":
+        source = next(
+            (
+                {"assistant": occurrence.assistant, "action": occurrence.action}
+                for send in span.sends
+                for occurrence in send.occurrences
+                if occurrence.read_only and routine_recording.returned(occurrence, value)
+            ),
+            None,
+        )
+        return {**shown, "source": source}
+    return shown
+
+
 def settled(span: Span | None) -> Intent | None:
     """The intent to record again when the span's latest send repeated the work its pending question asked for."""
     if span is None or span.intent is None or span.asked is None or span.asked.manifest is None or span.refused:

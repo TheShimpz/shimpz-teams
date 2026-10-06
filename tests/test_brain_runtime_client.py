@@ -613,13 +613,25 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                 "steps": [{"id": "list", "assistant": "dns", "action": "list-zones", "inputs": []}],
             },
         )
-        chat = dataclasses.replace(context(self.secret), routines=routines, routine_capacity=19_999)
+        question = {"code": "routine-binding-unsourced", "options": [], "value": None}
+        rerun = ({"assistant": "dns", "action": "list-zones", "count": 1, "inputs": []},)
+        chat = dataclasses.replace(
+            context(self.secret),
+            routines=routines,
+            routine_capacity=19_999,
+            routine_mode=True,
+            routine_question=question,
+            routine_rerun=rerun,
+        )
         # Local Team admits the record's closed shape; the client only bounds where it may appear.
         self.assertEqual(client.start(chat, "Toda segunda às 9h, confira o DNS", conversation=()).routine, recorded)
         sent = json.loads(connection.requests[0][2])
         self.assertEqual(
             (sent["routines"], sent["routine_capacity"], sent["knowledge_writable"]),
             ([dict(routines[0])], 19_999, True),
+        )
+        self.assertEqual(
+            (sent["routine_mode"], sent["routine_question"], sent["routine_rerun"]), (True, question, [dict(rerun[0])])
         )
         # The retired words of a compiled Routine are never sent.
         self.assertFalse({"routine_earlier", "routine_draft", "routine_answer"} & set(sent))

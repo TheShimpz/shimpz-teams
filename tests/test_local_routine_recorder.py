@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import test_routine_recording as recording_cases
 from test_local_routine_proposal import ASSISTANT, PRINCIPAL, _record
 
 from inference import client as brain_runtime_client
@@ -199,6 +201,93 @@ class RecordingBookTests(unittest.TestCase):
                 self.assertIsNone(answered("routine-schedule-unstated", message, composed=False))
         self.assertIsNone(answered("routine-schedule-unstated", "a cada hora", kept=None))
         self.assertIsNone(routine_recorder.answered(None))
+
+    def test_routine_mode_follows_schedule_words_an_intent_or_a_pending_question(self) -> None:
+        owner = http_payload.compose_clarified(
+            http_payload.compose_clarified("Cria uma rotina pra mim", "O quê?", "Listar registros DNS", "pt"),
+            "Com que frequência?",
+            "A cada 30 segundos",
+            "pt",
+        )
+        owner = http_payload.compose_clarified(owner, "De qual zona?", "shimpz.com", "pt")
+        cases = (
+            # An earlier composed answer states the schedule though the latest one does not.
+            (owner, True),
+            # Schedule words alone set the advisory mode; the Brain still reads what the message asks.
+            ("Explique o job que roda a cada hora", True),
+            ("Liste os registros DNS de shimpz.com", False),
+        )
+        for message, expected in cases:
+            with self.subTest(message=message):
+                book = routine_recorder.RecordingBook()
+                send = book.start("team_1", BINDING, _started(message), 1)
+                self.assertIs(routine_recorder.routine_mode(book.get("team_1", send)), expected)
+        book = routine_recorder.RecordingBook()
+        send = book.start("team_1", BINDING, _started("Liste"), 1)
+        intent = routine_recorder.Intent("DNS", {"mode": "show", "when": None}, (), None, None)
+        book.asked("team_1", send, routine_recording.Question("routine-binding-unsourced"), intent)
+        self.assertIs(routine_recorder.routine_mode(book.get("team_1", send)), True)
+        self.assertIs(routine_recorder.routine_mode(None), False)
+
+    def test_a_rerun_question_shows_the_brain_its_frozen_work_bounded_and_redacted(self) -> None:
+        twins = ("cloudflare/list-zones", {}, recording_cases.TWINS)
+        records = ("cloudflare/list-dns-records", {"zone_id": recording_cases.SHIMPZ_ID}, {"result": []})
+        lookup = recording_cases._send(twins, message="DNS de shimpz.com a cada hora")
+        work = recording_cases._send(records)
+        asked = recording_cases._record(lookup, work)
+        answer = recording_cases._send(message=json.dumps(recording_cases.TWIN_ID))
+        rerun = recording_cases._record(lookup, work, answer, asked=recording_cases._asked(asked, 2))
+        self.assertEqual(rerun.code, "routine-work-rerun")
+        span = self.span((lookup, work, answer), rerun)
+        # The chosen twin is the exact value to send: the consumer alone runs again, with no lookup.
+        self.assertEqual(
+            routine_recorder.rerun_work(span),
+            (
+                {
+                    "assistant": "cloudflare",
+                    "action": "list-dns-records",
+                    "count": 1,
+                    "inputs": [
+                        {
+                            "member": "zone_id",
+                            "kind": "value",
+                            "value": json.dumps(recording_cases.TWIN_ID),
+                            "chosen": True,
+                            "source": None,
+                        }
+                    ],
+                },
+            ),
+        )
+        # A protected literal is withheld; a fresh value names the Action it came from, never the value.
+        remembered = ("reports/fetch", {"day": "2026-10-05", "id": "remembered-1"}, {})
+        changes = (recording_cases._post("tok"), recording_cases._post("tok"))
+        zones = recording_cases.ZONES_CALL
+        work = recording_cases._send(zones, records, remembered, *changes, message="DNS de shimpz.com a cada hora")
+        asked = recording_cases._record(work)
+        self.assertEqual(asked.code, "routine-binding-unsourced")
+        span = self.span((work,), asked, protected=("tok",))
+        shown = routine_recorder.rerun_work(span)
+        self.assertEqual([item["action"] for item in shown], ["list-zones", "list-dns-records", "fetch", "post"])
+        self.assertEqual(shown[1]["inputs"][0]["source"], {"assistant": "cloudflare", "action": "list-zones"})
+        self.assertEqual(
+            [(item["member"], item["kind"], item["value"], item["source"]) for item in shown[2]["inputs"]],
+            [("day", "clock", None, None), ("id", "fresh", None, None)],
+        )
+        self.assertEqual((shown[3]["count"], shown[3]["inputs"][0]["value"]), (2, None))
+        self.assertIsNone(
+            routine_recorder.rerun_work(self.span((work,), routine_recording.Question("routine-work-split")))
+        )
+        self.assertIsNone(routine_recorder.rerun_work(None))
+
+    @staticmethod
+    def span(sends, question, protected=()) -> routine_recorder.Span:
+        asked = routine_recording.Asked(
+            question.code, len(sends), question.pending, question.manifest, question.wire(), question.chosen
+        )
+        protection = trace.Protection().grow(protected)
+        ids = tuple(f"{index:032x}" for index in range(len(sends)))
+        return routine_recorder.Span("team_1", PRINCIPAL, "b" * 64, ids, tuple(sends), protection, asked=asked)
 
     def test_dropping_a_team_or_clearing_forgets_every_span(self) -> None:
         book = routine_recorder.RecordingBook()
