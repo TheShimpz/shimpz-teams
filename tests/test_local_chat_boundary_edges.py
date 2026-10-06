@@ -362,13 +362,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(AssertionError),
         ):
-            local_chat_api.resume_chat_integrations(
-                subject,
-                "team_1",
-                {"challenge_id": "challenge"},
-                "openai",
-                "key",
-            )
+            local_chat_api.resume_chat_integrations(subject, "team_1", {"challenge_id": "challenge"}, "openai", "key")
 
         response = {"status": "pending"}
         with mock.patch.object(
@@ -378,11 +372,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         ):
             self.assertIs(
                 local_chat_api.resume_chat_integrations(
-                    subject,
-                    "team_1",
-                    {"challenge_id": "challenge"},
-                    "openai",
-                    "key",
+                    subject, "team_1", {"challenge_id": "challenge"}, "openai", "key"
                 ),
                 response,
             )
@@ -395,13 +385,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(AssertionError),
         ):
-            local_chat_api.resume_chat_integrations(
-                subject,
-                "team_1",
-                {"challenge_id": "challenge"},
-                "openai",
-                "key",
-            )
+            local_chat_api.resume_chat_integrations(subject, "team_1", {"challenge_id": "challenge"}, "openai", "key")
 
 
 class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
@@ -424,6 +408,17 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
             _chat_cancelled=lambda _token: False,
         )
 
+    @staticmethod
+    def _invoke(subject: types.SimpleNamespace, request: object, container_id: str) -> object:
+        """Invoke one chat Action for Team team_1 under chat token "token" with fresh, non-secret evidence."""
+        evidence = local_app.action_execution.ActionInvocationEvidence(
+            _action_private_inputs(),
+            action_human.ActionTranscript(""),
+            "a" * 64,
+            "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        )
+        return local_chat_execution._invoke_chat_action(subject, "team_1", "token", request, container_id, evidence)
+
     def test_action_invocation_rejects_generation_and_turn_drift(self) -> None:
         request = types.SimpleNamespace(
             interrupt_id="interrupt",
@@ -433,36 +428,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
         )
         subject = self._invocation_subject()
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_execution._invoke_chat_action(
-                subject,
-                "team_1",
-                "token",
-                request,
-                "different",
-                local_app.action_execution.ActionInvocationEvidence(
-                    _action_private_inputs(),
-                    action_human.ActionTranscript(""),
-                    "a" * 64,
-                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
-                ),
-            )
+            self._invoke(subject, request, "different")
         self.assertEqual(caught.exception.code, "team-context-changed")
 
         subject._active_chat_tokens["team_1"] = "different"
         with self.assertRaises(chat_orchestrator.ChatStoppedError):
-            local_chat_execution._invoke_chat_action(
-                subject,
-                "team_1",
-                "token",
-                request,
-                "container",
-                local_app.action_execution.ActionInvocationEvidence(
-                    _action_private_inputs(),
-                    action_human.ActionTranscript(""),
-                    "a" * 64,
-                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
-                ),
-            )
+            self._invoke(subject, request, "container")
 
         subject = self._invocation_subject()
 
@@ -472,19 +443,7 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
 
         subject.assistant_lifecycle.invoke.side_effect = replace_active
         self.assertEqual(
-            local_chat_execution._invoke_chat_action(
-                subject,
-                "team_1",
-                "token",
-                request,
-                "container",
-                local_app.action_execution.ActionInvocationEvidence(
-                    _action_private_inputs(),
-                    action_human.ActionTranscript(""),
-                    "a" * 64,
-                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
-                ),
-            ),
+            self._invoke(subject, request, "container"),
             "ok",
         )
         self.assertEqual(subject._active_action_containers["team_1"][0], "new-token")
@@ -497,36 +456,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
         )
         subject._chat_cancelled = lambda _token: True
         with self.assertRaises(chat_orchestrator.ChatStoppedError):
-            local_chat_execution._invoke_chat_action(
-                subject,
-                "team_1",
-                "token",
-                request,
-                "container",
-                local_app.action_execution.ActionInvocationEvidence(
-                    _action_private_inputs(),
-                    action_human.ActionTranscript(""),
-                    "a" * 64,
-                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
-                ),
-            )
+            self._invoke(subject, request, "container")
 
         subject = self._invocation_subject()
         subject._chat_cancelled = lambda _token: True
         with self.assertRaises(chat_orchestrator.ChatStoppedError):
-            local_chat_execution._invoke_chat_action(
-                subject,
-                "team_1",
-                "token",
-                request,
-                "container",
-                local_app.action_execution.ActionInvocationEvidence(
-                    _action_private_inputs(),
-                    action_human.ActionTranscript(""),
-                    "a" * 64,
-                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
-                ),
-            )
+            self._invoke(subject, request, "container")
 
     def test_problem_mapping_covers_every_closed_failure_family(self) -> None:
         cases = (
