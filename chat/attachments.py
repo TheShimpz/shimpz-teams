@@ -8,6 +8,7 @@ person authorizes.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable, Iterable, Mapping, Sequence
 
 from assistant.spec import ActionSpec
@@ -15,6 +16,7 @@ from inference import client as brain_runtime_client
 from prepare import service as preparation
 from protocol.assistant.v1.validators import input_file as input_file_validator
 from protocol.http.v1 import payload as http_payload
+from storage import files as team_storage
 
 READABLE = frozenset({"text", "image"})
 
@@ -109,3 +111,46 @@ def restricted_actions(context: brain_runtime_client.RuntimeContext) -> dict[str
         if restricted is not None or len(listed) == 1:
             return restricted
         listed = listed[:-1]
+
+
+# A selected file's retention follows the turns that reference it (ADR-0093); each profile keeps its own failures,
+# challenge cancellation, Action evidence, and Brain thread identity around these rules.
+def release_failed_turn(storage: Callable[[], team_storage.TeamStorage], team_id: str, added: Sequence[str]) -> None:
+    """A turn that ended without an outcome leaves no continuation to read its files: release what it added.
+
+    The files earlier turns referenced stay referenced. A release that fails, including an unavailable storage that
+    ``storage`` opens, keeps them referenced, which never collects one early; the next completed turn releases them.
+    """
+    if added:
+        with contextlib.suppress(team_storage.StorageError):
+            storage().release(team_id, added)
+
+
+def settle_completed_turn(
+    storage: Callable[[], team_storage.TeamStorage], team_id: str, file_ids: Sequence[str]
+) -> None:
+    """A completed turn leaves its Brain thread referencing only this turn's files; the others start their grace.
+
+    The reply is already committed, so a release that fails, including an unavailable storage that ``storage`` opens,
+    keeps every file referenced, which never collects one early, and the next completed turn releases them.
+    """
+    with contextlib.suppress(team_storage.StorageError):
+        storage().settle(team_id, file_ids)
+
+
+def paused_files(team_id: str, challenge_stores: Iterable[object]) -> tuple[str, ...] | None:
+    """The files the Team's paused turn selected, from the first store holding one, or None when none is paused."""
+    for store in challenge_stores:
+        current = store.current(team_id)
+        if current is not None:
+            # A paused turn whose state is unreadable is treated as referencing every file.
+            return tuple(getattr(current.payload, "file_ids", ("*",)))
+    return None
+
+
+def forget_required(
+    storage: team_storage.TeamStorage, team_id: str, file_id: str, pending: tuple[str, ...] | None
+) -> bool:
+    """Whether deleting a file must first purge the Brain thread or a paused turn that may still deliver it."""
+    referenced = file_id in storage.referenced(team_id)
+    return referenced or (pending is not None and ("*" in pending or file_id in pending))

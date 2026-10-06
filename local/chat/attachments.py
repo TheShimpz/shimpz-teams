@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from http import HTTPStatus
@@ -101,24 +100,11 @@ def turn_started(self, team_id: str, file_ids: Sequence[str]) -> tuple[str, ...]
 
 
 def turn_failed(self, team_id: str, added: Sequence[str]) -> None:
-    """A turn that ended without an outcome leaves no continuation to read its files: release what it added.
-
-    The files earlier turns referenced stay referenced. A release that fails keeps them referenced, which never
-    collects one early; the next completed turn releases them.
-    """
-    if added:
-        with contextlib.suppress(team_storage.StorageError):
-            self.storage.release(team_id, added)
+    chat_attachments.release_failed_turn(lambda: self.storage, team_id, added)
 
 
 def turn_completed(self, team_id: str, file_ids: Sequence[str]) -> None:
-    """A completed turn leaves its Brain thread referencing only this turn's files; the others start their grace.
-
-    The reply is already committed, so a release that fails keeps every file referenced, which never collects one
-    early, and the next completed turn releases them.
-    """
-    with contextlib.suppress(team_storage.StorageError):
-        self.storage.settle(team_id, file_ids)
+    chat_attachments.settle_completed_turn(lambda: self.storage, team_id, file_ids)
 
 
 @contextmanager
@@ -139,12 +125,11 @@ def deletion_slot(self, team_id: str) -> Iterator[None]:
 
 def _pending_files(self, team_id: str) -> tuple[str, ...] | None:
     """The files a paused turn of the Team selected, or None when no turn is paused."""
-    for store in (self.human_challenges, self.integration_challenges):
-        current = store.current(team_id)
-        if current is not None:
-            # A paused turn whose state is unreadable is treated as referencing every file.
-            return tuple(getattr(current.payload, "file_ids", ("*",)))
-    return ("*",) if self.chat_continuations.current(team_id) is not None else None
+    pending = chat_attachments.paused_files(team_id, (self.human_challenges, self.integration_challenges))
+    if pending is None and self.chat_continuations.current(team_id) is not None:
+        # Only a durable continuation survives a restart; its turn is treated as referencing every file.
+        return ("*",)
+    return pending
 
 
 def forget_file(self, team_id: str, file_id: str, network: object) -> None:
@@ -155,9 +140,7 @@ def forget_file(self, team_id: str, file_id: str, network: object) -> None:
     Brain thread is deleted when it may reference the file, which releases every file it referenced.
     """
     pending = _pending_files(self, team_id)
-    purge = file_id in self.storage.referenced(team_id)
-    referenced = pending is not None and ("*" in pending or file_id in pending)
-    if not purge and not referenced:
+    if not chat_attachments.forget_required(self.storage, team_id, file_id, pending):
         return
     if pending is not None:
         self.integration_challenges.cancel_team(team_id)

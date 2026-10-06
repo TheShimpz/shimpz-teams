@@ -1,9 +1,9 @@
 """Hosted chat cleanup when an authorized Team lifecycle changes or one of its files is deleted."""
 
-import contextlib
 from http import HTTPStatus
 
 from action import journal as action_journal
+from chat import attachments as chat_attachments
 from hosted import state as runtime_state
 from hosted.assistant import runtime as hosted_assistants
 from hosted.team import resources as hosted_resources
@@ -60,28 +60,11 @@ def turn_started(team_id: str, file_ids: object) -> tuple[str, ...]:
 
 
 def turn_failed(team_id: str, added: tuple[str, ...]) -> None:
-    """A turn that ended without an outcome releases the files only it referenced; earlier references stay."""
-    if added:
-        with contextlib.suppress(team_storage.StorageError):
-            runtime_state._storage().release(team_id, added)
+    chat_attachments.release_failed_turn(runtime_state._storage, team_id, added)
 
 
 def turn_completed(team_id: str, file_ids: object) -> None:
-    """A completed turn leaves its Brain thread referencing only this turn's files; the others start their grace.
-
-    A release that fails keeps every file referenced, which never collects one early; the next turn releases them.
-    """
-    with contextlib.suppress(team_storage.StorageError):
-        runtime_state._storage().settle(team_id, file_ids)
-
-
-def _pending_files(team_id: str) -> tuple[str, ...] | None:
-    for store in (runtime_state._human_challenges, runtime_state._integration_challenges):
-        current = store.current(team_id)
-        if current is not None:
-            # A paused turn whose state is unreadable is treated as referencing every file.
-            return tuple(getattr(current.payload, "file_ids", ("*",)))
-    return None
+    chat_attachments.settle_completed_turn(runtime_state._storage, team_id, file_ids)
 
 
 def forget_file(team_id: str, file_id: str, container_id: str) -> None:
@@ -91,11 +74,11 @@ def forget_file(team_id: str, file_id: str, container_id: str) -> None:
     thread must be purged, is cancelled with its challenges, keeping uncertain Action evidence; the Brain thread is
     deleted when it may reference the file or nothing is known about it.
     """
-    pending = _pending_files(team_id)
+    pending = chat_attachments.paused_files(
+        team_id, (runtime_state._human_challenges, runtime_state._integration_challenges)
+    )
     storage = runtime_state._storage()
-    purge = file_id in storage.referenced(team_id)
-    referenced = pending is not None and ("*" in pending or file_id in pending)
-    if not purge and not referenced:
+    if not chat_attachments.forget_required(storage, team_id, file_id, pending):
         return
     if pending is not None:
         runtime_state._integration_challenges.cancel_team(team_id)
