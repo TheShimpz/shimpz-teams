@@ -35,6 +35,17 @@ def _inventory(
     )
 
 
+def _warm_inventory() -> tuple[inventory.LocalSnapshotInventory, tuple[object, ...]]:
+    """An inventory over a constant CURRENT loader at a fixed clock, with the result of its first read."""
+    cache = _inventory(
+        mock.Mock(),
+        mock.Mock(return_value=CURRENT),
+        clock_ns=mock.Mock(return_value=100),
+        monotonic=mock.Mock(return_value=0.0),
+    )
+    return cache, cache.candidates()
+
+
 class LocalSnapshotInventoryTests(unittest.TestCase):
     def test_default_loader_forwards_the_validated_platform(self) -> None:
         client = mock.Mock()
@@ -237,13 +248,8 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         client.events.assert_not_called()
 
     def test_retry_observes_a_refresh_completed_by_another_reader(self) -> None:
-        cache = _inventory(
-            mock.Mock(),
-            mock.Mock(return_value=CURRENT),
-            clock_ns=mock.Mock(return_value=100),
-            monotonic=mock.Mock(return_value=0.0),
-        )
-        self.assertEqual(cache.candidates(), CURRENT)
+        cache, first = _warm_inventory()
+        self.assertEqual(first, CURRENT)
         with (
             mock.patch.object(cache, "_validate", side_effect=((True, 200), (False, 300))),
             mock.patch.object(cache, "_claim_refresh", return_value=False),
@@ -251,13 +257,8 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             self.assertEqual(cache.candidates(), CURRENT)
 
     def test_retry_discards_a_snapshot_replaced_before_freshness_check(self) -> None:
-        cache = _inventory(
-            mock.Mock(),
-            mock.Mock(return_value=CURRENT),
-            clock_ns=mock.Mock(return_value=100),
-            monotonic=mock.Mock(return_value=0.0),
-        )
-        self.assertEqual(cache.candidates(), CURRENT)
+        cache, first = _warm_inventory()
+        self.assertEqual(first, CURRENT)
         with (
             mock.patch.object(
                 cache,
@@ -270,13 +271,8 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         validate.assert_called_once_with(100)
 
     def test_retry_discards_a_validator_result_for_an_older_cursor(self) -> None:
-        cache = _inventory(
-            mock.Mock(),
-            mock.Mock(return_value=CURRENT),
-            clock_ns=mock.Mock(return_value=100),
-            monotonic=mock.Mock(return_value=0.0),
-        )
-        self.assertEqual(cache.candidates(), CURRENT)
+        cache, first = _warm_inventory()
+        self.assertEqual(first, CURRENT)
         validations = 0
 
         def validate(cursor_ns: int) -> tuple[bool, int]:
