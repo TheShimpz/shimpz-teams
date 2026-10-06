@@ -118,7 +118,7 @@ class OwnerCaseTests(unittest.TestCase):
         self.assertEqual(
             recorded.document,
             {
-                "version": routine_plan.RECORDED_VERSION,
+                "version": routine_plan.VERSION,
                 "timezone": "America/Sao_Paulo",
                 "steps": [
                     {"id": "s1", "assistant": "cloudflare", "action": "list-zones", "pin": PIN, "input": {}},
@@ -145,8 +145,8 @@ class OwnerCaseTests(unittest.TestCase):
         self.assertEqual(
             recorded.permitted,
             (
-                {"assistant": "cloudflare", "action": "list-dns-records", "pin": PIN, "read_only": True},
-                {"assistant": "cloudflare", "action": "list-zones", "pin": PIN, "read_only": True},
+                {"assistant": "cloudflare", "action": "list-dns-records", "pin": PIN, "read_only": True, "stored_inputs": []},
+                {"assistant": "cloudflare", "action": "list-zones", "pin": PIN, "read_only": True, "stored_inputs": []},
             ),
         )
         selected = routine_plan.select_where(ZONES, "/result", {"name": "shimpz.com"}, "/id")

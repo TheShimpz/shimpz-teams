@@ -28,6 +28,9 @@ from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
 from local.routine import diagnostics as local_routine_diagnostics
+from local.routine import proposal as local_routine_proposal
+from local.routine import protection as local_routine_protection
+from local.routine import recorder as local_routine_recorder
 from local.routine import store as local_routine_store
 
 TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
@@ -35,6 +38,13 @@ TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123
 CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "b" * 64
 OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 64
 TEST_ASSISTANT_VERSION = "0.1.0"
+def _routine_books(controller) -> None:
+    """The recording turns, cards, and run protection a controller shares with its chat service (ADR-0101)."""
+    controller.routine_recordings = local_routine_recorder.RecordingBook()
+    controller.routine_proposals = local_routine_proposal.ProposalBook()
+    controller.routine_protections = local_routine_protection.RunProtections()
+
+
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
 LOOKUP_RESULT = {
     "zones": [],
@@ -176,6 +186,7 @@ class LocalContractCase(unittest.TestCase):
         controller._locks = tuple(threading.RLock() for _ in range(64))
         controller._names_lock = threading.RLock()
         controller.team_names = local_names.TeamNameStore(Path(directory) / "inference")
+        _routine_books(controller)
         controller._wire_collaborators()
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)
@@ -226,6 +237,7 @@ class LocalContractCase(unittest.TestCase):
             stored_inputs={},
         )
         controller.registry = TestAssistantRegistry({spec.assistant_id: spec})
+        _routine_books(controller)
         controller._wire_collaborators()
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)

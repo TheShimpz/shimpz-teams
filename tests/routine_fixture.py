@@ -1,12 +1,15 @@
-"""A compiled Routine plan document for Routine record, store, and service tests (ADR-0092)."""
+"""A recorded Routine plan document and confirmed definitions for Routine record, store, and service tests (ADR-0101)."""
 
 from __future__ import annotations
 
+import dataclasses
+
 PIN = "sha256:" + "d" * 64
+SCOPE_PIN = "sha256:" + "a" * 64
 
 
 # The output disposition a plan names unless a test chooses another: show the one step's result after every run.
-SHOW = {"mode": "show", "step": "check"}
+SHOW = {"mode": "show", "step": "check", "when": None}
 
 
 def plan_document(
@@ -14,50 +17,45 @@ def plan_document(
 ) -> dict[str, object]:
     """One well-formed one-step plan that runs ``action`` of ``assistant`` with no input and shows its result."""
     step = {"id": "check", "assistant": assistant, "action": action, "pin": PIN, "input": {}}
-    return {"version": 2, "timezone": timezone, "steps": [step], "output": dict(SHOW if output is None else output)}
+    return {"version": 3, "timezone": timezone, "steps": [step], "output": dict(SHOW if output is None else output)}
 
 
 def chain_document(assistant: str = "dns") -> dict[str, object]:
-    """A two-step plan whose second step takes the first one's whole result, so a run hands its result on (chain)."""
+    """A two-step plan whose second step takes the first one's whole result and shows nothing."""
     first = {"id": "check", "assistant": assistant, "action": "check", "pin": PIN, "input": {}}
     handed = {"value": {"kind": "step_output", "step": "check", "pointer": ""}}
     second = {"id": "notify", "assistant": assistant, "action": "notify", "pin": PIN, "input": handed}
-    return {"version": 2, "timezone": "UTC", "steps": [first, second], "output": {"mode": "chain", "step": None}}
-
-
-def grant(plan: dict[str, object], revision: int = 1) -> dict[str, object]:
-    """Complete request evidence for ``plan`` at ``revision``, as a committed change binds it."""
-    from routine import grant as routine_grant
-
-    def provenance(source: dict[str, object]) -> dict[str, object]:
-        by = {"message": "f" * 64, "receipt": "e" * 64, "revision": revision, "selected": None}
-        if source["kind"] == "literal":
-            return {"proof": {"origins": [{"at": "", "from": "message", "span": [0, 1]}]}, "by": by}
-        return {"proof": {"instruction": [0, 4]} if source["kind"] in ("step_output", "step_text") else {}, "by": by}
-
     return {
-        "receipt": "e" * 64,
-        "revision": revision,
-        "plan": routine_grant.plan_digest(plan),
-        "message": "f" * 64,
-        "quote": [0, 5],
-        "selected": None,
-        "sources": {
-            step["id"]: {name: provenance(item) for name, item in step["input"].items()} for step in plan["steps"]
-        },
-        "output": {
-            "proof": {"instruction": [0, 4]},
-            "by": {"message": "f" * 64, "receipt": "e" * 64, "revision": revision, "selected": None},
-        },
-        "stored_inputs": {step["id"]: [] for step in plan["steps"]},
+        "version": 3,
+        "timezone": "UTC",
+        "steps": [first, second],
+        "output": {"mode": "none", "step": None, "when": None},
     }
 
 
-def granted(value):
-    """A Routine record with the evidence its plan and revision need."""
-    import dataclasses
+def permitted(plan: dict[str, object], read_only: bool = True) -> tuple[dict[str, object], ...]:
+    """Every Action of ``plan`` once, at its step's pin, as a recording permits them."""
+    found = {(step["assistant"], step["action"]): step["pin"] for step in plan["steps"]}
+    return tuple(
+        {"assistant": assistant, "action": action, "pin": pin, "read_only": read_only, "stored_inputs": []}
+        for (assistant, action), pin in sorted(found.items())
+    )
 
-    return dataclasses.replace(value, grant=grant(value.plan, value.revision))
+
+CONFIRMATION = {
+    "proposal_id": "c" * 32,
+    "proposal_digest": "sha256:" + "e" * 64,
+    "principal": "f" * 32,
+    "incarnation": "b" * 64,
+    "confirmed_at": 1,
+}
+
+
+def confirmed(value):
+    """A Routine record with the permitted Actions its plan needs, its Assistants pinned, and a confirmation."""
+    entries = permitted(value.plan)
+    assistants = tuple((assistant, SCOPE_PIN) for assistant in sorted({item["assistant"] for item in entries}))
+    return dataclasses.replace(value, permitted=entries, assistants=assistants, confirmation=dict(CONFIRMATION))
 
 
 # A completed run's notice detail: the summary of the plan it carried out.
@@ -70,12 +68,13 @@ DONE = {
         "more": 0,
     },
     "output": None,
+    "decision": None,
 }
 
 
 def large_completion() -> dict[str, object]:
     """A completed run's detail at about its largest: a shown output near its 16 KiB bound and a full summary."""
-    from routine import grant as routine_grant
+    from routine import definition as routine_definition
     from routine import plan as routine_plan
 
     plan = plan_document()
@@ -83,7 +82,11 @@ def large_completion() -> dict[str, object]:
         {**plan["steps"][0], "id": f"s{index}", "action": "check" if index % 2 else "notify"} for index in range(256)
     ]
     node = routine_plan.output_safe({f"k{index:02d}": "\u0001" * 300 for index in range(24)}, {})
-    return {"plan": routine_grant.summary(plan, 1), "output": routine_plan.output_shown(256, node)}
+    return {
+        "plan": routine_definition.summary(plan, 1),
+        "output": routine_plan.output_shown(256, node),
+        "decision": {"state": "decided", "code": None, "message": "é" * 4000},
+    }
 
 
 def set_aside(service, team_id: str, incident_id: str, choice: str = "run"):
