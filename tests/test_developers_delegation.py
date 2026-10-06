@@ -60,24 +60,18 @@ class DevelopersDelegationTests(unittest.TestCase):
         headers["X-Shimpz-Delegation"] = f"Bearer {self._jwt(claims)}"
         return headers
 
+    def _verify_install(self, headers: Message, request: dict[str, object] = REQUEST) -> dict[str, object]:
+        """Verify an install delegation for a fresh copy of ``request`` at time 1000."""
+        return self.verifier.verify(headers, action="assistant:install", request=copy.deepcopy(request), now=1000)
+
     def test_accepts_exact_request_bound_install_once(self) -> None:
         claims = copy.deepcopy(INSTALL)
 
-        verified = self.verifier.verify(
-            self._headers(claims),
-            action="assistant:install",
-            request=copy.deepcopy(REQUEST),
-            now=1000,
-        )
+        verified = self._verify_install(self._headers(claims))
 
         self.assertEqual(verified, claims)
         with self.assertRaises(DevelopersDelegationError):
-            self.verifier.verify(
-                self._headers(claims),
-                action="assistant:install",
-                request=copy.deepcopy(REQUEST),
-                now=1000,
-            )
+            self._verify_install(self._headers(claims))
 
     def test_rejects_wrong_service_token_signature_and_request_binding(self) -> None:
         wrong_bearer = self._headers(copy.deepcopy(INSTALL))
@@ -93,12 +87,7 @@ class DevelopersDelegationTests(unittest.TestCase):
             ("binding", self._headers(copy.deepcopy(INSTALL)), mismatched_request),
         ):
             with self.subTest(name=name), self.assertRaises(DevelopersDelegationError):
-                self.verifier.verify(
-                    headers,
-                    action="assistant:install",
-                    request=copy.deepcopy(request),
-                    now=1000,
-                )
+                self._verify_install(headers, request)
 
     def test_rejects_expired_future_duplicate_and_noncanonical_tokens(self) -> None:
         expired = {**INSTALL, "iat": 900, "exp": 960, "jti": "expired"}
@@ -112,12 +101,7 @@ class DevelopersDelegationTests(unittest.TestCase):
             ("duplicate-header", duplicate),
         ):
             with self.subTest(name=name), self.assertRaises(DevelopersDelegationError):
-                self.verifier.verify(
-                    headers,
-                    action="assistant:install",
-                    request=copy.deepcopy(REQUEST),
-                    now=1000,
-                )
+                self._verify_install(headers)
 
 
 if __name__ == "__main__":
