@@ -26,6 +26,18 @@ from local.chat.types import ActiveAssistant
 from local.validation import MAX_CHAT_ASSISTANTS
 
 
+class _RecordingRuntime:
+    """A Brain runtime that completes every turn with one reply and records the Team context it was given."""
+
+    def __init__(self, reply: str) -> None:
+        self.reply = reply
+        self.context = None
+
+    def start(self, context, _message, *, conversation=()):
+        self.context = context
+        return brain_runtime_client.RuntimeTurn(status="completed", reply=self.reply, actions=())
+
+
 def _chat(controller: local_app.LocalController, body: dict[str, object]) -> dict[str, object]:
     return controller.chat_turn_service.chat("team_1", body, "openai", "sk-test-0123456789")
 
@@ -186,14 +198,7 @@ class LocalChatScopeTests(LocalContractCase):
         self.assertTrue(all(current is connection for current in metadata_connections))
 
     def test_chat_exposes_every_active_assistant_to_the_team_brain(self) -> None:
-        class Runtime:
-            context = None
-
-            def start(self, context, _message, *, conversation=()):
-                self.context = context
-                return brain_runtime_client.RuntimeTurn(status="completed", reply="Integrated.", actions=())
-
-        runtime = Runtime()
+        runtime = _RecordingRuntime("Integrated.")
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, runtime)
             _activate_account_helper(controller)
@@ -216,14 +221,7 @@ class LocalChatScopeTests(LocalContractCase):
         self.assertEqual(response["team_name"], "Marketing")
 
     def test_a_renamed_team_reaches_brain_and_the_terminal_by_its_current_name(self) -> None:
-        class Runtime:
-            context = None
-
-            def start(self, context, _message, *, conversation=()):
-                self.context = context
-                return brain_runtime_client.RuntimeTurn(status="completed", reply="Done.", actions=())
-
-        runtime = Runtime()
+        runtime = _RecordingRuntime("Done.")
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, runtime)
             # The creation label stays "Marketing"; the display name is the incarnation's record (ADR-0088).
@@ -232,14 +230,7 @@ class LocalChatScopeTests(LocalContractCase):
         self.assertEqual((runtime.context.team_name, response["team_name"]), ("Growth", "Growth"))
 
     def test_chat_empty_scope_is_brain_only_and_scans_installed_workloads_once(self) -> None:
-        class Runtime:
-            context = None
-
-            def start(self, context, _message, *, conversation=()):
-                self.context = context
-                return brain_runtime_client.RuntimeTurn(status="completed", reply="Brain only.", actions=())
-
-        runtime = Runtime()
+        runtime = _RecordingRuntime("Brain only.")
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, runtime)
             scanner = controller.chat_turn_service._active_chat_assistants
