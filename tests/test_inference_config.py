@@ -115,39 +115,18 @@ class InferenceConfigTests(unittest.TestCase):
         with self.assertRaises(inference_config.InferenceConfigError):
             self.store.save("../team", inference_config.normalize())
 
-    def test_persisted_model_outside_catalog_fails_closed(self):
+    def test_persisted_model_outside_or_removed_from_the_catalog_fails_closed(self):
         self.root.mkdir(parents=True)
-        self.store._path("team_1").write_text(
-            json.dumps(
-                {
-                    "schema": inference_config.SCHEMA,
-                    "team_id": "team_1",
-                    "provider": "openai",
-                    "model": "gpt-999",
-                }
-            ),
-            encoding="utf-8",
-        )
-
-        with self.assertRaises(inference_config.InferenceConfigError):
-            self.store.load("team_1")
-
-    def test_persisted_model_removed_from_the_catalog_fails_closed(self):
-        self.root.mkdir(parents=True)
-        self.store._path("team_1").write_text(
-            json.dumps(
-                {
-                    "schema": inference_config.SCHEMA,
-                    "team_id": "team_1",
-                    "provider": "openai",
-                    "model": "gpt-5.6-luna",
-                }
-            ),
-            encoding="utf-8",
-        )
-
-        with self.assertRaises(inference_config.InferenceConfigError):
-            self.store.load("team_1")
+        for model in ("gpt-999", "gpt-5.6-luna"):
+            with self.subTest(model=model):
+                self.store._path("team_1").write_text(
+                    json.dumps(
+                        {"schema": inference_config.SCHEMA, "team_id": "team_1", "provider": "openai", "model": model}
+                    ),
+                    encoding="utf-8",
+                )
+                with self.assertRaises(inference_config.InferenceConfigError):
+                    self.store.load("team_1")
 
     def test_malformed_and_cross_team_persisted_metadata_fails_closed(self) -> None:
         self.root.mkdir(parents=True)
