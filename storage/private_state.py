@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import secrets
 import stat
@@ -12,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
@@ -107,6 +109,16 @@ def replace_in_directory(
             os.unlink(temporary, dir_fd=directory)
 
 
+def seal(key: bytes, plaintext: bytes, aad: bytes) -> dict[str, str]:
+    """Encrypt ``plaintext`` bound to ``aad`` under a fresh 96-bit nonce into the stored AES-256-GCM envelope."""
+    nonce = os.urandom(12)
+    return {
+        "algorithm": "AES-256-GCM",
+        "nonce": base64.b64encode(nonce).decode("ascii"),
+        "ciphertext": base64.b64encode(AESGCM(key).encrypt(nonce, plaintext, aad)).decode("ascii"),
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class PrivateState:
     error_class: type[RuntimeError]
@@ -198,6 +210,26 @@ class PrivateState:
         except OSError as exc:
             raise self.error_class(f"{label} could not be persisted") from exc
 
+    def write_json(self, path: Path, value: object, maximum: int, label: str) -> None:
+        """Persist ``value`` as canonical ASCII JSON of at most ``maximum`` bytes."""
+        payload = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("ascii")
+        if len(payload) > maximum:
+            raise self.error_class(f"{label} exceeds its fixed byte limit")
+        self.atomic_write(path, payload, label)
+
+    def separate_paths(self, state_path: Path, key_path: Path, label: str) -> tuple[Path, Path]:
+        """Require absolute state and keyring paths whose parents are different directories."""
+        state, key = Path(state_path), Path(key_path)
+        if not state.is_absolute() or not key.is_absolute():
+            raise self.error_class(f"{label} state and key paths must be absolute")
+        try:
+            shared = state.parent.resolve() == key.parent.resolve()
+        except OSError as exc:
+            raise self.error_class(f"{label} storage paths are unavailable") from exc
+        if shared:
+            raise self.error_class(f"{label} keyring must be separate from encrypted state")
+        return state, key
+
     def key(self, path: Path, label: str, *, allow_create: bool = False) -> bytes:
         payload = self.read_private_file(path, 32, label)
         if payload is None:
@@ -208,6 +240,37 @@ class PrivateState:
         if len(payload) != 32:
             raise self.error_class(f"{label} is invalid")
         return payload
+
+    def check_envelope(self, value: object, maximum_plaintext: int, malformed: str) -> None:
+        """Require one AES-256-GCM envelope whose parts fit a plaintext of at most ``maximum_plaintext`` bytes."""
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"algorithm", "nonce", "ciphertext"}
+            or value["algorithm"] != "AES-256-GCM"
+        ):
+            raise self.error_class(malformed)
+        self._envelope_parts(value, maximum_plaintext)
+
+    def open_envelope(
+        self,
+        key: bytes,
+        envelope: Mapping[str, object],
+        aad: bytes,
+        maximum_plaintext: int,
+        failure: str,
+    ) -> bytes:
+        """Authenticate and decrypt an admitted envelope; a failed authentication tag raises ``failure``."""
+        nonce, ciphertext = self._envelope_parts(envelope, maximum_plaintext)
+        try:
+            return AESGCM(key).decrypt(nonce, ciphertext, aad)
+        except InvalidTag as exc:
+            raise self.error_class(failure) from exc
+
+    def _envelope_parts(self, envelope: Mapping[str, object], maximum_plaintext: int) -> tuple[bytes, bytes]:
+        return (
+            self.decode_part(envelope.get("nonce"), expected=12),
+            self.decode_part(envelope.get("ciphertext"), minimum=17, maximum=maximum_plaintext + 16),
+        )
 
     def records(
         self,
@@ -306,3 +369,4 @@ class PrivateState:
         if not isinstance(teams, dict):
             raise self.error_class(self.malformed_state)
         return teams
+

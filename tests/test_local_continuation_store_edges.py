@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import base64
-import os
-import stat
 import tempfile
-import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -58,103 +55,32 @@ class ContinuationStoreValidationEdgeTests(unittest.TestCase):
             with self.subTest(bindings=bindings), self.assertRaises(continuation_store.ContinuationStoreError):
                 continuation_store._bindings(bindings)
 
-    def test_private_file_errors_and_size_limits_fail_closed(self) -> None:
-        path = Path("/private")
-        with (
-            mock.patch.object(continuation_store.os, "open", side_effect=OSError("unavailable")),
-            self.assertRaises(continuation_store.ContinuationStoreError),
-        ):
-            continuation_store._read_private_file(path, 10, "state")
-
-        with (
-            mock.patch.object(continuation_store.os, "open", return_value=7),
-            mock.patch.object(
-                continuation_store.os,
-                "fstat",
-                return_value=types.SimpleNamespace(
-                    st_mode=stat.S_IFDIR | 0o600,
-                    st_uid=os.geteuid(),
-                    st_nlink=1,
-                    st_size=0,
-                ),
-            ),
-            mock.patch.object(continuation_store.os, "close"),
-            self.assertRaisesRegex(
-                continuation_store.ContinuationStoreError,
-                "ownership contract",
-            ),
-        ):
-            continuation_store._read_private_file(path, 10, "state")
-
-        with (
-            mock.patch.object(continuation_store.os, "open", return_value=7),
-            mock.patch.object(
-                continuation_store.os,
-                "fstat",
-                return_value=types.SimpleNamespace(
-                    st_mode=stat.S_IFREG | 0o600,
-                    st_uid=os.geteuid(),
-                    st_nlink=1,
-                    st_size=0,
-                ),
-            ),
-            mock.patch.object(continuation_store.os, "read", return_value=b"xxx"),
-            mock.patch.object(continuation_store.os, "close"),
-            self.assertRaisesRegex(
-                continuation_store.ContinuationStoreError,
-                "fixed byte limit",
-            ),
-        ):
-            continuation_store._read_private_file(path, 2, "state")
-
-    def test_private_parent_and_atomic_write_errors_are_mapped(self) -> None:
-        path = mock.Mock()
-        path.mkdir.side_effect = OSError("unavailable")
-        with self.assertRaisesRegex(
-            continuation_store.ContinuationStoreError,
-            "directory is unavailable",
-        ):
-            continuation_store._require_private_parent(path, "state")
-
-        path = mock.Mock()
-        path.stat.return_value = types.SimpleNamespace(
-            st_mode=stat.S_IFDIR | 0o755,
-            st_uid=os.geteuid(),
-        )
-        with self.assertRaisesRegex(
-            continuation_store.ContinuationStoreError,
-            "ownership contract",
-        ):
-            continuation_store._require_private_parent(path, "state")
-
-        target = Path("/state/continuations.json")
-        with (
-            mock.patch.object(continuation_store, "_require_private_parent"),
-            mock.patch.object(continuation_store.os, "open", return_value=7),
-            mock.patch.object(continuation_store.os, "write", return_value=0),
-            mock.patch.object(continuation_store.os, "close") as close,
-            self.assertRaisesRegex(
-                continuation_store.ContinuationStoreError,
-                "could not be persisted",
-            ),
-        ):
-            continuation_store._atomic_write(target, b"payload", "state")
-        close.assert_called_with(7)
-
     def test_envelope_parts_json_records_and_state_reject_malformed_shapes(self) -> None:
-        invalid_parts = (
-            (object(), {}),
-            ("not-base64", {}),
-            (base64.b64encode(b"short").decode("ascii"), {"expected": 12}),
-            (base64.b64encode(b"").decode("ascii"), {"minimum": 1}),
-            (base64.b64encode(b"long").decode("ascii"), {"maximum": 1}),
-        )
-        for value, options in invalid_parts:
+        def record(nonce: object, ciphertext: object) -> dict[str, object]:
+            return {
+                "team_id": "team_1",
+                "kind": "human",
+                "challenge_id": "a" * 32,
+                "expires_at": 1,
+                "generation": 1,
+                "bindings": ["binding"],
+                "envelope": {"algorithm": "AES-256-GCM", "nonce": nonce, "ciphertext": ciphertext},
+            }
+
+        nonce = base64.b64encode(b"n" * 12).decode("ascii")
+        ciphertext = base64.b64encode(b"c" * 17).decode("ascii")
+        self.assertEqual(continuation_store._record(record(nonce, ciphertext), "team_1")["kind"], "human")
+        for invalid in (
+            record(object(), ciphertext),
+            record("not-base64", ciphertext),
+            record(base64.b64encode(b"short").decode("ascii"), ciphertext),
+            record(nonce, base64.b64encode(b"c" * 16).decode("ascii")),
+        ):
             with (
-                self.subTest(value=value, options=options),
-                self.assertRaises(continuation_store.ContinuationStoreError),
+                self.subTest(envelope=invalid["envelope"]),
+                self.assertRaisesRegex(continuation_store.ContinuationStoreError, "envelope is malformed"),
             ):
-                continuation_store._decode_part(value, **options)
+                continuation_store._record(invalid, "team_1")
 
         with self.assertRaises(continuation_store.ContinuationStoreError):
             continuation_store._record({}, "team_1")
@@ -174,6 +100,8 @@ class ContinuationStoreValidationEdgeTests(unittest.TestCase):
         }
         with self.assertRaises(continuation_store.ContinuationStoreError):
             continuation_store._record(malformed, "team_1")
+        with self.assertRaisesRegex(continuation_store.ContinuationStoreError, "record is malformed"):
+            continuation_store._record({**record(nonce, ciphertext), "generation": 0}, "team_1")
 
         with self.assertRaises(continuation_store.ContinuationStoreError):
             continuation_store._decode_json(b"\xff")
@@ -275,7 +203,24 @@ class EncryptedContinuationStoreEdgeTests(unittest.TestCase):
                 b"payload",
             )
 
-    def test_resolved_rejects_impossible_envelope_and_plaintext_drift(self) -> None:
+    def test_private_files_fail_closed_with_the_continuation_error(self) -> None:
+        self.state_path.parent.mkdir(mode=0o755)
+        with self.assertRaisesRegex(continuation_store.ContinuationStoreError, "directory failed its ownership"):
+            self.store().put("team_1", "human", "a" * 32, 1_100, ("binding",), b"payload")
+        self.state_path.parent.chmod(0o700)
+
+        with (
+            mock.patch.object(continuation_store.private_state.os, "write", return_value=0),
+            self.assertRaisesRegex(continuation_store.ContinuationStoreError, "could not be persisted"),
+        ):
+            self.store().put("team_1", "human", "a" * 32, 1_100, ("binding",), b"payload")
+
+        self.state_path.write_bytes(b"{}")
+        self.state_path.chmod(0o644)
+        with self.assertRaisesRegex(continuation_store.ContinuationStoreError, "ownership contract"):
+            self.store().active()
+
+    def test_resolved_rejects_impossible_plaintext_drift(self) -> None:
         store = self.store()
         record = {
             "kind": "human",
@@ -283,26 +228,16 @@ class EncryptedContinuationStoreEdgeTests(unittest.TestCase):
             "expires_at": 1_100,
             "generation": 1,
             "bindings": ["binding"],
-            "envelope": object(),
-        }
-        with (
-            mock.patch.object(continuation_store, "_record", return_value=record),
-            self.assertRaisesRegex(
-                continuation_store.ContinuationStoreError,
-                "envelope is malformed",
-            ),
-        ):
-            store._resolved("team_1", object())
-
-        record["envelope"] = {
-            "nonce": base64.b64encode(b"n" * 12).decode("ascii"),
-            "ciphertext": base64.b64encode(b"c" * 17).decode("ascii"),
+            "envelope": {
+                "nonce": base64.b64encode(b"n" * 12).decode("ascii"),
+                "ciphertext": base64.b64encode(b"c" * 17).decode("ascii"),
+            },
         }
         cipher = mock.Mock()
         cipher.decrypt.return_value = b""
         with (
             mock.patch.object(continuation_store, "_record", return_value=record),
-            mock.patch.object(continuation_store, "AESGCM", return_value=cipher),
+            mock.patch.object(continuation_store.private_state, "AESGCM", return_value=cipher),
             mock.patch.object(store, "_key", return_value=b"k" * 32),
             self.assertRaisesRegex(
                 continuation_store.ContinuationStoreError,

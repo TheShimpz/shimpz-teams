@@ -2,24 +2,17 @@
 
 from __future__ import annotations
 
-import base64
 import json
-import os
-import secrets
-import stat
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
-from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-
-from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from core import strict_json
 from integrations import challenge_store as integration_challenge_store
 from protocol.http.v1 import payload as http_payload
+from storage import private_state
 
 STATE_PATH = Path("/var/lib/shimpz-local/chat-continuations/state/continuations.json")
 KEY_PATH = Path("/var/lib/shimpz-local/chat-continuations/key/aes256.key")
@@ -39,6 +32,14 @@ class ContinuationStoreError(RuntimeError):
 
 class ContinuationNotFoundError(ContinuationStoreError):
     """The continuation is absent, expired, consumed, or owned by another challenge."""
+
+
+_PRIVATE = private_state.PrivateState(
+    ContinuationStoreError,
+    "continuation state is malformed",
+    "continuation envelope is malformed",
+    (MAX_PLAINTEXT_BYTES * 2) + 128,
+)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -122,107 +123,6 @@ def _empty_state() -> dict[str, object]:
     return {"schema": SCHEMA_VERSION, "records": {}}
 
 
-def _read_private_file(path: Path, maximum: int, label: str) -> bytes | None:
-    try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except FileNotFoundError:
-        return None
-    except OSError as exc:
-        raise ContinuationStoreError(f"{label} is unavailable") from exc
-    try:
-        metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_uid != os.geteuid()
-            or metadata.st_nlink != 1
-            or stat.S_IMODE(metadata.st_mode) != 0o600
-            or metadata.st_size > maximum
-        ):
-            raise ContinuationStoreError(f"{label} failed its ownership contract")
-        payload = bytearray()
-        while len(payload) <= maximum:
-            chunk = os.read(descriptor, min(64 * 1024, maximum + 1 - len(payload)))
-            if not chunk:
-                break
-            payload.extend(chunk)
-        if len(payload) > maximum:
-            raise ContinuationStoreError(f"{label} exceeds its fixed byte limit")
-        return bytes(payload)
-    finally:
-        os.close(descriptor)
-
-
-def _require_private_parent(path: Path, label: str) -> None:
-    try:
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        metadata = path.stat(follow_symlinks=False)
-    except OSError as exc:
-        raise ContinuationStoreError(f"{label} directory is unavailable") from exc
-    if (
-        not stat.S_ISDIR(metadata.st_mode)
-        or stat.S_ISLNK(metadata.st_mode)
-        or metadata.st_uid != os.geteuid()
-        or stat.S_IMODE(metadata.st_mode) != 0o700
-    ):
-        raise ContinuationStoreError(f"{label} directory failed its ownership contract")
-
-
-def _atomic_write(path: Path, payload: bytes, label: str) -> None:
-    _require_private_parent(path.parent, label)
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
-    descriptor = -1
-    try:
-        descriptor = os.open(
-            temporary,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600,
-        )
-        view = memoryview(payload)
-        while view:
-            written = os.write(descriptor, view)
-            if written < 1:
-                raise OSError("short private write")
-            view = view[written:]
-        os.fsync(descriptor)
-        os.close(descriptor)
-        descriptor = -1
-        temporary.replace(path)
-        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    except OSError as exc:
-        raise ContinuationStoreError(f"{label} could not be persisted") from exc
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        with suppress(FileNotFoundError):
-            temporary.unlink()
-
-
-def _decode_part(
-    value: object,
-    *,
-    expected: int | None = None,
-    minimum: int | None = None,
-    maximum: int | None = None,
-) -> bytes:
-    if not isinstance(value, str) or len(value) > (MAX_PLAINTEXT_BYTES * 2) + 128:
-        raise ContinuationStoreError("continuation envelope is malformed")
-    try:
-        decoded = base64.b64decode(value, validate=True)
-    except (TypeError, ValueError) as exc:
-        raise ContinuationStoreError("continuation envelope is malformed") from exc
-    if (
-        (expected is not None and len(decoded) != expected)
-        or (minimum is not None and len(decoded) < minimum)
-        or (maximum is not None and len(decoded) > maximum)
-    ):
-        raise ContinuationStoreError("continuation envelope is malformed")
-    return decoded
-
-
 def _record(value: object, expected_team: str) -> dict[str, object]:
     if not isinstance(value, dict) or set(value) != {
         "team_id",
@@ -240,24 +140,15 @@ def _record(value: object, expected_team: str) -> dict[str, object]:
     expires_at = value["expires_at"]
     generation = value["generation"]
     bindings = _bindings(value["bindings"])
-    envelope = value["envelope"]
     if (
         team != expected_team
         or type(expires_at) is not int
         or not 1 <= expires_at < 2**63
         or type(generation) is not int
         or not 1 <= generation <= 2**31 - 1
-        or not isinstance(envelope, dict)
-        or set(envelope) != {"algorithm", "nonce", "ciphertext"}
-        or envelope["algorithm"] != "AES-256-GCM"
     ):
         raise ContinuationStoreError("continuation record is malformed")
-    _decode_part(envelope["nonce"], expected=12)
-    _decode_part(
-        envelope["ciphertext"],
-        minimum=17,
-        maximum=MAX_PLAINTEXT_BYTES + 16,
-    )
+    _PRIVATE.check_envelope(value["envelope"], MAX_PLAINTEXT_BYTES, "continuation record is malformed")
     value["kind"] = kind
     value["challenge_id"] = challenge
     value["bindings"] = list(bindings)
@@ -297,17 +188,7 @@ class EncryptedContinuationStore:
         now: Callable[[], float] = time.time,
         capacity: int = MAX_CONTINUATIONS,
     ) -> None:
-        self.state_path = Path(state_path)
-        self.key_path = Path(key_path)
-        if not self.state_path.is_absolute() or not self.key_path.is_absolute():
-            raise ContinuationStoreError("continuation state and key paths must be absolute")
-        try:
-            state_parent = self.state_path.parent.resolve()
-            key_parent = self.key_path.parent.resolve()
-        except OSError as exc:
-            raise ContinuationStoreError("continuation storage paths are unavailable") from exc
-        if state_parent == key_parent:
-            raise ContinuationStoreError("continuation keyring must be separate from encrypted state")
+        self.state_path, self.key_path = _PRIVATE.separate_paths(state_path, key_path, "continuation")
         if not callable(now) or type(capacity) is not int or not 1 <= capacity <= MAX_CONTINUATIONS:
             raise ValueError("continuation store configuration is invalid")
         self._now = now
@@ -315,31 +196,14 @@ class EncryptedContinuationStore:
         self._lock = threading.RLock()
 
     def _read_state(self) -> dict[str, object]:
-        payload = _read_private_file(self.state_path, MAX_STATE_BYTES, "continuation state")
+        payload = _PRIVATE.read_private_file(self.state_path, MAX_STATE_BYTES, "continuation state")
         return _empty_state() if payload is None else _state(_decode_json(payload))
 
     def _write_state(self, state: Mapping[str, object]) -> None:
-        validated = _state(dict(state))
-        payload = json.dumps(
-            validated,
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("ascii")
-        if len(payload) > MAX_STATE_BYTES:
-            raise ContinuationStoreError("continuation state exceeds its fixed byte limit")
-        _atomic_write(self.state_path, payload, "continuation state")
+        _PRIVATE.write_json(self.state_path, _state(dict(state)), MAX_STATE_BYTES, "continuation state")
 
     def _key(self, *, allow_create: bool = False) -> bytes:
-        payload = _read_private_file(self.key_path, 32, "continuation keyring")
-        if payload is None:
-            if not allow_create:
-                raise ContinuationStoreError("continuation keyring is unavailable")
-            payload = AESGCM.generate_key(bit_length=256)
-            _atomic_write(self.key_path, payload, "continuation keyring")
-        if len(payload) != 32:
-            raise ContinuationStoreError("continuation keyring is invalid")
-        return payload
+        return _PRIVATE.key(self.key_path, "continuation keyring", allow_create=allow_create)
 
     def put(
         self,
@@ -371,19 +235,7 @@ class EncryptedContinuationStore:
             if previous is None and len(records) >= self._capacity:
                 raise ContinuationStoreError("continuation capacity reached")
             generation = int(previous["generation"]) + 1 if isinstance(previous, dict) else 1
-            nonce = os.urandom(12)
-            ciphertext = AESGCM(self._key(allow_create=not records)).encrypt(
-                nonce,
-                payload,
-                _aad(
-                    team,
-                    suspension_kind,
-                    challenge,
-                    expires_at,
-                    generation,
-                    canonical_bindings,
-                ),
-            )
+            aad = _aad(team, suspension_kind, challenge, expires_at, generation, canonical_bindings)
             records[team] = {
                 "team_id": team,
                 "kind": suspension_kind,
@@ -391,11 +243,7 @@ class EncryptedContinuationStore:
                 "expires_at": expires_at,
                 "generation": generation,
                 "bindings": list(canonical_bindings),
-                "envelope": {
-                    "algorithm": "AES-256-GCM",
-                    "nonce": base64.b64encode(nonce).decode("ascii"),
-                    "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
-                },
+                "envelope": private_state.seal(self._key(allow_create=not records), payload, aad),
             }
             self._write_state(state)
             return StoredContinuation(
@@ -415,21 +263,13 @@ class EncryptedContinuationStore:
         expires_at = int(record["expires_at"])
         generation = int(record["generation"])
         bindings = tuple(record["bindings"])
-        envelope = record["envelope"]
-        if not isinstance(envelope, dict):
-            raise ContinuationStoreError("continuation envelope is malformed")
-        try:
-            plaintext = AESGCM(self._key()).decrypt(
-                _decode_part(envelope["nonce"], expected=12),
-                _decode_part(
-                    envelope["ciphertext"],
-                    minimum=17,
-                    maximum=MAX_PLAINTEXT_BYTES + 16,
-                ),
-                _aad(team, kind, challenge, expires_at, generation, bindings),
-            )
-        except InvalidTag as exc:
-            raise ContinuationStoreError("continuation envelope authentication failed") from exc
+        plaintext = _PRIVATE.open_envelope(
+            self._key(),
+            record["envelope"],
+            _aad(team, kind, challenge, expires_at, generation, bindings),
+            MAX_PLAINTEXT_BYTES,
+            "continuation envelope authentication failed",
+        )
         if not 1 <= len(plaintext) <= MAX_PLAINTEXT_BYTES:
             raise ContinuationStoreError("decrypted continuation is malformed")
         return StoredContinuation(
