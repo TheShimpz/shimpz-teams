@@ -470,7 +470,7 @@ class RecordedRoutineTests(LocalContractCase):
             asked = self.question(Recording(_record()))
         self.assertEqual(asked, {"code": "routine-interval-over-budget", "options": [], "value": 31})
         with mock.patch.object(routine_definition, "capacity", return_value=1):
-            self.assertEqual(self.question(Recording(_record()))["code"], "routine-no-room")
+            self.assertEqual(self.refusal(Recording(_record())), "routine-step-budget")
 
     def test_a_replacement_without_actions_keeps_the_steps_and_confirms_as_the_next_revision(self) -> None:
         hourly = {"kind": "hourly", "every": 1}

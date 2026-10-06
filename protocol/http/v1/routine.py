@@ -1412,7 +1412,6 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
 QUESTION_CODES = (
     "routine-schedule-unstated",
     "routine-interval-over-budget",
-    "routine-no-room",
     "routine-binding-ambiguous",
     "routine-binding-unsourced",
     "routine-work-split",

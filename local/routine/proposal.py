@@ -230,10 +230,13 @@ def _recorded(outcome, recording, contracts, existing: record.Routine | None):
 
 
 def _room(candidate: record.Routine, others: tuple[record.Routine, ...]) -> routine_recording.Question:
-    """What to ask when the stated schedule outgrows the Team's daily steps: the shortest interval that fits, if any."""
+    """What to ask when the stated schedule outgrows the Team's daily steps: the shortest interval that fits.
+
+    With room for no run at all, nothing can be asked, and the Team's step budget refuses the recording.
+    """
     fits = routine_definition.capacity(others) // routine_definition.run_units(candidate)
     if fits < 1:
-        return routine_recording.Question("routine-no-room")
+        raise RefusedError("routine-step-budget")
     shortest = max(http_routine.MIN_CONTINUOUS_GAP_SECONDS, -(-http_routine.DAY_SECONDS // fits))
     return routine_recording.Question("routine-interval-over-budget", value=shortest)
 
