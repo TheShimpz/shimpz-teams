@@ -617,6 +617,28 @@ class SealedStateTests(IncidentCase):
             ):
                 store.cursors("team_1")
 
+    def test_a_cursor_loss_is_marked_on_its_latest_progress_and_never_undone(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, _lease, _generation, _batch = self.held_run(directory, batch=False)
+            store = service.routine_store
+            plan = routine_plan.admit(_document(output={"mode": "none", "step": None, "when": None}), CONTRACTS)
+            binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
+            first = routine_cursor.start(plan, binding, 0, BOOT)
+            store.put_cursor("team_1", first)
+            # A reader saw step 0; the worker sealed step 1 before the reader's loss was marked.
+            advanced = dataclasses.replace(first, step=1)
+            store.put_cursor("team_1", advanced)
+            store.lose_cursor("team_1", binding)
+            self.assertEqual(store.cursor("team_1", binding), routine_cursor.lose_protection(advanced))
+            # A worker's later seal keeps the loss.
+            store.put_cursor("team_1", dataclasses.replace(advanced, step=2))
+            self.assertEqual(
+                store.cursor("team_1", binding), routine_cursor.lose_protection(dataclasses.replace(advanced, step=2))
+            )
+            store.delete_cursor("team_1", run_id)
+            store.lose_cursor("team_1", binding)
+            self.assertIsNone(store.cursor("team_1", binding))
+
     def test_the_receipt_handoff_seals_the_cursor_before_receipts_go(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, _lease, generation, _batch = self.held_run(directory, batch=False)

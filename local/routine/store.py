@@ -699,8 +699,23 @@ class RoutineStore:
         self._sealed_delete(team, f"{run}.continuation", "Routine continuation")
 
     def put_cursor(self, team_id: object, cursor: routine_cursor.Cursor) -> None:
-        """Seal one compiled run's cursor under exactly its binding (ADR-0092)."""
+        """Seal one compiled run's cursor under exactly its binding (ADR-0092); a sealed loss of protection stays."""
         team = _team_id(team_id)
+        with self.lock(team):
+            sealed = self.cursor(team, cursor.binding) if not cursor.protection_lost else None
+            if sealed is not None and sealed.protection_lost:
+                cursor = routine_cursor.lose_protection(cursor)
+            self._seal_cursor(team, cursor)
+
+    def lose_cursor(self, team_id: object, binding: routine_cursor.Binding) -> None:
+        """Mark the run's latest sealed cursor as having lost its protection, keeping its progress (ADR-0101)."""
+        team = _team_id(team_id)
+        with self.lock(team):
+            sealed = self.cursor(team, binding)
+            if sealed is not None and not sealed.protection_lost:
+                self._seal_cursor(team, routine_cursor.lose_protection(sealed))
+
+    def _seal_cursor(self, team: str, cursor: routine_cursor.Cursor) -> None:
         try:
             payload = routine_cursor.encode(cursor)
         except routine_cursor.CursorError as exc:

@@ -56,6 +56,21 @@ class StateAccessTests(RoutineServiceCase):
         self.assertEqual(routine_state.call(lambda: "ok"), "ok")
 
 
+class ReconcileTests(RoutineServiceCase):
+    def test_lost_runs_are_read_inside_the_writes_team_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            held: list[bool] = []
+
+            def lost(team_id: str) -> frozenset[str]:
+                held.append(service.routine_store.lock(team_id)._is_owned())
+                return frozenset()
+
+            service._routine_lost_runs = lost
+            routine_state.update(service, "team_1", lambda state: (state, None))
+        self.assertEqual(held, [True])
+
+
 def _challenge(**params: object) -> dict[str, object]:
     """A public challenge descriptor whose title names a zone and a count, as an Action may parameterize its copy."""
     request = {

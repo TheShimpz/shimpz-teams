@@ -565,13 +565,13 @@ class WatchdogRecoveryTests(CompiledRunCase):
         sealed: list[routine_cursor.Cursor] = []
 
         def patch(service):
-            put = service.routine_store.put_cursor
+            seal = service.routine_store._seal_cursor
 
-            def kept(team_id, cursor):
+            def kept(team, cursor):
                 sealed.append(cursor)
-                put(team_id, cursor)
+                seal(team, cursor)
 
-            service.routine_store.put_cursor = kept
+            service.routine_store._seal_cursor = kept
             return mock.patch.object(routine_compiled.CompiledRuntime, "dispatching", side_effect=Crash)
 
         with tempfile.TemporaryDirectory() as directory:

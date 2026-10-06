@@ -419,7 +419,7 @@ def protection_lost(self, team_id: str, value: record.Run) -> bool:
         return True
     if not self.routine_protections.current(value.run_id, cursor.boot).lost:
         return False
-    self.routine_store.put_cursor(team_id, routine_cursor.lose_protection(cursor))
+    self.routine_store.lose_cursor(team_id, cursor.binding)
     return True
 
 
