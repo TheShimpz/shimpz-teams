@@ -78,6 +78,34 @@ def _challenge(**params: object) -> dict[str, object]:
     return {"team_id": "team_1", "status": "human-required", "request": request, "rendered": rendered}
 
 
+def choice() -> action_human.HumanRequest:
+    """A valid single-choice request whose option value the Action chose at run time."""
+    options = [
+        {"value": "zone-1", "label": "Continue", "description": None},
+        {"value": "zone-2", "label": "Confirm", "description": None},
+    ]
+    descriptor = {
+        "kind": "input:choice",
+        "ordinal": 0,
+        "title": "List zones",
+        "description": "Allow listing the zones.",
+        "label": "Value",
+        "required": True,
+        "options": options,
+    }
+    return human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("input:choice",))
+
+
+def _approval_challenge(**params: object) -> dict[str, object]:
+    """The same challenge as an approval, which offers no value to choose."""
+    descriptor = _challenge(**params)
+    request = {key: descriptor["request"][key] for key in ("ordinal", "title", "description")}
+    request = {"kind": "approval", **request}
+    request["fingerprint"] = routine_run.request_fingerprint(request)
+    rendered = {key: descriptor["rendered"][key] for key in ("title", "description")}
+    return {**descriptor, "request": request, "rendered": rendered}
+
+
 class PublicChallengeTests(RoutineServiceCase):
     """A frozen run's request is shown without what its run protects; its sealed request never changes (ADR-0101)."""
 
@@ -95,9 +123,19 @@ class PublicChallengeTests(RoutineServiceCase):
         self.assertFalse(trace.exposes(public, protection.values))
 
     def test_after_a_loss_every_text_parameter_is_withheld(self) -> None:
-        public = routine_run.public_challenge(_challenge(zone="example.com", count=3), trace.Protection(lost=True))
+        public = routine_run.public_challenge(
+            _approval_challenge(zone="example.com", count=3), trace.Protection(lost=True)
+        )
         self.assertEqual(public["request"]["title"]["params"], {"count": 3})
         self.assertEqual(public["rendered"]["title"], "Publish [redacted] 3")
+
+    def test_after_a_loss_no_option_value_or_purpose_is_ever_shown(self) -> None:
+        purposed = {**_approval_challenge(), "purpose": "Publish the zone."}
+        for descriptor in (_challenge(), purposed):
+            with self.subTest(keys=sorted(descriptor)):
+                self.assertIsNone(routine_run.public_challenge(descriptor, trace.Protection(lost=True)))
+        del purposed["purpose"]
+        self.assertIsNotNone(routine_run.public_challenge(purposed, trace.Protection(lost=True)))
 
     def test_nothing_protected_leaves_the_challenge_as_it_was(self) -> None:
         descriptor = _challenge(zone="example.com")
@@ -154,6 +192,19 @@ class RunFaultTests(RoutineServiceCase):
                 opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             frozen = record.run(self.state(service), claim["run_id"])
         self.assertEqual((opened["status"], frozen.protection_lost), ("human-required", True))
+
+    def test_after_a_loss_a_choice_request_is_never_frozen_since_its_values_cannot_be_checked(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim = self.paused(directory, choice())
+            grow = service.routine_protections.grow
+
+            def lost(run_id, values):
+                grow(run_id, values)
+                return trace.Protection(lost=True)
+
+            with mock.patch.object(service.routine_protections, "grow", side_effect=lost):
+                self.assertEqual(self.run_claim(service, claim)["status"], "failed")
+            self.assertEqual(self.state(service).notices[-1].detail["code"], "request-unavailable")
 
     def test_a_request_whose_protected_value_cannot_be_hidden_ends_the_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -346,10 +346,14 @@ def public_challenge(descriptor: dict[str, object], protection: trace.Protection
     Only this public copy changes; the sealed request and its challenge stay exact (ADR-0101 section 6). A copy
     parameter holding a protected value is withheld, as is every text parameter once the run lost its protection, and
     the rendered copy shows ``[redacted]`` in its place; the request's fingerprint is that of what is shown. A value
-    still shown anywhere else, such as an option's value, or copy the marker pushes past its bound, cannot be shown.
+    still shown anywhere else, such as an option's value, or copy the marker pushes past its bound, cannot be shown;
+    nor, after a loss, can any option value or purpose, which no lost protection could check.
     """
     request = copy.deepcopy(descriptor["request"])
     request.pop("fingerprint", None)
+    if protection.lost and ("options" in request or "purpose" in descriptor):
+        # The run no longer knows what it protects: only reviewed catalog copy and Team's own fields may be shown.
+        return None
     hidden = _withheld(request, protection) | protection.values
     ordered = sorted(hidden, key=len, reverse=True)
     pattern = re.compile("|".join(re.escape(item) for item in ordered)) if ordered else None
