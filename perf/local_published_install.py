@@ -13,7 +13,6 @@ import json
 import math
 import os
 import secrets
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -28,7 +27,13 @@ from local_controller_docker_fixture import DockerFlow
 from test_local_controller_docker import DockerFlowTests
 
 from perf.local_snapshot_inventory import _percentiles
-from perf.local_team_http import TEAM_CPUS, TEAM_MEMORY_MIB, _bounded_controller_run, _residue
+from perf.local_team_http import (
+    TEAM_CPUS,
+    TEAM_MEMORY_MIB,
+    MeasurementError,
+    _bounded_controller_run,
+    run_owned_flow,
+)
 
 SPAN_PREFIX = "SHIMPZ-PERF-"
 SPAN_NAMES = frozenset(
@@ -71,10 +76,6 @@ SPAN_NAMES = frozenset(
         "Network.connect",
     }
 )
-
-
-class MeasurementError(RuntimeError):
-    """A measured installation or Docker inspection violated the expected contract."""
 
 
 def _installed_container(runner: DockerFlowTests, flow: DockerFlow) -> str:
@@ -339,68 +340,35 @@ def main() -> int:
     flow = runner._new_flow()
     # The real digest is assigned by _prepare_images after this unique-name preflight.
     flow.trusted_ref = f"127.0.0.1:1/shimpz/perf-preflight@sha256:{secrets.token_hex(32)}"
-    result: dict[str, object] = {"status": "error", "run_id": flow.space_id}
-    owns_names = False
-    try:
-        existing = _residue(runner, flow)
-        if existing:
-            result.update(
-                status="preflight-error",
-                residue=existing,
-                next_action="Inspect the named resources; this run did not clean them because ownership is unknown.",
+
+    def measure(result: dict[str, object]) -> None:
+        _start_bounded_controller(runner, flow)
+        result.update(_measure(runner, flow, args.samples, phase_spans=args.phase_spans))
+        result.update(
+            status="complete",
+            scope=(
+                "Local published Assistant; fixture Developers and Sigstore; real HTTP, registry, Docker and isolation"
+            ),
+            limits={
+                "controller_cpus": TEAM_CPUS,
+                "controller_memory_mib": TEAM_MEMORY_MIB,
+                "assistant_cpus": ASSISTANT_NANO_CPUS / 1_000_000_000,
+                "assistant_memory_mib": ASSISTANT_MEMORY // 1_048_576,
+                "cpuset": flow.test_cpuset,
+            },
+            team_image=runner._run("image", "inspect", "--format", "{{.Id}}", flow.controller_tag).stdout.strip(),
+            host_processors=os.cpu_count(),
+            docker_logging_driver=runner._run("info", "--format", "{{.LoggingDriver}}").stdout.strip(),
+            percentile_method="nearest-rank",
+            errors=0,
+            phase_limits=(
+                "Fixture-only install and uninstall spans" if args.phase_spans else "No internal phase attribution"
             )
-        else:
-            owns_names = True
-            runner._prepare_images(flow)
-            _start_bounded_controller(runner, flow)
-            result.update(_measure(runner, flow, args.samples, phase_spans=args.phase_spans))
-            result.update(
-                status="complete",
-                scope=(
-                    "Local published Assistant; fixture Developers and Sigstore; "
-                    "real HTTP, registry, Docker and isolation"
-                ),
-                limits={
-                    "controller_cpus": TEAM_CPUS,
-                    "controller_memory_mib": TEAM_MEMORY_MIB,
-                    "assistant_cpus": ASSISTANT_NANO_CPUS / 1_000_000_000,
-                    "assistant_memory_mib": ASSISTANT_MEMORY // 1_048_576,
-                    "cpuset": flow.test_cpuset,
-                },
-                team_image=runner._run("image", "inspect", "--format", "{{.Id}}", flow.controller_tag).stdout.strip(),
-                host_processors=os.cpu_count(),
-                docker_logging_driver=runner._run("info", "--format", "{{.LoggingDriver}}").stdout.strip(),
-                percentile_method="nearest-rank",
-                errors=0,
-                phase_limits=(
-                    "Fixture-only install and uninstall spans" if args.phase_spans else "No internal phase attribution"
-                )
-                + ("; fixture substitutes publication resolution and Sigstore verification; registry is loopback"),
-            )
-    except (OSError, RuntimeError, AssertionError, ValueError, subprocess.SubprocessError) as exc:
-        result.update(status="error", error_type=type(exc).__name__)
-        if isinstance(exc, MeasurementError):
-            result["detail"] = str(exc)
-    finally:
-        if owns_names:
-            try:
-                runner._cleanup(flow)
-            except (OSError, RuntimeError, AssertionError, ValueError, subprocess.SubprocessError) as exc:
-                result.update(status="cleanup-error", cleanup_error_type=type(exc).__name__)
-            try:
-                remaining = _residue(runner, flow)
-                if remaining:
-                    result.update(status="cleanup-error", residue=remaining)
-            except (OSError, RuntimeError, AssertionError, ValueError, subprocess.SubprocessError) as exc:
-                result.update(status="cleanup-error", residue_check_error_type=type(exc).__name__)
-            if result["status"] == "cleanup-error":
-                result["next_action"] = "Inspect resources bearing this run_id and remove only verified owned residue."
-        else:
-            flow.brain_server.shutdown()
-            flow.brain_server.server_close()
-            flow.brain_thread.join(timeout=2)
-    print(json.dumps(result, sort_keys=True))
-    return 0 if result["status"] == "complete" else 1
+            + ("; fixture substitutes publication resolution and Sigstore verification; registry is loopback"),
+        )
+
+    next_action = "Inspect resources bearing this run_id and remove only verified owned residue."
+    return run_owned_flow(runner, flow, measure, next_action)
 
 
 if __name__ == "__main__":

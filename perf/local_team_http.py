@@ -16,6 +16,7 @@ import secrets
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -85,6 +86,10 @@ CHAT_SPAN_NAMES = (
     "MachineContractCache.get",
     "Container.get_archive",
 )
+
+
+# What removing or rechecking a measured flow's owned resources may raise; a measurement may raise more.
+_CLEANUP_ERRORS = (OSError, RuntimeError, AssertionError, ValueError, subprocess.SubprocessError)
 
 
 class MeasurementError(RuntimeError):
@@ -899,11 +904,18 @@ def _record_workload(
         )
 
 
-def main() -> int:
-    runner, chat_spans, age_probe, inventory_route, inventory_spans = _configured_runner()
-    with mock.patch.object(flow_fixture, "BrainLifecycleHandler", BrainPeer):
-        flow = runner._new_flow()
-    flow.trusted_ref = f"127.0.0.1:1/shimpz/perf-placeholder@sha256:{secrets.token_hex(32)}"
+def run_owned_flow(
+    runner: DockerFlowTests,
+    flow: flow_fixture.DockerFlow,
+    measure: Callable[[dict[str, object]], None],
+    cleanup_next_action: str,
+    errors: tuple[type[BaseException], ...] = (),
+) -> int:
+    """Measure one disposable flow that owns only names absent at preflight, then remove and recheck what it owns.
+
+    A measurement failure reports its fixed message; any other expected failure, of the cleanup kinds or ``errors``,
+    reports its type alone.
+    """
     result: dict[str, object] = {"status": "error", "run_id": flow.space_id}
     owns_names = False
     try:
@@ -917,17 +929,8 @@ def main() -> int:
         else:
             owns_names = True
             runner._prepare_images(flow)
-            _start(runner, flow)
-            _record_workload(
-                result,
-                runner,
-                flow,
-                chat_spans=chat_spans,
-                age_probe=age_probe,
-                inventory_route=inventory_route,
-                inventory_spans=inventory_spans,
-            )
-    except (OSError, RuntimeError, AssertionError, ValueError, queue.Empty, subprocess.SubprocessError) as exc:
+            measure(result)
+    except (*_CLEANUP_ERRORS, *errors) as exc:
         result.update(status="error", error_type=type(exc).__name__)
         if isinstance(exc, MeasurementError):
             result["detail"] = str(exc)
@@ -935,25 +938,45 @@ def main() -> int:
         if owns_names:
             try:
                 runner._cleanup(flow)
-            except (OSError, RuntimeError, AssertionError, ValueError, subprocess.SubprocessError) as exc:
+            except _CLEANUP_ERRORS as exc:
                 result.update(status="cleanup-error", cleanup_error_type=type(exc).__name__)
             try:
                 remaining = _residue(runner, flow)
                 if remaining:
                     result.update(status="cleanup-error", residue=remaining)
-            except (OSError, RuntimeError, AssertionError, ValueError, subprocess.SubprocessError) as exc:
+            except _CLEANUP_ERRORS as exc:
                 result.update(status="cleanup-error", residue_check_error_type=type(exc).__name__)
             if result["status"] == "cleanup-error":
-                suffix = flow.space_id.removeprefix("test-space-")
-                result["next_action"] = (
-                    f"Inspect Docker resources bearing run suffix {suffix}; remove only verified owned residue."
-                )
+                result["next_action"] = cleanup_next_action
         else:
             flow.brain_server.shutdown()
             flow.brain_server.server_close()
             flow.brain_thread.join(timeout=2)
     print(json.dumps(result, sort_keys=True))
     return 0 if result["status"] == "complete" else 1
+
+
+def main() -> int:
+    runner, chat_spans, age_probe, inventory_route, inventory_spans = _configured_runner()
+    with mock.patch.object(flow_fixture, "BrainLifecycleHandler", BrainPeer):
+        flow = runner._new_flow()
+    flow.trusted_ref = f"127.0.0.1:1/shimpz/perf-placeholder@sha256:{secrets.token_hex(32)}"
+
+    def measure(result: dict[str, object]) -> None:
+        _start(runner, flow)
+        _record_workload(
+            result,
+            runner,
+            flow,
+            chat_spans=chat_spans,
+            age_probe=age_probe,
+            inventory_route=inventory_route,
+            inventory_spans=inventory_spans,
+        )
+
+    suffix = flow.space_id.removeprefix("test-space-")
+    next_action = f"Inspect Docker resources bearing run suffix {suffix}; remove only verified owned residue."
+    return run_owned_flow(runner, flow, measure, next_action, errors=(queue.Empty,))
 
 
 if __name__ == "__main__":
