@@ -6,7 +6,6 @@ import fcntl
 import hashlib
 import json
 import os
-import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +14,7 @@ from typing import Any, Literal
 from core.container import network as network_policy
 from install.contract import ContractValidationError, ContractValidator
 from protocol.http.v1 import payload as http_payload
+from storage import private_state
 
 _FORMAT_VERSION = 2
 _MAX_BINDINGS = 4096
@@ -224,32 +224,11 @@ class DynamicAssistantStore:
         encoded = _canonical_bytes(document)
         if len(encoded) > _MAX_FILE_BYTES:
             raise DynamicAssistantError("the dynamic Assistant registry is too large")
-        temporary: Path | None = None
         try:
             self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(
-                mode="wb",
-                dir=self._path.parent,
-                prefix=f".{self._path.name}.",
-                delete=False,
-            ) as stream:
-                temporary = Path(stream.name)
-                temporary.chmod(0o600)
-                stream.write(encoded)
-                stream.flush()
-                os.fsync(stream.fileno())
-            temporary.replace(self._path)
-            temporary = None
-            directory_fd = os.open(self._path.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            private_state.replace_durably(self._path, encoded)
         except OSError as exc:
             raise DynamicAssistantError("the dynamic Assistant registry cannot be written") from exc
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
 
 
 class _FileLock:

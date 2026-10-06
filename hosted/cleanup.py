@@ -8,7 +8,6 @@ only after every runtime/database artifact has been removed.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import re
@@ -19,6 +18,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from protocol.http.v1 import payload as http_payload
+from storage import private_state
 
 STATE_DIR = Path(os.environ.get("SHIMPZ_TEAM_CLEANUP_DIR", "/var/lib/team/cleanup"))
 MAX_RECORDS = int(os.environ.get("SHIMPZ_TEAM_CLEANUP_MAX_RECORDS", "128"))
@@ -91,17 +91,6 @@ def _ensure_directory() -> None:
         raise CleanupStateError("cleanup state directory is unavailable") from exc
 
 
-def _fsync_directory() -> None:
-    try:
-        descriptor = os.open(STATE_DIR, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-    except OSError as exc:
-        raise CleanupStateError("cleanup state directory could not be committed") from exc
-
-
 def _load_unlocked(team_id: str) -> Record | None:
     path = _path(team_id)
     try:
@@ -140,32 +129,10 @@ def _write_unlocked(record: Record) -> None:
     record = _validate_record(record)
     _ensure_directory()
     payload = json.dumps(asdict(record), sort_keys=True, separators=(",", ":")).encode()
-    temporary = STATE_DIR / f".{record.team_id}.{secrets.token_hex(8)}.tmp"
-    descriptor = -1
     try:
-        descriptor = os.open(
-            temporary,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600,
-        )
-        remaining = memoryview(payload)
-        while remaining:
-            written = os.write(descriptor, remaining)
-            if written < 1:
-                raise OSError("short cleanup record write")
-            remaining = remaining[written:]
-        os.fsync(descriptor)
-        os.close(descriptor)
-        descriptor = -1
-        temporary.replace(_path(record.team_id))
-        _fsync_directory()
+        private_state.replace_durably(_path(record.team_id), payload)
     except OSError as exc:
         raise CleanupStateError("cleanup record could not be committed") from exc
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        with contextlib.suppress(OSError):
-            temporary.unlink(missing_ok=True)
 
 
 def begin(team_id: str, owner: str, runtime_id: str) -> Record:
@@ -224,7 +191,7 @@ def finish(record: Record) -> None:
             raise CleanupStateError("cleanup record changed during teardown")
         try:
             _path(record.team_id).unlink()
-            _fsync_directory()
+            private_state.fsync_directory(STATE_DIR)
         except OSError as exc:
             raise CleanupStateError("cleanup record could not be removed") from exc
 

@@ -79,17 +79,12 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
         ):
             self.store._write([binding])
 
-        temporary = Path(self.directory.name, "partial")
-        stream = mock.MagicMock()
-        stream.__enter__.return_value.name = str(temporary)
-        stream.__enter__.return_value.flush.side_effect = OSError("full")
         with (
-            mock.patch.object(bindings.tempfile, "NamedTemporaryFile", return_value=stream),
-            mock.patch.object(Path, "unlink") as unlink,
+            mock.patch.object(bindings.private_state.os, "write", return_value=0),
             self.assertRaisesRegex(bindings.DynamicAssistantError, "cannot be written"),
         ):
             self.store._write([binding])
-        unlink.assert_called_once_with(missing_ok=True)
+        self.assertEqual(list(Path(self.directory.name).iterdir()), [])
 
     def test_binding_decoder_rejects_outer_and_resolution_shapes(self) -> None:
         for value in (
@@ -355,17 +350,12 @@ class UpdateStoreEdgeCoverageTests(unittest.TestCase):
 
     def test_update_write_cleans_partial_file_and_invalid_residue_id_fails(self) -> None:
         path = Path(self.directory.name, "updates", "state.json")
-        temporary = Path(self.directory.name, "partial")
-        stream = mock.MagicMock()
-        stream.__enter__.return_value.name = str(temporary)
-        stream.__enter__.return_value.flush.side_effect = OSError("full")
         with (
-            mock.patch.object(update.tempfile, "NamedTemporaryFile", return_value=stream),
-            mock.patch.object(Path, "unlink") as unlink,
+            mock.patch.object(update.private_state.os, "write", return_value=0),
             self.assertRaisesRegex(bindings.DynamicAssistantError, "cannot be written"),
         ):
             update._write(path, {"value": True})
-        unlink.assert_called_once_with(missing_ok=True)
+        self.assertEqual(list(path.parent.iterdir()), [])
 
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "image id is invalid"):
             self.residues.add("invalid")

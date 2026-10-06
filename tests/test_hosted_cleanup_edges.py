@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import importlib.util
 import json
 import os
@@ -95,19 +94,14 @@ class HostedCleanupEdgeTests(unittest.TestCase):
             ):
                 cleanup._ensure_directory()
 
-    def test_directory_fsync_wraps_open_and_fsync_failures(self) -> None:
-        for target, side_effect in (("open", OSError("open")), ("fsync", OSError("sync"))):
-            opened = mock.patch.object(cleanup.os, "open", return_value=7)
-            open_context = opened if target == "fsync" else contextlib.nullcontext()
+    def test_finish_wraps_directory_commit_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(cleanup, "STATE_DIR", Path(directory)):
+            record = cleanup.begin("team_1", "account_1", "a" * 64)
             with (
-                open_context,
-                mock.patch.object(cleanup.os, target, side_effect=side_effect),
-                mock.patch.object(cleanup.os, "close") as close,
-                self.assertRaisesRegex(cleanup.CleanupStateError, "could not be committed"),
+                mock.patch.object(cleanup.private_state, "fsync_directory", side_effect=OSError("sync")),
+                self.assertRaisesRegex(cleanup.CleanupStateError, "could not be removed"),
             ):
-                cleanup._fsync_directory()
-            if target == "fsync":
-                close.assert_called_once()
+                cleanup.finish(record)
 
     def test_load_handles_missing_open_read_metadata_and_payload_failures(self) -> None:
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(cleanup, "STATE_DIR", Path(directory)):

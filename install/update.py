@@ -5,13 +5,13 @@ from __future__ import annotations
 import fcntl
 import json
 import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from install import bindings
 from protocol.http.v1 import payload as http_payload
+from storage import private_state
 
 _UPDATE_FORMAT_VERSION = 2
 _RESIDUE_FORMAT_VERSION = 1
@@ -96,7 +96,7 @@ class AssistantUpdateStore:
                 raise bindings.DynamicAssistantConflictError("the Assistant update transaction changed")
             try:
                 path.unlink()
-                _sync_directory(path.parent)
+                private_state.fsync_directory(path.parent)
             except OSError as exc:
                 raise bindings.DynamicAssistantError("Assistant update transaction cannot be cleared") from exc
 
@@ -171,7 +171,7 @@ class AssistantResidueStore:
                 raise bindings.DynamicAssistantError("Assistant residue changed unexpectedly")
             try:
                 path.unlink()
-                _sync_directory(path.parent)
+                private_state.fsync_directory(path.parent)
             except OSError as exc:
                 raise bindings.DynamicAssistantError("Assistant residue cannot be cleared") from exc
 
@@ -300,31 +300,11 @@ def _successor_binding(
 
 def _write(path: Path, value: dict[str, object]) -> None:
     encoded = json.dumps(value, allow_nan=False, separators=(",", ":"), sort_keys=True).encode()
-    temporary: Path | None = None
     try:
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(mode="wb", dir=path.parent, prefix=f".{path.name}.", delete=False) as stream:
-            temporary = Path(stream.name)
-            temporary.chmod(0o600)
-            stream.write(encoded)
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary.replace(path)
-        temporary = None
-        _sync_directory(path.parent)
+        private_state.replace_durably(path, encoded)
     except OSError as exc:
         raise bindings.DynamicAssistantError("Assistant update transaction cannot be written") from exc
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-
-
-def _sync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 def _image_id(value: object) -> str:

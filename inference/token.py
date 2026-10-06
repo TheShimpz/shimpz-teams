@@ -5,8 +5,9 @@ from __future__ import annotations
 import os
 import secrets
 import stat
-from contextlib import suppress
 from pathlib import Path
+
+from storage import private_state
 
 TOKEN_PATH = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))
 TOKEN_GROUP_GID = 10016
@@ -78,33 +79,11 @@ def _read_checked(directory: int, name: str, group_id: int) -> str:
 
 
 def _create(directory: int, name: str, group_id: int) -> None:
-    temporary = f".{name}.{secrets.token_hex(8)}.tmp"
-    descriptor = -1
+    token = secrets.token_hex(TOKEN_BYTES).encode("ascii")
     try:
-        descriptor = os.open(
-            temporary,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=directory,
-        )
-        token = secrets.token_hex(TOKEN_BYTES).encode("ascii")
-        written = 0
-        while written < len(token):
-            written += os.write(descriptor, token[written:])
-        os.fchown(descriptor, -1, group_id)
-        os.fchmod(descriptor, TOKEN_MODE)
-        os.fsync(descriptor)
-        os.close(descriptor)
-        descriptor = -1
-        os.rename(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
-        os.fsync(directory)
+        private_state.replace_in_directory(directory, name, token, mode=TOKEN_MODE, group=group_id)
     except OSError as exc:
         raise RuntimeTokenError("the Brain runtime token could not be created") from exc
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        with suppress(FileNotFoundError):
-            os.unlink(temporary, dir_fd=directory)
 
 
 def ensure(path: Path = TOKEN_PATH, *, group_id: int = TOKEN_GROUP_GID) -> str:
