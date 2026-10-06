@@ -211,44 +211,29 @@ class LocalAuditTests(unittest.TestCase):
             audit._dirty_since = None
 
     def test_flush_worker_exits_for_stop_failure_wait_and_sync_failure(self) -> None:
-        with (
-            mock.patch.object(audit, "_stopping", True),
-            mock.patch.object(audit, "_failure", None),
-            mock.patch.object(audit, "_descriptor", None),
-            mock.patch.object(audit, "_dirty_since", None),
-        ):
+        with mock.patch.multiple(audit, _stopping=True, _failure=None, _descriptor=None, _dirty_since=None):
             audit._flush_worker()
 
-        with (
-            mock.patch.object(audit, "_stopping", False),
-            mock.patch.object(audit, "_failure", RuntimeError("failed")),
-            mock.patch.object(audit, "_descriptor", None),
-        ):
+        with mock.patch.multiple(audit, _stopping=False, _failure=RuntimeError("failed"), _descriptor=None):
             audit._flush_worker()
 
         def stop_after_wait(*_args: object, **_kwargs: object) -> None:
             audit._stopping = True
 
         with (
-            mock.patch.object(audit, "_stopping", False),
-            mock.patch.object(audit, "_failure", None),
-            mock.patch.object(audit, "_dirty_since", None),
+            mock.patch.multiple(audit, _stopping=False, _failure=None, _dirty_since=None),
             mock.patch.object(audit._CONDITION, "wait", side_effect=stop_after_wait),
         ):
             audit._flush_worker()
 
         with (
-            mock.patch.object(audit, "_stopping", False),
-            mock.patch.object(audit, "_failure", None),
-            mock.patch.object(audit, "_dirty_since", time.monotonic()),
+            mock.patch.multiple(audit, _stopping=False, _failure=None, _dirty_since=time.monotonic()),
             mock.patch.object(audit._CONDITION, "wait", side_effect=stop_after_wait),
         ):
             audit._flush_worker()
 
         with (
-            mock.patch.object(audit, "_stopping", False),
-            mock.patch.object(audit, "_failure", None),
-            mock.patch.object(audit, "_dirty_since", 0.0),
+            mock.patch.multiple(audit, _stopping=False, _failure=None, _dirty_since=0.0),
             mock.patch.object(audit, "_sync_locked", side_effect=RuntimeError("failed")),
         ):
             audit._flush_worker()
