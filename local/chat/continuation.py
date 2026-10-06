@@ -24,10 +24,15 @@ from local.validation import validate_team_name
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
+from routine import permission as routine_permission
 from routine import plan as routine_plan
 
 SCHEMA_VERSION = 7
 _RECORDING_RE = re.compile(r"[0-9a-f]{32}\Z")
+_HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
+# A revision admits 1 and a permissions revision 0, each below the wire's 2**31 bound.
+_REVISION_LIMIT = 2**31
+_PERMISSION_FIELDS = frozenset(routine_permission.Requirement.__dataclass_fields__)
 MAX_INVOKED_ACTIONS = 512
 MAX_IDENTITY_ASSISTANTS = 16
 MAX_IDENTITY_FILES = 8
@@ -299,6 +304,8 @@ def _requirements_payload(kind: str, requirements: tuple[object, ...]) -> list[d
         isinstance(item, integration_challenges.IntegrationRequirement) for item in requirements
     ):
         return [_json_value(asdict(item)) for item in requirements]  # type: ignore[list-item]
+    if kind == "permission" and len(requirements) == 1 and isinstance(requirements[0], routine_permission.Requirement):
+        return [asdict(requirements[0])]
     if kind == "human" and len(requirements) == 1 and isinstance(requirements[0], action_challenges.HumanRequirement):
         requirement = requirements[0]
         return [
@@ -364,9 +371,28 @@ def _bindings(kind: str, requirements: tuple[object, ...], pending: PendingLocal
         if image is None or not isinstance(requirement.request, action_human.HumanRequest):
             raise ContinuationCodecError("continuation release binding is malformed")
         bindings.add(f"{assistant}/{action}/{image}/{requirement.request.fingerprint}")
+    elif kind == "permission" and len(requirements) == 1:
+        bindings.add(_permission_binding(requirements[0], pending, images))
     else:
         raise ContinuationCodecError("continuation kind is malformed")
     return tuple(sorted(bindings))
+
+
+def _permission_binding(
+    requirement: routine_permission.Requirement, pending: PendingLocalChat, images: dict[str, str]
+) -> str:
+    """A permission names exactly the turn's one pending, unseen call of its Assistant Action at its release."""
+    continuation = pending.continuation
+    calls = [item for item in continuation.turn.actions if item.interrupt_id == requirement.interrupt_id]
+    image = images.get(requirement.assistant)
+    if (
+        len(calls) != 1
+        or requirement.interrupt_id in continuation.seen_interrupts
+        or (calls[0].assistant_id, calls[0].action) != (requirement.assistant, requirement.action)
+        or image is None
+    ):
+        raise ContinuationCodecError("continuation permission binding is malformed")
+    return f"{requirement.assistant}/{requirement.action}/{image}/{requirement.commitment}"
 
 
 def encode(
@@ -800,9 +826,40 @@ def _request_copy(value: object, request: action_human.HumanRequest) -> action_c
     return action_challenges.RequestCopy(raw["locale"], raw["catalog_digest"], raw["pack_digest"], raw["rendered"])
 
 
+def _revision(value: object, minimum: int) -> int:
+    if type(value) is not int or not minimum <= value < _REVISION_LIMIT:
+        raise ContinuationCodecError("permission requirement revision is malformed")
+    return value
+
+
+def _permission_requirement(value: object) -> routine_permission.Requirement:
+    raw = _mapping(value, set(_PERMISSION_FIELDS), "permission requirement")
+    if (
+        not isinstance(raw["run_id"], str)
+        or _RECORDING_RE.fullmatch(raw["run_id"]) is None
+        or not action_journal.valid_operation_id(raw["operation_id"])
+        or not isinstance(raw["pin"], str)
+        or routine_plan.PIN_RE.fullmatch(raw["pin"]) is None
+        or not isinstance(raw["commitment"], str)
+        or _HEX64_RE.fullmatch(raw["commitment"]) is None
+    ):
+        raise ContinuationCodecError("permission requirement is malformed")
+    return routine_permission.Requirement(
+        run_id=raw["run_id"],
+        revision=_revision(raw["revision"], 1),
+        permissions_revision=_revision(raw["permissions_revision"], 0),
+        interrupt_id=_interrupt_id(raw["interrupt_id"]),
+        operation_id=raw["operation_id"],
+        assistant=_component_id(raw["assistant"], "permission Assistant", http_payload.canonical_assistant_id),
+        action=_component_id(raw["action"], "permission Action", http_payload.canonical_action_id),
+        pin=raw["pin"],
+        commitment=raw["commitment"],
+    )
+
+
 def _require_paused_batch(kind: str, value: object) -> None:
-    """A human pause names exactly the Action batch it holds; an Integration pause holds none."""
-    if kind == "integrations" and value is None:
+    """A human pause names exactly the Action batch it holds; an Integration or permission pause holds none."""
+    if kind in {"integrations", "permission"} and value is None:
         return
     if kind == "human" and isinstance(value, str) and http_payload.SHA256_RE.fullmatch(value) is not None:
         return
@@ -832,6 +889,8 @@ def _decoded(kind: str, payload: bytes, bindings: tuple[str, ...]) -> DecodedCon
         requirements = tuple(_integration_requirement(item) for item in raw_requirements)
     elif kind == "human" and len(raw_requirements) == 1:
         requirements = (_human_requirement(raw_requirements[0]),)
+    elif kind == "permission" and len(raw_requirements) == 1:
+        requirements = (_permission_requirement(raw_requirements[0]),)
     else:
         raise ContinuationCodecError("stored continuation kind is malformed")
     if not requirements:

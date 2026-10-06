@@ -22,6 +22,7 @@ from inference import usage as brain_usage
 from integrations import challenges as integration_challenges
 from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
+from routine import permission as routine_permission
 from tests import human_request_fixtures
 
 IMAGE = "registry.example/assistant@sha256:" + "b" * 64
@@ -533,6 +534,145 @@ class RoutineContinuationBoundTests(unittest.TestCase):
         self.assertEqual(local_chat_continuations.decode_parts("human", payload, bindings).pending, state)
         blob = json.dumps(
             {"kind": "human", "bindings": list(bindings), "payload": base64.b64encode(payload).decode("ascii")},
+            separators=(",", ":"),
+        ).encode("ascii")
+        self.assertLessEqual(len(blob), local_chat_continuations.MAX_ROUTINE_BYTES)
+        with tempfile.TemporaryDirectory() as directory:
+            store = routine_store.RoutineStore(Path(directory) / "state", Path(directory) / "key" / "aes256.key")
+            store.put_continuation("team_1", "d" * 32, blob)
+            self.assertEqual(store.continuation("team_1", "d" * 32), blob)
+
+
+def permission_requirement(**changes: object) -> routine_permission.Requirement:
+    """A decision call frozen for a person's Permitir (ADR-0101 section 8), bound to the turn's one pending Action."""
+    return replace(
+        routine_permission.Requirement(
+            run_id="d" * 32,
+            revision=2,
+            permissions_revision=0,
+            interrupt_id="action-1",
+            operation_id="6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+            assistant="demo-assistant",
+            action="publish",
+            pin="sha256:" + "a" * 64,
+            commitment="e" * 64,
+        ),
+        **changes,
+    )
+
+
+class PermissionContinuationTests(unittest.TestCase):
+    """A frozen decision call's permission continuation, which only a frozen Routine run's store keeps."""
+
+    def test_a_permission_pause_round_trips_bound_to_its_pending_action(self) -> None:
+        requirement = (permission_requirement(),)
+        bindings, payload = local_chat_continuations.encode("permission", requirement, pending())
+        self.assertEqual(bindings, (f"demo-assistant/publish/{IMAGE}/{'e' * 64}",))
+        decoded = local_chat_continuations.decode_parts("permission", payload, bindings)
+        self.assertEqual((decoded.kind, decoded.requirements, decoded.pending), ("permission", requirement, pending()))
+        # A chat turn never waits for a Routine permission, so the chat store refuses the kind.
+        with self.assertRaises(local_chat_continuation_store.ContinuationStoreError):
+            local_chat_continuation_store._kind("permission")
+
+    def test_a_permission_pause_holds_one_bound_requirement_and_no_action_batch(self) -> None:
+        requirement = permission_requirement()
+        for requirements, state in (
+            ((requirement, requirement), pending()),
+            ((), pending()),
+            ((object(),), pending()),
+            ((requirement,), human_pending()),
+            ((permission_requirement(interrupt_id="older-action"),), pending()),
+            ((permission_requirement(interrupt_id="action-2"),), pending()),
+            ((permission_requirement(assistant="other-assistant"),), pending()),
+            ((permission_requirement(action="lookup"),), pending()),
+        ):
+            with (
+                self.subTest(requirements=requirements),
+                self.assertRaises(local_chat_continuations.ContinuationCodecError),
+            ):
+                local_chat_continuations.encode("permission", requirements, state)
+
+    def test_every_malformed_permission_field_is_refused_on_decode(self) -> None:
+        bindings, payload = local_chat_continuations.encode("permission", (permission_requirement(),), pending())
+        for field, value in (
+            ("run_id", "D" * 32),
+            ("revision", 0),
+            ("revision", True),
+            ("revision", 2**31),
+            ("permissions_revision", -1),
+            ("permissions_revision", False),
+            ("permissions_revision", 2**31),
+            ("permissions_revision", 1.0),
+            ("interrupt_id", "bad interrupt"),
+            ("operation_id", "not-an-operation"),
+            ("assistant", "Bad Assistant"),
+            ("action", "Bad Action"),
+            ("pin", "a" * 64),
+            ("commitment", "sha256:" + "e" * 64),
+            ("extra", None),
+        ):
+            document = json.loads(payload)
+            document["requirements"][0][field] = value
+            with (
+                self.subTest(field=field, value=value),
+                self.assertRaises(local_chat_continuations.ContinuationCodecError),
+            ):
+                local_chat_continuations.decode_parts("permission", json.dumps(document).encode(), bindings)
+        document = json.loads(payload)
+        document["requirements"].append(document["requirements"][0])
+        with self.assertRaises(local_chat_continuations.ContinuationCodecError):
+            local_chat_continuations.decode_parts("permission", json.dumps(document).encode(), bindings)
+        with self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "release binding changed"):
+            local_chat_continuations.decode_parts("permission", payload, (f"demo-assistant/publish/{IMAGE}/-",))
+
+    def test_the_largest_permission_freeze_of_the_longest_plan_fits_its_codec_record_and_seal(self) -> None:
+        import base64
+        import tempfile
+
+        from local.routine import store as routine_store
+        from routine import plan as routine_plan
+
+        steps = routine_plan.MAX_STEPS
+        filler = "\x01" * ((routine_plan.MAX_RESOLVED_INPUT_BYTES - 32) // 6)
+        interrupt = "i" * 256
+        turn = brain_runtime_client.RuntimeTurn(
+            "action-required",
+            "",
+            (brain_runtime_client.ActionRequest(interrupt, "demo-assistant", "publish", {"payload": filler}),),
+        )
+        longest = max(action_human.LENGTH_KINDS.values())
+        answers = tuple(
+            action_human.HumanResponse("input:textarea", ordinal, "f" * 64, "\x02" * longest)
+            for ordinal in range(action_human.MAX_REQUESTS_PER_ACTION - 1)
+        )
+        state = local_chat_continuations.PendingLocalChat(
+            chat_orchestrator.ChatContinuation(
+                turn=turn,
+                seen_interrupts=tuple(sorted(f"routine-step-{index}" for index in range(steps - 1))),
+                invoked=(),
+                round_index=steps - 1,
+            ),
+            ("demo-assistant",),
+            (),
+            "openai",
+            (*pending().identity[:3], [], pending().identity[4]),
+            (action_human.ActionTranscript("routine-step-0", answers),),
+            len(answers),
+        )
+        requirement = (
+            permission_requirement(
+                interrupt_id=interrupt, revision=2**31 - 1, permissions_revision=2**31 - 1, run_id="f" * 32
+            ),
+        )
+        with self.assertRaises(local_chat_continuations.ContinuationCodecError):
+            local_chat_continuations.encode("permission", requirement, state)
+        bindings, payload = local_chat_continuations.encode(
+            "permission", requirement, state, limit=local_chat_continuations.MAX_ROUTINE_PLAINTEXT_BYTES
+        )
+        decoded = local_chat_continuations.decode_parts("permission", payload, bindings)
+        self.assertEqual((decoded.requirements, decoded.pending), (requirement, state))
+        blob = json.dumps(
+            {"kind": "permission", "bindings": list(bindings), "payload": base64.b64encode(payload).decode("ascii")},
             separators=(",", ":"),
         ).encode("ascii")
         self.assertLessEqual(len(blob), local_chat_continuations.MAX_ROUTINE_BYTES)
