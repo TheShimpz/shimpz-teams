@@ -98,8 +98,17 @@ class DefinitionTests(unittest.TestCase):
         value = _defined()
         plain = routine_definition.definition_bytes(value)
         self.assertGreater(plain, len(routine_plan.canonical(value.plan)))
+        self.assertGreater(routine_definition.definition_bytes(dataclasses.replace(value, model=MODEL)), plain)
+
+    def test_a_baseline_or_a_rehearsal_proof_never_changes_a_counted_definition(self) -> None:
+        # Their room is reserved at their largest, so a full Team can still record a baseline or a rehearsal.
+        value = _defined()
+        plain = routine_definition.definition_bytes(value)
         baseline = {"id": "b" * 32, "digest": "c" * 64}
-        self.assertGreater(routine_definition.definition_bytes(dataclasses.replace(value, baseline=baseline)), plain)
+        proof = {"run_id": "e" * 32, "revision": 2**31 - 1, "permissions_revision": 2**31 - 1}
+        for change in ({"baseline": baseline}, {"rehearsed": proof}, {"baseline": baseline, "rehearsed": proof}):
+            with self.subTest(change=change):
+                self.assertEqual(routine_definition.definition_bytes(dataclasses.replace(value, **change)), plain)
 
     def test_a_budget_names_the_rate_the_units_or_the_bytes_it_outgrows(self) -> None:
         busy = _defined(routine_id="b" * 32, schedule={"kind": "continuous", "gap": 30, "cap": 1000})
