@@ -9,6 +9,17 @@ from pathlib import Path
 from test_protocol_verifier_edges import HTTP, _execute, _rehash, _rewrite_json
 
 
+def _edited(old: str, new: str):
+    """A mutation replacing every ``old`` with ``new`` in the mirrored routine_proposal.py and re-pinning its digest."""
+
+    def mutate(root: Path) -> None:
+        module = root / "routine_proposal.py"
+        module.write_text(module.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+        _rehash(root, "routine_proposal.py")
+
+    return mutate
+
+
 class TeamHttpVerifierEdgeTests(unittest.TestCase):
     def _assert_vector_mutations_refused(
         self, *mutations: object, refusal: type[BaseException] | tuple[type[BaseException], ...]
@@ -126,17 +137,9 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
                 _execute(HTTP / "verify.py", mutate)
 
     def test_rejects_routine_answer_replies_that_miss_a_language_or_the_english_default(self) -> None:
-        def edited(old: str, new: str):
-            def mutate(root: Path) -> None:
-                module = root / "routine_proposal.py"
-                module.write_text(module.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
-                _rehash(root, "routine_proposal.py")
-
-            return mutate
-
         for mutate in (
-            edited('    "zh": "已将你的回答应用到例行任务。",\n', ""),
-            edited('ANSWER_REPLIES[locale or "en"]', 'ANSWER_REPLIES[locale or "pt"]'),
+            _edited('    "zh": "已将你的回答应用到例行任务。",\n', ""),
+            _edited('ANSWER_REPLIES[locale or "en"]', 'ANSWER_REPLIES[locale or "pt"]'),
         ):
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
                 _execute(HTTP / "verify.py", mutate)
@@ -161,17 +164,9 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
                 )
 
     def test_rejects_routine_output_choices_missing_a_language_or_naming_one_output_twice(self) -> None:
-        def edited(old: str, new: str):
-            def mutate(root: Path) -> None:
-                module = root / "routine_proposal.py"
-                module.write_text(module.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
-                _rehash(root, "routine_proposal.py")
-
-            return mutate
-
         for mutate in (
-            edited('"none": "Não mostrar"', '"none": "Mostrar somente quando mudar"'),
-            edited('    "zh": {"show": "每次运行都显示"', '    "xx": {"show": "每次运行都显示"'),
+            _edited('"none": "Não mostrar"', '"none": "Mostrar somente quando mudar"'),
+            _edited('    "zh": {"show": "每次运行都显示"', '    "xx": {"show": "每次运行都显示"'),
         ):
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
                 _execute(HTTP / "verify.py", mutate)
