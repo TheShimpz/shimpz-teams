@@ -103,6 +103,29 @@ class Pending:
 
 
 @dataclass(frozen=True, slots=True)
+class Slot:
+    """One call a rerun must make: its Action, whether it is read-only, and what each input member must be.
+
+    Each input is (member, kind, value): ``value`` must be sent exactly; ``clock`` must be the date its own send
+    started on, in UTC; ``fresh`` must be a value one of the rerun send's own results holds, so its provenance is new.
+    """
+
+    action: tuple[str, str]
+    read_only: bool
+    inputs: tuple[tuple[str, str, object], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class Manifest:
+    """The work a split, rerun, or unsourced question asks to run again, in dispatch order.
+
+    Every changing call keeps its multiplicity and order; read-only calls with the same Action and inputs are one slot.
+    """
+
+    slots: tuple[Slot, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Asked:
     """The question a span last asked, which the person's later sends may answer."""
 
@@ -110,6 +133,7 @@ class Asked:
     # How many sends the span held when it asked: only later sends answer it.
     after: int
     pending: Pending | None = None
+    manifest: Manifest | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,8 +143,11 @@ class Question:
     code: str
     options: tuple[dict[str, object], ...] = ()
     value: int | None = None
-    # The choice a target question binds, which only Team keeps.
+    # The choice a target question binds, and the work a rerun must repeat, which only Team keeps.
     pending: Pending | None = field(default=None, compare=False)
+    manifest: Manifest | None = field(default=None, compare=False)
+    # The first send whose calls count: the send that settled a rerun, or 0.
+    frontier: int = field(default=0, compare=False)
 
     def wire(self) -> dict[str, object]:
         """The question as the chat reply carries it: each target as its exact JSON text, which no client rounds."""
@@ -220,24 +247,34 @@ def record(
     *,
     asked: Asked | None = None,
     existing: Existing | None = None,
+    frontier: int = 0,
 ) -> Recorded | Question:
-    """The plan a recording span defines, or the question to ask first; raises RecordingError when it cannot be one."""
+    """The plan a recording span defines, or the question to ask first; raises RecordingError when it cannot be one.
+
+    Only calls from ``frontier`` on count. A pending rerun question stands until one later send's calls satisfy its
+    manifest; that send is then the new frontier, and nothing before it counts as a call any more.
+    """
     _admit(recording, contracts)
     if protection.lost:
         raise RecordingError("routine-recording-unavailable")
-    calls = _calls(sends, contracts)
+    if asked is not None and asked.manifest is not None:
+        settled = settlement(sends, asked)
+        if settled is None:
+            return Question(asked.code, pending=asked.pending, manifest=asked.manifest, frontier=frontier)
+        frontier = max(frontier, settled)
+    calls = _calls(sends, contracts, frontier)
     texts = [line for send in sends for line in (*_lines(send.person), *send.window)]
     latest = [call for call in calls if call.send == calls[-1].send] if calls else []
+    context = _Context(sends, calls, _known(texts, protection), _zone(sends, existing), asked, contracts)
+    context.replays_changes = recording.mode != "decide"
+    work = [call for call in latest if call.read_only or recording.mode != "decide"]
     try:
-        context = _Context(sends, calls, _known(texts, protection), _zone(sends, existing), asked, contracts)
-        context.replays_changes = recording.mode != "decide"
         if not latest and existing is not None:
             return _kept(context, recording, existing)
-        work = [call for call in latest if call.read_only or recording.mode != "decide"]
         document, origins = _plan(context, recording, work)
         when = _schedule(sends, existing)
     except _AskError as asking:
-        return asking.question
+        return _asked(context, work, asking.question, frontier)
     timezone, source = context.zone
     document["timezone"] = timezone
     actions = [(step["assistant"], step["action"]) for step in document["steps"]]
@@ -246,14 +283,38 @@ def record(
     return Recorded(document, origins, permitted, when, timezone, source)
 
 
+# The questions only work run again can answer, which freeze that work as a manifest.
+_RERUN_CODES = frozenset({"routine-work-split", "routine-work-rerun", "routine-binding-unsourced"})
+
+
+def _asked(context: _Context, work: list[_Call], question: Question, frontier: int) -> Question:
+    """A question as Team keeps it: with the frontier, the work it asks to repeat, and a choice already answered.
+
+    A choice the person already made, exactly, stays bound while Team asks something else.
+    """
+    pending = question.pending
+    if pending is None and context.asked is not None and context.asked.pending is not None:
+        kept = context.asked.pending
+        chosen = kept.chosen if kept.chosen is not None else _selection(context, kept)
+        pending = None if chosen is None else dataclasses.replace(kept, chosen=chosen)
+    manifest = question.manifest
+    if manifest is None and question.code in _RERUN_CODES:
+        manifest = _manifest(context, work, pending)
+    return dataclasses.replace(question, pending=pending, manifest=manifest, frontier=frontier)
+
+
 def _lines(segments: Sequence[str]) -> list[str]:
     """Each line of the person's segments: a name or number never spans two."""
     return [line for segment in segments for line in segment.split("\n")]
 
 
-def _calls(sends: Sequence[Send], contracts: Mapping[tuple[str, str], routine_plan.ActionContract]) -> list[_Call]:
-    """Every call of the span in dispatch order; one whose Action is no longer at its pin refuses the recording."""
-    occurrences = [(position, item) for position, send in enumerate(sends) for item in send.occurrences]
+def _calls(
+    sends: Sequence[Send], contracts: Mapping[tuple[str, str], routine_plan.ActionContract], frontier: int
+) -> list[_Call]:
+    """Every call from the frontier on, in dispatch order; one whose Action is no longer at its pin refuses."""
+    occurrences = [
+        (position, item) for position, send in enumerate(sends) if position >= frontier for item in send.occurrences
+    ]
     calls = [_Call(index, send, occurrence) for index, (send, occurrence) in enumerate(occurrences)]
     for call in calls:
         contract = contracts.get(call.action)
@@ -479,16 +540,98 @@ def _targeted(calls: Sequence[_Call], pending: Pending) -> list[object]:
 def _split(context: _Context, work: list[_Call], nodes: dict[int, _Call]) -> None:
     """Ask when an earlier send ran a work Action for something the work did not run again."""
     latest = context.calls[-1].send if context.calls else None
-    pending = None if context.asked is None else context.asked.pending
     for call in context.calls:
         if call.send == latest or context.classes[call.index] in nodes:
             continue
-        if pending is not None and pending.chosen is not None and _targeted([call], pending):
-            # The work ran again for the person's chosen target: the earlier call it replaces is no split.
-            continue
         same = [item for item in work if item.action == call.action]
         if same and not any(_same_input(item.occurrence, call.occurrence) for item in same):
-            raise _AskError(Question("routine-work-split"))
+            split = [item for item in context.calls if item.send != latest and item.action == call.action]
+            manifest = _manifest(context, sorted([*split, *work], key=lambda item: item.index), None)
+            raise _AskError(Question("routine-work-split", manifest=manifest))
+
+
+def _manifest(context: _Context, calls: Sequence[_Call], pending: Pending | None) -> Manifest:
+    """The work these calls did, as a rerun must repeat it, with a chosen target in place of the one they sent."""
+    slots: list[Slot] = []
+    for call in calls:
+        given = call.occurrence.input
+        if given.withheld or given.oversize or not isinstance(given.value, dict):
+            raise RecordingError("routine-secret-literal")
+        inputs = tuple(
+            _slot_input(context, call, (member, value), pending) for member, value in sorted(given.value.items())
+        )
+        slot = Slot(call.action, call.read_only, inputs)
+        if not (slot.read_only and slot in slots):
+            slots.append(slot)
+    return Manifest(tuple(slots))
+
+
+def _slot_input(
+    context: _Context, call: _Call, given: tuple[str, object], pending: Pending | None
+) -> tuple[str, str, object]:
+    """What a rerun must send for one input member: the chosen target, a date, a fresh value, or this exact one."""
+    member, value = given
+    targets = () if pending is None or pending.chosen is None else pending.targets
+    if (call.action, member) == ((pending.action, pending.member) if pending else None) and any(
+        _json_text(value) == _json_text(target) for target, _label in targets
+    ):
+        return member, "value", pending.chosen
+    if value == _date_at(context.sends[call.send].started_at, "UTC").isoformat():
+        return member, "clock", None
+    if _referable(value) and not context.known.names(value):
+        return member, "fresh", None
+    return member, "value", value
+
+
+def settlement(sends: Sequence[Send], asked: Asked) -> int | None:
+    """The latest send after the question whose calls satisfy its manifest, or None while none does."""
+    for position in reversed(range(asked.after, len(sends))):
+        if _satisfies(sends[position], asked.manifest):
+            return position
+    return None
+
+
+def _satisfies(send: Send, manifest: Manifest) -> bool:
+    """Whether one send's calls repeat the manifest: every changing slot in order, every read-only slot once."""
+    calls = list(send.occurrences)
+    changing = [item for item in calls if not item.read_only]
+    reads = [item for item in calls if item.read_only]
+    for slot in manifest.slots:
+        pool = reads if slot.read_only else changing
+        place = next((index for index, item in enumerate(pool) if _fills(send, item, slot)), None)
+        if place is None:
+            return False
+        # Each call fills one slot; a changing one also uses up every changing call before it, keeping their order.
+        del pool[place if slot.read_only else 0 : place + 1]
+    return True
+
+
+def _fills(send: Send, occurrence: trace.Occurrence, slot: Slot) -> bool:
+    """Whether one call fills a slot: the same Action, and every input member as the slot requires."""
+    given = occurrence.input
+    if (occurrence.assistant, occurrence.action) != slot.action or given.withheld or not isinstance(given.value, dict):
+        return False
+    if set(given.value) != {member for member, _kind, _value in slot.inputs}:
+        return False
+    today = _date_at(send.started_at, "UTC").isoformat()
+    for member, kind, value in slot.inputs:
+        sent = given.value[member]
+        if kind == "value" and not routine_plan.same(sent, value):
+            return False
+        if kind == "clock" and sent != today:
+            return False
+        if kind == "fresh" and not _fresh(send, occurrence, sent):
+            return False
+    return True
+
+
+def _fresh(send: Send, consumer: trace.Occurrence, value: object) -> bool:
+    """Whether another call of the same send returned the value at a position it kept."""
+    return any(
+        item is not consumer
+        and any(item.result.available(_pointer(position[0])) for position in _positions(item.result.value, value))
+        for item in send.occurrences
+    )
 
 
 def _same_input(left: trace.Occurrence, right: trace.Occurrence) -> bool:

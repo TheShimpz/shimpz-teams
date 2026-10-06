@@ -55,6 +55,8 @@ class Span:
     # The revision of every Routine the latest send's Brain was shown, by id: only these may be replaced.
     revisions: tuple[tuple[str, int], ...] = ()
     asked: routine_recording.Asked | None = None
+    # The first send whose calls count: the send that settled a rerun question, kept whatever is asked after it.
+    frontier: int = 0
 
     @property
     def recording_id(self) -> str:
@@ -102,10 +104,13 @@ def _bounded(span: Span) -> Span:
     bounded = dataclasses.replace(span, send_ids=send_ids, sends=sends)
     if not _fits(sends):
         return dataclasses.replace(bounded, refused="routine-recording-too-large")
-    if bounded.asked is not None and len(sends) < len(span.sends):
-        # The question counted the sends before it; the ones it counted that went are gone from the count too.
-        after = max(bounded.asked.after - (len(span.sends) - len(sends)), 0)
-        bounded = dataclasses.replace(bounded, asked=dataclasses.replace(bounded.asked, after=after))
+    gone = len(span.sends) - len(sends)
+    if gone:
+        # The question and the frontier counted the sends before them; those that went leave the count too.
+        bounded = dataclasses.replace(bounded, frontier=max(bounded.frontier - gone, 0))
+        if bounded.asked is not None:
+            after = max(bounded.asked.after - gone, 0)
+            bounded = dataclasses.replace(bounded, asked=dataclasses.replace(bounded.asked, after=after))
     return bounded
 
 
@@ -193,11 +198,11 @@ class RecordingBook:
         self._change(team_id, recording_id, add)
 
     def asked(self, team_id: str, recording_id: str, question: routine_recording.Question) -> None:
-        """Keep what the span asked, and the choice it binds, so the person's next sends answer it."""
+        """Keep what the span asked, the choice it binds, the work it asks to repeat, and the frontier it settled."""
 
         def keep(found: Span) -> Span:
-            asked = routine_recording.Asked(question.code, len(found.sends), question.pending)
-            return dataclasses.replace(found, asked=asked)
+            asked = routine_recording.Asked(question.code, len(found.sends), question.pending, question.manifest)
+            return dataclasses.replace(found, asked=asked, frontier=max(found.frontier, question.frontier))
 
         self._change(team_id, recording_id, keep)
 

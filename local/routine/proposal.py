@@ -223,7 +223,13 @@ def _recorded(outcome, recording, contracts, existing: record.Routine | None):
         kept = routine_recording.Existing(existing.plan, existing.schedule, existing.timezone, existing.timezone_source)
     try:
         return routine_recording.record(
-            recording.sends, choice, recording.protection, contracts, asked=recording.asked, existing=kept
+            recording.sends,
+            choice,
+            recording.protection,
+            contracts,
+            asked=recording.asked,
+            existing=kept,
+            frontier=recording.frontier,
         )
     except routine_recording.RecordingError as exc:
         raise RefusedError(exc.code) from exc

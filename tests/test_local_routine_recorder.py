@@ -119,15 +119,22 @@ class RecordingBookTests(unittest.TestCase):
         alone = book.start("team_4", BINDING, _started("y" * routine_recorder.MAX_TEXT_BYTES), 1)
         self.assertEqual(book.get("team_4", alone).refused, "routine-recording-too-large")
 
-    def test_a_question_is_kept_and_counts_the_sends_before_it_as_old_ones_go(self) -> None:
+    def test_a_question_is_kept_with_its_frontier_and_both_count_sends_as_old_ones_go(self) -> None:
         book = routine_recorder.RecordingBook()
-        first = book.start("team_1", BINDING, _started(), 1)
-        question = routine_recording.Question("routine-binding-ambiguous", ({"value": "a-zone", "label": None},))
+        book.start("team_1", BINDING, _started(), 1)
+        first = book.start("team_1", BINDING, _started(), 2)
+        manifest = routine_recording.Manifest(())
+        question = routine_recording.Question("routine-work-split", manifest=manifest, frontier=1)
         book.asked("team_1", first, question)
-        self.assertEqual(book.get("team_1", first).asked, routine_recording.Asked(question.code, 1, question.pending))
+        found = book.get("team_1", first)
+        self.assertEqual((found.asked, found.frontier), (routine_recording.Asked(question.code, 2, None, manifest), 1))
+        # A later question never moves the frontier back.
+        book.asked("team_1", first, routine_recording.Question("routine-schedule-unstated"))
+        self.assertEqual(book.get("team_1", first).frontier, 1)
         for index in range(routine_recorder.MAX_SENDS):
-            send = book.start("team_1", BINDING, _started(), 2 + index)
-        self.assertEqual(book.get("team_1", send).asked.after, 0)
+            send = book.start("team_1", BINDING, _started(), 3 + index)
+        found = book.get("team_1", send)
+        self.assertEqual((found.asked.after, found.frontier), (0, 0))
 
     def test_only_the_persons_own_untruncated_earlier_lines_join_the_send(self) -> None:
         conversation = (
