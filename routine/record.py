@@ -253,6 +253,11 @@ def _instant(epoch: int) -> datetime.datetime:
     return datetime.datetime.fromtimestamp(epoch, datetime.UTC)
 
 
+def instant_text(epoch: int) -> str:
+    """An instant in whole seconds as its UTC wire text, ``YYYY-MM-DDTHH:MM:SSZ``."""
+    return _instant(epoch).isoformat().replace("+00:00", "Z")
+
+
 def next_after(routine_value: Routine, after: int) -> int:
     return int(
         schedule.next_run(

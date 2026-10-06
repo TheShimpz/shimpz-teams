@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime
 import time
 from http import HTTPStatus
 
@@ -20,10 +19,6 @@ from routine import record
 from routine import runs as routine_runs
 
 
-def _instant(epoch: int) -> str:
-    return datetime.datetime.fromtimestamp(epoch, datetime.UTC).isoformat().replace("+00:00", "Z")
-
-
 def routine_view(value: record.Routine) -> dict[str, object]:
     """A Routine as its Supervisor inspects it: what it is, when it runs, its plan's summary, and its output.
 
@@ -38,7 +33,7 @@ def routine_view(value: record.Routine) -> dict[str, object]:
         "timezone": value.timezone,
         "timezone_source": value.timezone_source,
         "assistant_ids": [assistant for assistant, _digest in value.assistants],
-        "next_run_at": _instant(value.next_run_at),
+        "next_run_at": record.instant_text(value.next_run_at),
         "needs_reconfirm": value.needs_reconfirm,
         "deleting": value.deleting,
         "permissions_revision": value.permissions_revision,
@@ -52,7 +47,7 @@ def run_view(value: record.Run) -> dict[str, object]:
         "run_id": value.run_id,
         "routine_id": value.routine_id,
         "status": value.status,
-        "scheduled_at": _instant(value.scheduled_at),
+        "scheduled_at": record.instant_text(value.scheduled_at),
         "request_kind": value.request_kind or None,
         "assistant_id": value.assistant_id or None,
         "action": value.action or None,
@@ -67,7 +62,7 @@ def incident_view(value: record.Incident) -> dict[str, object]:
         "incident_id": value.incident_id,
         "routine_id": value.routine_id,
         "name": value.name,
-        "created_at": _instant(value.created_at),
+        "created_at": record.instant_text(value.created_at),
         **routine_hold.step_detail(routine_hold.held_step(value)),
     }
 

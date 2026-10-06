@@ -17,7 +17,6 @@ holds a password or any other value Team injected.
 from __future__ import annotations
 
 import base64
-import datetime
 import hashlib
 import json
 import os
@@ -42,6 +41,7 @@ from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_notice as http_routine_notice
 from protocol.http.v1 import routine_run as http_routine_run
 from protocol.http.v1 import strict_json
+from routine import record
 from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state/diagnostics")
@@ -120,14 +120,13 @@ class Diagnostic:
 
     def view(self) -> dict[str, object]:
         """The wire form a Supervisor reads, which ``routine.canonical_diagnostic`` admits."""
-        instant = datetime.datetime.fromtimestamp(self.recorded_at, datetime.UTC)
         return {
             "operation_id": self.operation_id,
             "attempt": self.attempt,
             "assistant_id": self.assistant_id,
             "action": self.action,
             "position": self.position,
-            "recorded_at": instant.isoformat().replace("+00:00", "Z"),
+            "recorded_at": record.instant_text(self.recorded_at),
             "failure": self.failure,
             "condition": self.condition,
         }
@@ -146,10 +145,6 @@ def _incarnation(value: object) -> str:
     if not isinstance(value, str) or http_payload.SHA256_RE.fullmatch(value) is None:
         raise DiagnosticStoreError("Routine diagnostic incarnation is invalid")
     return value
-
-
-def _instant_text(epoch: int) -> str:
-    return datetime.datetime.fromtimestamp(epoch, datetime.UTC).isoformat().replace("+00:00", "Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,7 +189,7 @@ class StepRecord:
             "action": self.action,
             "attempt": self.attempt,
             "duration_ms": self.duration_ms,
-            "recorded_at": _instant_text(self.recorded_at),
+            "recorded_at": record.instant_text(self.recorded_at),
             "inputs": self.inputs,
         }
 

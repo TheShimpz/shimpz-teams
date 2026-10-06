@@ -6,8 +6,6 @@ settled through its recovery card instead (ADR-0092).
 
 from __future__ import annotations
 
-import datetime
-
 from local import audit as local_audit
 from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
@@ -32,9 +30,7 @@ def _notice(team_id: str, notice: record.Notice) -> dict[str, object]:
         "name": notice.name,
         "run_id": notice.run_id or None,
         "outcome": notice.outcome,
-        "created_at": datetime.datetime.fromtimestamp(notice.created_at, datetime.UTC)
-        .isoformat()
-        .replace("+00:00", "Z"),
+        "created_at": record.instant_text(notice.created_at),
         "detail": notice.detail,
         "usage": notice.usage,
         "protection_lost": notice.protection_lost,

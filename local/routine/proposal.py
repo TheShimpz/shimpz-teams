@@ -16,7 +16,6 @@ newer card, the replaced Routine's deletion, the Team's deletion or reset, and a
 from __future__ import annotations
 
 import dataclasses
-import datetime
 import hashlib
 import json
 import threading
@@ -368,11 +367,7 @@ def _next_runs(value: record.Routine) -> list[str]:
     runs = [value.next_run_at]
     while len(runs) < http_routine_proposal.MAX_NEXT_RUNS and not record.continuous(value):
         runs.append(record.next_after(value, runs[-1]))
-    return [_instant(item) for item in runs]
-
-
-def _instant(epoch: float) -> str:
-    return datetime.datetime.fromtimestamp(int(epoch), datetime.UTC).isoformat().replace("+00:00", "Z")
+    return [record.instant_text(int(item)) for item in runs]
 
 
 def card(proposal_id: str, candidate: record.Routine, recorded, framing: tuple[str | None, bool, int]) -> dict:
@@ -396,7 +391,7 @@ def card(proposal_id: str, candidate: record.Routine, recorded, framing: tuple[s
     ]
     return {
         "proposal_id": proposal_id,
-        "expires_at": _instant(expires_at),
+        "expires_at": record.instant_text(int(expires_at)),
         "replaces": replaces,
         "name": candidate.name,
         "schedule": dict(candidate.schedule),
