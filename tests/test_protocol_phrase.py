@@ -311,6 +311,27 @@ class TeamAsksTests(unittest.TestCase):
             "哪个区域?",
             "أي منطقة؟",
             "shimpz.com",
+            # Work questions about time-like inputs, in every language.
+            "What timeout should the HTTP request use?",
+            "What time range should the report cover?",
+            "How often does the API return errors?",
+            "Qual timeout a requisição HTTP deve usar?",
+            "Qual intervalo de datas o relatório deve cobrir?",
+            "Que horas são no servidor?",
+            "Com que frequência os erros acontecem?",
+            "¿Qué timeout debe usar la solicitud HTTP?",
+            "¿A qué hora se reinició el servidor ayer?",
+            "Quelle plage de dates le rapport doit-il couvrir ?",
+            "À quelle heure le serveur a-t-il redémarré ?",
+            "Welchen Zeitraum soll der Bericht abdecken?",
+            "Wann soll die Datei gelöscht werden?",
+            "Wie oft ist der Fehler aufgetreten?",
+            "サーバーは何時に再起動しましたか?",
+            "エラーの頻度は?",
+            "服务器几点重启的?",
+            "错误频率是多少?",
+            "كم مرة فشل الطلب؟",
+            "في أي وقت تم إنشاء السجل؟",
         ):
             with self.subTest(text=text):
                 self.assertIs(phrase.team_asks(text), False)

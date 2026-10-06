@@ -2728,7 +2728,17 @@
       {"text": "O que a rotina deve fazer?", "asks": false},
       {"text": "Which zone should I use?", "asks": false},
       {"text": "どのゾーン?", "asks": false},
-      {"text": "أي منطقة؟", "asks": false}
+      {"text": "أي منطقة؟", "asks": false},
+      {"text": "What timeout should the HTTP request use?", "asks": false},
+      {"text": "What time range should the report cover?", "asks": false},
+      {"text": "Qual timeout a requisição HTTP deve usar?", "asks": false},
+      {"text": "Qual intervalo de datas o relatório deve cobrir?", "asks": false},
+      {"text": "¿A qué hora se reinició el servidor ayer?", "asks": false},
+      {"text": "À quelle heure le serveur a-t-il redémarré ?", "asks": false},
+      {"text": "Wann soll die Datei gelöscht werden?", "asks": false},
+      {"text": "サーバーは何時に再起動しましたか?", "asks": false},
+      {"text": "错误频率是多少?", "asks": false},
+      {"text": "كم مرة فشل الطلب؟", "asks": false}
     ]
   }
 }
