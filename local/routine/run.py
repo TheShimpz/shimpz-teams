@@ -26,7 +26,9 @@ from local.routine import contracts as routine_contracts
 from local.routine import manage as routine_manage
 from local.routine import state as routine_state
 from protocol.http.v1 import payload as http_payload
+from routine import claim as routine_claim
 from routine import record, trace
+from routine import runs as routine_runs
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,8 +87,8 @@ def _chat_busy(self, team_id: str) -> bool:
 
 def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str, long: bool):
     """Sweep, check the oldest due Routine's pinned contracts, then lease one run of it, a long one only if allowed."""
-    state = record.sweep(state, now)
-    due = record.claimable(state, now, long)
+    state = routine_claim.sweep(state, now)
+    due = routine_claim.claimable(state, now, long)
     if due is None:
         return state, None
     pinned = dict(due.assistants)
@@ -98,7 +100,7 @@ def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str, l
     if current != pinned:
         changed = sorted(assistant for assistant, digest in pinned.items() if current.get(assistant) != digest)
         return record.mark_scope_changed(state, due.routine_id, now, changed), None
-    return record.claim(state, now, key, long)
+    return routine_claim.claim(state, now, key, long)
 
 
 def team_provider(self, team_id: str) -> str | None:
@@ -185,13 +187,13 @@ def next_routine_due(self) -> int | None:
     """When Admin should next claim: the earliest instant a Routine of a Team it can run becomes due (ADR-0092)."""
     now = int(time.time())
     states = _readable_states(self, routine_state.call(self.routine_store.teams))
-    due = [record.next_due(state, now) for team_id, state in states.items() if team_provider(self, team_id)]
+    due = [routine_claim.next_due(state, now) for team_id, state in states.items() if team_provider(self, team_id)]
     return min((item for item in due if item is not None), default=None)
 
 
 def _end(self, team_id: str, run_id: str, outcome: str, detail: dict[str, object]) -> str:
     now = int(time.time())
-    routine_state.update(self, team_id, lambda state: (record.end(state, run_id, now, outcome, detail), None))
+    routine_state.update(self, team_id, lambda state: (routine_runs.end(state, run_id, now, outcome, detail), None))
     return outcome
 
 
@@ -201,9 +203,9 @@ def _finish(self, run: _Run, outcome: str, detail: dict[str, object], shown: dic
 
     def finish(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
         try:
-            return record.finish(state, run.run_id, run.lease, now, outcome, detail, shown), outcome
+            return routine_runs.finish(state, run.run_id, run.lease, now, outcome, detail, shown), outcome
         except record.RoutineStateError:
-            return record.end(
+            return routine_runs.end(
                 state,
                 run.run_id,
                 now,
@@ -248,10 +250,10 @@ def complete_sealed(self, run: _Run, shown: dict[str, object] | None) -> str:
     def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
         current = next((item for item in state.runs if item.run_id == run.run_id), None)
         try:
-            completed = record.complete_recovered(state, run.run_id, run.lease.sha256, now, shown)
+            completed = routine_runs.complete_recovered(state, run.run_id, run.lease.sha256, now, shown)
         except record.RoutineStateError:
             return state, None
-        return completed, record.completed(current)
+        return completed, routine_runs.completed(current)
 
     outcome = routine_state.update(self, run.team_id, change)
     if outcome is None:
@@ -261,7 +263,7 @@ def complete_sealed(self, run: _Run, shown: dict[str, object] | None) -> str:
 
 def complete(self, run: _Run, value: record.Run, shown: dict[str, object] | None) -> str:
     """Record a run whose every step completed: done, or recovered for a continuation, by its output disposition."""
-    return _finish(self, run, record.completed(value), {}, shown)
+    return _finish(self, run, routine_runs.completed(value), {}, shown)
 
 
 def _deadline_cut(self, run: _Run) -> bool:
@@ -403,15 +405,15 @@ def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: dict[str,
 
     def freeze(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
         try:
-            return record.freeze(state, run_id, run.lease, now, (kind, assistant_id, action, step)), "frozen"
+            return routine_runs.freeze(state, run_id, run.lease, now, (kind, assistant_id, action, step)), "frozen"
         except record.RoutineStateError as exc:
             if str(exc) == "routine-deleting":
                 # The deletion stops every run it saw leased; one reaching its pause meanwhile ends stopped.
-                return record.end(state, run_id, now, "stopped", {"actions": []}), "stopped"
+                return routine_runs.end(state, run_id, now, "stopped", {"actions": []}), "stopped"
             placed = {"position": step, "steps": len(run.routine.plan["steps"])}
-            return record.end(state, run_id, now, "failed", {"code": "freeze-unavailable", "actions": [], **placed}), (
-                "failed"
-            )
+            return routine_runs.end(
+                state, run_id, now, "failed", {"code": "freeze-unavailable", "actions": [], **placed}
+            ), ("failed")
 
     outcome: list[str] = []
     # The freeze is written under the guard a Stop cancels under: a Stop either wins first and the run ends stopped,
@@ -427,7 +429,7 @@ def _live_run(self, team_id: str, run_id: str, lease: record.Lease) -> tuple[rec
     state = routine_state.load(self, team_id)
     try:
         value = record.run(state, run_id)
-        record.require_lease(value, lease, int(time.time()))
+        routine_claim.require_lease(value, lease, int(time.time()))
         return value, record.routine(state, value.routine_id)
     except record.RoutineStateError as exc:
         raise _problem(HTTPStatus.CONFLICT, "Routine run lease is not live", "routine-lease-invalid") from exc
@@ -454,7 +456,7 @@ def _bind(self, team_id: str, run_id: str, lease: record.Lease) -> str:
 
     def bind(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
         try:
-            bound = record.bind_generation(state, run_id, lease, now, network_id)
+            bound = routine_claim.bind_generation(state, run_id, lease, now, network_id)
         except record.RoutineStateError:
             return state, None
         return bound, record.run(bound, run_id).generation
@@ -480,7 +482,7 @@ def _spend(self, team_id: str, run_id: str, lease: record.Lease, elapsed: float)
 
     def spend(state: record.TeamRoutines) -> tuple[record.TeamRoutines, None]:
         try:
-            return record.spend(state, run_id, lease, now, (int(elapsed), int(elapsed * 1000))), None
+            return routine_runs.spend(state, run_id, lease, now, (int(elapsed), int(elapsed * 1000))), None
         except record.RoutineStateError:
             return state, None
 
@@ -531,7 +533,7 @@ def halt_routine_run(self, team_id: str, run_id: str) -> bool:
 
     def end(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
         try:
-            return record.end(state, run_id, now, "stopped", {"actions": []}, status="leased"), True
+            return routine_runs.end(state, run_id, now, "stopped", {"actions": []}, status="leased"), True
         except record.RoutineStateError:
             return state, False
 

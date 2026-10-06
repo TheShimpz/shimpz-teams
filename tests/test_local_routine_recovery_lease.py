@@ -18,6 +18,7 @@ from local.routine import card as routine_card
 from local.routine import recovery as routine_recovery
 from local.routine import run as routine_run
 from local.routine import watchdog as routine_watchdog
+from routine import claim as routine_claim
 from routine import hold as routine_hold
 from routine import record
 
@@ -164,7 +165,9 @@ class AtomicCardTests(AutomaticCase):
                     if change == "generation":
                         # A continuation and a new hold since the card opened leave the same incident id.
                         held = routine_hold.incident(self.state(service), run_id)
-                        moved = record.generation_for(record.network_of(held.generation, run_id), run_id, "s1")
+                        moved = routine_claim.generation_for(
+                            routine_claim.network_of(held.generation, run_id), run_id, "s1"
+                        )
                         service.routine_store.update(
                             "team_1",
                             lambda state, held=held, moved=moved: (

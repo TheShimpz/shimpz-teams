@@ -30,6 +30,7 @@ from local.routine import human as routine_human
 from local.routine import run as routine_run
 from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
+from routine import claim as routine_claim
 from routine import definition as routine_definition
 from routine import hold as routine_hold
 from routine import record
@@ -340,7 +341,7 @@ class RunTests(RoutineServiceCase):
             state = self.state(service)
             (incident,) = state.incidents
             self.assertEqual((state.runs, incident.incident_id, incident.status), ((), claim["run_id"], "unresolved"))
-            self.assertIn(value.routine_id, record.held_routines(state))
+            self.assertIn(value.routine_id, routine_claim.held_routines(state))
             # Its cursor and recovery snapshot survive for verification; nothing is claimed while it holds.
             self.assertEqual(service.routine_store.cursors("team_1"), (claim["run_id"],))
             self.assertIsNone(service.claim_routine_run())
@@ -657,9 +658,12 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
             lease = record.lease_of(claim["lease_token"], KEY)
             service.routine_store.update(
                 "team_1",
-                lambda state: (record.bind_generation(state, claim["run_id"], lease, int(time.time()), network), None),
+                lambda state: (
+                    routine_claim.bind_generation(state, claim["run_id"], lease, int(time.time()), network),
+                    None,
+                ),
             )
-            generation = record.generation_for(network, claim["run_id"])
+            generation = routine_claim.generation_for(network, claim["run_id"])
             operation = local_app.action_journal.Operation("action-1", "b" * 64)
             batch = controller.action_state.prepare_batch(generation, "thread", (operation,), archivable=True)
             controller.action_state.begin(batch, operation)

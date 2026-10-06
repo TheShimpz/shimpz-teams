@@ -31,6 +31,7 @@ from local.routine import store as routine_store
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import strict_json
+from routine import claim as routine_claim
 from routine import cursor as routine_cursor
 from routine import hold as routine_hold
 from routine import plan as routine_plan
@@ -155,7 +156,7 @@ def read_evidence(payload: bytes, incident_id: str) -> dict[str, object]:
         snapshot = read_recovery(value["recovery"], incident_id)
         if (
             snapshot.binding.routine_id != value["routine_id"]
-            or record.network_of(value["generation"], incident_id) != snapshot.binding.incarnation
+            or routine_claim.network_of(value["generation"], incident_id) != snapshot.binding.incarnation
         ):
             raise routine_state.unavailable()
         value["recovery"] = snapshot
@@ -170,7 +171,7 @@ def _snapshot(self, team_id: str, value: record.Run) -> Recovery | None:
     snapshot = read_recovery(payload, value.run_id)
     if (
         snapshot.binding.routine_id != value.routine_id
-        or record.network_of(value.generation, value.run_id) != snapshot.binding.incarnation
+        or routine_claim.network_of(value.generation, value.run_id) != snapshot.binding.incarnation
     ):
         raise routine_state.unavailable()
     return snapshot

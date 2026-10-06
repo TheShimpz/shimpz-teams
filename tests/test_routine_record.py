@@ -16,10 +16,12 @@ from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_notice as http_routine_notice
 from protocol.http.v1 import routine_run as http_routine_run
+from routine import claim as routine_claim
 from routine import definition as routine_definition
 from routine import hold as routine_hold
 from routine import plan as routine_plan
 from routine import record
+from routine import runs as routine_runs
 
 UTC = datetime.UTC
 KEY = "e" * 64
@@ -72,13 +74,13 @@ def at(state: record.TeamRoutines, routine_id: str, next_run_at: int) -> record.
 
 
 def claimed(now: int = NINE) -> tuple[record.TeamRoutines, record.Claim, record.Lease]:
-    state, claim = record.claim(at(added(routine()), "a" * 32, NINE), now, KEY)
+    state, claim = routine_claim.claim(at(added(routine()), "a" * 32, NINE), now, KEY)
     return state, claim, record.lease_of(claim.lease_token, KEY)
 
 
 def bound(now: int = NINE) -> tuple[record.TeamRoutines, record.Claim, record.Lease]:
     state, claim, lease = claimed(now)
-    return record.bind_generation(state, claim.run.run_id, lease, now, "net_1"), claim, lease
+    return routine_claim.bind_generation(state, claim.run.run_id, lease, now, "net_1"), claim, lease
 
 
 DEFINED = {
@@ -469,59 +471,59 @@ class AddTests(unittest.TestCase):
 class ClaimTests(unittest.TestCase):
     def test_a_due_routine_is_claimed_once_under_a_lease_bound_to_the_routine_key(self):
         state = at(added(routine()), "a" * 32, NINE)
-        self.assertIsNone(record.claimable(state, NINE - 1))
-        self.assertEqual(record.claim(state, NINE - 1, KEY), (state, None))
+        self.assertIsNone(routine_claim.claimable(state, NINE - 1))
+        self.assertEqual(routine_claim.claim(state, NINE - 1, KEY), (state, None))
         with self.assertRaisesRegex(record.RoutineStateError, "routine-key-invalid"):
-            record.claim(state, NINE, "short")
-        state, claim = record.claim(state, NINE, KEY)
+            routine_claim.claim(state, NINE, "short")
+        state, claim = routine_claim.claim(state, NINE, KEY)
         self.assertEqual((claim.run.status, claim.run.scheduled_at, claim.run.lease_key), ("leased", NINE, KEY))
         self.assertEqual(record.routine(state, "a" * 32).next_run_at, epoch(2026, 10, 2, 9))
         # A second claim on the same state finds nothing: the Routine never overlaps, even when due again.
-        self.assertIsNone(record.claim(state, epoch(2026, 10, 2, 9), KEY)[1])
+        self.assertIsNone(routine_claim.claim(state, epoch(2026, 10, 2, 9), KEY)[1])
         value = record.run(state, claim.run.run_id)
-        record.require_lease(value, record.lease_of(claim.lease_token, KEY), NINE + 1)
+        routine_claim.require_lease(value, record.lease_of(claim.lease_token, KEY), NINE + 1)
         for token, key, now in (
             ("other", KEY, NINE + 1),
             (claim.lease_token, "f" * 64, NINE + 1),
             (claim.lease_token, KEY, NINE + record.LEASE_SECONDS),
         ):
             with self.subTest(key=key, now=now), self.assertRaisesRegex(record.RoutineStateError, "lease-invalid"):
-                record.require_lease(value, record.lease_of(token, key), now)
+                routine_claim.require_lease(value, record.lease_of(token, key), now)
         self.assertEqual(routine_hold.rekeyed(state, "f" * 64), (value,))
         self.assertEqual(routine_hold.rekeyed(state, KEY), ())
 
     def test_the_oldest_due_routine_wins_and_the_rolling_team_ceiling_holds_to_the_second(self):
         eleven = epoch(2026, 10, 1, 23)
         state = at(at(added(routine("a" * 32), routine("b" * 32)), "a" * 32, eleven), "b" * 32, eleven - 60)
-        self.assertEqual(record.claimable(state, eleven).routine_id, "b" * 32)
+        self.assertEqual(routine_claim.claimable(state, eleven).routine_id, "b" * 32)
         # The Team's daily steps count every start in the last 24 hours, whatever Routine made it, even a deleted one.
         first = eleven - 86_400 + 30
         full = tuple(("c" * 32, first + index, 1) for index in range(record.routine_starts.MAX_STARTS))
         capped = dataclasses.replace(state, starts=full)
-        self.assertIsNone(record.claimable(capped, eleven))
+        self.assertIsNone(routine_claim.claimable(capped, eleven))
         # The window rolls to the second: the oldest start leaves it exactly 24 hours after it was made.
-        self.assertIsNone(record.claimable(capped, first + 86_400 - 1))
-        self.assertEqual(record.next_due(capped, eleven), first + 86_400)
-        after, claim = record.claim(capped, first + 86_400, KEY)
+        self.assertIsNone(routine_claim.claimable(capped, first + 86_400 - 1))
+        self.assertEqual(routine_claim.next_due(capped, eleven), first + 86_400)
+        after, claim = routine_claim.claim(capped, first + 86_400, KEY)
         self.assertEqual((claim.run.routine_id, len(after.starts)), ("b" * 32, record.routine_starts.MAX_STARTS))
         self.assertEqual(after.starts[-1], ("b" * 32, first + 86_400, 1))
 
     def test_reconfirmation_and_deletion_stop_claims(self):
         state = record.mark_scope_changed(at(added(routine()), "a" * 32, NINE), "a" * 32, NINE, ["dns"])
-        self.assertIsNone(record.claimable(state, NINE))
+        self.assertIsNone(routine_claim.claimable(state, NINE))
         self.assertEqual(
             [(notice.outcome, notice.detail) for notice in state.notices], [("scope-changed", {"assistants": ["dns"]})]
         )
         deleting, runs = record.begin_delete(at(added(routine()), "a" * 32, NINE), "a" * 32)
-        self.assertEqual((runs, record.claimable(deleting, NINE)), ((), None))
+        self.assertEqual((runs, routine_claim.claimable(deleting, NINE)), ((), None))
 
     def test_only_one_late_firing_is_made_up_and_the_others_are_reported_once(self):
         state = at(added(routine("b" * 32, HOURLY)), "b" * 32, NINE)
-        state, claim = record.claim(state, NINE + 40 * 60, KEY)
+        state, claim = routine_claim.claim(state, NINE + 40 * 60, KEY)
         value = record.routine(state, "b" * 32)
         self.assertEqual((claim.run.scheduled_at, value.next_run_at, state.notices), (NINE, NINE + 3600, ()))
         state = at(added(routine("b" * 32, HOURLY)), "b" * 32, NINE - 1800)
-        state, _claim = record.claim(state, NINE + 1200, KEY)
+        state, _claim = routine_claim.claim(state, NINE + 1200, KEY)
         self.assertEqual([notice.detail for notice in state.notices], [{"missed": 1}])
         self.assertEqual(record.routine(state, "b" * 32).missed, 0)
 
@@ -530,7 +532,7 @@ class SweepTests(unittest.TestCase):
     def test_a_long_outage_is_one_skipped_notice_updated_as_the_gap_grows(self):
         now = NINE + 72 * 3600
         # Daily: a firing at most 12 hours late is still made up.
-        daily = record.sweep(at(added(routine("a" * 32)), "a" * 32, NINE), now)
+        daily = routine_claim.sweep(at(added(routine("a" * 32)), "a" * 32, NINE), now)
         self.assertEqual(
             ([notice.detail for notice in daily.notices], record.routine(daily, "a" * 32).next_run_at),
             (
@@ -539,11 +541,11 @@ class SweepTests(unittest.TestCase):
             ),
         )
         # Hourly: every firing over one hour late is skipped; the one at the grace edge is still made up.
-        state = record.sweep(at(added(routine("b" * 32, HOURLY)), "b" * 32, NINE), now)
+        state = routine_claim.sweep(at(added(routine("b" * 32, HOURLY)), "b" * 32, NINE), now)
         self.assertEqual([notice.detail for notice in state.notices], [{"missed": 71}])
         self.assertEqual(record.routine(state, "b" * 32).next_run_at, now - 3600)
-        self.assertEqual(record.sweep(state, now), state)
-        later = record.sweep(state, now + 5 * 3600)
+        self.assertEqual(routine_claim.sweep(state, now), state)
+        later = routine_claim.sweep(state, now + 5 * 3600)
         self.assertEqual(
             [(notice.notice_id, notice.detail) for notice in later.notices],
             [(state.notices[0].notice_id, {"missed": 76})],
@@ -553,7 +555,7 @@ class SweepTests(unittest.TestCase):
         stale = record.acknowledge(later, frozenset({(state.notices[0].notice_id, state.notices[0].version)}))
         self.assertEqual(stale.notices, later.notices)
         delivered = record.acknowledge(later, frozenset((item.notice_id, item.version) for item in later.notices))
-        again = record.sweep(delivered, now + 7 * 3600)
+        again = routine_claim.sweep(delivered, now + 7 * 3600)
         self.assertEqual(
             [(notice.notice_id, notice.detail) for notice in again.notices],
             [(state.notices[0].notice_id, {"missed": 78})],
@@ -561,24 +563,24 @@ class SweepTests(unittest.TestCase):
 
     def test_counting_misses_is_bounded(self):
         hours = record.MAX_COUNTED_MISSES + 5
-        state = record.sweep(at(added(routine("b" * 32, HOURLY)), "b" * 32, NINE), NINE + hours * 3600)
+        state = routine_claim.sweep(at(added(routine("b" * 32, HOURLY)), "b" * 32, NINE), NINE + hours * 3600)
         self.assertEqual(state.notices[0].detail["missed"], record.MAX_COUNTED_MISSES)
         self.assertEqual(record.routine(state, "b" * 32).next_run_at, NINE + (hours - 1) * 3600)
 
     def test_a_full_notice_queue_blocks_claims_and_keeps_counting_skips(self):
         full = full_notices()
         state = dataclasses.replace(at(added(routine("b" * 32, HOURLY)), "b" * 32, NINE), notices=full)
-        state = record.sweep(state, NINE + 5 * 3600)
+        state = routine_claim.sweep(state, NINE + 5 * 3600)
         self.assertEqual((len(state.notices), record.routine(state, "b" * 32).missed), (32, 4))
-        self.assertIsNone(record.claimable(state, NINE + 5 * 3600))
-        state = record.sweep(record.acknowledge(state, frozenset({(full[0].notice_id, 1)})), NINE + 5 * 3600)
+        self.assertIsNone(routine_claim.claimable(state, NINE + 5 * 3600))
+        state = routine_claim.sweep(record.acknowledge(state, frozenset({(full[0].notice_id, 1)})), NINE + 5 * 3600)
         self.assertEqual(state.notices[-1].detail, {"missed": 4})
 
 
 class RunLifecycleTests(unittest.TestCase):
     def test_a_claim_sweeps_first_so_a_stale_firing_never_starts(self):
         now = NINE + 30 * 86_400
-        state, claim = record.claim(at(added(routine()), "a" * 32, NINE), now, KEY)
+        state, claim = routine_claim.claim(at(added(routine()), "a" * 32, NINE), now, KEY)
         self.assertEqual(claim.run.scheduled_at, now)
         self.assertEqual([notice.detail for notice in state.notices], [{"missed": 30}])
 
@@ -588,32 +590,32 @@ class RunLifecycleTests(unittest.TestCase):
         expired = NINE + record.LEASE_SECONDS
         forged = record.lease_of("forged", KEY)
         attempts = (
-            lambda value: record.spend(state, run_id, value, NINE + 1, (1, 1 * 1000)),
-            lambda value: record.freeze(state, run_id, value, NINE + 1, ("human", "dns", "check", STEP)),
-            lambda value: record.finish(state, run_id, value, NINE + 1, "done", routine_fixture.DONE),
-            lambda value: record.bind_generation(state, run_id, value, NINE + 1, "net_2"),
+            lambda value: routine_runs.spend(state, run_id, value, NINE + 1, (1, 1 * 1000)),
+            lambda value: routine_runs.freeze(state, run_id, value, NINE + 1, ("human", "dns", "check", STEP)),
+            lambda value: routine_runs.finish(state, run_id, value, NINE + 1, "done", routine_fixture.DONE),
+            lambda value: routine_claim.bind_generation(state, run_id, value, NINE + 1, "net_2"),
         )
         for attempt in attempts:
             with self.subTest(attempt=attempt), self.assertRaisesRegex(record.RoutineStateError, "lease-invalid"):
                 attempt(forged)
         with self.assertRaisesRegex(record.RoutineStateError, "lease-invalid"):
-            record.finish(state, run_id, lease, expired, "done", routine_fixture.DONE)
+            routine_runs.finish(state, run_id, lease, expired, "done", routine_fixture.DONE)
 
     def test_a_run_binds_its_generation_from_the_trusted_network_once(self):
         state, claim, lease = claimed()
         run_id = claim.run.run_id
         with self.assertRaisesRegex(record.RoutineStateError, "generation-invalid"):
-            record.bind_generation(state, run_id, lease, NINE, "bad id")
-        state = record.bind_generation(state, run_id, lease, NINE, "net_1")
+            routine_claim.bind_generation(state, run_id, lease, NINE, "bad id")
+        state = routine_claim.bind_generation(state, run_id, lease, NINE, "net_1")
         self.assertEqual(record.run(state, run_id).generation, "net_1:routine:" + run_id)
-        self.assertEqual(record.bind_generation(state, run_id, lease, NINE, "net_1"), state)
+        self.assertEqual(routine_claim.bind_generation(state, run_id, lease, NINE, "net_1"), state)
         with self.assertRaisesRegex(record.RoutineStateError, "generation-invalid"):
-            record.bind_generation(state, run_id, lease, NINE, "net_2")
+            routine_claim.bind_generation(state, run_id, lease, NINE, "net_2")
 
     def test_a_claim_with_nothing_due_still_returns_the_swept_state(self):
         # A daily 09:00 Routine checked at 22:00 after a long outage: its misses are skipped, and nothing is due.
         state = at(added(routine()), "a" * 32, NINE - 5 * 86_400)
-        swept, claim = record.claim(state, epoch(2026, 10, 1, 22), KEY)
+        swept, claim = routine_claim.claim(state, epoch(2026, 10, 1, 22), KEY)
         self.assertIsNone(claim)
         self.assertEqual([notice.detail for notice in swept.notices], [{"missed": 6}])
         self.assertEqual(record.routine(swept, "a" * 32).next_run_at, epoch(2026, 10, 2, 9))
@@ -621,26 +623,26 @@ class RunLifecycleTests(unittest.TestCase):
     def test_a_frozen_run_holds_its_routine_and_resumes_under_a_fresh_lease(self):
         state, claim, lease = bound()
         run_id = claim.run.run_id
-        state = record.spend(state, run_id, lease, NINE, (30, 30 * 1000))
-        state = record.freeze(state, run_id, lease, NINE, ("human", "dns", "check", STEP))
+        state = routine_runs.spend(state, run_id, lease, NINE, (30, 30 * 1000))
+        state = routine_runs.freeze(state, run_id, lease, NINE, ("human", "dns", "check", STEP))
         frozen = record.run(state, run_id)
         left = routine_plan.active_seconds(1) - 30
         self.assertEqual((frozen.status, frozen.lease_sha256, frozen.active_seconds_left), ("frozen", "", left))
-        self.assertIsNone(record.claimable(state, epoch(2026, 10, 9, 9)))
+        self.assertIsNone(routine_claim.claimable(state, epoch(2026, 10, 9, 9)))
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-running"):
-            record.freeze(state, run_id, lease, NINE, ("human", "dns", "check", STEP))
-        state, token = record.thaw(state, run_id, NINE + 50, 0)
+            routine_runs.freeze(state, run_id, lease, NINE, ("human", "dns", "check", STEP))
+        state, token = routine_runs.thaw(state, run_id, NINE + 50, 0)
         human = record.lease_of(token, record.HUMAN_LEASE)
-        record.require_lease(record.run(state, run_id), record.lease_of(token, record.HUMAN_LEASE), NINE + 51)
+        routine_claim.require_lease(record.run(state, run_id), record.lease_of(token, record.HUMAN_LEASE), NINE + 51)
         self.assertEqual(routine_hold.rekeyed(state, "f" * 64), ())
-        state = record.spend(state, run_id, human, NINE + 51, (10, 10 * 1000))
+        state = routine_runs.spend(state, run_id, human, NINE + 51, (10, 10 * 1000))
         self.assertEqual(record.run(state, run_id).active_seconds_left, left - 10)
         # The person's answer runs at once, so its lease covers the run's active time left and a margin.
         self.assertEqual(
             record.run(state, run_id).lease_expires_at, NINE + 50 + left + routine_plan.LEASE_MARGIN_SECONDS
         )
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-frozen"):
-            record.thaw(state, run_id, NINE + 60, 0)
+            routine_runs.thaw(state, run_id, NINE + 60, 0)
 
     def test_invalid_freezes_and_durations_are_refused(self):
         state, claim, lease = claimed()
@@ -649,7 +651,7 @@ class RunLifecycleTests(unittest.TestCase):
                 self.subTest(kind=kind, assistant=assistant, action=action),
                 self.assertRaisesRegex(record.RoutineStateError, "freeze-invalid"),
             ):
-                record.freeze(state, claim.run.run_id, lease, NINE, (kind, assistant, action, STEP))
+                routine_runs.freeze(state, claim.run.run_id, lease, NINE, (kind, assistant, action, STEP))
         for position in (
             {"phase": "replay", "step": 2},
             {"phase": "replay", "step": 0},
@@ -658,12 +660,12 @@ class RunLifecycleTests(unittest.TestCase):
             1,
         ):
             with self.subTest(position=position), self.assertRaisesRegex(record.RoutineStateError, "freeze-invalid"):
-                record.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", position))
+                routine_runs.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", position))
         with self.assertRaisesRegex(record.RoutineStateError, "freeze-invalid"):
-            record.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "notify", STEP))
+            routine_runs.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "notify", STEP))
         for elapsed in ((-1, 0), (1.5, 0), (True, 0), (1, -1), (1, 1.5)):
             with self.subTest(elapsed=elapsed), self.assertRaisesRegex(record.RoutineStateError, "invalid-duration"):
-                record.spend(state, claim.run.run_id, lease, NINE, elapsed)
+                routine_runs.spend(state, claim.run.run_id, lease, NINE, elapsed)
 
     def test_a_team_freezes_at_most_eight_runs(self):
         state, claim, lease = claimed()
@@ -671,31 +673,31 @@ class RunLifecycleTests(unittest.TestCase):
         state = dataclasses.replace(state, runs=(*state.runs, *frozen))
         self.assertEqual(record.run(state, frozen[-1].run_id), frozen[-1])
         with self.assertRaisesRegex(record.RoutineStateError, "frozen-limit"):
-            record.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", STEP))
+            routine_runs.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", STEP))
 
     def test_team_ends_runs_without_their_lease_by_state(self):
         state, claim, _lease = bound()
         run_id = claim.run.run_id
-        self.assertEqual(record.end(state, run_id, NINE, "stopped", {"actions": []}).runs, ())
+        self.assertEqual(routine_runs.end(state, run_id, NINE, "stopped", {"actions": []}).runs, ())
         for outcome in ("done", "denied", "uncertain"):
             with self.subTest(outcome=outcome), self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
-                record.end(state, run_id, NINE, outcome, {"actions": [["dns", "x"]]})
+                routine_runs.end(state, run_id, NINE, outcome, {"actions": [["dns", "x"]]})
         state, claim, lease = bound()
-        frozen = record.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", STEP))
-        denied = record.end(frozen, claim.run.run_id, NINE, "denied", {"actions": []})
+        frozen = routine_runs.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", STEP))
+        denied = routine_runs.end(frozen, claim.run.run_id, NINE, "denied", {"actions": []})
         self.assertEqual(denied.notices[0].outcome, "denied")
         with self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
-            record.end(frozen, claim.run.run_id, NINE, "done", routine_fixture.DONE)
+            routine_runs.end(frozen, claim.run.run_id, NINE, "done", routine_fixture.DONE)
 
     def test_worker_outcomes_are_closed(self):
         state, claim, lease = claimed()
-        done = record.finish(state, claim.run.run_id, lease, NINE + 9, "done", routine_fixture.DONE)
+        done = routine_runs.finish(state, claim.run.run_id, lease, NINE + 9, "done", routine_fixture.DONE)
         self.assertEqual((done.runs, done.notices[0].outcome), ((), "done"))
         for outcome in ("skipped", "scope-changed", "uncertain", "unknown"):
             with self.subTest(outcome=outcome), self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
-                record.finish(state, claim.run.run_id, lease, NINE, outcome, {"missed": 1})
+                routine_runs.finish(state, claim.run.run_id, lease, NINE, outcome, {"missed": 1})
         with self.assertRaisesRegex(record.RoutineStateError, "notice-invalid"):
-            record.finish(
+            routine_runs.finish(
                 state, claim.run.run_id, lease, NINE, "stopped", {"actions": [["dns", "check"]], "result": {}}
             )
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-found"):
@@ -704,7 +706,7 @@ class RunLifecycleTests(unittest.TestCase):
     def test_a_stored_notice_is_a_deep_copy_and_versions_are_positive(self):
         actions = [["dns", "list-zones"]]
         state, claim, lease = claimed()
-        state = record.finish(state, claim.run.run_id, lease, NINE, "stopped", {"actions": actions})
+        state = routine_runs.finish(state, claim.run.run_id, lease, NINE, "stopped", {"actions": actions})
         actions[0][1] = "replace-dns-record"
         self.assertEqual(state.notices[0].detail, {"actions": [["dns", "list-zones"]]})
         with self.assertRaisesRegex(record.RoutineStateError, "notice-invalid"):
@@ -713,7 +715,7 @@ class RunLifecycleTests(unittest.TestCase):
     def test_in_flight_outcomes_always_fit_above_the_claim_bound(self):
         state, claim, lease = claimed()
         state = dataclasses.replace(state, notices=full_notices())
-        state = record.finish(state, claim.run.run_id, lease, NINE, "done", routine_fixture.DONE)
+        state = routine_runs.finish(state, claim.run.run_id, lease, NINE, "done", routine_fixture.DONE)
         self.assertEqual(len(state.notices), record.MAX_UNDELIVERED_NOTICES + 1)
         over = dataclasses.replace(
             state, notices=full_notices(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES)
@@ -724,25 +726,25 @@ class RunLifecycleTests(unittest.TestCase):
     def test_leases_and_active_time_expire(self):
         state, claim, lease = claimed()
         self.assertEqual(routine_hold.expired(state, NINE + 10), ())
-        spent = record.spend(
+        spent = routine_runs.spend(
             state, claim.run.run_id, lease, NINE, (record.ACTIVE_SECONDS, record.ACTIVE_SECONDS * 1000)
         )
         self.assertEqual([item.run_id for item in routine_hold.expired(spent, NINE + 10)], [claim.run.run_id])
         with self.assertRaisesRegex(record.RoutineStateError, "lease-invalid"):
-            record.require_lease(
+            routine_claim.require_lease(
                 record.run(spent, claim.run.run_id), record.lease_of(claim.lease_token, KEY), NINE + 10
             )
         self.assertEqual(len(routine_hold.expired(state, NINE + record.LEASE_SECONDS)), 1)
 
     def test_deletion_keeps_runs_until_they_end_and_keeps_notices(self):
         state, claim, lease = claimed()
-        state = record.finish(state, claim.run.run_id, lease, NINE, "stopped", {"actions": []})
-        state, again = record.claim(at(state, "a" * 32, NINE + 86_400), NINE + 86_400, KEY)
+        state = routine_runs.finish(state, claim.run.run_id, lease, NINE, "stopped", {"actions": []})
+        state, again = routine_claim.claim(at(state, "a" * 32, NINE + 86_400), NINE + 86_400, KEY)
         state, runs = record.begin_delete(state, "a" * 32)
         self.assertEqual([item.run_id for item in runs], [again.run.run_id])
         with self.assertRaisesRegex(record.RoutineStateError, "routine-busy"):
             record.complete_delete(state, "a" * 32, NINE)
-        state = record.end(state, again.run.run_id, NINE + 86_400, "stopped", {"actions": []})
+        state = routine_runs.end(state, again.run.run_id, NINE + 86_400, "stopped", {"actions": []})
         state = record.complete_delete(state, "a" * 32, NINE + 86_400)
         self.assertEqual(
             (state.routines, [item.outcome for item in state.notices]), ((), ["stopped"] * 2 + ["deleted"])
@@ -755,7 +757,7 @@ class RunLifecycleTests(unittest.TestCase):
         self.assertEqual(len(record.lease_sha256("token")), 64)
         self.assertEqual(record.grace_seconds(routine()), 12 * 3600)
         self.assertEqual(record.grace_seconds(routine(schedule=HOURLY)), 3600)
-        self.assertEqual(record.generation_for("net_1", "a" * 32), "net_1:routine:" + "a" * 32)
+        self.assertEqual(routine_claim.generation_for("net_1", "a" * 32), "net_1:routine:" + "a" * 32)
 
 
 _JSON_TYPES = (None, True, 0, 1.5, "", "x", [], [[]], {}, {"k": []})
@@ -782,9 +784,9 @@ class FailureStreakTests(unittest.TestCase):
     def test_three_failures_in_a_row_pause_the_routine_and_a_success_resets_the_streak(self):
         state = added(routine())
         for index, outcome in enumerate(("failed", "failed", "done", "failed", "failed", "failed")):
-            claimed_state, claim = record.claim(at(state, "a" * 32, NINE), NINE, KEY)
+            claimed_state, claim = routine_claim.claim(at(state, "a" * 32, NINE), NINE, KEY)
             state = (
-                record.end(
+                routine_runs.end(
                     claimed_state,
                     claim.run.run_id,
                     NINE + index,
@@ -792,7 +794,7 @@ class FailureStreakTests(unittest.TestCase):
                     {"code": "x", "actions": [], "position": None, "steps": None},
                 )
                 if (outcome == "failed")
-                else record.finish(
+                else routine_runs.finish(
                     claimed_state,
                     claim.run.run_id,
                     record.lease_of(claim.lease_token, KEY),
@@ -807,7 +809,7 @@ class FailureStreakTests(unittest.TestCase):
                 self.assertEqual(current.failures, (1, 2, 0, 1, 2, 3)[index])
                 self.assertEqual(current.paused, index == 5)
         # A Stop or a denial is no execution failure.
-        claimed_state, claim = record.claim(
+        claimed_state, claim = routine_claim.claim(
             at(
                 dataclasses.replace(
                     state, routines=(dataclasses.replace(record.routine(state, "a" * 32), paused=False, failures=2),)
@@ -818,7 +820,7 @@ class FailureStreakTests(unittest.TestCase):
             NINE,
             KEY,
         )
-        stopped = record.end(claimed_state, claim.run.run_id, NINE, "stopped", {"actions": []})
+        stopped = routine_runs.end(claimed_state, claim.run.run_id, NINE, "stopped", {"actions": []})
         self.assertEqual(record.routine(stopped, "a" * 32).failures, 2)
 
 
@@ -895,16 +897,16 @@ class IncidentNoticeTests(unittest.TestCase):
         )
         notice = asked.notices[-1]
         self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "run"))
-        self.assertEqual(record.next_due(asked, NINE + 5), NINE + 10)
+        self.assertEqual(routine_claim.next_due(asked, NINE + 5), NINE + 10)
         # A Team catching up its notices waits; the request outlasts the schedule's own grace and is never missed.
         late = cadence - 60
         self.assertGreater(late - (NINE + 10), record.grace_seconds(requested))
-        claimed_state, claim = record.claim(asked, late, KEY)
+        claimed_state, claim = routine_claim.claim(asked, late, KEY)
         after = record.routine(claimed_state, "a" * 32)
         self.assertEqual((claim.run.scheduled_at, after.run_requested, after.next_run_at), (NINE + 10, 0, cadence))
         self.assertEqual(claimed_state.starts[-1], ("a" * 32, late, 1))
         # A firing due at the same time serves the request too: one run, never two.
-        both, claim = record.claim(asked, cadence, KEY)
+        both, claim = routine_claim.claim(asked, cadence, KEY)
         self.assertEqual((claim.run.scheduled_at, record.routine(both, "a" * 32).run_requested), (cadence, 0))
         self.assertEqual(len(both.runs), 1)
         # The card's state is checked in the same write.
@@ -953,17 +955,17 @@ class IncidentNoticeTests(unittest.TestCase):
         state = dataclasses.replace(
             state, routines=tuple(dataclasses.replace(item, **changes[item.routine_id]) for item in state.routines)
         )
-        self.assertEqual(record.next_due(state, NINE), NINE + 40)
+        self.assertEqual(routine_claim.next_due(state, NINE), NINE + 40)
         # A Routine with a live run or an unresolved incident wakes nothing; its own end or resolution does.
         busy = dataclasses.replace(state, runs=(record.Run("f" * 32, ids[4], "frozen", 0),))
-        self.assertEqual(record.next_due(busy, NINE), NINE + 50)
+        self.assertEqual(routine_claim.next_due(busy, NINE), NINE + 50)
         # A leased run holds the Team's one slot: no other Routine of the Team is claimed or hinted until it ends.
         leased = dataclasses.replace(state, runs=(record.Run("f" * 32, ids[4], "leased", 0),))
-        self.assertEqual(record.claimable(busy, NINE).routine_id, ids[0])
-        self.assertIsNone(record.claimable(leased, NINE))
-        self.assertIsNone(record.next_due(leased, NINE))
+        self.assertEqual(routine_claim.claimable(busy, NINE).routine_id, ids[0])
+        self.assertIsNone(routine_claim.claimable(leased, NINE))
+        self.assertIsNone(routine_claim.next_due(leased, NINE))
         held = dataclasses.replace(busy, incidents=(record.Incident("e" * 32, ids[5], "g", 0),))
-        self.assertIsNone(record.next_due(held, NINE))
+        self.assertIsNone(routine_claim.next_due(held, NINE))
 
     def test_a_hold_without_a_sealed_cursor_names_no_step(self):
         state, run_id = self.held()
@@ -975,13 +977,13 @@ class IncidentNoticeTests(unittest.TestCase):
     def test_a_completed_continuation_is_recovered_and_resets_the_streak(self):
         state, claim, lease = bound()
         run_id = claim.run.run_id
-        self.assertEqual(record.completed(record.run(state, run_id)), "done")
+        self.assertEqual(routine_runs.completed(record.run(state, run_id)), "done")
         continued = record.run(state, run_id)
-        continued = dataclasses.replace(continued, generation=record.generation_for("net_1", run_id, "s1"))
-        self.assertEqual(record.completed(continued), "recovered")
+        continued = dataclasses.replace(continued, generation=routine_claim.generation_for("net_1", run_id, "s1"))
+        self.assertEqual(routine_runs.completed(continued), "recovered")
         streak = dataclasses.replace(record.routine(state, "a" * 32), failures=2)
         state = dataclasses.replace(state, routines=(streak,))
-        ended = record.finish(state, run_id, lease, NINE + 1, "recovered", routine_fixture.DONE)
+        ended = routine_runs.finish(state, run_id, lease, NINE + 1, "recovered", routine_fixture.DONE)
         self.assertEqual((ended.notices[-1].outcome, record.routine(ended, "a" * 32).failures), ("recovered", 0))
 
 
@@ -993,7 +995,7 @@ class RecoveredRunTests(unittest.TestCase):
         run_id, lease_sha256 = claim.run.run_id, claim.run.lease_sha256
         held = record.run(routine_hold.hold_recovered(state, run_id, lease_sha256), run_id)
         self.assertEqual((held.status, held.lease_sha256, held.lease_expires_at), ("held", "", 0))
-        done = record.complete_recovered(state, run_id, lease_sha256, NINE + 5)
+        done = routine_runs.complete_recovered(state, run_id, lease_sha256, NINE + 5)
         self.assertEqual(done.runs, ())
         unavailable = {"step": 1, "state": "unavailable", "value": None, "truncated": False}
         self.assertEqual(
@@ -1010,7 +1012,7 @@ class RecoveredRunTests(unittest.TestCase):
         unbound, unclaimed, _lease = claimed()
         for transition, code in (
             (lambda: routine_hold.hold_recovered(state, run_id, "0" * 64), "run-changed"),
-            (lambda: record.complete_recovered(state, run_id, "0" * 64, NINE), "run-changed"),
+            (lambda: routine_runs.complete_recovered(state, run_id, "0" * 64, NINE), "run-changed"),
             (
                 lambda: routine_hold.hold_recovered(unbound, unclaimed.run.run_id, unclaimed.run.lease_sha256),
                 "generation-invalid",
@@ -1237,12 +1239,12 @@ class TransitionEdgeTests(unittest.TestCase):
         state, claim, lease = bound()
         run_id = claim.run.run_id
         with self.assertRaisesRegex(record.RoutineStateError, "run-changed"):
-            record.end(state, run_id, NINE, "stopped", {"actions": []}, status="frozen")
+            routine_runs.end(state, run_id, NINE, "stopped", {"actions": []}, status="frozen")
         deleting, _runs = record.begin_delete(state, "a" * 32)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-deleting"):
-            record.freeze(deleting, run_id, lease, NINE, ("human", "dns", "check", STEP))
+            routine_runs.freeze(deleting, run_id, lease, NINE, ("human", "dns", "check", STEP))
         with self.assertRaisesRegex(record.RoutineStateError, "generation-invalid"):
-            record.generation_for("net_1", run_id, "x9")
+            routine_claim.generation_for("net_1", run_id, "x9")
         queued = dataclasses.replace(state, discards=((run_id, "g1"), (run_id, "g2")))
         self.assertEqual(record.discarded(queued, run_id, "g1").discards, ((run_id, "g2"),))
 
@@ -1275,7 +1277,7 @@ class HoldEdgeTests(unittest.TestCase):
     def test_an_incident_reopens_only_once_unresolved_resumable_and_idle(self):
         held, run_id = self.held()
         state = routine_hold.settle_hold(held, run_id, NINE + 1, 1)
-        generation = record.generation_for("net_1", run_id, "s1")
+        generation = routine_claim.generation_for("net_1", run_id, "s1")
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-found"):
             routine_hold.incident(state, "0" * 32)
         paused = record.set_paused(state, "a" * 32, True)

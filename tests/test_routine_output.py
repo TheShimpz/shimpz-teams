@@ -17,10 +17,12 @@ import test_routine_record as base
 from test_routine_plan import CONTRACTS, _document
 
 from protocol.http.v1 import routine as http_routine
+from routine import claim as routine_claim
 from routine import cursor as routine_cursor
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
+from routine import runs as routine_runs
 
 ZONES = {
     "zones": [
@@ -387,13 +389,13 @@ def _completed(mode: str, *, notice_version: int = 0, digest: str = "", shown: d
     value = base.routine(plan=plan)
     state = base.at(base.added(value), value.routine_id, base.NINE)
     current = dataclasses.replace(record.routine(state, value.routine_id), output_digest=digest, failures=2)
-    state, claim = record.claim(record._replace_routine(state, current), base.NINE, base.KEY)
+    state, claim = routine_claim.claim(record._replace_routine(state, current), base.NINE, base.KEY)
     if notice_version:
         state = record._replace_run(state, dataclasses.replace(record.run(state, claim.run.run_id), notice_version=1))
     if lost:
-        state = record.lose_protection(state, claim.run.run_id)
+        state = routine_runs.lose_protection(state, claim.run.run_id)
     lease = record.lease_of(claim.lease_token, base.KEY)
-    return record.finish(state, claim.run.run_id, lease, base.NINE + 5, "done", {}, shown)
+    return routine_runs.finish(state, claim.run.run_id, lease, base.NINE + 5, "done", {}, shown)
 
 
 def _summary(state: record.TeamRoutines) -> dict[str, object]:
@@ -457,10 +459,12 @@ class CompletionTests(unittest.TestCase):
 
     def test_the_watchdog_completes_a_run_through_the_same_disposition(self) -> None:
         value = dataclasses.replace(base.routine(), output_digest="")
-        state, claim = record.claim(base.at(base.added(value), value.routine_id, base.NINE), base.NINE, base.KEY)
+        state, claim = routine_claim.claim(base.at(base.added(value), value.routine_id, base.NINE), base.NINE, base.KEY)
         lease = record.lease_of(claim.lease_token, base.KEY)
-        state = record.bind_generation(state, claim.run.run_id, lease, base.NINE, "net_1")
-        done = record.complete_recovered(state, claim.run.run_id, claim.run.lease_sha256, base.NINE + 5, self.shown)
+        state = routine_claim.bind_generation(state, claim.run.run_id, lease, base.NINE, "net_1")
+        done = routine_runs.complete_recovered(
+            state, claim.run.run_id, claim.run.lease_sha256, base.NINE + 5, self.shown
+        )
         self.assertEqual(done.notices[-1].detail["output"], self.output)
 
     def test_an_update_starts_a_fresh_baseline(self) -> None:

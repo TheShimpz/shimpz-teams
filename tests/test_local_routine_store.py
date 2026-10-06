@@ -15,8 +15,10 @@ import routine_fixture
 
 from local.chat import continuation as local_chat_continuation
 from local.routine import store as routine_store
+from routine import claim as routine_claim
 from routine import hold as routine_hold
 from routine import record
+from routine import runs as routine_runs
 
 UTC = datetime.UTC
 KEY = "e" * 64
@@ -80,19 +82,19 @@ def busy_state() -> record.TeamRoutines:
     state = record.add_routine(record.add_routine(record.TeamRoutines(), routine()), routine("b" * 32))
     state = record.add_routine(state, routine("e" * 32))
     now = routine().next_run_at + 60
-    state, first = record.claim(state, now, KEY)
+    state, first = routine_claim.claim(state, now, KEY)
     lease = record.lease_of(first.lease_token, KEY)
-    state = record.bind_generation(state, first.run.run_id, lease, now, NETWORK)
+    state = routine_claim.bind_generation(state, first.run.run_id, lease, now, NETWORK)
     position = {"phase": "replay", "step": 1}
-    state = record.freeze(state, first.run.run_id, lease, now, ("human", "dns", "check", position))
-    state, second = record.claim(state, now, KEY)
+    state = routine_runs.freeze(state, first.run.run_id, lease, now, ("human", "dns", "check", position))
+    state, second = routine_claim.claim(state, now, KEY)
     lease = record.lease_of(second.lease_token, KEY)
-    state = record.bind_generation(state, second.run.run_id, lease, now, NETWORK)
+    state = routine_claim.bind_generation(state, second.run.run_id, lease, now, NETWORK)
     state = routine_hold.fence(state, second.run.run_id, lease, now)
-    state, third = record.claim(state, now, KEY)
+    state, third = routine_claim.claim(state, now, KEY)
     lease = record.lease_of(third.lease_token, KEY)
-    state = record.bind_generation(state, third.run.run_id, lease, now, NETWORK)
-    return record.end(state, third.run.run_id, now, "stopped", {"actions": []})
+    state = routine_claim.bind_generation(state, third.run.run_id, lease, now, NETWORK)
+    return routine_runs.end(state, third.run.run_id, now, "stopped", {"actions": []})
 
 
 class StoreCase(unittest.TestCase):

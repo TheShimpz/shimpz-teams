@@ -28,8 +28,8 @@ from local.routine import recorder as routine_recorder
 from local.validation import brain_thread_id as _brain_thread_id
 from local.validation import routine_thread_id as _routine_thread_id
 from protocol.http.v1 import routine_proposal as http_routine_proposal
+from routine import claim as routine_claim
 from routine import pin as routine_pin
-from routine import record as routine_record
 
 # The model a chat turn about a Routine uses on an OpenAI Team, with the Team's own key and effort; every other turn,
 # and every turn on another provider, uses the Team's configured model.
@@ -378,7 +378,7 @@ def _run_chat_segment_with_metadata(
         if routine is not None:
             generation = routine.generation
             thread_id = _routine_thread_id(self.space_id, request.team_id, network_id, routine.run_id)
-            if routine_record.network_of(generation, routine.run_id) != network_id:
+            if routine_claim.network_of(generation, routine.run_id) != network_id:
                 # The Team network changed since the run bound its generation: nothing may run in another network.
                 self._raise_chat_problem("context-changed", None)
         if request.continuation is None:

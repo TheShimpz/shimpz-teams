@@ -34,7 +34,9 @@ from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
+from routine import claim as routine_claim
 from routine import record, trace
+from routine import runs as routine_runs
 from tests import human_request_fixtures
 
 
@@ -295,7 +297,7 @@ class RunFaultTests(RoutineServiceCase):
             self.assertEqual(service.routine_store.continuations("team_1"), ())
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim = self.paused(directory)
-            with mock.patch.object(record, "freeze", side_effect=record.RoutineStateError("frozen-limit")):
+            with mock.patch.object(routine_runs, "freeze", side_effect=record.RoutineStateError("frozen-limit")):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             detail = self.state(service).notices[-1].detail
             # It fails at the step that asked, by its position.
@@ -338,7 +340,7 @@ class RunFaultTests(RoutineServiceCase):
             controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
             self.routine(service)
             claim = service.claim_routine_run()
-            with mock.patch.object(record, "finish", side_effect=record.RoutineStateError("lease-invalid")):
+            with mock.patch.object(routine_runs, "finish", side_effect=record.RoutineStateError("lease-invalid")):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(self.state(service).notices[-1].detail["code"], "lease-expired")
 
@@ -348,12 +350,14 @@ class RunFaultTests(RoutineServiceCase):
             self.routine(service)
             claim = service.claim_routine_run()
             with (
-                mock.patch.object(record, "bind_generation", side_effect=record.RoutineStateError("lease-invalid")),
+                mock.patch.object(
+                    routine_claim, "bind_generation", side_effect=record.RoutineStateError("lease-invalid")
+                ),
                 self.assertRaises(local_app.ApiProblem) as lost,
             ):
                 self.run_claim(service, claim)
             self.assertEqual(lost.exception.code, "routine-lease-invalid")
-            with mock.patch.object(record, "spend", side_effect=record.RoutineStateError("run-not-running")):
+            with mock.patch.object(routine_runs, "spend", side_effect=record.RoutineStateError("run-not-running")):
                 routine_run._spend(service, "team_1", claim["run_id"], record.lease_of(claim["lease_token"], KEY), 1)
 
     def test_a_team_without_a_model_configuration_is_never_claimed(self) -> None:
@@ -554,7 +558,10 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
             # The run's own end completes the deletion.
             service.routine_store.update(
                 "team_1",
-                lambda state: (record.end(state, claim["run_id"], int(time.time()), "stopped", {"actions": []}), None),
+                lambda state: (
+                    routine_runs.end(state, claim["run_id"], int(time.time()), "stopped", {"actions": []}),
+                    None,
+                ),
             )
             # Its diagnostic bodies go with it; a body store that cannot remove them keeps the deletion retryable.
             with (
@@ -579,11 +586,12 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
             lease = record.lease_of(claim["lease_token"], KEY)
             now = int(time.time())
             service.routine_store.update(
-                "team_1", lambda state: (record.bind_generation(state, claim["run_id"], lease, now, network), None)
+                "team_1",
+                lambda state: (routine_claim.bind_generation(state, claim["run_id"], lease, now, network), None),
             )
             service.routine_store.update(
                 "team_1",
-                lambda state: (record.end(state, claim["run_id"], now, "stopped", {"actions": []}), None),
+                lambda state: (routine_runs.end(state, claim["run_id"], now, "stopped", {"actions": []}), None),
             )
             self.routine(service)
             down = action_journal.ActionJournalError("down")

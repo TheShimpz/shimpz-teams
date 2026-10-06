@@ -13,9 +13,11 @@ import secrets
 from dataclasses import dataclass
 
 from protocol.http.v1 import routine as http_routine
+from routine import claim as routine_claim
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
+from routine import runs as routine_runs
 
 # The call a held run stopped at: its Assistant, Action, position, and its plan's step count; all empty when the run
 # sealed no cursor (ADR-0092 amendment, 2026-10-05, scale; ADR-0101 positions).
@@ -95,7 +97,7 @@ def reopen_incident(
         raise record.RoutineStateError("run-time-exhausted")
     if (
         any(item.routine_id == value.routine_id for item in state.runs)
-        or record.network_of(generation, incident_id) is None
+        or routine_claim.network_of(generation, incident_id) is None
     ):
         raise record.RoutineStateError("routine-busy")
     token = secrets.token_urlsafe(32)
@@ -248,7 +250,7 @@ def release_incident(state: record.TeamRoutines, incident_id: str) -> record.Tea
 def used(state: record.TeamRoutines, incident_id: str, models: list[dict[str, object]]) -> record.TeamRoutines:
     """Add the tokens a held run's recovery reported to the usage its notices and continuation carry (ADR-0101)."""
     value = incident(state, incident_id)
-    usage = record.joined_usage(value.usage, {"duration_ms": 0, "models": models})
+    usage = routine_runs.joined_usage(value.usage, {"duration_ms": 0, "models": models})
     if http_routine.canonical_run_usage(usage) != usage:
         raise record.RoutineStateError("usage-invalid")
     return _replace_incident(state, dataclasses.replace(value, usage=usage))
@@ -280,7 +282,7 @@ def refund_incident(state: record.TeamRoutines, incident_id: str, generation: st
 
 def fence(state: record.TeamRoutines, run_id: str, lease: record.Lease, now: int) -> record.TeamRoutines:
     """Stop the live lease of a run that must be held (ADR-0092): no worker may advance it, nothing ends it yet."""
-    value = record._live(state, run_id, lease, now)
+    value = routine_claim._live(state, run_id, lease, now)
     if not value.generation:
         raise record.RoutineStateError("generation-invalid")
     held = dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
@@ -292,7 +294,7 @@ def hold_recovered(state: record.TeamRoutines, run_id: str, lease_sha256: str) -
 
     Only the exact lease the watchdog read is fenced, so a run that ended or was claimed again meanwhile is untouched.
     """
-    value = record._leased(state, run_id)
+    value = routine_claim._leased(state, run_id)
     if not secrets.compare_digest(value.lease_sha256, lease_sha256):
         raise record.RoutineStateError("run-changed")
     if not value.generation:

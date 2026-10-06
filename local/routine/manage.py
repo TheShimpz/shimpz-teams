@@ -16,6 +16,7 @@ from protocol.http.v1 import routine as http_routine
 from routine import definition as routine_definition
 from routine import hold as routine_hold
 from routine import record
+from routine import runs as routine_runs
 
 
 def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
@@ -182,7 +183,7 @@ def end_frozen(self, team_id: str, run_id: str, outcome: str, detail: dict[str, 
 
     def end(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
         try:
-            return record.end(state, run_id, now, outcome, detail, status="frozen"), True
+            return routine_runs.end(state, run_id, now, outcome, detail, status="frozen"), True
         except record.RoutineStateError:
             return state, False
 

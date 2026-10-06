@@ -24,6 +24,7 @@ from local.routine import state as routine_state
 from local.routine import store as routine_store
 from routine import hold as routine_hold
 from routine import record
+from routine import runs as routine_runs
 
 INTERVAL_SECONDS = 30
 _PRINCIPAL = local_audit.AuditPrincipal("team-local", "machine")
@@ -68,10 +69,10 @@ def _recover(service, team_id: str, value: record.Run) -> str | None:
         if current is None or current.status != "leased" or current.lease_sha256 != value.lease_sha256:
             return state, None
         if progress == "done":
-            return record.complete_recovered(state, value.run_id, value.lease_sha256, now, shown), "done"
+            return routine_runs.complete_recovered(state, value.run_id, value.lease_sha256, now, shown), "done"
         if progress == "partial":
             return routine_hold.hold_recovered(state, value.run_id, value.lease_sha256), "held"
-        return record.end(
+        return routine_runs.end(
             state, value.run_id, now, "failed", {"code": "interrupted", "actions": [], "position": None, "steps": None}
         ), "failed"
 

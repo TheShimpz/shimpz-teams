@@ -25,7 +25,9 @@ from local.routine import protection as routine_protection
 from local.routine import recorder as routine_recorder
 from local.routine import store as routine_store
 from local.validation import routine_thread_id
+from routine import claim as routine_claim
 from routine import record
+from routine import runs as routine_runs
 
 KEY = "e" * 64
 NETWORK = "a" * 64
@@ -56,13 +58,13 @@ def routine(routine_id: str) -> record.Routine:
 def two_runs() -> tuple[record.TeamRoutines, str]:
     """One run that bound its generation and froze for a person, and one that has not started a segment yet."""
     state = record.add_routine(record.add_routine(record.TeamRoutines(), routine("a" * 32)), routine("b" * 32))
-    state, bound = record.claim(state, NINE, KEY)
+    state, bound = routine_claim.claim(state, NINE, KEY)
     lease = record.lease_of(bound.lease_token, KEY)
-    state = record.bind_generation(state, bound.run.run_id, lease, NINE, NETWORK)
+    state = routine_claim.bind_generation(state, bound.run.run_id, lease, NINE, NETWORK)
     # A frozen run holds no execution slot, so the Team may lease its other due Routine.
     position = {"phase": "replay", "step": 1}
-    state = record.freeze(state, bound.run.run_id, lease, NINE, ("human", "dns", "check", position))
-    state, fresh = record.claim(state, NINE, KEY)
+    state = routine_runs.freeze(state, bound.run.run_id, lease, NINE, ("human", "dns", "check", position))
+    state, fresh = routine_claim.claim(state, NINE, KEY)
     assert fresh is not None
     return state, bound.run.run_id
 
@@ -168,7 +170,7 @@ class RoutineLifecycleTests(unittest.TestCase):
     def test_queued_discards_are_cleaned_before_state_and_kept_when_cleanup_fails(self):
         # An ended run leaves the runs list and queues what it held; an interrupted drain leaves that queue behind.
         state, run_id = two_runs()
-        state = record.end(
+        state = routine_runs.end(
             state, run_id, NINE, "failed", {"code": "lease-expired", "actions": [], "position": None, "steps": None}
         )
         generation = f"{NETWORK}:routine:{run_id}"

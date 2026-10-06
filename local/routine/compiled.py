@@ -41,10 +41,12 @@ from local.routine import store as routine_store
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_run as http_routine_run
+from routine import claim as routine_claim
 from routine import cursor as routine_cursor
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record, trace
+from routine import runs as routine_runs
 
 # What a step record's duration is measured with: its own clock, apart from the active-time accounting's.
 _STEP_CLOCK = time.perf_counter
@@ -332,7 +334,7 @@ def _sealed_by(self, team_id: str, run_id: str) -> _Seal:
     """Where one run's cursor, records, and protection live, and how its loss of protection reaches its state."""
 
     def lost() -> None:
-        routine_state.update(self, team_id, lambda state: (record.lose_protection(state, run_id), None))
+        routine_state.update(self, team_id, lambda state: (routine_runs.lose_protection(state, run_id), None))
 
     return _Seal(team_id, self.routine_store, self.routine_diagnostics, self.routine_protections, lost)
 
@@ -453,7 +455,7 @@ def runtime(
     A fresh run binds its protection in this Team boot with its first cursor, before anything can dispatch, freeze,
     or decide; a reopened one keeps it only when it was bound in this boot and is still held here.
     """
-    network_id = record.network_of(value.generation, value.run_id)
+    network_id = routine_claim.network_of(value.generation, value.run_id)
     binding = routine_cursor.Binding(network_id, routine.routine_id, routine.revision, value.run_id)
     plan = _plan(self, team_id, routine)
     # Write-once and sealed before the run's first dispatch; every later segment reseals the exact same bytes.
@@ -526,7 +528,7 @@ def _sealed(self, team_id: str, value: record.Run):
     snapshot = routine_incident.read_recovery(payload, value.run_id)
     if (
         snapshot.binding.routine_id != value.routine_id
-        or record.network_of(value.generation, value.run_id) != snapshot.binding.incarnation
+        or routine_claim.network_of(value.generation, value.run_id) != snapshot.binding.incarnation
     ):
         raise routine_store.RoutineStoreError("Routine recovery snapshot names another run")
     cursor = self.routine_store.cursor(team_id, snapshot.binding)

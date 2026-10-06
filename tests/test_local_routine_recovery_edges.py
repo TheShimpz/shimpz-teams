@@ -18,6 +18,7 @@ from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
 from local.routine import recovery as routine_recovery
 from local.routine import store as routine_store
+from routine import claim as routine_claim
 from routine import cursor as routine_cursor
 from routine import hold as routine_hold
 from routine import plan as routine_plan
@@ -132,7 +133,7 @@ class ContinuationEdgeTests(RecoveryCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             state = self.state(service)
-            generation = record.generation_for(self.cursor(service, run_id).binding.incarnation, run_id, "s1")
+            generation = routine_claim.generation_for(self.cursor(service, run_id).binding.incarnation, run_id, "s1")
             skipped = routine_hold.skip_incident(state, run_id, 0, choice="run")
             changed = record._replace_routine(
                 state, dataclasses.replace(record.routine(state, value.routine_id), revision=2)
@@ -161,7 +162,7 @@ class ContinuationEdgeTests(RecoveryCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
             cursor = self.cursor(service, run_id)
-            generation = record.generation_for(cursor.binding.incarnation, run_id)
+            generation = routine_claim.generation_for(cursor.binding.incarnation, run_id)
             routine_manage._discard(service, "team_1", run_id, generation, incident=False, live=True)
             self.assertIsNotNone(service.routine_store.cursor("team_1", cursor.binding))
 
@@ -182,7 +183,7 @@ class ContinuationEdgeTests(RecoveryCase):
                 dataclasses.replace(cursor, operation_id=None, attempts=0, commitment=None, carried=False)
             )
         with self.assertRaisesRegex(record.RoutineStateError, "generation-invalid"):
-            record.generation_for("net", "a" * 32, "x1")
+            routine_claim.generation_for("net", "a" * 32, "x1")
 
     def test_a_cursor_that_cannot_be_sealed_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

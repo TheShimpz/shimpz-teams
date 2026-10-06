@@ -27,7 +27,9 @@ from local.routine import contracts as routine_contracts
 from local.routine import human as routine_human
 from local.routine import run as routine_run
 from local.routine import watchdog as routine_watchdog
+from routine import claim as routine_claim
 from routine import record
+from routine import runs as routine_runs
 
 
 def held_elsewhere(lock) -> bool:
@@ -149,7 +151,7 @@ class EndingRaceTests(FrozenCase):
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             snapshot = record.run(self.state(service), claim["run_id"])
             now = int(time.time())
-            service.routine_store.update("team_1", lambda state: record.thaw(state, claim["run_id"], now, 0))
+            service.routine_store.update("team_1", lambda state: routine_runs.thaw(state, claim["run_id"], now, 0))
             with self.assertRaises(local_app.ApiProblem) as changed:
                 routine_human._end_changed(service, "team_1", snapshot)
             with (
@@ -219,13 +221,13 @@ class WatchdogRaceTests(RoutineServiceCase):
         lease = record.lease_of(claim["lease_token"], KEY)
         now = int(time.time())
         service.routine_store.update(
-            "team_1", lambda state: (record.bind_generation(state, claim["run_id"], lease, now, network), None)
+            "team_1", lambda state: (routine_claim.bind_generation(state, claim["run_id"], lease, now, network), None)
         )
 
         def finish(state: record.TeamRoutines) -> tuple[record.TeamRoutines, None]:
             if not any(item.run_id == claim["run_id"] for item in state.runs):
                 return state, None
-            return record.end(state, claim["run_id"], now, "stopped", {"actions": []}), None
+            return routine_runs.end(state, claim["run_id"], now, "stopped", {"actions": []}), None
 
         def worker_finishes(_generation):
             # The first journal read the pass makes finds the worker finishing; any later read finds it ended.

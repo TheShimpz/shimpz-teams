@@ -19,7 +19,9 @@ from local.routine import contracts as routine_contracts
 from local.routine import run as routine_run
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_notice as http_routine_notice
+from routine import claim as routine_claim
 from routine import record
+from routine import runs as routine_runs
 from routine import starts as routine_starts
 
 CONTINUOUS = {"kind": "continuous", "gap": 5, "cap": http_routine.continuous_cap(5)}
@@ -59,18 +61,18 @@ class SimulatedDayTests(unittest.TestCase):
         key = "e" * 64
         while now < start + 86_400 and len(starts) < 100:
             if running is None:
-                state, claim = record.claim(state, now, key)
+                state, claim = routine_claim.claim(state, now, key)
                 if claim is not None:
                     running, starts = claim.run.run_id, [*starts, now]
                     # A second claim while it runs finds nothing: one run at a time.
-                    self.assertIsNone(record.claim(state, now, key)[1])
+                    self.assertIsNone(routine_claim.claim(state, now, key)[1])
             elif now >= starts[-1] + 3:
-                state = record.end(state, running, now, "stopped", {"actions": []})
+                state = routine_runs.end(state, running, now, "stopped", {"actions": []})
                 state = caught_up(state)
                 running = None
                 # The next run is due exactly its gap after this one ended.
                 self.assertEqual(record.routine(state, "a" * 32).next_run_at, now + 5)
-            due = record.next_due(state, now)
+            due = routine_claim.next_due(state, now)
             now = now + 1 if due is None or running is not None else max(now + 1, due)
         # A hundred runs, each its gap after the previous ended: the cap is its whole day and never holds one back.
         gaps = {later - earlier for earlier, later in itertools.pairwise(starts)}
@@ -83,11 +85,11 @@ class SimulatedDayTests(unittest.TestCase):
             state = record.add_routine(state, continuous(routine_id, at=1_800_000_000, gap=10))
         key, now, order = "e" * 64, 1_800_000_010, []
         for _turn in range(6):
-            state, claim = record.claim(state, now, key)
+            state, claim = routine_claim.claim(state, now, key)
             order.append(claim.run.routine_id)
             now += 3
-            state = caught_up(record.end(state, claim.run.run_id, now, "stopped", {"actions": []}))
-            now = record.next_due(state, now) or now
+            state = caught_up(routine_runs.end(state, claim.run.run_id, now, "stopped", {"actions": []}))
+            now = routine_claim.next_due(state, now) or now
         # Neither continuous Routine ever starves the other.
         self.assertEqual(order, ["a" * 32, "b" * 32] * 3)
 
@@ -99,10 +101,10 @@ class SimulatedDayTests(unittest.TestCase):
         )
         full = dataclasses.replace(state, notices=notices)
         due = record.routine(full, "a" * 32).next_run_at
-        self.assertEqual((record.claimable(full, due), record.next_due(full, due - 1)), (None, None))
+        self.assertEqual((routine_claim.claimable(full, due), routine_claim.next_due(full, due - 1)), (None, None))
         delivered = record.acknowledge(full, frozenset((item.notice_id, 1) for item in notices))
-        self.assertEqual(record.claimable(delivered, due).routine_id, "a" * 32)
-        self.assertEqual(record.next_due(delivered, due - 1), due)
+        self.assertEqual(routine_claim.claimable(delivered, due).routine_id, "a" * 32)
+        self.assertEqual(routine_claim.next_due(delivered, due - 1), due)
 
     def test_the_team_window_holds_at_most_one_start_a_step_and_frees_one_at_a_time(self) -> None:
         starts = tuple(("a" * 32, 1000 + index, 1) for index in range(routine_starts.MAX_STARTS))

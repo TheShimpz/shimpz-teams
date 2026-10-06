@@ -46,6 +46,7 @@ from local.routine import incident as routine_incident
 from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
+from routine import claim as routine_claim
 from routine import cursor as routine_cursor
 from routine import hold as routine_hold
 from routine import plan as routine_plan
@@ -307,7 +308,7 @@ def _call_verifier(self, team_id: str, token: str, assessment: Assessment, reque
     """Run the verifier in its own released generation; None when it failed, paused for a person, or was refused."""
     run_id = assessment.cursor.binding.run_id
     runtime = VerifierRuntime(request, lambda values: self.routine_protections.grow(run_id, values))
-    generation = record.generation_for(assessment.network_id, run_id, VERIFY_SUFFIX)
+    generation = routine_claim.generation_for(assessment.network_id, run_id, VERIFY_SUFFIX)
     segment = SegmentRequest(
         team_id=team_id,
         file_ids=[],
@@ -424,7 +425,9 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
         cursor = _seal(self, team_id, routine_cursor.continued(opened.cursor))
     except routine_cursor.CursorError as exc:
         raise ApiProblem(409, "Routine run cannot continue", code=exc.code) from exc
-    generation = record.generation_for(opened.recovery.binding.incarnation, incident_id, cursor.generation_suffix)
+    generation = routine_claim.generation_for(
+        opened.recovery.binding.incarnation, incident_id, cursor.generation_suffix
+    )
     now = int(time.time())
 
     def reopen(state: record.TeamRoutines):

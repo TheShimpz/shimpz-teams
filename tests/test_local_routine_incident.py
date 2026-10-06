@@ -20,6 +20,7 @@ from local.routine import lifecycle as routine_lifecycle
 from local.routine import manage as routine_manage
 from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
+from routine import claim as routine_claim
 from routine import cursor as routine_cursor
 from routine import hold as routine_hold
 from routine import plan as routine_plan
@@ -44,9 +45,12 @@ class IncidentCase(RoutineServiceCase):
         network = controller.assistant_lifecycle._network("team_1").id
         service.routine_store.update(
             "team_1",
-            lambda state: (record.bind_generation(state, claim["run_id"], lease, int(time.time()), network), None),
+            lambda state: (
+                routine_claim.bind_generation(state, claim["run_id"], lease, int(time.time()), network),
+                None,
+            ),
         )
-        generation = record.generation_for(network, claim["run_id"])
+        generation = routine_claim.generation_for(network, claim["run_id"])
         prepared = None
         if batch:
             first, second = _operation("first"), _operation("second")
@@ -82,8 +86,8 @@ class HoldTests(IncidentCase):
             )
             self.assertNotIn("ok", json.dumps(evidence))
             # The held Routine is not claimed again, even when due, until its incident is resolved.
-            self.assertIn(value.routine_id, record.held_routines(state))
-            self.assertIsNone(record.claimable(state, int(time.time()) + 86_400 * 2))
+            self.assertIn(value.routine_id, routine_claim.held_routines(state))
+            self.assertIsNone(routine_claim.claimable(state, int(time.time()) + 86_400 * 2))
             with self.assertRaises(local_app.ApiProblem) as stale:
                 routine_incident.hold(service, "team_1", run_id, lease)
             self.assertEqual(stale.exception.code, "routine-lease-invalid")
@@ -178,7 +182,7 @@ class ResolutionTests(IncidentCase):
             routine_fixture.set_aside(service, "team_1", run_id)
             state = self.state(service)
             self.assertEqual([item.status for item in state.incidents], ["released"])
-            self.assertNotIn(value.routine_id, record.held_routines(state))
+            self.assertNotIn(value.routine_id, routine_claim.held_routines(state))
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertIsNone(service.routine_store.cursor("team_1", binding))
             self.assertIsNone(service.routine_store.incident("team_1", run_id))
@@ -187,7 +191,7 @@ class ResolutionTests(IncidentCase):
                 routine_fixture.set_aside(service, "team_1", run_id)
             self.assertEqual(again.exception.code, "routine-incident-unavailable")
             self.assertEqual(
-                record.claimable(self.state(service), int(time.time()) + 86_400 * 2),
+                routine_claim.claimable(self.state(service), int(time.time()) + 86_400 * 2),
                 record.routine(self.state(service), value.routine_id),
             )
 
@@ -217,12 +221,12 @@ class ResolutionTests(IncidentCase):
             routine_incident.set_paused(service, "team_1", value.routine_id, True)
             self.assertTrue(record.routine(self.state(service), value.routine_id).paused)
             routine_incident.set_paused(service, "team_1", value.routine_id, False)
-            self.assertIsNone(record.claimable(self.state(service), int(time.time()) + 86_400 * 2))
+            self.assertIsNone(routine_claim.claimable(self.state(service), int(time.time()) + 86_400 * 2))
             routine_fixture.set_aside(service, "team_1", run_id)
             routine_incident.set_paused(service, "team_1", value.routine_id, True)
-            self.assertIsNone(record.claimable(self.state(service), int(time.time()) + 86_400 * 2))
+            self.assertIsNone(routine_claim.claimable(self.state(service), int(time.time()) + 86_400 * 2))
             routine_incident.set_paused(service, "team_1", value.routine_id, False)
-            self.assertIsNotNone(record.claimable(self.state(service), int(time.time()) + 86_400 * 2))
+            self.assertIsNotNone(routine_claim.claimable(self.state(service), int(time.time()) + 86_400 * 2))
             with self.assertRaises(local_app.ApiProblem) as missing:
                 routine_incident.set_paused(service, "team_1", "f" * 32, True)
             self.assertEqual(missing.exception.code, "routine-not-found")
@@ -512,7 +516,9 @@ class CapacityTests(IncidentCase):
                 for index in range(1, record.MAX_INCIDENTS)
             )
             second = "e" * 32
-            held = record.Run(second, value.routine_id, "held", 0, generation=record.generation_for("f" * 64, second))
+            held = record.Run(
+                second, value.routine_id, "held", 0, generation=routine_claim.generation_for("f" * 64, second)
+            )
             service.routine_store.update(
                 "team_1",
                 lambda state: (
@@ -730,8 +736,8 @@ class IncidentRecordTests(IncidentCase):
             for index in range(record.MAX_UNRESOLVED_INCIDENTS)
         )
         full = dataclasses.replace(base, routines=(routine,), incidents=unresolved)
-        self.assertFalse(record.incident_capacity(full))
-        self.assertIsNone(record.claimable(full, 10))
+        self.assertFalse(routine_claim.incident_capacity(full))
+        self.assertIsNone(routine_claim.claimable(full, 10))
         held = record.Run("c" * 32, "a" * 32, "held", 0, generation=f"{'b' * 64}:routine:{'c' * 32}")
         with self.assertRaisesRegex(record.RoutineStateError, "incident-limit"):
             routine_hold.settle_hold(dataclasses.replace(full, runs=(held,), incidents=unresolved * 2), "c" * 32, 1)
@@ -752,8 +758,8 @@ class IncidentRecordTests(IncidentCase):
         self.assertEqual(settled.incidents[-1].incident_id, "c" * 32)
         self.assertNotIn(f"{100:032x}", {item.incident_id for item in settled.incidents})
         pending = dataclasses.replace(base, routines=(routine,), incidents=renamed("skipped"))
-        self.assertFalse(record.incident_capacity(pending))
-        self.assertTrue(record.incident_capacity(dataclasses.replace(pending, incidents=renamed("released"))))
+        self.assertFalse(routine_claim.incident_capacity(pending))
+        self.assertTrue(routine_claim.incident_capacity(dataclasses.replace(pending, incidents=renamed("released"))))
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-skipped"):
             routine_hold.release_incident(full, unresolved[0].incident_id)
         released = routine_hold.release_incident(

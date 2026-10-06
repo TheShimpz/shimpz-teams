@@ -8,6 +8,7 @@ from http import HTTPStatus
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import store as routine_store
 from routine import record
+from routine import runs as routine_runs
 
 
 def problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
@@ -39,7 +40,7 @@ def reconciled[T](
         lost = service._routine_lost_runs(team_id)
         for item in state.runs:
             if item.run_id in lost and not item.protection_lost:
-                state = record.lose_protection(state, item.run_id)
+                state = routine_runs.lose_protection(state, item.run_id)
         return change(state)
 
     return marked

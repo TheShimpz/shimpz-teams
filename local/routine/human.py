@@ -31,6 +31,7 @@ from local.routine import store as routine_store
 from local.validation import validate_team_id
 from protocol.http.v1 import strict_json
 from routine import record, trace
+from routine import runs as routine_runs
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,7 +304,7 @@ def _thaw(
 ) -> tuple[record.TeamRoutines, str | None]:
     """Resume the run only while it is still frozen and its Routine is not being deleted, keeping its answer count."""
     try:
-        return record.thaw(state, run_id, now, requests_used)
+        return routine_runs.thaw(state, run_id, now, requests_used)
     except record.RoutineStateError:
         return state, None
 
