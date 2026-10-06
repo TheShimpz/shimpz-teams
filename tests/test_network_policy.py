@@ -552,8 +552,9 @@ def test_health_tracks_running_runtimes_without_weakening_stopped_posture() -> N
         team_healthcheck.DYNAMIC_ASSISTANTS = original_dynamic_assistants
 
 
-def test_health_tolerates_only_stopped_unbound_assistants() -> None:
-    orphan = _container(
+def _orphan() -> dict[str, object]:
+    """A stopped dynamic Assistant container of the Team that no binding names."""
+    return _container(
         "orphan-id",
         "orphan",
         labels={
@@ -565,6 +566,10 @@ def test_health_tolerates_only_stopped_unbound_assistants() -> None:
         host_config={"RestartPolicy": {"Name": "no"}},
         running=False,
     )
+
+
+def test_health_tolerates_only_stopped_unbound_assistants() -> None:
+    orphan = _orphan()
     summaries = [{"Id": "orphan-id", "Labels": orphan["Config"]["Labels"]}]
     original_docker_json = team_healthcheck._docker_json
     original_dynamic_assistants = team_healthcheck.DYNAMIC_ASSISTANTS
@@ -696,18 +701,7 @@ def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
     core, containers = _valid_topology()
     containers["runtime-id"]["Config"]["Image"] = team_healthcheck.REQUIRED_TEAM_IMAGE
     containers["assistant-id"]["Config"]["Image"] = ASSISTANT_IMAGE_REF
-    orphan = _container(
-        "orphan-id",
-        "orphan",
-        labels={
-            "team.id": TEAM_ID,
-            "team.assistant.runtime": "1",
-            "team.assistant": "orphan",
-            "team.assistant.dynamic": "1",
-        },
-        host_config={"RestartPolicy": {"Name": "no"}},
-        running=False,
-    )
+    orphan = _orphan()
     containers["orphan-id"] = orphan
     summaries = [
         {"Id": container_id, "Labels": metadata["Config"]["Labels"]}
