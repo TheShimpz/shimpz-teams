@@ -88,6 +88,21 @@ def ignore_credential_check(*_args) -> None:
     pass
 
 
+# The complete Hosted destroy result for Team team_1 once every owned resource is proven absent.
+DESTROYED = {"team_id": "team_1", "destroyed": True, "db_dropped": True, "residue_absent": TEAM_RESIDUES}
+
+
+def _retry_lease(container_id: str) -> object:
+    """Account account_1's retried cleanup lease over Team team_1 and this runtime container."""
+    return hosted_resources._AuthorizationLease(
+        team_id="team_1",
+        container_id=container_id,
+        owner="account_1",
+        principal=("account", "account_1"),
+        cleanup_nonce="retry-nonce",
+    )
+
+
 class ScriptedRuntime:
     def __init__(self, turns) -> None:
         self._turns = iter(turns)
@@ -670,13 +685,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
     def test_destroy_deletes_generation_after_chat_drain_before_teardown(self) -> None:
         events: list[object] = []
         expected_thread = hosted_resources._brain_thread_id("team_1", ANCHOR_ID)
-        lease = hosted_resources._AuthorizationLease(
-            team_id="team_1",
-            container_id=ANCHOR_ID,
-            owner="account_1",
-            principal=("account", "account_1"),
-            cleanup_nonce="retry-nonce",
-        )
+        lease = _retry_lease(ANCHOR_ID)
 
         class ChatLock:
             def acquire(self, *, timeout: int) -> bool:
@@ -728,25 +737,11 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 "chat-released",
             ],
         )
-        self.assertEqual(
-            result,
-            {
-                "team_id": "team_1",
-                "destroyed": True,
-                "db_dropped": True,
-                "residue_absent": TEAM_RESIDUES,
-            },
-        )
+        self.assertEqual(result, DESTROYED)
 
     def test_destroy_skips_runtime_state_when_creation_failed_before_container(self) -> None:
         events: list[object] = []
-        lease = hosted_resources._AuthorizationLease(
-            team_id="team_1",
-            container_id="",
-            owner="account_1",
-            principal=("account", "account_1"),
-            cleanup_nonce="retry-nonce",
-        )
+        lease = _retry_lease("")
         chat_lock = types.SimpleNamespace(
             acquire=lambda *, timeout: events.append(("chat-drained", timeout)) or True,
             release=lambda: events.append("chat-released"),
@@ -793,27 +788,13 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 "chat-released",
             ],
         )
-        self.assertEqual(
-            result,
-            {
-                "team_id": "team_1",
-                "destroyed": True,
-                "db_dropped": True,
-                "residue_absent": TEAM_RESIDUES,
-            },
-        )
+        self.assertEqual(result, DESTROYED)
 
     def test_destroy_retries_thread_delete_without_teardown_after_redacted_failure(self) -> None:
         delete_calls: list[str] = []
         teardown = mock.Mock(return_value=hosted_resources._CleanupResult(True, True, TEARDOWN_RESIDUES))
         clear = mock.Mock()
-        lease = hosted_resources._AuthorizationLease(
-            team_id="team_1",
-            container_id=ANCHOR_ID,
-            owner="account_1",
-            principal=("account", "account_1"),
-            cleanup_nonce="retry-nonce",
-        )
+        lease = _retry_lease(ANCHOR_ID)
 
         class ChatLock:
             @staticmethod
@@ -864,13 +845,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
     def test_destroy_journal_failure_is_redacted_before_teardown(self) -> None:
         teardown = mock.Mock(return_value=hosted_resources._CleanupResult(True, True, TEARDOWN_RESIDUES))
         clear = mock.Mock()
-        lease = hosted_resources._AuthorizationLease(
-            team_id="team_1",
-            container_id=ANCHOR_ID,
-            owner="account_1",
-            principal=("account", "account_1"),
-            cleanup_nonce="retry-nonce",
-        )
+        lease = _retry_lease(ANCHOR_ID)
 
         class ChatLock:
             released = False
