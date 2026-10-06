@@ -261,8 +261,7 @@ class SelectorFailureTests(CompiledRunCase):
                 dataclasses.replace(
                     state,
                     routines=tuple(
-                        dataclasses.replace(item, plan=plan, permitted=permitted, rehearsal=not read_only)
-                        for item in state.routines
+                        dataclasses.replace(item, plan=plan, permitted=permitted) for item in state.routines
                     ),
                 ),
                 None,
