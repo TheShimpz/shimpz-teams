@@ -533,10 +533,15 @@ class WatchdogRecoveryTests(CompiledRunCase):
             with mock.patch.object(service.routine_store, "cursor", side_effect=routine_store.RoutineStoreError("x")):
                 unreadable = routine_compiled.protection_lost(service, "team_1", run)
             with mock.patch.object(service.routine_store, "cursor", return_value=None):
-                missing = routine_compiled.protection_lost(service, "team_1", run)
+                unbound = routine_compiled.protection_lost(service, "team_1", run)
+                with mock.patch.object(service.action_state, "current_batch", return_value=("batch", "open")):
+                    begun = routine_compiled.protection_lost(service, "team_1", run)
+            ungenerated = routine_compiled.protection_lost(service, "team_1", dataclasses.replace(run, generation=""))
             compiled.seal(routine_cursor.lose_protection(compiled.cursor))
             sealed = routine_compiled.protection_lost(service, "team_1", run)
-        self.assertEqual((kept, unreadable, missing, sealed), (False, True, True, True))
+        self.assertEqual(
+            (kept, unreadable, unbound, begun, ungenerated, sealed), (False, True, False, True, False, True)
+        )
 
     def test_a_completed_cursor_of_another_plan_is_held_never_finished_done(self) -> None:
         def patch(service):
@@ -556,6 +561,27 @@ class WatchdogRecoveryTests(CompiledRunCase):
         self.assertEqual((actions, state.runs), (["list-zones", "list-dns-records"], ()))
         self.assertEqual([item.incident_id for item in state.incidents], [run_id])
         self.assertNotIn("done", [item.outcome for item in state.notices])
+
+    def test_a_restart_before_any_dispatch_fails_the_run_interrupted_as_having_lost_its_protection(self) -> None:
+        sealed: list[routine_cursor.Cursor] = []
+
+        def patch(service):
+            put = service.routine_store.put_cursor
+
+            def kept(team_id, cursor):
+                sealed.append(cursor)
+                put(team_id, cursor)
+
+            service.routine_store.put_cursor = kept
+            return mock.patch.object(routine_compiled.CompiledRuntime, "dispatching", side_effect=Crash)
+
+        with tempfile.TemporaryDirectory() as directory:
+            service, _run_id, actions = self.crashed(directory, patch, restarted=True)
+            state = self.state(service)
+        (notice,) = state.notices
+        self.assertEqual((actions, notice.detail["code"], notice.protection_lost), ([], "interrupted", True))
+        # The step-zero cursor bound in the earlier boot is sealed as lost before the run ends.
+        self.assertTrue(sealed[-1].protection_lost)
 
     def test_a_crash_before_any_dispatch_fails_the_run_interrupted(self) -> None:
         def patch(_service):

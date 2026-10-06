@@ -60,7 +60,8 @@ def _recover(service, team_id: str, value: record.Run) -> str | None:
     """
     now = int(time.time())
     progress = routine_compiled.progress(service, team_id, value)
-    lost = progress != "none" and routine_compiled.protection_lost(service, team_id, value)
+    # Even a run that dispatched nothing may have bound its protection with its first cursor in an earlier boot.
+    lost = routine_compiled.protection_lost(service, team_id, value)
     shown = routine_compiled.sealed_shown(service, team_id, value) if progress == "done" and not lost else None
 
     def recover(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:

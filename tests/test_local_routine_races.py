@@ -222,10 +222,14 @@ class WatchdogRaceTests(RoutineServiceCase):
             "team_1", lambda state: (record.bind_generation(state, claim["run_id"], lease, now, network), None)
         )
 
+        def finish(state: record.TeamRoutines) -> tuple[record.TeamRoutines, None]:
+            if not any(item.run_id == claim["run_id"] for item in state.runs):
+                return state, None
+            return record.end(state, claim["run_id"], now, "stopped", {"actions": []}), None
+
         def worker_finishes(_generation):
-            service.routine_store.update(
-                "team_1", lambda state: (record.end(state, claim["run_id"], now, "stopped", {"actions": []}), None)
-            )
+            # The first journal read the pass makes finds the worker finishing; any later read finds it ended.
+            service.routine_store.update("team_1", finish)
 
         return claim, worker_finishes
 

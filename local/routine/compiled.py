@@ -403,14 +403,17 @@ def protection_lost(self, team_id: str, value: record.Run) -> bool:
     """Whether a run nothing drives any more has lost its protection, sealing the loss in its cursor first.
 
     Protection lives only in the boot that bound it: a cursor sealed in another boot, one this process no longer holds
-    protection for, or one that cannot be read has lost it, and the loss is never undone.
+    protection for, or one that cannot be read has lost it, and the loss is never undone. A run with neither a cursor
+    nor a journal batch never bound any; one whose batch began with no cursor cannot show what it protected.
     """
+    if not value.generation:
+        return False
     try:
-        _batch, _snapshot, cursor = _sealed(self, team_id, value)
+        batch, _snapshot, cursor = _sealed(self, team_id, value)
     except action_journal.ActionJournalError, routine_store.RoutineStoreError, ApiProblem:
         return True
     if cursor is None:
-        return True
+        return batch is not None
     if cursor.protection_lost:
         return True
     if not self.routine_protections.current(value.run_id, cursor.boot).lost:
