@@ -655,11 +655,20 @@ def _transcripts(value: object) -> tuple[action_human.ActionTranscript, ...]:
     return tuple(transcripts)
 
 
-def _tuple_text(value: object, maximum: int, label: str) -> tuple[str, ...]:
-    result = tuple(str(_text(item, maximum, label)) for item in _sequence(value, 128, label))
+def _ordered(result: tuple[str, ...], label: str) -> tuple[str, ...]:
     if not result or len(result) != len(set(result)) or tuple(sorted(result)) != result:
         raise ContinuationCodecError(f"{label} is malformed")
     return result
+
+
+def _tuple_text(value: object, maximum: int, label: str) -> tuple[str, ...]:
+    return _ordered(tuple(str(_text(item, maximum, label)) for item in _sequence(value, 128, label)), label)
+
+
+def _action_ids(value: object) -> tuple[str, ...]:
+    label = "integration Actions"
+    items = _sequence(value, 128, label)
+    return _ordered(tuple(_component_id(item, label, http_payload.canonical_action_id) for item in items), label)
 
 
 def _integration_requirement(value: object) -> integration_challenges.IntegrationRequirement:
@@ -684,7 +693,7 @@ def _integration_requirement(value: object) -> integration_challenges.Integratio
     return integration_challenges.IntegrationRequirement(
         _component_id(raw["assistant_id"], "integration Assistant", http_payload.canonical_assistant_id),
         str(_text(raw["assistant_name"], 80, "integration Assistant name")),
-        _tuple_text(raw["action_ids"], 80, "integration Actions"),
+        _action_ids(raw["action_ids"]),
         tuple(integrations),
     )
 

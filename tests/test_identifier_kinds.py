@@ -71,6 +71,21 @@ class IdentifierKindTests(unittest.TestCase):
                 ):
                     admit(value, "id", canonical)
 
+    def test_a_paused_integration_requirement_restores_every_canonical_action(self) -> None:
+        def requirement(action_ids: list[object]) -> dict[str, object]:
+            return {
+                "assistant_id": "helper",
+                "assistant_name": "Helper",
+                "action_ids": action_ids,
+                "integrations": [["token", "cloudflare", ["zone.read"]]],
+            }
+
+        actions = ["a" * 128, "dns.read", "zone_get"]
+        self.assertEqual(continuation._integration_requirement(requirement(actions)).action_ids, tuple(actions))
+        for action_ids in (["a" * 129], ["dns..read"], ["b", "a"], ["a", "a"], [], [7]):
+            with self.subTest(action_ids=action_ids), self.assertRaises(continuation.ContinuationCodecError):
+                continuation._integration_requirement(requirement(action_ids))
+
     def test_shared_record_stores_own_records_by_a_canonical_assistant(self) -> None:
         for policy, error in (
             (stored_input._POLICY, stored_input.StoredInputValidationError),
