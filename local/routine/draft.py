@@ -25,12 +25,12 @@ from collections.abc import Callable
 from http import HTTPStatus
 
 from assistant import manifest as assistant_manifest
-from core import strict_json
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import lineage as routine_lineage
 from local.routine import state as routine_state
 from local.routine import store as routine_store
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import strict_json
 from routine import plan as routine_plan
 from routine import request as routine_request
 from routine.request import Draft

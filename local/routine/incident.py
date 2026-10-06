@@ -23,7 +23,6 @@ from dataclasses import dataclass
 from http import HTTPStatus
 
 from action import journal as action_journal
-from core import strict_json
 from local import audit as local_audit
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import diagnostics as routine_diagnostics
@@ -31,6 +30,7 @@ from local.routine import state as routine_state
 from local.routine import store as routine_store
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import strict_json
 from routine import cursor as routine_cursor
 from routine import hold as routine_hold
 from routine import plan as routine_plan

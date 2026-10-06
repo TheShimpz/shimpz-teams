@@ -34,10 +34,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from action import execution as action_execution
 from action import failure as action_failure
-from core import strict_json
 from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import strict_json
 from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state/diagnostics")

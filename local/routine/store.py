@@ -29,10 +29,10 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from action import human as action_human
 from action import journal as action_journal
-from core import strict_json
 from local.chat import continuation as local_chat_continuation
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import strict_json
 from routine import cursor as routine_cursor
 from routine import grant as routine_grant
 from routine import plan as routine_plan

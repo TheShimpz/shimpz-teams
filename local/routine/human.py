@@ -17,7 +17,6 @@ from http import HTTPStatus
 from action import challenges as action_challenges
 from action import human as action_human
 from chat import progress as chat_progress
-from core import strict_json
 from inference import config as inference_config
 from install import bindings
 from local.chat import continuation as local_chat_continuations
@@ -30,6 +29,7 @@ from local.routine import state as routine_state
 from local.routine import store as routine_store
 from local.routine import turn as routine_turn
 from local.validation import validate_team_id
+from protocol.http.v1 import strict_json
 from routine import record
 
 

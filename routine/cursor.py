@@ -15,8 +15,8 @@ import re
 from dataclasses import dataclass
 
 from action import journal as action_journal
-from core import strict_json
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import strict_json
 from routine import plan as routine_plan
 
 VERSION = 3

@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import strict_json
+from protocol.http.v1 import strict_json
 
 
 class StrictJsonTests(unittest.TestCase):

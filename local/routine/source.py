@@ -14,8 +14,8 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
-from core import strict_json
 from local.routine import state as routine_state
+from protocol.http.v1 import strict_json
 from routine import plan as routine_plan
 from routine import record
 from routine import request as routine_request
