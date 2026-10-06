@@ -9,8 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from action import journal as action_journal
-from inference.client import BrainRuntimeError
+from inference.client import BrainRuntimeError, provider_credential
 from protocol.http.v1 import payload as http_payload
 
 DECISIONS = frozenset({"retry", "ask", "pause"})
@@ -27,21 +26,16 @@ def decide(
 ) -> str:
     """``credentials`` is the provider, model, and key; ``subject`` names the routine, step, and Team's proof."""
     provider, model, api_key = credentials
+    body = provider_credential(provider, model, api_key)
     if (
-        provider not in {"anthropic", "openai"}
-        or not isinstance(model, str)
-        or action_journal.SAFE_ID_RE.fullmatch(model) is None
-        or not isinstance(api_key, str)
-        or not api_key
-        or len(api_key) > 16 * 1024
-        or "\0" in api_key
+        body is None
         or (locale is not None and http_payload.canonical_locale(locale) is None)
         or subject.get("proof") not in PROOFS
         or len(diagnostics) > MAX_DIAGNOSTICS
     ):
         raise BrainRuntimeError("Brain runtime Routine recovery request is invalid")
     payload = {
-        "provider": {"provider": provider, "model": model, "api_key": api_key},
+        "provider": body,
         "locale": locale,
         "routine": dict(subject["routine"]),
         "step": dict(subject["step"]),

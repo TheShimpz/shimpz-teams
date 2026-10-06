@@ -261,7 +261,7 @@ class RouteCredentials:
     decision_key: str | None = None
 
 
-def _provider_body(provider: object, model: object, api_key: object) -> dict[str, object] | None:
+def provider_credential(provider: object, model: object, api_key: object) -> dict[str, object] | None:
     """The provider credential one Brain request carries, or None when any part is outside the runtime contract."""
     if (
         provider not in {"anthropic", "openai"}
@@ -850,7 +850,7 @@ class BrainRuntimeClient:
         locale: str,
         action_ids: tuple[str, ...],
     ) -> tuple[RuntimeActionLabel, ...]:
-        provider_body = _provider_body(provider, model, api_key)
+        provider_body = provider_credential(provider, model, api_key)
         if (
             provider_body is None
             or http_payload.canonical_locale(locale) is None
@@ -878,7 +878,7 @@ class BrainRuntimeClient:
         objective: object,
         candidates: tuple[RuntimeCapabilityCandidate, ...],
     ) -> RuntimeCapabilityPlan:
-        provider_body = _provider_body(provider, model, api_key)
+        provider_body = provider_credential(provider, model, api_key)
         if provider_body is None:
             raise BrainRuntimeError("Brain runtime capability plan request is invalid")
         task, admitted = self.validate_capability_plan_inputs(objective, candidates)
@@ -921,7 +921,7 @@ class BrainRuntimeClient:
             credentials.api_key,
             credentials.decision_key,
         )
-        provider_body = _provider_body(provider, model, api_key)
+        provider_body = provider_credential(provider, model, api_key)
         if provider_body is None or (
             decision_key is not None and (expected_intent is not None or _invalid_secret(decision_key))
         ):
