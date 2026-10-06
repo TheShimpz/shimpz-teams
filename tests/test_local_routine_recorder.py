@@ -221,6 +221,9 @@ class RecordingBookTests(unittest.TestCase):
             # Schedule words alone set the advisory mode; the Brain still reads what the message asks.
             ("Explique o job que roda a cada hora", True),
             ("Liste os registros DNS de shimpz.com", False),
+            # Asking for a Routine sets the mode before any schedule is stated, so Team owns the frequency question.
+            ("cria uma rotina pra mim, que lista os registros dns do dominio shimpz.com", True),
+            ("Não quero uma rotina, só liste os registros", False),
         )
         for message, expected in cases:
             with self.subTest(message=message):

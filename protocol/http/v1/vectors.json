@@ -2767,6 +2767,20 @@
       {"text": "Which start time should the report query use?", "asks": false},
       {"text": "09:00", "asks": false},
       {"text": "18:00", "asks": false}
+    ],
+    "requests_routine": [
+      {"text": "cria uma rotina pra mim, que lista os registros dns do dominio shimpz.com", "requests": true},
+      {"text": "Create a routine that lists my DNS records", "requests": true},
+      {"text": "Crea una rutina que liste mis registros", "requests": true},
+      {"text": "Crée une routine pour lister mes zones", "requests": true},
+      {"text": "Erstelle eine Routine für meine Zonen", "requests": true},
+      {"text": "DNSレコードを一覧するルーティンを作って", "requests": true},
+      {"text": "创建一个定时任务列出我的记录", "requests": true},
+      {"text": "أنشئ روتين يعرض سجلاتي", "requests": true},
+      {"text": "cade a rotina?", "requests": false},
+      {"text": "Não quero uma rotina, só liste os registros", "requests": false},
+      {"text": "routinely list my records", "requests": false},
+      {"text": "Liste os registros DNS de shimpz.com", "requests": false}
     ]
   }
 }

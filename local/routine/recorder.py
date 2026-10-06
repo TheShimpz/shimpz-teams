@@ -303,14 +303,17 @@ def _latest_answer(message: str) -> str | None:
 def routine_mode(span: Span | None) -> bool:
     """Whether the Brain should treat this chat as about a Routine: advisory only, and read with no model.
 
-    It is when any segment the person wrote in the span states a schedule, or the span holds a record intent or a
-    pending Team question. The Brain still reads what the current message asks before it acts or records.
+    It is when any segment the person wrote in the span states a schedule or asks for a Routine by name, or the span
+    holds a record intent or a pending Team question. The Brain still reads what the current message asks before it
+    acts or records.
     """
     if span is None:
         return False
     if span.intent is not None or span.asked is not None:
         return True
-    return any(phrase.stated(segment) for send in span.sends for segment in send.person)
+    return any(
+        phrase.stated(segment) or phrase.requests_routine(segment) for send in span.sends for segment in send.person
+    )
 
 
 _RERUN_SHOWN = frozenset({"routine-binding-unsourced", "routine-work-rerun"})

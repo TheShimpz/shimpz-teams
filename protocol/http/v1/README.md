@@ -130,6 +130,8 @@ same words alike (`phrase.py`, ADR-0101): `phrase.stated` reads the canonical sc
 `phrase.outputs` the output choices (`show`, `changes`, `none`, `chain`), and `phrase.zones` the exact IANA zones it
 names. `phrase.team_asks(text)` is true when one clarification question or option label asks or states a schedule,
 an interval, an output choice, or how many times a Routine may run, which Team asks itself and the Brain never does.
+`phrase.requests_routine(text)` is true when the text names a Routine affirmatively ("cria uma rotina", "create a
+routine"), so a chat that asks for one is about a Routine before any schedule is stated.
 The tables cover the eight interface languages. A sentence that asks states nothing; a negation in any
 language rejects every reading it reaches; "show the result" qualified by "only when it changes" in its own clause is
 that one choice, while alternatives offer both. Vectors pin a reading for each language and kind.

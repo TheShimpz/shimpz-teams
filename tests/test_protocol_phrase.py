@@ -264,6 +264,42 @@ class StatedOutputTests(unittest.TestCase):
         self.assertEqual(set(phrase.outputs("Mostrar sempre. Ou só quando mudar.")), {"show", "changes"})
 
 
+class RequestsRoutineTests(unittest.TestCase):
+    def test_naming_a_routine_requests_one_in_every_language(self) -> None:
+        for text in (
+            "cria uma rotina pra mim, que lista os registros dns do dominio shimpz.com",
+            "Recrie as rotinas",
+            "Create a routine that lists my DNS records",
+            "Crea una rutina que liste mis registros",
+            "Crée une routine pour lister mes zones",
+            "Erstelle eine Routine für meine Zonen",
+            "DNSレコードを一覧するルーティンを作って",
+            "创建一个定时任务列出我的记录",
+            "设置例行任务",
+            "أنشئ روتين يعرض سجلاتي",
+        ):
+            with self.subTest(text=text):
+                self.assertIs(phrase.requests_routine(text), True)
+
+    def test_a_question_a_negation_or_a_longer_word_requests_nothing(self) -> None:
+        for text in (
+            "cade a rotina?",
+            "Não quero uma rotina, só liste os registros",
+            "Don't create a routine",
+            "No quiero una rutina",
+            "Je ne veux pas de routine",
+            "Keine Routine bitte",
+            "ルーティンは作らない",
+            "不要例行任务",
+            "لا روتين",
+            "Liste os registros DNS de shimpz.com",
+            "routinely list my records",
+            "rotineiro",
+        ):
+            with self.subTest(text=text):
+                self.assertIs(phrase.requests_routine(text), False)
+
+
 class TeamAsksTests(unittest.TestCase):
     """What Team asks the person itself, so the Brain's guard keeps its own questions to the work (ADR-0101)."""
 

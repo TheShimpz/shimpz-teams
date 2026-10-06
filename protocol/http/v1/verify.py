@@ -387,10 +387,12 @@ if set(choices) != set(routine.LOCALES) or any(
     fail("the Routine output choices do not name each output once in every interface language")
 
 readings = vectors.get("routine_phrase", {})
-if not all(readings.get(name) for name in ("stated", "outputs", "zones", "team_asks")):
+if not all(readings.get(name) for name in ("stated", "outputs", "zones", "team_asks", "requests_routine")):
     fail("routine phrase vectors are missing")
 if any(phrase.team_asks(case["text"]) is not case["asks"] for case in readings["team_asks"]):
     fail("a routine phrase team_asks vector differs")
+if any(phrase.requests_routine(case["text"]) is not case["requests"] for case in readings["requests_routine"]):
+    fail("a routine phrase requests_routine vector differs")
 for name, read, key in (
     ("stated", phrase.stated, "schedules"),
     ("outputs", phrase.outputs, "outputs"),

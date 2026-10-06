@@ -397,6 +397,35 @@ def outputs(text: str) -> tuple[str, ...]:
     return tuple(found)
 
 
+# A Routine the person asks for, named by its noun in each language, whole word only where words are spaced.
+_ROUTINE_NOUNS = (
+    ("pt", r"\brotinas?\b"),
+    ("en", r"\broutines?\b"),
+    ("es", r"\brutinas?\b"),
+    ("fr", r"\broutines?\b"),
+    ("de", r"\broutinen?\b"),
+    ("ja", r"ルーティン"),
+    ("zh", r"例行任务|定时任务"),
+    ("ar", r"(?:^|\s)(?:ال)?روتين(?:\s|$)"),
+)
+
+
+def requests_routine(text: str) -> bool:
+    """Whether one person-authored text names a Routine affirmatively, so the chat is about one (ADR-0101).
+
+    A sentence that asks names nothing, and a negation in any language rejects the noun it reaches, whichever language
+    reads the same word.
+    """
+    for sentence in _sentences(text):
+        found = [(language, match) for language, pattern in _ROUTINE_NOUNS for match in re.finditer(pattern, sentence)]
+        negated = [match.span() for language, match in found if _negated(language, sentence, match)]
+        if any(
+            not any(match.start() < end and start < match.end() for start, end in negated) for _language, match in found
+        ):
+            return True
+    return False
+
+
 # How a question asks what Team reads from the person's own words, by language: each a whole interrogative phrase, so
 # a question about a time-like input of the work ("what time range", "how often does it fail") is the Brain's own.
 # When or how often a Routine runs, its run limit, or what it does with its result:
