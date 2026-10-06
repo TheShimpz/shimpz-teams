@@ -24,6 +24,21 @@ from hosted_assistant_fixture import (
 )
 
 
+class ObservedTeamLock:
+    """A Team lock that reports when a caller begins waiting for it."""
+
+    def __init__(self, lock: threading.Lock, waiting: threading.Event) -> None:
+        self._lock = lock
+        self._waiting = waiting
+
+    def __enter__(self) -> bool:
+        self._waiting.set()
+        return self._lock.__enter__()
+
+    def __exit__(self, *args: object) -> None:
+        self._lock.__exit__(*args)
+
+
 class HostedLockOrderTests(unittest.TestCase):
     @staticmethod
     def _slot_mutations(lease: object) -> tuple[tuple[str, object], ...]:
@@ -85,16 +100,6 @@ class HostedLockOrderTests(unittest.TestCase):
         waiting = threading.Event()
         outcome: list[object] = []
 
-        class ObservedTeamLock:
-            """The Team lock, reporting when the mutation begins waiting for it."""
-
-            def __enter__(self) -> bool:
-                waiting.set()
-                return team_lock.__enter__()
-
-            def __exit__(self, *args: object) -> None:
-                team_lock.__exit__(*args)
-
         def run() -> None:
             try:
                 outcome.append(operation())
@@ -106,7 +111,7 @@ class HostedLockOrderTests(unittest.TestCase):
         reached = mock.Mock(side_effect=AssertionError("a mutation acted while the test held the chat slot"))
         acquired = False
         with (
-            mock.patch.object(runtime_state, "_lock_for", return_value=ObservedTeamLock()),
+            mock.patch.object(runtime_state, "_lock_for", return_value=ObservedTeamLock(team_lock, waiting)),
             mock.patch.object(hosted_resources, "_require_current_authorization", reached),
             mock.patch.object(runtime_state._dynamic_assistants, "get", reached),
             mock.patch.object(runtime_state._dynamic_assistants, "put", reached),

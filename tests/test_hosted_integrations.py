@@ -27,6 +27,7 @@ TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))
 
 import hosted_assistant_fixture as harness
+from test_hosted_lock_order import ObservedTeamLock
 
 app = harness.app
 hosted_chat_api = harness.hosted_chat_api
@@ -681,16 +682,6 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         team_lock = threading.Lock()
         waiting = threading.Event()
 
-        class ObservedTeamLock:
-            """The Team lock, reporting when the OAuth start begins waiting for it."""
-
-            def __enter__(self) -> bool:
-                waiting.set()
-                return team_lock.__enter__()
-
-            def __exit__(self, *args: object) -> None:
-                team_lock.__exit__(*args)
-
         outcome: list[object] = []
 
         def start() -> None:
@@ -707,7 +698,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         starting = threading.Thread(target=start, daemon=True)
         with (
             mock.patch.multiple(runtime_state, _integration_challenges=challenges, _integration_pkce=pkce),
-            mock.patch.object(runtime_state, "_lock_for", return_value=ObservedTeamLock()),
+            mock.patch.object(runtime_state, "_lock_for", return_value=ObservedTeamLock(team_lock, waiting)),
             mock.patch.object(hosted_resources, "_require_current_authorization"),
         ):
             # Destruction holds the Team lock and then awaits the chat slot; the start must not be holding it.
