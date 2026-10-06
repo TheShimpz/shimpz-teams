@@ -74,13 +74,7 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.private_key = Ed25519PrivateKey.generate()
         self.public_key_path = Path(self.temporary.name) / "public.pem"
-        self.public_key_path.write_bytes(
-            self.private_key.public_key().public_bytes(
-                Encoding.PEM,
-                PublicFormat.SubjectPublicKeyInfo,
-            )
-        )
-        self.public_key_path.chmod(0o440)
+        self._write_public_key()
         self.patches = (
             mock.patch.object(authority, "PUBLIC_KEY_FILE", self.public_key_path),
             mock.patch.object(
@@ -92,6 +86,13 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         for patch in self.patches:
             patch.start()
             self.addCleanup(patch.stop)
+
+    def _write_public_key(self) -> None:
+        """Publish the Supervisor public key as the group-readable PEM the authority accepts."""
+        self.public_key_path.write_bytes(
+            self.private_key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
+        )
+        self.public_key_path.chmod(0o440)
 
     def _headers(self, claims: dict[str, object]) -> Message:
         headers = Message()
@@ -308,13 +309,7 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         self.public_key_path.unlink()
         authority.require_supervisor_absent()
 
-        self.public_key_path.write_bytes(
-            self.private_key.public_key().public_bytes(
-                Encoding.PEM,
-                PublicFormat.SubjectPublicKeyInfo,
-            )
-        )
-        self.public_key_path.chmod(0o440)
+        self._write_public_key()
         with self.assertRaisesRegex(authority.SupervisorEstablishedError, "already established"):
             authority.require_supervisor_absent()
 
