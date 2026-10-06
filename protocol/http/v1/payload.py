@@ -336,12 +336,24 @@ def canonical_turn_usage(value: object) -> dict[str, object] | None:
     It is presentation metadata only: a duration and, per provider and model, the input and output tokens the
     provider responses reported. Models are distinct, sorted by provider then model, and at least one is present.
     """
+    return _usage(value, 1)
+
+
+def canonical_run_usage(value: object) -> dict[str, object] | None:
+    """Return one exact Routine run usage, or None: a chat turn's shape, whose models may be none (ADR-0101).
+
+    A run that called no model, a replay-only one, reports its active duration alone.
+    """
+    return _usage(value, 0)
+
+
+def _usage(value: object, minimum: int) -> dict[str, object] | None:
     if (
         not isinstance(value, dict)
         or set(value) != {"duration_ms", "models"}
         or not _turn_usage_count(value["duration_ms"], MAX_TURN_DURATION_MS)
         or not isinstance(value["models"], list)
-        or not 1 <= len(value["models"]) <= MAX_TURN_USAGE_MODELS
+        or not minimum <= len(value["models"]) <= MAX_TURN_USAGE_MODELS
     ):
         return None
     keys = [_turn_usage_model(model) for model in value["models"]]
@@ -375,9 +387,10 @@ def _clarification(value: object) -> dict[str, object]:
         raise _ClarificationShapeError
     question = _clarification_text(value["question"], MAX_CLARIFICATION_QUESTION_CHARS)
     raw_options = value["options"]
-    # A question that recommends nothing (a Routine question) may offer one suggestion beside the free-text answer.
-    minimum = 1 if value["default_index"] is None else MIN_CLARIFICATION_OPTIONS
-    if not isinstance(raw_options, list) or not minimum <= len(raw_options) <= MAX_CLARIFICATION_OPTIONS:
+    if (
+        not isinstance(raw_options, list)
+        or not MIN_CLARIFICATION_OPTIONS <= len(raw_options) <= MAX_CLARIFICATION_OPTIONS
+    ):
         raise _ClarificationShapeError
     options = []
     for option in raw_options:
@@ -392,13 +405,11 @@ def _clarification(value: object) -> dict[str, object]:
             }
         )
     default_index = value["default_index"]
-    if len({option["label"].casefold() for option in options}) != len(options) or (
-        default_index is not None
-        and (
-            isinstance(default_index, bool)
-            or not isinstance(default_index, int)
-            or not 0 <= default_index < len(options)
-        )
+    if (
+        len({option["label"].casefold() for option in options}) != len(options)
+        or isinstance(default_index, bool)
+        or not isinstance(default_index, int)
+        or not 0 <= default_index < len(options)
     ):
         raise _ClarificationShapeError
     return {"question": question, "options": options, "default_index": default_index}
@@ -408,9 +419,8 @@ def canonical_clarification(value: object) -> dict[str, object] | None:
     """Return one exact Brain multiple-choice clarification, or None when it breaks the closed shape (ADR-0081).
 
     Every text is already NFC, trimmed, and free of control and line-separator characters; labels are distinct
-    ignoring case; the default points to one option, or is null when no option is recommended or preselected, as in
-    every Routine question (ADR-0092 amendment, 2026-10-05), which may then offer a single option. The shape is
-    presentation only and carries no authority.
+    ignoring case; the default points to the one recommended option. The shape is presentation only and carries no
+    authority.
     """
     try:
         return _clarification(value)
