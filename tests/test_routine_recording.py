@@ -392,12 +392,20 @@ class ClassificationTests(unittest.TestCase):
                 asked = _record(_send(*calls, message=f"beta\n{EVERY_HOUR}"))
                 self.assertEqual(asked.code, "routine-binding-ambiguous")
 
-    def test_a_value_only_a_change_returned_is_asked_about(self) -> None:
+    def test_a_value_a_change_returned_binds_to_it_except_where_changes_do_not_replay(self) -> None:
         calls = (
             ("reports/post", {}, {"post_id": "post-12345"}),
             ("cloudflare/list-dns-records", {"zone_id": "post-12345"}, {}),
         )
-        self.assertEqual(_record(_send(*calls)).code, "routine-binding-unsourced")
+        recorded = _recorded(_send(*calls))
+        self.assertEqual(_actions(recorded), ["post", "list-dns-records"])
+        self.assertEqual(_input(recorded)["zone_id"], {"kind": "step_output", "step": "s1", "pointer": "/post_id"})
+        # In an earlier send, the change still replays as the work's source, where it ran.
+        earlier = _recorded(_send(calls[0]), _send(calls[1]))
+        self.assertEqual(_actions(earlier), ["post", "list-dns-records"])
+        # A decision's changes never replay, so nothing may read one: the person is asked.
+        decided = _record(_send(*calls), mode="decide", when="always")
+        self.assertEqual(decided, recording.Question("routine-binding-unsourced"))
 
 
 def _fields(item: trace.Occurrence) -> dict[str, object]:

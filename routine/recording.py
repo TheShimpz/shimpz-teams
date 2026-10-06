@@ -20,10 +20,11 @@ member of a plan call is classified by the first rule that applies:
    falls to rule 5;
 5. anything else is a literal the assistant chose, the same on every run.
 
-A source is one specific occurrence; read-only calls of the same Action with identical input and result and no changing
-call between them are one source, its earliest. The plan holds every work call and every source they need, ordered by
-their data dependencies with every changing call kept where it ran; a conflict or a cycle refuses. Before any card,
-Team resolves the plan against the recorded results and requires every reference to reproduce what each call sent.
+A source is one specific occurrence, a changing call's too wherever changes replay; read-only calls of the same Action
+with identical input and result and no changing call between them are one source, its earliest. The plan holds every
+work call and every source they need, ordered by their data dependencies with every changing call kept where it ran; a
+conflict or a cycle refuses. Before any card, Team resolves the plan against the recorded results and requires every
+reference to reproduce what each call sent.
 
 The schedule and the timezone are the person's own: the latest send that states a schedule (``routine.phrase``), and
 the latest send naming an IANA zone, else the latest send's browser zone. What cannot be read is asked, never guessed.
@@ -179,6 +180,8 @@ class _Context:
     zone: tuple[str, str] | None
     asked: Asked | None
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract]
+    # Whether changing calls replay on every run, so their results are sources too: never in a decision.
+    replays_changes: bool = True
     # Every call's source representative, and each plan call's classified inputs and their origins.
     classes: dict[int, int] = field(default_factory=dict)
     inputs: dict[int, tuple[dict[str, dict[str, object]], dict[str, str]]] = field(default_factory=dict)
@@ -202,6 +205,7 @@ def record(
     latest = [call for call in calls if call.send == calls[-1].send] if calls else []
     try:
         context = _Context(sends, calls, _known(texts, protection), _zone(sends, existing), asked, contracts)
+        context.replays_changes = recording.mode != "decide"
         if not latest and existing is not None:
             return _kept(context, recording, existing)
         work = [call for call in latest if call.read_only or recording.mode != "decide"]
@@ -554,11 +558,12 @@ def _pointer(tokens: tuple[str, ...]) -> str:
 
 
 def _holders(context: _Context, consumer: _Call, value: object) -> dict[int, list[_Position]]:
-    """Each source representative whose read-only result holds ``value``, and the available positions it is at."""
+    """Each source representative whose replayed result holds ``value``, and the available positions it is at."""
     found: dict[int, list[_Position]] = {}
     for call in context.calls:
         representative = context.classes[call.index]
-        if call.index == consumer.index or not call.read_only or representative in found:
+        replayed = call.read_only or context.replays_changes
+        if call.index == consumer.index or not replayed or representative in found:
             continue
         positions = [
             position
