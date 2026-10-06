@@ -7,43 +7,14 @@ from unittest import mock
 
 from integrations import store as integration_store
 from integrations.http import OAuthTokenSet
-
-ACCESS = "access-token-private-material-123456789"
-REFRESH = "refresh-token-private-material-987654321"
-SCOPES = ("dns.read", "offline_access", "zone.read")
-DECLARATIONS = {"cloudflare": {"provider": "cloudflare", "scopes": SCOPES}}
-ACCOUNT = {"id": "2244994945", "username": "Cloudflare", "name": "Cloudflare"}
-
-
-def tokens(
-    *,
-    access: str = ACCESS,
-    refresh: str | None = REFRESH,
-    scopes: tuple[str, ...] = SCOPES,
-) -> OAuthTokenSet:
-    return OAuthTokenSet(access, refresh, scopes, 3600)
+from tests.integration_store_fixtures import ACCESS, ACCOUNT, DECLARATIONS, REFRESH, SCOPES, open_store, put, tokens
 
 
 class OAuthIntegrationReplacementTests(unittest.TestCase):
-    def _store(self, root: Path) -> integration_store.OAuthIntegrationStore:
-        return integration_store.OAuthIntegrationStore(
-            root / "state" / "integrations.json",
-            root / "key" / "aes256.key",
-            clock=lambda: 1_000_000_000,
-        )
-
     def test_replace_demotes_revokes_then_exchanges_and_preserves_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
-            first = store.put(
-                "team_1",
-                "shimpz-cloudflare",
-                "cloudflare",
-                "cloudflare",
-                SCOPES,
-                tokens(),
-                ACCOUNT,
-            )
+            store = open_store(Path(directory))
+            first = put(store)
             widened = tuple(sorted((*SCOPES, "dns.write")))
             declarations = {"cloudflare": {"provider": "cloudflare", "scopes": widened}}
             events: list[str] = []
@@ -75,7 +46,7 @@ class OAuthIntegrationReplacementTests(unittest.TestCase):
 
     def test_replace_aborts_before_exchange_and_leaves_reauthorization_marker(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
+            store = open_store(Path(directory))
             store.put("team_1", "assistant", "cloudflare", "cloudflare", SCOPES, tokens())
             exchange = mock.Mock(return_value=tokens(access="replacement-access-token-123456789"))
             failure = integration_store.OAuthIntegrationRevocationError("provider unavailable")
@@ -98,7 +69,7 @@ class OAuthIntegrationReplacementTests(unittest.TestCase):
 
     def test_replace_rejects_invalid_callback_contracts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
+            store = open_store(Path(directory))
             invalid = (
                 None,
                 integration_store.OAuthReplacementCallbacks(None, mock.Mock()),
@@ -113,7 +84,7 @@ class OAuthIntegrationReplacementTests(unittest.TestCase):
 
     def test_exchange_failure_is_retryable_and_put_failure_revokes_new_tokens(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
+            store = open_store(Path(directory))
             store.put("team_1", "assistant", "cloudflare", "cloudflare", SCOPES, tokens())
             revocations: list[str] = []
 
@@ -156,7 +127,7 @@ class OAuthIntegrationReplacementTests(unittest.TestCase):
 
     def test_replace_preserves_write_failure_when_compensation_revocation_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
+            store = open_store(Path(directory))
             replacement = tokens(access="replacement-access-token-123456789")
             with (
                 mock.patch.object(

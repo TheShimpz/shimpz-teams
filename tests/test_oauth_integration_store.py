@@ -15,42 +15,24 @@ from unittest import mock
 
 from integrations import store as integration_store
 from integrations.http import OAuthTokenSet
-
-ACCESS = "access-token-private-material-123456789"
-REFRESH = "refresh-token-private-material-987654321"
-SCOPES = ("dns.read", "offline_access", "zone.read")
-DECLARATIONS = {"cloudflare": {"provider": "cloudflare", "scopes": SCOPES}}
-ACCOUNT = {"id": "2244994945", "username": "Cloudflare", "name": "Cloudflare"}
-
-
-def tokens(
-    *,
-    access: str = ACCESS,
-    refresh: str | None = REFRESH,
-    scopes: tuple[str, ...] = SCOPES,
-    expires_in: int = 3600,
-    broker_lease: str | None = None,
-) -> OAuthTokenSet:
-    return OAuthTokenSet(access, refresh, scopes, expires_in, broker_lease)
+from tests.integration_store_fixtures import (
+    ACCESS,
+    ACCOUNT,
+    DECLARATIONS,
+    REFRESH,
+    SCOPES,
+    open_store,
+    put,
+    resolve,
+    tokens,
+)
 
 
 class OAuthIntegrationStoreTests(unittest.TestCase):
-    def _store(
-        self,
-        root: Path,
-        *,
-        clock=lambda: 1_000_000_000,
-    ) -> integration_store.OAuthIntegrationStore:
-        return integration_store.OAuthIntegrationStore(
-            root / "state" / "integrations.json",
-            root / "key" / "aes256.key",
-            clock=clock,
-        )
-
     def test_sealed_state_bytes_stay_pinned_and_decode_after_reopen(self) -> None:
         # Existing Local state holds exactly these bytes; a format change must be a deliberate contract change.
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
+            store = open_store(Path(directory))
             store.key_path.parent.mkdir(mode=0o700)
             store.key_path.write_bytes(bytes(range(32)))
             store.key_path.chmod(0o600)
@@ -59,17 +41,15 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 mock.patch("os.urandom", side_effect=lambda _size: next(nonces)),
                 mock.patch.object(integration_store.private_state, "timestamp", return_value="2026-10-05T00:00:00Z"),
             ):
-                store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
+                put(store)
                 store.put("team_2", "other", "cloudflare", "cloudflare", SCOPES, tokens(refresh=None), None)
 
             self.assertEqual(
                 hashlib.sha256(store.state_path.read_bytes()).hexdigest(),
                 "677e882eea9a5f443365c01ea78707bfedf87d87a46577fbe0d88d36b2b70a90",
             )
-            reopened = self._store(Path(directory))
-            self.assertEqual(
-                reopened.resolve("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, self.fail), ACCESS
-            )
+            reopened = open_store(Path(directory))
+            self.assertEqual(resolve(reopened, self.fail), ACCESS)
             self.assertEqual(
                 reopened.metadata("team_1", "shimpz-cloudflare", DECLARATIONS)[0].integration,
                 integration_store.OAuthIntegrationIdentity(**ACCOUNT),
@@ -78,7 +58,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
     def test_inventory_includes_missing_and_encrypted_integration_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            store = self._store(root)
+            store = open_store(root)
             missing = store.metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
             self.assertEqual(
                 missing,
@@ -89,20 +69,13 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 ),
             )
 
-            stored = store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
+            stored = put(store)
             self.assertEqual(stored.generation, 1)
             self.assertEqual(stored.status, "connected")
             self.assertEqual(stored.integration, integration_store.OAuthIntegrationIdentity(**ACCOUNT))
             self.assertEqual(store.metadata("team_1", "shimpz-cloudflare", DECLARATIONS), (stored,))
             self.assertEqual(
-                store.resolve(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "cloudflare",
-                    "cloudflare",
-                    SCOPES,
-                    lambda _token, _lease: self.fail("unexpired token must not refresh"),
-                ),
+                resolve(store, lambda _token, _lease: self.fail("unexpired token must not refresh")),
                 ACCESS,
             )
 
@@ -121,21 +94,14 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
 
     def test_resolve_reuses_only_the_validated_state_shape(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
-            store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
+            store = open_store(Path(directory))
+            put(store)
 
             validate_state = mock.Mock(wraps=integration_store._validate_state)
             with mock.patch.object(store, "_policy", replace(store._policy, validate_state=validate_state)):
                 for _ in range(2):
                     self.assertEqual(
-                        store.resolve(
-                            "team_1",
-                            "shimpz-cloudflare",
-                            "cloudflare",
-                            "cloudflare",
-                            SCOPES,
-                            lambda *_args: self.fail("unexpired token must not refresh"),
-                        ),
+                        resolve(store, lambda *_args: self.fail("unexpired token must not refresh")),
                         ACCESS,
                     )
 
@@ -144,48 +110,26 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
     def test_external_atomic_replacement_invalidates_cached_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            first = self._store(root)
-            second = self._store(root)
-            first.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
+            first = open_store(root)
+            second = open_store(root)
+            put(first)
             self.assertEqual(
-                first.resolve(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "cloudflare",
-                    "cloudflare",
-                    SCOPES,
-                    lambda *_args: self.fail("unexpired token must not refresh"),
-                ),
+                resolve(first, lambda *_args: self.fail("unexpired token must not refresh")),
                 ACCESS,
             )
 
             replacement = "replacement-access-token-private-material"
-            second.put(
-                "team_1",
-                "shimpz-cloudflare",
-                "cloudflare",
-                "cloudflare",
-                SCOPES,
-                tokens(access=replacement),
-                ACCOUNT,
-            )
+            put(second, access=replacement)
 
             self.assertEqual(
-                first.resolve(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "cloudflare",
-                    "cloudflare",
-                    SCOPES,
-                    lambda *_args: self.fail("unexpired token must not refresh"),
-                ),
+                resolve(first, lambda *_args: self.fail("unexpired token must not refresh")),
                 replacement,
             )
 
     def test_mutation_never_aliases_the_cached_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
-            store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
+            store = open_store(Path(directory))
+            put(store)
             store.metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
             cached = store._state_cache
             self.assertIsNotNone(cached)
@@ -204,8 +148,8 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
 
     def test_failed_write_drops_the_validated_state_cache(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
-            store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
+            store = open_store(Path(directory))
+            put(store)
             store.metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
             self.assertIsNotNone(store._state_cache)
 
@@ -217,32 +161,17 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 ),
                 self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "write failed"),
             ):
-                store.put(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "cloudflare",
-                    "cloudflare",
-                    SCOPES,
-                    tokens(access="replacement-access-token-private-material"),
-                    ACCOUNT,
-                )
+                put(store, access="replacement-access-token-private-material")
 
             self.assertIsNone(store._state_cache)
             self.assertEqual(
-                store.resolve(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "cloudflare",
-                    "cloudflare",
-                    SCOPES,
-                    lambda *_args: self.fail("unexpired token must not refresh"),
-                ),
+                resolve(store, lambda *_args: self.fail("unexpired token must not refresh")),
                 ACCESS,
             )
 
     def test_rotation_is_atomic_and_increments_authenticated_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
+            store = open_store(Path(directory))
             writes = 0
             original = store._write_state
 
@@ -252,42 +181,19 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 original(state)
 
             store._write_state = counted
-            first = store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
-            second = store.put(
-                "team_1",
-                "shimpz-cloudflare",
-                "cloudflare",
-                "cloudflare",
-                SCOPES,
-                tokens(access="new-access-token-123456789"),
-                ACCOUNT,
-            )
+            first = put(store)
+            second = put(store, access="new-access-token-123456789")
             self.assertEqual((first.generation, second.generation, writes), (1, 2, 2))
             self.assertEqual(
-                store.resolve(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "cloudflare",
-                    "cloudflare",
-                    SCOPES,
-                    lambda _token, _lease: None,
-                ),
+                resolve(store, lambda _token, _lease: None),
                 "new-access-token-123456789",
             )
 
     def test_expired_integration_refresh_is_single_flight_and_preserves_integration(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             now = [1_000]
-            store = self._store(Path(directory), clock=lambda: now[0])
-            store.put(
-                "team_1",
-                "shimpz-cloudflare",
-                "cloudflare",
-                "cloudflare",
-                SCOPES,
-                tokens(expires_in=30, broker_lease="broker-lease-private-material-123456789"),
-                ACCOUNT,
-            )
+            store = open_store(Path(directory), clock=lambda: now[0])
+            put(store, expires_in=30, broker_lease="broker-lease-private-material-123456789")
             self.assertEqual(
                 store.metadata("team_1", "shimpz-cloudflare", DECLARATIONS)[0].status,
                 "connected",
@@ -309,13 +215,10 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 self.assertTrue(release.wait(2))
                 return tokens(access="refreshed-access-token-123456789", expires_in=3600)
 
-            def resolve() -> str:
-                return store.resolve("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, refresh)
-
             with ThreadPoolExecutor(max_workers=2) as pool:
-                first = pool.submit(resolve)
+                first = pool.submit(resolve, store, refresh)
                 self.assertTrue(entered.wait(2))
-                second = pool.submit(resolve)
+                second = pool.submit(resolve, store, refresh)
                 release.set()
                 self.assertEqual(first.result(2), "refreshed-access-token-123456789")
                 self.assertEqual(second.result(2), "refreshed-access-token-123456789")
@@ -327,26 +230,10 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
     def test_hanging_refresh_does_not_block_another_integration(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             now = [1_000]
-            store = self._store(Path(directory), clock=lambda: now[0])
-            store.put(
-                "team_1",
-                "shimpz-cloudflare",
-                "cloudflare",
-                "cloudflare",
-                SCOPES,
-                tokens(expires_in=30),
-                ACCOUNT,
-            )
+            store = open_store(Path(directory), clock=lambda: now[0])
+            put(store, expires_in=30)
             other_access = "other-access-token-private-material-123456789"
-            store.put(
-                "team_1",
-                "shimpz-cloudflare",
-                "secondary",
-                "cloudflare",
-                SCOPES,
-                tokens(access=other_access),
-                ACCOUNT,
-            )
+            put(store, integration="secondary", access=other_access)
             now[0] = 1_031
             entered = threading.Event()
             release = threading.Event()
@@ -357,24 +244,13 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 return tokens(access="refreshed-access-token-123456789")
 
             with ThreadPoolExecutor(max_workers=2) as pool:
-                refreshing = pool.submit(
-                    store.resolve,
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "cloudflare",
-                    "cloudflare",
-                    SCOPES,
-                    refresh,
-                )
+                refreshing = pool.submit(resolve, store, refresh)
                 self.assertTrue(entered.wait(1))
                 other = pool.submit(
-                    store.resolve,
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "secondary",
-                    "cloudflare",
-                    SCOPES,
+                    resolve,
+                    store,
                     lambda *_args: self.fail("unexpired secondary integration must not refresh"),
+                    integration="secondary",
                 )
                 try:
                     self.assertEqual(other.result(timeout=0.5), other_access)
@@ -385,18 +261,10 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
 
     def test_hanging_revocation_does_not_block_another_integration(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
-            store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
+            store = open_store(Path(directory))
+            put(store)
             other_access = "other-access-token-private-material-123456789"
-            store.put(
-                "team_1",
-                "shimpz-cloudflare",
-                "secondary",
-                "cloudflare",
-                SCOPES,
-                tokens(access=other_access),
-                ACCOUNT,
-            )
+            put(store, integration="secondary", access=other_access)
             entered = threading.Event()
             release = threading.Event()
 
@@ -414,13 +282,10 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 )
                 self.assertTrue(entered.wait(1))
                 other = pool.submit(
-                    store.resolve,
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "secondary",
-                    "cloudflare",
-                    SCOPES,
+                    resolve,
+                    store,
                     lambda *_args: self.fail("unexpired secondary integration must not refresh"),
+                    integration="secondary",
                 )
                 try:
                     self.assertEqual(other.result(timeout=0.5), other_access)
@@ -432,7 +297,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
     def test_missing_refresh_and_declaration_drift_require_reauthorization(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             now = [1_000]
-            store = self._store(Path(directory), clock=lambda: now[0])
+            store = open_store(Path(directory), clock=lambda: now[0])
             reduced_scopes = ("dns.read", "zone.read")
             store.put(
                 "team_1",
@@ -448,14 +313,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             self.assertEqual(drifted.scopes, SCOPES)
             self.assertIsNone(drifted.integration)
             with self.assertRaises(integration_store.OAuthIntegrationReauthorizationError):
-                store.resolve(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "cloudflare",
-                    "cloudflare",
-                    SCOPES,
-                    lambda _token, _lease: None,
-                )
+                resolve(store, lambda _token, _lease: None)
 
             reduced = {"cloudflare": {"provider": "cloudflare", "scopes": reduced_scopes}}
             now[0] = 1_031
@@ -476,17 +334,9 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
     def test_aad_rejects_cross_identity_copy_and_metadata_tampering(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            store = self._store(root)
-            store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
-            store.put(
-                "team_2",
-                "shimpz-cloudflare",
-                "cloudflare",
-                "cloudflare",
-                SCOPES,
-                tokens(access="other-access-token-123456789"),
-                ACCOUNT,
-            )
+            store = open_store(root)
+            put(store)
+            put(store, team="team_2", access="other-access-token-123456789")
             state_path = root / "state" / "integrations.json"
             original = json.loads(state_path.read_text(encoding="utf-8"))
             copied = json.loads(json.dumps(original))
@@ -514,20 +364,12 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
     def test_missing_or_substituted_key_fails_closed_without_replacement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            store = self._store(root)
-            store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
+            store = open_store(root)
+            put(store)
             original_state = store.state_path.read_bytes()
             store.key_path.unlink()
             with self.assertRaises(integration_store.OAuthIntegrationStoreError):
-                store.put(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "cloudflare",
-                    "cloudflare",
-                    SCOPES,
-                    tokens(access="replacement-token-123456789"),
-                    ACCOUNT,
-                )
+                put(store, access="replacement-token-123456789")
             self.assertFalse(store.key_path.exists())
             self.assertEqual(store.state_path.read_bytes(), original_state)
 
@@ -539,8 +381,8 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
     def test_invalid_tokens_permissions_symlinks_and_duplicate_json_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            store = self._store(root)
-            store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
+            store = open_store(root)
+            put(store)
             original = store.state_path.read_bytes()
             invalid = (
                 tokens(access="line\nbreak"),
@@ -568,15 +410,15 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             symlink = root / "state" / "integrations.json"
             symlink.symlink_to(target)
             with self.assertRaises(integration_store.OAuthIntegrationStoreError):
-                self._store(root).metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
+                open_store(root).metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
             symlink.unlink()
             target.replace(symlink)
             with self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "duplicate"):
-                self._store(root).metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
+                open_store(root).metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
 
     def test_retention_and_deletion_are_exactly_scoped(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
+            store = open_store(Path(directory))
             for team, assistant in (
                 ("team_1", "first-assistant"),
                 ("team_1", "second-assistant"),
@@ -603,7 +445,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
     def test_generations_never_repeat_after_disconnect_or_bulk_deletion(self) -> None:
         # A prepared Action batch binds a generation; a reconnection after any deletion must never reuse it.
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
+            store = open_store(Path(directory))
             reference = ("team_1", "shimpz-cloudflare", "cloudflare")
 
             def connect() -> int:
@@ -626,12 +468,12 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             state["last_generation"] = 5
             store.state_path.write_text(json.dumps(state), encoding="utf-8")
             with self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "malformed"):
-                self._store(Path(directory)).metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
+                open_store(Path(directory)).metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
 
     def test_revocation_transaction_keeps_authenticated_custody_until_callback_succeeds(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
-            store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
+            store = open_store(Path(directory))
+            put(store)
             observed: list[tuple[str, str, str | None, str | None]] = []
 
             def fail(provider: str, access: str, refresh: str | None, lease: str | None) -> None:
@@ -777,7 +619,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 integration_store.OAuthIntegrationStore(root / "state" / "data", root / "key" / "key")
 
             for clock in (lambda: True, lambda: -1, lambda: object()):
-                store = self._store(root, clock=clock)
+                store = open_store(root, clock=clock)
                 with (
                     self.subTest(clock=clock),
                     self.assertRaisesRegex(
@@ -787,7 +629,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 ):
                     store._now()
 
-            store = self._store(root)
+            store = open_store(root)
             snapshot = SimpleNamespace(unchanged=True, payload=None, identity=None)
             with (
                 mock.patch.object(
@@ -843,14 +685,14 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
     def test_record_capacity_total_limit_and_callback_contracts_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            store = self._store(root)
+            store = open_store(root)
             with (
                 mock.patch.object(integration_store, "MAX_INTEGRATIONS_PER_ASSISTANT", 0),
                 self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "capacity"),
             ):
                 store.put("team_1", "assistant", "integration", "cloudflare", SCOPES, tokens())
 
-            store = self._store(root)
+            store = open_store(root)
             store.put("team_1", "assistant", "integration", "cloudflare", SCOPES, tokens())
             state = json.loads(store.state_path.read_text(encoding="utf-8"))
             with (
@@ -868,7 +710,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             now = [1_000]
-            store = self._store(root, clock=lambda: now[0])
+            store = open_store(root, clock=lambda: now[0])
             store.put(
                 "team_1",
                 "assistant",
@@ -916,7 +758,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
 
     def test_delete_team_and_all_report_both_state_transitions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
+            store = open_store(Path(directory))
             self.assertFalse(store.delete_team("team_1"))
             store.put("team_1", "assistant", "integration", "cloudflare", SCOPES, tokens())
             self.assertTrue(store.delete_all())
@@ -924,7 +766,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
 
     def test_declared_grant_distinguishes_missing_and_revoked_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = self._store(Path(directory))
+            store = open_store(Path(directory))
             with self.assertRaises(integration_store.OAuthIntegrationMissingError):
                 store._declared_grant("team_1", "assistant", "integration", "cloudflare", SCOPES)
 
