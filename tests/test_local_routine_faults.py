@@ -326,9 +326,7 @@ class RunFaultTests(RoutineServiceCase):
 
     def test_a_lease_lost_before_binding_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime())
-            self.routine(service)
-            claim = service.claim_routine_run()
+            _controller, service, claim = self.claimed(directory, Runtime())
             with (
                 mock.patch.object(
                     routine_claim, "bind_generation", side_effect=record.RoutineStateError("lease-invalid")
@@ -541,9 +539,7 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
 
     def test_run_state_that_cannot_be_removed_stays_queued_and_holds_back_new_runs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            controller, service = self.service(directory, Runtime())
-            self.routine(service)
-            claim = service.claim_routine_run()
+            controller, service, claim = self.claimed(directory, Runtime())
             network = controller.assistant_lifecycle._network("team_1").id
             lease = record.lease_of(claim["lease_token"], KEY)
             now = int(time.time())
@@ -632,9 +628,7 @@ class TeamIsolationTests(RoutineServiceCase):
 
     def test_a_periodic_pass_recovers_healthy_teams_and_audits_the_unreadable_one(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime())
-            self.routine(service)
-            claim = service.claim_routine_run()
+            _controller, service, claim = self.claimed(directory, Runtime())
             self.expire(service, claim["run_id"])
             self.break_team(service)
             self.assertEqual(set(service.routine_store.teams()), {"team_1", "team_2"})

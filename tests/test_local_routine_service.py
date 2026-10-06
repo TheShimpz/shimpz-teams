@@ -141,6 +141,12 @@ class RoutineServiceCase(LocalContractCase):
             for assistant, action in actions
         )
 
+    def claimed(self, directory: str, runtime: Runtime):
+        """A served Team with one due Routine, and the claim of its run."""
+        controller, service = self.service(directory, runtime)
+        self.routine(service)
+        return controller, service, service.claim_routine_run()
+
     def routine(self, service, *, next_run_at: int | None = None, plan: dict | None = None) -> record.Routine:
         """Add one daily confirmed Routine pinned to the Team's current contracts, due now unless told otherwise.
 
@@ -381,9 +387,7 @@ class RunTests(RoutineServiceCase):
 
     def test_other_failures_and_a_dead_lease(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime())
-            self.routine(service)
-            claim = service.claim_routine_run()
+            _controller, service, claim = self.claimed(directory, Runtime())
             with mock.patch.object(
                 service, "_run_chat_segment", side_effect=local_app.ApiProblem(409, "stopped", code="chat-stopped")
             ):
@@ -627,9 +631,7 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
 
     def test_a_recovered_run_whose_batch_may_have_acted_is_held_as_an_incident(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            controller, service = self.service(directory, Runtime())
-            self.routine(service)
-            claim = service.claim_routine_run()
+            controller, service, claim = self.claimed(directory, Runtime())
             network = controller.assistant_lifecycle._network("team_1").id
             lease = record.lease_of(claim["lease_token"], KEY)
             service.routine_store.update(

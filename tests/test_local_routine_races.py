@@ -151,9 +151,7 @@ class ExecutionBoundTests(RoutineServiceCase):
     def test_a_contract_changed_since_the_claim_never_runs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             runtime = Runtime(acting())
-            _controller, service = self.service(directory, runtime)
-            self.routine(service)
-            claim = service.claim_routine_run()
+            _controller, service, claim = self.claimed(directory, runtime)
             with mock.patch.object(
                 routine_contracts, "current_contracts", return_value={ASSISTANT: "sha256:" + "0" * 64}
             ):
@@ -166,9 +164,7 @@ class ExecutionBoundTests(RoutineServiceCase):
 
     def test_a_segment_out_of_active_time_is_stopped_and_ends_failed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime())
-            self.routine(service)
-            claim = service.claim_routine_run()
+            _controller, service, claim = self.claimed(directory, Runtime())
             routine_run.register_routine_run(service, "team_1", claim["run_id"], "token", 0)
             routine_watchdog.check(service)
             self.assertIn("token", service._cancelled_chat_tokens)
@@ -235,9 +231,7 @@ class StopBeforeRegistrationTests(FrozenCase):
     def test_stop_and_deletion_end_a_claimed_run_before_its_worker_starts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             runtime = Runtime(acting())
-            _controller, service = self.service(directory, runtime)
-            self.routine(service)
-            claim = service.claim_routine_run()
+            _controller, service, claim = self.claimed(directory, runtime)
             self.assertTrue(service.stop_routine("team_1", claim["run_id"])["stopped"])
             with self.assertRaises(local_app.ApiProblem) as late:
                 self.run_claim(service, claim)
@@ -251,9 +245,7 @@ class StopBeforeRegistrationTests(FrozenCase):
     def test_a_worker_registering_while_stop_ends_its_run_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             runtime = Runtime(acting())
-            _controller, service = self.service(directory, runtime)
-            self.routine(service)
-            claim = service.claim_routine_run()
+            _controller, service, claim = self.claimed(directory, runtime)
             service._routine_halting.add(claim["run_id"])
             with self.assertRaises(local_app.ApiProblem) as fenced:
                 self.run_claim(service, claim)
