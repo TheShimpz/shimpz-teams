@@ -183,6 +183,18 @@ class RoutineServiceCase(LocalContractCase):
             ("openai", key),
         )
 
+    def asking(self, directory: str, request: action_human.HumanRequest | None = None, *turns):
+        """A claimed, not yet run Routine run whose Action asks a person: for approval unless ``request`` says else."""
+        controller, service = self.service(directory, Runtime(acting(), *turns))
+        suspended = request or approval()
+
+        def invoke(*_args):
+            raise action_human.HumanRequestSuspensionError(suspended)
+
+        controller.assistant_lifecycle.invoke = invoke
+        self.routine(service)
+        return controller, service, service.claim_routine_run()
+
     def answer_human(
         self, service, run_id: str, challenge_id: str, decision: str = "submit", *, provider="openai", key=API_KEY
     ):

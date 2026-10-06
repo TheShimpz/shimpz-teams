@@ -44,6 +44,17 @@ def broken(*_args, **_kwargs):
     raise routine_store.RoutineStoreError("down")
 
 
+def _losing_protection(service):
+    """Patch the run's protection so it grows as usual but then reports its secret values lost."""
+    grow = service.routine_protections.grow
+
+    def lost(run_id, values):
+        grow(run_id, values)
+        return trace.Protection(lost=True)
+
+    return mock.patch.object(service.routine_protections, "grow", side_effect=lost)
+
+
 class StateAccessTests(RoutineServiceCase):
     def test_every_store_failure_is_one_retryable_problem(self) -> None:
         service = SimpleNamespace(routine_store=SimpleNamespace(load=broken, update=broken), _routine_lost_runs=broken)
@@ -171,23 +182,11 @@ class PublicChallengeTests(RoutineServiceCase):
 
 
 class RunFaultTests(RoutineServiceCase):
-    def paused(self, directory: str, request: action_human.HumanRequest | None = None, *turns):
-        controller, service = self.service(directory, Runtime(acting(), *turns))
-        suspended = request or approval()
-
-        def invoke(*_args):
-            raise action_human.HumanRequestSuspensionError(suspended)
-
-        controller.assistant_lifecycle.invoke = invoke
-        self.routine(service)
-        claim = service.claim_routine_run()
-        return controller, service, claim
-
     def test_an_unanswerable_authentication_ends_the_run_instead_of_freezing(self) -> None:
         descriptor = {"kind": "auth:totp", "ordinal": 0, "title": "Confirm", "description": "Confirm identity."}
         totp = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("auth:totp",))
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, claim = self.paused(directory, totp)
+            _controller, service, claim = self.asking(directory, totp)
             result = self.run_claim(service, claim)
             self.assertEqual(result["status"], "failed")
             self.assertEqual(
@@ -199,14 +198,8 @@ class RunFaultTests(RoutineServiceCase):
 
     def test_a_run_that_lost_its_protection_still_freezes_and_shows_its_request(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, claim = self.paused(directory)
-            grow = service.routine_protections.grow
-
-            def lost(run_id, values):
-                grow(run_id, values)
-                return trace.Protection(lost=True)
-
-            with mock.patch.object(service.routine_protections, "grow", side_effect=lost):
+            _controller, service, claim = self.asking(directory)
+            with _losing_protection(service):
                 self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
                 opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             frozen = record.run(self.state(service), claim["run_id"])
@@ -214,20 +207,14 @@ class RunFaultTests(RoutineServiceCase):
 
     def test_after_a_loss_a_choice_request_is_never_frozen_since_its_values_cannot_be_checked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, claim = self.paused(directory, choice())
-            grow = service.routine_protections.grow
-
-            def lost(run_id, values):
-                grow(run_id, values)
-                return trace.Protection(lost=True)
-
-            with mock.patch.object(service.routine_protections, "grow", side_effect=lost):
+            _controller, service, claim = self.asking(directory, choice())
+            with _losing_protection(service):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(self.state(service).notices[-1].detail["code"], "request-unavailable")
 
     def test_a_frozen_choice_request_opened_after_a_restart_is_refused_and_seals_the_loss(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, claim = self.paused(directory, choice())
+            _controller, service, claim = self.asking(directory, choice())
             self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
             self.assertEqual(
                 service.open_routine_challenge("team_1", claim["run_id"], "en")["status"], "human-required"
@@ -253,7 +240,7 @@ class RunFaultTests(RoutineServiceCase):
         }
         for name, ending in endings.items():
             with self.subTest(ending=name), tempfile.TemporaryDirectory() as directory:
-                _controller, service, claim = self.paused(directory)
+                _controller, service, claim = self.asking(directory)
                 self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
                 service.routine_protections = local_routine_protection.RunProtections()
                 ending(service, claim["run_id"])
@@ -263,14 +250,14 @@ class RunFaultTests(RoutineServiceCase):
 
     def test_a_request_whose_protected_value_cannot_be_hidden_ends_the_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, claim = self.paused(directory)
+            _controller, service, claim = self.asking(directory)
             with mock.patch.object(routine_run, "public_challenge", return_value=None):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(self.state(service).notices[-1].detail["code"], "request-unavailable")
 
     def test_a_frozen_request_that_cannot_be_shown_when_opened_keeps_the_run_frozen(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, claim = self.paused(directory)
+            _controller, service, claim = self.asking(directory)
             self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
             with (
                 mock.patch.object(routine_run, "public_challenge", return_value=None),
@@ -284,12 +271,12 @@ class RunFaultTests(RoutineServiceCase):
 
     def test_a_freeze_that_stop_wins_or_that_cannot_be_recorded_keeps_no_continuation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, claim = self.paused(directory)
+            _controller, service, claim = self.asking(directory)
             with mock.patch.object(service, "_commit_chat_terminal", return_value=False):
                 self.assertEqual(self.run_claim(service, claim)["status"], "stopped")
             self.assertEqual(service.routine_store.continuations("team_1"), ())
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, claim = self.paused(directory)
+            _controller, service, claim = self.asking(directory)
             with mock.patch.object(routine_runs, "freeze", side_effect=record.RoutineStateError("frozen-limit")):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             detail = self.state(service).notices[-1].detail

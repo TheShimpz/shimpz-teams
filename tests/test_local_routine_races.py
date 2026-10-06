@@ -15,11 +15,9 @@ from test_local_routine_service import (
     RoutineServiceCase,
     Runtime,
     acting,
-    approval,
 )
 
 from action import challenges as action_challenges
-from action import human as action_human
 from local import app as local_app
 from local.routine import compiled as routine_compiled
 from local.routine import contracts as routine_contracts
@@ -79,14 +77,7 @@ class LockOrderTests(RoutineServiceCase):
 
 class FrozenCase(RoutineServiceCase):
     def frozen(self, directory: str):
-        controller, service = self.service(directory, Runtime(acting()))
-
-        def invoke(*_args):
-            raise action_human.HumanRequestSuspensionError(approval())
-
-        controller.assistant_lifecycle.invoke = invoke
-        self.routine(service)
-        claim = service.claim_routine_run()
+        _controller, service, claim = self.asking(directory)
         self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
         return service, claim
 
@@ -382,16 +373,6 @@ class ChallengeEndingRaceTests(FrozenCase):
 class FreezeRaceTests(RoutineServiceCase):
     """A run reaching its pause as a Stop or a deletion reaches it is never left frozen behind either."""
 
-    def paused(self, directory: str):
-        controller, service = self.service(directory, Runtime(acting()))
-
-        def invoke(*_args):
-            raise action_human.HumanRequestSuspensionError(approval())
-
-        controller.assistant_lifecycle.invoke = invoke
-        self.routine(service)
-        return service, service.claim_routine_run()
-
     def committing(self, service, during, after):
         """Run ``during`` inside the freeze's terminal commit, before what it commits, and ``after`` once it returns."""
         commit = service._commit_chat_terminal
@@ -409,7 +390,7 @@ class FreezeRaceTests(RoutineServiceCase):
 
     def test_a_stop_reaching_a_run_as_it_freezes_ends_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            service, claim = self.paused(directory)
+            _controller, service, claim = self.asking(directory)
             stops: list[dict[str, object]] = []
             with self.committing(
                 service, lambda: None, lambda: stops.append(service.stop_routine("team_1", claim["run_id"]))
@@ -422,7 +403,7 @@ class FreezeRaceTests(RoutineServiceCase):
 
     def test_a_routine_deleted_as_its_run_freezes_ends_the_run_and_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            service, claim = self.paused(directory)
+            _controller, service, claim = self.asking(directory)
 
             def deleting() -> None:
                 service.routine_store.update("team_1", lambda state: record.begin_delete(state, claim["routine_id"]))
@@ -434,7 +415,7 @@ class FreezeRaceTests(RoutineServiceCase):
 
     def test_a_run_freezing_while_stop_halts_it_is_ended_by_that_stop(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            service, claim = self.paused(directory)
+            _controller, service, claim = self.asking(directory)
             commit, halt = service._commit_chat_terminal, routine_run.halt_routine_run
             committed: list[bool] = []
             stops: list[dict[str, object]] = []
