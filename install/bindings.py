@@ -333,17 +333,13 @@ def _find(
 
 
 def _validate_team_id(team_id: object) -> None:
-    if not isinstance(team_id, str) or http_payload.TEAM_ID_RE.fullmatch(team_id) is None:
+    if http_payload.canonical_team_id(team_id) is None:
         raise DynamicAssistantError("the Team id is invalid")
 
 
 def _validate_identity(team_id: object, assistant_id: object) -> None:
     _validate_team_id(team_id)
-    if (
-        not isinstance(assistant_id, str)
-        or len(assistant_id) > 40
-        or http_payload.ASSISTANT_ID_RE.fullmatch(assistant_id) is None
-    ):
+    if http_payload.canonical_assistant_id(assistant_id) is None:
         raise DynamicAssistantError("the Assistant id is invalid")
 
 

@@ -11,8 +11,6 @@ from protocol.http.v1 import routine as http_routine
 
 SPACE_ID_RE = re.compile(r"[a-z0-9][a-z0-9]*(?:-[a-z0-9]+)*")
 DOCKER_ID_RE = re.compile(r"[0-9a-f]{12,64}")
-MAX_TEAM_ID_LENGTH = 40
-MAX_ASSISTANT_ID_LENGTH = 40
 MAX_SPACE_ID_LENGTH = 48
 MAX_CHAT_ASSISTANTS = 16
 MIN_API_KEY_BYTES = 16
@@ -20,7 +18,7 @@ MAX_API_KEY_BYTES = 8 * 1024
 
 
 def validate_team_id(value: str) -> str:
-    if len(value) > MAX_TEAM_ID_LENGTH or http_payload.TEAM_ID_RE.fullmatch(value) is None:
+    if http_payload.canonical_team_id(value) is None:
         raise ApiProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, "invalid Team id", code="invalid-team-id")
     return value
 
@@ -41,11 +39,7 @@ def validate_team_name(value: object) -> str:
 
 
 def validate_assistant_id(value: object) -> str:
-    if (
-        not isinstance(value, str)
-        or len(value) > MAX_ASSISTANT_ID_LENGTH
-        or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None
-    ):
+    if http_payload.canonical_assistant_id(value) is None:
         raise ApiProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "invalid Assistant id",
@@ -178,9 +172,7 @@ def brain_thread_id(space_id: str, team_id: str, network_id: str) -> str:
         not isinstance(space_id, str)
         or len(space_id) > MAX_SPACE_ID_LENGTH
         or SPACE_ID_RE.fullmatch(space_id) is None
-        or not isinstance(team_id, str)
-        or len(team_id) > MAX_TEAM_ID_LENGTH
-        or http_payload.TEAM_ID_RE.fullmatch(team_id) is None
+        or http_payload.canonical_team_id(team_id) is None
         or not isinstance(network_id, str)
         or DOCKER_ID_RE.fullmatch(network_id) is None
     ):

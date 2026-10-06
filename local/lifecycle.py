@@ -30,8 +30,8 @@ from local.labels import (
     SPACE_LABEL,
     TEAM_LABEL,
 )
-from local.validation import MAX_ASSISTANT_ID_LENGTH, MAX_TEAM_ID_LENGTH, validate_team_id
 from local.validation import brain_thread_id as _brain_thread_id
+from local.validation import validate_team_id
 from protocol.http.v1 import payload as http_payload
 from storage import files as team_storage
 
@@ -261,12 +261,8 @@ def _validate_reset_container(self, container) -> None:
     team_id = labels.get(TEAM_LABEL)
     assistant_id = labels.get(ASSISTANT_LABEL)
     if (
-        not isinstance(team_id, str)
-        or len(team_id) > MAX_TEAM_ID_LENGTH
-        or http_payload.TEAM_ID_RE.fullmatch(team_id) is None
-        or not isinstance(assistant_id, str)
-        or len(assistant_id) > MAX_ASSISTANT_ID_LENGTH
-        or http_payload.ASSISTANT_ID_RE.fullmatch(assistant_id) is None
+        http_payload.canonical_team_id(team_id) is None
+        or http_payload.canonical_assistant_id(assistant_id) is None
         or not isinstance(labels.get(IMAGE_LABEL), str)
         or not self.assistant_lifecycle._labels_include(
             labels, self.assistant_lifecycle._base_labels(team_id, "assistant")

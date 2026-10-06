@@ -6,8 +6,10 @@ import unittest
 from types import SimpleNamespace
 
 from action import stored_input
+from assistant import manifest
 from integrations import flow, pkce, service
 from integrations import store as integration_store
+from local.install import snapshots
 from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
@@ -87,6 +89,28 @@ class IdentifierKindTests(unittest.TestCase):
                 self.assertEqual(admit("a" * 64, "id"), "a" * 64)
                 with self.assertRaises(error):
                     admit("a" * 65, "id")
+
+
+class DevelopersIdentifierAdmissionTests(unittest.TestCase):
+    """A reviewed Assistant declares its Action, Integration, and Stored Input ids as Developers identifiers."""
+
+    def test_manifest_identifiers_are_developers_identifiers(self) -> None:
+        for kind in ("Action", "integration", "Stored Input"):
+            with self.subTest(kind=kind):
+                self.assertEqual(manifest._identifier("a" * 64, kind=kind), "a" * 64)
+                for value in ("a" * 65, "dns.read", "A"):
+                    with self.assertRaises(manifest.ManifestError):
+                        manifest._identifier(value, kind=kind)
+        assistant = http_payload.canonical_assistant_id
+        self.assertEqual(manifest._identifier("a" * 40, kind="id", canonical=assistant), "a" * 40)
+        with self.assertRaises(manifest.ManifestError):
+            manifest._identifier("a" * 41, kind="id", canonical=assistant)
+
+    def test_snapshot_capability_labels_are_developers_identifiers(self) -> None:
+        self.assertEqual(snapshots._capability_ids("a,b" + "c" * 63, maximum=2, required=True), ("a", "b" + "c" * 63))
+        for value in ("a" * 65, "dns.read", "a,A"):
+            with self.subTest(value=value), self.assertRaises(snapshots.LocalSnapshotError):
+                snapshots._capability_ids(value, maximum=2, required=True)
 
 
 if __name__ == "__main__":

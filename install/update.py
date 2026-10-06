@@ -100,13 +100,7 @@ class AssistantUpdateStore:
                 raise bindings.DynamicAssistantError("Assistant update transaction cannot be cleared") from exc
 
     def _path(self, team_id: str, assistant_id: str) -> Path:
-        if (
-            not isinstance(team_id, str)
-            or http_payload.TEAM_ID_RE.fullmatch(team_id) is None
-            or not isinstance(assistant_id, str)
-            or len(assistant_id) > 40
-            or http_payload.ASSISTANT_ID_RE.fullmatch(assistant_id) is None
-        ):
+        if http_payload.canonical_team_id(team_id) is None or http_payload.canonical_assistant_id(assistant_id) is None:
             raise bindings.DynamicAssistantError("Assistant update identity is invalid")
         return self._root / f"{team_id}--{assistant_id}.json"
 

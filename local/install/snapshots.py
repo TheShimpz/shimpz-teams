@@ -328,7 +328,7 @@ def _capability_ids(value: str, *, maximum: int, required: bool) -> tuple[str, .
         (required and not values)
         or len(values) > maximum
         or values != tuple(sorted(set(values)))
-        or any(len(item) > 80 or http_payload.ASSISTANT_ID_RE.fullmatch(item) is None for item in values)
+        or any(http_payload.canonical_identifier(item) is None for item in values)
     ):
         raise LocalSnapshotError("the Local Assistant capability labels are invalid")
     return values

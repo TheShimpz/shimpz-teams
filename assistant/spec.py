@@ -87,9 +87,10 @@ class AssistantSpec:
 
 
 def validate_assistant_id(value: object) -> str:
-    if not isinstance(value, str) or len(value) > 40 or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
+    assistant_id = http_payload.canonical_assistant_id(value)
+    if assistant_id is None:
         raise AssistantSpecError("the Assistant id is invalid")
-    return value
+    return assistant_id
 
 
 def action_summary(action_id: str) -> str:

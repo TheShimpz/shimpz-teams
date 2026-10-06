@@ -173,7 +173,7 @@ def _teardown_assistants(team_id: str) -> bool:
     cleanup_complete = True
     for assistant_container in assistant_containers:
         assistant_id = assistant_container.labels.get("team.assistant", "")
-        if not isinstance(assistant_id, str) or http_payload.ASSISTANT_ID_RE.fullmatch(assistant_id) is None:
+        if http_payload.canonical_assistant_id(assistant_id) is None:
             cleanup_complete = False
             continue
         result = assistant_lifecycle._teardown_assistant(

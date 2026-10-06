@@ -8,7 +8,7 @@ import json
 import re
 import tarfile
 import tomllib
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,8 +39,6 @@ MAX_ARCHIVE_BYTES = MAX_MANIFEST_BYTES + (32 * 1024)
 MAX_ALLOWED_HOSTS = 32
 MAX_INTEGRATIONS = 16
 MAX_STORED_INPUTS = 8
-MAX_IDENTIFIER_LENGTH = 80
-MAX_SECRET_ID_LENGTH = 64
 MAX_GENESIS_LENGTH = 65_536
 DEFAULT_CACHE_ENTRIES = 256
 HUMAN_REQUEST_KINDS = frozenset(
@@ -182,10 +180,13 @@ def resembles_credential(value: str) -> bool:
     return _SECRET_VALUE_RE.search(value) is not None or _JWT_RE.fullmatch(value.strip()) is not None
 
 
-def _identifier(value: object, *, kind: str, maximum: int = MAX_IDENTIFIER_LENGTH) -> str:
-    if not isinstance(value, str) or len(value) > maximum or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
+def _identifier(
+    value: object, *, kind: str, canonical: Callable[[object], str | None] = http_payload.canonical_identifier
+) -> str:
+    identifier = canonical(value)
+    if identifier is None:
         raise ManifestError(f"Assistant {kind} identifier is invalid")
-    return value
+    return identifier
 
 
 def _public_text(value: object, *, kind: str, maximum: int) -> str:
@@ -220,7 +221,7 @@ def canonical_integration_declarations(value: object) -> tuple[IntegrationDeclar
         raise ManifestError("Assistant integration declarations are invalid")
     declarations: list[IntegrationDeclaration] = []
     for integration_id, scopes in value.items():
-        identifier = _identifier(integration_id, kind="integration", maximum=MAX_SECRET_ID_LENGTH)
+        identifier = _identifier(integration_id, kind="integration")
         try:
             intent = integration_providers.integration_intent(identifier, scopes)
         except integration_providers.OAuthProviderError as exc:
@@ -241,7 +242,7 @@ def canonical_stored_input_declarations(value: object) -> tuple[StoredInputDecla
         raise ManifestError("Assistant Stored Input declarations are invalid")
     declarations: list[StoredInputDeclaration] = []
     for stored_input_id, metadata in value.items():
-        identifier = _identifier(stored_input_id, kind="Stored Input", maximum=MAX_SECRET_ID_LENGTH)
+        identifier = _identifier(stored_input_id, kind="Stored Input")
         if not isinstance(metadata, Mapping) or set(metadata) - {"help_url"} != {"kind", "label", "description"}:
             raise ManifestError("Assistant Stored Input declaration is invalid")
         if metadata["kind"] != "password":
@@ -506,7 +507,7 @@ def load_reviewed_catalog(path: Path) -> dict[str, ReviewedAssistant]:
         raise ManifestError("Assistant reviewed catalog is invalid")
     reviewed: dict[str, ReviewedAssistant] = {}
     for raw_id, metadata in assistants.items():
-        assistant_id = _identifier(raw_id, kind="id", maximum=40)
+        assistant_id = _identifier(raw_id, kind="id", canonical=http_payload.canonical_assistant_id)
         if assistant_id in {"postgres", "assistant-egress", "shimpz-assistant-egress"}:
             raise ManifestError("Assistant id is reserved")
         if not isinstance(metadata, dict) or set(metadata) != {
@@ -623,7 +624,7 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
     network = manifest["network"]
     if metadata["spec"] != 1:
         raise ManifestError("Assistant spec is unsupported")
-    assistant_id = _identifier(metadata["id"], kind="id", maximum=40)
+    assistant_id = _identifier(metadata["id"], kind="id", canonical=http_payload.canonical_assistant_id)
     if assistant_id in {"postgres", "assistant-egress", "shimpz-assistant-egress"}:
         raise ManifestError("Assistant id is reserved")
     version = metadata["version"]
@@ -698,7 +699,7 @@ def canonical_manifest_identity(
     if not isinstance(version, str) or VERSION_RE.fullmatch(version) is None:
         raise ManifestError("Assistant version is invalid")
     return ManifestIdentity(
-        assistant_id=_identifier(assistant_id, kind="id", maximum=40),
+        assistant_id=_identifier(assistant_id, kind="id", canonical=http_payload.canonical_assistant_id),
         version=version,
         name=_public_text(name, kind="name", maximum=80),
         summary=_public_text(summary, kind="summary", maximum=160),
