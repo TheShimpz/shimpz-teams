@@ -14,6 +14,7 @@ from integrations import http as integration_http
 from integrations import pkce as integration_pkce
 from integrations import service as integration_service
 from integrations import store as integration_store
+from tests import integration_store_fixtures
 
 CLIENT_ID = "cloudflare-client-123456789"
 CLIENT_CREDENTIAL = "cloudflare-secret-private-123456789"
@@ -103,11 +104,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         root = Path(self.temporary.name)
-        self.store = integration_store.OAuthIntegrationStore(
-            root / "state" / "integrations.json",
-            root / "key" / "aes256.key",
-            clock=lambda: 1_000_000_000,
-        )
+        self.store = integration_store_fixtures.open_store(root)
         self.challenges = integration_pkce.OAuthPKCEChallengeStore()
         self.transport = SyntheticTransport()
         self.http = integration_http.OAuthHTTPClient(self.transport)

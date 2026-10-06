@@ -19,9 +19,9 @@ from integrations import broker as integration_broker
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from integrations import service as integration_service
-from integrations import store as integration_store
 from local import app as local_app
 from local.chat import private as local_chat_private
+from tests import integration_store_fixtures
 
 TEAM = "team_1"
 ASSISTANT = "shimpz-cloudflare"
@@ -59,11 +59,7 @@ class LocalOAuthCompletionLockTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
-        self.store = integration_store.OAuthIntegrationStore(
-            root / "state" / "integrations.json",
-            root / "key" / "aes256.key",
-            clock=lambda: 1_000_000_000,
-        )
+        self.store = integration_store_fixtures.open_store(root)
         self.broker = BlockingBroker()
         self.pkce = integration_pkce.OAuthPKCEChallengeStore()
         self.service = integration_service.BrokeredOAuthIntegrationService(

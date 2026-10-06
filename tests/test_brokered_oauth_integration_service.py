@@ -13,6 +13,7 @@ from integrations import http as integration_http
 from integrations import pkce as integration_pkce
 from integrations import service as integration_service
 from integrations import store as integration_store
+from tests import integration_store_fixtures
 
 SCOPES = ("dns.read", "offline_access", "zone.read")
 SESSION = "browser-session-private-123456789"
@@ -82,11 +83,7 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         root = Path(self.temporary.name)
-        self.store = integration_store.OAuthIntegrationStore(
-            root / "state" / "integrations.json",
-            root / "key" / "aes256.key",
-            clock=lambda: 1_000_000_000,
-        )
+        self.store = integration_store_fixtures.open_store(root)
         self.transport = Transport()
         self.challenge = integration_pkce.OAuthPKCEChallengeStore()
         self.service = integration_service.BrokeredOAuthIntegrationService(
