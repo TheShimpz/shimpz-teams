@@ -115,7 +115,23 @@ no client rounds a large integer, and `label` the item's name, or `null`), a val
 `routine-interval-over-budget` has a value. When the person's next send is Admin's composed answer to that question
 and its latest answer binds it (it states a schedule or an interval, or is exactly one target's JSON text), Team
 records again with the request's stored intent without asking the Brain, and the reply is the fixed
-`routine.answer_reply` text in the interface language (English without one). `routine_proposal` is
+`routine.answer_reply` text in the interface language (English without one).
+
+The Team→Brain Routine forms of a recording chat are defined here too, so the Brain mirrors them instead of copying
+them (ADR-0101). `routine.canonical_routine_listings` admits the Team's Routine listing: at most
+`routine.MAX_ROUTINES` entries, no Routine twice, each `routine.canonical_routine_listing` `{routine_id, name, schedule,
+timezone, timezone_source, revision, daily_steps, output, steps}`, where `daily_steps` is 1 to
+`routine.MAX_LISTED_DAILY_STEPS`, `output` is `{mode, when}` as on the card, and each of at most 256 steps is `{id,
+assistant, action, inputs}` with its plan id (`routine.ROUTINE_STEP_ID_RE`) and at most 64 sorted input member names,
+never a value. The pending question the Brain sees is `routine.canonical_question`, exactly as the reply carried it.
+`routine.canonical_rerun` admits the work a pending unsourced or rerun question asks the Brain to repeat: 1 to
+`routine.MAX_RERUN_ENTRIES` entries `{assistant, action, count, inputs}` in order, whose counts sum to at most
+`routine.MAX_RERUN_CALLS`; each has at most `routine.MAX_RERUN_INPUTS` inputs in member order, each `{member, kind,
+value, chosen, source}` with a plain member of at most `routine.MAX_RERUN_MEMBER_CHARS` characters. A `value` input
+carries its exact compact JSON text of at most `routine.MAX_RERUN_LITERAL_CHARS` characters, or `null` when withheld,
+and whether it is a target the person chose; a `clock` input is the run's date; a `fresh` input never shows its value
+and names the `{assistant, action}` whose earlier result held it, or `null`. Team sends no such work past these
+bounds. `routine_mode`, whether the chat is about a Routine, is a plain advisory boolean. `routine_proposal` is
 the Routine's confirmation card (`routine.canonical_proposal`), at most 160 KiB, which Team checks against the whole
 terminal line bound before publishing: `{proposal_id, expires_at, replaces, name, schedule, timezone, timezone_source,
 next_runs, daily_cap, output, steps, permitted, decision}`. `replaces` is `null` for a new Routine or the id

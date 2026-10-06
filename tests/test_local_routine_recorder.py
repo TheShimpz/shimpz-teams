@@ -280,6 +280,23 @@ class RecordingBookTests(unittest.TestCase):
         )
         self.assertIsNone(routine_recorder.rerun_work(None))
 
+    def test_frozen_work_past_the_brain_forms_bounds_is_never_shown(self) -> None:
+        wide = routine_recording.Slot(
+            ("reports", "fetch"), True, tuple((f"m{index:03d}", "clock", None) for index in range(65))
+        )
+        many = routine_recording.Slot(("reports", "post"), False, (("t", "value", "x"),))
+        for slots in ((wide,), (many,) * 257):
+            with self.subTest(slots=len(slots)):
+                question = routine_recording.Question(
+                    "routine-binding-unsourced", manifest=routine_recording.Manifest(slots)
+                )
+                self.assertIsNone(routine_recorder.rerun_work(self.span((recording_cases._send(),), question)))
+        ordinary = routine_recording.Question(
+            "routine-binding-unsourced", manifest=routine_recording.Manifest((many,) * 256)
+        )
+        shown = routine_recorder.rerun_work(self.span((recording_cases._send(),), ordinary))
+        self.assertEqual(http_routine.canonical_rerun(shown), list(shown))
+
     @staticmethod
     def span(sends, question, protected=()) -> routine_recorder.Span:
         asked = routine_recording.Asked(

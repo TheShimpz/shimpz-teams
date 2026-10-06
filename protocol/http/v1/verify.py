@@ -329,6 +329,8 @@ for name, admit in (
     ("routine_proposal", routine.canonical_proposal),
     ("routine_refusal", routine.canonical_refusal),
     ("routine_question", routine.canonical_question),
+    ("routine_listing", routine.canonical_routine_listings),
+    ("routine_rerun", routine.canonical_rerun),
     ("routine_proposal_answer", routine.canonical_proposal_answer),
 ):
     cases = vectors.get(name, {})

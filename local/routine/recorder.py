@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from assistant import effect as action_effect
 from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import routine as http_routine
 from routine import phrase, trace
 from routine import pin as routine_pin
 from routine import recording as routine_recording
@@ -303,8 +304,6 @@ def routine_mode(span: Span | None) -> bool:
     return any(phrase.stated(segment) for send in span.sends for segment in send.person)
 
 
-# The longest literal a rerun's work shows the Brain, as JSON text; a longer one is withheld.
-MAX_RERUN_LITERAL_CHARS = 1024
 _RERUN_SHOWN = frozenset({"routine-binding-unsourced", "routine-work-rerun"})
 
 
@@ -314,6 +313,7 @@ def rerun_work(span: Span | None) -> tuple[dict[str, object], ...] | None:
     Each entry is one call, or ``count`` consecutive identical ones: its Action and each input member's kind. A value
     input shows its exact JSON text unless the span protects it or it is too long, and whether it is a target the
     person chose; a fresh input shows only the Action Team found its earlier value in, which must run again first.
+    Work past the protocol's bounds (``routine.canonical_rerun``) is not shown at all.
     """
     if span is None or span.asked is None or span.asked.manifest is None or span.asked.code not in _RERUN_SHOWN:
         return None
@@ -329,7 +329,7 @@ def rerun_work(span: Span | None) -> tuple[dict[str, object], ...] | None:
             entries[-1]["count"] += 1
         else:
             entries.append(entry)
-    return tuple(entries)
+    return tuple(entries) if http_routine.canonical_rerun(entries) is not None else None
 
 
 def _rerun_input(span: Span, slot: routine_recording.Slot, item: tuple[str, str, object]) -> dict[str, object]:
@@ -337,7 +337,7 @@ def _rerun_input(span: Span, slot: routine_recording.Slot, item: tuple[str, str,
     shown = {"member": member, "kind": kind, "value": None, "chosen": False, "source": None}
     if kind == "value":
         text = json.dumps(value, ensure_ascii=False)
-        visible = len(text) <= MAX_RERUN_LITERAL_CHARS and not trace.exposes(text, span.protection.values)
+        visible = len(text) <= http_routine.MAX_RERUN_LITERAL_CHARS and not trace.exposes(text, span.protection.values)
         chosen = any(
             (binding.action, binding.member) == (slot.action, member)
             and json.dumps(binding.chosen, ensure_ascii=False) == text

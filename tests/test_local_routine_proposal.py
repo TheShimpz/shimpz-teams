@@ -18,6 +18,7 @@ from local import audit as local_audit
 from local.chat import api as local_chat_api
 from local.routine import contracts as routine_contracts
 from local.routine import manage as routine_manage
+from local.routine import proposal as routine_proposal
 from local.routine import store as routine_store
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import progress as http_progress
@@ -346,6 +347,18 @@ class RecordedRoutineTests(LocalContractCase):
             self.chat(service, _body("Quais rotinas eu tenho?"))
         ((listed),) = runtime.contexts[1].routines
         self.assertEqual((listed["timezone"], listed["timezone_source"]), ("America/Sao_Paulo", "browser"))
+        self.assertEqual(http_routine.canonical_routine_listings(runtime.contexts[1].routines), [listed])
+
+    def test_a_routine_listing_outside_the_brain_form_is_an_internal_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, Recording(_record()))
+            self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])
+            with (
+                mock.patch.object(http_routine, "canonical_routine_listings", return_value=None),
+                self.assertRaises(local_app.ApiProblem) as caught,
+            ):
+                routine_proposal.chat_routines(service, "team_1")
+        self.assertEqual(caught.exception.code, "internal-error")
 
     def test_a_replacement_runs_in_the_requests_zone_not_the_replaced_routines(self) -> None:
         runtime = Recording(_record())

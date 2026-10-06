@@ -149,9 +149,12 @@ def _outcome(value: object) -> dict[str, object]:
 
 
 def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
-    """The Team's Routines as data for the Brain: enough to name one and to see its steps; never an input value."""
+    """The Team's Routines as data for the Brain: enough to name one and to see its steps; never an input value.
+
+    Only the protocol's admitted listing (``routine.canonical_routine_listings``) is sent; anything else is a fault.
+    """
     state = routine_state.load(self, team_id)
-    return tuple(
+    listed = tuple(
         {
             "routine_id": item.routine_id,
             "name": item.name,
@@ -174,6 +177,9 @@ def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
         for item in state.routines
         if not item.deleting
     )
+    if http_routine.canonical_routine_listings(listed) is None:
+        raise _problem(HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine listing is invalid", "internal-error")
+    return listed
 
 
 def routine_capacity(self, team_id: str) -> int:
