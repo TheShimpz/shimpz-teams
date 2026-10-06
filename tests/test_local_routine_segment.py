@@ -54,7 +54,7 @@ class RoutineSegmentTests(LocalContractCase):
             file_ids=[],
             assistant_ids=("shimpz-cloudflare",),
             provider="openai",
-            api_key="" if routine is not None else "sk-test-0123456789",
+            api_key="" if routine is not None else "test-api-key",
             token=TURN,
             message=message,
             routine=routine,

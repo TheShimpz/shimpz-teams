@@ -37,6 +37,8 @@ from protocol.http.v1 import routine as http_routine
 from routine import schedule
 
 VERSION = 2
+# The version of a plan Team records from a chat turn's own trace (ADR-0101); admission takes it in the next slice.
+RECORDED_VERSION = 3
 
 # The one admission budget (ADR-0092 amendment, 2026-10-05, scale). A plan holds at most 256 steps and one Action may
 # repeat with its own inputs. Every other bound of a Routine's scale is stated here or derives from these, so none is
@@ -171,6 +173,8 @@ class ActionContract:
     input_schema: Mapping[str, Any]
     input_files: tuple[str, ...] = ()
     output_schema: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+    # Whether the reviewed effect proves the Action read-only; anything not proven counts as a change (ADR-0092 §4).
+    read_only: bool = False
 
 
 def canonical(value: object) -> bytes:
@@ -341,6 +345,14 @@ def _secret_literal(root: Mapping[str, Any], name: str, value: object, subschema
     return False
 
 
+def secret_literal(schema: Mapping[str, Any], supplied: Mapping[str, object]) -> bool:
+    """Whether a step's whole input, every member taken as a literal, reaches a secret destination anywhere.
+
+    The complete input is checked at once, so a dependent schema that a sibling member activates still applies.
+    """
+    return _secret_literal(schema, "", dict(supplied), schema, 0)
+
+
 def secret_position(root: Mapping[str, Any], name: str, candidates: list[Mapping[str, Any]]) -> bool:
     """Whether one position itself is a secret destination, or an unmodelled applicator there could reach one."""
     return (
@@ -505,6 +517,59 @@ def select(value: object, pointer: str) -> object:
         else:
             raise PlanError("plan-reference-missing")
     return copy.deepcopy(current)
+
+
+def same(left: object, right: object) -> bool:
+    """Exact, type-sensitive JSON equality, with no lossy conversion (ADR-0101).
+
+    A boolean never equals a number, two integers are equal only as integers, and a float equals an integer only when it
+    is integral and converts to exactly that integer.
+    """
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, int | float) and isinstance(right, int | float):
+        return _same_number(left, right)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(same(a, b) for a, b in zip(left, right, strict=True))
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(same(left[key], right[key]) for key in left)
+    return type(left) is type(right) and left == right
+
+
+def _same_number(left: int | float, right: int | float) -> bool:
+    if isinstance(left, float) and isinstance(right, float):
+        return left == right
+    if isinstance(left, int) and isinstance(right, int):
+        return left == right
+    number, whole = (left, right) if isinstance(left, float) else (right, left)
+    return math.isfinite(number) and number.is_integer() and int(number) == whole
+
+
+def select_where(value: object, pointer: str, where: object, item: str) -> object:
+    """The value ``item`` selects inside the one array item whose ``where`` member is the given constant (ADR-0101).
+
+    ``pointer`` must select an array; ``where`` is exactly one member whose value is a string or an integer. An item
+    that is not an object, lacks the member, or holds another value or type does not match. No match fails closed as a
+    missing reference, and several as an ambiguous one, so the dependent step is never dispatched.
+    """
+    if (
+        pointer_tokens(pointer) is None
+        or pointer_tokens(item) is None
+        or not isinstance(where, dict)
+        or len(where) != 1
+        or not all(isinstance(constant, str) or type(constant) is int for constant in where.values())
+    ):
+        raise PlanError("plan-reference-invalid")
+    items = select(value, pointer)
+    if not isinstance(items, list):
+        raise PlanError("plan-reference-missing")
+    ((key, constant),) = where.items()
+    matches = [entry for entry in items if isinstance(entry, dict) and key in entry and same(entry[key], constant)]
+    if not matches:
+        raise PlanError("plan-reference-missing")
+    if len(matches) > 1:
+        raise PlanError("plan-reference-ambiguous")
+    return select(matches[0], item)
 
 
 def selections(plan: Plan, step_id: str, result: object) -> dict[str, object]:
