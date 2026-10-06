@@ -187,7 +187,12 @@ _TIMES = (
     r"(\d{1,2})[点點](?:(\d{1,2})分)?()",
     r"(?:\bàs|\bas|\bat|\ba\s+las|\ba\s+la|\bà|\bum|الساعة)\s+(\d{1,2})(?::(\d{2}))?()(?!\s*\d)",
 )
-_ZONE_RE = re.compile(r"(?<![\w/.:])([A-Za-z][A-Za-z_+-]*(?:/[A-Za-z][A-Za-z0-9_+-]*){1,2}|UTC)(?![\w/.:])")
+# A whole zone token: never part of a longer word, path, or offset ("UTC+3" names no zone), though it may close a
+# sentence or sit inside brackets or quotes.
+_ZONE_RE = re.compile(
+    r"(?<![\w/.:+-])([A-Za-z][A-Za-z_+-]*(?:/[A-Za-z][A-Za-z0-9_+-]*){1,2}|UTC)"
+    r"(?=$|[\s,;!?)\]}\"'»”，。！？；、]|[.:](?:\s|$))"
+)
 
 
 def _sentences(text: str) -> Iterator[str]:

@@ -678,6 +678,12 @@ class TimezoneTests(unittest.TestCase):
         self.assertEqual((recorded.timezone, recorded.timezone_source), ("Europe/Lisbon", "person"))
         self.assertEqual(recorded.document["timezone"], "Europe/Lisbon")
 
+    def test_a_zone_ending_a_sentence_is_the_persons_and_a_partial_offset_is_no_zone(self) -> None:
+        recorded = _recorded(_send(ZONES_CALL, message="Run daily at 09:00 in Europe/London."))
+        self.assertEqual((recorded.timezone, recorded.timezone_source), ("Europe/London", "person"))
+        offset = _recorded(_send(ZONES_CALL, message="Run daily at 09:00 UTC+3"))
+        self.assertEqual((offset.timezone, offset.timezone_source), ("America/Sao_Paulo", "browser"))
+
     def test_two_zones_in_one_send_are_asked_and_a_later_answer_settles_them(self) -> None:
         ambiguous = _send(ZONES_CALL, message="todo dia às 9h, Europe/Paris ou Europe/London")
         self.assertEqual(_record(ambiguous), recording.Question("routine-timezone-ambiguous"))

@@ -168,5 +168,24 @@ class WrittenZoneTests(unittest.TestCase):
                 self.assertEqual(phrase.zones(text), ())
 
 
+class ZoneTokenTests(unittest.TestCase):
+    def test_a_whole_zone_beside_sentence_punctuation_counts_and_a_partial_offset_never_does(self) -> None:
+        cases = {
+            "Run daily at 09:00 in Europe/London.": ("Europe/London",),
+            "Fuso: America/Sao_Paulo, por favor!": ("America/Sao_Paulo",),
+            "(Asia/Tokyo)": ("Asia/Tokyo",),
+            "Is it UTC?": ("UTC",),
+            "use Etc/GMT+3; ok": ("Etc/GMT+3",),
+            "at 9 UTC+3": (),
+            "at 9 UTC-03:00": (),
+            "UTC+3.": (),
+            "Europe/London+1": (),
+            "Europe/London.uk": (),
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(phrase.zones(text), expected)
+
+
 if __name__ == "__main__":
     unittest.main()
