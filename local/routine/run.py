@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import base64
+import copy
 import dataclasses
+import hashlib
 import json
+import re
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -22,6 +25,7 @@ from local.errors import ApiProblemError as ApiProblem
 from local.routine import contracts as routine_contracts
 from local.routine import manage as routine_manage
 from local.routine import state as routine_state
+from protocol.http.v1 import payload as http_payload
 from routine import record, trace
 
 
@@ -299,13 +303,71 @@ def _frozen_request(segment) -> tuple[str, tuple[object, ...], str, str] | None:
     return "integrations", segment.integrations, requirement.assistant_id, requirement.action_ids[0]
 
 
-def _exposes(self, run_id: str, segment) -> bool:
-    """Whether a paused run's human request would show the person a value its run protects, or its run lost that."""
+REDACTED = "[redacted]"
+
+
+def request_fingerprint(request: dict[str, object]) -> str:
+    """The SHA-256 of a request's canonical JSON, as a public challenge descriptor names it."""
+    canonical = json.dumps(request, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _redacted(value: object, pattern: re.Pattern[str] | None) -> object:
+    if pattern is None:
+        return value
+    if isinstance(value, str):
+        return pattern.sub(REDACTED, value)
+    if isinstance(value, list):
+        return [_redacted(item, pattern) for item in value]
+    if isinstance(value, dict):
+        return {key: _redacted(item, pattern) for key, item in value.items()}
+    return value
+
+
+def _withheld(request: dict[str, object], protection: trace.Protection) -> set[str]:
+    """Withhold every copy parameter holding a protected value, or every text one after a loss; what it hid."""
+    references = [request.get(field) for field in action_human.COPY_FIELDS]
+    options = request.get("options")
+    for option in options if isinstance(options, list) else ():
+        references.extend(option.get(field) for field in action_human.OPTION_COPY_FIELDS if isinstance(option, dict))
+    hidden: set[str] = set()
+    for reference in references:
+        params = reference.get("params") if isinstance(reference, dict) else None
+        for name, value in tuple(params.items()) if isinstance(params, dict) else ():
+            if isinstance(value, str) and (protection.lost or trace.exposes(value, protection.values)):
+                hidden.add(value)
+                del params[name]
+    return hidden
+
+
+def public_challenge(descriptor: dict[str, object], protection: trace.Protection) -> dict[str, object] | None:
+    """A frozen run's human request as the person may see it, or None when nothing shown can hide what it protects.
+
+    Only this public copy changes; the sealed request and its challenge stay exact (ADR-0101 section 6). A copy
+    parameter holding a protected value is withheld, as is every text parameter once the run lost its protection, and
+    the rendered copy shows ``[redacted]`` in its place; the request's fingerprint is that of what is shown. A value
+    still shown anywhere else, such as an option's value, or copy the marker pushes past its bound, cannot be shown.
+    """
+    request = copy.deepcopy(descriptor["request"])
+    request.pop("fingerprint", None)
+    hidden = _withheld(request, protection) | protection.values
+    ordered = sorted(hidden, key=len, reverse=True)
+    pattern = re.compile("|".join(re.escape(item) for item in ordered)) if ordered else None
+    shown = {**descriptor, "request": request, "rendered": _redacted(descriptor["rendered"], pattern)}
+    if trace.exposes(shown, frozenset(hidden)) or http_payload.canonical_rendered(shown["rendered"], request) is None:
+        return None
+    return {**shown, "request": {**request, "fingerprint": request_fingerprint(request)}}
+
+
+def _unshowable(self, run_id: str, segment) -> bool:
+    """Whether a paused run's human request has no public copy that hides every value its run protects."""
     if not segment.human:
         return False
     protection = self.routine_protections.grow(run_id, ())
-    shown = [[item.request.payload(), dict(item.copy.rendered)] for item in segment.human]
-    return protection.lost or trace.exposes(shown, protection.values)
+    return any(
+        public_challenge({"request": item.request.payload(), "rendered": dict(item.copy.rendered)}, protection) is None
+        for item in segment.human
+    )
 
 
 def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: dict[str, object]) -> str:
@@ -313,12 +375,12 @@ def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: dict[str,
     team_id, run_id = run.team_id, run.run_id
     frozen = _frozen_request(segment)
     # As in chat, a secret answer must be the last one a logical run gives: none may follow it. A request the person
-    # would be shown is checked against the run's protection now, while it is known: one that holds a protected value,
-    # or any after the run lost its protection, is never shown (ADR-0101 section 6.2).
+    # would be shown is checked against the run's protection now, while it is known: one with no public copy hiding
+    # every protected value is never shown (ADR-0101 section 6).
     if (
         frozen is None
         or any(response.secret for transcript in pending.transcripts for response in transcript.responses)
-        or _exposes(self, run_id, segment)
+        or _unshowable(self, run_id, segment)
     ):
         self._commit_chat_terminal(team_id, run.token)
         placed = {"position": step, "steps": len(run.routine.plan["steps"])}

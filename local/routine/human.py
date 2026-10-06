@@ -174,7 +174,13 @@ def open_routine_challenge(self, team_id: str, run_id: str, locale: str) -> dict
         # One routine challenge per Team at a time: opening another returns the earlier run to waiting, still frozen.
         self.routine_human_challenges.cancel_team(team_id)
         challenge = self.routine_human_challenges.create(team_id, requirement, (value.run_id, decoded))
-    return {**self._human_response(challenge), "run_id": value.run_id}
+        # The person sees the request only without what its run protects; after a restart that is every parameter.
+        protection = self.routine_protections.grow(value.run_id, ())
+        public = routine_run.public_challenge(self._human_response(challenge), protection)
+        if public is None:
+            self.routine_human_challenges.cancel_team(team_id)
+            raise _problem(HTTPStatus.CONFLICT, "Action human request cannot be shown", "human-request-invalid")
+    return {**public, "run_id": value.run_id}
 
 
 def current_routine_challenge(self, team_id: str) -> action_challenges.PendingHumanChallenge | None:

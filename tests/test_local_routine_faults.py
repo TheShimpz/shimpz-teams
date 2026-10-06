@@ -32,7 +32,7 @@ from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
-from routine import record
+from routine import record, trace
 from tests import human_request_fixtures
 
 
@@ -52,6 +52,65 @@ class StateAccessTests(RoutineServiceCase):
                 call()
             self.assertEqual((caught.exception.status, caught.exception.code), (503, "routine-state-unavailable"))
         self.assertEqual(routine_state.call(lambda: "ok"), "ok")
+
+
+def _challenge(**params: object) -> dict[str, object]:
+    """A public challenge descriptor whose title names a zone and a count, as an Action may parameterize its copy."""
+    request = {
+        "kind": "input:select",
+        "ordinal": 0,
+        "title": {"message": "m-title", "params": dict(params)},
+        "description": {"message": "m-description", "params": {}},
+        "label": {"message": "m-label", "params": {}},
+        "options": [{"value": "keep", "label": {"message": "m-keep", "params": {}}, "description": None}],
+        "required": True,
+        "min_selections": 1,
+        "max_selections": 1,
+    }
+    request["fingerprint"] = routine_run.request_fingerprint(request)
+    words = " ".join(str(value) for value in params.values())
+    rendered = {
+        "title": f"Publish {words}".strip(),
+        "description": "Choose what to keep.",
+        "label": "Record",
+        "options": [{"label": "Keep it", "description": None}],
+    }
+    return {"team_id": "team_1", "status": "human-required", "request": request, "rendered": rendered}
+
+
+class PublicChallengeTests(RoutineServiceCase):
+    """A frozen run's request is shown without what its run protects; its sealed request never changes (ADR-0101)."""
+
+    def test_a_protected_parameter_is_withheld_and_its_copy_says_redacted(self) -> None:
+        protection = trace.Protection(frozenset({"zone-secret-1"}))
+        public = routine_run.public_challenge(
+            _challenge(zone="zone-secret-1", count=3, other="example.com"), protection
+        )
+        request = public["request"]
+        self.assertEqual(request["title"]["params"], {"count": 3, "other": "example.com"})
+        self.assertEqual(public["rendered"]["title"], "Publish [redacted] 3 example.com")
+        # The fingerprint is that of exactly what is shown, so the public descriptor stays self-consistent.
+        unsigned = {key: value for key, value in request.items() if key != "fingerprint"}
+        self.assertEqual(request["fingerprint"], routine_run.request_fingerprint(unsigned))
+        self.assertFalse(trace.exposes(public, protection.values))
+
+    def test_after_a_loss_every_text_parameter_is_withheld(self) -> None:
+        public = routine_run.public_challenge(_challenge(zone="example.com", count=3), trace.Protection(lost=True))
+        self.assertEqual(public["request"]["title"]["params"], {"count": 3})
+        self.assertEqual(public["rendered"]["title"], "Publish [redacted] 3")
+
+    def test_nothing_protected_leaves_the_challenge_as_it_was(self) -> None:
+        descriptor = _challenge(zone="example.com")
+        self.assertEqual(routine_run.public_challenge(descriptor, trace.Protection(frozenset({"absent"}))), descriptor)
+
+    def test_a_protected_value_outside_any_parameter_or_past_a_bound_cannot_be_shown(self) -> None:
+        exposed = _challenge()
+        exposed["request"]["options"][0]["value"] = "zone-secret-1"
+        long = _challenge(zone="a1")
+        long["rendered"]["title"] = "a1 " + "x" * 75
+        for descriptor, protected in ((exposed, "zone-secret-1"), (long, "a1")):
+            with self.subTest(protected=protected):
+                self.assertIsNone(routine_run.public_challenge(descriptor, trace.Protection(frozenset({protected}))))
 
 
 class RunFaultTests(RoutineServiceCase):
@@ -80,6 +139,42 @@ class RunFaultTests(RoutineServiceCase):
                 {"code": "request-unavailable", "actions": [], "position": {"phase": "replay", "step": 1}, "steps": 1},
             )
             self.assertEqual(service.routine_store.continuations("team_1"), ())
+
+    def test_a_run_that_lost_its_protection_still_freezes_and_shows_its_request(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim = self.paused(directory)
+            grow = service.routine_protections.grow
+
+            def lost(run_id, values):
+                grow(run_id, values)
+                return trace.Protection(lost=True)
+
+            with mock.patch.object(service.routine_protections, "grow", side_effect=lost):
+                self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
+                opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
+            frozen = record.run(self.state(service), claim["run_id"])
+        self.assertEqual((opened["status"], frozen.protection_lost), ("human-required", True))
+
+    def test_a_request_whose_protected_value_cannot_be_hidden_ends_the_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim = self.paused(directory)
+            with mock.patch.object(routine_run, "public_challenge", return_value=None):
+                self.assertEqual(self.run_claim(service, claim)["status"], "failed")
+            self.assertEqual(self.state(service).notices[-1].detail["code"], "request-unavailable")
+
+    def test_a_frozen_request_that_cannot_be_shown_when_opened_keeps_the_run_frozen(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim = self.paused(directory)
+            self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
+            with (
+                mock.patch.object(routine_run, "public_challenge", return_value=None),
+                self.assertRaises(local_app.ApiProblem) as caught,
+            ):
+                service.open_routine_challenge("team_1", claim["run_id"], "en")
+            status = record.run(self.state(service), claim["run_id"]).status
+            current = service.current_routine_challenge("team_1")
+        self.assertEqual((caught.exception.status, caught.exception.code), (409, "human-request-invalid"))
+        self.assertEqual((status, current), ("frozen", None))
 
     def test_a_freeze_that_stop_wins_or_that_cannot_be_recorded_keeps_no_continuation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
