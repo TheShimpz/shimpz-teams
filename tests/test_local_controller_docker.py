@@ -34,6 +34,24 @@ PROFILE_LABEL = "com.shimpz.local.profile"
 SPACE_LABEL = "com.shimpz.local.space-id"
 KIND_LABEL = "com.shimpz.local.kind"
 LOCAL_PROFILE = "local-v1"
+# Every kind of Team state a Team destroy or Space reset proves absent.
+LOCAL_TEAM_RESIDUES = [
+    "action_checkpoints",
+    "assistant_containers",
+    "brain_checkpoints",
+    "chat_continuations",
+    "egress_policies",
+    "inference_configuration",
+    "integration_credentials",
+    "preparation_helpers",
+    "publication_bindings",
+    "routines",
+    "runtime_state",
+    "stored_inputs",
+    "team_names",
+    "team_networks",
+    "team_storage",
+]
 
 sys.path.insert(0, str(TEAM))
 from docker_harness import DockerHarnessMixin
@@ -690,23 +708,7 @@ class DockerFlowTests(
         self.assertTrue(destroyed["storage_removed"])
         self.assertEqual(
             destroyed["residue_absent"],
-            [
-                "action_checkpoints",
-                "assistant_containers",
-                "brain_checkpoints",
-                "chat_continuations",
-                "egress_policies",
-                "inference_configuration",
-                "integration_credentials",
-                "preparation_helpers",
-                "publication_bindings",
-                "routines",
-                "runtime_state",
-                "stored_inputs",
-                "team_names",
-                "team_networks",
-                "team_storage",
-            ],
+            LOCAL_TEAM_RESIDUES,
         )
         self.assertNotEqual(
             self._run(
@@ -771,23 +773,7 @@ class DockerFlowTests(
         self.assertEqual((reset["assistants_removed"], reset["teams_removed"]), (1, 1))
         self.assertEqual(
             reset["residue_absent"],
-            [
-                "action_checkpoints",
-                "assistant_containers",
-                "brain_checkpoints",
-                "chat_continuations",
-                "egress_policies",
-                "inference_configuration",
-                "integration_credentials",
-                "preparation_helpers",
-                "publication_bindings",
-                "routines",
-                "runtime_state",
-                "stored_inputs",
-                "team_names",
-                "team_networks",
-                "team_storage",
-            ],
+            LOCAL_TEAM_RESIDUES,
         )
         _, reset_again = self._api(flow.port, flow.token, "DELETE", "/v1/space")
         self.assertEqual((reset_again["assistants_removed"], reset_again["teams_removed"]), (0, 0))

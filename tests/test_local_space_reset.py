@@ -9,30 +9,13 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase, TestAssistantRegistry
 from test_local_team_destroy import _record_routine_state, _routine_books
+from test_local_turn_lifecycle import LOCAL_TEAM_RESIDUES
 
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from local import app as local_app
 from local import labels as local_labels
 from local.routine import recorder as routine_recorder
-
-LOCAL_TEAM_RESIDUES = [
-    "action_checkpoints",
-    "assistant_containers",
-    "brain_checkpoints",
-    "chat_continuations",
-    "egress_policies",
-    "inference_configuration",
-    "integration_credentials",
-    "preparation_helpers",
-    "publication_bindings",
-    "routines",
-    "runtime_state",
-    "stored_inputs",
-    "team_names",
-    "team_networks",
-    "team_storage",
-]
 
 
 class LocalSpaceResetTests(LocalContractCase):
