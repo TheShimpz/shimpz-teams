@@ -197,6 +197,7 @@ def _classified(
         return {"kind": "literal", "value": value}, "assistant"
     copied = _copied(value, earlier, known) if _referable(value) else None
     if copied is not None:
+        _unexposed(copied, known)
         return copied, "selector" if "where" in copied else "step"
     return {"kind": "literal", "value": value}, "assistant"
 
@@ -272,16 +273,21 @@ def _selected(
     ]
     if len(candidates) != 1:
         return None
-    where = dict(candidates)
-    if trace.exposes(where, known.protected):
-        raise RecordingError("routine-secret-literal")
     return {
         "kind": "step_output",
         "step": step,
         "pointer": _pointer(array_tokens),
-        "where": where,
+        "where": dict(candidates),
         "item": _pointer(rest),
     }
+
+
+def _unexposed(source: dict[str, object], known: _Known) -> None:
+    """Refuse a reference whose path or selector holds a value the turn protects, raw or as its escaped pointer."""
+    pointers = [source["pointer"], source.get("item", "")]
+    tokens = [token for pointer in pointers for token in routine_plan.pointer_tokens(pointer)]
+    if trace.exposes([*pointers, *tokens, source.get("where", {})], known.protected):
+        raise RecordingError("routine-secret-literal")
 
 
 def _selectable(constant: object, known: _Known) -> bool:

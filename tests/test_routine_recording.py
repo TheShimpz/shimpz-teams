@@ -316,7 +316,7 @@ class ClassificationTests(unittest.TestCase):
 
 
 def _fields(item: trace.Occurrence) -> dict[str, object]:
-    return {name: getattr(item, name) for name in item.__dataclass_fields__}
+    return {name: getattr(item, name) for name, spec in item.__dataclass_fields__.items() if spec.init}
 
 
 class SecretTests(unittest.TestCase):
@@ -492,3 +492,23 @@ class WholeInputSecretTests(unittest.TestCase):
                 recorded = _trace(("reports/fetch", {}, {}, kept))
                 code = _code(self, lambda r=recorded, c=contracts: _record(r, "x", contracts=c))
                 self.assertEqual(code, "routine-secret-literal")
+
+
+class ReferencePathProtectionTests(unittest.TestCase):
+    def test_a_protected_value_in_any_reference_path_refuses(self) -> None:
+        cases = [
+            ({"protected-key": {"id": "safe-id123"}}, "safe-id123", "x", "protected-key"),
+            ({"a/protected": {"id": "safe-id123"}}, "safe-id123", "x", "a/protected"),
+            ({"pro": {"tected": {"id": "safe-id123"}}}, "safe-id123", "x", "pro/tected"),
+            ({"protected-list": [{"name": "beta", "id": "safe-id123"}]}, "safe-id123", "beta", "protected-list"),
+            ({"items": [{"name": "beta", "protected-item": "safe-id123"}]}, "safe-id123", "beta", "protected-item"),
+        ]
+        for result, value, known, protected in cases:
+            with self.subTest(protected=protected):
+                recorded = _trace(
+                    ("reports/fetch", {}, result), ("cloudflare/list-dns-records", {"zone_id": value}, {})
+                )
+                protection = trace.Protection().grow((protected,))
+                code = _code(self, lambda r=recorded, k=known, p=protection: _record(r, k, protection=p))
+                self.assertEqual(code, "routine-secret-literal")
+                self.assertEqual(_input(_record(recorded, known))["zone_id"]["kind"], "step_output")
