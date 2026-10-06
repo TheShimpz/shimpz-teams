@@ -23,6 +23,27 @@ from local import app as local_app
 from local.assistant.egress import ASSISTANT_EGRESS_ALIAS
 
 
+def _second_assistant(controller: object, first: object) -> object:
+    """Register a second Assistant beside shimpz-cloudflare and return its container, a deep copy of ``first``."""
+    first_spec = controller.registry["shimpz-cloudflare"]
+    first_spec.allowed_hosts = ("api.example.com",)
+    second_spec = copy.copy(first_spec)
+    second_spec.assistant_id = "future-assistant"
+    controller.registry[second_spec.assistant_id] = second_spec
+    second = copy.deepcopy(first)
+    second.labels[local_app.ASSISTANT_LABEL] = second_spec.assistant_id
+    second.attrs["Config"]["Labels"][local_app.ASSISTANT_LABEL] = second_spec.assistant_id
+    second.name = controller.assistant_lifecycle._container_name("team_1", second_spec.assistant_id)
+    return second
+
+
+def _egress_proxy(network_name: str) -> SimpleNamespace:
+    """The Assistant egress proxy container, attached to the Team network under its reviewed alias."""
+    return SimpleNamespace(
+        attrs={"NetworkSettings": {"Networks": {network_name: {"Aliases": [ASSISTANT_EGRESS_ALIAS]}}}}
+    )
+
+
 class LocalLifecycleTests(LocalContractCase):
     def test_assistant_spec_enumeration_avoids_deep_container_admission(self) -> None:
         controller, _container, events = self._lifecycle_controller()
@@ -425,30 +446,12 @@ class LocalLifecycleTests(LocalContractCase):
 
     def test_listing_fetches_the_egress_proxy_once_for_multiple_assistants(self) -> None:
         controller, first, _events = self._lifecycle_controller()
-        first_spec = controller.registry["shimpz-cloudflare"]
-        first_spec.allowed_hosts = ("api.example.com",)
-        second_spec = copy.copy(first_spec)
-        second_spec.assistant_id = "future-assistant"
-        controller.registry[second_spec.assistant_id] = second_spec
-        second = copy.deepcopy(first)
-        second.labels[local_app.ASSISTANT_LABEL] = second_spec.assistant_id
-        second.attrs["Config"]["Labels"][local_app.ASSISTANT_LABEL] = second_spec.assistant_id
-        second.name = controller.assistant_lifecycle._container_name("team_1", second_spec.assistant_id)
+        second = _second_assistant(controller, first)
         proxy_environment = {"HTTPS_PROXY": "http://shimpz-assistant-egress:8889"}
         for container in (first, second):
             container.attrs["Config"]["Env"] = [f"{key}={value}" for key, value in proxy_environment.items()]
         network_name = controller.assistant_lifecycle._network_name("team_1")
-        proxy = SimpleNamespace(
-            attrs={
-                "NetworkSettings": {
-                    "Networks": {
-                        network_name: {
-                            "Aliases": [ASSISTANT_EGRESS_ALIAS],
-                        }
-                    }
-                }
-            }
-        )
+        proxy = _egress_proxy(network_name)
         controller.client.containers.list = lambda **_kwargs: [first, second]
         controller.assistant_lifecycle._validate_egress_policy = lambda *_args: proxy_environment
         controller.assistant_lifecycle._egress_proxy = mock.Mock(return_value=proxy)
@@ -463,32 +466,14 @@ class LocalLifecycleTests(LocalContractCase):
 
     def test_chat_inventory_uses_listed_attrs_and_one_egress_proxy_inspection(self) -> None:
         controller, first, events = self._lifecycle_controller()
-        first_spec = controller.registry["shimpz-cloudflare"]
-        first_spec.allowed_hosts = ("api.example.com",)
-        second_spec = copy.copy(first_spec)
-        second_spec.assistant_id = "future-assistant"
-        controller.registry[second_spec.assistant_id] = second_spec
-        second = copy.deepcopy(first)
-        second.labels[local_app.ASSISTANT_LABEL] = second_spec.assistant_id
-        second.attrs["Config"]["Labels"][local_app.ASSISTANT_LABEL] = second_spec.assistant_id
-        second.name = controller.assistant_lifecycle._container_name("team_1", second_spec.assistant_id)
+        second = _second_assistant(controller, first)
         proxy_environment = {"HTTPS_PROXY": "http://shimpz-assistant-egress:8889"}
         network_name = controller.assistant_lifecycle._network_name("team_1")
         for container in (first, second):
             container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
             container.attrs["Config"]["Labels"][local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
             container.attrs["Config"]["Env"] = [f"{key}={value}" for key, value in proxy_environment.items()]
-        proxy = SimpleNamespace(
-            attrs={
-                "NetworkSettings": {
-                    "Networks": {
-                        network_name: {
-                            "Aliases": [ASSISTANT_EGRESS_ALIAS],
-                        }
-                    }
-                }
-            }
-        )
+        proxy = _egress_proxy(network_name)
         controller.client.containers.list = mock.Mock(return_value=[first, second])
         controller.assistant_lifecycle._validate_egress_policy = lambda *_args: proxy_environment
         controller.assistant_lifecycle._egress_proxy = mock.Mock(return_value=proxy)
