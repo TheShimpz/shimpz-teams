@@ -62,6 +62,21 @@ def _zones(name: str = "example.com") -> dict[str, object]:
     }
 
 
+def _evidence(integrations: dict[str, object]) -> object:
+    """Fresh evidence for one Action invocation that already holds these private Integration values."""
+    return hosted_assistants.action_execution.ActionInvocationEvidence(
+        hosted_assistants.action_execution.RpcPrivateInputs(integrations, {}),
+        action_human.ActionTranscript("interrupt"),
+        "a" * 64,
+        "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+    )
+
+
+def _callback() -> dict[str, str]:
+    """A fresh, well-formed OAuth callback body; each test decides which authority it lacks."""
+    return {"state": "state", "code": "code", "session_binding": "browser-binding"}
+
+
 class HostedOAuthIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
@@ -92,6 +107,19 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             harness.HOSTED_SPEC.version,
             harness.HOSTED_SPEC.summary,
         )
+
+    def _request(self, token: str, **changes: object) -> hosted_assistants.ActionInvocationRequest:
+        """The Team's list-zones invocation of its Cloudflare Assistant under this chat token."""
+        fields: dict[str, object] = {
+            "team_id": TEAM_ID,
+            "token": token,
+            "assistant_id": ASSISTANT_ID,
+            "contract": self.contract,
+            "container": self.container,
+            "action": "list-zones",
+            "payload": ZONE_INPUT,
+        }
+        return hosted_assistants.ActionInvocationRequest(**(fields | changes))
 
     def _connect(self) -> None:
         self.store.put(
@@ -150,18 +178,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 _assistant_rpc=rpc,
             ),
         ):
-            result = hosted_assistants._invoke_assistant_action(
-                hosted_assistants.ActionInvocationRequest(
-                    team_id=TEAM_ID,
-                    token=turn_token,
-                    assistant_id=ASSISTANT_ID,
-                    contract=self.contract,
-                    container=self.container,
-                    action="list-zones",
-                    payload=ZONE_INPUT,
-                    inspect_memo=inspect_memo,
-                )
-            )
+            result = hosted_assistants._invoke_assistant_action(self._request(turn_token, inspect_memo=inspect_memo))
             payload = integration_flow.inventory_payload(
                 TEAM_ID,
                 [hosted_assistants._hosted_integration_spec(self.active)],
@@ -216,22 +233,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             ),
         ):
             result = hosted_assistants._invoke_assistant_action(
-                hosted_assistants.ActionInvocationRequest(
-                    team_id=TEAM_ID,
-                    token=turn_token,
-                    assistant_id=ASSISTANT_ID,
-                    contract=self.contract,
-                    container=self.container,
-                    action="list-zones",
-                    payload=ZONE_INPUT,
-                    validated_assistant=self.active,
-                    evidence=hosted_assistants.action_execution.ActionInvocationEvidence(
-                        hosted_assistants.action_execution.RpcPrivateInputs(integration_values, {}),
-                        action_human.ActionTranscript("interrupt"),
-                        "a" * 64,
-                        "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
-                    ),
-                )
+                self._request(turn_token, validated_assistant=self.active, evidence=_evidence(integration_values))
             )
 
         self.assertEqual(result["result"]["zones"][0]["name"], "example.com")
@@ -269,22 +271,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             self.assertRaises(action_human.HumanRequestSuspensionError) as caught,
         ):
             hosted_assistants._invoke_assistant_action(
-                hosted_assistants.ActionInvocationRequest(
-                    team_id=TEAM_ID,
-                    token=turn_token,
-                    assistant_id=ASSISTANT_ID,
-                    contract=contract,
-                    container=self.container,
-                    action="list-zones",
-                    payload=ZONE_INPUT,
-                    validated_assistant=active,
-                    evidence=hosted_assistants.action_execution.ActionInvocationEvidence(
-                        hosted_assistants.action_execution.RpcPrivateInputs({}, {}),
-                        action_human.ActionTranscript("interrupt"),
-                        "a" * 64,
-                        "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
-                    ),
-                )
+                self._request(turn_token, contract=contract, validated_assistant=active, evidence=_evidence({}))
             )
 
         self.assertEqual(caught.exception.request.kind, "approval")
@@ -302,17 +289,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             ),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
-            hosted_assistants._invoke_assistant_action(
-                hosted_assistants.ActionInvocationRequest(
-                    team_id=TEAM_ID,
-                    token=turn_token,
-                    assistant_id=ASSISTANT_ID,
-                    contract=self.contract,
-                    container=self.container,
-                    action="list-zones",
-                    payload=ZONE_INPUT,
-                )
-            )
+            hosted_assistants._invoke_assistant_action(self._request(turn_token))
 
         self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
         self.assertNotIn(ACCESS_TOKEN, caught.exception.message)
@@ -811,7 +788,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         )
         complete = mock.Mock()
         service = types.SimpleNamespace(complete=complete)
-        body = {"state": "state", "code": "code", "session_binding": "browser-binding"}
+        body = _callback()
         cases = (
             hosted_resources._AuthorizationLease(TEAM_ID, "b" * 64, "a" * 32, ("account", "a" * 32)),
             hosted_resources._AuthorizationLease(TEAM_ID, ANCHOR_ID, "b" * 32, ("account", "a" * 32)),
@@ -842,9 +819,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             mock.patch.object(runtime_state, "_integration_pkce", pkce),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
-            hosted_chat_api._complete_integration_callback(
-                {"state": "state", "code": "code", "session_binding": "browser-binding"}
-            )
+            hosted_chat_api._complete_integration_callback(_callback())
 
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
 
@@ -866,9 +841,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             mock.patch.object(hosted_resources, "_cleanup_record", return_value=object()),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
-            hosted_chat_api._complete_integration_callback(
-                {"state": "state", "code": "code", "session_binding": "browser-binding"}
-            )
+            hosted_chat_api._complete_integration_callback(_callback())
 
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
         complete.assert_not_called()
@@ -915,11 +888,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             mock.patch.object(hosted_resources, "_cleanup_record", return_value=None),
         ):
             thread = threading.Thread(
-                target=lambda: result.append(
-                    hosted_chat_api._complete_integration_callback(
-                        {"state": "state", "code": "code", "session_binding": "browser-binding"}
-                    )
-                )
+                target=lambda: result.append(hosted_chat_api._complete_integration_callback(_callback()))
             )
             thread.start()
             self.assertTrue(entered.wait(timeout=1))
@@ -966,9 +935,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             mock.patch.object(hosted_chat_api.audit, "log") as audit_log,
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
-            hosted_chat_api._complete_integration_callback(
-                {"state": "state", "code": "code", "session_binding": "browser-binding"}
-            )
+            hosted_chat_api._complete_integration_callback(_callback())
 
         self.assertEqual(caught.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
         service.disconnect.assert_called_once_with(TEAM_ID, "other-assistant", "cloudflare")
