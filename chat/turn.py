@@ -13,6 +13,7 @@ from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
+from inference import usage as brain_usage
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
 from integrations import store as integration_store
@@ -327,6 +328,25 @@ def dispatch(
         if group:
             return handler(outcome, group, state)
     _raise_unreachable_suspension()
+
+
+def terminal_body(
+    team_id: str,
+    team_name: str,
+    outcome: chat_orchestrator.ChatOutcome,
+    usage: brain_usage.TurnUsage | None,
+) -> dict[str, object]:
+    """A completed turn's reply body, with the whole turn's usage when it was metered."""
+    body: dict[str, object] = {
+        "team_id": team_id,
+        "team_name": team_name,
+        "reply": outcome.reply,
+        "clarification": outcome.clarification,
+    }
+    wire = None if usage is None else usage.joined().wire()
+    if wire is not None:
+        body["usage"] = wire
+    return with_restricted_actions(body, outcome)
 
 
 def with_restricted_actions(body: dict[str, object], outcome: chat_orchestrator.ChatOutcome) -> dict[str, object]:

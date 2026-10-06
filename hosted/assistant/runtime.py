@@ -38,7 +38,6 @@ from protocol.http.v1 import payload as http_payload
 from storage import files as team_storage
 
 # ── Controller-owned Assistant chat ─────────────────────────────────────────────────────────────
-CHAT_OUTPUT_CAP = 60000
 MAX_INBOX_FILE_BYTES = 25 * 1024 * 1024
 MAX_FILE_BODY_BYTES = MAX_INBOX_FILE_BYTES
 MAX_CHAT_FILES = 8

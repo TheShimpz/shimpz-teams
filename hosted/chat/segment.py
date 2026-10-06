@@ -714,16 +714,7 @@ def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str,
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         if not runtime_state._commit_chat_terminal(team_id, token):
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "brain turn stopped")
-        body: dict[str, object] = {
-            "team_id": team_id,
-            "team_name": segment.team_name,
-            "reply": terminal.reply[: hosted_assistants.CHAT_OUTPUT_CAP],
-            "clarification": terminal.clarification,
-        }
-        usage = None if request.usage is None else request.usage.joined().wire()
-        if usage is not None:
-            body["usage"] = usage
-        return chat_turn_engine.with_restricted_actions(body, terminal)
+        return chat_turn_engine.terminal_body(team_id, segment.team_name, terminal, request.usage)
 
     try:
         return chat_turn_engine.dispatch(

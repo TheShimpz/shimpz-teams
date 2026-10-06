@@ -136,16 +136,7 @@ def _segment_response(
         self._delete_chat_continuation(team_id)
         if not commit(terminal):
             raise chat_stopped()
-        body: dict[str, object] = {
-            "team_id": team_id,
-            "team_name": segment.team_name,
-            "reply": terminal.reply,
-            "clarification": terminal.clarification,
-        }
-        usage = None if response.usage is None else response.usage.joined().wire()
-        if usage is not None:
-            body["usage"] = usage
-        return chat_turn_engine.with_restricted_actions(body, terminal)
+        return chat_turn_engine.terminal_body(team_id, segment.team_name, terminal, response.usage)
 
     try:
         return chat_turn_engine.dispatch(
