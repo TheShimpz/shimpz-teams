@@ -25,6 +25,17 @@ from protocol.http.v1 import supervisor as contract
 API_KEY_SHA256 = "0d3b560722915d2f931a4c4100a00ecbce063d121e577e6b93bbbe7c05f23ad6"
 
 
+def _model_headers(raw: bytes, api_key: str = "sk-test-0123456789") -> tuple[tuple[str, str], ...]:
+    """Supervisor-asserted JSON request headers carrying an OpenAI model credential."""
+    return (
+        (contract.ASSERTION_HEADER, "Bearer assertion"),
+        ("Content-Type", "application/json"),
+        ("Content-Length", str(len(raw))),
+        ("X-Shimpz-Model-Provider", "openai"),
+        ("X-Shimpz-Model-Api-Key", api_key),
+    )
+
+
 class LocalSupervisorHttpTests(unittest.TestCase):
     @staticmethod
     def _handler(
@@ -193,14 +204,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         intent_route = mock.Mock(return_value={"team_id": "team_1", "intent": "ordinary-task"})
         controller = SimpleNamespace(chat_turn_service=SimpleNamespace(intent_route=intent_route))
         decision_key = "tsk-test-0123456789abcdef"
-        headers = (
-            (contract.ASSERTION_HEADER, "Bearer assertion"),
-            ("Content-Type", "application/json"),
-            ("Content-Length", str(len(raw))),
-            ("X-Shimpz-Model-Provider", "openai"),
-            ("X-Shimpz-Model-Api-Key", "sk-test-0123456789"),
-            ("X-Shimpz-Decision-Api-Key", decision_key),
-        )
+        headers = (*_model_headers(raw), ("X-Shimpz-Decision-Api-Key", decision_key))
         handler = self._handler("POST", "/v1/teams/team_1/chat/intent-route", controller, body=raw, headers=headers)
         with (
             mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
@@ -246,13 +250,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             "/v1/teams/team_1/chat",
             controller,
             body=raw,
-            headers=(
-                (contract.ASSERTION_HEADER, "Bearer assertion"),
-                ("Content-Type", "application/json"),
-                ("Content-Length", str(len(raw))),
-                ("X-Shimpz-Model-Provider", "openai"),
-                ("X-Shimpz-Model-Api-Key", api_key),
-            ),
+            headers=_model_headers(raw, api_key),
         )
 
         with (
@@ -314,13 +312,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             "/v1/teams/team_1/chat/human",
             SimpleNamespace(chat_turn_service=service),
             body=raw,
-            headers=(
-                (contract.ASSERTION_HEADER, "Bearer assertion"),
-                ("Content-Type", "application/json"),
-                ("Content-Length", str(len(raw))),
-                ("X-Shimpz-Model-Provider", "openai"),
-                ("X-Shimpz-Model-Api-Key", "sk-test-0123456789"),
-            ),
+            headers=_model_headers(raw),
         )
 
         with (
@@ -379,13 +371,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             "/v1/teams/team_1/chat",
             SimpleNamespace(chat_turn_service=SimpleNamespace(chat=chat)),
             body=raw,
-            headers=(
-                (contract.ASSERTION_HEADER, "Bearer assertion"),
-                ("Content-Type", "application/json"),
-                ("Content-Length", str(len(raw))),
-                ("X-Shimpz-Model-Provider", "openai"),
-                ("X-Shimpz-Model-Api-Key", "sk-test-0123456789"),
-            ),
+            headers=_model_headers(raw),
         )
 
         with (
@@ -407,13 +393,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             "/v1/teams/team_1/chat",
             controller,
             body=raw,
-            headers=(
-                (contract.ASSERTION_HEADER, "Bearer assertion"),
-                ("Content-Type", "application/json"),
-                ("Content-Length", str(len(raw))),
-                ("X-Shimpz-Model-Provider", "openai"),
-                ("X-Shimpz-Model-Api-Key", "sk-test-0123456789"),
-            ),
+            headers=_model_headers(raw),
         )
 
         with (
