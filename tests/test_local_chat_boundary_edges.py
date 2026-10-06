@@ -8,6 +8,8 @@ from contextlib import nullcontext
 from http import HTTPStatus
 from unittest import mock
 
+from local_controller_harness import chat_body
+
 from action import challenges as action_challenges
 from action import human as action_human
 from action import journal as action_journal
@@ -303,15 +305,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
                 local_chat_api.chat(
                     subject,
                     "team_1",
-                    {
-                        "message": message,
-                        "files": [],
-                        "assistant_ids": [],
-                        "conversation": [],
-                        "locale": None,
-                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                        "timezone": None,
-                    },
+                    chat_body(message),
                     "openai",
                     "key",
                 )
@@ -323,15 +317,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             local_chat_api.chat(
                 subject,
                 "team_1",
-                {
-                    "message": "hello",
-                    "files": [],
-                    "assistant_ids": [],
-                    "conversation": [],
-                    "locale": None,
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                },
+                chat_body("hello"),
                 "openai",
                 "key",
             ),
@@ -345,15 +331,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             local_chat_api.chat(
                 subject,
                 "team_1",
-                {
-                    "message": "hello",
-                    "files": [],
-                    "assistant_ids": [],
-                    "conversation": [],
-                    "locale": None,
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                },
+                chat_body("hello"),
                 "openai",
                 "key",
             ),

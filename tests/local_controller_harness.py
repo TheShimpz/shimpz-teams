@@ -37,6 +37,27 @@ OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 
 TEST_ASSISTANT_VERSION = "0.1.0"
 
 
+def chat_body(
+    message: str,
+    *,
+    assistant_ids: list[str] | tuple[str, ...] = (),
+    files: list[str] | tuple[str, ...] = (),
+    conversation: list[object] | tuple[object, ...] = (),
+    locale: object = None,
+    timezone: object = None,
+) -> dict[str, object]:
+    """One complete Local chat request body under the fixed test request identity."""
+    return {
+        "message": message,
+        "files": list(files),
+        "assistant_ids": list(assistant_ids),
+        "conversation": list(conversation),
+        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+        "timezone": timezone,
+        "locale": locale,
+    }
+
+
 class TestAssistantRegistry(dict):
     def get(self, team_id, assistant_id=None):
         return super().get(team_id if assistant_id is None else assistant_id)

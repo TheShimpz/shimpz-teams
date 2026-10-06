@@ -14,7 +14,7 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase
+from local_controller_harness import LocalContractCase, chat_body
 
 from inference import client as brain_runtime_client
 from inference import config as inference_config
@@ -22,15 +22,7 @@ from integrations import broker as integration_broker
 from integrations import service as integration_service
 from local import app as local_app
 
-CHAT_BODY = {
-    "message": "List zones",
-    "files": [],
-    "assistant_ids": ["shimpz-cloudflare"],
-    "conversation": [],
-    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-    "timezone": None,
-    "locale": None,
-}
+CHAT_BODY = chat_body("List zones", assistant_ids=["shimpz-cloudflare"])
 OPENAI_KEY = "sk-test-0123456789"
 ANTHROPIC_KEY = "sk-ant-test-0123456789"
 

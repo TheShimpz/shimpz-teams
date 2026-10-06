@@ -11,6 +11,8 @@ from io import BytesIO
 from types import SimpleNamespace
 from unittest import mock
 
+from local_controller_harness import chat_body
+
 from local import authority
 from local.errors import ApiProblemError
 from local.http import audit as http_audit
@@ -365,15 +367,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
     def test_chat_accepts_the_public_multibyte_message_boundary(self) -> None:
         message = "界" * 16_000
         raw = json.dumps(
-            {
-                "message": message,
-                "files": [],
-                "assistant_ids": [],
-                "conversation": [],
-                "locale": None,
-                "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                "timezone": None,
-            },
+            chat_body(message),
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")

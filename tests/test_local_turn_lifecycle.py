@@ -13,7 +13,7 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase
+from local_controller_harness import LocalContractCase, chat_body
 
 from action import execution as action_execution
 from action import human as action_human
@@ -75,15 +75,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare")
             paused = controller.chat_turn_service.chat(
                 "team_1",
-                {
-                    "message": "List zones",
-                    "files": [],
-                    "assistant_ids": ["shimpz-cloudflare"],
-                    "conversation": [],
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                    "locale": None,
-                },
+                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
                 "openai",
                 "sk-test-0123456789",
             )
@@ -139,15 +131,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             controller.assistant_lifecycle.invoke = invoke
             paused = controller.chat_turn_service.chat(
                 "team_1",
-                {
-                    "message": "List zones",
-                    "files": [],
-                    "assistant_ids": ["shimpz-cloudflare"],
-                    "conversation": [],
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                    "locale": "pt",
-                },
+                chat_body("List zones", assistant_ids=["shimpz-cloudflare"], locale="pt"),
                 "openai",
                 "sk-test-0123456789",
             )
@@ -231,15 +215,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             with mock.patch.object(local_audit, "record_request", return_value="a" * 32):
                 paused = controller.chat_turn_service.chat(
                     "team_1",
-                    {
-                        "message": "Search",
-                        "files": [],
-                        "assistant_ids": ["shimpz-cloudflare"],
-                        "conversation": [],
-                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                        "timezone": None,
-                        "locale": None,
-                    },
+                    chat_body("Search", assistant_ids=["shimpz-cloudflare"]),
                     "openai",
                     "sk-test-0123456789",
                 )
@@ -273,15 +249,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             )
             paused = controller.chat_turn_service.chat(
                 "team_1",
-                {
-                    "message": "List zones",
-                    "files": [],
-                    "assistant_ids": ["shimpz-cloudflare"],
-                    "conversation": [],
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                    "locale": None,
-                },
+                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
                 "openai",
                 "sk-test-0123456789",
             )
@@ -317,15 +285,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             )
             paused = controller.chat_turn_service.chat(
                 "team_1",
-                {
-                    "message": "List zones",
-                    "files": [],
-                    "assistant_ids": ["shimpz-cloudflare"],
-                    "conversation": [],
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                    "locale": None,
-                },
+                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
                 "openai",
                 "sk-test-0123456789",
             )
@@ -382,15 +342,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             )
             controller.chat_turn_service.chat(
                 "team_1",
-                {
-                    "message": "List zones",
-                    "files": [],
-                    "assistant_ids": ["shimpz-cloudflare"],
-                    "conversation": [],
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                    "locale": None,
-                },
+                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
                 "openai",
                 "sk-test-0123456789",
             )
@@ -440,15 +392,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
 
                 response = controller.chat_turn_service.chat(
                     "team_1",
-                    {
-                        "message": "List zones",
-                        "files": [],
-                        "assistant_ids": ["shimpz-cloudflare"],
-                        "conversation": [],
-                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                        "timezone": None,
-                        "locale": None,
-                    },
+                    chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
                     "openai",
                     "sk-test-0123456789",
                 )
@@ -488,15 +432,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             )
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {
-                    "message": "List zones",
-                    "files": [],
-                    "assistant_ids": ["shimpz-cloudflare"],
-                    "conversation": [],
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                    "locale": None,
-                },
+                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
                 "openai",
                 "sk-test-0123456789",
             )
@@ -547,15 +483,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             controller.assistant_lifecycle.invoke = invoke
             first_pause = controller.chat_turn_service.chat(
                 "team_1",
-                {
-                    "message": "List zones",
-                    "files": [],
-                    "assistant_ids": ["shimpz-cloudflare"],
-                    "conversation": [],
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                    "locale": None,
-                },
+                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
                 "openai",
                 "sk-test-0123456789",
             )
@@ -568,15 +496,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 )
             second_pause = controller.chat_turn_service.chat(
                 "team_1",
-                {
-                    "message": "List zones",
-                    "files": [],
-                    "assistant_ids": ["shimpz-cloudflare"],
-                    "conversation": [],
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                    "locale": None,
-                },
+                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
                 "openai",
                 "sk-test-0123456789",
             )
@@ -646,15 +566,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem) as caught:
                 controller.chat_turn_service.chat(
                     "team_1",
-                    {
-                        "message": "Hello",
-                        "files": [],
-                        "assistant_ids": ["shimpz-cloudflare"],
-                        "conversation": [],
-                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                        "timezone": None,
-                        "locale": None,
-                    },
+                    chat_body("Hello", assistant_ids=["shimpz-cloudflare"]),
                     "openai",
                     "sk-test-0123456789",
                 )
@@ -692,15 +604,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             controller.assistant_lifecycle.invoke = controller.invoke
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {
-                    "message": "Greet me",
-                    "files": [],
-                    "assistant_ids": ["shimpz-cloudflare"],
-                    "conversation": [],
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                    "locale": None,
-                },
+                chat_body("Greet me", assistant_ids=["shimpz-cloudflare"]),
                 "openai",
                 "sk-test-0123456789",
             )
@@ -748,30 +652,14 @@ class LocalTurnLifecycleTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem) as first:
                 controller.chat_turn_service.chat(
                     "team_1",
-                    {
-                        "message": "Greet me",
-                        "files": [],
-                        "assistant_ids": ["shimpz-cloudflare"],
-                        "conversation": [],
-                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                        "timezone": None,
-                        "locale": None,
-                    },
+                    chat_body("Greet me", assistant_ids=["shimpz-cloudflare"]),
                     "openai",
                     "sk-test-0123456789",
                 )
 
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {
-                    "message": "Greet me",
-                    "files": [],
-                    "assistant_ids": ["shimpz-cloudflare"],
-                    "conversation": [],
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                    "locale": None,
-                },
+                chat_body("Greet me", assistant_ids=["shimpz-cloudflare"]),
                 "openai",
                 "sk-test-0123456789",
             )
@@ -802,15 +690,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
 
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {
-                    "message": "Start a fresh turn",
-                    "files": [],
-                    "assistant_ids": ["shimpz-cloudflare"],
-                    "conversation": [],
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                    "locale": None,
-                },
+                chat_body("Start a fresh turn", assistant_ids=["shimpz-cloudflare"]),
                 "openai",
                 "sk-test-0123456789",
             )
@@ -856,30 +736,14 @@ class LocalTurnLifecycleTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem) as first:
                 controller.chat_turn_service.chat(
                     "team_1",
-                    {
-                        "message": "Greet me",
-                        "files": [],
-                        "assistant_ids": ["shimpz-cloudflare"],
-                        "conversation": [],
-                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                        "timezone": None,
-                        "locale": None,
-                    },
+                    chat_body("Greet me", assistant_ids=["shimpz-cloudflare"]),
                     "openai",
                     "sk-test-0123456789",
                 )
             self.assertEqual(invocations, ["rpc"])
             retry = controller.chat_turn_service.chat(
                 "team_1",
-                {
-                    "message": "Greet me",
-                    "files": [],
-                    "assistant_ids": ["shimpz-cloudflare"],
-                    "conversation": [],
-                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                    "timezone": None,
-                    "locale": None,
-                },
+                chat_body("Greet me", assistant_ids=["shimpz-cloudflare"]),
                 "openai",
                 "sk-test-0123456789",
             )
@@ -930,15 +794,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 with self.subTest(attempt=attempt), self.assertRaises(local_app.ApiProblem) as failed:
                     controller.chat_turn_service.chat(
                         "team_1",
-                        {
-                            "message": "Greet me",
-                            "files": [],
-                            "assistant_ids": ["shimpz-cloudflare"],
-                            "conversation": [],
-                            "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                            "timezone": None,
-                            "locale": None,
-                        },
+                        chat_body("Greet me", assistant_ids=["shimpz-cloudflare"]),
                         "openai",
                         "sk-test-0123456789",
                     )

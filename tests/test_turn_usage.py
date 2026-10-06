@@ -16,7 +16,7 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 import hosted_assistant_fixture as harness
-from local_controller_harness import LocalContractCase
+from local_controller_harness import LocalContractCase, chat_body
 from test_local_chat_continuations import pending
 from test_local_turn_lifecycle import LOOKUP_INPUT, LOOKUP_RESULT
 
@@ -168,14 +168,7 @@ class LocalTurnUsageTests(LocalContractCase):
                 raise action_human.HumanRequestSuspensionError(_approval())
             return {"result": LOOKUP_RESULT}
 
-        body = {
-            "message": "List zones",
-            "files": [],
-            "assistant_ids": ["shimpz-cloudflare"],
-            "conversation": [],
-            "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-            "timezone": None,
-        }
+        body = chat_body("List zones", assistant_ids=["shimpz-cloudflare"])
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
             controller.assistant_lifecycle.invoke = invoke

@@ -13,7 +13,7 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase, TestAssistantRegistry
+from local_controller_harness import LocalContractCase, TestAssistantRegistry, chat_body
 
 from assistant import spec as assistant_registry
 from inference import config as inference_config
@@ -522,17 +522,8 @@ class LocalContractTests(LocalContractCase):
 
     def test_private_chat_route_reads_key_from_header_not_json(self) -> None:
         key = "sk-test-0123456789"
-        body = json.dumps(
-            {
-                "message": "Hello",
-                "files": [],
-                "assistant_ids": ["shimpz-cloudflare"],
-                "conversation": [],
-                "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                "timezone": None,
-                "locale": None,
-            }
-        ).encode()
+        payload = chat_body("Hello", assistant_ids=["shimpz-cloudflare"])
+        body = json.dumps(payload).encode()
         captured: dict[str, object] = {}
 
         class Controller:
@@ -565,18 +556,7 @@ class LocalContractTests(LocalContractCase):
         status, response, *_audit = handler._chat_route(["v1", "teams", "team_1", "chat"])
 
         self.assertEqual(status, HTTPStatus.OK)
-        self.assertEqual(
-            captured["payload"],
-            {
-                "message": "Hello",
-                "files": [],
-                "assistant_ids": ["shimpz-cloudflare"],
-                "conversation": [],
-                "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-                "timezone": None,
-                "locale": None,
-            },
-        )
+        self.assertEqual(captured["payload"], payload)
         self.assertEqual(captured["provider"], "openai")
         self.assertEqual(captured["api_key"], key)
         self.assertNotIn(key, json.dumps(response))

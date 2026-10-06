@@ -10,7 +10,7 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase
+from local_controller_harness import LocalContractCase, chat_body
 
 from action import challenges as action_challenges
 from action import human as action_human
@@ -24,14 +24,7 @@ LOOKUP_RESULT = {
     "pagination": {"page": 1, "per_page": 25, "count": 0, "total_count": 0, "total_pages": 0},
 }
 PURPOSE = "To list your zones, I need to read them in Cloudflare."
-CHAT = {
-    "message": "List zones",
-    "files": [],
-    "assistant_ids": ["shimpz-cloudflare"],
-    "conversation": [],
-    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
-    "timezone": None,
-}
+CHAT = chat_body("List zones", assistant_ids=["shimpz-cloudflare"])
 
 
 class _Runtime:
