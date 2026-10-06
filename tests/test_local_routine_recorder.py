@@ -299,6 +299,16 @@ class RecordingBookTests(unittest.TestCase):
         shown = routine_recorder.rerun_work(self.span((recording_cases._send(),), ordinary))
         self.assertEqual(http_routine.canonical_rerun(shown), list(shown))
 
+    def test_an_invented_id_is_unsourced_and_no_source_is_guessed_for_it(self) -> None:
+        # A live trace: the agent listed records for a made-up zone id, then listed the zones.
+        invented = ("cloudflare/list-dns-records", {"zone_id": "0" * 32}, {"result": []})
+        work = recording_cases._send(invented, recording_cases.ZONES_CALL, message="DNS dessa zona a cada hora")
+        asked = recording_cases._record(work)
+        self.assertEqual(asked.code, "routine-binding-unsourced")
+        (records,) = [entry for entry in routine_recorder.rerun_work(self.span((work,), asked)) if entry["inputs"]]
+        # No result ever held the made-up id, so nothing proves which Action returns it: the hint stays empty.
+        self.assertEqual((records["action"], records["inputs"][0]["source"]), ("list-dns-records", None))
+
     def test_a_call_is_never_suggested_as_its_own_source(self) -> None:
         remembered = "f" * 32
         echo = ("cloudflare/list-dns-records", {"zone_id": remembered}, {"zone_id": remembered})
