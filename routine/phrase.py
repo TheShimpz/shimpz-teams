@@ -3,9 +3,10 @@
 A Routine runs exactly when the person said, so Team reads it from the person's own text, never from the model. The
 table is bounded and closed: in each interface language, an interval of seconds, minutes, or hours ("a cada 30
 segundos", "every hour"), or a day, weekday, or day of the month with a time ("todo dia às 9h", "every Monday at 9am",
-"毎月5日9時"). A sentence that asks something (it ends with a question mark) or says no (a negation in the language
-of its phrase) states nothing. One text may state several schedules, which its reader then asks the person to choose
-between; a phrase this table does not read states nothing, so the person is asked again rather than guessed for.
+"毎月5日9時"). A sentence that asks something (it ends with a question mark) states nothing, and a negation in any
+language rejects every reading it reaches, whichever language reads the same words. One text may state several
+schedules, which its reader then asks the person to choose between; a phrase this table does not read states nothing,
+so the person is asked again rather than guessed for.
 
 A timezone is stated only as an exact, loadable IANA area zone such as "Europe/Lisbon", or "UTC".
 """
@@ -196,11 +197,37 @@ def _sentences(text: str) -> Iterator[str]:
             yield sentence
 
 
-def _found(patterns: tuple[tuple[str, str], ...], sentence: str) -> Iterator[re.Match[str]]:
-    for language, pattern in patterns:
-        if re.search(_NEGATIONS[language], sentence):
-            continue
-        yield from re.finditer(pattern, sentence)
+# Languages whose negation follows what it negates, anywhere in the sentence; elsewhere it comes before.
+_TRAILING_NEGATION = frozenset({"ja"})
+
+
+def _negated(language: str, sentence: str, match: re.Match[str]) -> bool:
+    """Whether the sentence negates a reading of this language: by a negation before it, or anywhere when it trails."""
+    return any(
+        language in _TRAILING_NEGATION or negation.start() < match.start()
+        for negation in re.finditer(_NEGATIONS[language], sentence)
+    )
+
+
+def _readings(sentence: str) -> dict[str, list[re.Match[str]]]:
+    """Each kind's readings of one sentence that no negation reaches, in any language.
+
+    A reading a language negates also rejects every overlapping reading another language would take of the same words,
+    so "não quero a cada 30 segundos" never becomes Spanish "cada 30 segundos".
+    """
+    tables = {"interval": _INTERVALS, "monthly": _MONTHLY, "weekly": _WEEKLY, "daily": _DAILY}
+    found = [
+        (kind, language, match)
+        for kind, table in tables.items()
+        for language, pattern in table
+        for match in re.finditer(pattern, sentence)
+    ]
+    negated = [match.span() for _kind, language, match in found if _negated(language, sentence, match)]
+    admitted: dict[str, list[re.Match[str]]] = {kind: [] for kind in tables}
+    for kind, _language, match in found:
+        if not any(match.start() < end and start < match.end() for start, end in negated):
+            admitted[kind].append(match)
+    return admitted
 
 
 def _interval(count: str, unit: str) -> dict[str, object] | None:
@@ -237,16 +264,16 @@ def _times(sentence: str) -> set[str]:
     return found
 
 
-def _calendar(sentence: str) -> list[dict[str, object]]:
+def _calendar(sentence: str, readings: dict[str, list[re.Match[str]]]) -> list[dict[str, object]]:
     """The day, weekday, or monthly schedules one sentence states, one for each time it names."""
     times = _times(sentence)
     days = [
         {"kind": "monthly", "day": int(match.group(1))}
-        for match in _found(_MONTHLY, sentence)
+        for match in readings["monthly"]
         if 1 <= int(match.group(1)) <= 28
     ]
-    days += [{"kind": "weekly", "weekday": _WEEKDAYS[match.group(1)]} for match in _found(_WEEKLY, sentence)]
-    if not days and any(True for _match in _found(_DAILY, sentence)):
+    days += [{"kind": "weekly", "weekday": _WEEKDAYS[match.group(1)]} for match in readings["weekly"]]
+    if not days and readings["daily"]:
         days = [{"kind": "daily"}]
     return [{**day, "time": time} for day in days for time in sorted(times)]
 
@@ -255,8 +282,9 @@ def stated(text: str) -> tuple[dict[str, object], ...]:
     """Every distinct canonical schedule one person-authored text states affirmatively, in the order first found."""
     found: list[dict[str, object]] = []
     for sentence in _sentences(text):
-        schedules = [_interval(*match.groups()) for match in _found(_INTERVALS, sentence)]
-        schedules += _calendar(sentence)
+        readings = _readings(sentence)
+        schedules = [_interval(*match.groups()) for match in readings["interval"]]
+        schedules += _calendar(sentence, readings)
         for value in schedules:
             if value is not None and http_routine.canonical_schedule(value) == value and value not in found:
                 found.append(value)

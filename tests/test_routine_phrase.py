@@ -129,6 +129,20 @@ class StatedScheduleTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(phrase.stated(text), ())
 
+    def test_a_negation_in_any_language_rejects_every_reading_it_negates(self) -> None:
+        for text in (
+            "Não quero a cada 30 segundos.",
+            "No quiero cada 30 segundos.",
+            "No quiero todos los días a las 9",
+            "não quero cada hora",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(phrase.stated(text), ())
+        # A word that only reads as a negation in another language after the schedule negates nothing.
+        self.assert_stated(
+            {"a cada 30 segundos no servidor": continuous(30), "todo mês no dia 5 às 9h": monthly(5, "09:00")}
+        )
+
     def test_the_half_of_the_day_and_impossible_times(self) -> None:
         self.assert_stated({"every day at 12am": daily("00:00"), "every day at 12 pm": daily("12:00")})
         for text in ("every day at 13pm", "todo dia às 25h", "todo dia às 9h75"):
