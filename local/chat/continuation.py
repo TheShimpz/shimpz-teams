@@ -27,6 +27,7 @@ from protocol.http.v1 import strict_json
 from routine import plan as routine_plan
 
 SCHEMA_VERSION = 7
+_RECORDING_RE = re.compile(r"[0-9a-f]{32}\Z")
 MAX_INVOKED_ACTIONS = 512
 MAX_IDENTITY_ASSISTANTS = 16
 MAX_IDENTITY_FILES = 8
@@ -74,6 +75,9 @@ class PendingLocalChat:
     # The fingerprint of the Action batch a human request paused, which ending the turn removes exactly; an
     # Integration pause holds no batch.
     paused_batch: str | None = None
+    # The memory-only recording a new turn may define a Routine from, by id; it carries no message and no secret, and
+    # a Team restart leaves it naming nothing (ADR-0101 section 4.1).
+    recording: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +202,7 @@ def _pending_payload(pending: PendingLocalChat) -> dict[str, object]:
         "locale": pending.locale,
         "usage": _usage_payload(pending.usage),
         "paused_batch": pending.paused_batch,
+        "recording": pending.recording,
     }
 
 
@@ -574,6 +579,7 @@ def _pending(value: object) -> PendingLocalChat:
             "locale",
             "usage",
             "paused_batch",
+            "recording",
         },
         "pending continuation",
     )
@@ -603,6 +609,9 @@ def _pending(value: object) -> PendingLocalChat:
         raise ContinuationCodecError("pending locale is malformed")
     if sum(len(item.responses) for item in transcripts) > requests_used:
         raise ContinuationCodecError("human request budget is malformed")
+    recording = raw["recording"]
+    if recording is not None and (not isinstance(recording, str) or _RECORDING_RE.fullmatch(recording) is None):
+        raise ContinuationCodecError("pending recording is malformed")
     return PendingLocalChat(
         continuation=_continuation(raw["continuation"]),
         assistant_ids=assistant_ids,
@@ -614,6 +623,7 @@ def _pending(value: object) -> PendingLocalChat:
         locale=locale,
         usage=_usage(raw["usage"]),
         paused_batch=raw["paused_batch"],
+        recording=recording,
     )
 
 

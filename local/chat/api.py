@@ -1,5 +1,7 @@
 """Local chat start and integration-resume API operations."""
 
+import json
+import time
 from http import HTTPStatus
 
 from chat import contract as assistant_chat
@@ -21,14 +23,10 @@ from local.errors import (
     integration_contract_unavailable,
     team_context_changed,
 )
-from local.routine import draft as routine_draft
-from local.routine import lineage as routine_lineage
-from local.routine import question as routine_question
 from local.validation import validate_chat_assistant_ids, validate_team_id
 from protocol.http.v1 import payload as http_payload
-from routine import change as routine_change
+from protocol.http.v1 import progress as http_progress
 from routine import schedule as routine_schedule
-from routine.request import Request as RoutineRequest
 
 MAX_CHAT_MESSAGE_CHARS = http_payload.MAX_CHAT_MESSAGE_CHARS
 
@@ -59,22 +57,21 @@ def _pending_chat_continuation(self, team_id: str, locale: str | None = None) ->
     return None
 
 
-def _routine_write(self, response: _ResponseRequest, terminal: chat_orchestrator.ChatOutcome):
-    """The write of a turn's Routine outcome, given what must run with it; the caller holds the lifecycle lock.
+def _routine_outcome(self, response: _ResponseRequest, terminal: chat_orchestrator.ChatOutcome, body: dict):
+    """A recording turn's ``record``: the write that keeps its card, and the terminal fields its reply carries.
 
-    A question or a discard runs ``before`` once its draft is proven current and before the draft changes, so a failure
-    there leaves the request retryable. A change commits first: its receipt makes a retry repeat nothing.
+    The card is refused, never cut, when the whole terminal line would outgrow its bound (ADR-0101 section 5.2).
     """
-    outcome = routine_change.kind(terminal.routine)
-    if outcome == "need":
-        return self._routine_need(response, terminal.routine, terminal.clarification)
-    if outcome == "discard":
-        return self._routine_discard(response, terminal.routine)
-    if terminal.clarification is not None:
-        # Every option's Routine is admitted before the question is shown; only a bound answer commits one.
-        return self._routine_question(response, terminal.routine, terminal.clarification)
-    write = self._routine_change(response, terminal.routine)
-    return lambda before: (write(), before())
+    write, fields = self._routine_record(response, terminal.routine)
+    line = {"type": "terminal", "status": 200, "body": {**body, **fields}}
+    if "routine_proposal" in fields and _line_bytes(line) > http_progress.MAX_LINE_BYTES:
+        return (lambda: None), {"routine_refusal": {"code": "routine-proposal-too-large"}}
+    return write, fields
+
+
+def _line_bytes(line: dict[str, object]) -> int:
+    """The encoded bytes of one terminal NDJSON line, its newline included."""
+    return len(json.dumps(line, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
 
 
 def _segment_response(
@@ -99,6 +96,7 @@ def _segment_response(
             locale=segment.locale,
             usage=None if response.usage is None else response.usage.joined(),
             paused_batch=segment.paused_batch,
+            recording=response.recording,
         )
 
     def save_knowledge(terminal: chat_orchestrator.ChatOutcome) -> None:
@@ -122,21 +120,26 @@ def _segment_response(
                 HTTPStatus.SERVICE_UNAVAILABLE, "Team memory could not be saved", code="memory-store-failed"
             ) from exc
 
-    def commit(terminal: chat_orchestrator.ChatOutcome) -> bool:
+    def commit(terminal: chat_orchestrator.ChatOutcome, body: dict[str, object]) -> tuple[bool, dict]:
         if terminal.routine is None:
-            return self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal))
-        # A Routine outcome commits with the reply, in one write under the lifecycle lock, the Stop guard, and the
-        # Routine lock: a change, a question with the person's draft, or a discarded draft. When Stop wins, nothing
-        # changes (ADR-0092).
+            return self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal)), {}
+        # A recorded Routine's card is kept with the reply, under the lifecycle lock and the Stop guard: when Stop wins,
+        # no card exists (ADR-0101 section 5.1).
         with self._lock(team_id):
-            write = _routine_write(self, response, terminal)
-            return self._commit_chat_terminal(team_id, token, lambda: write(lambda: save_knowledge(terminal)))
+            write, fields = _routine_outcome(self, response, terminal, body)
+            return self._commit_chat_terminal(team_id, token, lambda: (write(), save_knowledge(terminal))), fields
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
-        if not commit(terminal):
+        body = chat_turn_engine.terminal_body(team_id, segment.team_name, terminal, response.usage)
+        try:
+            committed, fields = commit(terminal, body)
+        finally:
+            # The logical turn ended here, whatever its commit did: nothing more is recorded for it.
+            self.routine_recordings.end(team_id, response.recording)
+        if not committed:
             raise chat_stopped()
-        return chat_turn_engine.terminal_body(team_id, segment.team_name, terminal, response.usage)
+        return {**body, **fields}
 
     try:
         return chat_turn_engine.dispatch(
@@ -172,42 +175,18 @@ def _timezone(value: object) -> str | None:
     return value
 
 
-def _same_draft(question: routine_lineage.Question, request: RoutineRequest) -> bool:
-    """Whether a bound question may still bind: an update question always; a create one only in its own draft."""
-    if question.op != "create":
-        return True
-    return request.draft is not None and question.generation == request.draft.generation
+def _recording(self, team_id: str, identity: dict[str, object], send: tuple[str, list, str | None]) -> str | None:
+    """Open the recording of a new turn that may define a Routine, or None.
 
-
-def _routine_request(
-    self, team_id: str, principal: str, identity: dict[str, object], send: tuple[str, list, str | None, str | None]
-) -> RoutineRequest | None:
-    """The Routine request this send carries, built only from what Team itself admitted and froze for it.
-
-    Every admitted send is recorded once; a send with files or a composed answer is a barrier (ADR-0092). None: this
-    identity cannot change a Routine (reused with another message or person, or no room to freeze its run). A send
-    without files also freezes the person's Routine draft, and a composed reply to the draft's question takes only its
-    answer as the request's said text (ADR-0092 amendment, 2026-10-05).
+    Only a person's fresh request without files records, in the Team incarnation it starts in (ADR-0101 section 4.1).
     """
-    message, file_ids, timezone, locale = send
-    composed = routine_lineage.composed(message)
-    draft = None if file_ids else routine_draft.current(self, team_id, principal)
-    admitted = self.routine_recent.admit(team_id, principal, identity, message, not file_ids and not composed, draft)
-    if admitted is None:
+    message, file_ids, timezone = send
+    principal = local_audit.human_principal()
+    now = int(time.time())
+    if principal is None or file_ids or not http_payload.request_identity_fresh(identity["issued_at"], now):
         return None
-    frozen = admitted.draft
-    texts = frozenset() if frozen is None else frozen.texts
-    return RoutineRequest(
-        principal,
-        message,
-        identity["issued_at"],
-        identity["nonce"],
-        timezone,
-        locale,
-        earlier=tuple(text for text in admitted.earlier if text not in texts),
-        draft=frozen,
-        answer=routine_draft.answer(frozen, message) if composed else None,
-    )
+    incarnation = self.assistant_lifecycle._network(team_id).id
+    return self.routine_recordings.start(team_id, (principal, incarnation), message, timezone, now)
 
 
 def chat(
@@ -262,52 +241,39 @@ def chat(
             return pending
         # The turn is admitted: its duration runs from here to its terminal, across every resume.
         usage = brain_usage.TurnUsage.start()
-        principal = local_audit.human_principal()
-        routine_request = (
-            None
-            if principal is None
-            else _routine_request(self, team_id, principal, identity, (message, file_ids, timezone, locale))
-        )
-        bound = None
-        if routine_request is not None and not file_ids:
-            bound = self.routine_lineage.bound(team_id, principal, message)
-        if bound is not None and not _same_draft(bound.question, routine_request):
-            # A create question binds only inside the very draft its turn wrote; any later draft revoked it.
-            bound = None
-        composed = routine_lineage.composed(message)
-        if routine_request is not None and composed and bound is None and routine_request.answer is None:
-            # A composed answer may change a Routine only through the question it is bound to: the pending
-            # question's own option, or the answer to the draft's last question.
-            routine_request = None
-        if bound is not None:
-            return routine_question.answer(self, team_id, token, routine_request, bound)
-        segment = self._run_chat_segment(
-            _ChatSegmentRequest(
-                team_id=team_id,
-                file_ids=file_ids,
-                assistant_ids=assistant_ids,
-                provider=provider,
-                api_key=api_key,
-                token=token,
-                message=message,
-                conversation=conversation,
-                locale=locale,
-                progress=progress or chat_progress.Reporter(),
-                routine_request=routine_request,
+        recording = _recording(self, team_id, identity, (message, file_ids, timezone))
+        try:
+            segment = self._run_chat_segment(
+                _ChatSegmentRequest(
+                    team_id=team_id,
+                    file_ids=file_ids,
+                    assistant_ids=assistant_ids,
+                    provider=provider,
+                    api_key=api_key,
+                    token=token,
+                    message=message,
+                    conversation=conversation,
+                    locale=locale,
+                    progress=progress or chat_progress.Reporter(),
+                    recording=recording,
+                )
             )
-        )
-        return self._segment_response(
-            _ResponseRequest(
-                team_id,
-                token,
-                segment,
-                assistant_ids,
-                tuple(file_ids),
-                provider,
-                usage=usage,
-                routine_request=routine_request,
+            return self._segment_response(
+                _ResponseRequest(
+                    team_id,
+                    token,
+                    segment,
+                    assistant_ids,
+                    tuple(file_ids),
+                    provider,
+                    usage=usage,
+                    recording=recording,
+                )
             )
-        )
+        except BaseException:
+            # A failed turn records nothing more; a paused one keeps its recording for the answer.
+            self.routine_recordings.end(team_id, recording)
+            raise
 
 
 def resume_chat_integrations(

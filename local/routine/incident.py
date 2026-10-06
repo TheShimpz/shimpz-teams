@@ -1,15 +1,15 @@
 """Holding a Routine run for a person, and the lifecycle of its incident (ADR-0092 sections 5 and 7).
 
-A compiled run seals its immutable recovery snapshot before its first dispatch: the exact cursor binding (Team
-incarnation, Routine and revision, run), the authorized plan, and the user's standing request. A hold is four durable
-steps: the run's live lease is fenced, its incident's compact evidence is sealed with its own copy of that snapshot,
-its journal batch is archived, and the incident is indexed as the run ends. Each step is idempotent and
-``reconcile`` resumes from whichever came last, so every crash window recovers without dispatching anything. An
+A run seals its immutable recovery snapshot before its first dispatch: the exact cursor binding (Team incarnation,
+Routine and revision, run), the confirmed plan, the Routine's name, and whether the run is a rehearsal (ADR-0101). A
+hold is four durable steps: the run's live lease is fenced, its incident's compact evidence is sealed with its own copy
+of that snapshot, its journal batch is archived, and the incident is indexed as the run ends. Each step is idempotent
+and ``reconcile`` resumes from whichever came last, so every crash window recovers without dispatching anything. An
 incident is not an active run or discard work; it outlives its Routine, never expires, and holds the Routine until a
-person resolves it. Because it holds its snapshot independently of the Routine record and the archived journal rows,
-it can still reopen the run's cursor for verification after Team restarts. A person sets the run aside through its
-card's Rodar or Recriar, or by deleting its Routine; only then, once nothing executes for it any more, are its cursor,
-evidence, and archive marker released.
+person resolves it. Because it holds its snapshot independently of the Routine record and the archived journal rows, it
+can still reopen the run's cursor for verification after Team restarts. A person sets the run aside through its card's
+Rodar, or by deleting its Routine; only then, once nothing executes for it any more, are its cursor, evidence, and
+archive marker released.
 """
 
 from __future__ import annotations
@@ -52,11 +52,15 @@ def _journal_unavailable() -> ApiProblem:
 
 @dataclass(frozen=True, slots=True)
 class Recovery:
-    """What recovery of one held run is authorized to use: its cursor binding, plan, and the user's request."""
+    """What recovery of one held run is authorized to use: its cursor binding, plan, its Routine's name, and rehearsal.
+
+    A rehearsal stays one through its hold and continuation, so recovery never runs an effect it only rehearses.
+    """
 
     binding: routine_cursor.Binding
-    quote: str
+    name: str
     plan: dict[str, object]
+    rehearsal: bool = False
 
     @property
     def plan_digest(self) -> str:
@@ -66,8 +70,9 @@ class Recovery:
         binding = self.binding
         return {
             "binding": [binding.incarnation, binding.routine_id, binding.revision, binding.run_id],
-            "quote": self.quote,
+            "name": self.name,
             "plan": self.plan,
+            "rehearsal": self.rehearsal,
         }
 
 
@@ -93,17 +98,18 @@ def read_recovery(value: object, run_id: str) -> Recovery:
             raise routine_state.unavailable() from exc
         if not isinstance(value, dict) or value.pop("version", None) != VERSION:
             raise routine_state.unavailable()
-    if not isinstance(value, dict) or set(value) != {"binding", "quote", "plan"}:
+    if not isinstance(value, dict) or set(value) != {"binding", "name", "plan", "rehearsal"}:
         raise routine_state.unavailable()
     binding = value["binding"]
     if not isinstance(binding, list) or len(binding) != 4:
         raise routine_state.unavailable()
-    snapshot = Recovery(routine_cursor.Binding(*binding), value["quote"], value["plan"])
+    snapshot = Recovery(routine_cursor.Binding(*binding), value["name"], value["plan"], value["rehearsal"])
     if (
         not routine_cursor.binding_valid(snapshot.binding)
         or snapshot.binding.run_id != run_id
-        or not isinstance(snapshot.quote, str)
+        or http_routine.canonical_name(snapshot.name) != snapshot.name
         or not isinstance(snapshot.plan, dict)
+        or type(snapshot.rehearsal) is not bool
     ):
         raise routine_state.unavailable()
     return snapshot
@@ -246,9 +252,19 @@ def _held_step(self, team_id: str, snapshot: Recovery | None) -> routine_hold.He
         return routine_hold.UNKNOWN_STEP
     if cursor is None:
         return routine_hold.UNKNOWN_STEP
-    steps = snapshot.plan["steps"]
+    return held_call(cursor, snapshot.plan["steps"])
+
+
+def held_call(cursor: routine_cursor.Cursor, steps: list) -> routine_hold.HeldStep:
+    """The call a sealed cursor stopped at: the last decision call, or the current replay step; none when neither."""
+    if cursor.calls:
+        # A decision call held the run: its last call is the one whose effect is unresolved.
+        call = cursor.calls[-1]
+        return call.assistant, call.action, {"phase": "decision", "call": len(cursor.calls)}, len(steps)
+    if not steps:
+        return routine_hold.UNKNOWN_STEP
     index = min(cursor.step, len(steps) - 1)
-    return steps[index]["assistant"], steps[index]["action"], index + 1, len(steps)
+    return steps[index]["assistant"], steps[index]["action"], {"phase": "replay", "step": index + 1}, len(steps)
 
 
 def reconcile_team(self, team_id: str) -> None:
@@ -358,7 +374,9 @@ def seal_terminal(self, team_id: str, run_id: str, snapshot: Recovery | None) ->
     run = routine_diagnostics.RunBinding(
         binding.routine_id, run_id, binding.revision, snapshot.plan_digest, len(snapshot.plan["steps"])
     )
-    terminal = routine_diagnostics.RunRecord(run, cursor.step, cursor.operation_id is not None, int(time.time()))
+    terminal = routine_diagnostics.RunRecord(
+        run, cursor.step, cursor.operation_id is not None, int(time.time()), calls=len(cursor.calls)
+    )
     try:
         self.routine_diagnostics.record_run(team_id, binding.incarnation, terminal)
     except routine_diagnostics.DiagnosticStoreError:

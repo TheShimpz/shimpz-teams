@@ -108,15 +108,8 @@ class RuntimeContext:
     skills: tuple[dict[str, object], ...] | None = None
     # The Team's Routines as data (ADR-0086); None withholds the Brain's Routine tool.
     routines: tuple[dict[str, object], ...] | None = None
-    # The person's own earlier sends a Routine request may cite (ADR-0092, 2026-10-04); only beside ``routines``.
-    routine_earlier: tuple[str, ...] = ()
-    # The person's Routine draft as the request froze it, kinded parts oldest first (ADR-0092, 2026-10-05); only beside
-    # ``routines``.
-    routine_draft: tuple[tuple[str, str], ...] = ()
-    # The answer a composed reply gave to the draft's question, which the request then states instead of its message.
-    routine_answer: str | None = None
-    # The daily business steps the Team leaves a new Routine (ADR-0092 amendment, 2026-10-05, scale): advisory, so the
-    # compiler offers only daily caps the Team can admit; Team rechecks at commit. Only beside ``routines``.
+    # The daily Action units the Team leaves a new Routine: advisory, as Team clamps a continuous cap at recording
+    # (ADR-0101). Only beside ``routines``.
     routine_capacity: int | None = None
     # False in a Routine run, whose memory and skills the Brain may read but never change.
     knowledge_writable: bool = True
@@ -334,9 +327,6 @@ class BrainRuntimeClient:
             "memories": None if context.memories is None else [dict(entry) for entry in context.memories],
             "skills": None if context.skills is None else [dict(skill) for skill in context.skills],
             "routines": None if context.routines is None else [dict(item) for item in context.routines],
-            "routine_earlier": list(context.routine_earlier),
-            "routine_draft": [{"kind": kind, "text": text} for kind, text in context.routine_draft],
-            "routine_answer": context.routine_answer,
             "routine_capacity": context.routine_capacity,
             "knowledge_writable": context.knowledge_writable,
             "attachments": [dict(item) for item in context.attachments],
@@ -406,16 +396,14 @@ class BrainRuntimeClient:
 
     @staticmethod
     def _parse_routine(value: dict[str, object]) -> dict[str, object] | None:
-        """A completed turn's one Routine outcome: a compiled change, or a question beside exactly its clarification.
+        """A completed turn's one Routine outcome, the chat agent's ``record``, which asks nothing beside it.
 
-        A Routine question is the change's own ``question`` or a ``need`` outcome; a ``discard`` asks nothing. Local
-        Team admits its shape.
+        Local Team admits its shape (ADR-0101).
         """
         routine = value["routine"]
         if routine is None:
             return None
-        asks = isinstance(routine, dict) and ("question" in routine or routine.get("op") == "need")
-        if not isinstance(routine, dict) or value["status"] != "completed" or (value["clarification"] is None) == asks:
+        if not isinstance(routine, dict) or value["status"] != "completed" or value["clarification"] is not None:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         return routine
 
@@ -834,10 +822,6 @@ class BrainRuntimeClient:
     def routine_recovery(self, payload: Mapping[str, object], provider: str, model: str) -> object:
         """Send one Routine recovery request ``inference.recovery`` admitted; return its metered answer."""
         return self._metered(self._post("/v1/routine-recovery", dict(payload)), "routine-recovery", provider, model)
-
-    def routine_compile(self, payload: Mapping[str, object], provider: str, model: str) -> object:
-        """Send one Routine compile request ``inference.recreate`` admitted; return its metered answer."""
-        return self._metered(self._post("/v1/routine-compile", dict(payload)), "routine-compile", provider, model)
 
     def delete_thread(self, thread_id: str) -> None:
         if not isinstance(thread_id, str) or action_journal.SAFE_ID_RE.fullmatch(thread_id) is None:

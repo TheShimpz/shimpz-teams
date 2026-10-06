@@ -17,11 +17,9 @@ from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError
 from local.routine import compiled as routine_compiled
-from local.routine import draft as routine_draft
 from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
 from local.routine import run as routine_run
-from local.routine import source as routine_source
 from local.routine import store as routine_store
 from routine import hold as routine_hold
 from routine import record
@@ -72,7 +70,7 @@ def _recover(service, team_id: str, value: record.Run) -> str | None:
         if progress == "partial":
             return routine_hold.hold_recovered(state, value.run_id, value.lease_sha256), "held"
         return record.end(
-            state, value.run_id, now, "failed", {"code": "interrupted", "actions": [], "step": None, "steps": None}
+            state, value.run_id, now, "failed", {"code": "interrupted", "actions": [], "position": None, "steps": None}
         ), "failed"
 
     return service.routine_store.update(team_id, recover)
@@ -109,8 +107,6 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
     for run_id in service.routine_store.cursors(team_id):
         if run_id not in kept:
             service.routine_store.delete_cursor(team_id, run_id)
-    # A creation source a crash left without its Routine.
-    routine_source.sweep(service, team_id)
     routine_manage.settle_team(service, team_id)
 
 
@@ -134,13 +130,6 @@ def check(service, *, startup: bool = False) -> None:
             if startup:
                 raise
             _audit("routine-watchdog", "team-check-failed", team_id)
-    # A Routine draft nobody continued expires, even in a Team that has no Routine yet (ADR-0092, 2026-10-05).
-    try:
-        service.routine_store.sweep_drafts(now - routine_draft.DRAFT_SECONDS)
-    except routine_store.RoutineStoreError:
-        if startup:
-            raise
-        _audit("routine-watchdog", "draft-sweep-failed")
 
 
 class RoutineWatchdog:

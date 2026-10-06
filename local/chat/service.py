@@ -30,14 +30,13 @@ from local.routine import compiled as local_routine_compiled
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import human as local_routine_human
 from local.routine import incident as local_routine_incident
-from local.routine import lineage as local_routine_lineage
 from local.routine import manage as local_routine_manage
 from local.routine import notices as local_routine_notices
-from local.routine import question as local_routine_question
-from local.routine import recent as local_routine_recent
+from local.routine import proposal as local_routine_proposal
+from local.routine import protection as local_routine_protection
+from local.routine import recorder as local_routine_recorder
 from local.routine import recovery as local_routine_recovery
 from local.routine import run as local_routine_run
-from local.routine import turn as local_routine_turn
 
 # How long a Space reset waits for every running turn to stop after it cancelled them.
 DRAIN_SECONDS = 30
@@ -65,8 +64,10 @@ class ChatTurnService:
         self.chat_continuations = dependencies.chat_continuations
         self.routine_store = dependencies.routine_store
         self.routine_diagnostics = dependencies.routine_diagnostics
-        self.routine_lineage = dependencies.routine_lineage or local_routine_lineage.LineageBook()
-        self.routine_recent = dependencies.routine_recent or local_routine_recent.RecentBook()
+        # Recording turns, Routine cards, and run protection live in this process only (ADR-0101).
+        self.routine_recordings = dependencies.routine_recordings or local_routine_recorder.RecordingBook()
+        self.routine_proposals = dependencies.routine_proposals or local_routine_proposal.ProposalBook()
+        self.routine_protections = dependencies.routine_protections or local_routine_protection.RunProtections()
         # Recovery cards of held runs, each answerable once by the person it was opened for (ADR-0092).
         self.routine_cards = dependencies.routine_cards or local_routine_card.CardBook()
         # Routine challenges live apart from chat's one per Team, so a frozen run never blocks chat (ADR-0086).
@@ -243,12 +244,11 @@ class ChatTurnService:
     open_chat_human = local_chat_human.open_chat_human
     _relocalized_human = local_chat_human.relocalized
     _expire_human_challenges = local_chat_human._expire_human_challenges
-    _chat_routines = local_routine_turn.chat_routines
-    _routine_capacity = local_routine_turn.routine_capacity
-    _routine_change = local_routine_turn.admit_change
-    _routine_question = local_routine_question.admit
-    _routine_need = local_routine_turn.admit_need
-    _routine_discard = local_routine_turn.admit_discard
+    _chat_routines = local_routine_proposal.chat_routines
+    _routine_capacity = local_routine_proposal.routine_capacity
+    _routine_record = local_routine_proposal.admit
+    confirm_routine_proposal = local_routine_proposal.confirm
+    revoke_routine_proposal = local_routine_proposal.revoke
     _recover_routine_run = local_routine_recovery.automatic
     open_routine_card = local_routine_card.open_card
     answer_routine_card = local_routine_card.answer_card

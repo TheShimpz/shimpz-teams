@@ -748,12 +748,17 @@ class RpcPrivateInputs:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ActionInvocationEvidence:
-    """Invoke-time private evidence, the memory-only replay transcript, and the journaled logical operation id."""
+    """Invoke-time private evidence, the memory-only replay transcript, and the journaled logical operation id.
+
+    ``protect`` receives every further value Team injects into the workload, its capabilities, before the RPC, so a
+    Routine run or a recording turn protects them even when the attempt then fails (ADR-0101 section 6.2).
+    """
 
     private_inputs: RpcPrivateInputs
     transcript: action_human.ActionTranscript
     origin: str
     operation_id: str
+    protect: Callable[[tuple[str, ...]], None] | None = dataclasses.field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True, repr=False)

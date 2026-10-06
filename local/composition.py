@@ -44,7 +44,8 @@ class ChatTurnDependencies:
     raise_storage_problem: object | None = None
     routine_store: object | None = None
     routine_human_challenges: object | None = None
-    routine_lineage: object | None = None
-    routine_recent: object | None = None
+    routine_recordings: object | None = None
+    routine_proposals: object | None = None
+    routine_protections: object | None = None
     routine_cards: object | None = None
     routine_diagnostics: object | None = None

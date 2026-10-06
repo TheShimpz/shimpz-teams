@@ -23,8 +23,8 @@ def delete_team_routines(self, team_id: str) -> None:
     with self.routine_store.lock(team_id):
         _delete_team_routines(self, team_id)
     self.routine_human_challenges.cancel_team(team_id)
-    self.routine_lineage.drop(team_id)
-    self.routine_recent.drop(team_id)
+    self.routine_proposals.drop(team_id)
+    self.routine_recordings.drop(team_id)
     self.routine_cards.drop(team_id)
 
 
@@ -61,8 +61,9 @@ def delete_all_routines(self) -> None:
     The store is exclusive for the whole reset: writes in flight finish first and every later one is refused.
     """
     self.routine_human_challenges.cancel_all()
-    self.routine_lineage.clear()
-    self.routine_recent.clear()
+    self.routine_proposals.clear()
+    self.routine_recordings.clear()
+    self.routine_protections.clear()
     self.routine_cards.clear()
     with self.routine_store.exclusive():
         try:

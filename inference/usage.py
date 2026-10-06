@@ -29,7 +29,6 @@ OPERATIONS = (
     "capability-plan",
     "intent-route",
     "purpose",
-    "routine-compile",
     "routine-recovery",
     "turn",
     "turn-resume",
@@ -114,6 +113,29 @@ def record(operation: str, provider: str, model: str, counts: Mapping[str, int])
     meter = _METER.get()
     if meter is not None:
         meter.add(operation, provider, model, counts)
+
+
+def tokens() -> dict[tuple[str, str], tuple[int, int]]:
+    """The tokens this request's model calls used so far, per provider and model; nothing outside a metered request."""
+    meter = _METER.get()
+    return {} if meter is None else meter.tokens()
+
+
+def since(before: Mapping[tuple[str, str], tuple[int, int]]) -> list[dict[str, object]]:
+    """The tokens used since ``before`` was read, per provider and model, as a run's usage lists them, sorted."""
+    models = []
+    for (provider, model), (inputs, outputs) in sorted(tokens().items()):
+        prior_inputs, prior_outputs = before.get((provider, model), (0, 0))
+        if (inputs, outputs) != (prior_inputs, prior_outputs):
+            models.append(
+                {
+                    "provider": provider,
+                    "model": model,
+                    "input_tokens": inputs - prior_inputs,
+                    "output_tokens": outputs - prior_outputs,
+                }
+            )
+    return models
 
 
 def drain() -> list[dict[str, object]] | None:

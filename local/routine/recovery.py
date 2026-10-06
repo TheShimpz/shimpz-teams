@@ -34,21 +34,21 @@ from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import recovery as inference_recovery
+from inference import usage as brain_usage
 from local import audit as local_audit
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import compiled as routine_compiled
+from local.routine import contracts as routine_contracts
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import incident as routine_incident
 from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
-from local.routine import turn as routine_turn
 from routine import cursor as routine_cursor
 from routine import hold as routine_hold
-from routine import pin as routine_pin
 from routine import plan as routine_plan
-from routine import record
+from routine import record, trace
 
 VERIFY_SUFFIX = "v1"
 # Each recovery call's output cap, charged in full before the call (ADR-0092 section 6).
@@ -147,9 +147,7 @@ def assess(self, team_id: str, incident_id: str) -> Assessment:
     if network_id != opened.recovery.binding.incarnation:
         raise _drift()
     try:
-        plan = routine_plan.admit(
-            opened.recovery.plan, routine_turn.contracts(tuple(active.values()), routine_pin.SCOPE_LOCALE)
-        )
+        plan = routine_plan.admit(opened.recovery.plan, routine_contracts.contracts(tuple(active.values())))
     except routine_plan.PlanError as exc:
         raise _drift() from exc
     cursor = opened.cursor
@@ -345,7 +343,13 @@ def _judge(self, team_id: str, assessment: Assessment, result: object, protected
         # attempt it stands for: against the private values that attempt was given, held in memory since it failed.
         if action_execution.contains_secret(recovered, dict(enumerate(map(str, protected)))):
             return "inconclusive"
-        completed = routine_compiled.advance(self.routine_store, team_id, cursor, assessment.plan, recovered)
+        step = assessment.plan.steps[cursor.step]
+        protection = self.routine_protections.grow(
+            cursor.binding.run_id, trace.secret_values(recovered, step.output_schema)
+        )
+        completed = routine_compiled.advance(
+            self.routine_store, team_id, cursor, assessment.plan, (recovered, protection)
+        )
     except routine_plan.PlanError, routine_cursor.CursorError, routine_store.RoutineStoreError, ValueError:
         return "inconclusive"
     _seal(self, team_id, completed)
@@ -498,10 +502,11 @@ def _decide(self, team_id: str, incident_id: str, credential: tuple[str, str], l
     settled = assessment.action.effect == "read_only" or assessment.state == "no_effect"
     proof = "no_effect" if settled else "not_occurred"
     subject = {
-        "routine": {"name": _routine_name(self, team_id, routine.binding.routine_id), "request": routine.quote},
+        "routine": {"name": routine.name},
         "step": {"assistant": assessment.step.assistant_id, "action": assessment.step.action},
         "proof": proof,
     }
+    before = brain_usage.tokens()
     try:
         return inference_recovery.decide(
             self.brain_runtime,
@@ -512,12 +517,14 @@ def _decide(self, team_id: str, incident_id: str, credential: tuple[str, str], l
         )
     except brain_runtime_client.BrainRuntimeError:
         return "unavailable"
+    finally:
+        _used(self, team_id, incident_id, brain_usage.since(before))
 
 
-def _routine_name(self, team_id: str, routine_id: str) -> str:
-    state = routine_state.load(self, team_id)
-    found = next((item for item in state.routines if item.routine_id == routine_id), None)
-    return "Routine" if found is None else found.name
+def _used(self, team_id: str, incident_id: str, models: list[dict[str, object]]) -> None:
+    """Add a recovery decision's reported tokens to the held run's usage, which its notices carry (ADR-0101)."""
+    if models:
+        routine_state.update(self, team_id, lambda state: (routine_hold.used(state, incident_id, models), None))
 
 
 # What pauses the Routine when the episode ends on it, and the reason its notice gives.

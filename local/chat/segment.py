@@ -1,7 +1,6 @@
 """Local chat segment orchestration operations."""
 
 import functools
-import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -24,11 +23,12 @@ from local.chat import attachments as local_attachments
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import diagnostics as routine_diagnostics
+from local.routine import recorder as routine_recorder
 from local.validation import brain_thread_id as _brain_thread_id
 from local.validation import routine_thread_id as _routine_thread_id
 from routine import pin as routine_pin
 from routine import record as routine_record
-from routine.request import Request as RoutineRequest
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,9 +70,18 @@ class SegmentRequest:
     # A compiled Routine run (ADR-0092) runs in its own journal generation in the Team's current network,
     # and holds an uncertain batch for a human instead of abandoning it.
     routine: RoutineSegment | None = None
-    # The authenticated request of a new chat turn; only while it may still change a Routine, and only without files,
-    # does the Brain see the Team's Routines and its Routine tool (ADR-0092).
-    routine_request: RoutineRequest | None = None
+    # The recording of a new logical chat turn that may define a Routine, by id (ADR-0101 section 4.1): only its start
+    # offers the Brain the Team's Routines and its Routine tool, and every segment of it keeps its Action calls.
+    recording: str | None = None
+
+
+def _protector(self, request: SegmentRequest) -> Callable[[tuple[str, ...]], object] | None:
+    """Where an attempt's further injected values are protected before its RPC: its run's, or its recording's."""
+    if request.routine is not None:
+        return request.routine.runtime.protect
+    if request.recording is not None:
+        return lambda values: self.routine_recordings.protect(request.team_id, request.recording, values)
+    return None
 
 
 def _observed(invoke: Callable[[], object], runtime, action_request, evidence) -> object:
@@ -154,14 +163,8 @@ def _knowledge(self, team_id: str) -> tuple[object, object]:
 
 
 def _routine_mutable(request: SegmentRequest) -> bool:
-    """Whether this turn may change a Routine: a new chat turn's fresh authenticated request without files."""
-    grant = request.routine_request
-    return request.routine is None and grant is not None and not request.file_ids and grant.fresh(int(time.time()))
-
-
-def _draft_parts(request: RoutineRequest) -> tuple[tuple[str, str], ...]:
-    """The person's Routine draft the request froze, which a create may continue (ADR-0092 amendment, 2026-10-05)."""
-    return () if request.draft is None else request.draft.parts
+    """Whether this segment starts a turn that may define a Routine: a new chat turn being recorded, without files."""
+    return request.routine is None and request.recording is not None and request.continuation is None
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,9 +199,6 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         memories=None if routine is not None else tuple(memories),
         skills=None if routine is not None else chat_knowledge.turn_skills(skills, runtime_assistants),
         routines=self._chat_routines(request.team_id) if mutable else None,
-        routine_earlier=request.routine_request.earlier if mutable else (),
-        routine_draft=_draft_parts(request.routine_request) if mutable else (),
-        routine_answer=request.routine_request.answer if mutable else None,
         routine_capacity=self._routine_capacity(request.team_id) if mutable else None,
         knowledge_writable=routine is None,
         locale=request.locale,
@@ -277,6 +277,7 @@ def _run_chat_segment_with_metadata(
             transcript,
             action_execution.stored_input_origin(action_request),
             operation_id,
+            protect=_protector(self, request),
         )
 
         def invoke() -> object:
@@ -284,6 +285,12 @@ def _run_chat_segment_with_metadata(
                 request.team_id, request.token, action_request, active.container_id, evidence
             )
 
+        if request.routine is None and request.recording is not None:
+            # A recording turn keeps every successful call, and protects what it was given and returned (ADR-0101).
+            call = (active, action_request, evidence, routine_diagnostics.protected(evidence))
+            return routine_recorder.recorded(
+                self.routine_recordings, (request.team_id, request.recording), call, invoke
+            )
         if request.routine is None:
             return invoke()
         # A compiled run's cursor names this logical operation and its exact input before the RPC (ADR-0092).

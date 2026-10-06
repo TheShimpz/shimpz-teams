@@ -149,6 +149,34 @@ def admit(envelope: object, secrets: Iterable[str]) -> ActionFailure:
     )
 
 
+def redacted_with(failure: ActionFailure, secrets: Iterable[str]) -> ActionFailure:
+    """A kept failure re-redacted with more protected values, such as a Routine run's whole protection (ADR-0101).
+
+    Every member goes through the same redactor admission uses, so an encoding of any value is replaced too.
+    """
+    redactor = _Redactor(secrets)
+    error_type, type_changed, type_cut = redactor.text(failure.error_type, MAX_ERROR_TYPE)
+    message, message_changed, message_cut = redactor.text(failure.message, MAX_TEXT_BYTES)
+    excerpt, excerpt_changed, excerpt_cut = (None, False, False)
+    if failure.response_excerpt is not None:
+        excerpt, excerpt_changed, excerpt_cut = redactor.text(failure.response_excerpt, MAX_TEXT_BYTES)
+    provider_changed = failure.provider is not None and redactor.text(failure.provider, MAX_TEXT_BYTES)[1]
+    return ActionFailure(
+        error_type=error_type,
+        message=message,
+        provider=None if provider_changed else failure.provider,
+        http_status=failure.http_status,
+        response_excerpt=excerpt,
+        redacted=failure.redacted or type_changed or message_changed or excerpt_changed or provider_changed,
+        truncated=failure.truncated or type_cut or message_cut or excerpt_cut,
+    )
+
+
+def withheld(failure: ActionFailure) -> ActionFailure:
+    """A failure with every free-form member withheld, for a run whose protection was lost: only its status stays."""
+    return ActionFailure("withheld", "", None, failure.http_status, None, redacted=True, truncated=False)
+
+
 class _Redactor:
     """Replace every encoding of each injected value, then secret-shaped text, then any clipped trailing prefix."""
 

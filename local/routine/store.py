@@ -1,15 +1,15 @@
 """Local Routine persistence: one private state file per Team and its sealed run records (ADR-0086, ADR-0092).
 
 A Team's Routines, runs, notices, and incident index live in one private JSON file that every transition replaces
-atomically. A frozen run's secret-free continuation, a compiled run's cursor, an incident's compact evidence, a
-Routine's creation source, and a person's Routine draft are each encrypted separately, bound by their AAD to exactly
-what they belong to; each is written before the state that relies on it, so a crash leaves at worst an unreferenced one,
-which recovery removes.
+atomically. A frozen run's secret-free continuation, a run's cursor, its recovery snapshot, and an incident's compact
+evidence are each encrypted separately, bound by their AAD to exactly what they belong to; each is written before the
+state that relies on it, so a crash leaves at worst an unreferenced one, which recovery removes.
 """
 
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 import hmac
 import json
@@ -30,11 +30,12 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from action import human as action_human
 from action import journal as action_journal
 from local.chat import continuation as local_chat_continuation
+from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import strict_json
 from routine import cursor as routine_cursor
-from routine import grant as routine_grant
+from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
 from routine import starts as routine_starts
@@ -42,37 +43,36 @@ from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state")
 KEY_PATH = Path("/var/lib/shimpz-local/routines/key/aes256.key")
-SCHEMA = 8
+SCHEMA = 9
 # Every bound below derives from the plan's admission budget and the encoders' worst cases (ADR-0092 amendment,
 # 2026-10-05, scale), which tests build through the real encoders. The state file holds every definition at the Team's
-# aggregate budget, each Routine's other fields, every undelivered notice, and every start, discard, incident, and
-# receipt, each at its own bound.
-MAX_NOTICE_BYTES = http_routine.MAX_OUTPUT_BYTES + http_routine.MAX_SUMMARY_BYTES + 4 * 1024
-_NOTICES_BYTES = (record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES) * MAX_NOTICE_BYTES
-_RECORDS_BYTES = http_routine.MAX_DAILY_RUNS * 64 + record.MAX_DISCARDS * 256 + record.MAX_RECEIPTS * 96
+# aggregate budget, each Routine's other fields, every undelivered notice, and every start, discard, and incident, each
+# at its own bound.
+# A notice at most: its shown output, its plan summary, a decision's message at four UTF-8 bytes a character, its usage
+# and every other field.
+MAX_NOTICE_BYTES = (
+    http_routine.MAX_OUTPUT_BYTES
+    + http_routine.MAX_SUMMARY_BYTES
+    + 4 * http_routine.MAX_DECISION_MESSAGE_CHARS
+    + 8 * 1024
+)
+_NOTICES_BYTES = (record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES) * MAX_NOTICE_BYTES
+_RECORDS_BYTES = http_routine.MAX_DAILY_RUNS * 64 + record.MAX_DISCARDS * 256
 _ROUTINES_BYTES = routine_plan.TEAM_DEFINITION_BYTES + record.MAX_ROUTINES * 18 * 1024
 MAX_STATE_BYTES = _ROUTINES_BYTES + _NOTICES_BYTES + _RECORDS_BYTES + record.MAX_INCIDENTS * 4 * 1024 + 64 * 1024
 # Reads of one state file that may race its atomic replace before a failure is taken as real.
 UNLOCKED_READ_ATTEMPTS = 3
-# The recovery snapshot: the plan, its binding, and the quoted request.
+# The recovery snapshot: the plan, its binding, the Routine's name, and whether the run rehearses.
 MAX_RECOVERY_BYTES = routine_plan.MAX_PLAN_BYTES + 8 * 1024
 # The incident's compact evidence: its copy of the snapshot and its batch's operation rows.
 MAX_INCIDENT_BYTES = MAX_RECOVERY_BYTES + action_journal.MAX_OPERATIONS * 512 + 8 * 1024
 _CONTINUATION_NAME_RE = re.compile(r"[0-9a-f]{32}\.continuation\Z")
 _CURSOR_NAME_RE = re.compile(r"[0-9a-f]{32}\.cursor\Z")
 _RECOVERY_NAME_RE = re.compile(r"[0-9a-f]{32}\.recovery\Z")
-_SOURCE_NAME_RE = re.compile(r"[0-9a-f]{32}\.source\Z")
-_DRAFT_NAME_RE = re.compile(r"[0-9a-f]{64}\.draft\Z")
-# A Routine's words of at most 54,104 characters (``routine.request.MAX_SOURCE_CHARS``), at most six bytes each once
-# JSON-escaped, and the value its person selected.
-MAX_SOURCE_BYTES = 512 * 1024
-# A draft of at most 32,000 characters at six JSON bytes each, and its question.
-MAX_DRAFT_BYTES = 256 * 1024
 _ROUTINE_FIELDS = frozenset(
     {
         "routine_id",
         "name",
-        "quote",
         "plan",
         "schedule",
         "timezone",
@@ -86,10 +86,19 @@ _ROUTINE_FIELDS = frozenset(
         "reported_missed",
         "revision",
         "paused",
-        "grant",
+        "rehearsal",
+        "confirmation",
+        "permitted",
+        "permissions_revision",
+        "prompt",
+        "model",
+        "allowance",
+        "baseline",
+        "rehearsed",
         "failures",
         "rollup_minute",
         "rollup_runs",
+        "rollup_usage",
         "run_requested",
         "output_digest",
     }
@@ -110,11 +119,17 @@ _RUN_FIELDS = frozenset(
         "generation",
         "notice_version",
         "requests_used",
-        "step",
+        "position",
         "steps",
+        "usage",
+        "rehearsal",
+        "protection_lost",
     }
 )
-_NOTICE_FIELDS = frozenset({"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version", "quote"})
+_NOTICE_FIELDS = frozenset(
+    {"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version", "name", "usage"}
+    | {"protection_lost"}
+)
 _INCIDENT_FIELDS = frozenset(
     {
         "incident_id",
@@ -124,13 +139,16 @@ _INCIDENT_FIELDS = frozenset(
         "revision",
         "status",
         "notice_version",
-        "quote",
+        "name",
         "assistant_id",
         "action",
         "active_seconds_left",
-        "step",
+        "position",
         "steps",
         "requests_used",
+        "usage",
+        "rehearsal",
+        "protection_lost",
     }
 )
 _STATE_FIELDS = frozenset(
@@ -144,7 +162,6 @@ _STATE_FIELDS = frozenset(
         "starts",
         "discards",
         "incidents",
-        "receipts",
     }
 )
 
@@ -172,7 +189,7 @@ _PRIVATE = private_state.PrivateState(
     "Routine state is malformed",
     "Routine continuation is malformed",
     # The largest sealed record, base64-encoded.
-    (max(local_chat_continuation.MAX_ROUTINE_BYTES, MAX_SOURCE_BYTES, MAX_INCIDENT_BYTES) * 2) + 128,
+    (max(local_chat_continuation.MAX_ROUTINE_BYTES, MAX_INCIDENT_BYTES) * 2) + 128,
 )
 
 
@@ -216,6 +233,7 @@ def _encode(state: record.TeamRoutines, team_id: str) -> bytes:
     def routine_value(item: record.Routine) -> dict[str, object]:
         value = {name: getattr(item, name) for name in _ROUTINE_FIELDS}
         value["assistants"] = [list(pair) for pair in item.assistants]
+        value["permitted"] = list(item.permitted)
         return value
 
     def run_value(item: record.Run) -> dict[str, object]:
@@ -231,69 +249,45 @@ def _encode(state: record.TeamRoutines, team_id: str) -> bytes:
         "starts": [list(item) for item in state.starts],
         "discards": [list(item) for item in state.discards],
         "incidents": [{name: getattr(item, name) for name in _INCIDENT_FIELDS} for item in state.incidents],
-        "receipts": [list(item) for item in state.receipts],
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
 
 
 def _decode_routine(value: object) -> record.Routine:
     _require(isinstance(value, dict) and set(value) == _ROUTINE_FIELDS)
-    schedule = http_routine.canonical_schedule(value["schedule"])
-    assistants = value["assistants"]
+    assistants, permitted = value["assistants"], value["permitted"]
     _require(
-        isinstance(value["routine_id"], str)
-        and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
-        and http_routine.canonical_name(value["name"]) is not None
-        and http_routine.canonical_quote(value["quote"]) is not None
-        and routine_plan.well_formed(value["plan"])
-        and schedule is not None
-        and http_routine.canonical_timezone(value["timezone"]) is not None
-        and isinstance(assistants, list)
-        and 0 < len(assistants) <= http_routine.MAX_NOTICE_ASSISTANTS
-        and all(
-            isinstance(pair, list)
-            and len(pair) == 2
-            and isinstance(pair[0], str)
-            and isinstance(pair[1], str)
-            and http_routine.ASSISTANT_ID_RE.fullmatch(pair[0]) is not None
-            and http_payload.SOURCE_DIGEST_RE.fullmatch(pair[1]) is not None
-            for pair in assistants
-        )
-        and type(value["needs_reconfirm"]) is bool
-        and type(value["deleting"]) is bool
-        and type(value["revision"]) is int
-        and 1 <= value["revision"] < 2**31
-        and type(value["paused"]) is bool
-        and routine_grant.valid(value["grant"], value["plan"], value["revision"])
-        and len(routine_plan.canonical(value["plan"])) + len(routine_plan.canonical(value["grant"]))
-        <= routine_plan.MAX_DEFINITION_BYTES
+        isinstance(assistants, list)
+        and all(isinstance(pair, list) and len(pair) == 2 for pair in assistants)
+        and isinstance(permitted, list)
         and isinstance(value["output_digest"], str)
         and (value["output_digest"] == "" or http_payload.SHA256_RE.fullmatch(value["output_digest"]) is not None)
+        and (value["rollup_usage"] is None or http_routine.canonical_run_usage(value["rollup_usage"]) is not None)
     )
-    return record.Routine(
-        routine_id=value["routine_id"],
-        name=value["name"],
-        quote=value["quote"],
-        plan=value["plan"],
-        schedule=schedule,
-        timezone=value["timezone"],
+    decoded = record.Routine(
+        **({name: value[name] for name in _ROUTINE_FIELDS} | {"assistants": (), "permitted": ()}),
+    )
+    decoded = dataclasses.replace(
+        decoded,
         assistants=tuple((pair[0], pair[1]) for pair in assistants),
+        permitted=tuple(permitted),
         anchor=_instant(value["anchor"]),
         next_run_at=_instant(value["next_run_at"]),
-        needs_reconfirm=value["needs_reconfirm"],
-        deleting=value["deleting"],
         gap_started_at=_instant(value["gap_started_at"]),
         missed=_count(value["missed"]),
         reported_missed=_count(value["reported_missed"]),
-        revision=value["revision"],
-        paused=value["paused"],
-        grant=value["grant"],
         failures=_count(value["failures"]),
         rollup_minute=_instant(value["rollup_minute"]),
         rollup_runs=_rollup_runs(value["rollup_runs"]),
         run_requested=_instant(value["run_requested"]),
-        output_digest=value["output_digest"],
     )
+    _require(
+        type(decoded.needs_reconfirm) is bool
+        and type(decoded.deleting) is bool
+        and record.definition_valid(decoded)
+        and routine_definition.definition_bytes(decoded) <= routine_plan.MAX_DEFINITION_BYTES
+    )
+    return decoded
 
 
 def _decode_run(value: object) -> record.Run:
@@ -311,10 +305,20 @@ def _decode_run(value: object) -> record.Run:
         and value["notice_version"] >= 0
         and _requests_used(value["requests_used"])
     )
+    _require(
+        http_routine.canonical_run_usage(value["usage"]) == value["usage"]
+        and type(value["rehearsal"]) is bool
+        and type(value["protection_lost"]) is bool
+    )
     unleased = value["lease_sha256"] == "" and value["lease_key"] == "" and value["lease_expires_at"] == 0
-    step, steps = value["step"], value["steps"]
-    placed = type(step) is int and type(steps) is int and 0 <= step <= steps <= routine_plan.MAX_STEPS
-    no_request = placed and (value["request_kind"], value["assistant_id"], value["action"], steps) == ("", "", "", 0)
+    position, steps = value["position"], value["steps"]
+    no_request = (value["request_kind"], value["assistant_id"], value["action"], position, steps) == (
+        "",
+        "",
+        "",
+        None,
+        0,
+    )
     # Each status admits exactly its own fields, so teardown and recovery never act on a mixed record.
     _require(
         {
@@ -325,11 +329,10 @@ def _decode_run(value: object) -> record.Run:
             )
             and no_request,
             "frozen": unleased
-            and value["request_kind"] in {"human", "integrations"}
-            and http_routine.ASSISTANT_ID_RE.fullmatch(value["assistant_id"]) is not None
-            and http_routine.ACTION_ID_RE.fullmatch(value["action"]) is not None
-            and placed
-            and step >= 1,
+            and value["request_kind"] in http_routine.REQUEST_KINDS
+            and http_identifiers.canonical_assistant_id(value["assistant_id"]) is not None
+            and http_identifiers.canonical_action_id(value["action"]) is not None
+            and http_routine.canonical_position(position, steps) is not None,
             "held": unleased and no_request and value["generation"] != "",
         }.get(value["status"], False)
     )
@@ -338,29 +341,26 @@ def _decode_run(value: object) -> record.Run:
 
 
 def _decode_notice(value: object) -> record.Notice:
-    _require(isinstance(value, dict) and set(value) == _NOTICE_FIELDS)
-    detail = http_routine.canonical_notice_detail(value["outcome"], value["detail"])
-    _require(
-        detail is not None
-        and isinstance(value["notice_id"], str)
-        and http_routine.ROUTINE_ID_RE.fullmatch(value["notice_id"]) is not None
-        and isinstance(value["routine_id"], str)
-        and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
-        and isinstance(value["run_id"], str)
-        and (value["run_id"] == "" or http_routine.ROUTINE_ID_RE.fullmatch(value["run_id"]) is not None)
-        and type(value["version"]) is int
-        and value["version"] >= 1
-        and http_routine.canonical_quote(value["quote"]) is not None
-    )
+    _require(isinstance(value, dict) and set(value) == _NOTICE_FIELDS and isinstance(value["run_id"], str))
+    # A stored notice is exactly its wire form for some Team, with the empty run id of a Routine outcome as null.
+    wire = {
+        **{name: value[name] for name in _NOTICE_FIELDS},
+        "team_id": "stored",
+        "run_id": value["run_id"] or None,
+        "created_at": "1970-01-01T00:00:00Z",
+    }
+    _require(http_routine.canonical_notice(wire) == wire)
     return record.Notice(
         value["notice_id"],
         value["routine_id"],
         value["run_id"],
         value["outcome"],
         _instant(value["created_at"]),
-        detail,
+        value["detail"],
         value["version"],
-        value["quote"],
+        value["name"],
+        value["usage"],
+        value["protection_lost"],
     )
 
 
@@ -395,21 +395,22 @@ def _decode_incident(value: object) -> record.Incident:
         and value["status"] in ("unresolved", "skipped", "released")
         and type(value["revision"]) is int
         and 1 <= value["revision"] < 2**31
-        and http_routine.canonical_quote(value["quote"]) is not None
+        and http_routine.canonical_name(value["name"]) is not None
         and type(value["active_seconds_left"]) is int
         and value["active_seconds_left"] <= record.ACTIVE_SECONDS
         and _requests_used(value["requests_used"])
+        and http_routine.canonical_run_usage(value["usage"]) == value["usage"]
+        and type(value["rehearsal"]) is bool
+        and type(value["protection_lost"]) is bool
         and isinstance(value["assistant_id"], str)
         and isinstance(value["action"], str)
-        # The held step and its position: all named, or all empty when the run sealed no cursor before it was held.
+        # The held call and its position: all named, or all empty when the run sealed no cursor before it was held.
         and (
-            (value["assistant_id"], value["action"], value["step"], value["steps"]) == ("", "", 0, 0)
+            (value["assistant_id"], value["action"], value["position"], value["steps"]) == ("", "", None, 0)
             or (
-                http_routine.ASSISTANT_ID_RE.fullmatch(value["assistant_id"]) is not None
-                and http_routine.ACTION_ID_RE.fullmatch(value["action"]) is not None
-                and type(value["step"]) is int
-                and type(value["steps"]) is int
-                and 1 <= value["step"] <= value["steps"] <= routine_plan.MAX_STEPS
+                http_identifiers.canonical_assistant_id(value["assistant_id"]) is not None
+                and http_identifiers.canonical_action_id(value["action"]) is not None
+                and http_routine.canonical_position(value["position"], value["steps"]) is not None
             )
         )
     )
@@ -430,16 +431,6 @@ def _decode_start(value: object) -> tuple[str, int, int]:
     return value[0], _instant(value[1]), value[2]
 
 
-def _decode_receipt(value: object) -> tuple[str, int]:
-    _require(
-        isinstance(value, list)
-        and len(value) == 2
-        and isinstance(value[0], str)
-        and http_payload.SHA256_RE.fullmatch(value[0]) is not None
-    )
-    return value[0], _instant(value[1])
-
-
 def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
     try:
         value = strict_json.loads(payload)
@@ -455,15 +446,13 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         and isinstance(value["runs"], list)
         and len(value["runs"]) <= record.MAX_ROUTINES
         and isinstance(value["notices"], list)
-        and len(value["notices"]) <= record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES
+        and len(value["notices"]) <= record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES
         and isinstance(value["starts"], list)
         and len(value["starts"]) <= routine_starts.TEAM_CEILING
         and isinstance(value["discards"], list)
         and len(value["discards"]) <= record.MAX_DISCARDS
         and isinstance(value["incidents"], list)
         and len(value["incidents"]) <= record.MAX_INCIDENTS
-        and isinstance(value["receipts"], list)
-        and len(value["receipts"]) <= record.MAX_RECEIPTS
     )
     state = record.TeamRoutines(
         routines=tuple(_decode_routine(item) for item in value["routines"]),
@@ -473,18 +462,17 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         starts=tuple(_decode_start(item) for item in value["starts"]),
         discards=tuple(_decode_discard(item) for item in value["discards"]),
         incidents=tuple(_decode_incident(item) for item in value["incidents"]),
-        receipts=tuple(_decode_receipt(item) for item in value["receipts"]),
     )
     identifiers = [item.routine_id for item in state.routines]
     _require(
         len(set(identifiers)) == len(identifiers)
         and [at for _routine_id, at, _steps in state.starts] == sorted(at for _routine_id, at, _steps in state.starts)
-        and sum(routine_grant.definition_bytes(item) for item in state.routines) <= routine_plan.TEAM_DEFINITION_BYTES
+        and sum(routine_definition.definition_bytes(item) for item in state.routines)
+        <= routine_plan.TEAM_DEFINITION_BYTES
         and len({item.run_id for item in state.runs}) == len(state.runs)
         and len({item.notice_id for item in state.notices}) == len(state.notices)
         and len(set(state.discards)) == len(state.discards)
         and len({item.incident_id for item in state.incidents}) == len(state.incidents)
-        and len({item[0] for item in state.receipts}) == len(state.receipts)
         and sum(item.status == "unresolved" for item in state.incidents) <= record.MAX_UNRESOLVED_INCIDENTS
         and all(item.routine_id in identifiers for item in state.runs)
     )
@@ -512,21 +500,6 @@ def _cursor_aad(team_id: str, binding: routine_cursor.Binding) -> bytes:
 
 def _recovery_aad(team_id: str, run_id: str) -> bytes:
     return json.dumps(["shimpz-local-routine-recovery-v1", team_id, run_id], separators=(",", ":")).encode()
-
-
-def _source_aad(team_id: str, routine_id: str) -> bytes:
-    return json.dumps(["shimpz-local-routine-source-v1", team_id, routine_id], separators=(",", ":")).encode()
-
-
-def _draft_aad(team_id: str, person: str) -> bytes:
-    return json.dumps(["shimpz-local-routine-draft-v1", team_id, person], separators=(",", ":")).encode()
-
-
-def _person(value: object) -> str:
-    """A person's draft key: the SHA-256 of their principal, so no principal ever names a file."""
-    if not isinstance(value, str) or not value:
-        raise RoutineStoreError("Routine draft person is invalid")
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 class RoutineRecordInvalidError(RoutineStoreError):
@@ -723,59 +696,6 @@ class RoutineStore:
         except OSError as exc:
             raise RoutineStoreError(f"{label} could not be removed") from exc
 
-    def put_draft(self, team_id: object, principal: object, payload: object) -> None:
-        """Seal one person's Routine draft, replacing the one they had; the caller holds the Team's Routine lock."""
-        team, person = _team_id(team_id), _person(principal)
-        if not isinstance(payload, bytes) or not 1 <= len(payload) <= MAX_DRAFT_BYTES:
-            raise RoutineStoreError("Routine draft is invalid")
-        self._sealed_write(team, f"{person}.draft", payload, _draft_aad(team, person), "Routine draft")
-
-    def draft(self, team_id: object, principal: object) -> bytes | None:
-        """One person's sealed draft, or None; a malformed or unauthenticated one raises RoutineRecordInvalidError.
-
-        An unreadable file, a broken ownership contract, or an unavailable keyring stays RoutineStoreError: those prove
-        nothing about the draft, so they never read as its absence.
-        """
-        team, person = _team_id(team_id), _person(principal)
-        return self._sealed_read(team, f"{person}.draft", _draft_aad(team, person), "Routine draft", MAX_DRAFT_BYTES)
-
-    def delete_draft(self, team_id: object, principal: object) -> None:
-        """Remove one person's draft durably; an absent draft is already removed."""
-        team, person = _team_id(team_id), _person(principal)
-        with self.lock(team):
-            self._durable_unlink(self._team_dir(team), f"{person}.draft", "Routine draft")
-
-    def sweep_drafts(self, cutoff: float) -> int:
-        """Remove every draft last written before ``cutoff`` in every Team directory, including one with no Routine.
-
-        Each directory is swept under its own lock, so a draft written meanwhile is never removed; nothing is swept
-        while a Space reset holds the store. Returns how many drafts were removed.
-        """
-        removed = 0
-        for name in self._owned_directories():
-            directory = self.root / name
-            with self._directory_lock(name):
-                with self._guard:
-                    if self._closed:
-                        return removed
-                try:
-                    with os.scandir(directory) as entries:
-                        drafts = [
-                            (entry.name, entry.stat(follow_symlinks=False))
-                            for entry in entries
-                            if _DRAFT_NAME_RE.fullmatch(entry.name)
-                        ]
-                except FileNotFoundError:
-                    continue
-                except OSError as exc:
-                    raise RoutineStoreError("Routine drafts could not be listed") from exc
-                if any(not stat.S_ISREG(item.st_mode) or item.st_uid != os.geteuid() for _name, item in drafts):
-                    raise RoutineStoreError("Routine draft failed its ownership contract")
-                for entry in (name for name, item in drafts if item.st_mtime < cutoff):
-                    self._durable_unlink(directory, entry, "Routine draft")
-                    removed += 1
-        return removed
-
     def continuation(self, team_id: object, run_id: object) -> bytes:
         team, run = _team_id(team_id), _run_id(run_id)
         payload = self._sealed_read(
@@ -891,28 +811,6 @@ class RoutineStore:
 
     def delete_incident(self, team_id: object, incident_id: object) -> None:
         self._sealed_delete(_team_id(team_id), f"{_run_id(incident_id)}.incident", "Routine incident")
-
-    def put_source(self, team_id: object, routine_id: object, payload: object) -> None:
-        """Seal one Routine's creation source before the write that creates the Routine; it is write-once."""
-        team, routine = _team_id(team_id), _run_id(routine_id)
-        if not isinstance(payload, bytes) or not 1 <= len(payload) <= MAX_SOURCE_BYTES:
-            raise RoutineStoreError("Routine source is invalid")
-        self._sealed_write(
-            team, f"{routine}.source", payload, _source_aad(team, routine), "Routine source", maximum=MAX_SOURCE_BYTES
-        )
-
-    def source(self, team_id: object, routine_id: object) -> bytes | None:
-        team, routine = _team_id(team_id), _run_id(routine_id)
-        return self._sealed_read(
-            team, f"{routine}.source", _source_aad(team, routine), "Routine source", MAX_SOURCE_BYTES
-        )
-
-    def delete_source(self, team_id: object, routine_id: object) -> None:
-        self._sealed_delete(_team_id(team_id), f"{_run_id(routine_id)}.source", "Routine source")
-
-    def sources(self, team_id: object) -> tuple[str, ...]:
-        """The Routine ids with a sealed creation source, including any a crash left unreferenced."""
-        return self._sealed_names(_team_id(team_id), _SOURCE_NAME_RE, ".source", "sources")
 
     def continuations(self, team_id: object) -> tuple[str, ...]:
         """The run ids with a stored continuation, including any a crash left unreferenced."""

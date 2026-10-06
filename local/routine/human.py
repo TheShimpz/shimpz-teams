@@ -23,11 +23,11 @@ from local.chat import continuation as local_chat_continuations
 from local.chat import human as local_chat_human
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import compiled as routine_compiled
+from local.routine import contracts as routine_contracts
 from local.routine import manage as routine_manage
 from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
-from local.routine import turn as routine_turn
 from local.validation import validate_team_id
 from protocol.http.v1 import strict_json
 from routine import record
@@ -97,7 +97,7 @@ def _end_changed(self, team_id: str, value: record.Run) -> None:
         value.run_id,
         "failed",
         # The run failed at the step it was frozen at.
-        {"code": "team-context-changed", "actions": [], "step": value.step, "steps": value.steps},
+        {"code": "team-context-changed", "actions": [], "position": value.position, "steps": value.steps},
     ):
         raise _not_frozen()
     cancel_routine_challenge(self, team_id, value.run_id)
@@ -111,11 +111,11 @@ def _proven_changed(self, team_id: str, pending: local_chat_continuations.Pendin
     proof; a Team whose Assistants or configuration cannot be read now proves nothing.
     """
     try:
-        current = routine_turn.current_contracts(self, team_id, pending.assistant_ids)
+        current = routine_contracts.current_contracts(self, team_id, pending.assistant_ids)
         provider = self.inference_store.load(team_id).provider
     except inference_config.InferenceConfigMissingError:
         return True
-    except routine_turn.ContractsUnavailableError, inference_config.InferenceConfigError:
+    except routine_contracts.ContractsUnavailableError, inference_config.InferenceConfigError:
         return False
     return set(current) != set(pending.assistant_ids) or provider != pending.provider
 
@@ -136,7 +136,7 @@ def _current_context(
         current = self._chat_setup(team_id, [], pending.provider, pending.assistant_ids)
     except (ApiProblem, bindings.DynamicAssistantError) as exc:
         if not _proven_changed(self, team_id, pending):
-            raise routine_turn.context_unavailable() from exc
+            raise routine_contracts.context_unavailable() from exc
         current = None
     if (
         current is None

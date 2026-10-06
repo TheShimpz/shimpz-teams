@@ -1,8 +1,8 @@
 """Local Team Routine routes (ADR-0086).
 
 Admin's scheduler claims runs and delivers notices under the Team bearer; its routine identity runs one leased run
-under a routine assertion; a Supervisor session manages Routines, answers or stops their runs, and settles held runs
-through their recovery cards (ADR-0092).
+under a routine assertion; a Supervisor session confirms or cancels a recorded Routine's card (ADR-0101), manages
+Routines, answers or stops their runs, and settles held runs through their recovery cards (ADR-0092).
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ BODY_LIMITS = {
     "routine-card-answer": MAX_BODY_BYTES,
     "routine-resume": MAX_BODY_BYTES,
     "routine-pause": MAX_BODY_BYTES,
+    "routine-proposal-confirm": MAX_BODY_BYTES,
 }
 
 
@@ -130,9 +131,7 @@ def _card(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dic
     if route.operation == "routine-card-open":
         _empty(handler, route.operation)
         return service.open_routine_card(team_id, incident_id)
-    body = handler._body(max_bytes=BODY_LIMITS[route.operation])
-    # Recriar's model credential, which the Supervisor assertion bound; Rodar carries none.
-    return service.answer_routine_card(team_id, incident_id, body, handler._model_credential(route.operation))
+    return service.answer_routine_card(team_id, incident_id, handler._body(max_bytes=BODY_LIMITS[route.operation]))
 
 
 def _pause(handler, route: strict_http.ControllerRouteMatch, team_id: str, paused: bool) -> dict[str, object]:
@@ -141,6 +140,21 @@ def _pause(handler, route: strict_http.ControllerRouteMatch, team_id: str, pause
     service = handler.server.controller.chat_turn_service
     change = service.pause_routine if paused else service.resume_routine
     return change(team_id, route.params["routine_id"])
+
+
+_PROPOSAL_RE = re.compile(r"[0-9a-f]{32}\Z")
+
+
+def _proposal(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
+    """A person's answer to a recorded Routine's card: Criar rotina with an empty body, or Cancelar as a DELETE."""
+    proposal_id = route.params["proposal_id"]
+    if _PROPOSAL_RE.fullmatch(proposal_id) is None:
+        raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine card is unavailable", code="routine-proposal-expired")
+    service = handler.server.controller.chat_turn_service
+    if route.operation == "routine-proposal-confirm":
+        _empty(handler, route.operation)
+        return service.confirm_routine_proposal(team_id, proposal_id)
+    return service.revoke_routine_proposal(team_id, proposal_id)
 
 
 def _session(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
@@ -156,6 +170,8 @@ def _session(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> 
         "routine-card-answer": lambda: _card(handler, route, team_id),
         "routine-resume": lambda: _pause(handler, route, team_id, False),
         "routine-pause": lambda: _pause(handler, route, team_id, True),
+        "routine-proposal-confirm": lambda: _proposal(handler, route, team_id),
+        "routine-proposal-revoke": lambda: _proposal(handler, route, team_id),
     }
     operation = operations.get(route.operation)
     return operation() if operation is not None else _run(handler, route, team_id)

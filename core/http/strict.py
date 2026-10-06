@@ -445,6 +445,19 @@ CONTROLLER_ROUTES = (
         _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route("DELETE", "/v1/teams/:team_id/routines/:routine_id", "routine-delete", _LOCAL_CONTROLLER_ONLY),
+    # A recorded Routine's card (ADR-0101): Criar rotina confirms it, Cancelar revokes it.
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/routines/proposals/:proposal_id",
+        "routine-proposal-confirm",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route(
+        "DELETE",
+        "/v1/teams/:team_id/routines/proposals/:proposal_id",
+        "routine-proposal-revoke",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
     _controller_route(
         "POST", "/v1/teams/:team_id/routines/runs/:run_id/segment", "routine-run", _LOCAL_CONTROLLER_ONLY
     ),
@@ -464,7 +477,7 @@ CONTROLLER_ROUTES = (
         _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route("POST", "/v1/teams/:team_id/routines/runs/:run_id/stop", "routine-stop", _LOCAL_CONTROLLER_ONLY),
-    # A held run's recovery card (ADR-0092): open it, then answer it once with Verificar, Pular, or Pausar.
+    # A held run's recovery card (ADR-0092, ADR-0101): open it, then answer it once with Rodar.
     _controller_route(
         "POST",
         "/v1/teams/:team_id/routines/incidents/:incident_id/card",

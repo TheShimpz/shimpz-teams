@@ -13,7 +13,7 @@ from local.routine import incident as routine_incident
 from local.routine import state as routine_state
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
-from routine import grant as routine_grant
+from routine import definition as routine_definition
 from routine import hold as routine_hold
 from routine import record
 
@@ -34,16 +34,16 @@ def routine_view(value: record.Routine) -> dict[str, object]:
     return {
         "routine_id": value.routine_id,
         "name": value.name,
-        "quote": value.quote,
-        "plan": routine_grant.summary(value.plan, value.revision),
-        "output": routine_grant.disposition(value.plan),
+        "plan": routine_definition.summary(value.plan, value.revision),
+        "output": routine_definition.disposition(value.plan),
         "schedule": dict(value.schedule),
         "timezone": value.timezone,
         "assistant_ids": [assistant for assistant, _digest in value.assistants],
         "next_run_at": _instant(value.next_run_at),
         "needs_reconfirm": value.needs_reconfirm,
         "deleting": value.deleting,
-        "paused": value.paused,
+        "permissions_revision": value.permissions_revision,
+        **routine_definition.scope(value),
     }
 
 
@@ -57,15 +57,17 @@ def run_view(value: record.Run) -> dict[str, object]:
         "request_kind": value.request_kind or None,
         "assistant_id": value.assistant_id or None,
         "action": value.action or None,
+        "position": value.position,
+        "steps": value.steps if value.position is not None else None,
     }
 
 
 def incident_view(value: record.Incident) -> dict[str, object]:
-    """An unresolved incident a recovery card settles: its Routine, request, and the step whose effect is unknown."""
+    """An unresolved incident a recovery card settles: its Routine and the call whose effect is unknown."""
     return {
         "incident_id": value.incident_id,
         "routine_id": value.routine_id,
-        "quote": value.quote,
+        "name": value.name,
         "created_at": _instant(value.created_at),
         **routine_hold.step_detail(routine_hold.held_step(value)),
     }
@@ -89,7 +91,7 @@ def routine_steps(self, team_id: str, routine_id: str, revision: int, offset: in
         raise _problem(HTTPStatus.CONFLICT, "Routine revision changed", "routine-revision-changed")
     if not 0 <= offset < len(value.plan["steps"]):
         raise _problem(HTTPStatus.NOT_FOUND, "Routine steps are unavailable", "routine-steps-not-found")
-    return routine_grant.page(value.routine_id, value.revision, value.plan, value.grant, offset)
+    return routine_definition.page(value.routine_id, value.revision, value.plan, value.permitted, offset)
 
 
 def list_routines(self, team_id: str) -> dict[str, object]:
@@ -139,6 +141,8 @@ def _discard(self, team_id: str, run_id: str, generation: str, *, incident: bool
     if not incident:
         routine_state.call(lambda: self.routine_store.delete_cursor(team_id, run_id))
         routine_state.call(lambda: self.routine_store.delete_incident(team_id, run_id))
+        # Nothing of the run can show anything any more, so its protection goes with it.
+        self.routine_protections.drop(run_id)
 
 
 def drain(self, team_id: str) -> None:
@@ -211,8 +215,9 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
         return state, (runs, held)
 
     runs, held = routine_state.update(self, team_id, begin)
-    # No card of a deleting Routine can be answered any more.
+    # No card of a deleting Routine can be answered any more, nor a proposal that would replace it.
     self.routine_cards.drop_routine(team_id, routine_id)
+    self.routine_proposals.drop_routine(team_id, routine_id)
     for value in runs:
         if value.status == "leased":
             self._stop_routine_run(team_id, value.run_id)
@@ -234,8 +239,9 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
 def complete_deletion(self, team_id: str, routine_id: str) -> bool:
     """Remove a deleting Routine once none of its runs remains and its set-aside runs are released; False until then.
 
-    Its diagnostic bodies and creation source go first, while the Routine is still listed as deleting, so a failure
-    keeps it as the watchdog's retry target and never leaves residue behind a removed record.
+    Its diagnostic bodies go first, while the Routine is still listed as deleting, so a failure keeps it as the
+    watchdog's retry target and never leaves residue behind a removed record. The write that removes it publishes its
+    ``deleted`` notice, which outlives it.
     """
     state = routine_state.load(self, team_id)
     value = next((item for item in state.routines if item.routine_id == routine_id), None)
@@ -249,13 +255,13 @@ def complete_deletion(self, team_id: str, routine_id: str) -> bool:
         self.routine_diagnostics.delete_routine(team_id, routine_id)
     except routine_diagnostics.DiagnosticStoreError as exc:
         raise routine_state.unavailable() from exc
-    routine_state.call(lambda: self.routine_store.delete_source(team_id, routine_id))
+    now = int(time.time())
 
     def complete(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
         if not any(item.routine_id == routine_id for item in state.routines):
             return state, True
         try:
-            return record.complete_delete(state, routine_id), True
+            return record.complete_delete(state, routine_id, now), True
         except record.RoutineStateError:
             return state, False
 

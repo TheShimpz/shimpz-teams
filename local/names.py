@@ -218,8 +218,9 @@ def create_team(self, team_id: str, team_name: str) -> dict[str, object]:
         except inference_config.InferenceConfigError as exc:
             self._raise_inference_problem(exc)
         self.team_names.delete(team_id)
-        # Nothing a previous incarnation's person sent is ever cited by this one.
-        self.routine_recent.drop(team_id)
+        # No card or recording turn of a previous incarnation can ever define a Routine of this one.
+        self.routine_proposals.drop(team_id)
+        self.routine_recordings.drop(team_id)
         try:
             labels = self.assistant_lifecycle._base_labels(team_id, "team")
             labels[TEAM_NAME_LABEL] = team_name

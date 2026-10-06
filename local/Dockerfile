@@ -59,7 +59,7 @@ COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
 COPY inference/__init__.py inference/abort.py inference/client.py inference/config.py inference/errors.py \
     inference/model_catalog.json \
-    inference/recovery.py inference/recreate.py inference/token.py inference/usage.py ./inference/
+    inference/recovery.py inference/token.py inference/usage.py ./inference/
 COPY integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
     integrations/challenges.py integrations/flow.py integrations/http.py \
     integrations/pkce.py integrations/providers.py \
@@ -72,20 +72,14 @@ COPY local/chat/__init__.py local/chat/api.py local/chat/attachments.py local/ch
     local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/pause.py \
     local/chat/private.py local/chat/resume.py local/chat/segment.py local/chat/service.py \
     local/chat/state.py local/chat/types.py ./local/chat/
-COPY local/routine/__init__.py local/routine/card.py local/routine/compiled.py local/routine/diagnostics.py \
-    local/routine/human.py \
-    local/routine/draft.py local/routine/lifecycle.py \
-    local/routine/incident.py local/routine/lineage.py local/routine/manage.py \
-    local/routine/notices.py local/routine/question.py local/routine/recent.py local/routine/recovery.py \
-    local/routine/recreate.py \
-    local/routine/run.py local/routine/source.py local/routine/state.py \
-    local/routine/store.py \
-    local/routine/turn.py \
-    local/routine/watchdog.py ./local/routine/
-COPY routine/__init__.py routine/change.py routine/cursor.py routine/grant.py routine/hold.py routine/pin.py \
-    routine/plan.py routine/starts.py \
-    routine/record.py routine/request.py \
-    routine/schedule.py ./routine/
+COPY local/routine/__init__.py local/routine/card.py local/routine/compiled.py local/routine/contracts.py \
+    local/routine/diagnostics.py local/routine/human.py local/routine/incident.py local/routine/lifecycle.py \
+    local/routine/manage.py local/routine/notices.py local/routine/proposal.py local/routine/protection.py \
+    local/routine/recorder.py local/routine/recovery.py local/routine/run.py local/routine/state.py \
+    local/routine/store.py local/routine/watchdog.py ./local/routine/
+COPY routine/__init__.py routine/cursor.py routine/definition.py routine/hold.py routine/pin.py \
+    routine/plan.py routine/record.py routine/recording.py routine/schedule.py routine/starts.py \
+    routine/trace.py ./routine/
 COPY local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/inference.py local/http/routine.py \
     local/http/server.py local/http/stream.py ./local/http/
 COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/lock.py \

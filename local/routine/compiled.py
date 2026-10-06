@@ -1,4 +1,4 @@
-"""A compiled Routine run, executed step by step with no model (ADR-0092 sections 3, 5, and 6).
+"""A recorded Routine run, executed step by step with no model (ADR-0092 sections 3, 5, and 6; ADR-0101).
 
 The run drives the same Team turn loop a chat uses, through the same Action journal, egress, Integrations, Stored
 Inputs, and human requests, but its turns come from the compiled plan instead of the Brain: each step is one Action
@@ -8,6 +8,10 @@ operation and exact input before the RPC, and keeps each completed step's select
 its receipts, so a completed step never runs again. A healthy run makes no model call and needs no model-provider key.
 A suspension freezes the run for a person; a Stop with nothing uncertain ends it stopped; a failure before any dispatch
 fails it; every other failure holds the run as an incident for recovery.
+
+The run's protection (``local/routine/protection.py``) is bound with its first cursor and grows before every RPC and
+with every result's secret strings before anything outward sees it: a shown result, a step record's previews, and a
+failure's diagnostic are redacted against all of it. A run that loses it shows nothing it produced afterwards.
 """
 
 from __future__ import annotations
@@ -27,18 +31,19 @@ from local import audit as local_audit
 from local import authority as local_authority
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import contracts as routine_contracts
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import incident as routine_incident
+from local.routine import protection as routine_protection
 from local.routine import run as routine_run
+from local.routine import state as routine_state
 from local.routine import store as routine_store
-from local.routine import turn as routine_turn
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from routine import cursor as routine_cursor
-from routine import grant as routine_grant
-from routine import pin as routine_pin
+from routine import definition as routine_definition
 from routine import plan as routine_plan
-from routine import record
+from routine import record, trace
 
 # What a step record's duration is measured with: its own clock, apart from the active-time accounting's.
 _STEP_CLOCK = time.perf_counter
@@ -79,7 +84,7 @@ class CompiledRunError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class _Attempt:
-    """The dispatched step's attempt, in memory only: its position, start, exact input, and the values Team injected."""
+    """The dispatched step's attempt, in memory only: its position, start, exact input, and the values it protects."""
 
     position: int
     started: float
@@ -91,11 +96,16 @@ class _Attempt:
 
 @dataclass(frozen=True, slots=True)
 class _Seal:
-    """Where the run's cursor is sealed, its Team, and where each failed attempt's diagnostic is kept."""
+    """Where the run's cursor is sealed, its Team, and where its diagnostics and protection are kept.
+
+    ``lost`` records the run's loss of its protection in the Team's state.
+    """
 
     team_id: str
     store: routine_store.RoutineStore
     diagnostics: routine_diagnostics.DiagnosticStore
+    protections: routine_protection.RunProtections
+    lost: object = None
 
 
 class CompiledRuntime:
@@ -124,6 +134,18 @@ class CompiledRuntime:
     @property
     def plan(self) -> routine_plan.Plan:
         return self._plan
+
+    def protection(self) -> trace.Protection:
+        """The run's protection now; one that is not held in this process is lost."""
+        return self.protect(())
+
+    def protect(self, values) -> trace.Protection:
+        """Protect more of the run's values; a protection that saturates or is missing is lost, and the run says so."""
+        found = self._seal.protections.grow(self.cursor.binding.run_id, values)
+        if found.lost and not self.cursor.protection_lost:
+            self.seal(routine_cursor.lose_protection(self.cursor))
+            self._seal.lost()
+        return found
 
     @staticmethod
     def interrupt(index: int) -> str:
@@ -181,8 +203,11 @@ class CompiledRuntime:
         """Seal the completed step's selected values, before the journal may drop its receipts, then go on."""
         result = results.get(self.interrupt(self.cursor.step))
         dispatched = self.cursor
+        step = self._plan.steps[self.cursor.step]
+        # Every secret string the result holds is protected before anything of it is kept or shown.
+        protection = self.protect(trace.secret_values(result, step.output_schema))
         try:
-            advanced = advance(self._seal.store, self._seal.team_id, self.cursor, self._plan, result)
+            advanced = advance(self._seal.store, self._seal.team_id, self.cursor, self._plan, (result, protection))
         except routine_cursor.CursorError as exc:
             raise CompiledRunError(exc.code) from exc
         except routine_store.RoutineStoreError as exc:
@@ -201,7 +226,13 @@ class CompiledRuntime:
         if attempt is None:
             return
         step = self._plan.steps[attempt.position - 1]
-        inputs = routine_plan.input_preview(self._plan, step, attempt.input, cursor.selections(), attempt.protected)
+        protection = self.protection()
+        protected = (*attempt.protected, *protection.values)
+        inputs = (
+            None
+            if protection.lost
+            else routine_plan.input_preview(self._plan, step, attempt.input, cursor.selections(), protected)
+        )
         binding = cursor.binding
         run = routine_diagnostics.RunBinding(
             binding.routine_id, binding.run_id, binding.revision, self._plan.digest, len(self._plan.steps)
@@ -210,12 +241,13 @@ class CompiledRuntime:
         ended = _STEP_CLOCK() if attempt.ended is None else attempt.ended
         elapsed = None if status in ("waiting", "recovered") else int((ended - attempt.started) * 1000)
         self._attempt = None
-        made = (attempt.position, step.assistant_id, step.action, status, max(cursor.attempts, 1), elapsed)
+        position = {"phase": "replay", "step": attempt.position}
+        made = (position, step.assistant_id, step.action, status, max(cursor.attempts, 1), elapsed)
         record = routine_diagnostics.StepRecord(run, *made, int(time.time()), inputs)
         if http_routine.encoded_bytes(record.view()) > http_routine.MAX_STEP_VIEW_BYTES:
             record = dataclasses.replace(record, inputs=None)
         try:
-            self._seal.diagnostics.record_step(self._seal.team_id, binding.incarnation, record, attempt.protected)
+            self._seal.diagnostics.record_step(self._seal.team_id, binding.incarnation, record, protected)
         except routine_diagnostics.DiagnosticStoreError:
             local_audit.record_request(
                 "routine-step-record", result="error", team_id=self._seal.team_id, detail=binding.run_id
@@ -239,8 +271,9 @@ class CompiledRuntime:
         except routine_cursor.CursorError as exc:
             raise CompiledRunError(exc.code) from exc
         self.seal(dispatched)
-        protected = () if evidence is None else routine_diagnostics.protected(evidence)
-        self._attempt = _Attempt(self.cursor.step + 1, _STEP_CLOCK(), dict(request.input), protected)
+        if evidence is not None:
+            self.protect(routine_diagnostics.protected(evidence))
+        self._attempt = _Attempt(self.cursor.step + 1, _STEP_CLOCK(), dict(request.input), ())
 
     def failed(
         self,
@@ -265,7 +298,8 @@ class CompiledRuntime:
         # Only in memory, and only for this execution's automatic recovery: a recovered result is checked against the
         # exact private values this attempt was given, never against values a later call may have instead.
         self._protected[evidence.operation_id] = routine_diagnostics.protected(evidence)
-        found = routine_diagnostics.evidence(exc)
+        protection = self.protect(routine_diagnostics.protected(evidence))
+        found = routine_diagnostics.evidence(exc, protection)
         if found is None:
             return
         binding = self.cursor.binding
@@ -276,14 +310,12 @@ class CompiledRuntime:
             self.cursor.attempts,
             request.assistant_id,
             request.action,
-            self.cursor.step + 1,
+            {"phase": "replay", "step": self.cursor.step + 1},
             int(time.time()),
             *found,
         )
         try:
-            self._seal.diagnostics.record(
-                self._seal.team_id, binding.incarnation, diagnostic, routine_diagnostics.protected(evidence)
-            )
+            self._seal.diagnostics.record(self._seal.team_id, binding.incarnation, diagnostic, protection.values)
         except routine_diagnostics.DiagnosticStoreError:
             local_audit.record_request(
                 "routine-diagnostic", result="error", team_id=self._seal.team_id, detail=binding.run_id
@@ -295,9 +327,18 @@ class CompiledRuntime:
         return
 
 
+def _sealed_by(self, team_id: str, run_id: str) -> _Seal:
+    """Where one run's cursor, records, and protection live, and how its loss of protection reaches its state."""
+
+    def lost() -> None:
+        routine_state.update(self, team_id, lambda state: (record.lose_protection(state, run_id), None))
+
+    return _Seal(team_id, self.routine_store, self.routine_diagnostics, self.routine_protections, lost)
+
+
 def record_recovered(self, team_id: str, cursor: routine_cursor.Cursor, plan: routine_plan.Plan, protected) -> None:
     """A verified occurrence completed the held step: its record says recovered, with the inputs it was given."""
-    runtime = CompiledRuntime(_Seal(team_id, self.routine_store, self.routine_diagnostics), plan, cursor, "")
+    runtime = CompiledRuntime(_sealed_by(self, team_id, cursor.binding.run_id), plan, cursor, "")
     try:
         step = plan.steps[cursor.step]
         resolved = routine_plan.resolve(plan, step, cursor.selections(), cursor.started_at, lambda value: value)
@@ -312,13 +353,14 @@ def advance(
     team_id: str,
     cursor: routine_cursor.Cursor,
     plan: routine_plan.Plan,
-    result: object,
+    completed: tuple[object, trace.Protection],
 ) -> routine_cursor.Cursor:
     """The cursor past its completed step; the plan's shown step also keeps its bounded result and keyed digest."""
+    result, protection = completed
     shown_step = plan.shown()
     slot = None
-    if not cursor.done(plan) and shown_step is not None and plan.steps[cursor.step].step_id == shown_step.step_id:
-        slot = _slot(store, team_id, cursor.binding, (shown_step, cursor.step + 1), result)
+    if not cursor.replayed(plan) and shown_step is not None and plan.steps[cursor.step].step_id == shown_step.step_id:
+        slot = _slot(store, team_id, cursor.binding, (shown_step, cursor.step + 1), (result, protection))
     return routine_cursor.complete(cursor, plan, result, slot)
 
 
@@ -327,16 +369,20 @@ def _slot(
     team_id: str,
     binding: routine_cursor.Binding,
     shown: tuple[routine_plan.Step, int],
-    result: object,
+    completed: tuple[object, trace.Protection],
 ) -> dict[str, object]:
     """One shown step's result as its notice will show it, with the keyed digest a change is compared on.
 
     The output names the step by its position, as the wire does. A result that cannot be projected is kept as
-    unavailable, so the run still completes and says so.
+    unavailable, so the run still completes and says so; so is every result after the run lost its protection, whose
+    digest is never kept, so the ``changes`` baseline never moves.
     """
     step, position = shown
+    result, protection = completed
     try:
-        node = routine_plan.output_safe(result, step.output_schema)
+        if protection.lost:
+            raise routine_plan.OutputError("routine-protection-lost")
+        node = routine_plan.output_safe(result, step.output_schema, protection.values)
     except routine_plan.OutputError:
         return {"step": step.step_id, "output": routine_plan.output_state(position, "unavailable"), "digest": None}
     material = routine_plan.output_compared(node)
@@ -356,7 +402,7 @@ def sealed_shown(self, team_id: str, value: record.Run) -> dict[str, object] | N
 def _plan(self, team_id: str, routine: record.Routine) -> routine_plan.Plan:
     """The Routine's plan, admitted again against the exact current contracts, so drift never runs."""
     _name, _network, active_by_id = self._team_assistants(team_id)
-    contracts = routine_turn.contracts(tuple(active_by_id.values()), routine_pin.SCOPE_LOCALE)
+    contracts = routine_contracts.contracts(tuple(active_by_id.values()))
     try:
         return routine_plan.admit(routine.plan, contracts)
     except routine_plan.PlanError as exc:
@@ -370,24 +416,35 @@ def runtime(
     routine: record.Routine,
     protected: dict[str, tuple[str, ...]] | None = None,
 ) -> CompiledRuntime:
-    """The run's compiled runtime: its recovery snapshot sealed, and its cursor reopened or started."""
+    """The run's runtime: its recovery snapshot sealed, and its cursor reopened or started with its protection.
+
+    A fresh run binds its protection in this Team boot with its first cursor, before anything can dispatch, freeze,
+    or decide; a reopened one keeps it only when it was bound in this boot and is still held here.
+    """
     network_id = record.network_of(value.generation, value.run_id)
     binding = routine_cursor.Binding(network_id, routine.routine_id, routine.revision, value.run_id)
     plan = _plan(self, team_id, routine)
     # Write-once and sealed before the run's first dispatch; every later segment reseals the exact same bytes.
-    routine_incident.seal_recovery(self, team_id, routine_incident.Recovery(binding, routine.quote, routine.plan))
+    snapshot = routine_incident.Recovery(binding, routine.name, routine.plan, value.rehearsal)
+    routine_incident.seal_recovery(self, team_id, snapshot)
     try:
         cursor = self.routine_store.cursor(team_id, binding)
     except routine_store.RoutineStoreError as exc:
         raise CompiledRunError("routine-cursor-unavailable") from exc
     if cursor is not None and cursor.plan != plan.digest:
         raise CompiledRunError("cursor-plan-changed")
-    started = cursor or routine_cursor.start(plan, binding, int(time.time()))
-    compiled = CompiledRuntime(
-        _Seal(team_id, self.routine_store, self.routine_diagnostics), plan, started, routine.name, protected
-    )
+    protections = self.routine_protections
+    if cursor is None:
+        protections.bind(value.run_id)
+        started = routine_cursor.start(plan, binding, int(time.time()), protections.boot)
+    else:
+        protections.current(value.run_id, cursor.boot)
+        started = cursor
+    compiled = CompiledRuntime(_sealed_by(self, team_id, value.run_id), plan, started, routine.name, protected)
     if cursor is None:
         compiled.seal(started)
+    else:
+        compiled.protection()
     return compiled
 
 
@@ -519,9 +576,9 @@ def _ended(
 def _at(segment: RoutineSegment | None) -> dict[str, object]:
     """The step a failed run stopped at, by position among its plan's steps, only once that step was dispatched."""
     if segment is None or segment.runtime.cursor.operation_id is None:
-        return {"step": None, "steps": None}
+        return {"position": None, "steps": None}
     runtime = segment.runtime
-    return {"step": runtime.cursor.step + 1, "steps": len(runtime.plan.steps)}
+    return {"position": {"phase": "replay", "step": runtime.cursor.step + 1}, "steps": len(runtime.plan.steps)}
 
 
 def execute(
@@ -537,15 +594,15 @@ def execute(
     except (ApiProblem, CompiledRunError) as exc:
         # A failed segment's active time is charged under its live lease before it is fenced, so a hold carries the
         # balance the run really has left.
-        routine_run._spend(self, run.team_id, run.run_id, run.lease, int(time.monotonic() - started))
+        routine_run._spend(self, run.team_id, run.run_id, run.lease, time.monotonic() - started)
         return _ended(self, run, value, segment, exc)
-    routine_run._spend(self, run.team_id, run.run_id, run.lease, int(time.monotonic() - started))
+    routine_run._spend(self, run.team_id, run.run_id, run.lease, time.monotonic() - started)
     if isinstance(outcome.outcome, chat_orchestrator.ChatOutcome):
         shown = segment.runtime.cursor.shown
         return routine_run.finished(self, run, value, lambda: _sealed_done(self, run.team_id, value), shown)
     # The run waits at its current step, which its notice and its step record name by position.
     segment.runtime.record_step("waiting")
-    return routine_run.suspended(self, run, outcome, segment.runtime.cursor.step + 1)
+    return routine_run.suspended(self, run, outcome, {"phase": "replay", "step": segment.runtime.cursor.step + 1})
 
 
 def run_routine(
@@ -569,7 +626,7 @@ def run_routine(
     provider = provider or routine_run.team_provider(self, team_id) or ""
     lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
     value, routine = routine_run._live_run(self, team_id, run_id, lease)
-    current = (routine.revision, routine_grant.plan_digest(routine.plan), http_routine.run_mode(routine.schedule))
+    current = (routine.revision, routine_definition.plan_digest(routine.plan), http_routine.run_mode(routine.schedule))
     if claimed != current:
         raise ApiProblem(409, "Routine revision changed since the claim", code="routine-revision-stale")
     with (
@@ -580,7 +637,7 @@ def run_routine(
         refused = routine_run._context_refusal(self, team_id, dict(routine.assistants))
         if refused is not None:
             outcome = routine_run._end(
-                self, team_id, run_id, "failed", {"code": refused, "actions": [], "step": None, "steps": None}
+                self, team_id, run_id, "failed", {"code": refused, "actions": [], "position": None, "steps": None}
             )
         else:
             generation = routine_run._bind(self, team_id, run_id, lease)

@@ -32,13 +32,15 @@ def _notice(team_id: str, notice: record.Notice) -> dict[str, object]:
         "notice_id": notice.notice_id,
         "version": notice.version,
         "routine_id": notice.routine_id,
-        "quote": notice.quote,
+        "name": notice.name,
         "run_id": notice.run_id or None,
         "outcome": notice.outcome,
         "created_at": datetime.datetime.fromtimestamp(notice.created_at, datetime.UTC)
         .isoformat()
         .replace("+00:00", "Z"),
         "detail": notice.detail,
+        "usage": notice.usage,
+        "protection_lost": notice.protection_lost,
     }
 
 

@@ -224,10 +224,6 @@ def _drive(
             if turn.clarification is not None and (_round > 0 or invoked):
                 # A question is only admissible before any Action of the logical turn ran (ADR-0081).
                 raise ChatOrchestrationError("Brain asked a clarification after Actions ran")
-            if turn.routine is not None and (_round > 0 or invoked):
-                # Only the user's own message may change a Routine: never a turn that already saw any Action output,
-                # including one resumed after a person answered (ADR-0092 section 2).
-                raise ChatOrchestrationError("Brain changed a Routine after Actions ran")
             with strategy.progress.span("team-context"):
                 strategy.validate_context()
             return ChatOutcome(

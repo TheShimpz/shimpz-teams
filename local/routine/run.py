@@ -19,10 +19,10 @@ from local import authority as local_authority
 from local.chat import continuation as local_chat_continuations
 from local.chat.types import PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import contracts as routine_contracts
 from local.routine import manage as routine_manage
 from local.routine import state as routine_state
-from local.routine import turn as routine_turn
-from routine import record
+from routine import record, trace
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,8 +87,8 @@ def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str, l
         return state, None
     pinned = dict(due.assistants)
     try:
-        current = routine_turn.current_contracts(self, team_id, tuple(pinned))
-    except routine_turn.ContractsUnavailableError:
+        current = routine_contracts.current_contracts(self, team_id, tuple(pinned))
+    except routine_contracts.ContractsUnavailableError:
         # Nothing is proven: the Routine stays due, unchanged, and the next claim checks it again.
         return state, None
     if current != pinned:
@@ -200,7 +200,16 @@ def _finish(self, run: _Run, outcome: str, detail: dict[str, object], shown: dic
             return record.finish(state, run.run_id, run.lease, now, outcome, detail, shown), outcome
         except record.RoutineStateError:
             return record.end(
-                state, run.run_id, now, "failed", {"code": "lease-expired", "actions": [], "step": None, "steps": None}
+                state,
+                run.run_id,
+                now,
+                "failed",
+                {
+                    "code": "lease-expired",
+                    "actions": [],
+                    "position": None,
+                    "steps": None,
+                },
             ), "failed"
 
     return routine_state.update(self, run.team_id, finish)
@@ -258,8 +267,8 @@ def _deadline_cut(self, run: _Run) -> bool:
         return registration is not None and registration.token == run.token and registration.overdue
 
 
-def suspended(self, run: _Run, segment, step: int) -> str:
-    """A compiled run paused for a person or an Integration at the step ``step``: keep its continuation, freeze it."""
+def suspended(self, run: _Run, segment, step: dict[str, object]) -> str:
+    """A run paused for a person or an Integration at the call ``step``: keep its continuation, freeze it."""
     outcome = segment.outcome
     pending = PendingLocalChat(
         continuation=outcome.continuation,
@@ -290,16 +299,29 @@ def _frozen_request(segment) -> tuple[str, tuple[object, ...], str, str] | None:
     return "integrations", segment.integrations, requirement.assistant_id, requirement.action_ids[0]
 
 
-def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: int) -> str:
+def _exposes(self, run_id: str, segment) -> bool:
+    """Whether a paused run's human request would show the person a value its run protects, or its run lost that."""
+    if not segment.human:
+        return False
+    protection = self.routine_protections.grow(run_id, ())
+    shown = [[item.request.payload(), dict(item.copy.rendered)] for item in segment.human]
+    return protection.lost or trace.exposes(shown, protection.values)
+
+
+def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: dict[str, object]) -> str:
     """Keep a paused run for a human: its continuation first, then the frozen record commits the freeze."""
     team_id, run_id = run.team_id, run.run_id
     frozen = _frozen_request(segment)
-    # As in chat, a secret answer must be the last one a logical run gives: none may follow it.
-    if frozen is None or any(
-        response.secret for transcript in pending.transcripts for response in transcript.responses
+    # As in chat, a secret answer must be the last one a logical run gives: none may follow it. A request the person
+    # would be shown is checked against the run's protection now, while it is known: one that holds a protected value,
+    # or any after the run lost its protection, is never shown (ADR-0101 section 6.2).
+    if (
+        frozen is None
+        or any(response.secret for transcript in pending.transcripts for response in transcript.responses)
+        or _exposes(self, run_id, segment)
     ):
         self._commit_chat_terminal(team_id, run.token)
-        placed = {"step": step, "steps": len(run.routine.plan["steps"])}
+        placed = {"position": step, "steps": len(run.routine.plan["steps"])}
         return _end(self, team_id, run_id, "failed", {"code": "request-unavailable", "actions": [], **placed})
     kind, requirements, assistant_id, action = frozen
     bindings, payload = local_chat_continuations.encode(
@@ -320,7 +342,7 @@ def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: int) -> s
             if str(exc) == "routine-deleting":
                 # The deletion stops every run it saw leased; one reaching its pause meanwhile ends stopped.
                 return record.end(state, run_id, now, "stopped", {"actions": []}), "stopped"
-            placed = {"step": step, "steps": len(run.routine.plan["steps"])}
+            placed = {"position": step, "steps": len(run.routine.plan["steps"])}
             return record.end(state, run_id, now, "failed", {"code": "freeze-unavailable", "actions": [], **placed}), (
                 "failed"
             )
@@ -380,18 +402,19 @@ def _bind(self, team_id: str, run_id: str, lease: record.Lease) -> str:
 def _context_refusal(self, team_id: str, pinned: dict[str, str]) -> str | None:
     """Why a leased run may not start under its pinned contracts, or None when they are exactly current."""
     try:
-        current = routine_turn.current_contracts(self, team_id, tuple(pinned))
-    except routine_turn.ContractsUnavailableError:
+        current = routine_contracts.current_contracts(self, team_id, tuple(pinned))
+    except routine_contracts.ContractsUnavailableError:
         return "team-context-unavailable"
     return None if current == pinned else "team-context-changed"
 
 
-def _spend(self, team_id: str, run_id: str, lease: record.Lease, seconds: int) -> None:
+def _spend(self, team_id: str, run_id: str, lease: record.Lease, elapsed: float) -> None:
+    """Charge one segment's active time: whole seconds to its budget, milliseconds to its usage."""
     now = int(time.time())
 
     def spend(state: record.TeamRoutines) -> tuple[record.TeamRoutines, None]:
         try:
-            return record.spend(state, run_id, lease, now, seconds), None
+            return record.spend(state, run_id, lease, now, (int(elapsed), int(elapsed * 1000))), None
         except record.RoutineStateError:
             return state, None
 

@@ -81,8 +81,9 @@ from local.labels import (
 from local.routine import card as local_routine_card
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import lifecycle as local_routine_lifecycle
-from local.routine import lineage as local_routine_lineage
-from local.routine import recent as local_routine_recent
+from local.routine import proposal as local_routine_proposal
+from local.routine import protection as local_routine_protection
+from local.routine import recorder as local_routine_recorder
 from local.routine import store as local_routine_store
 from local.routine import watchdog as local_routine_watchdog
 from local.validation import brain_thread_id as _local_brain_thread_id
@@ -331,9 +332,11 @@ class LocalController:
             retain_expired=True
         )
         self.routine_human_challenges = action_challenges.HumanChallengeStore()
-        self.routine_lineage = local_routine_lineage.LineageBook()
-        # The person's recent sends a Routine request may refer to; destroying a Team or resetting forgets them.
-        self.routine_recent = local_routine_recent.RecentBook()
+        # Recording turns and Routine cards live in this process only; destroying a Team or resetting drops them, and
+        # so does a new incarnation of a Team (ADR-0101).
+        self.routine_recordings = local_routine_recorder.RecordingBook()
+        self.routine_proposals = local_routine_proposal.ProposalBook()
+        self.routine_protections = local_routine_protection.RunProtections()
         # One book of open recovery cards, shared with chat, so destroying a Team or resetting the Space drops them.
         self.routine_cards = local_routine_card.CardBook()
         self.oauth_pkce = dependencies.oauth_pkce or integration_pkce.OAuthPKCEChallengeStore()
@@ -413,8 +416,9 @@ class LocalController:
                 integration_challenges=getattr(self, "integration_challenges", None),
                 human_challenges=getattr(self, "human_challenges", None),
                 routine_human_challenges=getattr(self, "routine_human_challenges", None),
-                routine_lineage=getattr(self, "routine_lineage", None),
-                routine_recent=getattr(self, "routine_recent", None),
+                routine_recordings=getattr(self, "routine_recordings", None),
+                routine_proposals=getattr(self, "routine_proposals", None),
+                routine_protections=getattr(self, "routine_protections", None),
                 routine_cards=getattr(self, "routine_cards", None),
                 oauth_pkce=getattr(self, "oauth_pkce", None),
                 oauth_service=getattr(self, "oauth_service", None),
@@ -602,6 +606,9 @@ class LocalController:
             if private.transcript.responses:
                 rpc_payload["responses"] = private.transcript.payloads()
             capabilities = action_failure.capability_values(container)
+            if evidence is not None and evidence.protect is not None:
+                # A Routine run or recording turn protects the workload's capabilities before its RPC (ADR-0101).
+                evidence.protect(capabilities)
         # Audit names a delivered file by its opaque id and size only, never its name or content (ADR-0093).
         sent = action_files.delivered(files)
         try:

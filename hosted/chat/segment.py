@@ -712,6 +712,9 @@ def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str,
         )
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
+        if terminal.routine is not None:
+            # Hosted offers no Routine tool, so a Routine outcome breaks the Brain contract (ADR-0101).
+            raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Brain could not complete the Team turn")
         if not runtime_state._commit_chat_terminal(team_id, token):
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "brain turn stopped")
         return chat_turn_engine.terminal_body(team_id, segment.team_name, terminal, request.usage)
