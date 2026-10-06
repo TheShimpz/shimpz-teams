@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import dataclasses
 import json
 import sys
+import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -22,7 +24,9 @@ from inference import usage as brain_usage
 from integrations import challenges as integration_challenges
 from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
+from local.routine import store as routine_store
 from routine import permission as routine_permission
+from routine import plan as routine_plan
 from tests import human_request_fixtures
 
 IMAGE = "registry.example/assistant@sha256:" + "b" * 64
@@ -497,16 +501,60 @@ if __name__ == "__main__":
     unittest.main()
 
 
+def _longest_answers() -> tuple[action_human.HumanResponse, ...]:
+    """An unfinished Action's earlier answers at their longest, each control character escaped to six bytes."""
+    longest = max(action_human.LENGTH_KINDS.values())
+    return tuple(
+        action_human.HumanResponse("input:textarea", ordinal, "f" * 64, "\x02" * longest)
+        for ordinal in range(action_human.MAX_REQUESTS_PER_ACTION - 1)
+    )
+
+
+def _longest_plan_pending(
+    turn: brain_runtime_client.RuntimeTurn,
+    transcript: str,
+    answers: tuple[action_human.HumanResponse, ...],
+    **changes: object,
+) -> local_chat_continuations.PendingLocalChat:
+    """A paused Routine turn at the last step of the longest plan, every earlier step already seen."""
+    steps = routine_plan.MAX_STEPS
+    return local_chat_continuations.PendingLocalChat(
+        chat_orchestrator.ChatContinuation(
+            turn=turn,
+            seen_interrupts=tuple(sorted(f"routine-step-{index}" for index in range(steps - 1))),
+            invoked=(),
+            round_index=steps - 1,
+        ),
+        ("demo-assistant",),
+        (),
+        "openai",
+        (*pending().identity[:3], [], pending().identity[4]),
+        (action_human.ActionTranscript(transcript, answers),),
+        len(answers),
+        **changes,
+    )
+
+
+def _routine_record(kind: str, bindings: tuple[str, ...], payload: bytes) -> bytes:
+    """The continuation record a frozen Routine run stores for an encoded continuation."""
+    return json.dumps(
+        {"kind": kind, "bindings": list(bindings), "payload": base64.b64encode(payload).decode("ascii")},
+        separators=(",", ":"),
+    ).encode("ascii")
+
+
+def _sealed_and_read(blob: bytes) -> bytes | None:
+    """Seal a continuation record in a fresh Routine store and read it back."""
+    with tempfile.TemporaryDirectory() as directory:
+        store = routine_store.RoutineStore(Path(directory) / "state", Path(directory) / "key" / "aes256.key")
+        store.put_continuation("team_1", "d" * 32, blob)
+        return store.continuation("team_1", "d" * 32)
+
+
 class RoutineContinuationBoundTests(unittest.TestCase):
     """A frozen Routine run's continuation fits its own derived bounds at every field's worst (scale)."""
 
     def test_the_largest_frozen_step_of_the_longest_plan_fits_its_codec_record_and_seal(self) -> None:
-        import base64
-        import tempfile
-
-        from local.routine import store as routine_store
-        from routine import plan as routine_plan
-
         steps = routine_plan.MAX_STEPS
         # The pending request's resolved input at its canonical bound, every character escaped to six bytes.
         filler = "\x01" * ((routine_plan.MAX_RESOLVED_INPUT_BYTES - 32) // 6)
@@ -518,27 +566,8 @@ class RoutineContinuationBoundTests(unittest.TestCase):
             "",
             (brain_runtime_client.ActionRequest(interrupt, "demo-assistant", "publish", resolved),),
         )
-        # The unfinished Action's earlier answers at their longest, each control character escaped to six bytes.
-        longest = max(action_human.LENGTH_KINDS.values())
-        answers = tuple(
-            action_human.HumanResponse("input:textarea", ordinal, "f" * 64, "\x02" * longest)
-            for ordinal in range(action_human.MAX_REQUESTS_PER_ACTION - 1)
-        )
-        state = local_chat_continuations.PendingLocalChat(
-            chat_orchestrator.ChatContinuation(
-                turn=turn,
-                seen_interrupts=tuple(sorted(f"routine-step-{index}" for index in range(steps - 1))),
-                invoked=(),
-                round_index=steps - 1,
-            ),
-            ("demo-assistant",),
-            (),
-            "openai",
-            (*pending().identity[:3], [], pending().identity[4]),
-            (action_human.ActionTranscript(interrupt, answers),),
-            len(answers),
-            paused_batch=PAUSED_BATCH,
-        )
+        answers = _longest_answers()
+        state = _longest_plan_pending(turn, interrupt, answers, paused_batch=PAUSED_BATCH)
         request = human_request_fixtures.request("approval", len(answers))
         requirement = (
             human_request_fixtures.requirement(request, interrupt_id=interrupt, assistant_id="demo-assistant"),
@@ -549,15 +578,9 @@ class RoutineContinuationBoundTests(unittest.TestCase):
             "human", requirement, state, limit=local_chat_continuations.MAX_ROUTINE_PLAINTEXT_BYTES
         )
         self.assertEqual(local_chat_continuations.decode_parts("human", payload, bindings).pending, state)
-        blob = json.dumps(
-            {"kind": "human", "bindings": list(bindings), "payload": base64.b64encode(payload).decode("ascii")},
-            separators=(",", ":"),
-        ).encode("ascii")
+        blob = _routine_record("human", bindings, payload)
         self.assertLessEqual(len(blob), local_chat_continuations.MAX_ROUTINE_BYTES)
-        with tempfile.TemporaryDirectory() as directory:
-            store = routine_store.RoutineStore(Path(directory) / "state", Path(directory) / "key" / "aes256.key")
-            store.put_continuation("team_1", "d" * 32, blob)
-            self.assertEqual(store.continuation("team_1", "d" * 32), blob)
+        self.assertEqual(_sealed_and_read(blob), blob)
 
 
 def permission_requirement(**changes: object) -> routine_permission.Requirement:
@@ -643,13 +666,6 @@ class PermissionContinuationTests(unittest.TestCase):
             local_chat_continuations.decode_parts("permission", payload, (f"demo-assistant/publish/{IMAGE}/-",))
 
     def test_the_largest_permission_freeze_of_the_longest_plan_fits_its_codec_record_and_seal(self) -> None:
-        import base64
-        import tempfile
-
-        from local.routine import store as routine_store
-        from routine import plan as routine_plan
-
-        steps = routine_plan.MAX_STEPS
         filler = "\x01" * ((routine_plan.MAX_RESOLVED_INPUT_BYTES - 32) // 6)
         interrupt = "i" * 256
         turn = brain_runtime_client.RuntimeTurn(
@@ -657,25 +673,8 @@ class PermissionContinuationTests(unittest.TestCase):
             "",
             (brain_runtime_client.ActionRequest(interrupt, "demo-assistant", "publish", {"payload": filler}),),
         )
-        longest = max(action_human.LENGTH_KINDS.values())
-        answers = tuple(
-            action_human.HumanResponse("input:textarea", ordinal, "f" * 64, "\x02" * longest)
-            for ordinal in range(action_human.MAX_REQUESTS_PER_ACTION - 1)
-        )
-        state = local_chat_continuations.PendingLocalChat(
-            chat_orchestrator.ChatContinuation(
-                turn=turn,
-                seen_interrupts=tuple(sorted(f"routine-step-{index}" for index in range(steps - 1))),
-                invoked=(),
-                round_index=steps - 1,
-            ),
-            ("demo-assistant",),
-            (),
-            "openai",
-            (*pending().identity[:3], [], pending().identity[4]),
-            (action_human.ActionTranscript("routine-step-0", answers),),
-            len(answers),
-        )
+        answers = _longest_answers()
+        state = _longest_plan_pending(turn, "routine-step-0", answers)
         requirement = (
             permission_requirement(
                 interrupt_id=interrupt, revision=2**31 - 1, permissions_revision=2**31 - 1, run_id="f" * 32
@@ -688,12 +687,6 @@ class PermissionContinuationTests(unittest.TestCase):
         )
         decoded = local_chat_continuations.decode_parts("permission", payload, bindings)
         self.assertEqual((decoded.requirements, decoded.pending), (requirement, state))
-        blob = json.dumps(
-            {"kind": "permission", "bindings": list(bindings), "payload": base64.b64encode(payload).decode("ascii")},
-            separators=(",", ":"),
-        ).encode("ascii")
+        blob = _routine_record("permission", bindings, payload)
         self.assertLessEqual(len(blob), local_chat_continuations.MAX_ROUTINE_BYTES)
-        with tempfile.TemporaryDirectory() as directory:
-            store = routine_store.RoutineStore(Path(directory) / "state", Path(directory) / "key" / "aes256.key")
-            store.put_continuation("team_1", "d" * 32, blob)
-            self.assertEqual(store.continuation("team_1", "d" * 32), blob)
+        self.assertEqual(_sealed_and_read(blob), blob)
