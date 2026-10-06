@@ -41,6 +41,17 @@ hosted_egress_policy = assistant_lifecycle.egress_policy
 dynamic_assistants = assistant_lifecycle.dynamic_assistants
 
 
+def _dynamic_stores(root: Path, resolution: dict[str, object]):
+    """An incoming binding of ``resolution`` for team_1 and the empty retained registry it would install into."""
+    incoming = dynamic_assistants.DynamicAssistantStore(root / "incoming.json").put("team_1", resolution)
+    return incoming, dynamic_assistants.DynamicAssistantStore(root / "retained.json")
+
+
+def _install_dynamic(incoming: object) -> dict[str, object]:
+    lease = types.SimpleNamespace(owner="creator_1")
+    return assistant_lifecycle._install_assistant("team_1", incoming, "creator_1", lease, authorize_start=lambda: None)
+
+
 class _RouteHarness:
     def __init__(self, body: dict | None = None) -> None:
         self.body = body
@@ -799,7 +810,6 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
 
     def test_dynamic_install_persists_the_binding_and_returns_immutable_evidence(self) -> None:
         resolution = self._resolution()
-        lease = types.SimpleNamespace(owner="creator_1")
         installed = {
             "team_id": "team_1",
             "assistant": "hello-world",
@@ -808,23 +818,12 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            incoming = dynamic_assistants.DynamicAssistantStore(root / "incoming.json").put(
-                "team_1",
-                resolution,
-            )
-            retained = dynamic_assistants.DynamicAssistantStore(root / "retained.json")
+            incoming, retained = _dynamic_stores(Path(directory), resolution)
             with (
                 mock.patch.object(runtime_state, "_dynamic_assistants", retained),
                 mock.patch.object(assistant_lifecycle, "_install_assistant_locked", return_value=installed),
             ):
-                result = assistant_lifecycle._install_assistant(
-                    "team_1",
-                    incoming,
-                    "creator_1",
-                    lease,
-                    authorize_start=lambda: None,
-                )
+                result = _install_dynamic(incoming)
 
             self.assertIsNotNone(retained.get("team_1", "hello-world"))
 
@@ -834,15 +833,9 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
 
     def test_failed_dynamic_install_removes_binding_after_complete_rollback(self) -> None:
         resolution = self._resolution()
-        lease = types.SimpleNamespace(owner="creator_1")
 
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            incoming = dynamic_assistants.DynamicAssistantStore(root / "incoming.json").put(
-                "team_1",
-                resolution,
-            )
-            retained = dynamic_assistants.DynamicAssistantStore(root / "retained.json")
+            incoming, retained = _dynamic_stores(Path(directory), resolution)
             with (
                 mock.patch.object(runtime_state, "_dynamic_assistants", retained),
                 mock.patch.object(
@@ -855,27 +848,15 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
                 ),
                 self.assertRaises(runtime_state.ApiError),
             ):
-                assistant_lifecycle._install_assistant(
-                    "team_1",
-                    incoming,
-                    "creator_1",
-                    lease,
-                    authorize_start=lambda: None,
-                )
+                _install_dynamic(incoming)
 
             self.assertIsNone(retained.get("team_1", "hello-world"))
 
     def test_failed_dynamic_install_retains_binding_for_incomplete_rollback(self) -> None:
         resolution = self._resolution()
-        lease = types.SimpleNamespace(owner="creator_1")
 
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            incoming = dynamic_assistants.DynamicAssistantStore(root / "incoming.json").put(
-                "team_1",
-                resolution,
-            )
-            retained = dynamic_assistants.DynamicAssistantStore(root / "retained.json")
+            incoming, retained = _dynamic_stores(Path(directory), resolution)
             with (
                 mock.patch.object(runtime_state, "_dynamic_assistants", retained),
                 mock.patch.object(
@@ -888,12 +869,6 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
                 ),
                 self.assertRaises(assistant_lifecycle._IncompleteInstallRollback),
             ):
-                assistant_lifecycle._install_assistant(
-                    "team_1",
-                    incoming,
-                    "creator_1",
-                    lease,
-                    authorize_start=lambda: None,
-                )
+                _install_dynamic(incoming)
 
             self.assertIsNotNone(retained.get("team_1", "hello-world"))
