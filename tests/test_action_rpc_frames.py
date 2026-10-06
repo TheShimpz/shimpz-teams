@@ -38,6 +38,11 @@ CATALOG = human_request_fixtures.CATALOG
 OPERATION_ID = "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
 
 
+def _project(raw: object, *policy: action_execution.RpcResultPolicy) -> object:
+    """Project one raw RPC result with no private Integration values and an identity validator."""
+    return action_execution.project_rpc_result(raw, {}, lambda value: value, *policy)
+
+
 def _frame(stream_id: int, payload: bytes) -> bytes:
     return struct.pack(">BxxxL", stream_id, len(payload)) + payload
 
@@ -190,34 +195,17 @@ class ActionRpcFrameTests(unittest.TestCase):
         actions = {"send": SimpleNamespace(stored_inputs=("whatsapp-token",))}
         declarations = {"whatsapp-token": SimpleNamespace(kind="password")}
 
-        self.assertEqual(
-            action_execution.stored_input_generations(
+        def generations(supplied_origin: str, generation: int) -> tuple[tuple[str, int], ...]:
+            return action_execution.stored_input_generations(
                 actions,
                 declarations,
                 "send",
-                frozenset({origin}),
-                lambda _stored_input, _declaration: action_stored_input.StoredInputValue(
-                    "private",
-                    2,
-                    origin,
-                ),
-            ),
-            (),
-        )
-        self.assertEqual(
-            action_execution.stored_input_generations(
-                actions,
-                declarations,
-                "send",
-                frozenset({"b" * 64}),
-                lambda _stored_input, _declaration: action_stored_input.StoredInputValue(
-                    "private",
-                    2,
-                    origin,
-                ),
-            ),
-            (("whatsapp-token", 2),),
-        )
+                frozenset({supplied_origin}),
+                lambda _stored_input, _declaration: action_stored_input.StoredInputValue("private", generation, origin),
+            )
+
+        self.assertEqual(generations(origin, 2), ())
+        self.assertEqual(generations("b" * 64, 2), (("whatsapp-token", 2),))
         self.assertEqual(
             action_execution.resolve_action_stored_inputs(
                 actions,
@@ -251,17 +239,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 lambda _stored_input, _declaration: object(),
             )
         with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "generation is unavailable"):
-            action_execution.stored_input_generations(
-                actions,
-                declarations,
-                "send",
-                frozenset({"b" * 64}),
-                lambda _stored_input, _declaration: action_stored_input.StoredInputValue(
-                    "private",
-                    0,
-                    origin,
-                ),
-            )
+            generations("b" * 64, 0)
 
     def test_rpc_result_projection_rejects_private_and_invalid_outputs(self) -> None:
         projected = action_execution.project_rpc_result(
@@ -285,14 +263,12 @@ class ActionRpcFrameTests(unittest.TestCase):
             )
         for invalid in ([], {"type": "unknown", "result": None}):
             with self.subTest(invalid=invalid), self.assertRaises(action_execution.RpcInvalidResultError):
-                action_execution.project_rpc_result(invalid, {}, lambda value: value)
+                _project(invalid)
 
     def test_rpc_result_projection_refuses_what_the_action_journal_cannot_persist(self) -> None:
         large = {"text": "ação " * 20_000}
         self.assertGreater(len(json.dumps(large, ensure_ascii=False).encode()), 32 * 1024)
-        self.assertEqual(
-            action_execution.project_rpc_result({"type": "result", "result": large}, {}, lambda value: value), large
-        )
+        self.assertEqual(_project({"type": "result", "result": large}), large)
         # An exponent overflow never reaches projection: the strict decoder refuses it as a malformed exchange.
         with self.assertRaisesRegex(action_execution.RpcExchangeError, "invalid-result"):
             action_execution.decode_rpc_response(b'{"type":"result","result":{"n":1E400}}')
@@ -302,9 +278,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         )
         for frame in frames:
             with self.subTest(size=len(frame)), self.assertRaises(action_execution.RpcInvalidResultError):
-                action_execution.project_rpc_result(
-                    action_execution.decode_rpc_response(frame), {}, lambda value: value
-                )
+                _project(action_execution.decode_rpc_response(frame))
 
     def test_rpc_request_requires_reviewed_capability_and_canonical_fingerprint(self) -> None:
         request = human_request_fixtures.descriptor(
@@ -312,38 +286,30 @@ class ActionRpcFrameTests(unittest.TestCase):
         )
 
         with self.assertRaises(action_human.HumanRequestSuspensionError) as suspended:
-            action_execution.project_rpc_result(
+            _project(
                 {"type": "request", "request": request},
-                {},
-                lambda value: value,
                 action_execution.RpcResultPolicy(human_requests=("approval",), catalog=CATALOG),
             )
         self.assertEqual(suspended.exception.request.payload(), request)
 
         # A non-hex fingerprint is a controlled invalid result, never an uncaught comparison error.
         with self.assertRaises(action_execution.RpcInvalidResultError):
-            action_execution.project_rpc_result(
+            _project(
                 {"type": "request", "request": {**request, "fingerprint": "\u00e9" * 64}},
-                {},
-                lambda value: value,
                 action_execution.RpcResultPolicy(human_requests=("approval",), catalog=CATALOG),
             )
 
         # A reference to a message the reviewed catalog does not declare is refused (ADR-0091).
         for catalog in (None, {}):
             with self.subTest(catalog=catalog), self.assertRaises(action_execution.RpcInvalidResultError):
-                action_execution.project_rpc_result(
+                _project(
                     {"type": "request", "request": request},
-                    {},
-                    lambda value: value,
                     action_execution.RpcResultPolicy(human_requests=("approval",), catalog=catalog),
                 )
 
         with self.assertRaises(action_execution.RpcInvalidResultError):
-            action_execution.project_rpc_result(
+            _project(
                 {"type": "request", "request": request},
-                {},
-                lambda value: value,
                 action_execution.RpcResultPolicy(
                     human_requests=("approval",),
                     authorization_requested=True,
@@ -352,11 +318,7 @@ class ActionRpcFrameTests(unittest.TestCase):
             )
 
         with self.assertRaises(action_execution.RpcInvalidResultError):
-            action_execution.project_rpc_result(
-                {"type": "request", "request": request},
-                {},
-                lambda value: value,
-            )
+            _project({"type": "request", "request": request})
 
     def test_rpc_request_with_a_non_ascii_fingerprint_is_an_invalid_result(self) -> None:
         request = {
@@ -367,10 +329,8 @@ class ActionRpcFrameTests(unittest.TestCase):
             "fingerprint": "\u00e9" * 64,
         }
         with self.assertRaises(action_execution.RpcInvalidResultError) as refused:
-            action_execution.project_rpc_result(
+            _project(
                 {"type": "request", "request": request},
-                {},
-                lambda value: value,
                 action_execution.RpcResultPolicy(human_requests=("approval",)),
             )
         self.assertIsInstance(refused.exception.__cause__, action_human.HumanRequestError)
@@ -388,10 +348,8 @@ class ActionRpcFrameTests(unittest.TestCase):
             stored_input="whatsapp-token",
         )
         with self.assertRaises(action_human.HumanRequestSuspensionError) as suspended:
-            action_execution.project_rpc_result(
+            _project(
                 {"type": "request", "request": request},
-                {},
-                lambda value: value,
                 action_execution.RpcResultPolicy(
                     human_requests=("input:password",),
                     declared_stored_inputs=("whatsapp-token",),
@@ -401,10 +359,8 @@ class ActionRpcFrameTests(unittest.TestCase):
         self.assertEqual(suspended.exception.request.stored_input, "whatsapp-token")
 
         with self.assertRaises(action_execution.StoredInputRejectedError) as rejected:
-            action_execution.project_rpc_result(
+            _project(
                 {"type": "stored_input_rejected", "stored_input": "whatsapp-token"},
-                {},
-                lambda value: value,
                 action_execution.RpcResultPolicy(
                     declared_stored_inputs=("whatsapp-token",),
                     supplied_stored_inputs=frozenset({"whatsapp-token"}),
@@ -412,10 +368,8 @@ class ActionRpcFrameTests(unittest.TestCase):
             )
         self.assertEqual(rejected.exception.stored_input, "whatsapp-token")
         with self.assertRaises(action_execution.RpcInvalidResultError):
-            action_execution.project_rpc_result(
+            _project(
                 {"type": "stored_input_rejected", "stored_input": "whatsapp-token"},
-                {},
-                lambda value: value,
                 action_execution.RpcResultPolicy(
                     declared_stored_inputs=("whatsapp-token",),
                 ),
