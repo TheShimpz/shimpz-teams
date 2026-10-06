@@ -402,13 +402,18 @@ def definition_valid(value: Routine) -> bool:
         and 1 <= value.revision < 2**31
         and _rehearsed(value)
         and type(value.anchor) is int
-        and value.next_run_at == next_after(dataclasses.replace(value, schedule=canonical), value.anchor)
     )
 
 
 def _admitted(value: Routine, revision: int = 1) -> Routine:
-    """A copy of a new Routine revision in the closed contract; anything else is refused before it can be persisted."""
-    if not definition_valid(dataclasses.replace(value, revision=revision, rehearsed=None)):
+    """A copy of a new Routine revision in the closed contract; anything else is refused before it can be persisted.
+
+    A new revision is scheduled from its anchor; later claims and sweeps move its next firing on.
+    """
+    canonical = http_routine.canonical_schedule(value.schedule)
+    if not definition_valid(dataclasses.replace(value, revision=revision, rehearsed=None)) or (
+        value.next_run_at != next_after(dataclasses.replace(value, schedule=canonical), value.anchor)
+    ):
         raise RoutineStateError("routine-invalid")
     # Every page of what a Supervisor inspects is deliverable, and the definition fits its own budget (scale).
     if not routine_definition.fits(value):
