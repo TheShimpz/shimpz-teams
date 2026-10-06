@@ -347,6 +347,18 @@ class RecordedRoutineTests(LocalContractCase):
         ((listed),) = runtime.contexts[1].routines
         self.assertEqual((listed["timezone"], listed["timezone_source"]), ("America/Sao_Paulo", "browser"))
 
+    def test_a_replacement_runs_in_the_requests_zone_not_the_replaced_routines(self) -> None:
+        runtime = Recording(_record())
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            london = self.chat(service, _body(f"{MESSAGE}\nNo fuso Europe/London"))["routine_proposal"]
+            routine_id = self.confirm(service, london["proposal_id"])["routine_id"]
+            runtime.calls = False
+            runtime.outcomes.append(_record(replaces=routine_id))
+            card = self.chat(service, {**_body("Mantenha como está"), "timezone": "Asia/Tokyo"})["routine_proposal"]
+        self.assertEqual(london["timezone"], "Europe/London")
+        self.assertEqual((card["timezone"], card["timezone_source"]), ("Asia/Tokyo", "browser"))
+
     def test_a_composed_answer_to_the_pending_question_records_without_the_brain(self) -> None:
         original = "Liste os registros DNS de shimpz.com"
         runtime = Sends((("list-zones", "list-dns-records"), _record()))

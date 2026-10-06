@@ -169,12 +169,10 @@ class _AskError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class Existing:
-    """A replaced Routine: its plan, and the schedule and zone a replacement keeps unless the person states others."""
+    """A replaced Routine: its plan, and the schedule a replacement keeps unless the person states another."""
 
     plan: Mapping[str, object]
     schedule: dict[str, object]
-    timezone: str
-    timezone_source: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,7 +265,7 @@ def record(
     calls = _calls(sends, contracts, frontier)
     texts = [line for send in sends for line in (*_lines(send.person), *send.window)]
     latest = [call for call in calls if call.send == calls[-1].send] if calls else []
-    context = _Context(sends, calls, _known(texts, protection), _zone(sends, existing), asked, contracts)
+    context = _Context(sends, calls, _known(texts, protection), _zone(sends), asked, contracts)
     context.replays_changes = recording.mode != "decide"
     work = [call for call in latest if call.read_only or recording.mode != "decide"]
     try:
@@ -370,11 +368,11 @@ def _schedule(sends: Sequence[Send], existing: Existing | None) -> dict[str, obj
     raise _AskError(Question("routine-schedule-unstated"))
 
 
-def _zone(sends: Sequence[Send], existing: Existing | None) -> tuple[str, str]:
+def _zone(sends: Sequence[Send]) -> tuple[str, str]:
     """The Routine's zone and where it came from.
 
-    The one zone the latest authored segment naming any names; else a replaced Routine's own; else the request's
-    browser zone; else UTC by convention, with no source. A segment naming several zones names none of them.
+    The one zone the latest authored segment naming any names; else the request's browser zone; else UTC by
+    convention, with no source. A segment naming several zones names none of them.
     """
     for segment in reversed([segment for send in sends for segment in send.person]):
         written = phrase.zones(segment)
@@ -382,8 +380,6 @@ def _zone(sends: Sequence[Send], existing: Existing | None) -> tuple[str, str]:
             if len(written) == 1:
                 return written[0], "person"
             break
-    if existing is not None and existing.timezone_source != "none":
-        return existing.timezone, existing.timezone_source
     browser = sends[-1].timezone if sends else None
     return (http_routine.CONVENTIONAL_TIMEZONE, "none") if browser is None else (browser, "browser")
 

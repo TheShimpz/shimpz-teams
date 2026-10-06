@@ -860,12 +860,9 @@ class ScheduleTests(unittest.TestCase):
                 )
 
     def test_a_replacement_keeps_its_schedule_unless_one_is_stated(self) -> None:
-        existing = recording.Existing({"steps": []}, {"kind": "daily", "time": "08:00"}, "Europe/Lisbon", "person")
+        existing = recording.Existing({"steps": []}, {"kind": "daily", "time": "08:00"})
         kept = _recorded(_send(ZONES_CALL, message="sem mudar o horário"), existing=existing)
-        self.assertEqual(
-            (kept.schedule, kept.timezone, kept.timezone_source),
-            ({"kind": "daily", "time": "08:00"}, "Europe/Lisbon", "person"),
-        )
+        self.assertEqual(kept.schedule, {"kind": "daily", "time": "08:00"})
         changed = _recorded(_send(ZONES_CALL, message="a cada hora"), existing=existing)
         self.assertEqual(changed.schedule, {"kind": "hourly", "every": 1})
 
@@ -904,8 +901,17 @@ class TimezoneTests(unittest.TestCase):
         self.assertEqual((recorded.timezone, recorded.timezone_source), ("UTC", "none"))
         daily = _recorded(_send(ZONES_CALL, message="todo dia às 9h", timezone=None))
         self.assertEqual((daily.timezone, daily.timezone_source, daily.document["timezone"]), ("UTC", "none", "UTC"))
-        unzoned = recording.Existing({"steps": []}, {"kind": "hourly", "every": 1}, "UTC", "none")
+        unzoned = recording.Existing({"steps": []}, {"kind": "hourly", "every": 1})
         self.assertEqual(_recorded(_send(ZONES_CALL, timezone="Asia/Tokyo"), existing=unzoned).timezone, "Asia/Tokyo")
+
+
+class ReplacedZoneTests(unittest.TestCase):
+    def test_a_replacement_takes_the_requests_zone_never_the_replaced_routines(self) -> None:
+        london = recording.Existing({"steps": []}, {"kind": "daily", "time": "08:00"})
+        tokyo = _recorded(_send(ZONES_CALL, message="sem mudar o horário", timezone="Asia/Tokyo"), existing=london)
+        self.assertEqual((tokyo.timezone, tokyo.timezone_source), ("Asia/Tokyo", "browser"))
+        unzoned = _recorded(_send(ZONES_CALL, message="sem mudar o horário", timezone=None), existing=london)
+        self.assertEqual((unzoned.timezone, unzoned.timezone_source), ("UTC", "none"))
 
 
 class BoundaryTests(unittest.TestCase):
@@ -1014,9 +1020,7 @@ class KeptTests(unittest.TestCase):
     """A replacement that ran no Action keeps the replaced plan's steps exactly (ADR-0101)."""
 
     def keep(self, mode: str = "changes", **options) -> recording.Recorded | recording.Question:
-        existing = recording.Existing(
-            options.get("plan", KEPT_PLAN), {"kind": "daily", "time": "08:00"}, "America/Sao_Paulo", "browser"
-        )
+        existing = recording.Existing(options.get("plan", KEPT_PLAN), {"kind": "daily", "time": "08:00"})
         return _record(
             _send(message=options.get("message", "now with 50 per page")),
             mode=mode,

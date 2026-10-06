@@ -240,7 +240,7 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
     choice = routine_recording.Recording(mode, None, ())
     kept = None
     if existing is not None:
-        kept = routine_recording.Existing(existing.plan, existing.schedule, existing.timezone, existing.timezone_source)
+        kept = routine_recording.Existing(existing.plan, existing.schedule)
     try:
         return routine_recording.record(
             recording.sends,
