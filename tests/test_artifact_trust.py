@@ -70,7 +70,9 @@ class ArtifactTrustTests(unittest.TestCase):
         self.addCleanup(self._temporary_directory.cleanup)
         self._trust_root = Path(self._temporary_directory.name) / "trust"
 
-    def _verifier(self, resolution: dict[str, object]) -> ArtifactTrustVerifier:
+    def _verifier(self, resolution: dict[str, object], tags: list[str] | None = None) -> ArtifactTrustVerifier:
+        """A verifier whose registry resolves the two attachment references once each, recording asked tags."""
+        asked = [] if tags is None else tags
         digests = iter(
             (
                 resolution["trust"]["signature_reference"].removeprefix("ghcr.io/theshimpz/shimpz-assistant-trust@"),
@@ -78,7 +80,7 @@ class ArtifactTrustTests(unittest.TestCase):
             )
         )
         images = types.SimpleNamespace(
-            get_registry_data=lambda _tag, *, auth_config: types.SimpleNamespace(id=next(digests))
+            get_registry_data=lambda tag, *, auth_config: asked.append(tag) or types.SimpleNamespace(id=next(digests))
         )
         return ArtifactTrustVerifier(
             types.SimpleNamespace(images=images),
@@ -182,21 +184,7 @@ class ArtifactTrustTests(unittest.TestCase):
         resolution = copy.deepcopy(RESOLUTION)
         resolution["trust"]["signer_identity"] = SIGNER_IDENTITY
         tags: list[str] = []
-        digests = iter(
-            (
-                resolution["trust"]["signature_reference"].removeprefix("ghcr.io/theshimpz/shimpz-assistant-trust@"),
-                resolution["trust"]["provenance_reference"].removeprefix("ghcr.io/theshimpz/shimpz-assistant-trust@"),
-            )
-        )
-        images = types.SimpleNamespace(
-            get_registry_data=lambda tag, *, auth_config: tags.append(tag) or types.SimpleNamespace(id=next(digests))
-        )
-        verifier = ArtifactTrustVerifier(
-            types.SimpleNamespace(images=images),
-            container_id="a" * 64,
-            credentials=AUTH,
-            trust_root=self._trust_root,
-        )
+        verifier = self._verifier(resolution, tags)
         outputs = iter(
             (
                 json.dumps(_signature(resolution)).encode(),
