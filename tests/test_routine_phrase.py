@@ -206,6 +206,27 @@ class StatedOutputTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(phrase.outputs(text), (kind,))
 
+    def test_showing_the_result_only_when_it_changes_is_one_choice_in_every_language(self) -> None:
+        qualified = (
+            "Mostrar o resultado somente quando mudar",
+            "Show the results only when it changes",
+            "Muéstrame el resultado solo cuando cambie",
+            "Montre-moi le résultat uniquement en cas de changement",
+            "Zeig mir das Ergebnis nur bei Änderung",
+            "変更時のみ結果を表示",
+            "仅在变化时显示结果",
+            "اعرض النتيجة فقط عند التغيير",
+        )
+        for text in qualified:
+            with self.subTest(text=text):
+                self.assertEqual(phrase.outputs(text), ("changes",))
+        # Showing the result every run, said twice, is one choice.
+        self.assertEqual(phrase.outputs("Mostrar sempre e mostre o resultado"), ("show",))
+        # Showing every run or only on change is a real conflict, asked in one sentence as in two.
+        for text in ("Mostrar sempre, ou só quando mudar", "Show every run or only when it changes"):
+            with self.subTest(text=text):
+                self.assertEqual(set(phrase.outputs(text)), {"show", "changes"})
+
     def test_negation_overlap_and_doubt_never_state_a_choice(self) -> None:
         for text in (
             "Não quero mostrar sempre.",
