@@ -15,8 +15,9 @@ member of a plan call is classified by the first rule that applies:
    a fixed literal; with no timezone known, the person is asked for one;
 4. a long string, a long integer, or a non-empty container is copied from the one call result in the span holding it:
    from its one position, through the array item whose single member the person named and no other item shares, or
-   from the indexed item when the person named no member of it. A value no result holds, or one several hold that no
-   named member separates, is asked about and never frozen;
+   from the indexed item when the person named no member of it. An identifier no result holds, or a value several
+   hold that no named member separates, is asked about and never frozen; free text or a container no result holds
+   falls to rule 5;
 5. anything else is a literal the assistant chose, the same on every run.
 
 A source is one specific occurrence; read-only calls of the same Action with identical input and result and no changing
@@ -502,6 +503,8 @@ def _classified(context: _Context, call: _Call, value: object) -> tuple[dict[str
     if not _referable(value):
         return {"kind": "literal", "value": value}, "assistant"
     source = _sourced(context, call, value)
+    if source is None:
+        return {"kind": "literal", "value": value}, "assistant"
     _unexposed(source, context.known)
     return source, "selector" if "where" in source else "step"
 
@@ -567,10 +570,21 @@ def _holders(context: _Context, consumer: _Call, value: object) -> dict[int, lis
     return found
 
 
-def _sourced(context: _Context, consumer: _Call, value: object) -> dict[str, object]:
-    """The one source occurrence and position holding ``value``; anything else is asked about or refused."""
+def _identifier(value: object) -> bool:
+    """Whether a referable value is shaped like an identifier: one word of text, or a whole number."""
+    return type(value) is int or (isinstance(value, str) and not any(character.isspace() for character in value))
+
+
+def _sourced(context: _Context, consumer: _Call, value: object) -> dict[str, object] | None:
+    """The one source occurrence and position holding ``value``, or None for text nothing holds; else it asks.
+
+    An identifier nothing returned is asked about, since freezing one would replay a remembered id; free text or a
+    container the assistant wrote and nothing returned is its own choice, the same on every run.
+    """
     found = _holders(context, consumer, value)
     if not found:
+        if not _identifier(value):
+            return None
         raise _AskError(Question("routine-binding-unsourced"))
     if len(found) > 1:
         raise _ambiguous(context, value, [{"value": value, "label": None}])

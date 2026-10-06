@@ -316,6 +316,24 @@ class ClassificationTests(unittest.TestCase):
                 )
         self.assertEqual(self.asked("abcdefgh", "known", {"x": "other"}).code, "routine-binding-unsourced")
 
+    def test_free_text_nothing_holds_is_the_assistants_and_only_an_identifier_is_asked_about(self) -> None:
+        for value in ("Resumo diário do DNS", "two words here", {"note": "x"}, ["a", "b"]):
+            with self.subTest(value=value):
+                self.assertEqual(self.classify(value, "known"), ({"kind": "literal", "value": value}, "assistant"))
+        for value in ("zone-without-spaces", 1234567):
+            with self.subTest(value=value):
+                self.assertEqual(self.asked(value, "known").code, "routine-binding-unsourced")
+
+    def test_the_persons_answer_naming_an_unsourced_value_settles_it(self) -> None:
+        work = _send(RECORDS, message="DNS a cada hora")
+        self.assertEqual(_record(work), recording.Question("routine-binding-unsourced"))
+        pending = recording.Asked("routine-binding-unsourced", (), 1)
+        answered = _recorded(work, _send(message=f"O id é {SHIMPZ_ID}"), asked=pending)
+        self.assertEqual(
+            (_input(answered)["zone_id"], answered.origins["s1"]["zone_id"]),
+            ({"kind": "literal", "value": SHIMPZ_ID}, "request"),
+        )
+
     def test_a_value_several_sources_or_positions_hold_is_asked_about(self) -> None:
         same = recording.Question("routine-binding-ambiguous", ({"value": "abcdefgh", "label": None},))
         self.assertEqual(self.asked("abcdefgh", "known", {"x": "abcdefgh", "y": "abcdefgh"}), same)
