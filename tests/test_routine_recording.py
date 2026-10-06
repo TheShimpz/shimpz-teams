@@ -786,6 +786,19 @@ class RerunTests(unittest.TestCase):
         recorded = _recorded(first, _send(ZONES_CALL, remembered), asked=_pending(asked, 1))
         self.assertEqual(_input(recorded)["query"], {"kind": "literal", "value": typed})
 
+    def test_the_first_target_answer_already_excludes_the_unchosen_work(self) -> None:
+        zone_a, zone_b = (zone["id"] for zone in ZONES["result"][:2])
+        first = _send(ZONES_CALL, ("cloudflare/list-dns-records", {"zone_id": zone_a}, {}), message="DNS a cada hora")
+        second = _send(("cloudflare/list-dns-records", {"zone_id": zone_b}, {}))
+        asked = _record(first, second)
+        self.assertEqual(asked.code, "routine-binding-ambiguous")
+        answer = _send(message=json.dumps(zone_b))
+        recorded = _recorded(first, second, answer, asked=_asked(asked, 2))
+        self.assertEqual(_input(recorded)["zone_id"], {"kind": "literal", "value": zone_b})
+        repeated = _send(("cloudflare/list-dns-records", {"zone_id": zone_b}, {"n": 1}))
+        recorded = _recorded(first, second, answer, repeated, asked=_asked(asked, 2))
+        self.assertEqual(_input(recorded)["zone_id"], {"kind": "literal", "value": zone_b})
+
     def test_settled_split_evidence_goes_but_an_earlier_source_stays(self) -> None:
         lookup = ("reports/fetch", {"q": "ids"}, {"id": "source-id-1"})
         spans = (_send(lookup, _post("a"), message="a cada hora"), _send(_post("b")))

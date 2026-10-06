@@ -788,16 +788,16 @@ def _person_named(context: _Context, pending: Pending | None, value: object) -> 
 def _bound(
     context: _Context, input_: tuple[_Call, str], value: object, pending: Pending | None
 ) -> tuple[dict[str, object], str]:
-    """A referable value's source, the person's answer when it is the pending choice again, or the assistant's own."""
+    """A referable value's source, or the assistant's own; the question about it again until the person answers it.
+
+    Once the person chose another of the targets of the choice this value belongs to, the work must run again with it.
+    """
     try:
         source = _sourced(context, input_, value)
     except _AskError as asking:
-        if pending is None or not _same_choice(asking.question, pending):
-            raise
-        if pending.chosen is not None:
-            # The person chose another of these targets: the work must run again with it.
+        if pending is not None and pending.chosen is not None and _same_choice(asking.question, pending):
             raise _AskError(Question("routine-work-rerun", pending=pending)) from asking
-        return _answered(context, pending, value)
+        raise
     if source is None:
         return {"kind": "literal", "value": value}, "assistant"
     _unexposed(source, context.known)
@@ -870,11 +870,19 @@ def _identifier(value: object) -> bool:
 
 
 def _bindings(context: _Context) -> tuple[Pending, ...]:
-    """Every target choice the span holds: each one already answered, and the open one."""
+    """Every target choice the span holds, as the person's answers settle them.
+
+    Each one already answered, and the open one, chosen as soon as a later send answers it exactly, so that answer
+    decides everything at once: what the work sends, what counts as split work, and what a rerun must repeat.
+    """
     asked = context.asked
     if asked is None:
         return ()
-    return (*asked.chosen, *(() if asked.pending is None else (asked.pending,)))
+    if asked.pending is None:
+        return asked.chosen
+    selected = _selection(context, asked.pending)
+    current = asked.pending if selected is None else dataclasses.replace(asked.pending, chosen=selected)
+    return (*asked.chosen, current)
 
 
 def _binding_for(bindings: Sequence[Pending], input_: tuple[_Call, str], value: object) -> Pending | None:
@@ -900,20 +908,6 @@ def _same_choice(question: Question, pending: Pending) -> bool:
         pending.member,
         pending.targets,
     )
-
-
-def _answered(context: _Context, pending: Pending, value: object) -> tuple[dict[str, object], str]:
-    """The person's answer to the pending choice for an input it binds: the target they chose exactly, if any.
-
-    The chosen target is a literal they named; choosing another target than the one this input sent asks for the work
-    again, and no exact answer asks the same question again.
-    """
-    chosen = _selection(context, pending)
-    if chosen is None:
-        raise _AskError(Question("routine-binding-ambiguous", _shown(pending), pending=pending))
-    if _json_text(chosen) != _json_text(value):
-        raise _AskError(Question("routine-work-rerun", pending=dataclasses.replace(pending, chosen=chosen)))
-    return {"kind": "literal", "value": value}, "request"
 
 
 def _selection(context: _Context, pending: Pending) -> object:
