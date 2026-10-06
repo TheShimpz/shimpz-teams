@@ -81,6 +81,18 @@ class _PendingChallenge:
     code_verifier: str
     expires_at: float
 
+    def exchange(self) -> OAuthExchange:
+        """The private exchange inputs, including the verifier; only a claim that removed this challenge calls it."""
+        return OAuthExchange(
+            provider_id=self.public.provider_id,
+            scopes=self.public.scopes,
+            code_verifier=self.code_verifier,
+            team_id=self.team_id,
+            assistant_id=self.assistant_id,
+            integration_id=self.integration_id,
+            resource_binding=self.resource_binding,
+        )
+
 
 def _session_digest(value: object) -> bytes:
     if isinstance(value, str):
@@ -273,15 +285,7 @@ class OAuthPKCEChallengeStore:
             ):
                 raise OAuthChallengeNotFoundError("OAuth challenge is unavailable")
             self._remove(identifier)
-            return OAuthExchange(
-                provider_id=challenge.public.provider_id,
-                scopes=challenge.public.scopes,
-                code_verifier=challenge.code_verifier,
-                team_id=challenge.team_id,
-                assistant_id=challenge.assistant_id,
-                integration_id=challenge.integration_id,
-                resource_binding=challenge.resource_binding,
-            )
+            return challenge.exchange()
 
     def claim_callback(
         self,
@@ -307,15 +311,7 @@ class OAuthPKCEChallengeStore:
             ):
                 raise OAuthChallengeNotFoundError("OAuth challenge is unavailable")
             self._remove(identifier)
-            return OAuthExchange(
-                provider_id=challenge.public.provider_id,
-                scopes=challenge.public.scopes,
-                code_verifier=challenge.code_verifier,
-                team_id=challenge.team_id,
-                assistant_id=challenge.assistant_id,
-                integration_id=challenge.integration_id,
-                resource_binding=challenge.resource_binding,
-            )
+            return challenge.exchange()
 
     def inspect_callback(
         self,
