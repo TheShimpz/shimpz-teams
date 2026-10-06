@@ -260,6 +260,21 @@ class RouteCredentials:
     decision_key: str | None = None
 
 
+def _provider_body(provider: object, model: object, api_key: object) -> dict[str, object] | None:
+    """The provider credential one Brain request carries, or None when any part is outside the runtime contract."""
+    if (
+        provider not in {"anthropic", "openai"}
+        or not isinstance(model, str)
+        or action_journal.SAFE_ID_RE.fullmatch(model) is None
+        or not isinstance(api_key, str)
+        or not api_key
+        or len(api_key) > 16 * 1024
+        or "\0" in api_key
+    ):
+        return None
+    return {"provider": provider, "model": model, "api_key": api_key}
+
+
 def _invalid_secret(value: object) -> bool:
     return not isinstance(value, str) or not 16 <= len(value) <= 8192 or not value.isascii() or "\0" in value
 
@@ -840,14 +855,9 @@ class BrainRuntimeClient:
         locale: str,
         action_ids: tuple[str, ...],
     ) -> tuple[RuntimeActionLabel, ...]:
+        provider_body = _provider_body(provider, model, api_key)
         if (
-            provider not in {"anthropic", "openai"}
-            or not isinstance(model, str)
-            or action_journal.SAFE_ID_RE.fullmatch(model) is None
-            or not isinstance(api_key, str)
-            or not api_key
-            or len(api_key) > 16 * 1024
-            or "\0" in api_key
+            provider_body is None
             or http_payload.canonical_locale(locale) is None
             or not 1 <= len(action_ids) <= MAX_ACTION_LABELS
             or any(http_payload.canonical_action_id(action_id) is None for action_id in action_ids)
@@ -857,7 +867,7 @@ class BrainRuntimeClient:
         response = self._post(
             "/v1/action-labels",
             {
-                "provider": {"provider": provider, "model": model, "api_key": api_key},
+                "provider": provider_body,
                 "locale": locale,
                 "actions": list(action_ids),
             },
@@ -873,21 +883,14 @@ class BrainRuntimeClient:
         objective: object,
         candidates: tuple[RuntimeCapabilityCandidate, ...],
     ) -> RuntimeCapabilityPlan:
-        if (
-            provider not in {"anthropic", "openai"}
-            or not isinstance(model, str)
-            or action_journal.SAFE_ID_RE.fullmatch(model) is None
-            or not isinstance(api_key, str)
-            or not api_key
-            or len(api_key) > 16 * 1024
-            or "\0" in api_key
-        ):
+        provider_body = _provider_body(provider, model, api_key)
+        if provider_body is None:
             raise BrainRuntimeError("Brain runtime capability plan request is invalid")
         task, admitted = self.validate_capability_plan_inputs(objective, candidates)
         response = self._post(
             "/v1/capability-plan",
             {
-                "provider": {"provider": provider, "model": model, "api_key": api_key},
+                "provider": provider_body,
                 "objective": task,
                 "candidates": [
                     {
@@ -923,15 +926,9 @@ class BrainRuntimeClient:
             credentials.api_key,
             credentials.decision_key,
         )
-        if (
-            provider not in {"anthropic", "openai"}
-            or not isinstance(model, str)
-            or action_journal.SAFE_ID_RE.fullmatch(model) is None
-            or not isinstance(api_key, str)
-            or not api_key
-            or len(api_key) > 16 * 1024
-            or "\0" in api_key
-            or (decision_key is not None and (expected_intent is not None or _invalid_secret(decision_key)))
+        provider_body = _provider_body(provider, model, api_key)
+        if provider_body is None or (
+            decision_key is not None and (expected_intent is not None or _invalid_secret(decision_key))
         ):
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
         task, expected, admitted, admitted_context = self.validate_intent_route_inputs(
@@ -943,7 +940,7 @@ class BrainRuntimeClient:
         response = self._post(
             "/v1/intent-route",
             {
-                "provider": {"provider": provider, "model": model, "api_key": api_key},
+                "provider": provider_body,
                 "objective": task,
                 "expected_intent": expected,
                 "candidates": [
