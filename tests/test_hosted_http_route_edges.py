@@ -28,6 +28,11 @@ SOURCE_DIGEST = f"sha256:{'a' * 64}"
 OCI_DIGEST = f"sha256:{'b' * 64}"
 
 
+def _chat_body(**changes: object) -> dict[str, object]:
+    """A fresh valid Hosted chat request body saying hello, with these fields changed."""
+    return {"message": "hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None, **changes}
+
+
 def _handler() -> server.Handler:
     handler = object.__new__(server.Handler)
     handler.wfile = io.BytesIO()
@@ -340,9 +345,7 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
 
     def test_stream_checks_pending_state_before_starting_transport(self) -> None:
         handler = _handler()
-        handler._read_body = mock.Mock(
-            return_value={"message": "hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None}
-        )
+        handler._read_body = mock.Mock(return_value=_chat_body())
         pending = {"status": "input-required"}
         with (
             mock.patch.object(server.validate, "validate_chat_message", return_value="hello"),
@@ -356,13 +359,7 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
     def test_stream_delegates_validated_inputs_when_no_continuation_is_pending(self) -> None:
         handler = _handler()
         handler._read_body = mock.Mock(
-            return_value={
-                "message": "hello",
-                "files": ["file"],
-                "assistant_ids": ["assistant"],
-                "conversation": [],
-                "locale": "ja",
-            }
+            return_value=_chat_body(files=["file"], assistant_ids=["assistant"], locale="ja")
         )
         handler._stream_chat = mock.Mock()
         request = _request()
@@ -386,15 +383,7 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
         for locale in ("pt-BR", "", 1):
             with self.subTest(locale=locale):
                 handler = _handler()
-                handler._read_body = mock.Mock(
-                    return_value={
-                        "message": "hello",
-                        "files": [],
-                        "assistant_ids": [],
-                        "conversation": [],
-                        "locale": locale,
-                    }
-                )
+                handler._read_body = mock.Mock(return_value=_chat_body(locale=locale))
                 with (
                     mock.patch.object(server.validate, "validate_chat_message", return_value="hello"),
                     self.assertRaises(runtime_state.ApiError) as raised,
@@ -405,13 +394,7 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
     def test_hosted_chat_refuses_any_nonempty_conversation_window(self) -> None:
         handler = _handler()
         handler._read_body = mock.Mock(
-            return_value={
-                "message": "hello",
-                "files": [],
-                "assistant_ids": [],
-                "conversation": [{"role": "user", "text": "hi", "truncated": False}],
-                "locale": None,
-            }
+            return_value=_chat_body(conversation=[{"role": "user", "text": "hi", "truncated": False}])
         )
         with self.assertRaisesRegex(server.validate.ValidationError, "empty conversation window"):
             handler._route_chat_turn(_request(), stream=False)
@@ -424,15 +407,7 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
         for result, expected_status in cases:
             with self.subTest(result=result):
                 handler = _handler()
-                handler._read_body = mock.Mock(
-                    return_value={
-                        "message": "hello",
-                        "files": [],
-                        "assistant_ids": [],
-                        "conversation": [],
-                        "locale": "de",
-                    }
-                )
+                handler._read_body = mock.Mock(return_value=_chat_body(locale="de"))
                 with (
                     mock.patch.object(server.validate, "validate_chat_message", return_value="hello"),
                     mock.patch.object(server.hosted_assistants, "_chat_assistant_ids", return_value=()),
