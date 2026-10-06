@@ -7,6 +7,11 @@ import re
 import unicodedata
 from urllib.parse import urlparse
 
+if __package__:
+    from . import strict_json
+else:  # The protocol verifier runs every module of this directory flat.
+    import strict_json
+
 HEX_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 CHALLENGE_ID_RE = HEX_ID_RE
@@ -46,19 +51,6 @@ def canonical_origin(value: str | None) -> str | None:
     return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
 
 
-def unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    value: dict[str, object] = {}
-    for key, item in pairs:
-        if key in value:
-            raise ValueError("duplicate JSON field")
-        value[key] = item
-    return value
-
-
-def _reject_json_constant(_value: str) -> None:
-    raise ValueError("non-finite JSON number")
-
-
 def public_text(value: object, maximum: int, *, field: str = "public text") -> str:
     if (
         not isinstance(value, str)
@@ -92,11 +84,7 @@ def decode_bounded_json_frame(
     if len(encoded) > max_bytes:
         raise FrameError(413, "WebSocket frame too large", 1009)
     try:
-        value = json.loads(
-            text,
-            object_pairs_hook=unique_json_object,
-            parse_constant=_reject_json_constant,
-        )
+        value = strict_json.loads(text)
     except json.JSONDecodeError, UnicodeError, ValueError, RecursionError:
         raise FrameError(400, invalid_json_detail) from None
     if not isinstance(value, dict):

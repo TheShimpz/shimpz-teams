@@ -598,11 +598,9 @@ class WebSocketReferenceEdgeTests(unittest.TestCase):
         self.assertEqual(websocket.canonical_origin("HTTPS://Example.COM:443"), "https://example.com:443")
         for value in (None, "null", "http://user@example.com", "http://example.com/path", "http://[bad"):
             self.assertIsNone(websocket.canonical_origin(value))
-        self.assertEqual(websocket.unique_json_object([("a", 1)]), {"a": 1})
-        with self.assertRaises(ValueError):
-            websocket.unique_json_object([("a", 1), ("a", 2)])
-        with self.assertRaises(ValueError):
-            websocket._reject_json_constant("NaN")
+        for text in ('{"a":1,"a":2}', '{"a":-Infinity}', '{"a":{"b":-1E400}}'):
+            with self.subTest(text=text), self.assertRaises(websocket.FrameError):
+                websocket.decode_bounded_json_frame({"type": "websocket.receive", "text": text}, 64)
         self.assertEqual(websocket.public_text("Ready", 10), "Ready")
         self.assertEqual(websocket.public_text("français\u00a0?", 10), "français\u00a0?")
         for value in ("line\u2028break", "paragraph\u2029break", "hidden\u200dinstruction"):

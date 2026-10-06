@@ -56,6 +56,7 @@ def _execute(
             "progress",
             "routine",
             "schema_validator",
+            "strict_json",
             "supervisor",
             "validators",
             "validators.action_effect",

@@ -9,6 +9,9 @@ identifiers; it never carries arguments, results, prompts, model output, or free
 advisory; only the single terminal record determines the operation outcome. A missing, repeated,
 malformed, oversized, or out-of-order record fails closed at the consumer without widening Team
 authority or exposing execution payloads.
+`strict_json.py` is an exact copy of the umbrella `.standards/strict_json.py` security source: the frame and stream
+decoders parse through it, so a duplicate field and every non-finite number, including an exponent overflow such as
+`1e999`, fail closed. The modules import one another as a package, and flat when `verify.py` runs them as scripts.
 Thread pools, queues, worker limits, and saturation behavior are deployable-owned runtime policy,
 not part of this wire protocol.
 

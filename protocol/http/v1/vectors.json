@@ -176,6 +176,29 @@
       "close_code": 1007
     },
     {
+      "name": "finite_number",
+      "message": {
+        "type": "websocket.receive",
+        "text": "{\"v\":-1.5e3}"
+      },
+      "max_bytes": 128,
+      "valid": true,
+      "value": {
+        "v": -1500.0
+      }
+    },
+    {
+      "name": "exponent_overflow",
+      "message": {
+        "type": "websocket.receive",
+        "text": "{\"type\":\"chat\",\"v\":1e999}"
+      },
+      "max_bytes": 128,
+      "valid": false,
+      "status": 400,
+      "close_code": 1007
+    },
+    {
       "name": "binary_frame",
       "message": {
         "type": "websocket.receive",
@@ -335,6 +358,23 @@
       "name": "non_finite_line",
       "valid": false,
       "line": "{\"type\":\"terminal\",\"status\":NaN,\"body\":{}}\n"
+    },
+    {
+      "name": "finite_number_line",
+      "valid": true,
+      "line": "{\"body\":{\"v\":0.5},\"status\":200,\"type\":\"terminal\"}\n",
+      "record": {
+        "type": "terminal",
+        "status": 200,
+        "body": {
+          "v": 0.5
+        }
+      }
+    },
+    {
+      "name": "exponent_overflow_line",
+      "valid": false,
+      "line": "{\"type\":\"terminal\",\"status\":200,\"body\":{\"v\":-1e999}}\n"
     },
     {
       "name": "missing_newline",

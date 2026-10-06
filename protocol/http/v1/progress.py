@@ -5,6 +5,11 @@ from __future__ import annotations
 import json
 import re
 
+if __package__:
+    from . import strict_json
+else:  # The protocol verifier runs every module of this directory flat.
+    import strict_json
+
 PHASES = frozenset(
     {
         "model",
@@ -28,19 +33,6 @@ MAX_STREAM_BYTES = MAX_EVENTS * MAX_PROGRESS_LINE_BYTES + MAX_LINE_BYTES
 
 class ProgressContractError(ValueError):
     """A streamed Team chat record violated the closed protocol."""
-
-
-def _reject_json_constant(_value: str) -> None:
-    raise ValueError("non-finite JSON number")
-
-
-def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    value: dict[str, object] = {}
-    for key, item in pairs:
-        if key in value:
-            raise ValueError("duplicate JSON field")
-        value[key] = item
-    return value
 
 
 def _integer(value: object, *, minimum: int, maximum: int, label: str) -> int:
@@ -141,11 +133,7 @@ def decode_line(raw: object) -> dict[str, object]:
     if not isinstance(raw, bytes) or not raw.endswith(b"\n") or not 1 <= len(raw) <= MAX_LINE_BYTES:
         raise ProgressContractError("invalid chat stream line")
     try:
-        value = json.loads(
-            raw,
-            object_pairs_hook=_unique_json_object,
-            parse_constant=_reject_json_constant,
-        )
+        value = strict_json.loads(raw)
     except (json.JSONDecodeError, UnicodeError, ValueError, RecursionError) as exc:
         raise ProgressContractError("invalid chat stream JSON") from exc
     record = canonical_record(value)

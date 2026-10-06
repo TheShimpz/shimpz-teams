@@ -152,10 +152,9 @@ class PayloadEdgeCoverageTests(unittest.TestCase):
 
 class ProgressEdgeCoverageTests(unittest.TestCase):
     def test_helpers_and_events_reject_invalid_values(self) -> None:
-        with self.assertRaises(ValueError):
-            progress._reject_json_constant("NaN")
-        with self.assertRaises(ValueError):
-            progress._unique_json_object([("x", 1), ("x", 2)])
+        for line in (b'{"type":"terminal","type":"terminal"}\n', b'{"v":NaN}\n', b'{"v":[1e999]}\n'):
+            with self.subTest(line=line), self.assertRaises(progress.ProgressContractError):
+                progress.decode_line(line)
         cases = (
             None,
             {"phase": "bad", "state": "started", "seq": 1},

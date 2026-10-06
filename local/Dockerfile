@@ -102,7 +102,7 @@ COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
     protocol/install/v1/verify.py \
     ./protocol/install/v1/
 COPY protocol/http/v1/payload.py protocol/http/v1/progress.py protocol/http/v1/routine.py \
-    protocol/http/v1/supervisor.py ./protocol/http/v1/
+    protocol/http/v1/strict_json.py protocol/http/v1/supervisor.py ./protocol/http/v1/
 COPY protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
     protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
     protocol/assistant/v1/validators/message_catalog.py \

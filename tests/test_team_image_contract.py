@@ -75,6 +75,7 @@ LOCAL_PROTOCOL_DATA = {
     "protocol/http/v1/payload.py",
     "protocol/http/v1/progress.py",
     "protocol/http/v1/routine.py",
+    "protocol/http/v1/strict_json.py",
     "protocol/http/v1/supervisor.py",
     *(path for path in HOSTED_PROTOCOL_DATA if path.startswith("protocol/install/")),
 }
