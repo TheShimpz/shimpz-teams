@@ -193,12 +193,17 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         )
         return controller
 
-    def test_team_listing_maps_docker_and_rejects_invalid_labels(self) -> None:
+    def lifecycle_controller(self):
+        """A controller wired to a real AssistantLifecycle over its own Docker client and Space."""
         controller = self.controller()
         lifecycle = object.__new__(local_app.AssistantLifecycle)
         lifecycle.client = controller.client
         lifecycle.space_id = controller.space_id
         controller.assistant_lifecycle = lifecycle
+        return controller, lifecycle
+
+    def test_team_listing_maps_docker_and_rejects_invalid_labels(self) -> None:
+        controller, _lifecycle = self.lifecycle_controller()
         controller.client.networks.list.side_effect = DockerException("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.list_teams()
@@ -212,11 +217,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
     def test_team_listing_validates_summary_without_reinspecting_each_network(self) -> None:
-        controller = self.controller()
-        lifecycle = object.__new__(local_app.AssistantLifecycle)
-        lifecycle.client = controller.client
-        lifecycle.space_id = controller.space_id
-        controller.assistant_lifecycle = lifecycle
+        controller, lifecycle = self.lifecycle_controller()
 
         networks = []
         for team_id, created in (("team_1", "2026-09-30T12:00:00.1Z"), ("team_2", "2026-09-30T12:00:00.2Z")):
@@ -332,11 +333,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
     def test_team_creation_reuses_inspected_network_in_each_branch(self) -> None:
         for branch in ("existing", "concurrent", "new"):
             with self.subTest(branch=branch):
-                controller = self.controller()
-                lifecycle = object.__new__(local_app.AssistantLifecycle)
-                lifecycle.client = controller.client
-                lifecycle.space_id = controller.space_id
-                controller.assistant_lifecycle = lifecycle
+                controller, lifecycle = self.lifecycle_controller()
                 labels = lifecycle._base_labels("team_1", "team")
                 labels[local_labels.TEAM_NAME_LABEL] = "Team"
                 network = types.SimpleNamespace(
@@ -365,11 +362,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
                 self.assertEqual(controller.client.networks.get.call_count, 2 if branch == "concurrent" else 1)
 
     def test_team_creation_rejects_invalid_network_from_create(self) -> None:
-        controller = self.controller()
-        lifecycle = object.__new__(local_app.AssistantLifecycle)
-        lifecycle.client = controller.client
-        lifecycle.space_id = controller.space_id
-        controller.assistant_lifecycle = lifecycle
+        controller, lifecycle = self.lifecycle_controller()
         controller.client.networks.get = mock.Mock(side_effect=NotFound("missing"))
         controller.client.networks.create.return_value = types.SimpleNamespace(
             attrs={"Name": lifecycle._network_name("team_1"), "Internal": False},
