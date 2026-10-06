@@ -282,35 +282,13 @@ class RecoverySnapshotTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
             # The run executes revision 3; the Routine is updated to revision 4 while the run is held.
-            service.routine_store.update(
-                "team_1",
-                lambda state: (
-                    record._replace_routine(
-                        state,
-                        routine_fixture.confirmed(
-                            dataclasses.replace(record.routine(state, value.routine_id), revision=3)
-                        ),
-                    ),
-                    None,
-                ),
-            )
+            routine_fixture.update_routine(service, value.routine_id, confirm=True, revision=3)
             snapshot, cursor = self.compiled(service, value, run_id, generation, 3)
             # A live run keeps its snapshot through every pass.
             routine_watchdog.check(service)
             self.assertEqual(service.routine_store.recoveries("team_1"), (run_id,))
             self.fence(service, run_id, lease)
-            service.routine_store.update(
-                "team_1",
-                lambda state: (
-                    record._replace_routine(
-                        state,
-                        routine_fixture.confirmed(
-                            dataclasses.replace(record.routine(state, value.routine_id), revision=4)
-                        ),
-                    ),
-                    None,
-                ),
-            )
+            routine_fixture.update_routine(service, value.routine_id, confirm=True, revision=4)
             routine_incident.reconcile(service, "team_1", run_id)
             self.assertEqual([item.revision for item in self.state(service).incidents], [3])
             routine_watchdog.check(service)

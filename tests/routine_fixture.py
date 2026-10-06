@@ -90,17 +90,15 @@ def put(store, team_id: str, state) -> None:
     store.update(team_id, lambda _before: (state, None))
 
 
-def update_routine(service, routine_id: str, **changes: object) -> None:
-    """Change fields of one of team_1's Routines in place through the store's write path."""
+def update_routine(service, routine_id: str, *, confirm: bool = False, **changes: object) -> None:
+    """Change fields of one of team_1's Routines in place through the store's write path; ``confirm`` re-pins it."""
     from routine import record
 
-    service.routine_store.update(
-        "team_1",
-        lambda state: (
-            record._replace_routine(state, dataclasses.replace(record.routine(state, routine_id), **changes)),
-            None,
-        ),
-    )
+    def changed(state):
+        value = dataclasses.replace(record.routine(state, routine_id), **changes)
+        return record._replace_routine(state, confirmed(value) if confirm else value), None
+
+    service.routine_store.update("team_1", changed)
 
 
 # A completed run's notice detail: the summary of the plan it carried out.

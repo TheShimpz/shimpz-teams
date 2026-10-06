@@ -127,18 +127,7 @@ class CardViewTests(CardCase):
             self.assertEqual(expired.exception.code, "routine-card-expired")
             # A Routine updated since the card opened makes it stale.
             card = self.card(service, run_id)
-            service.routine_store.update(
-                "team_1",
-                lambda state: (
-                    record._replace_routine(
-                        state,
-                        routine_fixture.confirmed(
-                            dataclasses.replace(record.routine(state, value.routine_id), revision=2)
-                        ),
-                    ),
-                    None,
-                ),
-            )
+            routine_fixture.update_routine(service, value.routine_id, confirm=True, revision=2)
             with self.assertRaises(local_app.ApiProblem) as stale:
                 self.answer(service, run_id, card, "run")
             self.assertEqual(stale.exception.code, "routine-card-stale")
