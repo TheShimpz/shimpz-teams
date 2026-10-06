@@ -37,6 +37,7 @@ from action import failure as action_failure
 from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_team_id
+from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_notice as http_routine_notice
 from protocol.http.v1 import routine_run as http_routine_run
@@ -60,8 +61,6 @@ def sealed_bound(plaintext: int) -> int:
 
 
 MAX_FILE_BYTES = sealed_bound(MAX_STEP_PLAINTEXT_BYTES)
-_TEAM_DIR_RE = re.compile(r"[0-9a-f]{64}\Z")
-_INCARNATION_RE = re.compile(r"[0-9a-f]{64}\Z")
 _NAME_RE = re.compile(
     r"(?P<at>[0-9]{1,12})\.(?P<routine>[0-9a-f]{32})\.(?P<run>[0-9a-f]{32})\."
     r"(?P<operation>[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(?P<attempt>[0-9]{1,2})"
@@ -144,7 +143,7 @@ def _aad(team_id: str, incarnation: str, name: str) -> bytes:
 
 
 def _incarnation(value: object) -> str:
-    if not isinstance(value, str) or _INCARNATION_RE.fullmatch(value) is None:
+    if not isinstance(value, str) or http_payload.SHA256_RE.fullmatch(value) is None:
         raise DiagnosticStoreError("Routine diagnostic incarnation is invalid")
     return value
 
@@ -407,7 +406,7 @@ class DiagnosticStore:
             or set(envelope) != {"algorithm", "incarnation", "nonce", "ciphertext"}
             or envelope["algorithm"] != "AES-256-GCM"
             or not isinstance(envelope["incarnation"], str)
-            or _INCARNATION_RE.fullmatch(envelope["incarnation"]) is None
+            or http_payload.SHA256_RE.fullmatch(envelope["incarnation"]) is None
         ):
             raise DiagnosticStoreError("Routine diagnostic is malformed")
         try:
@@ -474,7 +473,9 @@ class DiagnosticStore:
         """Remove every Team's bodies and the diagnostic keyring, as a Space reset does."""
         with self._guard:
             try:
-                names = sorted(entry.name for entry in os.scandir(self.root) if _TEAM_DIR_RE.fullmatch(entry.name))
+                names = sorted(
+                    entry.name for entry in os.scandir(self.root) if http_payload.SHA256_RE.fullmatch(entry.name)
+                )
             except FileNotFoundError:
                 names = []
             except OSError as exc:
