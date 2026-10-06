@@ -12,6 +12,7 @@ import time
 from types import SimpleNamespace
 from unittest import mock
 
+import routine_fixture
 from test_local_chat_scope import LOOKUP_RESULT
 from test_local_routine_diagnostics import FAILURE
 from test_local_routine_service import KEY, RoutineServiceCase, Runtime
@@ -300,18 +301,7 @@ class StepRecordEdgeTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
             value = self.routine(service, plan=_scaled_plan(service), next_run_at=int(time.time()) + 3600)
-            frozen = record.Run(
-                record.new_id(),
-                value.routine_id,
-                "frozen",
-                0,
-                request_kind="human",
-                assistant_id=ASSISTANT,
-                action="list-zones",
-                position={"phase": "replay", "step": 37},
-                steps=120,
-            )
-            service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, runs=(frozen,)), None))
+            frozen = routine_fixture.put_frozen_run(service, value.routine_id, ASSISTANT, step=37, steps=120)
             routine_human._end_changed(service, "team_1", frozen)
             detail = self.state(service).notices[-1].detail
         self.assertEqual(

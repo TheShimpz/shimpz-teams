@@ -10,6 +10,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import routine_fixture
 from local_controller_harness import LocalContractCase
 
 from inference import client as brain_runtime_client
@@ -876,20 +877,7 @@ class RecordedRoutineTests(LocalContractCase):
             runtime = Recording(_record())
             service = self.controller(directory, runtime)
             routine_id = self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])["routine_id"]
-            live = record.Run(
-                "f" * 32,
-                routine_id,
-                "frozen",
-                1,
-                request_kind="human",
-                assistant_id=ASSISTANT,
-                action="list-zones",
-                position={"phase": "replay", "step": 1},
-                steps=2,
-            )
-            service.routine_store.update(
-                "team_1", lambda state: (record.dataclasses.replace(state, runs=(live,)), None)
-            )
+            routine_fixture.put_frozen_run(service, routine_id, ASSISTANT, step=1, steps=2, run_id="f" * 32, lease=1)
             runtime.calls = False
             runtime.outcomes.append(_record(replaces=routine_id))
             busy = self.chat(service)["routine_refusal"]["code"]
