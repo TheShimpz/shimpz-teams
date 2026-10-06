@@ -512,3 +512,20 @@ class ReferencePathProtectionTests(unittest.TestCase):
                 code = _code(self, lambda r=recorded, k=known, p=protection: _record(r, k, protection=p))
                 self.assertEqual(code, "routine-secret-literal")
                 self.assertEqual(_input(_record(recorded, known))["zone_id"]["kind"], "step_output")
+
+
+class UnrepresentableReferenceTests(unittest.TestCase):
+    def test_a_path_longer_than_a_plan_pointer_falls_to_a_fixed_literal(self) -> None:
+        long_key = "k" * routine_plan.MAX_POINTER
+        cases = [
+            ({long_key: {"id": "safe-id123"}}, "x"),
+            ({"items": [{"name": "beta", long_key: "safe-id123"}]}, "beta"),
+        ]
+        for result, known in cases:
+            with self.subTest(known=known):
+                recorded = _trace(
+                    ("reports/fetch", {}, result), ("cloudflare/list-dns-records", {"zone_id": "safe-id123"}, {})
+                )
+                self.assertEqual(
+                    _input(_record(recorded, known))["zone_id"], {"kind": "literal", "value": "safe-id123"}
+                )

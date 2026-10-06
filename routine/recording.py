@@ -196,7 +196,7 @@ def _classified(
             return {"kind": "run_clock", "format": "date"}, "clock"
         return {"kind": "literal", "value": value}, "assistant"
     copied = _copied(value, earlier, known) if _referable(value) else None
-    if copied is not None:
+    if copied is not None and _representable(copied):
         _unexposed(copied, known)
         return copied, "selector" if "where" in copied else "step"
     return {"kind": "literal", "value": value}, "assistant"
@@ -280,6 +280,11 @@ def _selected(
         "where": dict(candidates),
         "item": _pointer(rest),
     }
+
+
+def _representable(source: dict[str, object]) -> bool:
+    """Whether every derived pointer fits the plan's pointer grammar; one that does not cannot be copied through."""
+    return all(routine_plan.pointer_tokens(source.get(key, "")) is not None for key in ("pointer", "item"))
 
 
 def _unexposed(source: dict[str, object], known: _Known) -> None:
