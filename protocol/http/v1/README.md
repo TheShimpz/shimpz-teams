@@ -95,10 +95,11 @@ delivers only bytes with that size and digest; any other challenge carries no `f
 A completed Team chat terminal body carries `clarification`, either `null` or one exact Brain
 multiple-choice question (ADR-0081): `question` (at most 240 characters), two to five `options` with a
 `label` (at most 80) and a `description` (at most 160, may be empty), and a `default_index` that points to the one
-recommended option. Every text is already NFC, trimmed, and free of control and line-separator characters, and
+recommended option, or is `null` when no option is recommended: a question about a Routine steers no choice, so the
+Brain sends it with `null` (ADR-0101). Every text is already NFC, trimmed, and free of control and line-separator characters, and
 labels are distinct ignoring case. `payload.canonical_clarification` validates it. The terminal `reply`
 must equal `payload.render_clarification`: the question, a blank line, then one numbered line per option,
-the recommended default marked with " ✓" and a non-empty description after " — ". The question is presentation only:
+the recommended default, when there is one, marked with " ✓" and a non-empty description after " — ". The question is presentation only:
 it requests and authorizes nothing, and the user answers with a new chat message.
 Admin composes that message from the original request, a blank line, then the question and the answer on their own
 lines, each after its interface-language label (`payload.CLARIFICATION_LABELS`, `payload.compose_clarified`); a request

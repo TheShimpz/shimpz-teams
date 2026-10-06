@@ -404,12 +404,15 @@ def _clarification(value: object) -> dict[str, object]:
                 ),
             }
         )
+    # A null default recommends no option, as a Routine question does, so options never steer the person's choice.
     default_index = value["default_index"]
-    if (
-        len({option["label"].casefold() for option in options}) != len(options)
-        or isinstance(default_index, bool)
-        or not isinstance(default_index, int)
-        or not 0 <= default_index < len(options)
+    if len({option["label"].casefold() for option in options}) != len(options) or (
+        default_index is not None
+        and (
+            isinstance(default_index, bool)
+            or not isinstance(default_index, int)
+            or not 0 <= default_index < len(options)
+        )
     ):
         raise _ClarificationShapeError
     return {"question": question, "options": options, "default_index": default_index}

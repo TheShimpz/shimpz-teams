@@ -27,6 +27,12 @@ class ClarificationContractTests(unittest.TestCase):
         self.assertIsNone(payload.canonical_clarification({**ASKED, "options": ["Hoje", "Semana"]}))
         self.assertIsNone(payload.canonical_clarification({**ASKED, "options": "Hoje"}))
 
+    def test_a_question_that_steers_no_choice_has_a_null_default_and_marks_none(self):
+        unsteered = {**ASKED, "default_index": None}
+        self.assertEqual(payload.canonical_clarification(unsteered), unsteered)
+        self.assertNotIn("✓", payload.render_clarification(unsteered))
+        self.assertIsNone(payload.canonical_clarification({**ASKED, "default_index": False}))
+
     def test_the_reply_is_the_exact_golden_rendering(self):
         for value, rendered in zip(
             VECTORS["clarification"]["valid"], VECTORS["clarification"]["rendered"], strict=True
