@@ -26,25 +26,8 @@ NETWORK = "a" * 64
 NINE = int(datetime.datetime(2026, 10, 1, 9, tzinfo=UTC).timestamp())
 
 
-def put(store: routine_store.RoutineStore, team_id: str, state: record.TeamRoutines) -> None:
-    """Replace a Team's Routine state through the store's only write path."""
-    store.update(team_id, lambda _before: (state, None))
-
-
 def routine(routine_id: str = "a" * 32) -> record.Routine:
-    value = routine_fixture.confirmed(
-        record.Routine(
-            routine_id=routine_id,
-            name="Resumo de DNS",
-            plan=routine_fixture.plan_document(timezone="America/Sao_Paulo"),
-            schedule={"kind": "daily", "time": "09:00"},
-            timezone="America/Sao_Paulo",
-            assistants=(),
-            anchor=NINE - 86_400,
-            next_run_at=0,
-        )
-    )
-    return dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
+    return routine_fixture.routine(routine_id, name="Resumo de DNS", anchor=NINE - 86_400, timezone="America/Sao_Paulo")
 
 
 USAGE = {
@@ -114,7 +97,7 @@ class RoundTripTests(StoreCase):
         state = record.add_routine(busy_state(), decision_routine())
         run = dataclasses.replace(state.runs[0], usage=USAGE, protection_lost=True)
         state = dataclasses.replace(state, runs=(run, *state.runs[1:]))
-        put(self.store, "team_1", state)
+        routine_fixture.put(self.store, "team_1", state)
         self.assertEqual(self.store.load("team_1"), state)
         self.assertEqual(self.state_file().stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.store.teams(), ("team_1",))
@@ -148,13 +131,13 @@ class RoundTripTests(StoreCase):
                 for index in range(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES)
             ),
         )
-        put(self.store, "team_1", worst)
+        routine_fixture.put(self.store, "team_1", worst)
         self.assertEqual(self.store.load("team_1"), worst)
         with (
             mock.patch.object(routine_store, "MAX_STATE_BYTES", 1024),
             self.assertRaisesRegex(routine_store.RoutineStoreError, "byte limit"),
         ):
-            put(self.store, "team_2", worst)
+            routine_fixture.put(self.store, "team_2", worst)
 
     def test_the_largest_state_a_team_can_admit_fits_its_derived_bound(self):
         """Every definition at the Team's budget, every notice, start, and incident at its own (scale)."""
@@ -231,7 +214,7 @@ class TamperTests(StoreCase):
         path.chmod(0o600)
 
     def baseline(self) -> dict[str, object]:
-        put(self.store, "team_1", busy_state())
+        routine_fixture.put(self.store, "team_1", busy_state())
         return json.loads(self.state_file().read_text())
 
     def assert_refused(self, value: object) -> None:
@@ -355,7 +338,7 @@ class TamperTests(StoreCase):
         state = busy_state()
         held = next(item for item in state.runs if item.status == "held")
         step = ("dns", "check", {"phase": "replay", "step": 1}, 1)
-        put(self.store, "team_1", routine_hold.settle_hold(state, held.run_id, NINE, 1, step))
+        routine_fixture.put(self.store, "team_1", routine_hold.settle_hold(state, held.run_id, NINE, 1, step))
         base = json.loads(self.state_file().read_text())
         self.assertEqual(base["incidents"][0]["assistant_id"], "dns")
         mutations = {
@@ -394,13 +377,13 @@ class TamperTests(StoreCase):
         self.assertEqual(self.store.load("team_1").incidents[0].position, {"phase": "decision", "call": 3})
 
     def test_a_state_file_that_is_not_private_fails_closed(self):
-        put(self.store, "team_1", busy_state())
+        routine_fixture.put(self.store, "team_1", busy_state())
         self.state_file().chmod(0o644)
         with self.assertRaisesRegex(routine_store.RoutineStoreError, "ownership"):
             self.store.load("team_1")
 
     def test_a_listing_refuses_state_filed_under_another_team(self):
-        put(self.store, "team_1", busy_state())
+        routine_fixture.put(self.store, "team_1", busy_state())
         self.store._team_dir("team_2").mkdir(mode=0o700)
         self.state_file().replace(self.store._team_dir("team_2") / "state.json")
         with self.assertRaises(routine_store.RoutineStoreError):
@@ -456,9 +439,9 @@ class ContinuationTests(StoreCase):
 
 class DeletionTests(StoreCase):
     def test_a_team_and_the_whole_space_are_removed_without_residue(self):
-        put(self.store, "team_1", busy_state())
+        routine_fixture.put(self.store, "team_1", busy_state())
         self.store.put_continuation("team_1", "a" * 32, b"payload")
-        put(self.store, "team_2", busy_state())
+        routine_fixture.put(self.store, "team_2", busy_state())
         self.store.delete("team_1")
         self.store.delete("team_1")
         self.assertEqual(self.store.teams(), ("team_2",))
@@ -468,7 +451,7 @@ class DeletionTests(StoreCase):
         self.assertFalse(self.store.key_path.exists())
 
     def test_a_deleted_team_releases_its_lock_and_a_held_lock_is_shared(self):
-        put(self.store, "team_1", busy_state())
+        routine_fixture.put(self.store, "team_1", busy_state())
         held = self.store.lock("team_2")
         with mock.patch.object(routine_store.threading, "RLock", wraps=threading.RLock) as created:
             self.assertIs(self.store.lock("team_2"), held)
@@ -483,7 +466,7 @@ class DeletionTests(StoreCase):
 
 class FilesystemFailureTests(StoreCase):
     def test_listing_and_removal_failures_fail_closed(self):
-        put(self.store, "team_1", busy_state())
+        routine_fixture.put(self.store, "team_1", busy_state())
         self.store._team_dir("team_3").mkdir(mode=0o700)
         self.assertEqual(self.store.teams(), ("team_1",))
         denied = PermissionError("denied")
@@ -523,7 +506,7 @@ class FilesystemFailureTests(StoreCase):
         outside = Path(self.directory.name) / "outside"
         outside.mkdir()
         (outside / "keep.txt").write_text("keep")
-        put(self.store, "team_1", busy_state())
+        routine_fixture.put(self.store, "team_1", busy_state())
         self.store.delete("team_2")
         (self.store.root / ("f" * 64)).symlink_to(outside, target_is_directory=True)
         for call in (self.store.teams, self.store.delete_all):
@@ -538,7 +521,7 @@ class FilesystemFailureTests(StoreCase):
 
 class ExclusionTests(StoreCase):
     def test_a_reset_refuses_writes_during_it_and_from_before_it(self):
-        put(self.store, "team_1", busy_state())
+        routine_fixture.put(self.store, "team_1", busy_state())
         started = self.store._current_epoch()
         with self.store.exclusive():
             for write in (
@@ -595,7 +578,7 @@ if __name__ == "__main__":
 
 class ConcurrentReadTests(StoreCase):
     def test_a_listing_read_that_races_a_replace_reads_again_and_a_lasting_failure_still_fails(self) -> None:
-        put(self.store, "team_1", busy_state())
+        routine_fixture.put(self.store, "team_1", busy_state())
         real = routine_store._PRIVATE.read_private_file
         failures = [routine_store.RoutineStoreError("Routine state failed its ownership contract")] * 2
 
@@ -624,5 +607,5 @@ class StartWindowTests(StoreCase):
         state = dataclasses.replace(busy_state(), starts=starts)
         rolled = dataclasses.replace(state.routines[0], rollup_minute=first - first % 60, rollup_runs=12)
         state = dataclasses.replace(state, routines=(rolled, *state.routines[1:]))
-        put(self.store, "team_1", state)
+        routine_fixture.put(self.store, "team_1", state)
         self.assertEqual(self.store.load("team_1").starts, starts)

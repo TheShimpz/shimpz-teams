@@ -43,19 +43,7 @@ ANCHOR = epoch(2026, 9, 1)
 def routine(
     routine_id: str = "a" * 32, schedule: dict | None = None, *, anchor: int = ANCHOR, plan: dict | None = None
 ) -> record.Routine:
-    value = routine_fixture.confirmed(
-        record.Routine(
-            routine_id=routine_id,
-            name="Daily DNS summary",
-            plan=plan or routine_fixture.plan_document(),
-            schedule=dict(schedule or DAILY),
-            timezone="UTC",
-            assistants=(("dns", DIGEST),),
-            anchor=anchor,
-            next_run_at=0,
-        )
-    )
-    return dataclasses.replace(value, next_run_at=record.next_after(value, anchor))
+    return routine_fixture.routine(routine_id, name="Daily DNS summary", anchor=anchor, schedule=schedule, plan=plan)
 
 
 def added(*routines: record.Routine) -> record.TeamRoutines:

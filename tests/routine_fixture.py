@@ -58,6 +58,38 @@ def confirmed(value):
     return dataclasses.replace(value, permitted=entries, assistants=assistants, confirmation=dict(CONFIRMATION))
 
 
+def routine(
+    routine_id: str,
+    *,
+    name: str,
+    anchor: int,
+    schedule: dict[str, object] | None = None,
+    timezone: str = "UTC",
+    plan: dict[str, object] | None = None,
+):
+    """A confirmed Routine, by default one plan_document step daily at 09:00, due when it first fires after anchor."""
+    from routine import record
+
+    value = confirmed(
+        record.Routine(
+            routine_id=routine_id,
+            name=name,
+            plan=plan or plan_document(timezone=timezone),
+            schedule=dict(schedule or {"kind": "daily", "time": "09:00"}),
+            timezone=timezone,
+            assistants=(),
+            anchor=anchor,
+            next_run_at=0,
+        )
+    )
+    return dataclasses.replace(value, next_run_at=record.next_after(value, anchor))
+
+
+def put(store, team_id: str, state) -> None:
+    """Replace a Team's Routine state through the store's only write path."""
+    store.update(team_id, lambda _before: (state, None))
+
+
 # A completed run's notice detail: the summary of the plan it carried out.
 DONE = {
     "plan": {

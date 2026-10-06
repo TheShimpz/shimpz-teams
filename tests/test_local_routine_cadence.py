@@ -28,19 +28,8 @@ CONTINUOUS = {"kind": "continuous", "gap": 5, "cap": http_routine.continuous_cap
 
 
 def continuous(routine_id: str = "a" * 32, *, at: int = 1_800_000_000, gap: int = 5) -> record.Routine:
-    value = routine_fixture.confirmed(
-        record.Routine(
-            routine_id=routine_id,
-            name="Zones",
-            plan=routine_fixture.plan_document(),
-            schedule={"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)},
-            timezone="UTC",
-            assistants=(),
-            anchor=at,
-            next_run_at=0,
-        )
-    )
-    return dataclasses.replace(value, next_run_at=record.next_after(value, at))
+    schedule = {"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)}
+    return routine_fixture.routine(routine_id, name="Zones", anchor=at, schedule=schedule)
 
 
 def caught_up(state: record.TeamRoutines) -> record.TeamRoutines:

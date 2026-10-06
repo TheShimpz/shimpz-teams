@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import datetime
 import errno
 import stat
@@ -34,25 +33,8 @@ NETWORK = "a" * 64
 NINE = int(datetime.datetime(2026, 10, 1, 9, tzinfo=datetime.UTC).timestamp())
 
 
-def put(store: routine_store.RoutineStore, team_id: str, state: record.TeamRoutines) -> None:
-    """Replace a Team's Routine state through the store's only write path."""
-    store.update(team_id, lambda _before: (state, None))
-
-
 def routine(routine_id: str) -> record.Routine:
-    value = routine_fixture.confirmed(
-        record.Routine(
-            routine_id=routine_id,
-            name="Daily DNS check",
-            plan=routine_fixture.plan_document(),
-            schedule={"kind": "daily", "time": "09:00"},
-            timezone="UTC",
-            assistants=(),
-            anchor=NINE - 86_400,
-            next_run_at=0,
-        )
-    )
-    return dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
+    return routine_fixture.routine(routine_id, name="Daily DNS check", anchor=NINE - 86_400)
 
 
 def two_runs() -> tuple[record.TeamRoutines, str]:
@@ -95,7 +77,7 @@ class RoutineLifecycleTests(unittest.TestCase):
 
     def test_a_teams_routine_threads_generations_and_state_are_deleted(self):
         state, run_id = two_runs()
-        put(self.subject.routine_store, "team_1", state)
+        routine_fixture.put(self.subject.routine_store, "team_1", state)
         self.subject.routine_store.put_continuation("team_1", run_id, b"continuation")
         routine_lifecycle.delete_team_routines(self.subject, "team_1")
         self.assertEqual(
@@ -129,7 +111,7 @@ class RoutineLifecycleTests(unittest.TestCase):
     def test_diagnostics_share_the_routine_volumes_and_leave_with_their_team(self):
         state, run_id = two_runs()
         for team in ("team_1", "team_2"):
-            put(self.subject.routine_store, team, state)
+            routine_fixture.put(self.subject.routine_store, team, state)
             self.record_diagnostic(team, run_id)
         self.subject.routine_store.put_continuation("team_2", run_id, b"continuation")
         diagnostics = self.subject.routine_diagnostics
@@ -175,7 +157,7 @@ class RoutineLifecycleTests(unittest.TestCase):
         )
         generation = f"{NETWORK}:routine:{run_id}"
         self.assertEqual(state.discards, ((run_id, generation),))
-        put(self.subject.routine_store, "team_1", state)
+        routine_fixture.put(self.subject.routine_store, "team_1", state)
 
         def unavailable(_generation):
             raise action_journal.ActionJournalError("down")
@@ -219,7 +201,7 @@ class RoutineLifecycleTests(unittest.TestCase):
     def test_a_space_reset_deletes_every_teams_routines_and_the_keyring(self):
         state, run_id = two_runs()
         for team in ("team_1", "team_2"):
-            put(self.subject.routine_store, team, state)
+            routine_fixture.put(self.subject.routine_store, team, state)
         self.subject.routine_store.put_continuation("team_1", run_id, b"continuation")
         routine_lifecycle.delete_all_routines(self.subject)
         self.assertEqual(len([event for event in self.events if event[0] == "purge"]), 2)
@@ -228,7 +210,7 @@ class RoutineLifecycleTests(unittest.TestCase):
 
     def test_each_failure_is_a_retryable_unavailable_problem(self):
         state, _run_id = two_runs()
-        put(self.subject.routine_store, "team_1", state)
+        routine_fixture.put(self.subject.routine_store, "team_1", state)
 
         def fail(error: BaseException):
             def raise_error(*_args):
