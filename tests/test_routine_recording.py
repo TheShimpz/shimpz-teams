@@ -647,7 +647,14 @@ class SourceTests(unittest.TestCase):
 
 def _asked(question: recording.Question, after: int) -> recording.Asked:
     """The span's record of a question asked after ``after`` sends, with every choice already answered."""
-    return recording.Asked(question.code, after, question.pending, question.manifest, chosen=question.chosen)
+    return recording.Asked(
+        question.code,
+        after,
+        question.pending,
+        question.manifest,
+        chosen=question.chosen,
+        chained_from=question.chained_from,
+    )
 
 
 def _pending(question: recording.Question, after: int) -> recording.Asked:
@@ -1045,6 +1052,26 @@ class OutputTests(unittest.TestCase):
         # A lookup that nothing else consumes is no chain: the output question stands.
         alone = _send(ZONES_CALL, message="zonas a cada hora, usar em outras ações")
         self.assertEqual(self.output(alone), recording.Question("routine-output-unstated"))
+
+    def test_a_chain_chosen_after_the_question_must_use_the_result_it_asked_about(self) -> None:
+        records = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID}, {"result": {"id": "rec-1234567"}})
+        work = _send(ZONES_CALL, records, message="DNS de shimpz.com a cada hora")
+        asked = _record(work, mode=None)
+        self.assertEqual(
+            (asked.code, asked.chained_from), ("routine-output-unstated", ("cloudflare", "list-dns-records"))
+        )
+        chain = _send(message=http_routine.OUTPUT_CHOICES["pt"]["chain"])
+        # Recording again with no new Action, or repeating the same work, uses no result of the records listing.
+        for later in ((), (_send(ZONES_CALL, records),)):
+            with self.subTest(later=len(later)):
+                again = _record(work, chain, *later, asked=_asked(asked, 1), mode=None)
+                self.assertEqual(
+                    (again.code, again.chained_from), ("routine-output-unstated", ("cloudflare", "list-dns-records"))
+                )
+        post = ("reports/post", {"record": "rec-1234567"}, {})
+        chained = _recorded(work, chain, _send(ZONES_CALL, records, post), asked=_asked(asked, 1), mode=None)
+        self.assertEqual(_actions(chained), ["list-zones", "list-dns-records", "post"])
+        self.assertEqual(chained.document["output"]["mode"], "show")
 
     def test_no_output_or_two_in_one_segment_are_asked_never_guessed(self) -> None:
         for message in ("a cada hora", "a cada hora. Mostrar sempre. Ou só quando mudar."):

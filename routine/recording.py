@@ -145,6 +145,8 @@ class Asked:
     wire: dict[str, object] | None = None
     # Every target choice the person already answered, each bound until the span ends.
     chosen: tuple[Pending, ...] = ()
+    # The Action whose result the work showed when Team asked for the output, which a chain must use.
+    chained_from: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +160,7 @@ class Question:
     pending: Pending | None = field(default=None, compare=False)
     manifest: Manifest | None = field(default=None, compare=False)
     chosen: tuple[Pending, ...] = field(default=(), compare=False)
+    chained_from: tuple[str, str] | None = field(default=None, compare=False)
     # The first send whose calls count: the send that settled a rerun, or 0.
     frontier: int = field(default=0, compare=False)
 
@@ -276,7 +279,7 @@ def record(
         settled = settlement(sends, asked)
         if settled is None:
             question = Question(asked.code, pending=asked.pending, manifest=asked.manifest, frontier=frontier)
-            return dataclasses.replace(question, chosen=asked.chosen)
+            return dataclasses.replace(question, chosen=asked.chosen, chained_from=asked.chained_from)
         frontier = max(frontier, settled)
     calls = _calls(sends, contracts)
     texts = [line for send in sends for line in (*_lines(send.person), *send.window)]
@@ -292,9 +295,11 @@ def record(
             kept = None
             document, origins = _plan(context, recording, work)
             when = _schedule(sends, existing)
-        steps = (kept.document if kept is not None else document)["steps"]
-        if stated is None or (stated == "chain" and not _chained(steps)):
-            raise _AskError(Question("routine-output-unstated"))
+        planned = kept.document if kept is not None else document
+        chained_from = asked.chained_from if asked is not None else None
+        if stated is None or (stated == "chain" and not _chained(planned["steps"], chained_from)):
+            # Asked first, the question keeps what the work would show, which a chain chosen then must use.
+            raise _AskError(Question("routine-output-unstated", chained_from=chained_from or _shown_action(planned)))
     except _AskError as asking:
         return _asked(context, work, asking.question, frontier)
     if kept is not None:
@@ -330,8 +335,14 @@ def _asked(context: _Context, work: list[_Call], question: Question, frontier: i
     manifest = question.manifest
     if manifest is None and question.code in _RERUN_CODES:
         manifest = _manifest(context, work, tuple(kept.values()))
+    chained_from = question.chained_from or (context.asked.chained_from if context.asked is not None else None)
     return dataclasses.replace(
-        question, pending=pending, manifest=manifest, frontier=frontier, chosen=tuple(kept.values())
+        question,
+        pending=pending,
+        manifest=manifest,
+        frontier=frontier,
+        chosen=tuple(kept.values()),
+        chained_from=chained_from,
     )
 
 
@@ -406,9 +417,23 @@ def _schedule(sends: Sequence[Send], existing: Existing | None) -> dict[str, obj
 _OUTPUT_MODES = {"show": "show", "changes": "changes", "none": "none", "chain": "show"}
 
 
-def _chained(steps: Sequence[Mapping[str, object]]) -> bool:
-    """Whether a plan's work uses an earlier result: some step reads another step's output."""
-    return any(source["kind"] == "step_output" for step in steps for source in step["input"].values())
+def _chained(steps: Sequence[Mapping[str, object]], chained_from: tuple[str, str] | None) -> bool:
+    """Whether a plan's work uses the result a chain is about: a later step reads it.
+
+    Chosen when Team asked for the output, the chain must use the result of the Action the work would then have shown;
+    stated with the request, any earlier result some step reads.
+    """
+    read = {source["step"] for step in steps for source in step["input"].values() if source["kind"] == "step_output"}
+    return any(
+        step["id"] in read and (chained_from is None or (step["assistant"], step["action"]) == chained_from)
+        for step in steps
+    )
+
+
+def _shown_action(document: Mapping[str, object]) -> tuple[str, str] | None:
+    """The Action of the step a plan shows, or None when it shows none."""
+    shown = document["output"]["step"]
+    return next(((step["assistant"], step["action"]) for step in document["steps"] if step["id"] == shown), None)
 
 
 def _output(sends: Sequence[Send], existing: Existing | None) -> str | None:
