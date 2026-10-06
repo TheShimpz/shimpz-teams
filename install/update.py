@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import fcntl
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from install import bindings
+from install import bindings, lock
 from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
@@ -57,7 +56,7 @@ class AssistantUpdateStore:
             raise bindings.DynamicAssistantConflictError("the previous Assistant image id is invalid")
         update = AssistantUpdate(previous.team_id, previous.assistant_id, previous, successor, previous_image_id)
         path = self._path(update.team_id, update.assistant_id)
-        with _FileLock(path.with_suffix(".lock"), fcntl.LOCK_EX):
+        with _lock(path.with_suffix(".lock"), fcntl.LOCK_EX):
             current = self._read(path)
             if current is not None:
                 if current == update:
@@ -68,7 +67,7 @@ class AssistantUpdateStore:
 
     def get(self, team_id: str, assistant_id: str) -> AssistantUpdate | None:
         path = self._path(team_id, assistant_id)
-        with _FileLock(path.with_suffix(".lock"), fcntl.LOCK_SH):
+        with _lock(path.with_suffix(".lock"), fcntl.LOCK_SH):
             return self._read(path)
 
     def list(self) -> tuple[AssistantUpdate, ...]:
@@ -78,7 +77,7 @@ class AssistantUpdateStore:
             raise bindings.DynamicAssistantError("Assistant update transactions cannot be listed") from exc
         updates: list[AssistantUpdate] = []
         for path in paths:
-            with _FileLock(path.with_suffix(".lock"), fcntl.LOCK_SH):
+            with _lock(path.with_suffix(".lock"), fcntl.LOCK_SH):
                 update = self._read(path)
             if update is not None:
                 if self._path(update.team_id, update.assistant_id) != path:
@@ -88,7 +87,7 @@ class AssistantUpdateStore:
 
     def clear(self, update: AssistantUpdate) -> None:
         path = self._path(update.team_id, update.assistant_id)
-        with _FileLock(path.with_suffix(".lock"), fcntl.LOCK_EX):
+        with _lock(path.with_suffix(".lock"), fcntl.LOCK_EX):
             current = self._read(path)
             if current is None:
                 return
@@ -137,7 +136,7 @@ class AssistantResidueStore:
     def add(self, image_id: str) -> AssistantResidue:
         residue = AssistantResidue(_image_id(image_id))
         path = self._path(residue)
-        with _FileLock(self._lock_path, fcntl.LOCK_EX):
+        with _lock(self._lock_path, fcntl.LOCK_EX):
             current = self._read(path)
             if current is not None:
                 if current == residue:
@@ -147,7 +146,7 @@ class AssistantResidueStore:
         return residue
 
     def list(self) -> tuple[AssistantResidue, ...]:
-        with _FileLock(self._lock_path, fcntl.LOCK_SH):
+        with _lock(self._lock_path, fcntl.LOCK_SH):
             try:
                 paths = tuple(sorted(self._root.glob("*.json")))
             except OSError as exc:
@@ -163,7 +162,7 @@ class AssistantResidueStore:
 
     def clear(self, residue: AssistantResidue) -> None:
         path = self._path(residue)
-        with _FileLock(self._lock_path, fcntl.LOCK_EX):
+        with _lock(self._lock_path, fcntl.LOCK_EX):
             current = self._read(path)
             if current is None:
                 return
@@ -201,42 +200,8 @@ class AssistantResidueStore:
         return AssistantResidue(_image_id(value["image_id"]))
 
 
-class _FileLock:
-    def __init__(self, path: Path, operation: int) -> None:
-        self._path = path
-        self._operation = operation
-        self._stream = None
-
-    def __enter__(self) -> None:
-        descriptor = -1
-        try:
-            self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            descriptor = os.open(self._path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
-            self._stream = os.fdopen(descriptor, "rb+")
-            descriptor = -1
-            fcntl.flock(self._stream, self._operation)
-        except OSError as exc:
-            if descriptor >= 0:
-                os.close(descriptor)
-            if self._stream is not None:
-                self._stream.close()
-                self._stream = None
-            raise bindings.DynamicAssistantError("Assistant update state lock is unavailable") from exc
-        except Exception:
-            if descriptor >= 0:
-                os.close(descriptor)
-            if self._stream is not None:
-                self._stream.close()
-                self._stream = None
-            raise
-
-    def __exit__(self, *_args: object) -> None:
-        if self._stream is None:
-            raise bindings.DynamicAssistantError("Assistant update transaction lock is unavailable")
-        try:
-            fcntl.flock(self._stream, fcntl.LOCK_UN)
-        finally:
-            self._stream.close()
+def _lock(path: Path, operation: int) -> lock.FileLock:
+    return lock.FileLock(path, operation, bindings.DynamicAssistantError, "Assistant update state lock is unavailable")
 
 
 def _encode(update: AssistantUpdate) -> dict[str, object]:

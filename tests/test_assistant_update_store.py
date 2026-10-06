@@ -93,13 +93,13 @@ class AssistantUpdateStoreTests(unittest.TestCase):
         self.updates.begin(previous, successor, f"sha256:{'a' * 64}")
 
         with (
-            mock.patch("install.update.os.open", side_effect=PermissionError("denied")),
+            mock.patch("install.lock.os.open", side_effect=PermissionError("denied")),
             self.assertRaises(DynamicAssistantError),
         ):
             self.updates.list()
 
         with (
-            mock.patch("install.bindings.os.open", side_effect=PermissionError("denied")),
+            mock.patch("install.lock.os.open", side_effect=PermissionError("denied")),
             self.assertRaises(DynamicAssistantError),
         ):
             self.bindings.get("team_1", previous.assistant_id)

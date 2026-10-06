@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import copy
+import fcntl
 import json
+import stat
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from install import bindings, contract, update
+from install import bindings, contract, lock, update
 from install.contract import CONTRACT_ROOT
 
 RESOLUTION = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())["fixtures"]["resolve_response"]["value"]
@@ -146,49 +148,60 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
         ):
             bindings.binding_from_resolution("team_1", {"assistant_id": "postgres"})
 
-    def test_binding_lock_normalizes_partial_os_and_generic_failures(self) -> None:
-        path = Path(self.directory.name, "lock")
 
+class FileLockEdgeCoverageTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name, "lock")
+
+    def _lock(self) -> lock.FileLock:
+        return lock.FileLock(self.path, fcntl.LOCK_EX, LookupError, "lock is unavailable")
+
+    def test_lock_creates_a_private_file_and_releases_it(self) -> None:
+        with self._lock():
+            self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+        with self._lock():
+            pass
+
+    def test_lock_normalizes_os_failures_and_closes_partial_resources(self) -> None:
         with (
-            mock.patch.object(bindings.os, "open", return_value=9),
-            mock.patch.object(bindings.os, "fdopen", side_effect=OSError("failed")),
-            mock.patch.object(bindings.os, "close") as close,
-            self.assertRaisesRegex(bindings.DynamicAssistantError, "lock is unavailable"),
+            mock.patch.object(lock.os, "open", return_value=9),
+            mock.patch.object(lock.os, "fdopen", side_effect=OSError("failed")),
+            mock.patch.object(lock.os, "close") as close,
+            self.assertRaisesRegex(LookupError, "lock is unavailable"),
         ):
-            bindings._FileLock(path, 1).__enter__()
+            self._lock().__enter__()
         close.assert_called_once_with(9)
 
-        stream = mock.Mock()
-        with (
-            mock.patch.object(bindings.os, "open", return_value=9),
-            mock.patch.object(bindings.os, "fdopen", return_value=stream),
-            mock.patch.object(bindings.fcntl, "flock", side_effect=OSError("failed")),
-            self.assertRaisesRegex(bindings.DynamicAssistantError, "lock is unavailable"),
-        ):
-            bindings._FileLock(path, 1).__enter__()
-        stream.close.assert_called_once()
+        for exception in (OSError("failed"), ValueError("failed")):
+            stream = mock.Mock()
+            expected = LookupError if isinstance(exception, OSError) else ValueError
+            with (
+                self.subTest(exception=type(exception).__name__),
+                mock.patch.object(lock.os, "open", return_value=9),
+                mock.patch.object(lock.os, "fdopen", return_value=stream),
+                mock.patch.object(lock.fcntl, "flock", side_effect=exception),
+                self.assertRaises(expected),
+            ):
+                self._lock().__enter__()
+            stream.close.assert_called_once()
 
         with (
-            mock.patch.object(bindings.os, "open", return_value=9),
-            mock.patch.object(bindings.os, "fdopen", side_effect=ValueError("failed")),
-            mock.patch.object(bindings.os, "close") as close,
+            mock.patch.object(lock.os, "open", return_value=9),
+            mock.patch.object(lock.os, "fdopen", side_effect=ValueError("failed")),
+            mock.patch.object(lock.os, "close") as close,
             self.assertRaisesRegex(ValueError, "failed"),
         ):
-            bindings._FileLock(path, 1).__enter__()
+            self._lock().__enter__()
         close.assert_called_once_with(9)
 
-        stream = mock.Mock()
-        with (
-            mock.patch.object(bindings.os, "open", return_value=9),
-            mock.patch.object(bindings.os, "fdopen", return_value=stream),
-            mock.patch.object(bindings.fcntl, "flock", side_effect=ValueError("failed")),
-            self.assertRaisesRegex(ValueError, "failed"),
-        ):
-            bindings._FileLock(path, 1).__enter__()
-        stream.close.assert_called_once()
-
-        with self.assertRaisesRegex(bindings.DynamicAssistantError, "lock is unavailable"):
-            bindings._FileLock(path, 1).__exit__()
+    def test_lock_refuses_a_symbolic_link_and_an_exit_without_entry(self) -> None:
+        self.path.symlink_to(Path(self.directory.name, "target"))
+        with self.assertRaisesRegex(LookupError, "lock is unavailable"):
+            self._lock().__enter__()
+        with self.assertRaisesRegex(LookupError, "lock is unavailable"):
+            self._lock().__exit__()
 
 
 class UpdateStoreEdgeCoverageTests(unittest.TestCase):
@@ -359,42 +372,6 @@ class UpdateStoreEdgeCoverageTests(unittest.TestCase):
 
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "image id is invalid"):
             self.residues.add("invalid")
-
-    def test_update_lock_normalizes_partial_os_and_generic_failures(self) -> None:
-        path = Path(self.directory.name, "lock")
-        with (
-            mock.patch.object(update.os, "open", return_value=9),
-            mock.patch.object(update.os, "fdopen", side_effect=OSError("failed")),
-            mock.patch.object(update.os, "close") as close,
-            self.assertRaisesRegex(bindings.DynamicAssistantError, "lock is unavailable"),
-        ):
-            update._FileLock(path, 1).__enter__()
-        close.assert_called_once_with(9)
-
-        for exception in (OSError("failed"), ValueError("failed")):
-            stream = mock.Mock()
-            expected = bindings.DynamicAssistantError if isinstance(exception, OSError) else ValueError
-            with (
-                self.subTest(exception=type(exception).__name__),
-                mock.patch.object(update.os, "open", return_value=9),
-                mock.patch.object(update.os, "fdopen", return_value=stream),
-                mock.patch.object(update.fcntl, "flock", side_effect=exception),
-                self.assertRaises(expected),
-            ):
-                update._FileLock(path, 1).__enter__()
-            stream.close.assert_called_once()
-
-        with (
-            mock.patch.object(update.os, "open", return_value=9),
-            mock.patch.object(update.os, "fdopen", side_effect=ValueError("failed")),
-            mock.patch.object(update.os, "close") as close,
-            self.assertRaisesRegex(ValueError, "failed"),
-        ):
-            update._FileLock(path, 1).__enter__()
-        close.assert_called_once_with(9)
-
-        with self.assertRaisesRegex(bindings.DynamicAssistantError, "lock is unavailable"):
-            update._FileLock(path, 1).__exit__()
 
 
 if __name__ == "__main__":

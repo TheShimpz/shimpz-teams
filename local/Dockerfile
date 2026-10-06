@@ -88,8 +88,8 @@ COPY routine/__init__.py routine/change.py routine/cursor.py routine/grant.py ro
     routine/schedule.py ./routine/
 COPY local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/inference.py local/http/routine.py \
     local/http/server.py local/http/stream.py ./local/http/
-COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/update.py \
-    install/registry_auth.py ./install/
+COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/lock.py \
+    install/registry_auth.py install/update.py ./install/
 COPY protocol/install/upstream.json ./protocol/install/
 COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
     protocol/install/v1/install-request.schema.json \

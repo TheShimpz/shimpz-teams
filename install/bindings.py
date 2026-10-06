@@ -5,13 +5,13 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from core.container import network as network_policy
+from install import lock
 from install.contract import ContractValidationError, ContractValidator
 from protocol.http.v1 import payload as http_payload
 from storage import private_state
@@ -22,6 +22,7 @@ _MAX_FILE_BYTES = 8 * 1024 * 1024
 _CONTRACTS = ContractValidator()
 _PUBLISHED = "published"
 _LOCAL = "local"
+_LOCK_UNAVAILABLE = "the dynamic Assistant registry lock is unavailable"
 type AssistantProvenance = Literal["published", "local"]
 type LocalRecordValidator = Callable[[dict[str, Any]], None]
 
@@ -184,10 +185,10 @@ class DynamicAssistantStore:
         return True
 
     def _exclusive_lock(self):
-        return _FileLock(self._lock_path, fcntl.LOCK_EX)
+        return lock.FileLock(self._lock_path, fcntl.LOCK_EX, DynamicAssistantError, _LOCK_UNAVAILABLE)
 
     def _shared_lock(self):
-        return _FileLock(self._lock_path, fcntl.LOCK_SH)
+        return lock.FileLock(self._lock_path, fcntl.LOCK_SH, DynamicAssistantError, _LOCK_UNAVAILABLE)
 
     def _read(self) -> list[DynamicAssistantBinding]:
         try:
@@ -229,49 +230,6 @@ class DynamicAssistantStore:
             private_state.replace_durably(self._path, encoded)
         except OSError as exc:
             raise DynamicAssistantError("the dynamic Assistant registry cannot be written") from exc
-
-
-class _FileLock:
-    def __init__(self, path: Path, operation: int) -> None:
-        self._path = path
-        self._operation = operation
-        self._stream = None
-
-    def __enter__(self) -> None:
-        descriptor = -1
-        try:
-            self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            descriptor = os.open(
-                self._path,
-                os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0),
-                0o600,
-            )
-            self._stream = os.fdopen(descriptor, "rb+")
-            descriptor = -1
-            fcntl.flock(self._stream, self._operation)
-        except OSError as exc:
-            if descriptor >= 0:
-                os.close(descriptor)
-            if self._stream is not None:
-                self._stream.close()
-                self._stream = None
-            raise DynamicAssistantError("the dynamic Assistant registry lock is unavailable") from exc
-        except Exception:
-            if descriptor >= 0:
-                os.close(descriptor)
-            if self._stream is not None:
-                self._stream.close()
-                self._stream = None
-            raise
-
-    def __exit__(self, *_args: object) -> None:
-        stream = self._stream
-        if stream is None:
-            raise DynamicAssistantError("the dynamic Assistant registry lock is unavailable")
-        try:
-            fcntl.flock(stream, fcntl.LOCK_UN)
-        finally:
-            stream.close()
 
 
 def binding_from_resolution(
