@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import tempfile
 import time
 import unittest
 from contextlib import nullcontext
-from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 import hosted_assistant_fixture as harness
 from test_brain_runtime_client import context
-from test_local_chat_brain_abort import _SilentBrain, _submit
+from test_local_chat_brain_abort import _silent_client, _submit
 
 api = harness.hosted_chat_api
 # The client of the loaded Hosted app, whose Brain request reads the abort that app's turn registers. A separately
@@ -24,15 +22,7 @@ lifecycle = harness.hosted_lifecycle
 
 class HostedStopAbortTests(unittest.TestCase):
     def setUp(self) -> None:
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        token_file = Path(directory.name) / "token"
-        token_file.write_text("brain-runtime-token", encoding="utf-8")
-        self.brain = _SilentBrain()
-        self.addCleanup(self.brain.close)
-        self.client = brain_runtime_client.BrainRuntimeClient(
-            base_url=f"http://127.0.0.1:{self.brain.port}", token_file=token_file
-        )
+        self.brain, self.client = _silent_client(self, brain_runtime_client)
         self.container = SimpleNamespace(id="container", status="running", reload=mock.Mock())
         self.lease = SimpleNamespace(owner="account_1", container_id="container")
         for patcher in (

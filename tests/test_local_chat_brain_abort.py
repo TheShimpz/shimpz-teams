@@ -53,17 +53,20 @@ def _submit(work) -> Future:
     return future
 
 
+def _silent_client(case: unittest.TestCase, client_module) -> tuple[_SilentBrain, object]:
+    """A silent Brain and a ``client_module`` runtime client pointed at it, both cleaned up after ``case``."""
+    directory = tempfile.TemporaryDirectory()
+    case.addCleanup(directory.cleanup)
+    token_file = Path(directory.name) / "token"
+    token_file.write_text("brain-runtime-token", encoding="utf-8")
+    brain = _SilentBrain()
+    case.addCleanup(brain.close)
+    return brain, client_module.BrainRuntimeClient(base_url=f"http://127.0.0.1:{brain.port}", token_file=token_file)
+
+
 class LocalStopAbortTests(unittest.TestCase):
     def setUp(self) -> None:
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        token_file = Path(directory.name) / "token"
-        token_file.write_text("brain-runtime-token", encoding="utf-8")
-        self.brain = _SilentBrain()
-        self.addCleanup(self.brain.close)
-        self.client = brain_runtime_client.BrainRuntimeClient(
-            base_url=f"http://127.0.0.1:{self.brain.port}", token_file=token_file
-        )
+        self.brain, self.client = _silent_client(self, brain_runtime_client)
         team_lock = threading.RLock()
         self.service = local_app.ChatTurnService(
             local_app.ChatTurnDependencies(
