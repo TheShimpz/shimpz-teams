@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from protocol.http.v1 import identifiers, payload, routine
+from protocol.http.v1 import identifiers, payload, routine, routine_notice, routine_proposal, routine_run
 
 PROTOCOL = Path(__file__).resolve().parents[1] / "protocol" / "http" / "v1"
 ASSISTANT_PROTOCOL = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1"
@@ -40,9 +40,14 @@ class FlatVerifierTests(unittest.TestCase):
         names = (
             "identifiers",
             "payload",
+            "phrase",
             "progress",
             "purpose",
             "routine",
+            "routine_context",
+            "routine_notice",
+            "routine_proposal",
+            "routine_run",
             "strict_json",
             "supervisor",
             "turn",
@@ -90,7 +95,7 @@ class LocalizedChallengeContractTests(unittest.TestCase):
     def test_pack_digest_challenge_open_and_snapshot_summary_locale_are_closed(self) -> None:
         for name, admit in (
             ("pack_digest", payload.canonical_pack_digest),
-            ("routine_challenge_open", routine.canonical_challenge_open),
+            ("routine_challenge_open", routine_run.canonical_challenge_open),
             ("snapshot_summary", payload.canonical_snapshot_summary),
         ):
             for value in self.vectors[name]["valid"]:
@@ -105,15 +110,15 @@ class RoutineDiagnosticsContractTests(unittest.TestCase):
     def test_team_admits_exactly_the_published_diagnostics_vectors(self) -> None:
         vectors = json.loads((PROTOCOL / "vectors.json").read_bytes())["routine_diagnostics"]
         for value in vectors["valid"]:
-            self.assertEqual(routine.canonical_diagnostics(value), value)
+            self.assertEqual(routine_run.canonical_diagnostics(value), value)
         for value in vectors["invalid"]:
-            self.assertIsNone(routine.canonical_diagnostics(value))
+            self.assertIsNone(routine_run.canonical_diagnostics(value))
 
     def test_a_diagnostic_is_exactly_one_failure_or_one_safe_condition(self) -> None:
-        self.assertIsNone(routine.canonical_failure([]))
-        self.assertIsNone(routine.canonical_diagnostic([]))
-        self.assertFalse(routine._diagnostic_text("lone \ud800 surrogate"))
-        self.assertFalse(routine._diagnostic_text(7))
+        self.assertIsNone(routine_run.canonical_failure([]))
+        self.assertIsNone(routine_run.canonical_diagnostic([]))
+        self.assertFalse(routine_run._diagnostic_text("lone \ud800 surrogate"))
+        self.assertFalse(routine_run._diagnostic_text(7))
 
 
 WIDE = "\U0001d538"  # One printable character that encodes to four UTF-8 bytes.
@@ -223,10 +228,10 @@ class RoutineListBoundTests(unittest.TestCase):
             "usage": None,
             "protection_lost": False,
         }
-        self.assertLessEqual(routine.encoded_bytes(_largest_summary()), routine.MAX_SUMMARY_BYTES)
+        self.assertLessEqual(routine.encoded_bytes(_largest_summary()), routine_notice.MAX_SUMMARY_BYTES)
         notices = [{**notice, "notice_id": f"{index:032x}"} for index in range(20)]
         batch = {"notices": notices, "more": False}
-        self.assertEqual(routine.canonical_notice_batch(batch), batch)
+        self.assertEqual(routine_notice.canonical_notice_batch(batch), batch)
 
     def test_the_largest_run_notice_fits_a_batch_twice(self) -> None:
         """A completed decision run at every bound: its shown output, decision message, summary, and usage."""
@@ -267,15 +272,15 @@ class RoutineListBoundTests(unittest.TestCase):
                 "decision": {
                     "state": "decided",
                     "code": None,
-                    "message": WIDE * routine.MAX_DECISION_MESSAGE_CHARS,
+                    "message": WIDE * routine_notice.MAX_DECISION_MESSAGE_CHARS,
                 },
             },
             "usage": {"duration_ms": payload.MAX_TURN_DURATION_MS, "models": models},
             "protection_lost": True,
         }
         batch = {"notices": [notice], "more": True}
-        self.assertEqual(routine.canonical_notice_batch(batch), batch)
-        self.assertLess(2 * routine.encoded_bytes(notice), routine.MAX_NOTICE_BATCH_BYTES)
+        self.assertEqual(routine_notice.canonical_notice_batch(batch), batch)
+        self.assertLess(2 * routine.encoded_bytes(notice), routine_notice.MAX_NOTICE_BATCH_BYTES)
 
     def test_a_run_page_with_the_largest_decision_record_fits_the_api_cap(self) -> None:
         models = [
@@ -286,15 +291,15 @@ class RoutineListBoundTests(unittest.TestCase):
             "state": "decided",
             "code": None,
             "model": {"provider": "anthropic", "model": "m" * 64, "effort": "medium"},
-            "rules": [WIDE * routine.MAX_DECISION_RULE_CHARS] * routine.MAX_DECISION_RULES,
-            "rationale": WIDE * routine.MAX_DECISION_RATIONALE_CHARS,
+            "rules": [WIDE * routine_notice.MAX_DECISION_RULE_CHARS] * routine_notice.MAX_DECISION_RULES,
+            "rationale": WIDE * routine_notice.MAX_DECISION_RATIONALE_CHARS,
             "notify": True,
             "usage": {"duration_ms": payload.MAX_TURN_DURATION_MS, "models": models},
         }
-        self.assertEqual(routine.canonical_decision_record(record), record)
-        self.assertLessEqual(routine.encoded_bytes(record), routine.MAX_DECISION_RECORD_BYTES)
+        self.assertEqual(routine_notice.canonical_decision_record(record), record)
+        self.assertLessEqual(routine.encoded_bytes(record), routine_run.MAX_DECISION_RECORD_BYTES)
         envelope = 4 * 1024
-        self.assertLess(routine.MAX_PAGE_BYTES + routine.MAX_DECISION_RECORD_BYTES + envelope, 128 * 1024)
+        self.assertLess(routine.MAX_PAGE_BYTES + routine_run.MAX_DECISION_RECORD_BYTES + envelope, 128 * 1024)
 
     def test_a_list_at_every_bound_fits_its_allowance(self) -> None:
         name = WIDE * routine.MAX_ROUTINE_NAME_CHARS
@@ -326,7 +331,7 @@ class RoutineListBoundTests(unittest.TestCase):
             "plan": {**_largest_summary(), "steps": 192, "actions": [[ASSISTANT, ACTION, 192]]},
             "output": {"mode": "decide", "step": None, "when": "changes"},
             "model": {"provider": "anthropic", "model": "m" * 64, "effort": "medium"},
-            "allowance": routine.MAX_ALLOWANCE,
+            "allowance": routine_notice.MAX_ALLOWANCE,
         }
         run = {
             "run_id": "1" * 32,
@@ -353,21 +358,23 @@ class RoutineListBoundTests(unittest.TestCase):
             "team_id": "t" * 40,
             "routines": [view, decide] * (routine.MAX_ROUTINES // 2),
             "runs": [run] * routine.MAX_ROUTINES,
-            "incidents": [incident] * routine.MAX_UNRESOLVED_INCIDENTS,
+            "incidents": [incident] * routine_notice.MAX_UNRESOLVED_INCIDENTS,
             "trace_id": "f" * 32,
         }
-        self.assertEqual(routine.canonical_routine_view(view), view)
-        self.assertEqual(routine.canonical_routine_view(decide), decide)
-        self.assertEqual(routine.canonical_run_view(run), run)
-        self.assertEqual(routine.canonical_incident_view(incident), incident)
-        self.assertLessEqual(routine.encoded_bytes(listed), routine.MAX_ROUTINE_LIST_BYTES)
+        self.assertEqual(routine_notice.canonical_routine_view(view), view)
+        self.assertEqual(routine_notice.canonical_routine_view(decide), decide)
+        self.assertEqual(routine_notice.canonical_run_view(run), run)
+        self.assertEqual(routine_notice.canonical_incident_view(incident), incident)
+        self.assertLessEqual(routine.encoded_bytes(listed), routine_notice.MAX_ROUTINE_LIST_BYTES)
 
     def test_the_largest_card_fits_the_terminal_line_with_its_reply_and_usage(self) -> None:
         """A card at its bound beside a 4,000-character reply in four-byte text stays under one NDJSON line."""
         from protocol.http.v1 import progress
 
         reply = WIDE * 4000
-        self.assertLess(routine.MAX_PROPOSAL_BYTES + routine.encoded_bytes(reply) + 8 * 1024, progress.MAX_LINE_BYTES)
+        self.assertLess(
+            routine_proposal.MAX_PROPOSAL_BYTES + routine.encoded_bytes(reply) + 8 * 1024, progress.MAX_LINE_BYTES
+        )
 
 
 if __name__ == "__main__":

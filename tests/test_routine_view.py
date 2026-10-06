@@ -8,6 +8,7 @@ import routine_fixture
 from test_routine_definition import PLAN
 
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
 from routine import definition as routine_definition
 
 
@@ -100,7 +101,7 @@ class SummaryTests(unittest.TestCase):
     def test_beyond_sixteen_runs_the_rest_is_counted(self) -> None:
         summary = routine_definition.summary(_many(256, ("check", "notify")), 1)
         self.assertEqual((len(summary["actions"]), summary["more"]), (16, 240))
-        self.assertLessEqual(http_routine.encoded_bytes(summary), http_routine.MAX_SUMMARY_BYTES)
+        self.assertLessEqual(http_routine.encoded_bytes(summary), http_routine_notice.MAX_SUMMARY_BYTES)
         self.assertEqual(http_routine.canonical_summary(summary), summary)
 
 

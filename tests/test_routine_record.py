@@ -14,6 +14,8 @@ import routine_fixture
 
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
+from protocol.http.v1 import routine_run as http_routine_run
 from routine import definition as routine_definition
 from routine import hold as routine_hold
 from routine import plan as routine_plan
@@ -110,9 +112,9 @@ def full_notices(count: int = record.MAX_UNDELIVERED_NOTICES) -> tuple[record.No
 class ContractTests(unittest.TestCase):
     def test_notice_identities_follow_the_protocol_identifier_grammar(self):
         stopped = {"actions": [["dns", "list.zones_v2"]]}
-        self.assertEqual(http_routine.canonical_notice_detail("stopped", stopped), stopped)
+        self.assertEqual(http_routine_notice.canonical_notice_detail("stopped", stopped), stopped)
         long_assistant = {"actions": [["d" * (http_payload.MAX_ASSISTANT_ID_CHARS + 1), "x"]]}
-        self.assertIsNone(http_routine.canonical_notice_detail("stopped", long_assistant))
+        self.assertIsNone(http_routine_notice.canonical_notice_detail("stopped", long_assistant))
 
     def test_the_challenge_open_locales_match_the_chat_locales(self):
         self.assertEqual(http_routine.LOCALES, http_payload.CHAT_LOCALES)
@@ -160,7 +162,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(set(valid), http_routine.OUTCOMES)
         for outcome, detail in valid.items():
             with self.subTest(outcome=outcome):
-                self.assertEqual(http_routine.canonical_notice_detail(outcome, detail), detail)
+                self.assertEqual(http_routine_notice.canonical_notice_detail(outcome, detail), detail)
         invalid = (
             ("done", {"plan": SUMMARY}),
             ("done", {"plan": SUMMARY, "output": None}),
@@ -319,7 +321,7 @@ class ContractTests(unittest.TestCase):
         )
         for outcome, detail in invalid:
             with self.subTest(outcome=outcome, detail=detail):
-                self.assertIsNone(http_routine.canonical_notice_detail(outcome, detail))
+                self.assertIsNone(http_routine_notice.canonical_notice_detail(outcome, detail))
 
 
 class NameContractTests(unittest.TestCase):
@@ -1038,19 +1040,19 @@ class RoutineViewContractTests(unittest.TestCase):
         ]
         admit = {
             "output": http_routine.canonical_output,
-            "routine": http_routine.canonical_routine_view,
-            "run": http_routine.canonical_run_view,
-            "notice_batch": http_routine.canonical_notice_batch,
-            "claim": http_routine.canonical_claim,
-            "claim_request": http_routine.canonical_claim_request,
-            "incident": http_routine.canonical_incident_view,
-            "card": http_routine.canonical_card,
-            "card_answer_request": http_routine.canonical_card_answer_request,
-            "card_answer": http_routine.canonical_card_answer,
-            "segment_request": http_routine.canonical_segment_request,
+            "routine": http_routine_notice.canonical_routine_view,
+            "run": http_routine_notice.canonical_run_view,
+            "notice_batch": http_routine_notice.canonical_notice_batch,
+            "claim": http_routine_run.canonical_claim,
+            "claim_request": http_routine_run.canonical_claim_request,
+            "incident": http_routine_notice.canonical_incident_view,
+            "card": http_routine_run.canonical_card,
+            "card_answer_request": http_routine_run.canonical_card_answer_request,
+            "card_answer": http_routine_run.canonical_card_answer,
+            "segment_request": http_routine_run.canonical_segment_request,
             "page": http_routine.canonical_page,
             "summary": http_routine.canonical_summary,
-            "run_steps": http_routine.canonical_run_steps,
+            "run_steps": http_routine_run.canonical_run_steps,
         }
         self.assertEqual(set(admit), set(views))
         for kind, function in admit.items():
@@ -1069,8 +1071,8 @@ class RoutineViewContractTests(unittest.TestCase):
                     with self.subTest(kind=kind, path=path, replaced=replaced):
                         admitted = function(_replace(value, path, replaced))
                         self.assertIn(admitted, (None, _replace(value, path, replaced)))
-        self.assertIsNone(http_routine.canonical_notice_batch({"notices": "none", "more": False}))
-        self.assertIsNone(http_routine.canonical_notice_batch({"notices": ["x"], "more": False}))
+        self.assertIsNone(http_routine_notice.canonical_notice_batch({"notices": "none", "more": False}))
+        self.assertIsNone(http_routine_notice.canonical_notice_batch({"notices": ["x"], "more": False}))
         # The largest notice, a completed run's shown output beside its summary, fits a batch several times over, and
         # a batch past its encoded bound is refused.
         first = views["notice_batch"]["valid"][0]["notices"][0]
@@ -1080,11 +1082,11 @@ class RoutineViewContractTests(unittest.TestCase):
         ]
         size = http_routine.encoded_bytes(largest[0])
         self.assertGreater(size, http_routine.MAX_OUTPUT_BYTES // 2)
-        fits = http_routine.MAX_NOTICE_BATCH_BYTES // (size + 1)
+        fits = http_routine_notice.MAX_NOTICE_BATCH_BYTES // (size + 1)
         self.assertGreaterEqual(fits, 4)
-        self.assertIsNotNone(http_routine.canonical_notice_batch({"notices": largest[:fits], "more": True}))
-        self.assertIsNone(http_routine.canonical_notice_batch({"notices": largest[: fits + 1], "more": False}))
-        self.assertIsNone(http_routine.canonical_claim({"run": ["x"]}))
+        self.assertIsNotNone(http_routine_notice.canonical_notice_batch({"notices": largest[:fits], "more": True}))
+        self.assertIsNone(http_routine_notice.canonical_notice_batch({"notices": largest[: fits + 1], "more": False}))
+        self.assertIsNone(http_routine_run.canonical_claim({"run": ["x"]}))
 
 
 class ConfirmedChangeTests(unittest.TestCase):

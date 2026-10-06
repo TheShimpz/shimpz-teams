@@ -28,12 +28,13 @@ from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
 from local.routine import state as routine_state
 from local.validation import validate_team_id
-from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
+from protocol.http.v1 import routine_run as http_routine_run
 from routine import hold as routine_hold
 from routine import record
 
-CARD_SECONDS = http_routine.CARD_SECONDS
-CHOICES = http_routine.CARD_CHOICES
+CARD_SECONDS = http_routine_run.CARD_SECONDS
+CHOICES = http_routine_notice.CARD_CHOICES
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,7 +252,7 @@ def _run(self, team_id: str, card: Card, expected: routine_hold.Expected) -> str
 def answer_card(self, team_id: str, incident_id: str, body: object) -> dict[str, object]:
     """Answer one open recovery card with Rodar."""
     team_id, principal = validate_team_id(team_id), _principal()
-    body = http_routine.canonical_card_answer_request(body)
+    body = http_routine_run.canonical_card_answer_request(body)
     if body is None:
         raise _problem(HTTPStatus.UNPROCESSABLE_ENTITY, "a card answer is its nonce and Rodar", "invalid-body")
     choice = body["choice"]

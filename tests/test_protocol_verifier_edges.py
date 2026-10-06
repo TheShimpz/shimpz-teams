@@ -59,6 +59,10 @@ def _execute(
             "progress",
             "purpose",
             "routine",
+            "routine_context",
+            "routine_notice",
+            "routine_proposal",
+            "routine_run",
             "schema_validator",
             "strict_json",
             "supervisor",
@@ -517,9 +521,9 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
     def test_rejects_routine_answer_replies_that_miss_a_language_or_the_english_default(self) -> None:
         def edited(old: str, new: str):
             def mutate(root: Path) -> None:
-                module = root / "routine.py"
+                module = root / "routine_proposal.py"
                 module.write_text(module.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
-                _rehash(root, "routine.py")
+                _rehash(root, "routine_proposal.py")
 
             return mutate
 
@@ -549,9 +553,9 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
     def test_rejects_routine_output_choices_missing_a_language_or_naming_one_output_twice(self) -> None:
         def edited(old: str, new: str):
             def mutate(root: Path) -> None:
-                module = root / "routine.py"
+                module = root / "routine_proposal.py"
                 module.write_text(module.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
-                _rehash(root, "routine.py")
+                _rehash(root, "routine_proposal.py")
 
             return mutate
 

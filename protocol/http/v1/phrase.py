@@ -194,8 +194,8 @@ _TIMES = (
     r"(?:\bàs|\bas|\bat|\ba\s+las|\ba\s+la|\bà|\bum|الساعة)\s+(\d{1,2})(?::(\d{2}))?()(?!\s*\d)",
 )
 # What each run does with its result, by language: show it every run, only when it changes, nothing, or use it in
-# other Actions. Each interface language's choice labels (``routine.OUTPUT_CHOICES``) are among these phrases. A plain
-# "show the result" reads as showing it every run, unless its own clause says only when it changes.
+# other Actions. Each interface language's choice labels (``routine_proposal.OUTPUT_CHOICES``) are among these
+# phrases. A plain "show the result" reads as showing it every run, unless its own clause says only when it changes.
 _PT_SHOW = r"\b(?:mostrar|mostre|exibir|exiba)\s+"
 _ES_SHOW = r"\b(?:mostrar|muestra|muéstrame)\s+"
 _FR_SHOW = r"\b(?:afficher|affiche|montre(?:-moi)?)\s+"

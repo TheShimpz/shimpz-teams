@@ -19,6 +19,8 @@ from action import journal as action_journal
 from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
+from protocol.http.v1 import routine_run as http_routine_run
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import schedule
@@ -50,7 +52,7 @@ PAUSE_REASONS = http_routine.PAUSE_REASONS
 # wait, and each run ends once, so the queue never outgrows the runs a Team can hold.
 MAX_DISCARDS = 2 * MAX_ROUTINES
 # Unresolved incidents a Team may hold (ADR-0092); a claim reserves one for every run that could still be held.
-MAX_UNRESOLVED_INCIDENTS = http_routine.MAX_UNRESOLVED_INCIDENTS
+MAX_UNRESOLVED_INCIDENTS = http_routine_notice.MAX_UNRESOLVED_INCIDENTS
 # Incident records kept in all; a released one gives way, oldest first, but an unresolved one, or a skipped one whose
 # cleanup is still pending, never does.
 MAX_INCIDENTS = 2 * MAX_UNRESOLVED_INCIDENTS
@@ -334,7 +336,7 @@ def _decision_scope(value: Routine) -> bool:
             else value.model is None
         )
         and type(value.allowance) is int
-        and (1 <= value.allowance <= http_routine.MAX_ALLOWANCE if decide else value.allowance == 0)
+        and (1 <= value.allowance <= http_routine_notice.MAX_ALLOWANCE if decide else value.allowance == 0)
         and routine_definition.run_units(value) <= routine_plan.MAX_STEPS
         and (value.baseline is None or (decide and _baseline(value.baseline)))
     )
@@ -575,7 +577,7 @@ def _notice(state: TeamRoutines, notice: Notice) -> TeamRoutines:
 
     Claims and new skip reports stop at MAX_UNDELIVERED_NOTICES, so every run in flight's outcome always fits above.
     """
-    detail = http_routine.canonical_notice_detail(notice.outcome, notice.detail)
+    detail = http_routine_notice.canonical_notice_detail(notice.outcome, notice.detail)
     if detail is None:
         raise RoutineStateError("notice-invalid")
     # Each version names the Routine as it is now, so a later rename never retitles an earlier version.
@@ -783,7 +785,7 @@ def _lease(
         served_at=now,
         starts=routine_starts.started(state.starts, due.routine_id, now, units),
     )
-    mode = http_routine.run_mode(due.schedule)
+    mode = http_routine_run.run_mode(due.schedule)
     digest = routine_definition.plan_digest(due.plan)
     return state, Claim(leased, token, due.revision, digest, mode, leased.active_seconds_left)
 
@@ -913,7 +915,7 @@ def freeze(
     steps = current.plan["steps"]
     placed = http_routine.canonical_position(position, len(steps))
     if (
-        request_kind not in http_routine.REQUEST_KINDS
+        request_kind not in http_routine_notice.REQUEST_KINDS
         or http_identifiers.canonical_assistant_id(assistant_id) is None
         or http_identifiers.canonical_action_id(action) is None
         or placed is None

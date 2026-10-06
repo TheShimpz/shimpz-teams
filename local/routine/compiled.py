@@ -40,6 +40,7 @@ from local.routine import state as routine_state
 from local.routine import store as routine_store
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_run as http_routine_run
 from routine import cursor as routine_cursor
 from routine import definition as routine_definition
 from routine import plan as routine_plan
@@ -682,7 +683,11 @@ def run_routine(
     provider = provider or routine_run.team_provider(self, team_id) or ""
     lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
     value, routine = routine_run._live_run(self, team_id, run_id, lease)
-    current = (routine.revision, routine_definition.plan_digest(routine.plan), http_routine.run_mode(routine.schedule))
+    current = (
+        routine.revision,
+        routine_definition.plan_digest(routine.plan),
+        http_routine_run.run_mode(routine.schedule),
+    )
     if claimed != current:
         raise ApiProblem(409, "Routine revision changed since the claim", code="routine-revision-stale")
     with (

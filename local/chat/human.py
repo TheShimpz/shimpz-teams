@@ -12,7 +12,7 @@ from local.chat.types import PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import human_request_expired, human_request_invalid, human_response_invalid
 from local.validation import validate_team_id
-from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_run as http_routine_run
 
 
 def pending_chat_human(self, team_id: str) -> dict[str, object]:
@@ -31,7 +31,7 @@ def open_chat_human(self, team_id: str, body: object) -> dict[str, object]:
     any other language replaces it with a fresh challenge (see ``relocalized``).
     """
     team_id = validate_team_id(team_id)
-    opening = http_routine.canonical_challenge_open(body)
+    opening = http_routine_run.canonical_challenge_open(body)
     if opening is None:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY, "opening a challenge requires only locale", code="invalid-body"

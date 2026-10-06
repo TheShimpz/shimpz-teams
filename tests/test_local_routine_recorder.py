@@ -19,7 +19,8 @@ from local.routine import contracts as routine_contracts
 from local.routine import proposal as routine_proposal
 from local.routine import recorder as routine_recorder
 from protocol.http.v1 import payload as http_payload
-from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_context as http_routine_context
+from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import record, trace
 from routine import recording as routine_recording
 
@@ -179,7 +180,7 @@ class RecordingBookTests(unittest.TestCase):
             ("routine-output-unstated", "Mostrar somente quando mudar", intent),
             ("routine-output-unstated", "ainda não sei", None),
             # A chain needs more work, so the Brain runs it.
-            ("routine-output-unstated", http_routine.OUTPUT_CHOICES["pt"]["chain"], None),
+            ("routine-output-unstated", http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"], None),
             ("routine-interval-over-budget", "a cada 31 segundos", intent),
             ("routine-interval-over-budget", "todo dia às 9h", None),
             ("routine-binding-ambiguous", '"a-zone"', intent),
@@ -299,7 +300,7 @@ class RecordingBookTests(unittest.TestCase):
             "routine-binding-unsourced", manifest=routine_recording.Manifest((many,) * 256)
         )
         shown = routine_recorder.rerun_work(self.span((recording_cases._send(),), ordinary))
-        self.assertEqual(http_routine.canonical_rerun(shown), list(shown))
+        self.assertEqual(http_routine_context.canonical_rerun(shown), list(shown))
 
     def test_an_invented_id_is_unsourced_and_no_source_is_guessed_for_it(self) -> None:
         # A live trace: the agent listed records for a made-up zone id, then listed the zones.
@@ -473,8 +474,8 @@ class CardTests(unittest.TestCase):
             },
         )
         self.assertEqual((zone["origin"], zone["step"], zone["pointer"], zone["where"]), ("step", 1, "/zone", None))
-        self.assertEqual(len(view["next_runs"]), http_routine.MAX_NEXT_RUNS)
-        self.assertEqual(http_routine.canonical_proposal(view), view)
+        self.assertEqual(len(view["next_runs"]), http_routine_proposal.MAX_NEXT_RUNS)
+        self.assertEqual(http_routine_proposal.canonical_proposal(view), view)
 
 
 class ContractsTests(unittest.TestCase):

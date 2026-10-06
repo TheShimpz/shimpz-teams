@@ -31,7 +31,7 @@ from assistant import effect as action_effect
 from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import phrase
-from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_context as http_routine_context
 from routine import pin as routine_pin
 from routine import recording as routine_recording
 from routine import trace
@@ -341,7 +341,7 @@ def rerun_work(span: Span | None) -> tuple[dict[str, object], ...] | None:
             entries[-1]["count"] += 1
         else:
             entries.append(entry)
-    return tuple(entries) if http_routine.canonical_rerun(entries) is not None else None
+    return tuple(entries) if http_routine_context.canonical_rerun(entries) is not None else None
 
 
 def _rerun_input(span: Span, slot: routine_recording.Slot, item: tuple[str, str, object]) -> dict[str, object]:
@@ -350,7 +350,9 @@ def _rerun_input(span: Span, slot: routine_recording.Slot, item: tuple[str, str,
     if kind == "value":
         text = json.dumps(value, ensure_ascii=False)
         # The value itself is checked, every string and key in it: escaping its JSON text could hide a protected one.
-        visible = len(text) <= http_routine.MAX_RERUN_LITERAL_CHARS and not trace.exposes(value, span.protection.values)
+        visible = len(text) <= http_routine_context.MAX_RERUN_LITERAL_CHARS and not trace.exposes(
+            value, span.protection.values
+        )
         chosen = any(
             (binding.action, binding.member) == (slot.action, member)
             and json.dumps(binding.chosen, ensure_ascii=False) == text

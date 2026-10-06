@@ -25,7 +25,8 @@ from local.routine import recorder as local_routine_recorder
 from local.routine import store as routine_store
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import progress as http_progress
-from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_context as http_routine_context
+from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
@@ -215,7 +216,7 @@ class RecordedRoutineTests(LocalContractCase):
             answer = self.confirm(service, card["proposal_id"])
             again = self.confirm(service, card["proposal_id"])
             state = service.routine_store.load("team_1")
-        self.assertEqual(http_routine.canonical_proposal(card), card)
+        self.assertEqual(http_routine_proposal.canonical_proposal(card), card)
         self.assertEqual((card["schedule"], card["timezone_source"]), (CONTINUOUS, "browser"))
         zones, records = card["steps"]
         self.assertEqual((zones["action"], records["action"]), ("list-zones", "list-dns-records"))
@@ -352,14 +353,14 @@ class RecordedRoutineTests(LocalContractCase):
             self.chat(service, _body("Quais rotinas eu tenho?"))
         ((listed),) = runtime.contexts[1].routines
         self.assertEqual((listed["timezone"], listed["timezone_source"]), ("America/Sao_Paulo", "browser"))
-        self.assertEqual(http_routine.canonical_routine_listings(runtime.contexts[1].routines), [listed])
+        self.assertEqual(http_routine_context.canonical_routine_listings(runtime.contexts[1].routines), [listed])
 
     def test_a_routine_listing_outside_the_brain_form_is_an_internal_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
             self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])
             with (
-                mock.patch.object(http_routine, "canonical_routine_listings", return_value=None),
+                mock.patch.object(http_routine_context, "canonical_routine_listings", return_value=None),
                 self.assertRaises(local_app.ApiProblem) as caught,
             ):
                 routine_proposal.chat_routines(service, "team_1")
@@ -387,7 +388,7 @@ class RecordedRoutineTests(LocalContractCase):
             response = self.chat(service, _body(answer))
         self.assertEqual(asked["code"], "routine-schedule-unstated")
         self.assertEqual(len(runtime.contexts), 1)
-        self.assertEqual(response["reply"], http_routine.ANSWER_REPLIES["pt"])
+        self.assertEqual(response["reply"], http_routine_proposal.ANSWER_REPLIES["pt"])
         self.assertEqual(response["routine_proposal"]["schedule"], CONTINUOUS)
 
     def test_the_output_is_the_persons_to_state_and_a_composed_answer_states_it_without_the_brain(self) -> None:
@@ -396,7 +397,7 @@ class RecordedRoutineTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
             asked = self.chat(service, _body(original))["routine_question"]
-            choice = http_routine.OUTPUT_CHOICES["pt"]["changes"]
+            choice = http_routine_proposal.OUTPUT_CHOICES["pt"]["changes"]
             answer = http_payload.compose_clarified(original, "O que fazer com o resultado?", choice, "pt")
             card = self.chat(service, _body(answer))["routine_proposal"]
         self.assertEqual(asked, {"code": "routine-output-unstated", "options": [], "value": None})
@@ -408,7 +409,7 @@ class RecordedRoutineTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
             asked = self.chat(service, _body(original))["routine_question"]
-            choice = http_routine.OUTPUT_CHOICES["pt"]["chain"]
+            choice = http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"]
             answer = http_payload.compose_clarified(original, "O que fazer com o resultado?", choice, "pt")
             card = self.chat(service, _body(answer))["routine_proposal"]
         self.assertEqual(asked["code"], "routine-output-unstated")
@@ -702,7 +703,7 @@ class RecordedRoutineTests(LocalContractCase):
                 self.assertIsNone(runtime.contexts[0].routine_capacity)
 
     def test_a_card_too_large_for_its_bound_or_its_terminal_line_is_refused_whole(self) -> None:
-        for target, name in ((http_routine, "MAX_PROPOSAL_BYTES"), (http_progress, "MAX_LINE_BYTES")):
+        for target, name in ((http_routine_proposal, "MAX_PROPOSAL_BYTES"), (http_progress, "MAX_LINE_BYTES")):
             with self.subTest(name=name), mock.patch.object(target, name, 512):
                 self.assertEqual(self.refusal(Recording(_record())), "routine-proposal-too-large")
 
@@ -921,7 +922,7 @@ class RecordedRoutineTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
             with (
-                mock.patch.object(http_routine, "canonical_proposal", return_value=None),
+                mock.patch.object(http_routine_proposal, "canonical_proposal", return_value=None),
                 self.assertRaises(local_app.ApiProblem) as caught,
             ):
                 self.chat(service)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from protocol.http.v1 import phrase
-from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_proposal as http_routine_proposal
 
 
 def continuous(gap: int) -> dict[str, object]:
@@ -183,7 +183,7 @@ class WrittenZoneTests(unittest.TestCase):
 
 class StatedOutputTests(unittest.TestCase):
     def test_every_localized_choice_states_its_own_output(self) -> None:
-        for locale, labels in http_routine.OUTPUT_CHOICES.items():
+        for locale, labels in http_routine_proposal.OUTPUT_CHOICES.items():
             for kind, label in labels.items():
                 with self.subTest(locale=locale, kind=kind):
                     self.assertEqual(phrase.outputs(label), (kind,))

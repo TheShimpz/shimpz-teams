@@ -7,7 +7,7 @@ import unittest
 
 import routine_fixture
 
-from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
@@ -88,7 +88,7 @@ class DefinitionTests(unittest.TestCase):
         )
         detail = routine_definition.detail(value)
         self.assertEqual(detail["output"], {"mode": "show", "step": 1, "when": None})
-        self.assertEqual(http_routine.canonical_notice_detail("created", detail), detail)
+        self.assertEqual(http_routine_notice.canonical_notice_detail("created", detail), detail)
         decide = {**routine_fixture.plan_document(), "output": {"mode": "decide", "step": None, "when": "changes"}}
         decided = routine_definition.scope(_defined(plan=decide, model=MODEL, allowance=8))
         self.assertEqual((decided["model"], decided["allowance"]), (MODEL, 8))

@@ -11,6 +11,10 @@ from pathlib import Path
 import payload
 import phrase
 import progress
+import routine_context
+import routine_notice
+import routine_proposal
+import routine_run
 import supervisor
 import websocket
 
@@ -207,7 +211,7 @@ for name, admit in (
     ("purpose", payload.canonical_purpose),
     ("pack_digest", payload.canonical_pack_digest),
     ("snapshot_summary", payload.canonical_snapshot_summary),
-    ("routine_challenge_open", routine.canonical_challenge_open),
+    ("routine_challenge_open", routine_run.canonical_challenge_open),
     ("turn_usage", payload.canonical_turn_usage),
 ):
     cases = vectors.get(name, {})
@@ -251,19 +255,19 @@ if any(routine.canonical_timezone(value) is not None for value in timezones["inv
 views = vectors.get("routine_views", {})
 admit_view = {
     "output": routine.canonical_output,
-    "routine": routine.canonical_routine_view,
-    "run": routine.canonical_run_view,
-    "notice_batch": routine.canonical_notice_batch,
-    "claim": routine.canonical_claim,
-    "claim_request": routine.canonical_claim_request,
-    "incident": routine.canonical_incident_view,
-    "card": routine.canonical_card,
-    "card_answer_request": routine.canonical_card_answer_request,
-    "card_answer": routine.canonical_card_answer,
-    "segment_request": routine.canonical_segment_request,
+    "routine": routine_notice.canonical_routine_view,
+    "run": routine_notice.canonical_run_view,
+    "notice_batch": routine_notice.canonical_notice_batch,
+    "claim": routine_run.canonical_claim,
+    "claim_request": routine_run.canonical_claim_request,
+    "incident": routine_notice.canonical_incident_view,
+    "card": routine_run.canonical_card,
+    "card_answer_request": routine_run.canonical_card_answer_request,
+    "card_answer": routine_run.canonical_card_answer,
+    "segment_request": routine_run.canonical_segment_request,
     "page": routine.canonical_page,
     "summary": routine.canonical_summary,
-    "run_steps": routine.canonical_run_steps,
+    "run_steps": routine_run.canonical_run_steps,
 }
 if set(views) != set(admit_view) or any(
     not views[kind].get("valid") or not views[kind].get("invalid") for kind in views
@@ -291,14 +295,14 @@ def _proposal_case(name: object, cards: list[object]) -> object:
     if name == "over-units":
         card = json.loads(json.dumps(cards[1]))
         step = {"assistant": card["steps"][0]["assistant"], "action": "list-zones", "read_only": True, "inputs": []}
-        units = routine.MAX_ROUTINE_STEPS + 1 - routine.MAX_ALLOWANCE
+        units = routine.MAX_ROUTINE_STEPS + 1 - routine_notice.MAX_ALLOWANCE
         card["steps"] = [{"position": index, **step} for index in range(1, units + 1)]
-        card["decision"]["allowance"] = routine.MAX_ALLOWANCE
+        card["decision"]["allowance"] = routine_notice.MAX_ALLOWANCE
         return card
     card = json.loads(json.dumps(cards[0]))
     note = {"member": "note", "origin": "assistant", "value": "", "step": None, "pointer": None, "where": None}
     card["steps"][0]["inputs"] = [{**note, "item": None}]
-    room = routine.MAX_PROPOSAL_BYTES - routine.encoded_bytes(card)
+    room = routine_proposal.MAX_PROPOSAL_BYTES - routine.encoded_bytes(card)
     card["steps"][0]["inputs"][0]["value"] = WIDE * (room // 3) + "a" * (room % 3 + (name == "one-byte-over"))
     return card
 
@@ -317,22 +321,23 @@ if (
     fail("routine proposal vectors are missing")
 largest = _proposal_case("largest-unicode", proposals["valid"])
 if (
-    routine.encoded_bytes(largest) != routine.MAX_PROPOSAL_BYTES
-    or routine.canonical_proposal(largest) != largest
+    routine.encoded_bytes(largest) != routine_proposal.MAX_PROPOSAL_BYTES
+    or routine_proposal.canonical_proposal(largest) != largest
     or any(
-        routine.canonical_proposal(_proposal_case(name, proposals["valid"])) for name in ("one-byte-over", "over-units")
+        routine_proposal.canonical_proposal(_proposal_case(name, proposals["valid"]))
+        for name in ("one-byte-over", "over-units")
     )
 ):
     fail("a generated routine proposal vector differs at its bound")
 for name, admit in (
     ("routine_run_usage", routine.canonical_run_usage),
-    ("routine_decision_record", routine.canonical_decision_record),
-    ("routine_proposal", routine.canonical_proposal),
-    ("routine_refusal", routine.canonical_refusal),
-    ("routine_question", routine.canonical_question),
-    ("routine_listing", routine.canonical_routine_listings),
-    ("routine_rerun", routine.canonical_rerun),
-    ("routine_proposal_answer", routine.canonical_proposal_answer),
+    ("routine_decision_record", routine_notice.canonical_decision_record),
+    ("routine_proposal", routine_proposal.canonical_proposal),
+    ("routine_refusal", routine_proposal.canonical_refusal),
+    ("routine_question", routine_proposal.canonical_question),
+    ("routine_listing", routine_context.canonical_routine_listings),
+    ("routine_rerun", routine_context.canonical_rerun),
+    ("routine_proposal_answer", routine_proposal.canonical_proposal_answer),
 ):
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):
@@ -345,9 +350,9 @@ for name, admit in (
 diagnostics = vectors.get("routine_diagnostics", {})
 if not diagnostics.get("valid") or not diagnostics.get("invalid"):
     fail("routine diagnostics vectors are missing")
-if any(routine.canonical_diagnostics(value) != value for value in diagnostics["valid"]):
+if any(routine_run.canonical_diagnostics(value) != value for value in diagnostics["valid"]):
     fail("a valid routine diagnostics vector was not admitted exactly")
-if any(routine.canonical_diagnostics(value) is not None for value in diagnostics["invalid"]):
+if any(routine_run.canonical_diagnostics(value) is not None for value in diagnostics["invalid"]):
     fail("an invalid routine diagnostics vector was admitted")
 
 print("Team HTTP protocol integrity and golden vectors are valid")
@@ -365,16 +370,16 @@ for case in labels["authored_segments"]:
     if list(payload.authored_segments(case["message"])) != case["segments"]:
         fail("an authored-segments vector differs")
 
-if set(routine.ANSWER_REPLIES) != set(routine.LOCALES) or any(
-    routine.canonical_name(text) != text for text in routine.ANSWER_REPLIES.values()
+if set(routine_proposal.ANSWER_REPLIES) != set(routine.LOCALES) or any(
+    routine.canonical_name(text) != text for text in routine_proposal.ANSWER_REPLIES.values()
 ):
     fail("the Routine answer replies do not cover every interface language with one plain line")
-if routine.answer_reply(None) != routine.ANSWER_REPLIES["en"]:
+if routine_proposal.answer_reply(None) != routine_proposal.ANSWER_REPLIES["en"]:
     fail("a chat without an interface language does not get the English answer reply")
 
-choices = routine.OUTPUT_CHOICES
+choices = routine_proposal.OUTPUT_CHOICES
 if set(choices) != set(routine.LOCALES) or any(
-    tuple(labels) != routine.OUTPUT_KINDS
+    tuple(labels) != routine_proposal.OUTPUT_KINDS
     or any(routine.canonical_name(label) != label for label in labels.values())
     or len({label.casefold() for label in labels.values()}) != len(labels)
     for labels in choices.values()

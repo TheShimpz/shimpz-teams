@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 
 from protocol.http.v1 import phrase
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import plan as routine_plan
 from routine import schedule, trace
 
@@ -1066,7 +1067,7 @@ def _ambiguous(
 
 def _shown(pending: Pending) -> tuple[dict[str, object], ...]:
     """The targets a question shows: every one, or none when there are more than it may show."""
-    if len(pending.targets) > http_routine.MAX_QUESTION_OPTIONS:
+    if len(pending.targets) > http_routine_proposal.MAX_QUESTION_OPTIONS:
         return ()
     return tuple({"value": value, "label": label} for value, label in pending.targets)
 
@@ -1074,7 +1075,7 @@ def _shown(pending: Pending) -> tuple[dict[str, object], ...]:
 def _offered(option: dict[str, object]) -> bool:
     """Whether a target can be shown as one choice of the question."""
     question = Question("routine-binding-ambiguous", (option,)).wire()
-    return http_routine.canonical_question(question) is not None
+    return http_routine_proposal.canonical_question(question) is not None
 
 
 def _binding(context: _Context, node: int, position: _Position) -> dict[str, object]:
@@ -1137,7 +1138,9 @@ def _label(item: object) -> str | None:
     names = [
         value
         for key, value in (item.items() if isinstance(item, dict) else ())
-        if key in _NAME_MEMBERS and isinstance(value, str) and 0 < len(value) <= http_routine.MAX_QUESTION_OPTION_CHARS
+        if key in _NAME_MEMBERS
+        and isinstance(value, str)
+        and 0 < len(value) <= http_routine_proposal.MAX_QUESTION_OPTION_CHARS
     ]
     return names[0] if len(names) == 1 else None
 

@@ -14,7 +14,7 @@ import unittest
 from unittest import mock
 
 from protocol.http.v1 import payload as http_payload
-from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import plan as routine_plan
 from routine import recording, trace
 
@@ -1060,7 +1060,7 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(
             (asked.code, asked.chained_from[:2]), ("routine-output-unstated", ("cloudflare", "list-dns-records"))
         )
-        chain = _send(message=http_routine.OUTPUT_CHOICES["pt"]["chain"])
+        chain = _send(message=http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"])
         # Recording again with no new Action, or repeating the same work, uses no result of the records listing.
         for later in ((), (_send(ZONES_CALL, records),)):
             with self.subTest(later=len(later)):
@@ -1080,7 +1080,7 @@ class OutputTests(unittest.TestCase):
         work = _send(alpha, beta, message="relatório a cada hora")
         asked = _record(work, mode=None)
         self.assertEqual(asked.code, "routine-output-unstated")
-        chain = _send(message=http_routine.OUTPUT_CHOICES["pt"]["chain"])
+        chain = _send(message=http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"])
         wrong = _send(alpha, beta, ("reports/post", {"x": "aaa-111111"}, {}))
         self.assertEqual(_record(work, chain, wrong, asked=_asked(asked, 1), mode=None).code, asked.code)
         right = _send(alpha, beta, ("reports/post", {"x": "bbb-222222"}, {}))
@@ -1091,7 +1091,7 @@ class OutputTests(unittest.TestCase):
         beta = ("reports/fetch", {"q": "stats"}, {"id": "bbb-222222"})
         work = _send(alpha, beta, message="relatório a cada hora")
         asked = _record(work, mode=None)
-        chain = _send(message=http_routine.OUTPUT_CHOICES["pt"]["chain"])
+        chain = _send(message=http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"])
         first = _send(alpha, beta, ("reports/post", {"x": "aaa-111111"}, {}))
         self.assertEqual(_record(work, chain, first, asked=_asked(asked, 1), mode=None).code, asked.code)
         second = _send(alpha, beta, ("reports/post", {"x": "bbb-222222"}, {}))
@@ -1333,7 +1333,7 @@ class QuestionTests(unittest.TestCase):
                 "value": None,
             },
         )
-        self.assertEqual(http_routine.canonical_question(wire), wire)
+        self.assertEqual(http_routine_proposal.canonical_question(wire), wire)
 
     def test_more_targets_than_a_question_shows_offer_none(self) -> None:
         items = {"items": [{"name": "beta", "id": f"id-{index:04d}"} for index in range(9)]}

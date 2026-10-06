@@ -19,7 +19,8 @@ from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
 from local.routine import run as routine_run
 from local.routine import watchdog as routine_watchdog
-from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
+from protocol.http.v1 import routine_run as http_routine_run
 from routine import hold as routine_hold
 from routine import record
 
@@ -36,13 +37,13 @@ class CardCase(RecoveryCase):
         with self.as_person():
             card = service.open_routine_card("team_1", run_id)
         # Every card and answer Team produces is in its closed protocol view.
-        self.assertEqual(http_routine.canonical_card(card), card)
+        self.assertEqual(http_routine_run.canonical_card(card), card)
         return card
 
     def answer(self, service, run_id: str, card, choice: str, principal: str = PRINCIPAL):
         with self.as_person(principal):
             answered = service.answer_routine_card("team_1", run_id, {"nonce": card["nonce"], "choice": choice})
-        self.assertEqual(http_routine.canonical_card_answer(answered), answered)
+        self.assertEqual(http_routine_run.canonical_card_answer(answered), answered)
         return answered
 
     def refused(self, service, run_id: str, choice: str, code: str, **changes) -> None:
@@ -71,7 +72,7 @@ class CardViewTests(CardCase):
             (card["evidence"], failure["error_type"], failure["http_status"], failure["provider"]),
             ("recorded", "HTTPStatusError", 404, "api.cloudflare.com"),
         )
-        self.assertEqual(http_routine.canonical_incident_view(incident), incident)
+        self.assertEqual(http_routine_notice.canonical_incident_view(incident), incident)
         self.assertEqual(brain.calls, [])
 
     def test_an_unreadable_or_missing_diagnostic_is_said_never_guessed(self) -> None:

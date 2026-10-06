@@ -17,6 +17,7 @@ from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
 from routine import record
 
 MAX_DELIVERIES = 256
@@ -71,7 +72,7 @@ def routine_notices(self) -> dict[str, object]:
         for notice in _team_notices(self, team_id):
             item = _notice(team_id, notice)
             cost = http_routine.encoded_bytes(item) + (1 if notices else 0)
-            if notices and size + cost > http_routine.MAX_NOTICE_BATCH_BYTES:
+            if notices and size + cost > http_routine_notice.MAX_NOTICE_BATCH_BYTES:
                 return {"notices": notices, "more": True}
             notices.append(item)
             size += cost

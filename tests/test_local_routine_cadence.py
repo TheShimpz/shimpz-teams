@@ -18,6 +18,7 @@ from test_local_routine_service import Runtime
 from local.routine import contracts as routine_contracts
 from local.routine import run as routine_run
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
 from routine import record
 from routine import starts as routine_starts
 
@@ -201,7 +202,7 @@ class ServiceLoadTests(RoutineHttpCase):
             rollup = record.Notice("c" * 32, value.routine_id, "", "healthy", minute, {"runs": 3}, 3, usage=usage)
             service.routine_store.update("team_1", lambda state: (record._notice(state, rollup), None))
             batch = service.routine_notices()
-        self.assertEqual(http_routine.canonical_notice_batch(batch), batch)
+        self.assertEqual(http_routine_notice.canonical_notice_batch(batch), batch)
         (notice,) = [item for item in batch["notices"] if item["outcome"] == "healthy"]
         self.assertEqual((notice["run_id"], notice["version"], notice["created_at"][-3:]), (None, 3, "00Z"))
         # The rollup names the Routine as it was and carries its runs' summed usage.

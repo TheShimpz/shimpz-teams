@@ -37,6 +37,8 @@ from action import failure as action_failure
 from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
+from protocol.http.v1 import routine_run as http_routine_run
 from protocol.http.v1 import strict_json
 from storage import private_state
 
@@ -235,7 +237,7 @@ class DiagnosticStore:
         team, incarnation = validate_team_id(team_id), _incarnation(incarnation)
         view = diagnostic.view()
         if (
-            http_routine.canonical_diagnostic(view) is None
+            http_routine_run.canonical_diagnostic(view) is None
             or http_routine.ROUTINE_ID_RE.fullmatch(diagnostic.routine_id) is None
             or http_routine.ROUTINE_ID_RE.fullmatch(diagnostic.run_id) is None
         ):
@@ -343,13 +345,13 @@ class DiagnosticStore:
                 if kind != "diagnostic" or match["run"] != run_id or int(match["at"]) <= now - RETENTION_SECONDS:
                     continue
                 opened = self._open(directory / name, team, incarnation, name, MAX_PLAINTEXT_BYTES)
-                view = None if opened is None else http_routine.canonical_diagnostic(opened)
+                view = None if opened is None else http_routine_run.canonical_diagnostic(opened)
                 if opened is not None and view is None:
                     raise DiagnosticStoreError("Routine diagnostic is malformed")
                 if view is not None:
                     found.append(_diagnostic(match, view))
         found.sort(key=lambda item: (item.recorded_at, item.operation_id, item.attempt))
-        return tuple(found[-http_routine.MAX_RUN_DIAGNOSTICS :])
+        return tuple(found[-http_routine_run.MAX_RUN_DIAGNOSTICS :])
 
     def run_steps(self, team_id: str, incarnation: str, run_id: str, now: int, page: tuple[str, int]):
         """One run's retained records as one snapshot, assembled under the guard: ``(snapshot, records, run)``.
@@ -527,9 +529,9 @@ def _step_document(document: dict[str, object], run_id: str) -> bool:
     return (
         http_routine.ROUTINE_ID_RE.fullmatch(run_id) is not None
         and _bound(document)
-        and view.get("status") in http_routine.RUN_STEP_STATUSES
+        and view.get("status") in http_routine_run.RUN_STEP_STATUSES
         and http_routine.canonical_position(view.get("position"), document["total"]) is not None
-        and http_routine.canonical_run_step(view, view["position"], document["total"]) is not None
+        and http_routine_run.canonical_run_step(view, view["position"], document["total"]) is not None
     )
 
 
@@ -544,7 +546,10 @@ def _run_document(document: dict[str, object], binding: RunBinding) -> bool:
         and type(document["dispatched"]) is bool
         and type(document["calls"]) is int
         and 0 <= document["calls"] <= http_routine.MAX_DECISION_CALLS
-        and (document["decision"] is None or http_routine.canonical_decision_record(document["decision"]) is not None)
+        and (
+            document["decision"] is None
+            or http_routine_notice.canonical_decision_record(document["decision"]) is not None
+        )
     )
 
 
@@ -566,7 +571,7 @@ def evidence(exc: BaseException, protection: object) -> tuple[dict[str, object] 
             return None
         if isinstance(cause, action_execution.RpcExchangeError):
             condition = cause.condition
-            return (None, condition) if http_routine.CONDITION_RE.fullmatch(condition) else None
+            return (None, condition) if http_routine_run.CONDITION_RE.fullmatch(condition) else None
         cause = cause.__cause__
     return None
 
@@ -612,7 +617,7 @@ def run_diagnostics(self, team_id: str, run_id: str, now: int) -> dict[str, obje
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE, "Routine diagnostics are unavailable", code="routine-state-unavailable"
         ) from exc
-    view = http_routine.canonical_diagnostics(
+    view = http_routine_run.canonical_diagnostics(
         {"team_id": team_id, "run_id": run_id, "diagnostics": [item.view() for item in found]}
     )
     if view is None:
@@ -660,7 +665,7 @@ def _entry(records: dict, reached: tuple[int, bool] | None, position: dict[str, 
     """One position's latest record, or the gap the run's own records prove: only a replay step can be not run."""
     key = position_key(position)
     if key in records:
-        return {name: records[key][name] for name in http_routine.RUN_STEP_FIELDS}
+        return {name: records[key][name] for name in http_routine_run.RUN_STEP_FIELDS}
     step = position.get("step")
     if (
         step is not None
@@ -678,7 +683,7 @@ def _page_steps(records, run, totals: tuple[int, int], offset: int) -> list[dict
     chosen: list[dict[str, object]] = []
     used = 2
     for index in range(offset + 1, total + 1):
-        entry = _entry(records, reached, http_routine.run_position(index, replay))
+        entry = _entry(records, reached, http_routine_run.run_position(index, replay))
         cost = http_routine.encoded_bytes(entry) + 1
         if chosen and (len(chosen) == http_routine.MAX_PAGE_STEPS or used + cost > http_routine.MAX_PAGE_BYTES):
             break
@@ -708,7 +713,7 @@ def run_steps(self, team_id: str, run_id: str, snapshot: str, offset: int, now: 
         raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine run steps are unavailable", code="routine-run-steps-not-found")
     steps = _page_steps(records, run, (binding["total"], total), offset)
     following = offset + len(steps)
-    view = http_routine.canonical_run_steps(
+    view = http_routine_run.canonical_run_steps(
         {
             "team_id": team_id,
             "run_id": run_id,

@@ -35,6 +35,7 @@ from assistant import action_schema
 from assistant import manifest as assistant_manifest
 from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_run as http_routine_run
 from routine import schedule
 
 VERSION = 3
@@ -64,13 +65,13 @@ MAX_DAILY_STEPS = 20_000
 # A claimed run must start its segment within this window; the segment then extends its lease over its active time.
 START_LEASE_SECONDS = 900
 LEASE_MARGIN_SECONDS = 300
-SHORT_ACTIVE_SECONDS = http_routine.SHORT_ACTIVE_SECONDS
-MAX_ACTIVE_SECONDS = http_routine.MAX_ACTIVE_SECONDS
+SHORT_ACTIVE_SECONDS = http_routine_run.SHORT_ACTIVE_SECONDS
+MAX_ACTIVE_SECONDS = http_routine_run.MAX_ACTIVE_SECONDS
 
 
 def active_seconds(steps: int) -> int:
     """The active time one run of a revision with ``steps`` steps may spend, which a hold never refills."""
-    return http_routine.active_seconds(steps)
+    return http_routine_run.active_seconds(steps)
 
 
 def long_run(steps: int) -> bool:

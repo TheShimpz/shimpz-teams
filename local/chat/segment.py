@@ -27,7 +27,7 @@ from local.routine import diagnostics as routine_diagnostics
 from local.routine import recorder as routine_recorder
 from local.validation import brain_thread_id as _brain_thread_id
 from local.validation import routine_thread_id as _routine_thread_id
-from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import pin as routine_pin
 from routine import record as routine_record
 
@@ -257,7 +257,7 @@ def _runtime(self, request: SegmentRequest) -> object:
     if request.recording is not None and request.continuation is None:
         intent = routine_recorder.answered(self.routine_recordings.live(request.team_id, request.recording))
         if intent is not None:
-            return routine_recorder.AnsweredRuntime(http_routine.answer_reply(request.locale), intent)
+            return routine_recorder.AnsweredRuntime(http_routine_proposal.answer_reply(request.locale), intent)
     return self.brain_runtime
 
 

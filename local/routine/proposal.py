@@ -32,6 +32,8 @@ from local.routine import recorder as routine_recorder
 from local.routine import state as routine_state
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_context as http_routine_context
+from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record, trace
@@ -172,7 +174,7 @@ def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
         for item in state.routines
         if not item.deleting
     )
-    if http_routine.canonical_routine_listings(listed) is None:
+    if http_routine_context.canonical_routine_listings(listed) is None:
         raise _problem(HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine listing is invalid", "internal-error")
     return listed
 
@@ -366,7 +368,7 @@ def _card_input(member: str, source: dict[str, object], origin: str, positions: 
 def _next_runs(value: record.Routine) -> list[str]:
     """When the Routine would first run, and for a fixed schedule the two firings after."""
     runs = [value.next_run_at]
-    while len(runs) < http_routine.MAX_NEXT_RUNS and not record.continuous(value):
+    while len(runs) < http_routine_proposal.MAX_NEXT_RUNS and not record.continuous(value):
         runs.append(record.next_after(value, runs[-1]))
     return [_instant(item) for item in runs]
 
@@ -446,7 +448,7 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
         expires_at = time.time() + PROPOSAL_SECONDS
         replaces = None if existing is None else existing.routine_id
         view = card(proposal_id, candidate, recorded, (replaces, expires_at))
-        if http_routine.encoded_bytes(view) > http_routine.MAX_PROPOSAL_BYTES:
+        if http_routine.encoded_bytes(view) > http_routine_proposal.MAX_PROPOSAL_BYTES:
             raise RefusedError("routine-proposal-too-large")
         if trace.exposes(view, recording.protection.values):
             raise RefusedError("routine-secret-literal")
@@ -457,7 +459,7 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
             return (lambda: self.routine_recordings.finish(team_id, send_id)), {
                 "routine_refusal": {"code": "routine-secret-literal"}
             }
-        if http_routine.canonical_question(question.wire()) is None:
+        if http_routine_proposal.canonical_question(question.wire()) is None:
             raise _problem(
                 HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine question is invalid", "internal-error"
             ) from asking
@@ -466,7 +468,7 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
         }
     except RefusedError as exc:
         return (lambda: self.routine_recordings.finish(team_id, send_id)), {"routine_refusal": {"code": exc.code}}
-    if http_routine.canonical_proposal(view) != view:
+    if http_routine_proposal.canonical_proposal(view) != view:
         raise _problem(HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine card is invalid", "internal-error")
     expected = None if existing is None else existing.revision
     proposal = Proposal(

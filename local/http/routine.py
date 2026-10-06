@@ -21,6 +21,8 @@ from local.http import stream as local_http_stream
 from local.http.audit import RequestAudit
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
+from protocol.http.v1 import routine_run as http_routine_run
 
 MAX_BODY_BYTES = 16 * 1024
 MAX_HUMAN_RESPONSE_BODY_BYTES = 128 * 1024
@@ -29,7 +31,7 @@ RUN_OPERATION = "routine-run"
 STREAMED_OPERATIONS = frozenset({"routine-human-submit", "routine-integration-submit"})
 MODEL_BOUND_OPERATIONS = frozenset({RUN_OPERATION, *STREAMED_OPERATIONS})
 # The Team's whole Routine list is the one response with its own protocol allowance; every other keeps the API cap.
-RESPONSE_LIMITS = {"routine-list": http_routine.MAX_ROUTINE_LIST_BYTES}
+RESPONSE_LIMITS = {"routine-list": http_routine_notice.MAX_ROUTINE_LIST_BYTES}
 BODY_LIMITS = {
     "routine-claim": MAX_BODY_BYTES,
     "routine-notice-ack": 64 * 1024,
@@ -61,7 +63,7 @@ def _run_id(route: strict_http.ControllerRouteMatch) -> str:
 def _machine(handler, operation: str) -> dict[str, object]:
     service = handler.server.controller.chat_turn_service
     if operation == "routine-claim":
-        request = http_routine.canonical_claim_request(handler._body(max_bytes=BODY_LIMITS[operation]))
+        request = http_routine_run.canonical_claim_request(handler._body(max_bytes=BODY_LIMITS[operation]))
         if request is None:
             raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "Routine claim is invalid", code="invalid-body")
         run = service.claim_routine_run(request["long"])
@@ -78,7 +80,7 @@ def _run(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict
     body = handler._body(max_bytes=BODY_LIMITS[route.operation])
     if route.operation == "routine-challenge-open":
         # The challenge renders its request copy in the Admin interface language (ADR-0091).
-        opening = http_routine.canonical_challenge_open(body)
+        opening = http_routine_run.canonical_challenge_open(body)
         if opening is None:
             raise ApiProblem(
                 HTTPStatus.UNPROCESSABLE_ENTITY, "opening a challenge requires only locale", code="invalid-body"
@@ -109,7 +111,7 @@ def _steps(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> di
 def _run_steps(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
     """One page of what a run did, from an offset, for exactly the snapshot of its records the reader holds."""
     run_id, snapshot, offset = _run_id(route), route.params["snapshot"], route.params["offset"]
-    if (snapshot != "latest" and http_routine.SNAPSHOT_RE.fullmatch(snapshot) is None) or _COUNT_RE.fullmatch(
+    if (snapshot != "latest" and http_routine_run.SNAPSHOT_RE.fullmatch(snapshot) is None) or _COUNT_RE.fullmatch(
         offset
     ) is None:
         raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine run steps are unavailable", code="routine-run-steps-not-found")
@@ -247,7 +249,7 @@ def run(handler, parts: list[str], route: strict_http.ControllerRouteMatch, requ
     request_audit.record("routine-authority", result="ok")
     team_id = validate_team_id(route.params["team_id"])
     run_id = _run_id(route)
-    claimed = http_routine.canonical_segment_request(handler._body(max_bytes=BODY_LIMITS[route.operation]))
+    claimed = http_routine_run.canonical_segment_request(handler._body(max_bytes=BODY_LIMITS[route.operation]))
     if claimed is None:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY, "a segment names the claimed revision and plan", code="invalid-body"

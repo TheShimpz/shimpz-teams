@@ -33,6 +33,7 @@ from local.chat import continuation as local_chat_continuation
 from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
 from protocol.http.v1 import strict_json
 from routine import cursor as routine_cursor
 from routine import definition as routine_definition
@@ -52,8 +53,8 @@ SCHEMA = 9
 # and every other field.
 MAX_NOTICE_BYTES = (
     http_routine.MAX_OUTPUT_BYTES
-    + http_routine.MAX_SUMMARY_BYTES
-    + 4 * http_routine.MAX_DECISION_MESSAGE_CHARS
+    + http_routine_notice.MAX_SUMMARY_BYTES
+    + 4 * http_routine_notice.MAX_DECISION_MESSAGE_CHARS
     + 8 * 1024
 )
 _NOTICES_BYTES = (record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES) * MAX_NOTICE_BYTES
@@ -325,7 +326,7 @@ def _decode_run(value: object) -> record.Run:
             )
             and no_request,
             "frozen": unleased
-            and value["request_kind"] in http_routine.REQUEST_KINDS
+            and value["request_kind"] in http_routine_notice.REQUEST_KINDS
             and http_identifiers.canonical_assistant_id(value["assistant_id"]) is not None
             and http_identifiers.canonical_action_id(value["action"]) is not None
             and http_routine.canonical_position(position, steps) is not None,
@@ -345,7 +346,7 @@ def _decode_notice(value: object) -> record.Notice:
         "run_id": value["run_id"] or None,
         "created_at": "1970-01-01T00:00:00Z",
     }
-    _require(http_routine.canonical_notice(wire) == wire)
+    _require(http_routine_notice.canonical_notice(wire) == wire)
     return record.Notice(
         value["notice_id"],
         value["routine_id"],

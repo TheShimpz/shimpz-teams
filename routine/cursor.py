@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from action import journal as action_journal
 from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
+from protocol.http.v1 import routine_run as http_routine_run
 from protocol.http.v1 import strict_json
 from routine import plan as routine_plan
 
@@ -499,7 +501,7 @@ def _decision_valid(cursor: Cursor) -> bool:
         and (cursor.phase != "replay" or (cursor.candidate is None and cursor.calls == () and cursor.model is None))
         and type(allowance) is int
         and type(used) is int
-        and 0 <= used <= allowance <= http_routine.MAX_ALLOWANCE
+        and 0 <= used <= allowance <= http_routine_notice.MAX_ALLOWANCE
         and isinstance(cursor.calls, tuple)
         and len(cursor.calls) <= used
         and all(_call_valid(call) for call in cursor.calls)
@@ -556,7 +558,7 @@ def _call_valid(call: object) -> bool:
         and isinstance(call.commitment, str)
         and _HEX64_RE.fullmatch(call.commitment) is not None
         and type(call.attempts) is int
-        and 1 <= call.attempts <= http_routine.MAX_DIAGNOSTIC_ATTEMPTS
+        and 1 <= call.attempts <= http_routine_run.MAX_DIAGNOSTIC_ATTEMPTS
         and call.state in CALL_STATES
         and call.fault in FAULTS
         and (call.fault != "") == (call.state == "failed")

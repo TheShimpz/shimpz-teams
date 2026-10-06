@@ -16,6 +16,7 @@ from unittest import mock
 from local.errors import ApiProblemError
 from local.routine import diagnostics
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_run as http_routine_run
 
 NOW = 2_200_000_000
 INCARNATION = "a" * 64
@@ -67,7 +68,7 @@ class DiagnosticStoreTests(unittest.TestCase):
             self.store.record("team_1", INCARNATION, item, ("never-stored-secret",))
         read = self.store.read("team_1", INCARNATION, RUN, NOW + 10)
         self.assertEqual(read, (_diagnostic(), later))
-        view = http_routine.canonical_diagnostics(
+        view = http_routine_run.canonical_diagnostics(
             {"team_id": "team_1", "run_id": RUN, "diagnostics": [item.view() for item in read]}
         )
         self.assertEqual(view["diagnostics"][1]["condition"], "exit-status:1")
@@ -178,7 +179,7 @@ class DiagnosticStoreTests(unittest.TestCase):
             self.store.record("team_1", INCARNATION, _diagnostic(attempt=5, recorded_at=NOW + 9), ())
         self.assertEqual([item.attempt for item in self.store.read("team_1", INCARNATION, RUN, NOW + 9)], [4, 5])
         self.assertEqual(len(self.files("team_2")), 1)
-        with mock.patch.object(http_routine, "MAX_RUN_DIAGNOSTICS", 1):
+        with mock.patch.object(http_routine_run, "MAX_RUN_DIAGNOSTICS", 1):
             self.assertEqual([item.attempt for item in self.store.read("team_1", INCARNATION, RUN, NOW + 9)], [5])
 
     def test_only_a_bounded_secret_free_diagnostic_is_ever_sealed(self) -> None:
@@ -337,7 +338,7 @@ class StepRecordTests(StepRecordCase):
         self.store.record_step("team_1", INCARNATION, _step(1, "done", attempt=2), ())
         self.store.record_step("team_1", INCARNATION, _step(2, "recovered", duration_ms=None, inputs=None), ())
         live = self.page()
-        self.assertEqual(http_routine.canonical_run_steps(live), live)
+        self.assertEqual(http_routine_run.canonical_run_steps(live), live)
         statuses = [(step["status"], step["attempt"]) for step in live["steps"]]
         # A live run proves nothing about the steps it has no record of.
         self.assertEqual(statuses, [("done", 2), ("recovered", 1), ("unavailable", None), ("unavailable", None)])
@@ -496,7 +497,7 @@ class StepRecordOrderTests(StepRecordCase):
         self.store.delete("team_1")
         self.store.record_step("team_1", INCARNATION, _step(1), ())
         with (
-            mock.patch.object(diagnostics.http_routine, "canonical_run_steps", return_value=None),
+            mock.patch.object(diagnostics.http_routine_run, "canonical_run_steps", return_value=None),
             self.assertRaises(ApiProblemError) as caught,
         ):
             self.page()
@@ -527,7 +528,7 @@ class DecisionCallPageTests(StepRecordCase):
         for call in (1, 3):
             self.store.record_step("team_1", INCARNATION, _call(call, binding=binding), ())
         page = self.page()
-        self.assertEqual(http_routine.canonical_run_steps(page), page)
+        self.assertEqual(http_routine_run.canonical_run_steps(page), page)
         self.assertEqual((page["replay"], page["total"], page["decision"]), (2, 5, None))
         self.assertEqual(
             _positions(page), [("replay", 1), ("replay", 2), ("decision", 1), ("decision", 2), ("decision", 3)]
@@ -542,7 +543,7 @@ class DecisionCallPageTests(StepRecordCase):
         terminal = diagnostics.RunRecord(binding, 2, False, NOW + 1, calls=3, decision=DECIDED)
         self.store.record_run("team_1", INCARNATION, terminal)
         page = self.page()
-        self.assertEqual(http_routine.canonical_run_steps(page), page)
+        self.assertEqual(http_routine_run.canonical_run_steps(page), page)
         self.assertEqual((page["total"], page["decision"], page["ended"]), (5, DECIDED, True))
         self.assertEqual(
             [entry["status"] for entry in page["steps"]], ["done", "unavailable", "done", "unavailable", "unavailable"]
@@ -589,7 +590,7 @@ class FailureEvidenceTests(unittest.TestCase):
         self.assertIsNone(condition)
         self.assertNotIn("schemasecretabc", json.dumps(failure).lower())
         self.assertTrue(failure["redacted"])
-        self.assertEqual(http_routine.canonical_failure(failure), failure)
+        self.assertEqual(http_routine_run.canonical_failure(failure), failure)
 
     def test_after_the_run_lost_its_protection_only_the_status_is_kept(self) -> None:
         from routine import trace
@@ -607,7 +608,7 @@ class FailureEvidenceTests(unittest.TestCase):
                 "truncated": False,
             },
         )
-        self.assertEqual(http_routine.canonical_failure(failure), failure)
+        self.assertEqual(http_routine_run.canonical_failure(failure), failure)
         self.assertIsNone(diagnostics.evidence(ValueError("other"), trace.Protection()))
 
 

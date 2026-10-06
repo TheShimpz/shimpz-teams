@@ -34,6 +34,8 @@ from local.http import server
 from local.routine import diagnostics as routine_diagnostics
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_notice as http_routine_notice
+from protocol.http.v1 import routine_run as http_routine_run
 from protocol.http.v1 import supervisor as contract
 from routine import definition as routine_definition
 from routine import plan as routine_plan
@@ -361,7 +363,7 @@ class SessionRouteTests(RoutineHttpCase):
                 body = json.loads(raw)
                 # The Local API adds its trace id to every response; Admin strips it before admitting the view.
                 self.assertRegex(body.pop("trace_id"), r"\A[0-9a-f]{32}\Z")
-                view = http_routine.canonical_diagnostics(body)
+                view = http_routine_run.canonical_diagnostics(body)
                 self.assertEqual(view["diagnostics"], [diagnostic.view()])
                 status, _type, raw = self.request("GET", "/v1/teams/team_1/routines/runs/bad/diagnostics")
                 self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-run-not-found"))
@@ -425,7 +427,7 @@ class RecoveryRouteTests(RoutineHttpCase):
                 status, _type, raw = self.request("GET", base)
                 listed = json.loads(raw)
                 self.assertEqual((listed["incidents"], listed["routines"][0]["state"]), ([], "active"))
-                self.assertIsNotNone(http_routine.canonical_routine_view(listed["routines"][0]))
+                self.assertIsNotNone(http_routine_notice.canonical_routine_view(listed["routines"][0]))
                 cases = (
                     (f"{base}/incidents/bad/card", EMPTY, 404, "routine-incident-unavailable"),
                     (incident + "/card", b'{"x":1}', 422, "invalid-body"),
@@ -564,20 +566,20 @@ class ProtocolViewTests(RoutineHttpCase):
             self.routine(service)
             _status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
             claim = body(raw)
-            self.assertEqual(http_routine.canonical_claim(claim), claim)
+            self.assertEqual(http_routine_run.canonical_claim(claim), claim)
             self.run_claim(service, claim["run"])
             _status, _type, raw = self.request("GET", "/v1/routines/notices")
             notices = body(raw)
-            self.assertEqual(http_routine.canonical_notice_batch(notices), notices)
+            self.assertEqual(http_routine_notice.canonical_notice_batch(notices), notices)
             self.assertEqual(notices["notices"][0]["outcome"], "frozen")
             with mock.patch.object(local_authority, "verify", return_value=self.session):
                 _status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
                 listed = body(raw)
             self.assertEqual(set(listed), {"team_id", "routines", "runs", "incidents"})
             for item in listed["routines"]:
-                self.assertEqual(http_routine.canonical_routine_view(item), item)
+                self.assertEqual(http_routine_notice.canonical_routine_view(item), item)
             (run,) = listed["runs"]
-            self.assertEqual((http_routine.canonical_run_view(run), run["status"]), (run, "frozen"))
+            self.assertEqual((http_routine_notice.canonical_run_view(run), run["status"]), (run, "frozen"))
 
 
 class RoutineListBoundTests(RoutineHttpCase):
@@ -596,11 +598,11 @@ class RoutineListBoundTests(RoutineHttpCase):
             with mock.patch.object(local_authority, "verify", return_value=self.session):
                 status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
             self.assertEqual(status, 200)
-            self.assertLessEqual(len(raw), http_routine.MAX_ROUTINE_LIST_BYTES)
+            self.assertLessEqual(len(raw), http_routine_notice.MAX_ROUTINE_LIST_BYTES)
             listed = json.loads(raw)
             self.assertEqual(len(listed["routines"]), http_routine.MAX_ROUTINES)
             for item in listed["routines"]:
-                self.assertEqual(http_routine.canonical_routine_view(item), item)
+                self.assertEqual(http_routine_notice.canonical_routine_view(item), item)
             summaries = [
                 (item["plan"]["steps"], len(item["plan"]["actions"]), item["plan"]["more"])
                 for item in listed["routines"]
