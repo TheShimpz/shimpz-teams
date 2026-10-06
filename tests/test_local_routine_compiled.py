@@ -405,6 +405,23 @@ class Crash(BaseException):
     """The Team process dies here: nothing after this point of the segment runs, and its run stays leased."""
 
 
+def _crash_after_cursor_step_one(service):
+    """The process dies right after it sealed the cursor past the first step."""
+    put = service.routine_store.put_cursor
+
+    def sealed_then_crash(team_id, cursor):
+        put(team_id, cursor)
+        if cursor.step == 1:
+            raise Crash
+
+    return mock.patch.object(service.routine_store, "put_cursor", side_effect=sealed_then_crash)
+
+
+def _crash_before_terminal_commit(_service):
+    """The process dies after the last step, before the run's terminal commit."""
+    return mock.patch.object(routine_run, "finished", side_effect=Crash)
+
+
 class WatchdogRecoveryTests(CompiledRunCase):
     """After a crash, the watchdog ends a leased run exactly as its sealed cursor, snapshot, and journal show."""
 
@@ -444,18 +461,8 @@ class WatchdogRecoveryTests(CompiledRunCase):
         self.assertIsNotNone(opened.cursor.operation_id)
 
     def test_a_crash_after_the_cursor_advanced_holds_the_run_with_its_completed_prefix(self) -> None:
-        def patch(service):
-            put = service.routine_store.put_cursor
-
-            def sealed_then_crash(team_id, cursor):
-                put(team_id, cursor)
-                if cursor.step == 1:
-                    raise Crash
-
-            return mock.patch.object(service.routine_store, "put_cursor", side_effect=sealed_then_crash)
-
         with tempfile.TemporaryDirectory() as directory:
-            service, run_id, actions = self.crashed(directory, patch)
+            service, run_id, actions = self.crashed(directory, _crash_after_cursor_step_one)
             state = self.state(service)
             opened = routine_incident.open_recovery(service, "team_1", run_id)
         self.assertEqual((actions, state.runs), (["list-zones"], ()))
@@ -464,11 +471,8 @@ class WatchdogRecoveryTests(CompiledRunCase):
         self.assertEqual(opened.cursor.selections(), {("zones", "/zones/0/id", "", ""): ZONE})
 
     def test_a_crash_before_the_terminal_commit_finishes_a_completed_run_done(self) -> None:
-        def patch(_service):
-            return mock.patch.object(routine_run, "finished", side_effect=Crash)
-
         with tempfile.TemporaryDirectory() as directory:
-            service, _run_id, actions = self.crashed(directory, patch)
+            service, _run_id, actions = self.crashed(directory, _crash_before_terminal_commit)
             state = self.state(service)
             leftovers = (service.routine_store.cursors("team_1"), service.routine_store.recoveries("team_1"))
         self.assertEqual((actions, state.runs, state.incidents), (["list-zones", "list-dns-records"], (), ()))
@@ -479,12 +483,11 @@ class WatchdogRecoveryTests(CompiledRunCase):
         self.assertEqual(state.notices[0].detail["output"]["state"], "shown")
 
     def test_a_restart_before_the_terminal_commit_completes_without_the_result_or_a_new_baseline(self) -> None:
-        def patch(_service):
-            return mock.patch.object(routine_run, "finished", side_effect=Crash)
-
         for mode in ("show", "changes"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
-                service, _run_id, _actions = self.crashed(directory, patch, restarted=True, mode=mode)
+                service, _run_id, _actions = self.crashed(
+                    directory, _crash_before_terminal_commit, restarted=True, mode=mode
+                )
                 state = self.state(service)
             (notice,) = state.notices
             self.assertEqual((notice.outcome, notice.protection_lost), ("done", True))
@@ -492,18 +495,8 @@ class WatchdogRecoveryTests(CompiledRunCase):
             self.assertEqual(state.routines[0].output_digest, "")
 
     def test_a_restart_after_the_cursor_advanced_holds_the_run_as_having_lost_its_protection(self) -> None:
-        def patch(service):
-            put = service.routine_store.put_cursor
-
-            def sealed_then_crash(team_id, cursor):
-                put(team_id, cursor)
-                if cursor.step == 1:
-                    raise Crash
-
-            return mock.patch.object(service.routine_store, "put_cursor", side_effect=sealed_then_crash)
-
         with tempfile.TemporaryDirectory() as directory:
-            service, run_id, _actions = self.crashed(directory, patch, restarted=True)
+            service, run_id, _actions = self.crashed(directory, _crash_after_cursor_step_one, restarted=True)
             state = self.state(service)
             opened = routine_incident.open_recovery(service, "team_1", run_id)
         (incident,) = state.incidents
