@@ -1388,6 +1388,7 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
 # an interval over the Team's budget carries the shortest interval that fits, in seconds.
 QUESTION_CODES = (
     "routine-schedule-unstated",
+    "routine-output-unstated",
     "routine-interval-over-budget",
     "routine-binding-ambiguous",
     "routine-binding-unsourced",
@@ -1559,6 +1560,58 @@ def canonical_rerun(value: object) -> list[dict[str, object]] | None:
     if not all(_rerun_entry(item) for item in value) or sum(item["count"] for item in value) > MAX_RERUN_CALLS:
         return None
     return copy.deepcopy(list(value))
+
+
+# What each run does with its result, as the person chooses it (ADR-0101): show it every run, show it only when it
+# changes, show nothing, or use it in other Actions, which the recorded work then runs and the Routine shows. Team reads
+# the choice from the person's own words; asked, Admin offers these labels in the interface language, and the label
+# the person picks, as Admin composes it, states that choice.
+OUTPUT_KINDS = ("show", "changes", "none", "chain")
+OUTPUT_CHOICES = {
+    "ar": {
+        "show": "اعرض في كل تشغيل",
+        "changes": "اعرض فقط عند التغيير",
+        "none": "لا تعرض",
+        "chain": "استخدمه في إجراءات أخرى",
+    },
+    "de": {
+        "show": "Bei jedem Lauf anzeigen",
+        "changes": "Nur bei Änderung anzeigen",
+        "none": "Nicht anzeigen",
+        "chain": "In anderen Aktionen verwenden",
+    },
+    "en": {
+        "show": "Show every run",
+        "changes": "Show only when it changes",
+        "none": "Don't show",
+        "chain": "Use it in other Actions",
+    },
+    "es": {
+        "show": "Mostrar en cada ejecución",
+        "changes": "Mostrar solo cuando cambie",
+        "none": "No mostrar",
+        "chain": "Usar en otras acciones",
+    },
+    "fr": {
+        "show": "Afficher à chaque exécution",
+        "changes": "Afficher seulement en cas de changement",
+        "none": "Ne pas afficher",
+        "chain": "Utiliser dans d'autres actions",
+    },
+    "ja": {
+        "show": "毎回表示する",
+        "changes": "変更時のみ表示する",
+        "none": "表示しない",
+        "chain": "他のアクションで使う",
+    },
+    "pt": {
+        "show": "Mostrar em todas as execuções",
+        "changes": "Mostrar somente quando mudar",
+        "none": "Não mostrar",
+        "chain": "Usar em outras ações",
+    },
+    "zh": {"show": "每次运行都显示", "changes": "仅在变化时显示", "none": "不显示", "chain": "用于其他操作"},
+}
 
 
 # The reply of a send that answers Team's pending question, which Team then records without asking the Brain: one

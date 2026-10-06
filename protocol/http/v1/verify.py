@@ -370,3 +370,12 @@ if set(routine.ANSWER_REPLIES) != set(routine.LOCALES) or any(
     fail("the Routine answer replies do not cover every interface language with one plain line")
 if routine.answer_reply(None) != routine.ANSWER_REPLIES["en"]:
     fail("a chat without an interface language does not get the English answer reply")
+
+choices = routine.OUTPUT_CHOICES
+if set(choices) != set(routine.LOCALES) or any(
+    tuple(labels) != routine.OUTPUT_KINDS
+    or any(routine.canonical_name(label) != label for label in labels.values())
+    or len({label.casefold() for label in labels.values()}) != len(labels)
+    for labels in choices.values()
+):
+    fail("the Routine output choices do not name each output once in every interface language")

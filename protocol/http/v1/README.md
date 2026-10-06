@@ -106,14 +106,16 @@ A Local chat terminal that recorded a Routine (ADR-0101) carries at most one of 
 interface language (for example `routine-mutation-unavailable` or `routine-secret-literal`); nothing was created.
 `routine_question` (`routine.canonical_question`) is `{code, options, value}`: Team asks the person before any card,
 the recording is kept, and the person's answer is an ordinary chat message. Its code is one of
-`routine.QUESTION_CODES`: how often it runs (`routine-schedule-unstated`), a stated interval the Team's daily budget
+`routine.QUESTION_CODES`: how often it runs (`routine-schedule-unstated`), what each run does with its result (`routine-output-unstated`:
+Admin offers `routine.OUTPUT_CHOICES`, one label for each of `routine.OUTPUT_KINDS` in the interface language, and
+the label the person picks states that choice), a stated interval the Team's daily budget
 cannot hold (`routine-interval-over-budget`, whose `value` is the shortest interval in seconds that fits; with room
 for no run at all the recording is refused as `routine-step-budget`), which item an input means (`routine-binding-ambiguous`, whose `options` are at most 8
 targets `{value, label}`: `value` is the exact compact JSON text of the string or integer the input would take, so
 no client rounds a large integer, and `label` the item's name, or `null`), a value that no earlier result provides (`routine-binding-unsourced`), work split across messages
 (`routine-work-split`), and work to run again for a chosen target (`routine-work-rerun`). Only `routine-binding-ambiguous` has options, and only
 `routine-interval-over-budget` has a value. When the person's next send is Admin's composed answer to that question
-and its latest answer binds it (it states a schedule or an interval, or is exactly one target's JSON text), Team
+and its latest answer binds it (it states a schedule, an interval, or an output, or is exactly one target's JSON text), Team
 records again with the request's stored intent without asking the Brain, and the reply is the fixed
 `routine.answer_reply` text in the interface language (English without one).
 

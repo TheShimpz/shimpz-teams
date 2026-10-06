@@ -2522,6 +2522,7 @@
   "routine_question": {
     "valid": [
       {"code": "routine-schedule-unstated", "options": [], "value": null},
+      {"code": "routine-output-unstated", "options": [], "value": null},
       {"code": "routine-interval-over-budget", "options": [], "value": 9},
       {"code": "routine-binding-ambiguous", "options": [{"value": "\"023e105f4ecef8ad9ca31a8372d0c353\"", "label": "shimpz.com"}, {"value": "\"7f1b2c3d4e5f60718293a4b5c6d7e8f9\"", "label": "shimpz.com"}], "value": null},
       {"code": "routine-binding-ambiguous", "options": [{"value": "9007199254740993", "label": null}], "value": null},
@@ -2558,7 +2559,9 @@
       {"code": "routine-schedule-unstated", "options": [{"value": "\"x\"", "label": null}], "value": null},
       {"code": "routine-timezone-ambiguous", "options": [], "value": null},
       {"code": "routine-timezone-unstated", "options": [], "value": null},
-      {"code": "routine-no-room", "options": [], "value": null}
+      {"code": "routine-no-room", "options": [], "value": null},
+      {"code": "routine-output-unstated", "options": [{"value": "\"show\"", "label": null}], "value": null},
+      {"code": "routine-output-unstated", "options": [], "value": 5}
     ]
   },
   "clarification_labels": {
