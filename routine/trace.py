@@ -187,6 +187,11 @@ class Protection:
         return Protection(grown)
 
 
+def kept_bytes(kept: Kept) -> int:
+    """The encoded size of a kept value with every pointer it withholds."""
+    return len(encoded({"value": kept.value, "withheld": sorted(kept.withheld)}))
+
+
 @dataclass(frozen=True, slots=True)
 class Occurrence:
     """One successful Action call of a recording turn, in the order Team dispatched it."""
@@ -200,20 +205,27 @@ class Occurrence:
     dispatched_at: int
     input: Kept
     result: Kept
+    # The encoded size of its kept input and result, derived when it is made.
+    size: int = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "size", kept_bytes(self.input) + kept_bytes(self.result))
 
 
 @dataclass(frozen=True, slots=True)
 class Trace:
-    """A recording turn's successful calls in dispatch order, the UTC date Brain pinned for it, and its start."""
+    """A recording turn's successful calls in dispatch order, the UTC date Brain pinned for it, and its start.
+
+    Every trace, however it is made, holds at most MAX_OCCURRENCES calls and MAX_TRACE_BYTES of kept values.
+    """
 
     turn_date: str | None
     started_at: int
     occurrences: tuple[Occurrence, ...] = ()
-    # The encoded bytes of every kept input and result.
-    size: int = field(default=0)
+
+    def __post_init__(self) -> None:
+        if len(self.occurrences) > MAX_OCCURRENCES or sum(item.size for item in self.occurrences) > MAX_TRACE_BYTES:
+            raise TraceError("routine-recording-too-large")
 
     def add(self, occurrence: Occurrence) -> Trace:
-        size = self.size + len(encoded(occurrence.input.value)) + len(encoded(occurrence.result.value))
-        if len(self.occurrences) >= MAX_OCCURRENCES or size > MAX_TRACE_BYTES:
-            raise TraceError("routine-recording-too-large")
-        return dataclasses.replace(self, occurrences=(*self.occurrences, occurrence), size=size)
+        return dataclasses.replace(self, occurrences=(*self.occurrences, occurrence))
