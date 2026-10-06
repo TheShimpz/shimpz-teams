@@ -1020,6 +1020,45 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(changed.schedule, {"kind": "hourly", "every": 1})
 
 
+class OutputTests(unittest.TestCase):
+    """What each run does with its result is the person's to state, read from their words (ADR-0101)."""
+
+    def output(self, *sends: recording.Send, **options) -> object:
+        result = _record(*sends, mode=None, **options)
+        return result.document["output"] if isinstance(result, recording.Recorded) else result
+
+    def test_the_latest_segment_stating_an_output_wins_and_a_chain_shows(self) -> None:
+        cases = {
+            "a cada hora, mostrar sempre": {"mode": "show", "step": "s1", "when": None},
+            "a cada hora, só quando mudar": {"mode": "changes", "step": "s1", "when": None},
+            "a cada hora, não precisa mostrar": {"mode": "none", "step": None, "when": None},
+            "a cada hora, usar em outras ações": {"mode": "show", "step": "s1", "when": None},
+        }
+        for message, expected in cases.items():
+            with self.subTest(message=message):
+                self.assertEqual(self.output(_send(ZONES_CALL, message=message)), expected)
+        later = self.output(_send(ZONES_CALL, message="a cada hora, mostrar sempre"), _send(message="só quando mudar"))
+        self.assertEqual(later["mode"], "changes")
+
+    def test_no_output_or_two_in_one_segment_are_asked_never_guessed(self) -> None:
+        for message in ("a cada hora", "a cada hora. Mostrar sempre. Ou só quando mudar."):
+            with self.subTest(message=message):
+                self.assertEqual(
+                    self.output(_send(ZONES_CALL, message=message)), recording.Question("routine-output-unstated")
+                )
+        # The work's own questions come first.
+        remembered = _send(RECORDS, message="DNS de shimpz.com a cada hora")
+        self.assertEqual(self.output(remembered).code, "routine-binding-unsourced")
+
+    def test_a_replacement_keeps_its_output_unless_the_person_states_another(self) -> None:
+        existing = recording.Existing(KEPT_PLAN, {"kind": "daily", "time": "08:00"})
+        self.assertEqual(self.output(_send(message="ok"), existing=existing)["mode"], "show")
+        changed = self.output(_send(message="não precisa mostrar"), existing=existing)
+        self.assertEqual(changed["mode"], "none")
+        asked = self.output(_send(message="Mostrar sempre. Ou só quando mudar."), existing=existing)
+        self.assertEqual(asked, recording.Question("routine-output-unstated"))
+
+
 class TimezoneTests(unittest.TestCase):
     def test_a_written_zone_wins_over_the_browser_and_the_latest_one_counts(self) -> None:
         recorded = _recorded(_send(ZONES_CALL, message="todo dia às 9h, Europe/Paris"), _send(message="Europe/Lisbon"))

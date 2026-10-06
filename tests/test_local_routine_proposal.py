@@ -62,7 +62,8 @@ MESSAGE = (
     "Cria uma rotina pra mim\n"
     "Pergunta: O que a rotina deve fazer?\nResposta: Listar registros DNS\n"
     "Pergunta: Com que frequência?\nResposta: A cada 30 segundos\n"
-    "Pergunta: De qual zona?\nResposta: shimpz.com"
+    "Pergunta: De qual zona?\nResposta: shimpz.com\n"
+    "Pergunta: O que fazer com o resultado?\nResposta: Mostrar em todas as execuções"
 )
 CONTINUOUS = {"kind": "continuous", "gap": 30, "cap": 2880}
 
@@ -71,7 +72,6 @@ def _record(**changes: object) -> dict[str, object]:
     value = {
         "op": "record",
         "name": "DNS de shimpz.com",
-        "output": {"mode": "show", "when": None},
         "notes": "",
         "decide_actions": [],
         "replaces": None,
@@ -241,7 +241,7 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual((notice.outcome, notice.name, notice.usage), ("created", "DNS de shimpz.com", None))
 
     def test_a_zone_the_person_named_in_an_earlier_send_selects_the_zone_id(self) -> None:
-        body = _body("Faça isso a cada 30 segundos")
+        body = _body("Faça isso a cada 30 segundos e mostre o resultado")
         body["conversation"] = [
             {"role": "user", "text": "Liste os registros DNS de shimpz.com", "truncated": False},
             {"role": "assistant", "text": "Listei os registros.", "truncated": False},
@@ -252,7 +252,7 @@ class RecordedRoutineTests(LocalContractCase):
         zone_id = next(item for item in card["steps"][1]["inputs"] if item["member"] == "zone_id")
         self.assertEqual((zone_id["origin"], zone_id["where"]["value_json"]), ("selector", '"shimpz.com"'))
         # Without the earlier send, nothing the person wrote names the zone, so the person is asked which it is.
-        asked = self.question(Recording(_record()), _body("Faça isso a cada 30 segundos"))
+        asked = self.question(Recording(_record()), _body("Faça isso a cada 30 segundos e mostre o resultado"))
         self.assertEqual(
             (asked["code"], [item["label"] for item in asked["options"]]),
             ("routine-binding-ambiguous", ["example.com", "shimpz.com"]),
@@ -263,7 +263,7 @@ class RecordedRoutineTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
             first = self.chat(service, _body("Liste os registros DNS"))
-            card = self.chat(service, _body("shimpz.com, a cada 30 segundos"))["routine_proposal"]
+            card = self.chat(service, _body("shimpz.com, a cada 30 segundos, mostrar sempre"))["routine_proposal"]
         self.assertNotIn("routine_question", first)
         self.assertEqual([step["action"] for step in card["steps"]], ["list-zones", "list-dns-records"])
         zone_id = next(item for item in card["steps"][1]["inputs"] if item["member"] == "zone_id")
@@ -273,7 +273,9 @@ class RecordedRoutineTests(LocalContractCase):
         runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), _record()))
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
-            asked = self.chat(service, _body("Liste os registros DNS de shimpz.com"))["routine_question"]
+            asked = self.chat(service, _body("Liste os registros DNS de shimpz.com e mostre o resultado"))[
+                "routine_question"
+            ]
             card = self.chat(service, _body("A cada 30 segundos"))["routine_proposal"]
             span = service.routine_recordings._spans.get("team_1")
         self.assertEqual(asked, {"code": "routine-schedule-unstated", "options": [], "value": None})
@@ -335,7 +337,7 @@ class RecordedRoutineTests(LocalContractCase):
             recording = local_chat_api._recording(
                 service, "team_1", {"issued_at": int(time.time())}, ("m", ["f"], None, ())
             )
-            asked = self.chat(service, _body("shimpz.com, a cada 30 segundos"))["routine_question"]
+            asked = self.chat(service, _body("shimpz.com, a cada 30 segundos, mostrar sempre"))["routine_question"]
         self.assertIsNone(recording)
         self.assertEqual(asked["code"], "routine-binding-unsourced")
 
@@ -373,7 +375,7 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual((card["timezone"], card["timezone_source"]), ("Asia/Tokyo", "browser"))
 
     def test_a_composed_answer_to_the_pending_question_records_without_the_brain(self) -> None:
-        original = "Liste os registros DNS de shimpz.com"
+        original = "Liste os registros DNS de shimpz.com e mostre o resultado"
         runtime = Sends((("list-zones", "list-dns-records"), _record()))
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
@@ -384,6 +386,18 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(len(runtime.contexts), 1)
         self.assertEqual(response["reply"], http_routine.ANSWER_REPLIES["pt"])
         self.assertEqual(response["routine_proposal"]["schedule"], CONTINUOUS)
+
+    def test_the_output_is_the_persons_to_state_and_a_composed_answer_states_it_without_the_brain(self) -> None:
+        original = "Liste os registros DNS de shimpz.com a cada 30 segundos"
+        runtime = Sends((("list-zones", "list-dns-records"), _record()))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            asked = self.chat(service, _body(original))["routine_question"]
+            choice = http_routine.OUTPUT_CHOICES["pt"]["changes"]
+            answer = http_payload.compose_clarified(original, "O que fazer com o resultado?", choice, "pt")
+            card = self.chat(service, _body(answer))["routine_proposal"]
+        self.assertEqual(asked, {"code": "routine-output-unstated", "options": [], "value": None})
+        self.assertEqual((len(runtime.contexts), card["output"]), (1, {"mode": "changes", "when": None}))
 
     def test_a_freely_typed_send_reaches_the_brain_with_the_pending_question(self) -> None:
         original = "Liste os registros DNS de shimpz.com"
@@ -399,7 +413,7 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual([context.routine_mode for context in runtime.contexts], [False, True])
 
     def test_only_a_target_chosen_by_its_exact_json_text_skips_the_brain(self) -> None:
-        original = "Liste os registros DNS a cada 30 segundos"
+        original = "Liste os registros DNS a cada 30 segundos e mostre o resultado"
         for answer, brain in ((json.dumps(SHIMPZ), False), ("shimpz.com", True)):
             runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))
             with self.subTest(answer=answer), tempfile.TemporaryDirectory() as directory:
@@ -454,9 +468,13 @@ class RecordedRoutineTests(LocalContractCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
-            asked = self.chat(service, _body("Liste os registros DNS de shimpz.com a cada 30 segundos"))
-            zones = self.chat(service, _body("Agora só liste as zonas a cada 30 segundos"))
-            again = self.chat(service, _body("Liste os registros DNS de shimpz.com a cada 30 segundos"))
+            asked = self.chat(
+                service, _body("Liste os registros DNS de shimpz.com a cada 30 segundos e mostre o resultado")
+            )
+            zones = self.chat(service, _body("Agora só liste as zonas a cada 30 segundos e mostre o resultado"))
+            again = self.chat(
+                service, _body("Liste os registros DNS de shimpz.com a cada 30 segundos e mostre o resultado")
+            )
             continued = self.chat(service, _body("Pode continuar"))
         self.assertEqual(asked["routine_question"]["code"], "routine-binding-unsourced")
         self.assertEqual(
@@ -475,7 +493,9 @@ class RecordedRoutineTests(LocalContractCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
-            asked = self.chat(service, _body("Liste os registros DNS de shimpz.com a cada 30 segundos"))
+            asked = self.chat(
+                service, _body("Liste os registros DNS de shimpz.com a cada 30 segundos e mostre o resultado")
+            )
             partial = self.chat(service, _body("Pode buscar a zona"))
             rerun = self.chat(service, _body("Pode buscar de novo"))
         self.assertEqual(asked["routine_question"]["code"], "routine-binding-unsourced")
@@ -554,8 +574,12 @@ class RecordedRoutineTests(LocalContractCase):
 
         cases = [
             (Recording(_record(), calls=False), "routine-recording-empty", None),
-            (Recording(_record(output={"mode": "decide", "when": "always"})), "routine-recording-invalid", None),
             (Recording(_record(notes="extra")), "routine-recording-invalid", None),
+            (
+                Recording(_record(decide_actions=[{"assistant": ASSISTANT, "action": "list-zones"}])),
+                "routine-recording-invalid",
+                None,
+            ),
             (Recording(_record(replaces="d" * 32)), "routine-not-found", None),
             (Recording(_record()), "routine-mutation-unavailable", mutating),
         ]
@@ -596,7 +620,7 @@ class RecordedRoutineTests(LocalContractCase):
             service = self.controller(directory, Recording(_record()))
             card = self.chat(service, unzoned)["routine_proposal"]
         self.assertEqual((card["timezone"], card["timezone_source"]), ("UTC", "none"))
-        daily = {**_body("DNS de shimpz.com todo dia às 9h"), "timezone": None}
+        daily = {**_body("DNS de shimpz.com todo dia às 9h, mostrar sempre"), "timezone": None}
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
             card = self.chat(service, daily)["routine_proposal"]

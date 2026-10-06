@@ -38,9 +38,9 @@ from routine import record, trace
 from routine import recording as routine_recording
 
 PROPOSAL_SECONDS = 15 * 60
-# The record call names the Routine and what each run does with its result; when it runs and in which zone are the
+# The record call names the Routine; when it runs, in which zone, and what each run does with its result are the
 # person's own words, which Team reads (ADR-0101).
-_OUTCOME_FIELDS = frozenset({"op", "name", "output", "notes", "decide_actions", "replaces", "turn_date"})
+_OUTCOME_FIELDS = frozenset({"op", "name", "notes", "decide_actions", "replaces", "turn_date"})
 _DATE_TEXT = 10
 
 
@@ -125,16 +125,11 @@ def _brain_failed() -> ApiProblem:
 
 def _outcome(value: object) -> dict[str, object]:
     """The chat agent's ``record`` call exactly as Brain reports it; anything else is a Brain contract failure."""
-    output = value.get("output") if isinstance(value, dict) else None
     valid = (
         isinstance(value, dict)
         and set(value) == _OUTCOME_FIELDS
         and value["op"] == "record"
         and http_routine.canonical_name(value["name"]) == value["name"]
-        and isinstance(output, dict)
-        and set(output) == {"mode", "when"}
-        and output["mode"] in http_routine.OUTPUT_MODES
-        and (output["when"] is None or output["when"] in http_routine.DECISION_WHEN)
         and isinstance(value["notes"], str)
         and isinstance(value["decide_actions"], list)
         and (value["replaces"] is None or http_routine.ROUTINE_ID_RE.fullmatch(str(value["replaces"])) is not None)
@@ -221,7 +216,7 @@ def _intent(self, response: object, proposed: object) -> routine_recorder.Intent
     if outcome["replaces"] is not None and found is not None:
         shown = dict(found.revisions).get(outcome["replaces"])
     decide = tuple((item["assistant"], item["action"]) for item in outcome["decide_actions"])
-    return routine_recorder.Intent(outcome["name"], dict(outcome["output"]), decide, outcome["replaces"], shown)
+    return routine_recorder.Intent(outcome["name"], decide, outcome["replaces"], shown)
 
 
 def _replaced(state: record.TeamRoutines, intent: routine_recorder.Intent) -> record.Routine | None:
@@ -238,12 +233,14 @@ def _replaced(state: record.TeamRoutines, intent: routine_recorder.Intent) -> re
 
 
 def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: record.Routine | None):
-    """The recorded plan with its origins, permitted Actions, schedule, and zone, or the question to ask first."""
-    mode = intent.output["mode"]
-    if mode == "decide" or intent.decide_actions:
+    """The recorded plan with its origins, permitted Actions, schedule, zone, and output, or the question to ask first.
+
+    What each run does with its result is the person's to state, as its schedule is.
+    """
+    if intent.decide_actions:
         # Decisions come with their own slice; nothing here admits one yet.
         raise RefusedError("routine-recording-invalid")
-    choice = routine_recording.Recording(mode, None, ())
+    choice = routine_recording.Recording(None, None, ())
     kept = None
     if existing is not None:
         kept = routine_recording.Existing(existing.plan, existing.schedule)
@@ -267,8 +264,8 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
 
 
 def _work(intent: routine_recorder.Intent) -> tuple[object, ...]:
-    """What makes two intents the same work: the Routine's name, output, decision Actions, and what it replaces."""
-    return intent.name, intent.output, intent.decide_actions, intent.replaces
+    """What makes two intents the same work: the Routine's name, decision Actions, and what it replaces."""
+    return intent.name, intent.decide_actions, intent.replaces
 
 
 def _room(candidate: record.Routine, others: tuple[record.Routine, ...]) -> routine_recording.Question:

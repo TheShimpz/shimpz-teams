@@ -44,13 +44,12 @@ _SEND_CONTEXT_BYTES = 128
 
 @dataclass(frozen=True, slots=True)
 class Intent:
-    """What the span's latest ``record`` call asked for: the Routine's name, output, and the Routine it replaces.
+    """What the span's latest ``record`` call asked for: the Routine's name and the Routine it replaces.
 
     The replaced Routine is bound at exactly the revision that call was shown, which admission then requires unchanged.
     """
 
     name: str
-    output: dict[str, object]
     decide_actions: tuple[tuple[str, str], ...]
     replaces: str | None
     revision: int | None
@@ -247,9 +246,9 @@ class RecordingBook:
 def answered(span: Span | None) -> Intent | None:
     """The intent to record again when the span's latest send is Admin's composed answer that binds its question.
 
-    It binds a schedule question when it states a schedule, an interval question when it states an interval, and a
-    target question when it is exactly one target's JSON text. Anything else, typed freely or not binding, is the
-    Brain's to read.
+    It binds a schedule question when it states a schedule, an output question when it states an output, an interval
+    question when it states an interval, and a target question when it is exactly one target's JSON text. Anything
+    else, typed freely or not binding, is the Brain's to read.
     """
     if span is None or span.intent is None or span.asked is None or span.refused:
         return None
@@ -261,6 +260,7 @@ def answered(span: Span | None) -> Intent | None:
     pending = asked.pending
     bound = {
         "routine-schedule-unstated": bool(stated),
+        "routine-output-unstated": bool(phrase.outputs(answer)),
         "routine-interval-over-budget": any(item["kind"] in _INTERVAL_KINDS for item in stated),
         "routine-binding-ambiguous": pending is not None
         and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets),
