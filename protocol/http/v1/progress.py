@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
-import re
+from collections.abc import Callable
 
 if __package__:
-    from . import strict_json
+    from . import identifiers, strict_json
 else:  # The protocol verifier runs every module of this directory flat.
+    import identifiers
     import strict_json
 
 PHASES = frozenset(
@@ -22,11 +23,9 @@ PHASES = frozenset(
 STATES = frozenset({"started", "finished"})
 MAX_EVENTS = 2_048
 MAX_ELAPSED_MS = 24 * 60 * 60 * 1_000
-MAX_ASSISTANT_ID_CHARS = 40
-MAX_ACTION_ID_CHARS = 80
-IDENTIFIER_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
-# Exact compact JSON size of the largest valid finished Action progress record, including newline.
-MAX_PROGRESS_LINE_BYTES = 263
+# Exact compact JSON size of the largest valid finished Action progress record, including newline: a 40-character
+# Assistant id and a 128-character Action id.
+MAX_PROGRESS_LINE_BYTES = 311
 MAX_LINE_BYTES = 256 * 1024
 MAX_STREAM_BYTES = MAX_EVENTS * MAX_PROGRESS_LINE_BYTES + MAX_LINE_BYTES
 
@@ -41,10 +40,11 @@ def _integer(value: object, *, minimum: int, maximum: int, label: str) -> int:
     return value
 
 
-def _identifier(value: object, *, maximum: int, label: str) -> str:
-    if not isinstance(value, str) or len(value) > maximum or IDENTIFIER_RE.fullmatch(value) is None:
+def _identifier(value: object, canonical: Callable[[object], str | None], label: str) -> str:
+    identifier = canonical(value)
+    if identifier is None:
         raise ProgressContractError(f"invalid {label}")
-    return value
+    return identifier
 
 
 def canonical_event(value: object) -> dict[str, object]:
@@ -76,13 +76,9 @@ def canonical_event(value: object) -> dict[str, object]:
         )
     if phase == "action":
         total = _integer(value["total"], minimum=1, maximum=512, label="Action count")
-        event["assistant_id"] = _identifier(
-            value["assistant_id"],
-            maximum=MAX_ASSISTANT_ID_CHARS,
-            label="Assistant id",
-        )
+        event["assistant_id"] = _identifier(value["assistant_id"], identifiers.canonical_assistant_id, "Assistant id")
         event["index"] = _integer(value["index"], minimum=1, maximum=total, label="Action index")
-        event["action"] = _identifier(value["action"], maximum=MAX_ACTION_ID_CHARS, label="Action id")
+        event["action"] = _identifier(value["action"], identifiers.canonical_action_id, "Action id")
         event["total"] = total
     return event
 

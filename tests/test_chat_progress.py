@@ -6,6 +6,7 @@ from test_chat_orchestrator import FakeRuntime, completed, context, strategy, su
 
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
+from protocol.http.v1 import identifiers
 from protocol.http.v1 import progress as progress_contract
 
 
@@ -139,6 +140,27 @@ class ChatProgressTests(unittest.TestCase):
             reporter.span("action", index=1, total=1, assistant_id="Helper", action="lookup"),
         ):
             pass
+        for assistant_id, action in (
+            ("a" * (identifiers.MAX_ASSISTANT_ID_CHARS + 1), "lookup"),
+            ("helper", "a" * (identifiers.MAX_ACTION_ID_CHARS + 1)),
+            ("helper", "dns..read"),
+        ):
+            with (
+                self.subTest(assistant_id=assistant_id, action=action),
+                self.assertRaisesRegex(ValueError, "progress identity"),
+                reporter.span("action", index=1, total=1, assistant_id=assistant_id, action=action),
+            ):
+                pass
+
+    def test_reporter_names_every_canonical_action_id(self) -> None:
+        events: list[dict[str, object]] = []
+        reporter = chat_progress.Reporter(events.append)
+        for action in ("dns.read", "zone_get", "a" * identifiers.MAX_ACTION_ID_CHARS):
+            with reporter.span("action", index=1, total=1, assistant_id="helper", action=action):
+                pass
+        self.assertEqual([event["action"] for event in events[1::2]], ["dns.read", "zone_get", "a" * 128])
+        for event in events:
+            self.assertEqual(progress_contract.canonical_event(event), event)
 
     def test_largest_action_progress_record_matches_the_derived_line_bound(self) -> None:
         encoded = progress_contract.encode_record(
@@ -148,14 +170,15 @@ class ChatProgressTests(unittest.TestCase):
                 "phase": "action",
                 "state": "finished",
                 "elapsed_ms": progress_contract.MAX_ELAPSED_MS,
-                "assistant_id": "a" * progress_contract.MAX_ASSISTANT_ID_CHARS,
-                "action": "p" * progress_contract.MAX_ACTION_ID_CHARS,
+                "assistant_id": "a" * identifiers.MAX_ASSISTANT_ID_CHARS,
+                "action": "p" * identifiers.MAX_ACTION_ID_CHARS,
                 "index": 512,
                 "total": 512,
             }
         )
 
         self.assertEqual(len(encoded), progress_contract.MAX_PROGRESS_LINE_BYTES)
+        self.assertEqual(progress_contract.MAX_PROGRESS_LINE_BYTES, 311)
 
     def test_resumed_batch_repeats_preparation_then_reports_action_identity(self) -> None:
         events: list[dict[str, object]] = []

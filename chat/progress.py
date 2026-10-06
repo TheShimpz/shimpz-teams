@@ -20,8 +20,6 @@ PHASES = frozenset(
 )
 MAX_SEQUENCE = 2_048
 MAX_ELAPSED_MS = 24 * 60 * 60 * 1_000
-MAX_ASSISTANT_ID_CHARS = 40
-MAX_ACTION_ID_CHARS = 80
 
 EventSink = Callable[[dict[str, object]], None]
 Clock = Callable[[], int]
@@ -36,14 +34,7 @@ def _validate_identity(phase: str, assistant_id: str | None, action: str | None)
         if assistant_id is not None or action is not None:
             raise ValueError("invalid chat progress identity")
         return
-    if (
-        assistant_id is None
-        or action is None
-        or len(assistant_id) > MAX_ASSISTANT_ID_CHARS
-        or len(action) > MAX_ACTION_ID_CHARS
-        or http_payload.ASSISTANT_ID_RE.fullmatch(assistant_id) is None
-        or http_payload.ASSISTANT_ID_RE.fullmatch(action) is None
-    ):
+    if http_payload.canonical_assistant_id(assistant_id) is None or http_payload.canonical_action_id(action) is None:
         raise ValueError("invalid chat progress identity")
 
 
