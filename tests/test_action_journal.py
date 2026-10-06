@@ -71,12 +71,15 @@ class ActionJournalTests(unittest.TestCase):
         match: str,
         operation: Callable[[], object],
         message: str,
+        *,
+        error: type[action_journal.ActionJournalError] = action_journal.ActionJournalError,
+        result: object = None,
     ) -> None:
         connection = journal._connection
-        proxy = _ConnectionProxy(connection, match)
+        proxy = _ConnectionProxy(connection, match, result=result)
         journal._connection = proxy
         try:
-            with self.assertRaisesRegex(action_journal.ActionJournalError, message):
+            with self.assertRaisesRegex(error, message):
                 operation()
             self.assertTrue(proxy.used)
         finally:
@@ -89,17 +92,9 @@ class ActionJournalTests(unittest.TestCase):
         journal: action_journal.ActionJournal,
         operation: Callable[[], object],
     ) -> None:
-        connection = journal._connection
-        proxy = _ConnectionProxy(connection, "SELECT changes()", result=(0,))
-        journal._connection = proxy
-        try:
-            with self.assertRaises(action_journal.ActionJournalConflictError):
-                operation()
-            self.assertTrue(proxy.used)
-        finally:
-            journal._connection = connection
-            if connection.in_transaction:
-                connection.execute("ROLLBACK")
+        self.assert_sql_failure(
+            journal, "SELECT changes()", operation, "", error=action_journal.ActionJournalConflictError, result=(0,)
+        )
 
     def test_reopen_returns_canonical_cached_result_without_reexecution(self) -> None:
         journal = self.journal()
