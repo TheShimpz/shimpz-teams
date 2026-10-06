@@ -23,6 +23,8 @@ from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
     assistant_action_blocked,
+    assistant_manifest_invalid,
+    assistant_manifest_unavailable,
     assistant_registry_drift,
     docker_unavailable,
     inference_not_configured,
@@ -153,17 +155,9 @@ def _assistant_language(self, active: _ActiveAssistant) -> assistant_language.La
     try:
         return self._assistant_language_cache.get(container, active.spec.machine_contract, active.spec.pack_digest)
     except assistant_manifest.ManifestUnavailableError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "installed Assistant manifest could not be verified",
-            code="assistant-manifest-unavailable",
-        ) from exc
+        raise assistant_manifest_unavailable() from exc
     except assistant_manifest.ManifestError as exc:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "installed Assistant manifest failed its reviewed contract",
-            code="assistant-manifest-invalid",
-        ) from exc
+        raise assistant_manifest_invalid() from exc
 
 
 def _admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tuple[str, ...]:
@@ -185,18 +179,10 @@ def _admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tupl
         self._assistant_language_cache.get(container, spec.machine_contract, spec.pack_digest)
     except assistant_manifest.ManifestUnavailableError as exc:
         log.warning("Assistant manifest admission unavailable: %s", exc)
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "installed Assistant manifest could not be verified",
-            code="assistant-manifest-unavailable",
-        ) from exc
+        raise assistant_manifest_unavailable() from exc
     except assistant_manifest.ManifestError as exc:
         log.warning("Assistant manifest admission failed: %s", exc)
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "installed Assistant manifest failed its reviewed contract",
-            code="assistant-manifest-invalid",
-        ) from exc
+        raise assistant_manifest_invalid() from exc
     else:
         return declared.allowed_hosts
 

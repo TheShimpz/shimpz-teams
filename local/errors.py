@@ -11,6 +11,8 @@ from http import HTTPStatus
 _CONFLICT = HTTPStatus.CONFLICT
 _NOT_FOUND = HTTPStatus.NOT_FOUND
 _UNAVAILABLE = HTTPStatus.SERVICE_UNAVAILABLE
+_INVALID = HTTPStatus.UNPROCESSABLE_ENTITY
+_BAD_GATEWAY = HTTPStatus.BAD_GATEWAY
 
 
 class ApiProblemError(RuntimeError):
@@ -75,3 +77,31 @@ egress_proxy_drift = _problem(
 )
 team_destroy_failed = _problem(_UNAVAILABLE, "Docker could not destroy the Team", "docker-remove-failed")
 assistant_replace_failed = _problem(_UNAVAILABLE, "Docker could not replace the Assistant", "docker-remove-failed")
+chat_stop_timeout = _problem(_CONFLICT, "active Team chat did not stop in time", "chat-active")
+routine_active = _problem(_CONFLICT, "Team is running a Routine", "routine-active")
+chat_active = _problem(_CONFLICT, "Team already has an active chat turn", "chat-active")
+invalid_locale = _problem(_INVALID, "locale must be one interface language", "invalid-locale")
+assistant_not_installed = _problem(_NOT_FOUND, "Assistant is not installed in this Team", "assistant-not-installed")
+assistant_manifest_unavailable = _problem(
+    _UNAVAILABLE, "installed Assistant manifest could not be verified", "assistant-manifest-unavailable"
+)
+assistant_manifest_invalid = _problem(
+    _CONFLICT, "installed Assistant manifest failed its reviewed contract", "assistant-manifest-invalid"
+)
+human_request_invalid = _problem(_CONFLICT, "Action human request changed; retry the message", "human-request-invalid")
+human_request_expired = _problem(_CONFLICT, "Action human request expired; retry the message", "human-request-expired")
+human_response_invalid = _problem(_INVALID, "Action human response is invalid", "invalid-body")
+integration_oauth_unavailable = _problem(
+    _BAD_GATEWAY,
+    "Assistant integration authorization could not be completed",
+    "assistant-integration-oauth-unavailable",
+)
+oauth_authorization_invalid = _problem(_INVALID, "OAuth authorization is invalid", "invalid-body")
+egress_proxy_join_failed = _problem(
+    _UNAVAILABLE, "Assistant egress proxy could not join the Team", "egress-proxy-unavailable"
+)
+space_resource_ownership_conflict = _problem(
+    _CONFLICT, "a labeled Space resource failed its ownership contract", "ownership-conflict"
+)
+space_reset_failed = _problem(_UNAVAILABLE, "Docker could not reset the Space", "docker-reset-failed")
+invalid_model_credential = _problem(_INVALID, "private model credential is invalid", "invalid-model-credential")

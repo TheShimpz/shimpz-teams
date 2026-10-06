@@ -14,7 +14,9 @@ from local import prepare as local_prepare
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
     action_state_unavailable,
+    chat_active,
     conversation_state_unavailable,
+    routine_active,
     selected_file_not_found,
     team_context_changed,
 )
@@ -115,8 +117,8 @@ def deletion_slot(self, team_id: str) -> Iterator[None]:
         with self._active_chat_guard:
             routine = team_id in self._routine_holders
         if routine:
-            raise ApiProblem(HTTPStatus.CONFLICT, "Team is running a Routine", code="routine-active")
-        raise ApiProblem(HTTPStatus.CONFLICT, "Team already has an active chat turn", code="chat-active")
+            raise routine_active()
+        raise chat_active()
     try:
         yield
     finally:

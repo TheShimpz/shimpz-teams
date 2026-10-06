@@ -24,6 +24,7 @@ from local.chat import segment as local_chat_segment
 from local.chat import state as local_chat_state
 from local.composition import ChatTurnDependencies
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import chat_active, chat_stop_timeout, routine_active
 from local.routine import card as local_routine_card
 from local.routine import compiled as local_routine_compiled
 from local.routine import diagnostics as local_routine_diagnostics
@@ -151,7 +152,7 @@ class ChatTurnService:
             deadline = time.monotonic() + DRAIN_SECONDS
             for lock in locks:
                 if not lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
-                    raise ApiProblem(HTTPStatus.CONFLICT, "active Team chat did not stop in time", code="chat-active")
+                    raise chat_stop_timeout()
                 held.append(lock)
             yield
         finally:
@@ -188,12 +189,8 @@ class ChatTurnService:
                     # A person waits on a Routine: no further run of the Team starts until chat had its turn.
                     self._chat_demand[team_id] = math.inf
             if routine:
-                raise ApiProblem(HTTPStatus.CONFLICT, "Team is running a Routine", code="routine-active")
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Team already has an active chat turn",
-                code="chat-active",
-            )
+                raise routine_active()
+            raise chat_active()
         token = secrets.token_hex(16)
         # Registered before any Brain request of the turn, so Stop can always reach the one in flight (ADR-0079).
         brain_abort = request_abort.RequestAbort()

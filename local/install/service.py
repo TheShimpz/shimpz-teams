@@ -9,7 +9,7 @@ from http import HTTPStatus
 
 from install import artifact_trust, bindings, icons
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import assistant_icon_unavailable
+from local.errors import assistant_icon_unavailable, invalid_locale
 from local.install import developers, preview, snapshots
 from local.install.registry import is_successor
 from local.validation import validate_team_id
@@ -66,11 +66,7 @@ def local_snapshot_summary(self, image_id: str, locale: object) -> dict[str, obj
     """One staged snapshot's summary in one closed interface language, read only from its own pack (ADR-0091)."""
     canonical = http_payload.canonical_locale(locale)
     if canonical is None:
-        raise ApiProblem(
-            HTTPStatus.UNPROCESSABLE_ENTITY,
-            "locale must be one interface language",
-            code="invalid-locale",
-        )
+        raise invalid_locale()
     summary = _preview(lambda: self.local_snapshot_previews.summary(image_id, canonical))
     return {"locale": canonical, "summary": summary}
 

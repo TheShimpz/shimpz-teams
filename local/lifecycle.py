@@ -18,8 +18,11 @@ from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
     action_state_unavailable,
     assistant_icon_unavailable,
+    chat_stop_timeout,
     conversation_state_unavailable,
     docker_unavailable,
+    space_reset_failed,
+    space_resource_ownership_conflict,
     team_destroy_failed,
     team_resources_ownership_conflict,
 )
@@ -198,11 +201,7 @@ def _destroy_confirmed_team(self, team_id: str) -> dict[str, object]:
 
     chat_lock = self.chat_turn_service._chat_lock(team_id)
     if not chat_lock.acquire(timeout=30):
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "active Team chat did not stop in time",
-            code="chat-active",
-        )
+        raise chat_stop_timeout()
     try:
         with self._lock(team_id):
             # Only with the turn drained and relocalization excluded do its pauses end, so none is recreated.
@@ -263,11 +262,7 @@ def _validate_reset_container(self, container) -> None:
         )
         or container.name != self.assistant_lifecycle._container_name(team_id, assistant_id)
     ):
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "a labeled Space resource failed its ownership contract",
-            code="ownership-conflict",
-        )
+        raise space_resource_ownership_conflict()
 
 
 def _reset_inventory(self) -> tuple[list, list]:
@@ -299,11 +294,7 @@ def _reset_assistant_identities(self, containers: list, networks: list) -> set[t
         labels = network.attrs.get("Labels") or {}
         team_id = labels.get(TEAM_LABEL)
         if not isinstance(team_id, str):
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "a labeled Space resource failed its ownership contract",
-                code="ownership-conflict",
-            )
+            raise space_resource_ownership_conflict()
         validate_team_id(team_id)
         self.assistant_lifecycle._validate_network(network, team_id)
         owned_team_ids.add(team_id)
@@ -385,20 +376,12 @@ def reset_space(self) -> dict[str, object]:
         except inference_config.InferenceConfigError as exc:
             self._raise_inference_problem(exc)
         except DockerException as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Docker could not reset the Space",
-                code="docker-reset-failed",
-            ) from exc
+            raise space_reset_failed() from exc
         residue_absent.add("chat_continuations")
         try:
             local_prepare.remove_helpers(self.client, self.space_id)
         except DockerException as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Docker could not reset the Space",
-                code="docker-reset-failed",
-            ) from exc
+            raise space_reset_failed() from exc
         residue_absent.add("preparation_helpers")
         if residue_absent != _TEAM_RESIDUE_ABSENCE:
             raise ApiProblem(

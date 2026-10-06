@@ -16,6 +16,7 @@ from local.errors import (
     assistant_registry_drift,
     docker_unavailable,
     egress_proxy_drift,
+    egress_proxy_join_failed,
     egress_proxy_unavailable,
     ownership_conflict,
 )
@@ -303,18 +304,10 @@ def _connect_egress_proxy(self, network, proxy=None) -> None:
             try:
                 proxy.reload()
             except DockerException:
-                raise ApiProblem(
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                    "Assistant egress proxy could not join the Team",
-                    code="egress-proxy-unavailable",
-                ) from exc
+                raise egress_proxy_join_failed() from exc
             attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
             if not isinstance(attached, dict) or ASSISTANT_EGRESS_ALIAS not in (attached.get("Aliases") or []):
-                raise ApiProblem(
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                    "Assistant egress proxy could not join the Team",
-                    code="egress-proxy-unavailable",
-                ) from exc
+                raise egress_proxy_join_failed() from exc
         attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
     if not isinstance(attached, dict) or ASSISTANT_EGRESS_ALIAS not in (attached.get("Aliases") or []):
         raise egress_proxy_drift()

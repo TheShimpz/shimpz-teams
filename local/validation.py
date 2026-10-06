@@ -5,7 +5,7 @@ import re
 from http import HTTPStatus
 
 from inference import config as inference_config
-from local.errors import ApiProblemError
+from local.errors import ApiProblemError, invalid_model_credential
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
 
@@ -141,18 +141,10 @@ def validate_model_credential_headers(
         )
     api_key = api_keys[0]
     if not isinstance(api_key, str) or api_key.strip() != api_key or not api_key.isascii():
-        raise ApiProblemError(
-            HTTPStatus.UNPROCESSABLE_ENTITY,
-            "private model credential is invalid",
-            code="invalid-model-credential",
-        )
+        raise invalid_model_credential()
     encoded = api_key.encode("ascii")
     if not MIN_API_KEY_BYTES <= len(encoded) <= MAX_API_KEY_BYTES or any(not 33 <= byte <= 126 for byte in encoded):
-        raise ApiProblemError(
-            HTTPStatus.UNPROCESSABLE_ENTITY,
-            "private model credential is invalid",
-            code="invalid-model-credential",
-        )
+        raise invalid_model_credential()
     return providers[0], api_key
 
 

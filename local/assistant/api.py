@@ -8,7 +8,7 @@ from assistant import language as assistant_language
 from install import icons
 from local.chat.types import ActiveAssistant
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import assistant_registry_drift, docker_unavailable
+from local.errors import assistant_not_installed, assistant_registry_drift, docker_unavailable, invalid_locale
 from local.labels import ASSISTANT_LABEL
 from local.validation import validate_assistant_id, validate_team_id
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
@@ -21,11 +21,7 @@ def assistant_icon(self, team_id: str, assistant_id: str) -> bytes:
     with self._lock(team_id):
         binding = self.registry.binding(team_id, assistant_id)
         if binding is None:
-            raise ApiProblem(
-                HTTPStatus.NOT_FOUND,
-                "Assistant is not installed in this Team",
-                code="assistant-not-installed",
-            )
+            raise assistant_not_installed()
         try:
             return self.assistant_icons.read_binding(binding)
         except icons.AssistantIconError as exc:
@@ -47,19 +43,11 @@ def assistant_summary(self, team_id: str, assistant_id: str, locale: object) -> 
     assistant_id = validate_assistant_id(assistant_id)
     canonical = http_payload.canonical_locale(locale)
     if canonical is None:
-        raise ApiProblem(
-            HTTPStatus.UNPROCESSABLE_ENTITY,
-            "locale must be one interface language",
-            code="invalid-locale",
-        )
+        raise invalid_locale()
     with self._lock(team_id):
         binding = self.registry.binding(team_id, assistant_id)
         if binding is None:
-            raise ApiProblem(
-                HTTPStatus.NOT_FOUND,
-                "Assistant is not installed in this Team",
-                code="assistant-not-installed",
-            )
+            raise assistant_not_installed()
         spec = self.registry.spec(binding)
         if canonical == assistant_language.ENGLISH:
             return {"locale": canonical, "summary": spec.summary}

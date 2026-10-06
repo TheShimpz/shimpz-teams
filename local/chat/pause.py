@@ -13,7 +13,7 @@ from integrations import flow as integration_flow
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import action_state_unavailable, chat_stopped, team_context_changed
+from local.errors import action_state_unavailable, chat_stopped, human_request_invalid, team_context_changed
 
 
 def _commit_suspension(
@@ -49,11 +49,7 @@ def _human_response(
     try:
         return action_challenges.challenge_payload(challenge)
     except action_challenges.HumanChallengeError as exc:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Action human request changed; retry the message",
-            code="human-request-invalid",
-        ) from exc
+        raise human_request_invalid() from exc
 
 
 def _purge_human_pending(self, pending: _PendingLocalChat) -> None:

@@ -22,6 +22,7 @@ from local.errors import (
     action_file_unavailable,
     integration_challenge_expired,
     integration_contract_unavailable,
+    integration_oauth_unavailable,
     stored_input_unavailable,
 )
 from local.install.runtime import AssistantSpec
@@ -304,11 +305,7 @@ def complete_cloudflare_oauth_callback(
     try:
         team_id = self.oauth_pkce.inspect_callback(state=state, session_binding=session_binding).team_id
     except integration_pkce.OAuthChallengeError as exc:
-        raise ApiProblem(
-            HTTPStatus.BAD_GATEWAY,
-            "Assistant integration authorization could not be completed",
-            code="assistant-integration-oauth-unavailable",
-        ) from exc
+        raise integration_oauth_unavailable() from exc
 
     def declaration(team: str, assistant_id: str, integration_id: str) -> object:
         if team != team_id:
@@ -321,11 +318,7 @@ def complete_cloudflare_oauth_callback(
         with self._lock(team_id):
             completed = self.oauth_service.complete(state, claim, session_binding, declaration)
     except integration_service.OAuthIntegrationServiceError as exc:
-        raise ApiProblem(
-            HTTPStatus.BAD_GATEWAY,
-            "Assistant integration authorization could not be completed",
-            code="assistant-integration-oauth-unavailable",
-        ) from exc
+        raise integration_oauth_unavailable() from exc
     return {
         "connected": True,
         "team_id": completed.team_id,

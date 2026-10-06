@@ -18,6 +18,7 @@ from local import activity as local_activity
 from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import oauth_authorization_invalid
 from local.http import dispatch as local
 from local.http import inference as local_http_inference
 from local.http import routine as local_http_routine
@@ -577,17 +578,9 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 7 and parts[4] == "challenges" and parts[6] == "authorize" and self.command == "POST":
             body = self._body()
             if set(body) != {"assistant_id", "integration_id", "callback_mode", "session_binding"}:
-                raise ApiProblem(
-                    HTTPStatus.UNPROCESSABLE_ENTITY,
-                    "OAuth authorization is invalid",
-                    code="invalid-body",
-                )
+                raise oauth_authorization_invalid()
             if body["callback_mode"] not in integration_broker.CALLBACK_MODES:
-                raise ApiProblem(
-                    HTTPStatus.UNPROCESSABLE_ENTITY,
-                    "OAuth authorization is invalid",
-                    code="invalid-body",
-                )
+                raise oauth_authorization_invalid()
             return (
                 HTTPStatus.OK,
                 self.server.controller.chat_turn_service.start_assistant_integration_authorization(

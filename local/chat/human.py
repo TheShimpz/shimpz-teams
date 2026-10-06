@@ -11,6 +11,7 @@ from local.chat import pause as local_chat_pause
 from local.chat.segment import SegmentRequest
 from local.chat.types import PendingLocalChat, ResponseRequest
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import human_request_expired, human_request_invalid, human_response_invalid
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 
@@ -66,13 +67,9 @@ def relocalized(
             requirement = action_challenges.relocalize(challenge.requirement, self._assistant_language(active), locale)
             fresh = self.human_challenges.reissue(team_id, challenge.id, requirement)
         except action_challenges.HumanChallengeNotFoundError as exc:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT, "Action human request expired; retry the message", code="human-request-expired"
-            ) from exc
+            raise human_request_expired() from exc
         except action_challenges.HumanChallengeError as exc:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT, "Action human request changed; retry the message", code="human-request-invalid"
-            ) from exc
+            raise human_request_invalid() from exc
         try:
             self._persist_chat_continuation("human", fresh, (requirement,), pending)
         except ApiProblem:
@@ -95,19 +92,11 @@ def _expire_human_challenges(self, team_id: str | None = None) -> None:
 
 def _resume_body(body: object) -> tuple[object, str, object | None]:
     if not isinstance(body, dict) or body.get("decision") not in {"submit", "deny"}:
-        raise ApiProblem(
-            HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Action human response is invalid",
-            code="invalid-body",
-        )
+        raise human_response_invalid()
     decision = body["decision"]
     expected = {"challenge_id", "decision", "value"} if decision == "submit" else {"challenge_id", "decision"}
     if set(body) != expected:
-        raise ApiProblem(
-            HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Action human response is invalid",
-            code="invalid-body",
-        )
+        raise human_response_invalid()
     return body["challenge_id"], decision, body.get("value")
 
 
@@ -116,11 +105,7 @@ def _pending_challenge(self, team_id: str, challenge_id: object) -> action_chall
         challenge = self.human_challenges.get(team_id, challenge_id)
     except action_challenges.HumanChallengeNotFoundError as exc:
         _expire_human_challenges(self)
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Action human request expired; retry the message",
-            code="human-request-expired",
-        ) from exc
+        raise human_request_expired() from exc
     if not isinstance(challenge.payload, PendingLocalChat):
         raise AssertionError("invalid local human continuation")
     return challenge
