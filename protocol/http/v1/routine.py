@@ -625,6 +625,12 @@ def canonical_decision_record(value: object) -> dict[str, object] | None:
     return copy.deepcopy(value) if valid else None
 
 
+def _disposed(value: object, steps: int) -> bool:
+    """Exactly one admitted disposition of a plan of ``steps`` steps; null is none."""
+    admitted = canonical_disposition(value, steps)
+    return admitted is not None and admitted == value
+
+
 def _scope(value: dict[str, object], steps: int) -> bool:
     """A Routine's standing scope: only a decision has a model and an allowance, which its steps leave room for.
 
@@ -647,7 +653,7 @@ def _defined(detail: dict[str, object]) -> bool:
     return (
         canonical_name(detail["name"]) == detail["name"]
         and summary is not None
-        and canonical_disposition(detail["output"], summary["steps"]) == detail["output"]
+        and _disposed(detail["output"], summary["steps"])
         and canonical_schedule(detail["schedule"]) == detail["schedule"]
         and canonical_timezone(detail["timezone"]) is not None
         and _scope(detail, summary["steps"])
@@ -793,7 +799,7 @@ def canonical_routine_view(value: object) -> dict[str, object] | None:
         _identity(value["routine_id"], ROUTINE_ID_RE)
         and canonical_name(value["name"]) == value["name"]
         and summary is not None
-        and canonical_disposition(value["output"], summary["steps"]) == value["output"]
+        and _disposed(value["output"], summary["steps"])
         and value["schedule"] is not None
         and canonical_schedule(value["schedule"]) == value["schedule"]
         and canonical_timezone(value["timezone"]) is not None
