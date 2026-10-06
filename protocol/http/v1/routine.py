@@ -151,19 +151,16 @@ def canonical_timezone(value: object) -> str | None:
 
 
 # Where a Routine's timezone came from (ADR-0101): the person's browser, a zone the person wrote, or none at all, when
-# the Routine needs no zone and stores "UTC" only by convention, which no consumer may read as the person's zone.
+# the Routine runs on "UTC" only by convention, which no consumer may read as the person's zone.
 TIMEZONE_SOURCES = ("browser", "person", "none")
 CONVENTIONAL_TIMEZONE = "UTC"
-CALENDAR_KINDS = frozenset({"daily", "weekly", "monthly"})
 
 
-def zoned(schedule: object, timezone: object, source: object) -> bool:
-    """Whether a timezone and its source fit a schedule: a calendar schedule needs a known zone, and none means UTC."""
-    if source not in TIMEZONE_SOURCES or canonical_timezone(timezone) is None or not isinstance(schedule, dict):
+def zoned(timezone: object, source: object) -> bool:
+    """Whether a timezone and its source fit together: a known source names a zone, and none means UTC."""
+    if source not in TIMEZONE_SOURCES or canonical_timezone(timezone) is None:
         return False
-    if source == "none":
-        return timezone == CONVENTIONAL_TIMEZONE and schedule.get("kind") not in CALENDAR_KINDS
-    return True
+    return source != "none" or timezone == CONVENTIONAL_TIMEZONE
 
 
 def daily_rate(schedule: dict[str, object]) -> Fraction:
@@ -678,7 +675,7 @@ def _defined(detail: dict[str, object]) -> bool:
         and summary is not None
         and _disposed(detail["output"], summary["steps"])
         and canonical_schedule(detail["schedule"]) == detail["schedule"]
-        and zoned(detail["schedule"], detail["timezone"], detail["timezone_source"])
+        and zoned(detail["timezone"], detail["timezone_source"])
         and _scope(detail, summary["steps"])
     )
 
@@ -836,7 +833,7 @@ def canonical_routine_view(value: object) -> dict[str, object] | None:
         and _disposed(value["output"], summary["steps"])
         and value["schedule"] is not None
         and canonical_schedule(value["schedule"]) == value["schedule"]
-        and zoned(value["schedule"], value["timezone"], value["timezone_source"])
+        and zoned(value["timezone"], value["timezone_source"])
         and _assistant_ids(value["assistant_ids"], minimum=0)
         and _instant(value["next_run_at"])
         and type(value["needs_reconfirm"]) is bool
@@ -1376,11 +1373,6 @@ def _changes(value: dict[str, object]) -> bool:
     return not all(item["read_only"] for item in [*value["steps"], *value["permitted"]])
 
 
-def _clocked(steps: list[object]) -> bool:
-    """Whether a card's plan reads the run date, which only a known timezone can give."""
-    return any(item["origin"] == "clock" for step in steps for item in step["inputs"])
-
-
 def canonical_proposal(value: object) -> dict[str, object] | None:
     """One recorded Routine's confirmation card, within its byte bound."""
     fields = {"proposal_id", "expires_at", "replaces", "name", "schedule", "timezone", "timezone_source", "next_runs"}
@@ -1396,7 +1388,7 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
         and _optional(value["replaces"], ROUTINE_ID_RE)
         and canonical_name(value["name"]) == value["name"]
         and canonical_schedule(value["schedule"]) == value["schedule"]
-        and zoned(value["schedule"], value["timezone"], value["timezone_source"])
+        and zoned(value["timezone"], value["timezone_source"])
         and isinstance(runs, list)
         and 1 <= len(runs) <= MAX_NEXT_RUNS
         and all(_instant(item) for item in runs)
@@ -1404,7 +1396,6 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
         and type(value["daily_cap"]) is int
         and value["daily_cap"] == daily_cap(value["schedule"])
         and all(_card_step(item, index) for index, item in enumerate(steps, start=1))
-        and (value["timezone_source"] != "none" or not _clocked(steps))
         and _card_permitted(value["permitted"])
         and (value["decision"] is not None) == (value["output"]["mode"] == "decide")
         and _card_decision(value["decision"])
@@ -1426,8 +1417,6 @@ QUESTION_CODES = (
     "routine-binding-unsourced",
     "routine-work-split",
     "routine-work-rerun",
-    "routine-timezone-ambiguous",
-    "routine-timezone-unstated",
 )
 MAX_QUESTION_OPTIONS = 8
 MAX_QUESTION_OPTION_CHARS = 120

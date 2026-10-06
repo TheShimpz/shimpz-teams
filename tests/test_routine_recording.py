@@ -353,10 +353,11 @@ class ClassificationTests(unittest.TestCase):
         source, _origin = self.classify("2026-10-04", "relatório", {"day": "2026-10-04"})
         self.assertEqual(source["kind"], "step_output")
 
-    def test_a_run_date_needs_a_known_timezone(self) -> None:
+    def test_with_no_zone_known_the_run_date_is_the_utc_date(self) -> None:
         calls = [("cloudflare/list-dns-records", {"zone_id": "z", "per_page": "2026-10-05"}, {})]
-        asked = _record(_send(*calls, timezone=None))
-        self.assertEqual(asked, recording.Question("routine-timezone-unstated"))
+        recorded = _recorded(_send(*calls, timezone=None))
+        self.assertEqual(_input(recorded)["per_page"], {"kind": "run_clock", "format": "date"})
+        self.assertEqual((recorded.timezone, recorded.timezone_source), ("UTC", "none"))
 
     def test_a_value_at_one_position_is_copied_by_pointer(self) -> None:
         source, origin = self.classify("zone-123", "x", {"zone": {"a/b": "zone-123"}})
@@ -747,15 +748,15 @@ class TimezoneTests(unittest.TestCase):
         offset = _recorded(_send(ZONES_CALL, message="Run daily at 09:00 UTC+3"))
         self.assertEqual((offset.timezone, offset.timezone_source), ("America/Sao_Paulo", "browser"))
 
-    def test_two_zones_in_one_send_are_asked_and_a_later_answer_settles_them(self) -> None:
-        ambiguous = _send(ZONES_CALL, message="todo dia às 9h, Europe/Paris ou Europe/London")
-        self.assertEqual(_record(ambiguous), recording.Question("routine-timezone-ambiguous"))
-        answered = _recorded(ambiguous, _send(message="Europe/London"))
-        self.assertEqual(answered.timezone, "Europe/London")
+    def test_two_zones_in_the_latest_naming_segment_name_none_and_a_later_single_zone_wins(self) -> None:
+        two = _send(ZONES_CALL, message="todo dia às 9h, Europe/Paris ou Europe/London")
+        unnamed = _recorded(two)
+        self.assertEqual((unnamed.timezone, unnamed.timezone_source), ("America/Sao_Paulo", "browser"))
+        answered = _recorded(two, _send(message="Europe/London"))
+        self.assertEqual((answered.timezone, answered.timezone_source), ("Europe/London", "person"))
 
     def test_a_composed_answer_settles_two_zones_its_request_repeats(self) -> None:
         original = "DNS todo dia às 9h, Europe/Paris or Europe/London"
-        self.assertEqual(_record(_send(ZONES_CALL, message=original)), recording.Question("routine-timezone-ambiguous"))
         composed = http_payload.compose_clarified(original, "Qual fuso?", "Europe/London", "en")
         answered = _recorded(_send(ZONES_CALL, message=composed))
         self.assertEqual((answered.timezone, answered.timezone_source), ("Europe/London", "person"))
@@ -764,11 +765,11 @@ class TimezoneTests(unittest.TestCase):
         recorded = _recorded(_send(ZONES_CALL, message="todo dia às 9h", timezone="Asia/Tokyo"), _send(message="ok"))
         self.assertEqual((recorded.timezone, recorded.timezone_source), ("America/Sao_Paulo", "browser"))
 
-    def test_no_zone_is_a_convention_only_where_none_is_needed(self) -> None:
+    def test_with_no_zone_known_it_runs_on_utc_by_convention(self) -> None:
         recorded = _recorded(_send(ZONES_CALL, message="a cada hora", timezone=None))
         self.assertEqual((recorded.timezone, recorded.timezone_source), ("UTC", "none"))
-        daily = _record(_send(ZONES_CALL, message="todo dia às 9h", timezone=None))
-        self.assertEqual(daily, recording.Question("routine-timezone-unstated"))
+        daily = _recorded(_send(ZONES_CALL, message="todo dia às 9h", timezone=None))
+        self.assertEqual((daily.timezone, daily.timezone_source, daily.document["timezone"]), ("UTC", "none", "UTC"))
         unzoned = recording.Existing({"steps": []}, {"kind": "hourly", "every": 1}, "UTC", "none")
         self.assertEqual(_recorded(_send(ZONES_CALL, timezone="Asia/Tokyo"), existing=unzoned).timezone, "Asia/Tokyo")
 

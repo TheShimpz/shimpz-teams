@@ -1227,15 +1227,18 @@ class DecisionDefinitionTests(unittest.TestCase):
 
     def test_a_definition_out_of_its_zone_or_revision_is_invalid(self):
         self.assertFalse(record.definition_valid(dataclasses.replace(routine(), timezone="Mars/Olympus")))
-        # A Routine with no known zone keeps UTC by convention, runs only where no zone is needed, and never reads
-        # the run date.
+        # A Routine with no known zone runs on UTC by convention, its run date included; it is never another zone.
         unzoned = dataclasses.replace(routine(schedule=HOURLY), timezone_source="none")
         self.assertTrue(record.definition_valid(unzoned))
-        self.assertFalse(record.definition_valid(dataclasses.replace(routine(), timezone_source="none")))
+        self.assertTrue(record.definition_valid(dataclasses.replace(routine(), timezone_source="none")))
         self.assertFalse(record.definition_valid(dataclasses.replace(routine(), timezone_source="phone")))
         clocked = copy.deepcopy(unzoned.plan)
         clocked["steps"][0]["input"] = {"day": {"kind": "run_clock", "format": "date"}}
-        self.assertFalse(record.definition_valid(dataclasses.replace(unzoned, plan=clocked)))
+        self.assertTrue(record.definition_valid(dataclasses.replace(unzoned, plan=clocked)))
+        lisbon = dataclasses.replace(
+            unzoned, timezone="Europe/Lisbon", plan={**unzoned.plan, "timezone": "Europe/Lisbon"}
+        )
+        self.assertFalse(record.definition_valid(lisbon))
         self.assertFalse(record.definition_valid(dataclasses.replace(routine(), revision=0)))
         self.assertTrue(record.definition_valid(routine()))
 

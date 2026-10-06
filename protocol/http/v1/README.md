@@ -111,15 +111,13 @@ cannot hold (`routine-interval-over-budget`, whose `value` is the shortest inter
 all (`routine-no-room`), which item an input means (`routine-binding-ambiguous`, whose `options` are at most 8
 targets `{value, label}`: `value` is the exact compact JSON text of the string or integer the input would take, so
 no client rounds a large integer, and `label` the item's name, or `null`), a value that no earlier result provides (`routine-binding-unsourced`), work split across messages
-(`routine-work-split`), work to run again for a chosen target (`routine-work-rerun`), and which timezone
-(`routine-timezone-ambiguous`, `routine-timezone-unstated`). Only `routine-binding-ambiguous` has options, and only
+(`routine-work-split`), and work to run again for a chosen target (`routine-work-rerun`). Only `routine-binding-ambiguous` has options, and only
 `routine-interval-over-budget` has a value. `routine_proposal` is
 the Routine's confirmation card (`routine.canonical_proposal`), at most 160 KiB, which Team checks against the whole
 terminal line bound before publishing: `{proposal_id, expires_at, replaces, name, schedule, timezone, timezone_source,
 next_runs, daily_cap, output, steps, permitted, decision, rehearsal}`. `replaces` is `null` for a new Routine or the id
 of the Routine it changes; `timezone_source` is `browser`, `person` (a zone the person wrote), or `none` (`routine.zoned`:
-only a schedule that is not daily, weekly, or monthly and a plan that never reads the run date may have none, and its
-timezone is then `UTC` by convention, never a claim about the person); `next_runs` holds one to three instants;
+the Routine then runs on `UTC` by convention, its run date included, which is never a claim about the person); `next_runs` holds one to three instants;
 `daily_cap` is exactly `routine.daily_cap` of the schedule; `output` is `{mode, when}`, and a shown mode shows the last
 step. Each step is `{position,
 assistant, action, read_only, inputs}`, and each input `{member, origin, value, step, pointer, where, item}` names

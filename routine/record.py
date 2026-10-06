@@ -398,8 +398,7 @@ def definition_valid(value: Routine) -> bool:
         and http_routine.canonical_name(value.name) is not None
         and routine_plan.well_formed(value.plan)
         and value.plan["timezone"] == value.timezone
-        and http_routine.zoned(canonical, value.timezone, value.timezone_source)
-        and (value.timezone_source != "none" or not routine_plan.clocked(value.plan))
+        and http_routine.zoned(value.timezone, value.timezone_source)
         and canonical is not None
         and _permitted(value)
         and _assistants(value)

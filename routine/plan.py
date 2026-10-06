@@ -518,11 +518,6 @@ def _admit_member(schema: Mapping[str, Any], name: str, value: object) -> None:
         raise PlanError("plan-input-type") from exc
 
 
-def clocked(document: Mapping[str, object]) -> bool:
-    """Whether a well-formed plan document reads the run date anywhere, which only a known timezone can give."""
-    return any(source["kind"] == "run_clock" for step in document["steps"] for source in step["input"].values())
-
-
 def clock_value(form: str, instant: datetime.datetime, timezone: str) -> object:
     """The run date: the run's start instant as a date in the plan's timezone; ``form`` is always ``date``."""
     del form

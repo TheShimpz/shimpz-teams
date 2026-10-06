@@ -442,15 +442,19 @@ class RecordedRoutineTests(LocalContractCase):
             with self.subTest(name=name), mock.patch.object(target, name, 512):
                 self.assertEqual(self.refusal(Recording(_record())), "routine-proposal-too-large")
 
-    def test_a_routine_without_a_known_timezone_runs_only_where_none_is_needed(self) -> None:
+    def test_a_routine_without_a_known_timezone_runs_on_utc_by_convention(self) -> None:
         unzoned = {**_body(), "timezone": None}
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
             card = self.chat(service, unzoned)["routine_proposal"]
         self.assertEqual((card["timezone"], card["timezone_source"]), ("UTC", "none"))
         daily = {**_body("DNS de shimpz.com todo dia às 9h"), "timezone": None}
-        asked = self.question(Recording(_record()), daily)
-        self.assertEqual(asked, {"code": "routine-timezone-unstated", "options": [], "value": None})
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, Recording(_record()))
+            card = self.chat(service, daily)["routine_proposal"]
+        self.assertEqual(
+            (card["schedule"]["kind"], card["timezone"], card["timezone_source"]), ("daily", "UTC", "none")
+        )
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
             card = self.chat(service, _body(f"{MESSAGE}\nNo fuso Europe/Lisbon"))["routine_proposal"]

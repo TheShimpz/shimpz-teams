@@ -202,7 +202,7 @@ class _Context:
     sends: Sequence[Send]
     calls: list[_Call]
     known: _Known
-    zone: tuple[str, str] | None
+    zone: tuple[str, str]
     asked: Asked | None
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract]
     # Whether changing calls replay on every run, so their results are sources too: never in a decision.
@@ -236,9 +236,9 @@ def record(
         work = [call for call in latest if call.read_only or recording.mode != "decide"]
         document, origins = _plan(context, recording, work)
         when = _schedule(sends, existing)
-        timezone, source = _zoned(context, when, document)
     except _AskError as asking:
         return asking.question
+    timezone, source = context.zone
     document["timezone"] = timezone
     actions = [(step["assistant"], step["action"]) for step in document["steps"]]
     changing = [call.action for call in latest if not call.read_only]
@@ -307,27 +307,22 @@ def _schedule(sends: Sequence[Send], existing: Existing | None) -> dict[str, obj
     raise _AskError(Question("routine-schedule-unstated"))
 
 
-def _zone(sends: Sequence[Send], existing: Existing | None) -> tuple[str, str] | None:
-    """The zone the latest authored segment names, else a replaced Routine's, else the latest browser zone, or None."""
+def _zone(sends: Sequence[Send], existing: Existing | None) -> tuple[str, str]:
+    """The Routine's zone and where it came from.
+
+    The one zone the latest authored segment naming any names; else a replaced Routine's own; else the request's
+    browser zone; else UTC by convention, with no source. A segment naming several zones names none of them.
+    """
     for segment in reversed([segment for send in sends for segment in send.person]):
         written = phrase.zones(segment)
-        if len(written) > 1:
-            raise _AskError(Question("routine-timezone-ambiguous"))
         if written:
-            return written[0], "person"
+            if len(written) == 1:
+                return written[0], "person"
+            break
     if existing is not None and existing.timezone_source != "none":
         return existing.timezone, existing.timezone_source
     browser = sends[-1].timezone if sends else None
-    return None if browser is None else (browser, "browser")
-
-
-def _zoned(context: _Context, when: dict[str, object], document: dict[str, object]) -> tuple[str, str]:
-    """The Routine's zone: required by a calendar schedule or a run date, only a convention when neither needs one."""
-    if context.zone is not None:
-        return context.zone
-    if when["kind"] in http_routine.CALENDAR_KINDS or routine_plan.clocked(document):
-        raise _AskError(Question("routine-timezone-unstated"))
-    return http_routine.CONVENTIONAL_TIMEZONE, "none"
+    return (http_routine.CONVENTIONAL_TIMEZONE, "none") if browser is None else (browser, "browser")
 
 
 # --- What it runs ----------------------------------------------------------------------------------------------------
@@ -348,7 +343,7 @@ def _kept(context: _Context, recording: Recording, existing: Existing) -> Record
     }
     document = _document(steps, steps[-1]["id"] if steps else None, recording)
     when = _schedule(context.sends, existing)
-    timezone, source = _zoned(context, when, document)
+    timezone, source = context.zone
     document["timezone"] = timezone
     actions = [(step["assistant"], step["action"]) for step in steps] + list(recording.decide_actions)
     return Recorded(document, origins, _permitted(actions, context.contracts), when, timezone, source)
@@ -576,8 +571,6 @@ def _clock(context: _Context, call: _Call, value: object) -> tuple[dict[str, obj
     started = context.sends[call.send].started_at
     if not isinstance(value, str) or value != _date_at(started, "UTC").isoformat():
         return None
-    if context.zone is None:
-        raise _AskError(Question("routine-timezone-unstated"))
     if _date_at(started, context.zone[0]) == _date_at(started, "UTC"):
         return {"kind": "run_clock", "format": "date"}, "clock"
     return {"kind": "literal", "value": value}, "assistant"
