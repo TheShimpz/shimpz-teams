@@ -15,6 +15,7 @@ from unittest import mock
 
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine_proposal as http_routine_proposal
+from routine import compose as routine_compose
 from routine import plan as routine_plan
 from routine import recording, trace
 
@@ -115,7 +116,7 @@ def _then_hourly(text: str) -> str:
 
 def _record(*sends: recording.Send, mode: str = "show", **options) -> recording.Recorded | recording.Question:
     """Record a span; options are ``when``, ``decide``, ``protection``, ``contracts``, ``asked``, and the rest."""
-    return recording.record(
+    return routine_compose.record(
         sends,
         recording.Recording(mode, options.get("when"), options.get("decide", ())),
         options.get("protection") or trace.Protection(),
@@ -634,14 +635,14 @@ class SourceTests(unittest.TestCase):
                 ),
             )
         self.assertEqual(code, "routine-recording-unverified")
-        with mock.patch.object(recording, "_resolved", return_value="other"):
+        with mock.patch.object(routine_compose, "_resolved", return_value="other"):
             code = _code(self, lambda: _record(_send(ZONES_CALL, RECORDS, message=OWNER)))
         self.assertEqual(code, "routine-recording-unverified")
 
     def test_a_call_whose_input_differs_from_its_step_is_unverified(self) -> None:
         # Were two reads of different input one source, the later one's input would not be the step's.
         twins = _send(("reports/fetch", {}, {"a": 1}), ("reports/fetch", {"extra": 1}, {"a": 1}))
-        with mock.patch.object(recording, "_twins", return_value=True):
+        with mock.patch.object(routine_compose, "_twins", return_value=True):
             self.assertEqual(_code(self, lambda: _record(twins)), "routine-recording-unverified")
 
 

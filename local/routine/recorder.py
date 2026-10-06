@@ -34,6 +34,7 @@ from protocol.http.v1 import phrase
 from protocol.http.v1 import routine_context as http_routine_context
 from routine import pin as routine_pin
 from routine import recording as routine_recording
+from routine import rerun as routine_rerun
 from routine import trace
 
 SPAN_SECONDS = 15 * 60
@@ -370,7 +371,7 @@ def settled(span: Span | None) -> Intent | None:
     """The intent to record again when the span's latest send repeated the work its pending question asked for."""
     if span is None or span.intent is None or span.asked is None or span.asked.manifest is None or span.refused:
         return None
-    return span.intent if routine_recording.settlement(span.sends, span.asked) == len(span.sends) - 1 else None
+    return span.intent if routine_rerun.settlement(span.sends, span.asked) == len(span.sends) - 1 else None
 
 
 class AnsweredRuntime:

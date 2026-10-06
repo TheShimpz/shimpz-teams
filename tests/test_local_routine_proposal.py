@@ -27,6 +27,7 @@ from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import progress as http_progress
 from protocol.http.v1 import routine_context as http_routine_context
 from protocol.http.v1 import routine_proposal as http_routine_proposal
+from routine import compose as routine_compose
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
@@ -320,13 +321,13 @@ class RecordedRoutineTests(LocalContractCase):
 
             service.routine_recordings.start = start
 
-        with mock.patch.object(routine_recording, "record", return_value=leaking):
+        with mock.patch.object(routine_compose, "record", return_value=leaking):
             self.assertEqual(self.refusal(runtime, prepare=prepare), "routine-secret-literal")
 
     def test_a_question_its_own_contract_refuses_is_an_internal_error_never_asked(self) -> None:
         stray = routine_recording.Question("routine-other")
         with (
-            mock.patch.object(routine_recording, "record", return_value=stray),
+            mock.patch.object(routine_compose, "record", return_value=stray),
             self.assertRaises(local_app.ApiProblem) as caught,
             tempfile.TemporaryDirectory() as directory,
         ):

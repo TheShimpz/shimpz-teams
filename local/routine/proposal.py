@@ -34,6 +34,7 @@ from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_context as http_routine_context
 from protocol.http.v1 import routine_proposal as http_routine_proposal
+from routine import compose as routine_compose
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record, trace
@@ -253,7 +254,7 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
     if stored is not None and asked is not None and _work(stored) != _work(intent):
         asked = dataclasses.replace(asked, pending=None, manifest=None, chained_from=None)
     try:
-        return routine_recording.record(
+        return routine_compose.record(
             recording.sends,
             choice,
             recording.protection,

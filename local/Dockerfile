@@ -77,9 +77,10 @@ COPY local/routine/__init__.py local/routine/card.py local/routine/compiled.py l
     local/routine/manage.py local/routine/notices.py local/routine/proposal.py local/routine/protection.py \
     local/routine/recorder.py local/routine/recovery.py local/routine/run.py local/routine/state.py \
     local/routine/store.py local/routine/watchdog.py ./local/routine/
-COPY routine/__init__.py routine/claim.py routine/cursor.py routine/definition.py routine/hold.py \
-    routine/permission.py routine/pin.py routine/plan.py routine/record.py routine/recording.py routine/runs.py \
-    routine/schedule.py routine/starts.py routine/trace.py ./routine/
+COPY routine/__init__.py routine/claim.py routine/compose.py routine/cursor.py routine/definition.py \
+    routine/hold.py routine/permission.py routine/pin.py routine/plan.py routine/provenance.py routine/record.py \
+    routine/recording.py routine/rerun.py routine/runs.py routine/schedule.py routine/starts.py routine/trace.py \
+    ./routine/
 COPY local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/inference.py local/http/routine.py \
     local/http/server.py local/http/stream.py ./local/http/
 COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/lock.py \
