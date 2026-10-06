@@ -689,6 +689,19 @@ class RerunTests(unittest.TestCase):
         stale = _send(lookup, dated, started_at=tomorrow)
         self.assertEqual(_record(first, stale, asked=pending).code, "routine-binding-unsourced")
 
+    def test_a_date_the_person_named_stays_that_date_in_the_rerun(self) -> None:
+        lookup = ("reports/fetch", {"q": "ids"}, {"id": "remembered-1"})
+        dated = ("reports/fetch", {"day": "2026-10-05", "id": "remembered-1"}, {})
+        first = _send(dated, message="Relatório de 2026-10-05 a cada hora")
+        asked = _record(first)
+        self.assertEqual(asked.manifest.slots[0].inputs, (("day", "value", "2026-10-05"), ("id", "fresh", None)))
+        pending = _pending(asked, 1)
+        tomorrow = STARTED + 86_400
+        next_day = ("reports/fetch", {"day": "2026-10-06", "id": "remembered-1"}, {})
+        self.assertEqual(_record(first, _send(lookup, next_day, started_at=tomorrow), asked=pending).code, asked.code)
+        recorded = _recorded(first, _send(lookup, dated, started_at=tomorrow), asked=pending)
+        self.assertEqual(_input(recorded)["day"], {"kind": "literal", "value": "2026-10-05"})
+
     def test_the_settled_frontier_is_kept_while_another_question_is_asked(self) -> None:
         first = _send(RECORDS, message="DNS de shimpz.com")
         pending = _pending(_record(first), 1)

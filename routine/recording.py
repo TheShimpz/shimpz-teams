@@ -574,9 +574,12 @@ def _slot_input(
         _json_text(value) == _json_text(target) for target, _label in targets
     ):
         return member, "value", pending.chosen
+    # As the recorder classifies it: what the person named stays exactly that, before any date is the run date.
+    if context.known.names(value):
+        return member, "value", value
     if value == _date_at(context.sends[call.send].started_at, "UTC").isoformat():
         return member, "clock", None
-    if _referable(value) and not context.known.names(value):
+    if _referable(value):
         return member, "fresh", None
     return member, "value", value
 
