@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import http.client
 import json
-import math
 import os
 import queue
 import secrets
@@ -36,6 +35,7 @@ import local_controller_docker_fixture as flow_fixture
 from test_local_controller_docker import DockerFlowTests
 
 from perf.brain_peer import CHAT_REPLY, OBJECTIVE, RESPONSE, SELECTED_ASSISTANT_ID, BrainPeer
+from perf.local_snapshot_inventory import _percentiles
 
 SAMPLES = 12
 HOST_LIST_SAMPLES = 24
@@ -191,15 +191,6 @@ def _start(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
     )
     if status != 200:
         raise MeasurementError("disposable Team inference setup failed")
-
-
-def _percentiles(values: list[float]) -> dict[str, float | int]:
-    ordered = sorted(values)
-    return {
-        "n": len(ordered),
-        "p50_ms": round(ordered[math.ceil(len(ordered) * 0.50) - 1], 2),
-        "p95_ms": round(ordered[math.ceil(len(ordered) * 0.95) - 1], 2),
-    }
 
 
 def _sample(runner: DockerFlowTests, flow: flow_fixture.DockerFlow, delay_ms: int) -> tuple[float, float]:
