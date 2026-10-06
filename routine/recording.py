@@ -410,26 +410,30 @@ def _named(source: dict[str, object], names: dict[int, str]) -> dict[str, object
 
 def _classes(context: _Context) -> None:
     """Each call's source: its earliest read-only twin (same Action, input, and result) with no change between."""
-    last_change = -1
-    representatives: dict[bytes, int] = {}
+    open_sources: list[_Call] = []
     for call in context.calls:
-        key = _identity(call.occurrence) if call.read_only else None
         if not call.read_only:
-            last_change = call.index
-        representative = representatives.get(key) if key is not None else None
-        if representative is None or representative < last_change:
-            representative = call.index
-            if key is not None:
-                representatives[key] = representative
-        context.classes[call.index] = representative
+            # Nothing read before a change is the same source as anything read after it.
+            open_sources = []
+            context.classes[call.index] = call.index
+            continue
+        twin = next((item for item in open_sources if _twins(item.occurrence, call.occurrence)), None)
+        if twin is None:
+            open_sources.append(call)
+        context.classes[call.index] = call.index if twin is None else twin.index
 
 
-def _identity(occurrence: trace.Occurrence) -> bytes | None:
-    """What makes two read-only calls one source; a call holding anything withheld is only itself."""
-    if any(item.withheld or item.oversize for item in (occurrence.input, occurrence.result)):
-        return None
-    return routine_plan.canonical(
-        [occurrence.assistant, occurrence.action, occurrence.input.value, occurrence.result.value]
+def _twins(left: trace.Occurrence, right: trace.Occurrence) -> bool:
+    """Whether two read-only calls are one source: the same Action, input, and result as JSON values compare them.
+
+    A call holding anything withheld is only itself.
+    """
+    kept = (left.input, left.result, right.input, right.result)
+    return (
+        not any(item.withheld or item.oversize for item in kept)
+        and (left.assistant, left.action) == (right.assistant, right.action)
+        and routine_plan.same(left.input.value, right.input.value)
+        and routine_plan.same(left.result.value, right.result.value)
     )
 
 

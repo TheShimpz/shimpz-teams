@@ -463,6 +463,16 @@ class SourceTests(unittest.TestCase):
         recorded = _recorded(_send(ZONES_CALL, ZONES_CALL, RECORDS, message=f"shimpz.com\n{EVERY_HOUR}"))
         self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
 
+    def test_reads_equal_as_json_numbers_are_one_source(self) -> None:
+        calls = (
+            ("reports/fetch", {"page": 1}, {"id": "zone-12345", "count": 2}),
+            ("reports/fetch", {"page": 1.0}, {"id": "zone-12345", "count": 2.0}),
+            ("reports/post", {"z": "zone-12345"}, {}),
+        )
+        recorded = _recorded(_send(*calls))
+        self.assertEqual(_actions(recorded), ["fetch", "post"])
+        self.assertEqual(_input(recorded)["z"], {"kind": "step_output", "step": "s1", "pointer": "/id"})
+
     def test_reads_of_different_results_stay_distinct_sources(self) -> None:
         old = ("reports/fetch", {}, {"id": "old-id-123"})
         new = ("reports/fetch", {}, {"id": "new-id-456"})
@@ -531,7 +541,7 @@ class SourceTests(unittest.TestCase):
     def test_a_call_whose_input_differs_from_its_step_is_unverified(self) -> None:
         # Were two reads of different input one source, the later one's input would not be the step's.
         twins = _send(("reports/fetch", {}, {"a": 1}), ("reports/fetch", {"extra": 1}, {"a": 1}))
-        with mock.patch.object(recording, "_identity", return_value=b"same"):
+        with mock.patch.object(recording, "_twins", return_value=True):
             self.assertEqual(_code(self, lambda: _record(twins)), "routine-recording-unverified")
 
 
