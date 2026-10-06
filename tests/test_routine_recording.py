@@ -216,15 +216,38 @@ class OwnerCaseTests(unittest.TestCase):
         )
         self.assertEqual(rerun, recording.Question("routine-work-rerun"))
 
-    def test_every_zone_listed_without_a_name_is_read_by_its_position(self) -> None:
-        calls = [("cloudflare/list-dns-records", {"zone_id": item["id"]}, {"result": []}) for item in ZONES["result"]]
-        recorded = _recorded(_send(ZONES_CALL, *calls, message="Liste os DNS de todas as zonas a cada hora"))
-        self.assertEqual(_actions(recorded), ["list-zones", *["list-dns-records"] * 4])
-        self.assertEqual(
-            [step["input"]["zone_id"]["pointer"] for step in recorded.document["steps"][1:]],
-            [f"/result/{index}/id" for index in range(4)],
+    def test_a_zone_listed_without_a_name_is_never_read_by_its_position(self) -> None:
+        # A reordered list would make a position target another zone, so the person is asked which one it is.
+        first = ZONES["result"][0]
+        call = ("cloudflare/list-dns-records", {"zone_id": first["id"]}, {"result": []})
+        asked = _record(_send(ZONES_CALL, call, message="Liste os DNS a cada hora"))
+        targets = tuple({"value": item["id"], "label": item["name"]} for item in ZONES["result"])
+        self.assertEqual(asked, recording.Question("routine-binding-ambiguous", targets))
+        pending = recording.Asked(asked.code, tuple(item["value"] for item in targets), 1)
+        # Naming the zone's name selects its item by that name; naming its id fixes the id the person named.
+        by_name = _recorded(
+            _send(ZONES_CALL, call, message="Liste os DNS a cada hora"), _send(message=first["name"]), asked=pending
         )
-        self.assertEqual(recorded.document["output"]["step"], "s5")
+        self.assertEqual(
+            _input(by_name)["zone_id"],
+            {
+                "kind": "step_output",
+                "step": "s1",
+                "pointer": "/result",
+                "where": {"name": first["name"]},
+                "item": "/id",
+            },
+        )
+        by_id = _recorded(
+            _send(ZONES_CALL, call, message="Liste os DNS a cada hora"), _send(message=first["id"]), asked=pending
+        )
+        self.assertEqual(by_id.origins["s2"]["zone_id"], "request")
+        other = _record(
+            _send(ZONES_CALL, call, message="Liste os DNS a cada hora"),
+            _send(message=ZONES["result"][1]["id"]),
+            asked=pending,
+        )
+        self.assertEqual(other, recording.Question("routine-work-rerun"))
 
 
 class ClassificationTests(unittest.TestCase):
@@ -304,9 +327,6 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(source["kind"], "step_output")
         source, _origin = self.classify([1], "x", [1])
         self.assertEqual(source, {"kind": "step_output", "step": "s1", "pointer": ""})
-        # Through two arrays, an item is read by its exact indices.
-        source, _origin = self.classify("abcdefgh", "known", {"a": [{"b": [{"id": "abcdefgh"}]}]})
-        self.assertEqual(source["pointer"], "/a/0/b/0/id")
 
     def test_short_values_are_the_assistants_and_a_value_nothing_holds_is_asked_about(self) -> None:
         for value, earlier in (("abcde", {"x": "abcde"}), (12345, {"x": 12345}), (-12345, {"x": -12345})):
@@ -315,6 +335,27 @@ class ClassificationTests(unittest.TestCase):
                     self.classify(value, "known", earlier), ({"kind": "literal", "value": value}, "assistant")
                 )
         self.assertEqual(self.asked("abcdefgh", "known", {"x": "other"}).code, "routine-binding-unsourced")
+
+    def test_a_value_inside_an_array_without_a_named_member_is_asked_about(self) -> None:
+        unnamed = {"items": [{"id": "id-0001", "kind": "zone"}, {"id": "id-0002", "kind": "zone"}]}
+        targets = ({"value": "id-0001", "label": None}, {"value": "id-0002", "label": None})
+        self.assertEqual(
+            self.asked("id-0002", "nothing named", unnamed), recording.Question("routine-binding-ambiguous", targets)
+        )
+        # An item without the consumed member is no target.
+        missing = {"items": [{"kind": "zone"}, *unnamed["items"]]}
+        self.assertEqual(self.asked("id-0002", "nothing named", missing).options, targets)
+        plain = {"items": ["id-0001", "id-0002"]}
+        self.assertEqual(self.asked("id-0002", "x", plain), recording.Question("routine-binding-ambiguous", targets))
+        # Only one name-like member labels a target.
+        labelled = {"items": [{"id": "id-0001", "name": "alpha", "title": "A"}, {"id": "id-0002", "name": "beta"}]}
+        found = self.asked("id-0002", "x", labelled).options
+        self.assertEqual(found, ({"value": "id-0001", "label": None}, {"value": "id-0002", "label": "beta"}))
+        nested = {"a": [{"b": [{"id": "abcdefgh"}]}]}
+        self.assertEqual(
+            self.asked("abcdefgh", "known", nested),
+            recording.Question("routine-binding-ambiguous", ({"value": "abcdefgh", "label": None},)),
+        )
 
     def test_free_text_nothing_holds_is_the_assistants_and_only_an_identifier_is_asked_about(self) -> None:
         for value in ("Resumo diário do DNS", "two words here", {"note": "x"}, ["a", "b"]):
@@ -343,7 +384,7 @@ class ClassificationTests(unittest.TestCase):
         code = _code(self, lambda: self.asked({"k": 1}, "x", container, container))
         self.assertEqual(code, "routine-recording-ambiguous")
 
-    def test_one_array_reads_by_a_named_unique_member_asks_on_a_shared_one_and_else_reads_by_index(self) -> None:
+    def test_one_array_reads_only_by_a_named_unique_member_and_asks_otherwise(self) -> None:
         items = {"items": [{"name": "alpha", "id": "id-0001"}, {"name": "beta", "id": "id-0002", "rank": 70}]}
         source, origin = self.classify("id-0002", "use beta", items)
         self.assertEqual(
@@ -352,7 +393,7 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(origin, "selector")
         source, _origin = self.classify("id-0002", "rank 70", items)
         self.assertEqual(source["where"], {"rank": 70})
-        indexed = [
+        unnamed = [
             ("id-0002", "nothing named", items),
             ("id-0002", "b", items),  # a one-character name never selects
             ("id-0002", "rank -70", items),  # not a whole token
@@ -360,12 +401,9 @@ class ClassificationTests(unittest.TestCase):
             ("id-0002", "true", {"items": [{"flag": True, "id": "id-0002"}]}),  # booleans never select
             ("id-0002", "2.5", {"items": [{"score": 2.5, "id": "id-0002"}]}),  # floats never select
         ]
-        for value, known, earlier in indexed:
+        for value, known, earlier in unnamed:
             with self.subTest(known=known, earlier=earlier):
-                source, origin = self.classify(value, known, earlier)
-                position = len(earlier["items"]) - 1
-                pointer = f"/items/{position}" + ("" if isinstance(earlier["items"][0], str) else "/id")
-                self.assertEqual((source, origin), ({"kind": "step_output", "step": "s1", "pointer": pointer}, "step"))
+                self.assertEqual(self.asked(value, known, earlier).code, "routine-binding-ambiguous")
         shared = {"items": [{"name": "beta", "id": "id-0001"}, {"name": "beta", "id": "id-0002"}]}
         targets = ({"value": "id-0001", "label": "beta"}, {"value": "id-0002", "label": "beta"})
         self.assertEqual(
@@ -445,9 +483,10 @@ class SourceTests(unittest.TestCase):
     def test_work_split_across_sends_is_asked_about_until_it_runs_whole(self) -> None:
         first = ("cloudflare/list-dns-records", {"zone_id": ZONES["result"][0]["id"]}, {})
         second = ("cloudflare/list-dns-records", {"zone_id": ZONES["result"][1]["id"]}, {})
-        split = _record(_send(ZONES_CALL, first), _send(second))
+        named = "DNS de example.com e other.org a cada hora"
+        split = _record(_send(ZONES_CALL, first, message=named), _send(second))
         self.assertEqual(split, recording.Question("routine-work-split"))
-        whole = _recorded(_send(ZONES_CALL, first), _send(first, second))
+        whole = _recorded(_send(ZONES_CALL, first, message=named), _send(first, second))
         self.assertEqual(_actions(whole), ["list-zones", "list-dns-records", "list-dns-records"])
 
     def test_an_earlier_identical_call_the_work_ran_again_is_no_split(self) -> None:

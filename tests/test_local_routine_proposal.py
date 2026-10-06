@@ -248,12 +248,12 @@ class RecordedRoutineTests(LocalContractCase):
             card = self.chat(service, body)["routine_proposal"]
         zone_id = next(item for item in card["steps"][1]["inputs"] if item["member"] == "zone_id")
         self.assertEqual((zone_id["origin"], zone_id["where"]["value_json"]), ("selector", '"shimpz.com"'))
-        # Without the earlier send, nothing the person wrote names the zone, so its id is read by its position.
-        with tempfile.TemporaryDirectory() as directory:
-            service = self.controller(directory, Recording(_record()))
-            alone = self.chat(service, _body("Faça isso a cada 30 segundos"))["routine_proposal"]
-        zone_id = next(item for item in alone["steps"][1]["inputs"] if item["member"] == "zone_id")
-        self.assertEqual((zone_id["origin"], zone_id["pointer"], zone_id["where"]), ("step", "/zones/1/id", None))
+        # Without the earlier send, nothing the person wrote names the zone, so the person is asked which it is.
+        asked = self.question(Recording(_record()), _body("Faça isso a cada 30 segundos"))
+        self.assertEqual(
+            (asked["code"], [item["label"] for item in asked["options"]]),
+            ("routine-binding-ambiguous", ["example.com", "shimpz.com"]),
+        )
 
     def test_a_lookup_in_an_earlier_send_is_the_source_of_the_remembered_id(self) -> None:
         runtime = Sends((("list-zones",), None), (("list-dns-records",), _record()))

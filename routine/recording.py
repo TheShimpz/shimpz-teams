@@ -14,10 +14,10 @@ member of a plan call is classified by the first rule that applies:
 3. the UTC date its own send started on is the run date, when that send did not start near local midnight; otherwise
    a fixed literal; with no timezone known, the person is asked for one;
 4. a long string, a long integer, or a non-empty container is copied from the one call result in the span holding it:
-   from its one position, through the array item whose single member the person named and no other item shares, or
-   from the indexed item when the person named no member of it. An identifier no result holds, or a value several
-   hold that no named member separates, is asked about and never frozen; free text or a container no result holds
-   falls to rule 5;
+   from its one position outside arrays, or through the array item whose single member the person named and no other
+   item shares; never by an index, which a reordered result would point at another item. An identifier no result
+   holds, or a value inside an array or several positions that no named member separates, is asked about and never
+   frozen; free text or a container no result holds falls to rule 5;
 5. anything else is a literal the assistant chose, the same on every run.
 
 A source is one specific occurrence, a changing call's too wherever changes replay; read-only calls of the same Action
@@ -600,7 +600,7 @@ def _sourced(context: _Context, consumer: _Call, value: object) -> dict[str, obj
     selected = [item for item in bindings if "where" in item]
     if len(selected) == 1:
         return selected[0]
-    options = [option for item in bindings for option in item.get("options", [{"value": value, "label": None}])]
+    options = [option for item in bindings for option in item.get("options") or [{"value": value, "label": None}]]
     raise _ambiguous(context, value, options)
 
 
@@ -635,31 +635,33 @@ def _rerun(context: _Context, value: object, choices: list[dict[str, object]]) -
 
 
 def _binding(context: _Context, node: int, position: _Position) -> dict[str, object]:
-    """How one position is read: its pointer, or through the one array it crosses by a member the person named."""
+    """How one position is read: its pointer outside arrays, or through one array by the member the person named.
+
+    Never by an index, which a reordered result would point at another item; anything else offers its targets.
+    """
     tokens, arrays = position
     crossed = [place for place, is_array in enumerate(arrays) if is_array]
-    plain = {"node": node, "pointer": _pointer(tokens)}
-    if len(crossed) != 1:
-        return plain
+    if not crossed:
+        return {"node": node, "pointer": _pointer(tokens)}
+    if len(crossed) > 1:
+        return {"options": []}
     result = context.calls[node].occurrence.result
     place = crossed[0]
     array_tokens, rest = tokens[:place], tokens[place + 1 :]
     items = _at(result.value, array_tokens)
     chosen = int(tokens[place])
     item = items[chosen]
-    if not isinstance(item, dict):
-        return plain
     named = [
         (key, constant)
-        for key, constant in item.items()
+        for key, constant in (item.items() if isinstance(item, dict) else ())
         if (not rest or key != rest[0]) and _selectable(constant, context.known)
     ]
     unique = [pair for pair in named if _unique(result, array_tokens, items, chosen, *pair)]
     if len(unique) == 1:
         return {"node": node, "pointer": _pointer(array_tokens), "where": dict(unique), "item": _pointer(rest)}
-    if not named:
-        return plain
-    return {"options": _targets(items, named, rest)}
+    if named:
+        return {"options": _targets(items, named, rest)}
+    return {"options": _listed(items, rest)}
 
 
 def _targets(items: list, named: list[tuple[str, object]], rest: tuple[str, ...]) -> list[dict[str, object]]:
@@ -672,6 +674,29 @@ def _targets(items: list, named: list[tuple[str, object]], rest: tuple[str, ...]
                 if isinstance(chosen, str | int) and not isinstance(chosen, bool):
                     targets.append({"value": chosen, "label": constant if isinstance(constant, str) else None})
     return targets
+
+
+# The members whose text names an item to a person, such as a zone's domain: a target's label when it has one only.
+_NAME_MEMBERS = frozenset({"name", "title", "label", "display_name", "hostname", "domain"})
+
+
+def _listed(items: list, rest: tuple[str, ...]) -> list[dict[str, object]]:
+    """Every array item as a target: the value its input would take, labelled by its one name-like member, if any."""
+    targets = []
+    for item in items:
+        chosen = _reached(item, rest)
+        if isinstance(chosen, str | int) and not isinstance(chosen, bool):
+            targets.append({"value": chosen, "label": _label(item)})
+    return targets
+
+
+def _label(item: object) -> str | None:
+    names = [
+        value
+        for key, value in (item.items() if isinstance(item, dict) else ())
+        if key in _NAME_MEMBERS and isinstance(value, str) and 0 < len(value) <= http_routine.MAX_QUESTION_OPTION_CHARS
+    ]
+    return names[0] if len(names) == 1 else None
 
 
 def _reached(value: object, tokens: tuple[str, ...]) -> object:
