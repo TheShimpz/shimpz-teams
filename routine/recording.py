@@ -138,6 +138,8 @@ class Asked:
     manifest: Manifest | None = None
     # The question as the person was asked it, which the Brain sees beside a freely typed answer.
     wire: dict[str, object] | None = None
+    # Every target choice the person already answered, each bound until the span ends.
+    chosen: tuple[Pending, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +152,7 @@ class Question:
     # The choice a target question binds, and the work a rerun must repeat, which only Team keeps.
     pending: Pending | None = field(default=None, compare=False)
     manifest: Manifest | None = field(default=None, compare=False)
+    chosen: tuple[Pending, ...] = field(default=(), compare=False)
     # The first send whose calls count: the send that settled a rerun, or 0.
     frontier: int = field(default=0, compare=False)
 
@@ -264,7 +267,8 @@ def record(
     if asked is not None and asked.manifest is not None:
         settled = settlement(sends, asked)
         if settled is None:
-            return Question(asked.code, pending=asked.pending, manifest=asked.manifest, frontier=frontier)
+            question = Question(asked.code, pending=asked.pending, manifest=asked.manifest, frontier=frontier)
+            return dataclasses.replace(question, chosen=asked.chosen)
         frontier = max(frontier, settled)
     calls = _calls(sends, contracts)
     texts = [line for send in sends for line in (*_lines(send.person), *send.window)]
@@ -293,19 +297,27 @@ _RERUN_CODES = frozenset({"routine-work-split", "routine-work-rerun", "routine-b
 
 
 def _asked(context: _Context, work: list[_Call], question: Question, frontier: int) -> Question:
-    """A question as Team keeps it: with the frontier, the work it asks to repeat, and a choice already answered.
+    """A question as Team keeps it: with the frontier, the work it asks to repeat, and every choice already answered.
 
-    A choice the person already made, exactly, stays bound while Team asks something else.
+    A choice the person answered exactly stays bound, whatever Team asks next.
     """
+    chosen = list(context.asked.chosen) if context.asked is not None else []
+    answered = context.asked.pending if context.asked is not None else None
+    if answered is not None:
+        selected = _selection(context, answered)
+        if selected is not None:
+            chosen.append(dataclasses.replace(answered, chosen=selected))
     pending = question.pending
-    if pending is None and context.asked is not None and context.asked.pending is not None:
-        kept = context.asked.pending
-        chosen = kept.chosen if kept.chosen is not None else _selection(context, kept)
-        pending = None if chosen is None else dataclasses.replace(kept, chosen=chosen)
+    if pending is not None and pending.chosen is not None:
+        chosen.append(pending)
+        pending = None
+    kept = {(item.action, item.member, item.targets): item for item in chosen}
     manifest = question.manifest
     if manifest is None and question.code in _RERUN_CODES:
-        manifest = _manifest(context, work, pending)
-    return dataclasses.replace(question, pending=pending, manifest=manifest, frontier=frontier)
+        manifest = _manifest(context, work, tuple(kept.values()))
+    return dataclasses.replace(
+        question, pending=pending, manifest=manifest, frontier=frontier, chosen=tuple(kept.values())
+    )
 
 
 def _lines(segments: Sequence[str]) -> list[str]:
@@ -435,7 +447,6 @@ def _plan(context: _Context, recording: Recording, work: list[_Call]) -> tuple[d
     """The plan document and each step's input origins, from the work and every source it needs."""
     if not work and recording.mode != "decide":
         raise RecordingError("routine-recording-empty")
-    _rerun(context, work)
     _classes(context)
     nodes = _closure(context, work)
     _split(context, work, nodes)
@@ -511,31 +522,6 @@ def _twins(left: trace.Occurrence, right: trace.Occurrence) -> bool:
     )
 
 
-def _rerun(context: _Context, work: list[_Call]) -> None:
-    """Ask again until the work, run again for the person's chosen target, sends exactly that target.
-
-    Every occurrence of the chosen input that sends one of the choice's targets must send the chosen one, and at least
-    one must; an occurrence that sends another value was resolved on its own and is left as it is.
-    """
-    pending = None if context.asked is None else context.asked.pending
-    if pending is None or pending.chosen is None:
-        return
-    sent = [_json_text(value) for value in _targeted(work, pending)]
-    if _json_text(pending.chosen) not in sent or any(text != _json_text(pending.chosen) for text in sent):
-        raise _AskError(Question("routine-work-rerun", pending=pending))
-
-
-def _targeted(calls: Sequence[_Call], pending: Pending) -> list[object]:
-    """What each call of the choice's input sent, among the choice's targets."""
-    targets = {_json_text(target) for target, _label in pending.targets}
-    values = [
-        call.occurrence.input.value.get(pending.member)
-        for call in calls
-        if call.action == pending.action and isinstance(call.occurrence.input.value, dict)
-    ]
-    return [value for value in values if _json_text(value) in targets]
-
-
 def _split(context: _Context, work: list[_Call], nodes: dict[int, _Call]) -> None:
     """Ask when an earlier send ran a work Action for something the work did not run again."""
     latest = context.calls[-1].send if context.calls else None
@@ -549,14 +535,12 @@ def _split(context: _Context, work: list[_Call], nodes: dict[int, _Call]) -> Non
                 for item in context.calls
                 if item.send != latest and item.send >= context.frontier and item.action == call.action
             ]
-            manifest = _manifest(context, sorted([*split, *work], key=lambda item: item.index), None)
+            manifest = _manifest(context, sorted([*split, *work], key=lambda item: item.index), ())
             raise _AskError(Question("routine-work-split", manifest=manifest))
 
 
-def _manifest(context: _Context, calls: Sequence[_Call], pending: Pending | None) -> Manifest:
+def _manifest(context: _Context, calls: Sequence[_Call], chosen: Sequence[Pending]) -> Manifest:
     """The work these calls did, as a rerun must repeat it, with a chosen target in place of the one they sent."""
-    if not context.classes:
-        _classes(context)
     slots: list[Slot] = []
     seen: set[int] = set()
     for call in calls:
@@ -568,22 +552,20 @@ def _manifest(context: _Context, calls: Sequence[_Call], pending: Pending | None
             continue
         seen.add(representative)
         inputs = tuple(
-            _slot_input(context, call, (member, value), pending) for member, value in sorted(given.value.items())
+            _slot_input(context, call, (member, value), chosen) for member, value in sorted(given.value.items())
         )
         slots.append(Slot(call.action, call.read_only, inputs))
     return Manifest(tuple(slots))
 
 
 def _slot_input(
-    context: _Context, call: _Call, given: tuple[str, object], pending: Pending | None
+    context: _Context, call: _Call, given: tuple[str, object], chosen: Sequence[Pending]
 ) -> tuple[str, str, object]:
     """What a rerun must send for one input member: the chosen target, a date, a fresh value, or this exact one."""
     member, value = given
-    targets = () if pending is None or pending.chosen is None else pending.targets
-    if (call.action, member) == ((pending.action, pending.member) if pending else None) and any(
-        _json_text(value) == _json_text(target) for target, _label in targets
-    ):
-        return member, "value", pending.chosen
+    binding = _binding_for(chosen, (call, member), value)
+    if binding is not None:
+        return member, "value", binding.chosen
     # As the recorder classifies it: what the person named stays exactly that, before any date is the run date.
     if context.known.names(value):
         return member, "value", value
@@ -757,7 +739,7 @@ def _classify_call(context: _Context, call: _Call) -> None:
 
 def _classified(context: _Context, input_: tuple[_Call, str], value: object) -> tuple[dict[str, object], str]:
     call, _member = input_
-    pending = _pending_for(context, input_)
+    pending = _binding_for(_bindings(context), input_, value)
     if _person_named(context, pending, value):
         return {"kind": "literal", "value": value}, "request"
     clock = _clock(context, call, value)
@@ -786,8 +768,11 @@ def _bound(
     try:
         source = _sourced(context, input_, value)
     except _AskError as asking:
-        if pending is None or pending.chosen is not None or not _same_choice(asking.question, pending):
+        if pending is None or not _same_choice(asking.question, pending):
             raise
+        if pending.chosen is not None:
+            # The person chose another of these targets: the work must run again with it.
+            raise _AskError(Question("routine-work-rerun", pending=pending)) from asking
         return _answered(context, pending, value)
     if source is None:
         return {"kind": "literal", "value": value}, "assistant"
@@ -860,13 +845,27 @@ def _identifier(value: object) -> bool:
     return type(value) is int or (isinstance(value, str) and not any(character.isspace() for character in value))
 
 
-def _pending_for(context: _Context, input_: tuple[_Call, str]) -> Pending | None:
-    """The pending target choice about this Action input, or None."""
+def _bindings(context: _Context) -> tuple[Pending, ...]:
+    """Every target choice the span holds: each one already answered, and the open one."""
+    asked = context.asked
+    if asked is None:
+        return ()
+    return (*asked.chosen, *(() if asked.pending is None else (asked.pending,)))
+
+
+def _binding_for(bindings: Sequence[Pending], input_: tuple[_Call, str], value: object) -> Pending | None:
+    """The target choice binding this Action input's value: one about this input with the value among its targets."""
     call, member = input_
-    pending = None if context.asked is None else context.asked.pending
-    if pending is None or (call.action, member) != (pending.action, pending.member):
-        return None
-    return pending
+    text = _json_text(value)
+    return next(
+        (
+            binding
+            for binding in bindings
+            if (call.action, member) == (binding.action, binding.member)
+            and any(text == _json_text(target) for target, _label in binding.targets)
+        ),
+        None,
+    )
 
 
 def _same_choice(question: Question, pending: Pending) -> bool:

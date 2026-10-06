@@ -220,7 +220,7 @@ class RecordingBook:
 
         def keep(found: Span) -> Span:
             asked = routine_recording.Asked(
-                question.code, len(found.sends), question.pending, question.manifest, question.wire()
+                question.code, len(found.sends), question.pending, question.manifest, question.wire(), question.chosen
             )
             frontier = max(found.frontier, question.frontier)
             return dataclasses.replace(found, asked=asked, frontier=frontier, intent=intent)

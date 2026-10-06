@@ -276,13 +276,37 @@ class OwnerCaseTests(unittest.TestCase):
         pending = recording.Asked(asked.code, 1, asked.pending)
         self.assertEqual(_record(both, _send(message=json.dumps(SHIMPZ_ID)), asked=pending).code, "routine-work-rerun")
 
+    def test_every_answered_binding_stays_bound_through_later_binding_questions(self) -> None:
+        other_id, other_twin = ZONES["result"][1]["id"], "8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5"
+        zones = {"result": [*TWINS["result"], {"id": other_twin, "name": "other.org", "created_on": "2026-01-06"}]}
+        listing = ("cloudflare/list-zones", {}, zones)
+        other = ("cloudflare/list-dns-records", {"zone_id": other_id}, {"result": []})
+        work = _send(listing, other, RECORDS, message="DNS de other.org e shimpz.com a cada hora")
+        groups = {frozenset({other_id, other_twin}): other_id, frozenset({SHIMPZ_ID, TWIN_ID}): SHIMPZ_ID}
+        first = _record(work)
+        used = groups[frozenset(target for target, _label in first.pending.targets)]
+        answer = _send(message=json.dumps(used))
+        second = _record(work, answer, asked=_asked(first, 1))
+        self.assertEqual(second.code, "routine-binding-ambiguous")
+        remaining = groups[frozenset(target for target, _label in second.pending.targets)]
+        self.assertNotEqual(remaining, used)
+        answers = (answer, _send(message=json.dumps(remaining)))
+        recorded = _recorded(work, *answers, asked=_asked(second, 2))
+        self.assertEqual(
+            {step["input"]["zone_id"]["value"] for step in recorded.document["steps"][1:]}, {other_id, SHIMPZ_ID}
+        )
+        # Work that later uses a twin the person did not choose is run again.
+        rejected = TWIN_ID if used == SHIMPZ_ID else other_twin
+        later = _send(listing, other, ("cloudflare/list-dns-records", {"zone_id": rejected}, {"result": [1]}), RECORDS)
+        self.assertEqual(_record(work, *answers, later, asked=_asked(second, 2)).code, "routine-work-rerun")
+
     def test_work_run_again_for_a_chosen_target_must_use_exactly_that_target(self) -> None:
         items = {"items": [{"name": "same", "id": "target"}, {"name": "same", "id": "target-b"}]}
         fetch = ("reports/fetch", {}, items)
         work = _send(fetch, ("cloudflare/list-dns-records", {"zone_id": "target"}, {}), message=_then_hourly("same"))
         asked = _record(work)
         rerun = _record(work, _send(message='"target-b"'), asked=recording.Asked(asked.code, 1, asked.pending))
-        chosen = recording.Asked(rerun.code, 2, rerun.pending, rerun.manifest)
+        chosen = _asked(rerun, 2)
         again = _send(fetch, ("cloudflare/list-dns-records", {"zone_id": "target-b"}, {}))
         recorded = _recorded(work, _send(message='"target-b"'), again, asked=chosen)
         self.assertEqual(
@@ -620,6 +644,11 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(_code(self, lambda: _record(twins)), "routine-recording-unverified")
 
 
+def _asked(question: recording.Question, after: int) -> recording.Asked:
+    """The span's record of a question asked after ``after`` sends, with every choice already answered."""
+    return recording.Asked(question.code, after, question.pending, question.manifest, chosen=question.chosen)
+
+
 def _pending(question: recording.Question, after: int) -> recording.Asked:
     """The span's record of a question asked after ``after`` sends."""
     return recording.Asked(question.code, after, question.pending, question.manifest)
@@ -773,9 +802,11 @@ class RerunTests(unittest.TestCase):
         work = _send(twins, RECORDS, message="DNS de shimpz.com")
         asked = _record(work)
         chose = _record(work, _send(message=json.dumps(SHIMPZ_ID)), asked=_pending(asked, 1))
-        self.assertEqual((chose.code, chose.pending.chosen), ("routine-schedule-unstated", SHIMPZ_ID))
+        self.assertEqual(
+            (chose.code, [item.chosen for item in chose.chosen]), ("routine-schedule-unstated", [SHIMPZ_ID])
+        )
         recorded = _recorded(
-            work, _send(message=json.dumps(SHIMPZ_ID)), _send(message="a cada hora"), asked=_pending(chose, 2)
+            work, _send(message=json.dumps(SHIMPZ_ID)), _send(message="a cada hora"), asked=_asked(chose, 2)
         )
         self.assertEqual(_input(recorded)["zone_id"], {"kind": "literal", "value": SHIMPZ_ID})
 
