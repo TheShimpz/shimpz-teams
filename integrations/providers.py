@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from types import MappingProxyType
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 from protocol.http.v1 import payload as http_payload
 
@@ -38,6 +38,22 @@ class OAuthProvider:
 class OAuthIntegrationIntent:
     provider: OAuthProvider
     scopes: tuple[str, ...]
+
+
+def fixed_https_endpoint(url: str) -> SplitResult | None:
+    """The parts of an HTTPS endpoint without credentials, explicit port, query, or fragment; None otherwise."""
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.port is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+    return parsed
 
 
 def _provider(
@@ -69,16 +85,7 @@ def _provider(
         provider.token_endpoint,
         provider.revocation_endpoint,
     ):
-        parsed = urlsplit(endpoint)
-        if (
-            parsed.scheme != "https"
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.port is not None
-            or parsed.query
-            or parsed.fragment
-        ):
+        if fixed_https_endpoint(endpoint) is None:
             raise RuntimeError("trusted OAuth provider registry is invalid")
     if any(_SCOPE.fullmatch(scope) is None for scope in provider.allowed_scopes):
         raise RuntimeError("trusted OAuth provider registry is invalid")

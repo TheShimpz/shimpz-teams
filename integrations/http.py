@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode
 
 from integrations import pkce as integration_pkce
 from integrations import providers as integration_providers
@@ -165,16 +165,8 @@ class FixedHTTPSTransport:
         headers: Mapping[str, str],
         body: bytes,
     ) -> OAuthHTTPResponse:
-        parsed = urlsplit(url)
-        if (
-            parsed.scheme != "https"
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.port is not None
-            or parsed.query
-            or parsed.fragment
-        ):
+        parsed = integration_providers.fixed_https_endpoint(url)
+        if parsed is None:
             raise OAuthHTTPError("OAuth provider endpoint is invalid")
         connection = http.client.HTTPSConnection(parsed.hostname, timeout=HTTP_TIMEOUT_SECONDS)
         try:
@@ -225,6 +217,13 @@ def _authorization_code(value: object) -> str:
 
 def _token(value: object) -> str:
     return _printable_ascii(value, MAX_TOKEN_BYTES, "OAuth provider response is invalid")
+
+
+def _expected_scopes(provider_id: str, scopes: object) -> tuple[str, ...]:
+    try:
+        return integration_providers.integration_intent(provider_id, scopes).scopes
+    except integration_providers.OAuthProviderError as exc:
+        raise OAuthHTTPError("OAuth scopes are invalid") from exc
 
 
 def _strict_object(payload: bytes) -> dict[str, object]:
@@ -376,10 +375,7 @@ class OAuthHTTPClient:
         verifier = _authorization_code(code_verifier)
         if not 43 <= len(verifier) <= 128:
             raise OAuthHTTPError("OAuth challenge is invalid")
-        try:
-            expected_scopes = integration_providers.integration_intent(provider.id, scopes).scopes
-        except integration_providers.OAuthProviderError as exc:
-            raise OAuthHTTPError("OAuth scopes are invalid") from exc
+        expected_scopes = _expected_scopes(provider.id, scopes)
         response = self._post(
             provider.token_endpoint,
             {
@@ -405,10 +401,7 @@ class OAuthHTTPClient:
         provider = _confidential_provider(provider_id)
         client = _client_id(client_id)
         previous = _token(refresh_token)
-        try:
-            expected_scopes = integration_providers.integration_intent(provider.id, scopes).scopes
-        except integration_providers.OAuthProviderError as exc:
-            raise OAuthHTTPError("OAuth scopes are invalid") from exc
+        expected_scopes = _expected_scopes(provider.id, scopes)
         response = self._post(
             provider.token_endpoint,
             {
