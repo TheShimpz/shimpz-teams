@@ -499,6 +499,18 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(again["routine_question"]["code"], "routine-binding-unsourced")
         self.assertEqual(continued["routine_question"]["code"], "routine-binding-unsourced")
 
+    def test_new_work_drops_the_chain_anchor_of_the_question_it_supersedes(self) -> None:
+        runtime = Sends(
+            (("list-zones", "list-dns-records"), _record(name="DNS")),
+            (("list-zones", "list-dns-records"), _record(name="Zonas e DNS")),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            asked = self.chat(service, _body("DNS de shimpz.com a cada 30 segundos"))["routine_question"]
+            card = self.chat(service, _body("Liste as zonas de shimpz.com a cada 30 segundos e use em outras ações"))
+        self.assertEqual(asked["code"], "routine-output-unstated")
+        self.assertEqual(card["routine_proposal"]["name"], "Zonas e DNS")
+
     def test_a_verified_rerun_that_ends_in_prose_applies_the_stored_intent(self) -> None:
         runtime = Sends(
             (("list-dns-records",), _record()),
