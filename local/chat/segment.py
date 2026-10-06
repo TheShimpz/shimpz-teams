@@ -198,12 +198,20 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         effort=config.effort,
         memories=None if routine is not None else tuple(memories),
         skills=None if routine is not None else chat_knowledge.turn_skills(skills, runtime_assistants),
-        routines=self._chat_routines(request.team_id) if mutable else None,
+        routines=_listed(self, request) if mutable else None,
         routine_capacity=self._routine_capacity(request.team_id) if mutable else None,
         knowledge_writable=routine is None,
         locale=request.locale,
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),
     )
+
+
+def _listed(self, request: SegmentRequest) -> tuple[dict[str, object], ...]:
+    """The Team's Routines for a recording turn's Brain, kept with the recording as the only ones it may replace."""
+    routines = self._chat_routines(request.team_id)
+    revisions = ((item["routine_id"], item["revision"]) for item in routines)
+    self.routine_recordings.listed(request.team_id, request.recording, revisions)
+    return routines
 
 
 @contextmanager

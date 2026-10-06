@@ -202,12 +202,16 @@ def _current(self, response: object, recording) -> tuple[object, ...]:
     return setup[2]
 
 
-def _replaced(state: record.TeamRoutines, routine_id: str | None) -> record.Routine | None:
+def _replaced(state: record.TeamRoutines, routine_id: str | None, recording) -> record.Routine | None:
+    """The Routine a recording replaces, only one the turn was shown and only at the revision it was shown."""
     if routine_id is None:
         return None
+    shown = dict(recording.revisions).get(routine_id)
     found = next((item for item in state.routines if item.routine_id == routine_id and not item.deleting), None)
-    if found is None:
+    if found is None or shown is None:
         raise RefusedError("routine-not-found")
+    if found.revision != shown:
+        raise RefusedError("routine-revision-changed")
     return found
 
 
@@ -264,7 +268,7 @@ def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
     recording = _recording(self, response)
     contracts = routine_contracts.contracts(_current(self, response, recording))
     state = routine_state.load(self, response.team_id)
-    existing = _replaced(state, outcome["replaces"])
+    existing = _replaced(state, outcome["replaces"], recording)
     timezone = _timezone(outcome, recording)
     recorded = _recorded(outcome, recording, timezone, contracts, existing)
     if not all(item["read_only"] for item in recorded.permitted):

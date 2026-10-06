@@ -60,6 +60,7 @@ MESSAGE = (
     "Pergunta: De qual zona?\nResposta: shimpz.com"
 )
 CONTINUOUS = {"kind": "continuous", "gap": 30, "cap": 1000}
+HOURLY = {"kind": "hourly", "every": 1}
 
 
 def _record(**changes: object) -> dict[str, object]:
@@ -355,6 +356,39 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(deleted.exception.code, "routine-proposal-expired")
         self.assertEqual(notices[-1].outcome, "deleted")
         self.assertEqual((notices[-1].name, notices[-1].run_id, notices[-1].usage), ("DNS de shimpz.com", "", None))
+
+    def test_a_replacement_binds_the_revision_the_turn_was_shown(self) -> None:
+        def bump(service) -> None:
+            service.routine_store.update(
+                "team_1",
+                lambda state: (
+                    dataclasses.replace(
+                        state,
+                        routines=tuple(
+                            dataclasses.replace(item, revision=item.revision + 1) for item in state.routines
+                        ),
+                    ),
+                    None,
+                ),
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Recording(_record(schedule=HOURLY))
+            service = self.controller(directory, runtime)
+            routine_id = self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])["routine_id"]
+            # The Routine moves on while the turn that was shown its first revision is still running.
+            runtime.between = lambda: bump(service)
+            runtime.outcomes.append(_record(schedule=HOURLY, replaces=routine_id))
+            changed = self.chat(service)
+            runtime.between = lambda: None
+            runtime.outcomes.append(_record(schedule=HOURLY))
+            created = self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])["routine_id"]
+            # A Routine created after a turn's listing was never shown to it, so the turn cannot replace it.
+            service.routine_recordings.listed = lambda *_args: None
+            runtime.outcomes.append(_record(schedule=HOURLY, replaces=created))
+            unlisted = self.chat(service)
+        self.assertEqual(changed["routine_refusal"]["code"], "routine-revision-changed")
+        self.assertEqual(unlisted["routine_refusal"]["code"], "routine-not-found")
 
     def test_a_stop_that_wins_leaves_no_card(self) -> None:
         runtime = Recording(_record())

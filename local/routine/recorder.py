@@ -39,6 +39,8 @@ class Recording:
     protection: trace.Protection = dataclasses.field(default_factory=trace.Protection)
     # Why nothing recorded may define a Routine any more, such as a trace past its bound; empty while it may.
     refused: str = ""
+    # The revision of every Routine the turn was shown, by id: only these, at exactly these revisions, may be replaced.
+    revisions: tuple[tuple[str, int], ...] = ()
 
 
 class RecordingBook:
@@ -77,6 +79,11 @@ class RecordingBook:
         self._change(
             team_id, recording_id, lambda found: dataclasses.replace(found, protection=found.protection.grow(grown))
         )
+
+    def listed(self, team_id: str, recording_id: str, revisions: Iterable[tuple[str, int]]) -> None:
+        """Keep the Routines, by id and revision, the turn's Brain was shown as it started."""
+        shown = tuple(revisions)
+        self._change(team_id, recording_id, lambda found: dataclasses.replace(found, revisions=shown))
 
     def occurred(self, team_id: str, recording_id: str, occurrence: trace.Occurrence) -> None:
         """Keep one successful Action call; a trace past its bound refuses the recording, never cuts it."""
