@@ -148,8 +148,8 @@ class Asked:
     # Every target choice the person already answered, each bound until the span ends.
     chosen: tuple[Pending, ...] = ()
     # The call whose result the work showed when Team asked for the output, which a chain must use: its Assistant,
-    # Action, and input as JSON text.
-    chained_from: tuple[str, str, str] | None = None
+    # Action, and its input and result as JSON text, which only an equivalent call shares.
+    chained_from: tuple[str, str, str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,7 +163,7 @@ class Question:
     pending: Pending | None = field(default=None, compare=False)
     manifest: Manifest | None = field(default=None, compare=False)
     chosen: tuple[Pending, ...] = field(default=(), compare=False)
-    chained_from: tuple[str, str, str] | None = field(default=None, compare=False)
+    chained_from: tuple[str, str, str, str] | None = field(default=None, compare=False)
     # The first send whose calls count: the send that settled a rerun, or 0.
     frontier: int = field(default=0, compare=False)
 
@@ -424,18 +424,19 @@ _OUTPUT_MODES = {"show": "show", "changes": "changes", "none": "none", "chain": 
 
 
 def _chained(
-    context: _Context, steps: Sequence[Mapping[str, object]], chained_from: tuple[str, str, str] | None
+    context: _Context, steps: Sequence[Mapping[str, object]], chained_from: tuple[str, str, str, str] | None
 ) -> bool:
     """Whether a plan's work uses the result a chain is about: a later step reads it.
 
     Chosen when Team asked for the output, the chain must use the result of the very call the work would then have
-    shown, the same Action with the same input; stated with the request, any earlier result some step reads.
+    shown, or of one equivalent to it: the same Action, input, and result, as the recorder's sources compare them;
+    stated with the request, any earlier result some step reads.
     """
     read = {source["step"] for step in steps for source in step["input"].values() if source["kind"] == "step_output"}
     return any(step["id"] in read and _is_call(context, step, chained_from) for step in steps)
 
 
-def _is_call(context: _Context, step: Mapping[str, object], call: tuple[str, str, str] | None) -> bool:
+def _is_call(context: _Context, step: Mapping[str, object], call: tuple[str, str, str, str] | None) -> bool:
     if call is None:
         return True
     occurrence = context.planned.get(step["id"])
@@ -443,15 +444,17 @@ def _is_call(context: _Context, step: Mapping[str, object], call: tuple[str, str
         occurrence is not None
         and (occurrence.assistant, occurrence.action) == call[:2]
         and routine_plan.same(occurrence.input.value, json.loads(call[2]))
+        and routine_plan.same(occurrence.result.value, json.loads(call[3]))
     )
 
 
-def _shown_call(context: _Context, document: Mapping[str, object]) -> tuple[str, str, str] | None:
+def _shown_call(context: _Context, document: Mapping[str, object]) -> tuple[str, str, str, str] | None:
     """The call of the step a plan shows, or None when it shows none or stands for no call of the span."""
     occurrence = context.planned.get(document["output"]["step"])
     if occurrence is None:
         return None
-    return occurrence.assistant, occurrence.action, _json_text(occurrence.input.value)
+    given, result = _json_text(occurrence.input.value), _json_text(occurrence.result.value)
+    return occurrence.assistant, occurrence.action, given, result
 
 
 def _output(sends: Sequence[Send], existing: Existing | None) -> str | None:

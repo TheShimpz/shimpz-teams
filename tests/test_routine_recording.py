@@ -1086,6 +1086,17 @@ class OutputTests(unittest.TestCase):
         right = _send(alpha, beta, ("reports/post", {"x": "bbb-222222"}, {}))
         self.assertIsInstance(_record(work, chain, right, asked=_asked(asked, 1), mode=None), recording.Recorded)
 
+    def test_a_chain_must_use_the_shown_result_of_identical_calls(self) -> None:
+        alpha = ("reports/fetch", {"q": "stats"}, {"id": "aaa-111111"})
+        beta = ("reports/fetch", {"q": "stats"}, {"id": "bbb-222222"})
+        work = _send(alpha, beta, message="relatório a cada hora")
+        asked = _record(work, mode=None)
+        chain = _send(message=http_routine.OUTPUT_CHOICES["pt"]["chain"])
+        first = _send(alpha, beta, ("reports/post", {"x": "aaa-111111"}, {}))
+        self.assertEqual(_record(work, chain, first, asked=_asked(asked, 1), mode=None).code, asked.code)
+        second = _send(alpha, beta, ("reports/post", {"x": "bbb-222222"}, {}))
+        self.assertIsInstance(_record(work, chain, second, asked=_asked(asked, 1), mode=None), recording.Recorded)
+
     def test_no_output_or_two_in_one_segment_are_asked_never_guessed(self) -> None:
         for message in ("a cada hora", "a cada hora. Mostrar sempre. Ou só quando mudar."):
             with self.subTest(message=message):
