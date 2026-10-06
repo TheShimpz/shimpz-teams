@@ -142,6 +142,16 @@ def _server(server_type, handler_type):
             handler_type.release.clear()
 
 
+@contextmanager
+def _account():
+    """The recording Account authority on loopback, reached through ACCOUNT_URL."""
+    with (
+        _server(ThreadingHTTPServer, _AccountHandler) as port,
+        mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
+    ):
+        yield
+
+
 class AccountAuthorityTests(unittest.TestCase):
     def setUp(self) -> None:
         _AccountHandler.requests = []
@@ -156,10 +166,7 @@ class AccountAuthorityTests(unittest.TestCase):
 
     def test_exact_evidence_is_uncached_and_bound_to_the_request(self) -> None:
         binding = _binding()
-        with (
-            _server(ThreadingHTTPServer, _AccountHandler) as port,
-            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
-        ):
+        with _account():
             first = account_authority.evaluate("ordinary", binding)
             second = account_authority.evaluate("ordinary", binding)
 
@@ -176,37 +183,24 @@ class AccountAuthorityTests(unittest.TestCase):
 
     def test_supervisor_owner_assignment_must_match_exact_account_evidence(self) -> None:
         binding = _binding("team-create", owner=OWNER_ID)
-        with (
-            _server(ThreadingHTTPServer, _AccountHandler) as port,
-            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
-        ):
+        with _account():
             evaluation = account_authority.evaluate("supervisor", binding)
 
         self.assertEqual(evaluation.principal, ("supervisor", ACCOUNT_ID))
         self.assertEqual(evaluation.owner_account_id, OWNER_ID)
 
-        with (
-            _server(ThreadingHTTPServer, _AccountHandler) as port,
-            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
-            self.assertRaises(account_authority.AuthorityUnavailableError),
-        ):
+        with _account(), self.assertRaises(account_authority.AuthorityUnavailableError):
             account_authority.evaluate("ordinary", binding)
 
         self_owned = _binding("team-create", owner=ACCOUNT_ID)
-        with (
-            _server(ThreadingHTTPServer, _AccountHandler) as port,
-            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
-        ):
+        with _account():
             evaluation = account_authority.evaluate("ordinary", self_owned)
         self.assertEqual(evaluation.owner_account_id, ACCOUNT_ID)
 
     def test_assurance_handle_and_evidence_are_bound_to_the_exact_operation(self) -> None:
         binding = _assurance_binding()
         handle = "H" * 43
-        with (
-            _server(ThreadingHTTPServer, _AccountHandler) as port,
-            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
-        ):
+        with _account():
             evaluation = account_authority.evaluate("ordinary", binding, handle)
 
         self.assertEqual(evaluation.assurance, binding["assurance"])
@@ -221,8 +215,7 @@ class AccountAuthorityTests(unittest.TestCase):
         )
 
         with (
-            _server(ThreadingHTTPServer, _AccountHandler) as port,
-            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
+            _account(),
             self.assertRaisesRegex(
                 account_authority.AuthorityUnavailableError,
                 "assurance evidence",
@@ -231,10 +224,7 @@ class AccountAuthorityTests(unittest.TestCase):
             account_authority.evaluate("assurance-mismatch", binding, handle)
 
     def test_denial_mismatch_extra_fields_and_bad_session_fail_closed(self) -> None:
-        with (
-            _server(ThreadingHTTPServer, _AccountHandler) as port,
-            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
-        ):
+        with _account():
             with self.assertRaises(account_authority.AuthorityDeniedError):
                 account_authority.evaluate("denied", _binding())
             for session in ("mismatch", "extra"):
@@ -286,10 +276,7 @@ class AccountAuthorityTests(unittest.TestCase):
                 account_authority.evaluate("ordinary", _binding())
 
     def test_only_semantic_account_denials_project_as_denied_authority(self) -> None:
-        with (
-            _server(ThreadingHTTPServer, _AccountHandler) as port,
-            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
-        ):
+        with _account():
             with self.assertRaises(account_authority.AuthorityDeniedError):
                 account_authority.evaluate("missing-owner", _binding())
             for session in ("bad-request", "rate-limited"):
