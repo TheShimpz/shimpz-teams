@@ -86,6 +86,19 @@ def _record(**changes: object) -> dict[str, object]:
     return value
 
 
+def _bump_revisions(service) -> None:
+    """Move every Routine of team_1 to its next revision, as a change made meanwhile would."""
+    service.routine_store.update(
+        "team_1",
+        lambda state: (
+            dataclasses.replace(
+                state, routines=tuple(dataclasses.replace(item, revision=item.revision + 1) for item in state.routines)
+            ),
+            None,
+        ),
+    )
+
+
 class Recording:
     """A scripted chat agent: it lists the zones, lists shimpz.com's records, then records the Routine."""
 
@@ -188,22 +201,24 @@ class RecordedRoutineTests(LocalContractCase):
         with self.as_person(principal):
             return service.confirm_routine_proposal("team_1", proposal_id)
 
-    def refusal(self, runtime, body: dict[str, object] | None = None, *, prepare=lambda service: None) -> str:
+    def turn(self, runtime, body: dict[str, object] | None, prepare) -> tuple[tuple, dict[str, object]]:
+        """One person's turn on a fresh Team: the Routines it then holds, and the reply."""
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
             prepare(service)
             response = self.chat(service, body)
-            self.assertEqual(service.routine_store.load("team_1").routines, ())
+            return service.routine_store.load("team_1").routines, response
+
+    def refusal(self, runtime, body: dict[str, object] | None = None, *, prepare=lambda service: None) -> str:
+        routines, response = self.turn(runtime, body, prepare)
+        self.assertEqual(routines, ())
         self.assertNotIn("routine_proposal", response)
         self.assertEqual(response["reply"], "Pronto.")
         return response["routine_refusal"]["code"]
 
     def question(self, runtime, body: dict[str, object] | None = None, *, prepare=lambda service: None) -> dict:
-        with tempfile.TemporaryDirectory() as directory:
-            service = self.controller(directory, runtime)
-            prepare(service)
-            response = self.chat(service, body)
-            self.assertEqual(service.routine_store.load("team_1").routines, ())
+        routines, response = self.turn(runtime, body, prepare)
+        self.assertEqual(routines, ())
         self.assertNotIn("routine_proposal", response)
         self.assertEqual(response["reply"], "Pronto.")
         return response["routine_question"]
@@ -508,27 +523,13 @@ class RecordedRoutineTests(LocalContractCase):
                 self.assertEqual("routine_proposal" in response, not brain)
 
     def test_an_answer_replaces_only_the_revision_the_record_call_was_shown(self) -> None:
-        def bump(service) -> None:
-            service.routine_store.update(
-                "team_1",
-                lambda state: (
-                    dataclasses.replace(
-                        state,
-                        routines=tuple(
-                            dataclasses.replace(item, revision=item.revision + 1) for item in state.routines
-                        ),
-                    ),
-                    None,
-                ),
-            )
-
         def remove(service) -> None:
             with self.as_person():
                 routine_manage.delete_routine(service, "team_1", service.created)
 
         # Naming no zone, the replacement asks which one; a replacement keeps its own schedule.
         original = "Liste os registros DNS"
-        for change, code in ((bump, "routine-revision-changed"), (remove, "routine-not-found")):
+        for change, code in ((_bump_revisions, "routine-revision-changed"), (remove, "routine-not-found")):
             with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
                 runtime = Sends((("list-zones", "list-dns-records"), _record()))
                 service = self.controller(directory, runtime)
@@ -763,18 +764,7 @@ class RecordedRoutineTests(LocalContractCase):
             runtime.calls = False
             runtime.outcomes.extend([_record(replaces=routine_id), _record(replaces=routine_id)])
             stale = self.chat(service)["routine_proposal"]
-            service.routine_store.update(
-                "team_1",
-                lambda state: (
-                    dataclasses.replace(
-                        state,
-                        routines=tuple(
-                            dataclasses.replace(item, revision=item.revision + 1) for item in state.routines
-                        ),
-                    ),
-                    None,
-                ),
-            )
+            _bump_revisions(service)
             with self.assertRaises(local_app.ApiProblem) as changed:
                 self.confirm(service, stale["proposal_id"])
             gone = self.chat(service)["routine_proposal"]
@@ -789,26 +779,12 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual((notices[-1].name, notices[-1].run_id, notices[-1].usage), ("DNS de shimpz.com", "", None))
 
     def test_a_replacement_binds_the_revision_the_turn_was_shown(self) -> None:
-        def bump(service) -> None:
-            service.routine_store.update(
-                "team_1",
-                lambda state: (
-                    dataclasses.replace(
-                        state,
-                        routines=tuple(
-                            dataclasses.replace(item, revision=item.revision + 1) for item in state.routines
-                        ),
-                    ),
-                    None,
-                ),
-            )
-
         with tempfile.TemporaryDirectory() as directory:
             runtime = Recording(_record())
             service = self.controller(directory, runtime)
             routine_id = self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])["routine_id"]
             # The Routine moves on while the turn that was shown its first revision is still running.
-            runtime.between = lambda: bump(service)
+            runtime.between = lambda: _bump_revisions(service)
             runtime.outcomes.append(_record(replaces=routine_id))
             changed = self.chat(service)
             runtime.between = lambda: None
