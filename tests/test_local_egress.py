@@ -20,6 +20,11 @@ EGRESS_IMAGE_REF = "ghcr.io/theshimpz/shimpz-egress@sha256:" + "e" * 64
 EGRESS_IMAGE_ID = "sha256:" + "1" * 64
 
 
+def _proxy_token(environment: dict[str, str]) -> str:
+    """The egress capability token inside an Assistant's HTTPS_PROXY URL."""
+    return environment["HTTPS_PROXY"].split("@", 1)[0].rsplit("/", 1)[-1]
+
+
 class _Proxy:
     def __init__(self, space_id: str) -> None:
         self.name = "local-egress-proxy"
@@ -124,15 +129,33 @@ class LocalAssistantEgressTests(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def test_policy_is_private_stable_exact_and_proxy_attachment_is_dynamic(self) -> None:
-        environment = self.controller.assistant_lifecycle._activate_assistant_egress(
-            "team_1",
-            self.spec,
-            self.network,
-            tuple(sorted(self.spec.allowed_hosts)),
+    def _activate(self) -> dict[str, str]:
+        return self.controller.assistant_lifecycle._activate_assistant_egress(
+            "team_1", self.spec, self.network, tuple(sorted(self.spec.allowed_hosts))
         )
 
-        token = environment["HTTPS_PROXY"].split("@", 1)[0].rsplit("/", 1)[-1]
+    def _owned_egress_team(self, egress_admission: mock.Mock) -> types.SimpleNamespace:
+        """Make self.network Team team_1's owned network with one installed Assistant and return its container."""
+        self.network.attrs["Labels"] = {
+            local_labels.MANAGED_LABEL: "1",
+            local_labels.PROFILE_LABEL: local_egress.PROFILE,
+            local_labels.SPACE_LABEL: self.controller.space_id,
+            local_labels.KIND_LABEL: "team",
+            local_labels.TEAM_LABEL: "team_1",
+            local_labels.TEAM_NAME_LABEL: "Team 1",
+        }
+        assistant = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: self.spec.assistant_id})
+        self.controller.client.containers.installed = [assistant]
+        self.controller.client.networks = types.SimpleNamespace(list=mock.Mock(return_value=[self.network]))
+        self.controller.assistant_lifecycle._validate_network = mock.Mock()
+        self.controller.assistant_lifecycle._validate_container_profile = mock.Mock(return_value=({}, {}))
+        self.controller.assistant_lifecycle._validate_container_egress_environment = egress_admission
+        return assistant
+
+    def test_policy_is_private_stable_exact_and_proxy_attachment_is_dynamic(self) -> None:
+        environment = self._activate()
+
+        token = _proxy_token(environment)
         self.assertRegex(token, r"^[0-9a-f]{32}$")
         self.assertEqual(environment["HTTPS_PROXY"], environment["https_proxy"])
         self.assertEqual(environment["NO_PROXY"], "127.0.0.1,localhost")
@@ -148,12 +171,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
         self.assertEqual(len(token_files), 1)
         self.assertEqual(token_files[0].stat().st_mode & 0o777, 0o600)
 
-        repeated = self.controller.assistant_lifecycle._activate_assistant_egress(
-            "team_1",
-            self.spec,
-            self.network,
-            tuple(sorted(self.spec.allowed_hosts)),
-        )
+        repeated = self._activate()
         self.assertEqual(repeated, environment)
         self.assertEqual(
             self.controller.assistant_lifecycle._validate_egress_policy(
@@ -170,12 +188,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
             "EgressPolicyStore",
             wraps=local_egress.egress_policy.EgressPolicyStore,
         ) as store_constructor:
-            self.controller.assistant_lifecycle._activate_assistant_egress(
-                "team_1",
-                self.spec,
-                self.network,
-                tuple(sorted(self.spec.allowed_hosts)),
-            )
+            self._activate()
 
         store_constructor.assert_called_once_with(
             self.policy_root,
@@ -240,12 +253,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
     def test_foreign_proxy_image_is_refused_before_team_attachment(self) -> None:
         self.proxy.attrs["Image"] = "sha256:" + "f" * 64
         with self.assertRaises(local_app.ApiProblem) as caught:
-            self.controller.assistant_lifecycle._activate_assistant_egress(
-                "team_1",
-                self.spec,
-                self.network,
-                tuple(sorted(self.spec.allowed_hosts)),
-            )
+            self._activate()
         self.assertEqual(caught.exception.code, "egress-proxy-drift")
         self.assertNotIn(self.network.name, self.proxy.attrs["NetworkSettings"]["Networks"])
 
@@ -293,23 +301,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
                     self.assertEqual((caught.exception.status, caught.exception.code), expected)
 
     def test_startup_reconnects_recreated_proxy_to_owned_egress_team(self) -> None:
-        team_id = "team_1"
-        self.network.attrs["Labels"] = {
-            local_labels.MANAGED_LABEL: "1",
-            local_labels.PROFILE_LABEL: local_egress.PROFILE,
-            local_labels.SPACE_LABEL: self.controller.space_id,
-            local_labels.KIND_LABEL: "team",
-            local_labels.TEAM_LABEL: team_id,
-            local_labels.TEAM_NAME_LABEL: "Team 1",
-        }
-        assistant = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: self.spec.assistant_id})
-        self.controller.client.containers.installed = [assistant]
-        self.controller.client.networks = types.SimpleNamespace(list=mock.Mock(return_value=[self.network]))
-        self.controller.assistant_lifecycle._validate_network = mock.Mock()
-        self.controller.assistant_lifecycle._validate_container_profile = mock.Mock(return_value=({}, {}))
-        self.controller.assistant_lifecycle._validate_container_egress_environment = mock.Mock(
-            return_value=self.spec.allowed_hosts
-        )
+        assistant = self._owned_egress_team(mock.Mock(return_value=self.spec.allowed_hosts))
 
         self.controller.assistant_lifecycle._reconcile_egress_proxy_attachments()
 
@@ -319,28 +311,14 @@ class LocalAssistantEgressTests(unittest.TestCase):
         )
         self.controller.assistant_lifecycle._validate_container_profile.assert_called_once_with(
             assistant,
-            team_id,
+            "team_1",
             self.spec,
             self.network.name,
         )
 
     def test_startup_detaches_egress_and_serves_after_assistant_admission_drift(self) -> None:
-        team_id = "team_1"
-        self.network.attrs["Labels"] = {
-            local_labels.MANAGED_LABEL: "1",
-            local_labels.PROFILE_LABEL: local_egress.PROFILE,
-            local_labels.SPACE_LABEL: self.controller.space_id,
-            local_labels.KIND_LABEL: "team",
-            local_labels.TEAM_LABEL: team_id,
-            local_labels.TEAM_NAME_LABEL: "Team 1",
-        }
-        assistant = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: self.spec.assistant_id})
-        self.controller.client.containers.installed = [assistant]
-        self.controller.client.networks = types.SimpleNamespace(list=mock.Mock(return_value=[self.network]))
-        self.controller.assistant_lifecycle._validate_network = mock.Mock()
-        self.controller.assistant_lifecycle._validate_container_profile = mock.Mock(return_value=({}, {}))
-        self.controller.assistant_lifecycle._validate_container_egress_environment = mock.Mock(
-            side_effect=local_app.ApiProblem(409, "policy drift", code="egress-policy-drift")
+        self._owned_egress_team(
+            mock.Mock(side_effect=local_app.ApiProblem(409, "policy drift", code="egress-policy-drift"))
         )
         self.network.connect(self.proxy, aliases=[local_egress.ASSISTANT_EGRESS_ALIAS])
 
@@ -349,22 +327,8 @@ class LocalAssistantEgressTests(unittest.TestCase):
         self.assertNotIn(self.network.name, self.proxy.attrs["NetworkSettings"]["Networks"])
 
     def test_startup_serves_when_failed_admission_cannot_detach_egress(self) -> None:
-        team_id = "team_1"
-        self.network.attrs["Labels"] = {
-            local_labels.MANAGED_LABEL: "1",
-            local_labels.PROFILE_LABEL: local_egress.PROFILE,
-            local_labels.SPACE_LABEL: self.controller.space_id,
-            local_labels.KIND_LABEL: "team",
-            local_labels.TEAM_LABEL: team_id,
-            local_labels.TEAM_NAME_LABEL: "Team 1",
-        }
-        assistant = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: self.spec.assistant_id})
-        self.controller.client.containers.installed = [assistant]
-        self.controller.client.networks = types.SimpleNamespace(list=mock.Mock(return_value=[self.network]))
-        self.controller.assistant_lifecycle._validate_network = mock.Mock()
-        self.controller.assistant_lifecycle._validate_container_profile = mock.Mock(return_value=({}, {}))
-        self.controller.assistant_lifecycle._validate_container_egress_environment = mock.Mock(
-            side_effect=local_app.ApiProblem(409, "policy drift", code="egress-policy-drift")
+        self._owned_egress_team(
+            mock.Mock(side_effect=local_app.ApiProblem(409, "policy drift", code="egress-policy-drift"))
         )
         self.controller.assistant_lifecycle._disconnect_egress_proxy_if_attached = mock.Mock(
             side_effect=local_app.ApiProblem(503, "proxy unavailable", code="egress-proxy-unavailable")
@@ -385,12 +349,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
         self.assertTrue(self.controller.assistant_lifecycle._team_has_egress_assistant("team_1"))
 
     def test_valid_request_reconnects_recreated_proxy_without_restarting_team(self) -> None:
-        environment = self.controller.assistant_lifecycle._activate_assistant_egress(
-            "team_1",
-            self.spec,
-            self.network,
-            tuple(sorted(self.spec.allowed_hosts)),
-        )
+        environment = self._activate()
         self.network.disconnect(self.proxy)
 
         with mock.patch.object(
@@ -471,13 +430,8 @@ class LocalAssistantEgressTests(unittest.TestCase):
         connect.assert_not_called()
 
     def test_last_uninstall_removes_policy_and_detaches_proxy(self) -> None:
-        environment = self.controller.assistant_lifecycle._activate_assistant_egress(
-            "team_1",
-            self.spec,
-            self.network,
-            tuple(sorted(self.spec.allowed_hosts)),
-        )
-        token = environment["HTTPS_PROXY"].split("@", 1)[0].rsplit("/", 1)[-1]
+        environment = self._activate()
+        token = _proxy_token(environment)
 
         self.controller.assistant_lifecycle._release_assistant_egress("team_1", self.spec.assistant_id, self.network)
 
@@ -488,13 +442,8 @@ class LocalAssistantEgressTests(unittest.TestCase):
     def test_policy_tampering_fails_closed(self) -> None:
         for drift in ("content", "mode", "hardlink", "oversize"):
             with self.subTest(drift=drift):
-                environment = self.controller.assistant_lifecycle._activate_assistant_egress(
-                    "team_1",
-                    self.spec,
-                    self.network,
-                    tuple(sorted(self.spec.allowed_hosts)),
-                )
-                token = environment["HTTPS_PROXY"].split("@", 1)[0].rsplit("/", 1)[-1]
+                environment = self._activate()
+                token = _proxy_token(environment)
                 policy = self.policy_root / f"{token}.json"
                 if drift == "content":
                     policy.write_text('["evil.example"]', encoding="ascii")
