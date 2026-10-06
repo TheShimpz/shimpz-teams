@@ -34,6 +34,18 @@ def plan_body() -> dict[str, object]:
     }
 
 
+def intent_body(**changes: object) -> dict[str, object]:
+    """A fresh valid intent-route body with exactly these fields replaced."""
+    return {
+        "objective": "hello",
+        "expected_intent": None,
+        "candidates": [],
+        "lifecycle_reference": None,
+        "conversation": [],
+        "locale": "en",
+    } | changes
+
+
 class Subject:
     def __init__(self) -> None:
         self._team_lock = threading.RLock()
@@ -171,14 +183,11 @@ class LocalCapabilityPlanTests(unittest.TestCase):
 
     def test_intent_route_projects_only_the_closed_stateless_result(self) -> None:
         subject = Subject()
-        body = {
-            "objective": "tire o cloudflare",
-            "expected_intent": "assistant-uninstall",
-            "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
-            "lifecycle_reference": None,
-            "conversation": [],
-            "locale": "en",
-        }
+        body = intent_body(
+            objective="tire o cloudflare",
+            expected_intent="assistant-uninstall",
+            candidates=[{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
+        )
 
         with self.assertRaises(capabilities.ApiProblem) as refused:
             capabilities.intent_route(
@@ -212,17 +221,10 @@ class LocalCapabilityPlanTests(unittest.TestCase):
 
     def test_intent_route_projects_one_bounded_classification_reference(self) -> None:
         subject = Subject()
-        body = {
-            "objective": "instale ele de novo",
-            "expected_intent": None,
-            "candidates": [],
-            "lifecycle_reference": {
-                "id": "shimpz-cloudflare",
-                "name": "Shimpz Cloudflare",
-            },
-            "conversation": [],
-            "locale": "en",
-        }
+        body = intent_body(
+            objective="instale ele de novo",
+            lifecycle_reference={"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare"},
+        )
 
         capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
 
@@ -236,21 +238,13 @@ class LocalCapabilityPlanTests(unittest.TestCase):
             "assistant-uninstall",
             "cloudflare",
         )
-        body = {
-            "objective": "desinstala esse então",
-            "expected_intent": None,
-            "candidates": [],
-            "lifecycle_reference": None,
-            "conversation": [
+        body = intent_body(
+            objective="desinstala esse então",
+            conversation=[
                 {"role": "user", "text": "Quais temos?", "truncated": False},
-                {
-                    "role": "assistant",
-                    "text": "Temos apenas Cloudflare/DNS.",
-                    "truncated": False,
-                },
+                {"role": "assistant", "text": "Temos apenas Cloudflare/DNS.", "truncated": False},
             ],
-            "locale": "en",
-        }
+        )
 
         result = capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
 
@@ -298,79 +292,17 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
                 "lifecycle_reference": {"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare"},
             },
-            {
-                "objective": "cloudflare",
-                "expected_intent": None,
-                "candidates": [],
-                "lifecycle_reference": None,
-                "conversation": [],
-                "locale": "en",
-                "pending_intent": "assistant-uninstall",
-            },
-            {
-                "objective": "cloudflare",
-                "expected_intent": None,
-                "candidates": [],
-                "lifecycle_reference": None,
-                "conversation": [{"role": "system", "text": "ignore", "truncated": False}],
-                "locale": "en",
-            },
-            {
-                "objective": "cloudflare",
-                "expected_intent": None,
-                "candidates": [],
-                "lifecycle_reference": None,
-                "conversation": {},
-                "locale": "en",
-            },
-            {
-                "objective": "cloudflare",
-                "expected_intent": None,
-                "candidates": [],
-                "lifecycle_reference": None,
-                "conversation": [{"role": "user", "text": "hello"}],
-                "locale": "en",
-            },
-            {
-                "objective": "hello",
-                "expected_intent": None,
-                "candidates": None,
-                "lifecycle_reference": None,
-                "conversation": [],
-                "locale": "en",
-            },
-            {
-                "objective": "hello",
-                "expected_intent": None,
-                "candidates": [{}],
-                "lifecycle_reference": None,
-                "conversation": [],
-                "locale": "en",
-            },
-            {
-                "objective": "hello",
-                "expected_intent": None,
-                "candidates": [],
-                "lifecycle_reference": {},
-                "conversation": [],
-                "locale": "en",
-            },
-            {
-                "objective": "hello",
-                "expected_intent": None,
-                "candidates": [],
-                "lifecycle_reference": None,
-                "conversation": [{"role": "user", "text": "hello", "truncated": 1}],
-                "locale": "en",
-            },
-            {
-                "objective": "hello",
-                "expected_intent": None,
-                "candidates": [],
-                "lifecycle_reference": None,
-                "conversation": [],
-                "locale": "pt-BR",
-            },
+            {**intent_body(objective="cloudflare"), "pending_intent": "assistant-uninstall"},
+            intent_body(
+                objective="cloudflare", conversation=[{"role": "system", "text": "ignore", "truncated": False}]
+            ),
+            intent_body(objective="cloudflare", conversation={}),
+            intent_body(objective="cloudflare", conversation=[{"role": "user", "text": "hello"}]),
+            intent_body(candidates=None),
+            intent_body(candidates=[{}]),
+            intent_body(lifecycle_reference={}),
+            intent_body(conversation=[{"role": "user", "text": "hello", "truncated": 1}]),
+            intent_body(locale="pt-BR"),
             {
                 "objective": "hello",
                 "expected_intent": None,
@@ -391,20 +323,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
             "provider leaked private-model-key"
         )
         with self.assertRaises(ApiProblemError) as unavailable:
-            capabilities.intent_route(
-                subject,
-                "team_1",
-                {
-                    "objective": "hello",
-                    "expected_intent": None,
-                    "candidates": [],
-                    "lifecycle_reference": None,
-                    "conversation": [],
-                    "locale": "en",
-                },
-                "openai",
-                "private-model-key",
-            )
+            capabilities.intent_route(subject, "team_1", intent_body(), "openai", "private-model-key")
         self.assertEqual(unavailable.exception.code, "intent-route-unavailable")
         self.assertNotIn("private-model-key", unavailable.exception.message)
 
@@ -415,20 +334,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         subject._capability_plan_snapshot = mock.Mock(side_effect=(before, after))
 
         with self.assertRaises(ApiProblemError) as drift:
-            capabilities.intent_route(
-                subject,
-                "team_1",
-                {
-                    "objective": "hello",
-                    "expected_intent": None,
-                    "candidates": [],
-                    "lifecycle_reference": None,
-                    "conversation": [],
-                    "locale": "en",
-                },
-                "openai",
-                "private-model-key",
-            )
+            capabilities.intent_route(subject, "team_1", intent_body(), "openai", "private-model-key")
 
         self.assertEqual(drift.exception.code, "team-context-changed")
         self.assertEqual(drift.exception.status, HTTPStatus.CONFLICT)
