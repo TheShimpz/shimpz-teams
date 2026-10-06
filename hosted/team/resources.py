@@ -29,12 +29,7 @@ _CAPACITY_RETRY_MAX_SECONDS = 0.05
 
 
 def _validated_team_name(value: object) -> str:
-    if (
-        not isinstance(value, str)
-        or not 1 <= len(value) <= 80
-        or value.strip() != value
-        or any(ord(character) < 32 or ord(character) == 127 for character in value)
-    ):
+    if http_payload.canonical_team_name(value) is None:
         raise ValueError("Team name must contain 1 to 80 trimmed characters")
     return value
 
