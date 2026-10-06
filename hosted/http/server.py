@@ -79,6 +79,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_chat_result(self, result: dict, *, no_store: bool = True) -> None:
+        """A paused turn answers 428 and is never cached; ``no_store`` covers a completed one."""
+        paused = result.get("status") in hosted_assistants.CHAT_PAUSED_STATUSES
+        self._send_json(
+            HTTPStatus.PRECONDITION_REQUIRED if paused else HTTPStatus.OK, result, no_store=no_store or paused
+        )
+
     def _send_icon(self, contents: bytes) -> None:
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/png")
@@ -337,33 +344,29 @@ class Handler(BaseHTTPRequestHandler):
             binding["assurance"] = request.assurance
         target = request.params.get("team_id", request.route.operation)
         binding_digest: str | None = None
+
+        def audit_absent(result: str) -> str:
+            # The credential state and binding digest are read when the refusal is recorded.
+            return audit.log(
+                "human_authority",
+                target,
+                result=result,
+                principal_id=None,
+                principal_class="absent",
+                credential_state=self._audit_credential_state,
+                operation=request.route.operation,
+                **({"binding_digest": binding_digest} if binding_digest is not None else {}),
+            )
+
         try:
             binding_digest = account_authority.binding_digest(binding)
             evaluation = account_authority.evaluate(session_token, binding, request.assurance_handle)
         except account_authority.AuthorityDeniedError as exc:
             self._audit_credential_state = "credential_rejected"
-            self._audit_trace_id = audit.log(
-                "human_authority",
-                target,
-                result="denied",
-                principal_id=None,
-                principal_class="absent",
-                credential_state=self._audit_credential_state,
-                operation=request.route.operation,
-                **({"binding_digest": binding_digest} if binding_digest is not None else {}),
-            )
+            self._audit_trace_id = audit_absent("denied")
             raise runtime_state.ApiError(HTTPStatus.FORBIDDEN, "invalid or missing credentials") from exc
         except account_authority.AuthorityUnavailableError as exc:
-            self._audit_trace_id = audit.log(
-                "human_authority",
-                target,
-                result="error",
-                principal_id=None,
-                principal_class="absent",
-                credential_state=self._audit_credential_state,
-                operation=request.route.operation,
-                **({"binding_digest": binding_digest} if binding_digest is not None else {}),
-            )
+            self._audit_trace_id = audit_absent("error")
             raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Account authority is unavailable") from exc
         self._audit_account_id = evaluation.account_id
         self._audit_supervisor = evaluation.supervisor
@@ -718,12 +721,7 @@ class Handler(BaseHTTPRequestHandler):
             chars_out=len(str(result.get("reply", ""))),
             paused=result.get("status") in hosted_assistants.CHAT_PAUSED_STATUSES,
         )
-        paused = result.get("status") in hosted_assistants.CHAT_PAUSED_STATUSES
-        self._send_json(
-            HTTPStatus.PRECONDITION_REQUIRED if paused else HTTPStatus.OK,
-            result,
-            no_store=paused,
-        )
+        self._send_chat_result(result, no_store=False)
 
     def _route_chat_integrations(
         self,
@@ -749,12 +747,7 @@ class Handler(BaseHTTPRequestHandler):
             body["challenge_id"],
             request.lease,
         )
-        paused = result.get("status") in hosted_assistants.CHAT_PAUSED_STATUSES
-        self._send_json(
-            HTTPStatus.PRECONDITION_REQUIRED if paused else HTTPStatus.OK,
-            result,
-            no_store=True,
-        )
+        self._send_chat_result(result)
 
     def _route_chat_human(
         self,
@@ -778,12 +771,7 @@ class Handler(BaseHTTPRequestHandler):
             request.assurance,
             request.lease,
         )
-        paused = result.get("status") in hosted_assistants.CHAT_PAUSED_STATUSES
-        self._send_json(
-            HTTPStatus.PRECONDITION_REQUIRED if paused else HTTPStatus.OK,
-            result,
-            no_store=True,
-        )
+        self._send_chat_result(result)
 
     def _route_chat_stop(self, request: _AuthorizedRequest) -> None:
         runtime_state._enforce_rate("stop", request.principal)
