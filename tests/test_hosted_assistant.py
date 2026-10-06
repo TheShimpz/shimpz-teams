@@ -52,6 +52,13 @@ def _install_dynamic(incoming: object) -> dict[str, object]:
     return assistant_lifecycle._install_assistant("team_1", incoming, "creator_1", lease, authorize_start=lambda: None)
 
 
+def _account_request(path: dict[str, str] | None = None) -> object:
+    """An Account account_1 request already authorized for Team team_1 under a sentinel lease."""
+    return hosted_controller._AuthorizedRequest(
+        {} if path is None else path, "team_1", ("account", "account_1"), mock.sentinel.lease, {}
+    )
+
+
 class _RouteHarness:
     def __init__(self, body: dict | None = None) -> None:
         self.body = body
@@ -230,13 +237,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
 
     def test_assistant_publication_must_match_requested_identifier(self) -> None:
         source_digest = f"sha256:{'a' * 64}"
-        request = hosted_controller._AuthorizedRequest(
-            {},
-            "team_1",
-            ("account", "account_1"),
-            mock.sentinel.lease,
-            {},
-        )
+        request = _account_request()
         handler = object.__new__(app.Handler)
         handler._read_team_body = mock.Mock(
             return_value={
@@ -260,13 +261,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, HTTPStatus.NOT_FOUND)
 
     def test_lists_only_durable_dynamic_assistant_bindings(self) -> None:
-        request = hosted_controller._AuthorizedRequest(
-            {},
-            "team_1",
-            ("account", "account_1"),
-            mock.sentinel.lease,
-            {},
-        )
+        request = _account_request()
         handler = object.__new__(app.Handler)
         handler._send_json = mock.Mock()
         inventory = {
@@ -304,13 +299,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         )
 
     def test_serves_only_the_icon_resolved_by_the_team_binding(self) -> None:
-        request = hosted_controller._AuthorizedRequest(
-            {"assistant_id": "example-assistant"},
-            "team_1",
-            ("account", "account_1"),
-            mock.sentinel.lease,
-            {},
-        )
+        request = _account_request({"assistant_id": "example-assistant"})
         handler = object.__new__(app.Handler)
         handler._send_icon = mock.Mock()
 
@@ -324,13 +313,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         handler._send_icon.assert_called_once_with(b"bound icon")
 
     def test_serves_the_installed_summary_in_the_requested_language(self) -> None:
-        request = hosted_controller._AuthorizedRequest(
-            {"assistant_id": "example-assistant", "locale": "pt"},
-            "team_1",
-            ("account", "account_1"),
-            mock.sentinel.lease,
-            {},
-        )
+        request = _account_request({"assistant_id": "example-assistant", "locale": "pt"})
         handler = object.__new__(app.Handler)
         handler._send_json = mock.Mock()
         answer = {"locale": "pt", "summary": "Resumo."}
@@ -342,13 +325,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         handler._send_json.assert_called_once_with(HTTPStatus.OK, answer, no_store=True)
 
     def test_uninstall_reports_the_lifecycle_result(self) -> None:
-        request = hosted_controller._AuthorizedRequest(
-            {"assistant_id": "example-assistant"},
-            "team_1",
-            ("account", "account_1"),
-            mock.sentinel.lease,
-            {},
-        )
+        request = _account_request({"assistant_id": "example-assistant"})
         handler = object.__new__(app.Handler)
         handler._send_json = mock.Mock()
 
@@ -711,6 +688,17 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         action["human_requests"] = []
         return resolution
 
+    @staticmethod
+    def _dynamic_container(**attrs: object) -> types.SimpleNamespace:
+        """Team team_1's labeled dynamic hello-world runtime container with these extra Docker attributes."""
+        labels = {
+            "team.id": "team_1",
+            "team.assistant": "hello-world",
+            "team.assistant.runtime": "1",
+            "team.assistant.dynamic": "1",
+        }
+        return types.SimpleNamespace(attrs={"Config": {"Labels": labels}, **attrs})
+
     def test_dynamic_resolution_is_team_scoped_and_digest_bound(self) -> None:
         resolution = self._resolution()
 
@@ -728,18 +716,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
 
     def test_dynamic_resolution_is_a_trusted_isolation_role(self) -> None:
         resolution = self._resolution()
-        container = types.SimpleNamespace(
-            attrs={
-                "Config": {
-                    "Labels": {
-                        "team.id": "team_1",
-                        "team.assistant": "hello-world",
-                        "team.assistant.runtime": "1",
-                        "team.assistant.dynamic": "1",
-                    }
-                }
-            }
-        )
+        container = self._dynamic_container()
 
         with tempfile.TemporaryDirectory() as directory:
             store = dynamic_assistants.DynamicAssistantStore(Path(directory) / "bindings.json")
@@ -755,19 +732,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
 
     def test_dynamic_resolution_with_preloaded_spec_keeps_compact_posture(self) -> None:
         resolution = self._resolution()
-        container = types.SimpleNamespace(
-            attrs={
-                "Config": {
-                    "Labels": {
-                        "team.id": "team_1",
-                        "team.assistant": "hello-world",
-                        "team.assistant.runtime": "1",
-                        "team.assistant.dynamic": "1",
-                    }
-                },
-                "State": {"Running": True},
-            }
-        )
+        container = self._dynamic_container(State={"Running": True})
 
         with tempfile.TemporaryDirectory() as directory:
             store = dynamic_assistants.DynamicAssistantStore(Path(directory) / "bindings.json")
