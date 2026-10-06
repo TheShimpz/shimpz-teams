@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import threading
 from collections import OrderedDict
 from collections.abc import Mapping
@@ -12,6 +11,7 @@ from typing import Any
 
 from assistant import manifest as assistant_manifest
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
+from protocol.http.v1 import payload as http_payload
 
 PACK_PATH = "/opt/shimpz/shimpz.pack.json"
 MAX_PACK_BYTES = catalog_validator.MAX_PACK_BYTES
@@ -20,7 +20,6 @@ ENGLISH = "en"
 # A Team holds a few small packs in memory; the byte budget bounds a Space of large ones.
 DEFAULT_CACHE_ENTRIES = 256
 DEFAULT_CACHE_BYTES = 32 * 1024 * 1024
-_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
 class LanguagePackError(assistant_manifest.ManifestError):
@@ -51,7 +50,7 @@ def catalog_digest(machine_contract: Mapping[str, Any]) -> str:
 
 def admit_pack(raw: bytes, messages: list[dict[str, Any]], expected_digest: str) -> LanguagePack:
     """Admit exact pack bytes for an already-admitted catalog and its reviewed pack digest."""
-    if not isinstance(expected_digest, str) or _DIGEST_RE.fullmatch(expected_digest) is None:
+    if http_payload.canonical_pack_digest(expected_digest) is None:
         raise LanguagePackError("Assistant language pack digest is invalid")
     error = catalog_validator.pack_error(raw, messages)
     if error is not None:
