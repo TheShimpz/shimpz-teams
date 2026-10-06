@@ -202,40 +202,29 @@ def _redirect_uri(provider_id: str, value: object) -> str:
     return str(value)
 
 
-def _client_secret(value: object) -> str:
+def _printable_ascii(value: object, maximum: int, message: str) -> str:
+    """One opaque OAuth value: 16 to ``maximum`` bytes of visible ASCII (0x21-0x7e), never trimmed or echoed."""
     if not isinstance(value, str):
-        raise OAuthHTTPError("OAuth client configuration is invalid")
+        raise OAuthHTTPError(message)
     try:
         encoded = value.encode("ascii")
     except UnicodeError as exc:
-        raise OAuthHTTPError("OAuth client configuration is invalid") from exc
-    if not 16 <= len(encoded) <= MAX_CLIENT_SECRET_BYTES or any(byte <= 32 or byte >= 127 for byte in encoded):
-        raise OAuthHTTPError("OAuth client configuration is invalid")
+        raise OAuthHTTPError(message) from exc
+    if not 16 <= len(encoded) <= maximum or any(byte <= 32 or byte >= 127 for byte in encoded):
+        raise OAuthHTTPError(message)
     return value
+
+
+def _client_secret(value: object) -> str:
+    return _printable_ascii(value, MAX_CLIENT_SECRET_BYTES, "OAuth client configuration is invalid")
 
 
 def _authorization_code(value: object) -> str:
-    if not isinstance(value, str):
-        raise OAuthHTTPError("OAuth authorization response is invalid")
-    try:
-        encoded = value.encode("ascii")
-    except UnicodeError as exc:
-        raise OAuthHTTPError("OAuth authorization response is invalid") from exc
-    if not 16 <= len(encoded) <= 4096 or any(byte <= 32 or byte >= 127 for byte in encoded):
-        raise OAuthHTTPError("OAuth authorization response is invalid")
-    return value
+    return _printable_ascii(value, 4096, "OAuth authorization response is invalid")
 
 
 def _token(value: object) -> str:
-    if not isinstance(value, str):
-        raise OAuthHTTPError("OAuth provider response is invalid")
-    try:
-        encoded = value.encode("ascii")
-    except UnicodeError as exc:
-        raise OAuthHTTPError("OAuth provider response is invalid") from exc
-    if not 16 <= len(encoded) <= MAX_TOKEN_BYTES or any(byte <= 32 or byte >= 127 for byte in encoded):
-        raise OAuthHTTPError("OAuth provider response is invalid")
-    return value
+    return _printable_ascii(value, MAX_TOKEN_BYTES, "OAuth provider response is invalid")
 
 
 def _strict_object(payload: bytes) -> dict[str, object]:

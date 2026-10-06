@@ -306,6 +306,20 @@ class OAuthHTTPClientTests(unittest.TestCase):
             ):
                 function(value)
 
+        # Each opaque value admits exactly 16 to its own maximum bytes of 0x21-0x7e and fails with its own message.
+        for function, maximum, message in (
+            (integration_http._client_secret, integration_http.MAX_CLIENT_SECRET_BYTES, "client configuration"),
+            (integration_http._authorization_code, 4096, "authorization response"),
+            (integration_http._token, integration_http.MAX_TOKEN_BYTES, "provider response"),
+        ):
+            for value in ("!" * 16, "~" * maximum):
+                self.assertEqual(function(value), value)
+            for value in ("!" * 15, "!" * (maximum + 1), " " + "!" * 15, "!" * 15 + "\x7f", "!" * 15 + "\t"):
+                with self.subTest(function=function.__name__, value=value[:17]):
+                    with self.assertRaisesRegex(integration_http.OAuthHTTPError, message) as caught:
+                        function(value)
+                    self.assertNotIn(value, str(caught.exception))
+
         for payload in (b"", b"[]"):
             with self.subTest(payload=payload), self.assertRaises(integration_http.OAuthHTTPError):
                 integration_http._strict_object(payload)
