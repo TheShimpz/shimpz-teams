@@ -520,6 +520,7 @@ class UnrepresentableReferenceTests(unittest.TestCase):
         cases = [
             ({long_key: {"id": "safe-id123"}}, "x"),
             ({"items": [{"name": "beta", long_key: "safe-id123"}]}, "beta"),
+            ({long_key: [{"name": "named-item", "id": "safe-id123"}]}, "named-item"),
         ]
         for result, known in cases:
             with self.subTest(known=known):

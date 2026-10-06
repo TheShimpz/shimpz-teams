@@ -254,12 +254,19 @@ def _copied(value: object, earlier: list[trace.Occurrence], known: _Known) -> di
     return _selected(earlier[index].result, tokens, crossed[0], step, known)
 
 
+def _at(value: object, tokens: tuple[str, ...]) -> object:
+    """The node a position's tokens reach inside a kept value; every token names an existing member or index."""
+    for token in tokens:
+        value = value[int(token)] if isinstance(value, list) else value[token]
+    return value
+
+
 def _selected(
     result: trace.Kept, tokens: tuple[str, ...], place: int, step: str, known: _Known
 ) -> dict[str, object] | None:
     """A selector through one array: the item's single member the known text names and no other item may share."""
     array_tokens, rest = tokens[:place], tokens[place + 1 :]
-    items = routine_plan.select(result.value, _pointer(array_tokens))
+    items = _at(result.value, array_tokens)
     chosen = int(tokens[place])
     item = items[chosen]
     if not isinstance(item, dict):
