@@ -591,8 +591,10 @@ def _slot_input(
     # As the recorder classifies it: what the person named stays exactly that, before any date is the run date.
     if context.known.names(value):
         return member, "value", value
-    if value == _date_at(context.sends[call.send].started_at, "UTC").isoformat():
-        return member, "clock", None
+    clock = _clock(context, call, value)
+    if clock is not None:
+        # The recorder's own decision: the run date, or near local midnight a fixed literal.
+        return (member, "clock", None) if clock[1] == "clock" else (member, "value", value)
     # A value the recorder copies from a result, or asks about as an unsourced identifier, needs fresh provenance;
     # free text or a container no result holds stays the assistant's own literal, as the recorder keeps it.
     if _referable(value) and (_identifier(value) or _holders(context, call, value)):
