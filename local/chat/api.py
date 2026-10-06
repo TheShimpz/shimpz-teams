@@ -23,6 +23,7 @@ from local.errors import (
     integration_contract_unavailable,
     team_context_changed,
 )
+from local.routine import recorder as local_routine_recorder
 from local.validation import validate_chat_assistant_ids, validate_team_id
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import progress as http_progress
@@ -175,18 +176,22 @@ def _timezone(value: object) -> str | None:
     return value
 
 
-def _recording(self, team_id: str, identity: dict[str, object], send: tuple[str, list, str | None]) -> str | None:
+def _recording(
+    self, team_id: str, identity: dict[str, object], send: tuple[str, list, str | None, tuple]
+) -> str | None:
     """Open the recording of a new turn that may define a Routine, or None.
 
-    Only a person's fresh request without files records, in the Team incarnation it starts in (ADR-0101 section 4.1).
+    Only a person's fresh request without files records, in the Team incarnation it starts in (ADR-0101 section 4.1);
+    the person's earlier sends in the request's conversation window join the text whose names it matches.
     """
-    message, file_ids, timezone = send
+    message, file_ids, timezone, conversation = send
     principal = local_audit.human_principal()
     now = int(time.time())
     if principal is None or file_ids or not http_payload.request_identity_fresh(identity["issued_at"], now):
         return None
     incarnation = self.assistant_lifecycle._network(team_id).id
-    return self.routine_recordings.start(team_id, (principal, incarnation), message, timezone, now)
+    earlier = local_routine_recorder.earlier_sends(conversation)
+    return self.routine_recordings.start(team_id, (principal, incarnation), message, timezone, now, earlier=earlier)
 
 
 def chat(
@@ -241,7 +246,7 @@ def chat(
             return pending
         # The turn is admitted: its duration runs from here to its terminal, across every resume.
         usage = brain_usage.TurnUsage.start()
-        recording = _recording(self, team_id, identity, (message, file_ids, timezone))
+        recording = _recording(self, team_id, identity, (message, file_ids, timezone, conversation))
         try:
             segment = self._run_chat_segment(
                 _ChatSegmentRequest(

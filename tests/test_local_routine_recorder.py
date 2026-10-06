@@ -9,6 +9,7 @@ from unittest import mock
 
 from test_local_routine_proposal import ASSISTANT, PRINCIPAL, _record
 
+from inference import client as brain_runtime_client
 from install import bindings
 from local import app as local_app
 from local import audit as local_audit
@@ -58,6 +59,19 @@ class RecordingBookTests(unittest.TestCase):
         found = book.get("team_1", recording_id)
         self.assertEqual(found.refused, "routine-recording-too-large")
         self.assertLessEqual(sum(item.size for item in found.trace.occurrences), trace.MAX_TRACE_BYTES)
+
+    def test_only_the_persons_untruncated_earlier_sends_join_the_request(self) -> None:
+        conversation = (
+            brain_runtime_client.RuntimeConversationEntry("user", "DNS de shimpz.com", False),
+            brain_runtime_client.RuntimeConversationEntry("assistant", "zona other.org", False),
+            brain_runtime_client.RuntimeConversationEntry("user", "zona blog.dev cortada", True),
+            brain_runtime_client.RuntimeConversationEntry("user", "A cada hora", False),
+        )
+        self.assertEqual(routine_recorder.earlier_sends(conversation), ("DNS de shimpz.com", "A cada hora"))
+        book = routine_recorder.RecordingBook()
+        recording_id = book.start("team_1", (PRINCIPAL, "b" * 64), "Faça isso", None, 1, earlier=("DNS de shimpz.com",))
+        found = book.get("team_1", recording_id)
+        self.assertEqual((found.message, found.known), ("Faça isso", ("Faça isso", "DNS de shimpz.com")))
 
     def test_dropping_a_team_or_clearing_forgets_every_recording(self) -> None:
         book = routine_recorder.RecordingBook()

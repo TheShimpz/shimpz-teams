@@ -3,9 +3,11 @@
 A new Local chat turn that may change a Routine (a fresh authenticated request of a person, without files) opens one
 recording. Its id is the only thing a paused turn keeps, so the same logical turn goes on recording across a person's
 answer and an Integration resume in the same process, while every segment keeps its own execution token for Stop.
-The recording holds the turn's Team-admitted message, its principal, Team incarnation, timezone, start, the UTC date
-Brain pinned, every successful Action call as a kept occurrence, and the turn's protection: every value Team injected
-into an attempt before its RPC and every string at a secret position of every result. Nothing here persists: a Team
+The recording holds the turn's Team-admitted message and the person's untruncated earlier sends from the conversation
+window that same request carried (together the request whose names a recording matches), its principal, Team
+incarnation, timezone, start, the UTC date Brain pinned, every successful Action call as a kept occurrence, and the
+turn's protection: every value Team injected into an attempt before its RPC and every string at a secret position of
+every result. Nothing here persists: a Team
 restart leaves a resumed turn naming nothing, and its ``record`` is then unavailable. A recording ends with its logical
 turn, and a Team's recordings go with the Team.
 """
@@ -41,6 +43,13 @@ class Recording:
     refused: str = ""
     # The revision of every Routine the turn was shown, by id: only these, at exactly these revisions, may be replaced.
     revisions: tuple[tuple[str, int], ...] = ()
+    # The person's untruncated earlier sends in the conversation window the turn's request carried.
+    earlier: tuple[str, ...] = ()
+
+    @property
+    def known(self) -> tuple[str, ...]:
+        """The texts of the person's request whose names a recording matches, each on its own."""
+        return (self.message, *self.earlier)
 
 
 class RecordingBook:
@@ -50,12 +59,29 @@ class RecordingBook:
         self._guard = threading.Lock()
         self._recordings: dict[str, Recording] = {}
 
-    def start(self, team_id: str, binding: tuple[str, str], message: str, timezone: str | None, now: int) -> str:
+    def start(
+        self,
+        team_id: str,
+        binding: tuple[str, str],
+        message: str,
+        timezone: str | None,
+        now: int,
+        *,
+        earlier: tuple[str, ...] = (),
+    ) -> str:
         """Open the Team's recording turn, replacing any earlier one, and return its id."""
         principal, incarnation = binding
         recording_id = secrets.token_hex(16)
         opened = Recording(
-            recording_id, team_id, principal, incarnation, message, timezone, now, trace.Trace(None, now)
+            recording_id,
+            team_id,
+            principal,
+            incarnation,
+            message,
+            timezone,
+            now,
+            trace.Trace(None, now),
+            earlier=tuple(earlier),
         )
         with self._guard:
             self._recordings[team_id] = opened
@@ -112,6 +138,11 @@ class RecordingBook:
     def clear(self) -> None:
         with self._guard:
             self._recordings.clear()
+
+
+def earlier_sends(conversation: Iterable[object]) -> tuple[str, ...]:
+    """The person's own earlier sends in a conversation window: never the assistant's, and never a truncated one."""
+    return tuple(entry.text for entry in conversation if entry.role == "user" and not entry.truncated)
 
 
 def recorded(book: RecordingBook, recording: tuple[str, str], call: tuple, invoke: Callable[[], object]) -> object:

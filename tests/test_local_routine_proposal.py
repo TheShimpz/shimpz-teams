@@ -199,6 +199,24 @@ class RecordedRoutineTests(LocalContractCase):
         (notice,) = state.notices
         self.assertEqual((notice.outcome, notice.name, notice.usage), ("created", "DNS de shimpz.com", None))
 
+    def test_a_zone_the_person_named_in_an_earlier_send_selects_the_zone_id(self) -> None:
+        body = _body("Faça isso a cada 30 segundos")
+        body["conversation"] = [
+            {"role": "user", "text": "Liste os registros DNS de shimpz.com", "truncated": False},
+            {"role": "assistant", "text": "Listei os registros.", "truncated": False},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, Recording(_record()))
+            card = self.chat(service, body)["routine_proposal"]
+        zone_id = next(item for item in card["steps"][1]["inputs"] if item["member"] == "zone_id")
+        self.assertEqual((zone_id["origin"], zone_id["where"]["value_json"]), ("selector", '"shimpz.com"'))
+        # Without the earlier send, nothing the person wrote names the zone, so its id is the assistant's literal.
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, Recording(_record()))
+            alone = self.chat(service, _body("Faça isso a cada 30 segundos"))["routine_proposal"]
+        zone_id = next(item for item in alone["steps"][1]["inputs"] if item["member"] == "zone_id")
+        self.assertEqual(zone_id["origin"], "assistant")
+
     def test_cancelling_revokes_the_card_and_it_never_confirms(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))

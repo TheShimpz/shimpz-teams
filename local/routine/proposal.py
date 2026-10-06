@@ -243,8 +243,8 @@ def _recorded(outcome, recording, timezone: str, contracts, existing: record.Rou
     traced = dataclasses.replace(recording.trace, turn_date=_turn_date(outcome["turn_date"], recording.started_at))
     try:
         if existing is not None and not traced.occurrences:
-            return routine_recording.kept(existing.plan, choice, (recording.message,), recording.protection, contracts)
-        return routine_recording.record(traced, choice, (recording.message,), recording.protection, contracts)
+            return routine_recording.kept(existing.plan, choice, recording.known, recording.protection, contracts)
+        return routine_recording.record(traced, choice, recording.known, recording.protection, contracts)
     except routine_recording.RecordingError as exc:
         raise RefusedError(exc.code) from exc
 
