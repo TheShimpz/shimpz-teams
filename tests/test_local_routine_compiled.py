@@ -17,7 +17,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
-from test_local_routine_service import KEY, RoutineServiceCase, approval
+from test_local_routine_service import RoutineServiceCase, approval
 
 from action import execution as action_execution
 from action import failure as action_failure
@@ -25,7 +25,6 @@ from action import human as action_human
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 from local import app as local_app
-from local import authority as local_authority
 from local.routine import compiled as routine_compiled
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import incident as routine_incident
@@ -68,16 +67,8 @@ class CompiledRunCase(RoutineServiceCase):
         value = self.routine(service, plan=plan)
         return controller, service, brain, value
 
-    @staticmethod
-    def run_without_key(service, claim: dict[str, object]) -> dict[str, object]:
-        evidence = local_authority.RoutineEvidence(KEY, record.lease_sha256(claim["lease_token"]), "a" * 32, 0)
-        return service.run_routine(
-            "team_1",
-            claim["run_id"],
-            evidence,
-            (claim["revision"], claim["plan_digest"], claim["mode"]),
-            ("openai", ""),
-        )
+    def run_without_key(self, service, claim: dict[str, object]) -> dict[str, object]:
+        return self.run_claim(service, claim, "")
 
 
 class ExecutionTests(CompiledRunCase):

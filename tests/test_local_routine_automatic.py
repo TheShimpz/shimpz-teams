@@ -14,12 +14,11 @@ from local_assistant_fixture import mutating_spec
 from test_local_chat_scope import LOOKUP_INPUT
 from test_local_routine_compiled import ZONE
 from test_local_routine_recovery import RECORD, Assistant, RecoveryCase, failed
-from test_local_routine_service import API_KEY, ASSISTANT, KEY
+from test_local_routine_service import API_KEY, ASSISTANT
 
 from inference import client as inference_client
 from inference import config as inference_config
 from inference import recovery as inference_recovery
-from local import authority as local_authority
 from local.routine import recovery as routine_recovery
 from routine import hold as routine_hold
 from routine import record
@@ -93,14 +92,7 @@ class AutomaticCase(RecoveryCase):
         )
         value = self.routine(service, plan=plan)
         claim = service.claim_routine_run()
-        evidence = local_authority.RoutineEvidence(KEY, record.lease_sha256(claim["lease_token"]), "a" * 32, 0)
-        self.status = service.run_routine(
-            "team_1",
-            claim["run_id"],
-            evidence,
-            (claim["revision"], claim["plan_digest"], claim["mode"]),
-            ("openai", key),
-        )["status"]
+        self.status = self.run_claim(service, claim, key)["status"]
         return service, brain, value, claim["run_id"]
 
 

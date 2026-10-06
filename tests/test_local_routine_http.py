@@ -68,17 +68,6 @@ class RoutineHttpCase(RoutineServiceCase):
             patch.start()
             self.addCleanup(patch.stop)
 
-    def run_claim(self, service, claim: dict[str, object]) -> dict[str, object]:
-        lease = hashlib.sha256(claim["lease_token"].encode("ascii")).hexdigest()
-        evidence = local_authority.RoutineEvidence(self.fingerprint, lease, "a" * 32, 0)
-        return service.run_routine(
-            "team_1",
-            claim["run_id"],
-            evidence,
-            (claim["revision"], claim["plan_digest"], claim["mode"]),
-            ("openai", API_KEY),
-        )
-
     def serve(self, directory: str, runtime: Runtime):
         controller, service = self.service(directory, runtime)
         self.server = server.BoundedServer(("127.0.0.1", 0), server.Handler, controller, TOKEN)

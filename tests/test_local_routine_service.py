@@ -176,14 +176,19 @@ class RoutineServiceCase(LocalContractCase):
         )
         return value
 
-    def run_claim(self, service, claim: dict[str, object]) -> dict[str, object]:
-        evidence = local_authority.RoutineEvidence(KEY, record.lease_sha256(claim["lease_token"]), "a" * 32, 0)
+    # The Routine key's fingerprint the Team admits; the HTTP cases sign with a real key and set theirs.
+    fingerprint = KEY
+
+    def run_claim(self, service, claim: dict[str, object], key: str = API_KEY) -> dict[str, object]:
+        """Run a claimed run under its lease with this model key ("" runs it without one)."""
+        lease = record.lease_sha256(claim["lease_token"])
+        evidence = local_authority.RoutineEvidence(self.fingerprint, lease, "a" * 32, 0)
         return service.run_routine(
             "team_1",
             claim["run_id"],
             evidence,
             (claim["revision"], claim["plan_digest"], claim["mode"]),
-            ("openai", API_KEY),
+            ("openai", key),
         )
 
     def answer_human(
