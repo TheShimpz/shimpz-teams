@@ -244,6 +244,7 @@ def _continue_paused(
             locale=pending.locale,
             progress=progress or chat_progress.Reporter(),
             recording=pending.recording,
+            model=pending.model,
         )
     )
     return self._segment_response(

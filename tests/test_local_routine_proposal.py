@@ -469,23 +469,28 @@ class RecordedRoutineTests(LocalContractCase):
             [(False, "gpt-6-luna"), (False, "gpt-6-luna")],
         )
 
-    def test_every_segment_of_a_routine_mode_turn_keeps_the_routine_model(self) -> None:
+    def test_a_start_reads_its_span_and_a_resume_keeps_the_model_its_start_pinned(self) -> None:
         book = local_routine_recorder.RecordingBook()
         started = local_routine_recorder.Started("A cada 30 segundos", (), None)
         recording = book.start("team_1", (PRINCIPAL, "i"), started, int(time.time()))
         controller = SimpleNamespace(routine_recordings=book)
         config = inference_config.normalize("openai", "gpt-6-luna")
-        for continuation, routine, expected in (
-            (None, None, local_segment.ROUTINE_OPENAI_MODEL),
-            (object(), None, local_segment.ROUTINE_OPENAI_MODEL),
+        sol = local_segment.ROUTINE_OPENAI_MODEL
+        cases = (
+            (None, None, sol),
             (None, object(), "gpt-6-luna"),
-        ):
-            request = SimpleNamespace(team_id="team_1", recording=recording, continuation=continuation, routine=routine)
-            with self.subTest(continuation=continuation, routine=routine):
+            (sol, None, sol),
+            ("gpt-6-luna", None, "gpt-6-luna"),
+        )
+        for model, routine, expected in cases:
+            request = SimpleNamespace(team_id="team_1", recording=recording, model=model, routine=routine)
+            with self.subTest(model=model, routine=routine):
                 self.assertEqual(local_segment._turn_model(controller, request, config), expected)
         book.drop("team_1")
-        request = SimpleNamespace(team_id="team_1", recording=recording, continuation=object(), routine=None)
-        self.assertEqual(local_segment._turn_model(controller, request, config), "gpt-6-luna")
+        for model, expected in ((None, "gpt-6-luna"), (sol, sol)):
+            request = SimpleNamespace(team_id="team_1", recording=recording, model=model, routine=None)
+            with self.subTest(model=model, span=None):
+                self.assertEqual(local_segment._turn_model(controller, request, config), expected)
 
     def test_only_a_target_chosen_by_its_exact_json_text_skips_the_brain(self) -> None:
         original = "Liste os registros DNS a cada 30 segundos e mostre o resultado"

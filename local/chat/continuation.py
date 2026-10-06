@@ -83,6 +83,9 @@ class PendingLocalChat:
     # The memory-only recording a new turn may define a Routine from, by id; it carries no message and no secret, and
     # a Team restart leaves it naming nothing (ADR-0101 section 4.1).
     recording: str | None = None
+    # The model the turn's start ran on, of its provider, which every resume runs and is metered on; a Routine run,
+    # which asks no model, carries none.
+    model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +211,7 @@ def _pending_payload(pending: PendingLocalChat) -> dict[str, object]:
         "usage": _usage_payload(pending.usage),
         "paused_batch": pending.paused_batch,
         "recording": pending.recording,
+        "model": pending.model,
     }
 
 
@@ -606,6 +610,7 @@ def _pending(value: object) -> PendingLocalChat:
             "usage",
             "paused_batch",
             "recording",
+            "model",
         },
         "pending continuation",
     )
@@ -638,6 +643,11 @@ def _pending(value: object) -> PendingLocalChat:
     recording = raw["recording"]
     if recording is not None and (not isinstance(recording, str) or _RECORDING_RE.fullmatch(recording) is None):
         raise ContinuationCodecError("pending recording is malformed")
+    model = raw["model"]
+    if model is not None and (
+        not isinstance(model, str) or model not in inference_config.PROVIDERS[provider]["models"]
+    ):
+        raise ContinuationCodecError("pending model is malformed")
     return PendingLocalChat(
         continuation=_continuation(raw["continuation"]),
         assistant_ids=assistant_ids,
@@ -650,6 +660,7 @@ def _pending(value: object) -> PendingLocalChat:
         usage=_usage(raw["usage"]),
         paused_batch=raw["paused_batch"],
         recording=recording,
+        model=model,
     )
 
 

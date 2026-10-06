@@ -100,6 +100,7 @@ def _segment_response(
             usage=None if response.usage is None else response.usage.joined(),
             paused_batch=segment.paused_batch,
             recording=response.recording,
+            model=segment.model,
         )
 
     def save_knowledge(terminal: chat_orchestrator.ChatOutcome) -> None:

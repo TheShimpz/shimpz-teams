@@ -451,6 +451,23 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             ):
                 local_chat_continuations.decode_parts("integrations", json.dumps(document).encode(), bindings)
 
+    def test_a_paused_turn_keeps_only_a_model_of_its_provider(self) -> None:
+        requirement = integration_requirement("dns.read")
+        for model in (None, "gpt-6.1-sol"):
+            bindings, payload = local_chat_continuations.encode(
+                "integrations", requirement, dataclasses.replace(pending(), model=model)
+            )
+            decoded = local_chat_continuations.decode_parts("integrations", payload, bindings)
+            self.assertEqual(decoded.pending.model, model)
+        for value in ("claude-sonnet-5-5", "gpt-unknown", 7, ["gpt-6.1-sol"]):
+            document = json.loads(payload)
+            document["pending"]["model"] = value
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "pending model"),
+            ):
+                local_chat_continuations.decode_parts("integrations", json.dumps(document).encode(), bindings)
+
     def test_restart_preserves_the_monotonic_human_request_budget(self) -> None:
         requirement = integration_requirement("dns.read")
         state = replace(pending(), requests_used=action_human.MAX_REQUESTS_PER_TURN)

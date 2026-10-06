@@ -7,6 +7,7 @@ import dataclasses
 import json
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
@@ -24,8 +25,11 @@ from action import challenges as action_challenges
 from action import human as action_human
 from inference import client as brain_runtime_client
 from inference import usage as brain_usage
+from local import audit as local_audit
 from local.chat import api as local_chat_api
 from local.chat import continuation
+from local.chat import segment as local_segment
+from local.routine import recorder as local_routine_recorder
 from protocol.http.v1 import payload as http_payload
 from tests import human_request_fixtures
 
@@ -202,6 +206,62 @@ class LocalTurnUsageTests(LocalContractCase):
         self.assertNotIn("usage", paused)
         self.assertEqual(completed["reply"], "Two zones.")
         expected = {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 718, "output_tokens": 58}
+        self.assertEqual(completed["usage"], {"duration_ms": 49_000, "models": [expected]})
+
+    def test_a_routine_mode_turn_keeps_its_starting_model_after_its_span_expires(self) -> None:
+        action = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
+        models: list[tuple[str, str]] = []
+
+        class Runtime:
+            # Like the Brain client, each call is metered against the model its context names.
+            def start(self, context, _message, *, conversation=()):
+                models.append((context.provider, context.model))
+                brain_usage.record("turn", context.provider, context.model, _reported(100, 10))
+                return brain_runtime_client.RuntimeTurn("action-required", "", (action,))
+
+            def purpose(self, *_args):
+                return "To list your zones, I need to read them in Cloudflare."
+
+            def resume(self, context, _results):
+                models.append((context.provider, context.model))
+                brain_usage.record("turn-resume", context.provider, context.model, _reported(200, 20))
+                return brain_runtime_client.RuntimeTurn("completed", "Two zones.", ())
+
+        def invoke(*args):
+            if not args[4].transcript.responses:
+                raise action_human.HumanRequestSuspensionError(_approval())
+            return {"result": LOOKUP_RESULT}
+
+        later = [0]
+        body = {
+            **chat_body("List zones every 30 seconds", assistant_ids=["shimpz-cloudflare"], locale="en"),
+            "request": {"issued_at": int(time.time()) + 1, "nonce": "0" * 32},
+        }
+        principal = local_audit.AuditPrincipal("a" * 32, "human")
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(local_audit, "record_request", return_value="a" * 32),
+            local_audit.bind_request_principal(principal),
+        ):
+            controller = self._chat_controller(directory, Runtime())
+            controller.assistant_lifecycle.invoke = invoke
+            controller.routine_recordings = local_routine_recorder.RecordingBook(lambda: time.time() + later[0])
+            service = controller.chat_turn_service
+            service.routine_recordings = controller.routine_recordings
+            with brain_usage.metered(), _clock(1_000):
+                paused = service.chat("team_1", body, "openai", "sk-test-0123456789")
+            later[0] = local_routine_recorder.SPAN_SECONDS + 1
+            answer = {"challenge_id": paused["challenge_id"], "decision": "submit", "value": True}
+            with (
+                brain_usage.metered(),
+                _clock(50_000),
+                mock.patch.object(local_chat_api.chat_knowledge, "learned_skill", return_value=None),
+            ):
+                completed = service.resume_chat_human("team_1", answer, "openai", "sk-test-0123456789")
+
+        sol = local_segment.ROUTINE_OPENAI_MODEL
+        self.assertEqual(models, [("openai", sol), ("openai", sol)])
+        expected = {"provider": "openai", "model": sol, "input_tokens": 300, "output_tokens": 30}
         self.assertEqual(completed["usage"], {"duration_ms": 49_000, "models": [expected]})
 
     def test_an_integration_resume_adds_its_calls_to_the_carried_turn(self) -> None:

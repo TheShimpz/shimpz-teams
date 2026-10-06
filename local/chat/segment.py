@@ -78,6 +78,8 @@ class SegmentRequest:
     # The recording of a new logical chat turn that may define a Routine, by id (ADR-0101 section 4.1): only its start
     # offers the Brain the Team's Routines and its Routine tool, and every segment of it keeps its Action calls.
     recording: str | None = None
+    # The model a chat turn's start ran on; a continuation carries it, so every resume runs and is metered on it.
+    model: str | None = None
 
 
 def _protector(self, request: SegmentRequest) -> Callable[[tuple[str, ...]], object] | None:
@@ -215,11 +217,9 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
 
 
 def _turn_model(self, request: SegmentRequest, config: inference_config.InferenceConfig) -> str:
-    """The Team's model, except a chat turn about a Routine on OpenAI, at its start and at every resume.
-
-    A resume reads the span its start read, which records only between turns; once that span has expired or a newer
-    send replaced it, the turn continues on the Team's model.
-    """
+    """The model a turn's start pinned, or for a start the Team's, except a chat turn about a Routine on OpenAI."""
+    if request.model is not None:
+        return request.model
     routed = (
         request.routine is None
         and request.recording is not None
@@ -319,6 +319,7 @@ def _run_chat_segment_with_metadata(
     network_id = ""
     contracts: tuple[tuple[str, str], ...] = ()
     selected_files: dict[str, action_files.ActionFile] = {}
+    model: str | None = None
 
     def execute_action(
         action_request: brain_runtime_client.ActionRequest, private_inputs: object, operation_id: str
@@ -360,7 +361,7 @@ def _run_chat_segment_with_metadata(
         return _human_requirement(self, bindings, action_request, human_request, locale, selected_files)
 
     def prepare() -> chat_turn_engine.PreparedSegment:
-        nonlocal bindings, identity, network_id, contracts, selected_files
+        nonlocal bindings, identity, network_id, contracts, selected_files, model
         team_name, network_id, assistants, files, config = self._chat_setup(
             request.team_id,
             request.file_ids,
@@ -397,6 +398,7 @@ def _run_chat_segment_with_metadata(
         )
         bindings = {active.spec.assistant_id: active for active in assistants}
         selected_files = action_files.selected(context.attachments)
+        model = context.model
         held = routine is not None and routine.held
         batch = (action_execution.HeldActionBatch if held else action_execution.ActionBatch)(
             self.action_state,
@@ -486,4 +488,5 @@ def _run_chat_segment_with_metadata(
         contracts,
         request.locale,
         paused_batch=requirements.paused_batch,
+        model=model,
     )

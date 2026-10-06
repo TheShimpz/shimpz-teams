@@ -60,6 +60,8 @@ class SegmentResult:
     locale: str | None = None
     # The fingerprint of the Action batch a human request paused; None for any other outcome.
     paused_batch: str | None = None
+    # The model the segment's Brain ran on, which a suspension keeps for the rest of the turn.
+    model: str | None = None
 
     def requirement_groups(self) -> tuple[tuple[object, ...], ...]:
         return self.integrations, self.human
