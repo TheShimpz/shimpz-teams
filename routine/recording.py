@@ -145,8 +145,9 @@ class Asked:
     wire: dict[str, object] | None = None
     # Every target choice the person already answered, each bound until the span ends.
     chosen: tuple[Pending, ...] = ()
-    # The Action whose result the work showed when Team asked for the output, which a chain must use.
-    chained_from: tuple[str, str] | None = None
+    # The call whose result the work showed when Team asked for the output, which a chain must use: its Assistant,
+    # Action, and input as JSON text.
+    chained_from: tuple[str, str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +161,7 @@ class Question:
     pending: Pending | None = field(default=None, compare=False)
     manifest: Manifest | None = field(default=None, compare=False)
     chosen: tuple[Pending, ...] = field(default=(), compare=False)
-    chained_from: tuple[str, str] | None = field(default=None, compare=False)
+    chained_from: tuple[str, str, str] | None = field(default=None, compare=False)
     # The first send whose calls count: the send that settled a rerun, or 0.
     frontier: int = field(default=0, compare=False)
 
@@ -249,6 +250,8 @@ class _Context:
     replays_changes: bool = True
     # The send that settled a rerun: no call before it counts as split work.
     frontier: int = 0
+    # The call each step of the plan stands for, by step id.
+    planned: dict[str, trace.Occurrence] = field(default_factory=dict)
     # Every call's source representative, and each plan call's classified inputs and their origins.
     classes: dict[int, int] = field(default_factory=dict)
     inputs: dict[int, tuple[dict[str, dict[str, object]], dict[str, str]]] = field(default_factory=dict)
@@ -297,9 +300,10 @@ def record(
             when = _schedule(sends, existing)
         planned = kept.document if kept is not None else document
         chained_from = asked.chained_from if asked is not None else None
-        if stated is None or (stated == "chain" and not _chained(planned["steps"], chained_from)):
-            # Asked first, the question keeps what the work would show, which a chain chosen then must use.
-            raise _AskError(Question("routine-output-unstated", chained_from=chained_from or _shown_action(planned)))
+        if stated is None or (stated == "chain" and not _chained(context, planned["steps"], chained_from)):
+            # Asked first, the question keeps the call the work would show, which a chain chosen then must use.
+            shown = chained_from or _shown_call(context, planned)
+            raise _AskError(Question("routine-output-unstated", chained_from=shown))
     except _AskError as asking:
         return _asked(context, work, asking.question, frontier)
     if kept is not None:
@@ -417,23 +421,35 @@ def _schedule(sends: Sequence[Send], existing: Existing | None) -> dict[str, obj
 _OUTPUT_MODES = {"show": "show", "changes": "changes", "none": "none", "chain": "show"}
 
 
-def _chained(steps: Sequence[Mapping[str, object]], chained_from: tuple[str, str] | None) -> bool:
+def _chained(
+    context: _Context, steps: Sequence[Mapping[str, object]], chained_from: tuple[str, str, str] | None
+) -> bool:
     """Whether a plan's work uses the result a chain is about: a later step reads it.
 
-    Chosen when Team asked for the output, the chain must use the result of the Action the work would then have shown;
-    stated with the request, any earlier result some step reads.
+    Chosen when Team asked for the output, the chain must use the result of the very call the work would then have
+    shown, the same Action with the same input; stated with the request, any earlier result some step reads.
     """
     read = {source["step"] for step in steps for source in step["input"].values() if source["kind"] == "step_output"}
-    return any(
-        step["id"] in read and (chained_from is None or (step["assistant"], step["action"]) == chained_from)
-        for step in steps
+    return any(step["id"] in read and _is_call(context, step, chained_from) for step in steps)
+
+
+def _is_call(context: _Context, step: Mapping[str, object], call: tuple[str, str, str] | None) -> bool:
+    if call is None:
+        return True
+    occurrence = context.planned.get(step["id"])
+    return (
+        occurrence is not None
+        and (occurrence.assistant, occurrence.action) == call[:2]
+        and routine_plan.same(occurrence.input.value, json.loads(call[2]))
     )
 
 
-def _shown_action(document: Mapping[str, object]) -> tuple[str, str] | None:
-    """The Action of the step a plan shows, or None when it shows none."""
-    shown = document["output"]["step"]
-    return next(((step["assistant"], step["action"]) for step in document["steps"] if step["id"] == shown), None)
+def _shown_call(context: _Context, document: Mapping[str, object]) -> tuple[str, str, str] | None:
+    """The call of the step a plan shows, or None when it shows none or stands for no call of the span."""
+    occurrence = context.planned.get(document["output"]["step"])
+    if occurrence is None:
+        return None
+    return occurrence.assistant, occurrence.action, _json_text(occurrence.input.value)
 
 
 def _output(sends: Sequence[Send], existing: Existing | None) -> str | None:
@@ -525,6 +541,7 @@ def _plan(context: _Context, recording: Recording, work: list[_Call]) -> tuple[d
     _split(context, work, nodes)
     order = _ordered(context, nodes)
     names = {node: f"s{position}" for position, node in enumerate(order, start=1)}
+    context.planned = {names[node]: nodes[node].occurrence for node in order}
     steps = [_step(context, nodes[node], names) for node in order]
     origins = {names[node]: context.inputs[node][1] for node in order}
     work_nodes = {context.classes[call.index] for call in work}

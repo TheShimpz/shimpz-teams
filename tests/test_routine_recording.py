@@ -1058,7 +1058,7 @@ class OutputTests(unittest.TestCase):
         work = _send(ZONES_CALL, records, message="DNS de shimpz.com a cada hora")
         asked = _record(work, mode=None)
         self.assertEqual(
-            (asked.code, asked.chained_from), ("routine-output-unstated", ("cloudflare", "list-dns-records"))
+            (asked.code, asked.chained_from[:2]), ("routine-output-unstated", ("cloudflare", "list-dns-records"))
         )
         chain = _send(message=http_routine.OUTPUT_CHOICES["pt"]["chain"])
         # Recording again with no new Action, or repeating the same work, uses no result of the records listing.
@@ -1066,12 +1066,25 @@ class OutputTests(unittest.TestCase):
             with self.subTest(later=len(later)):
                 again = _record(work, chain, *later, asked=_asked(asked, 1), mode=None)
                 self.assertEqual(
-                    (again.code, again.chained_from), ("routine-output-unstated", ("cloudflare", "list-dns-records"))
+                    (again.code, again.chained_from[:2]),
+                    ("routine-output-unstated", ("cloudflare", "list-dns-records")),
                 )
         post = ("reports/post", {"record": "rec-1234567"}, {})
         chained = _recorded(work, chain, _send(ZONES_CALL, records, post), asked=_asked(asked, 1), mode=None)
         self.assertEqual(_actions(chained), ["list-zones", "list-dns-records", "post"])
         self.assertEqual(chained.document["output"]["mode"], "show")
+
+    def test_a_chain_must_use_the_shown_call_itself_not_another_call_of_its_action(self) -> None:
+        alpha = ("reports/fetch", {"q": "alpha"}, {"id": "aaa-111111"})
+        beta = ("reports/fetch", {"q": "beta"}, {"id": "bbb-222222"})
+        work = _send(alpha, beta, message="relatório a cada hora")
+        asked = _record(work, mode=None)
+        self.assertEqual(asked.code, "routine-output-unstated")
+        chain = _send(message=http_routine.OUTPUT_CHOICES["pt"]["chain"])
+        wrong = _send(alpha, beta, ("reports/post", {"x": "aaa-111111"}, {}))
+        self.assertEqual(_record(work, chain, wrong, asked=_asked(asked, 1), mode=None).code, asked.code)
+        right = _send(alpha, beta, ("reports/post", {"x": "bbb-222222"}, {}))
+        self.assertIsInstance(_record(work, chain, right, asked=_asked(asked, 1), mode=None), recording.Recorded)
 
     def test_no_output_or_two_in_one_segment_are_asked_never_guessed(self) -> None:
         for message in ("a cada hora", "a cada hora. Mostrar sempre. Ou só quando mudar."):
