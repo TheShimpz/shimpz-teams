@@ -583,6 +583,22 @@ class WatchdogRecoveryTests(CompiledRunCase):
         # The step-zero cursor bound in the earlier boot is sealed as lost before the run ends.
         self.assertTrue(sealed[-1].protection_lost)
 
+    def test_a_loss_observed_after_the_run_ended_is_sealed_in_its_cursor_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, _brain, value = self.compiled(directory, None)
+            compiled = RuntimeTests.runtime(self, service, value)
+            run_id = compiled.cursor.binding.run_id
+            stale = record.run(self.state(service), run_id)
+            stale = dataclasses.replace(stale, generation=f"{'a' * 64}:routine:{run_id}")
+            service.routine_store.update(
+                "team_1", lambda state: (record.end(state, run_id, 0, "stopped", {"actions": []}), None)
+            )
+            service.routine_protections = local_routine_protection.RunProtections()
+            lost = routine_compiled.observe_loss(service, "team_1", stale)
+            cursor = service.routine_store.cursor("team_1", compiled.cursor.binding)
+            runs = self.state(service).runs
+        self.assertEqual((lost, cursor.protection_lost, runs), (True, True, ()))
+
     def test_a_crash_before_any_dispatch_fails_the_run_interrupted(self) -> None:
         def patch(_service):
             return mock.patch.object(routine_compiled.CompiledRuntime, "dispatching", side_effect=Crash)
