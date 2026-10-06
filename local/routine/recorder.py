@@ -350,15 +350,8 @@ def _rerun_input(span: Span, slot: routine_recording.Slot, item: tuple[str, str,
         )
         return {**shown, "value": text if visible else None, "chosen": chosen}
     if kind == "fresh":
-        source = next(
-            (
-                {"assistant": occurrence.assistant, "action": occurrence.action}
-                for send in span.sends
-                for occurrence in send.occurrences
-                if occurrence.read_only and routine_recording.returned(occurrence, value)
-            ),
-            None,
-        )
+        found = dict(slot.sources).get(member)
+        source = None if found is None else {"assistant": found[0], "action": found[1]}
         return {**shown, "source": source}
     return shown
 

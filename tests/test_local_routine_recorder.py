@@ -297,6 +297,15 @@ class RecordingBookTests(unittest.TestCase):
         shown = routine_recorder.rerun_work(self.span((recording_cases._send(),), ordinary))
         self.assertEqual(http_routine.canonical_rerun(shown), list(shown))
 
+    def test_a_call_is_never_suggested_as_its_own_source(self) -> None:
+        remembered = "f" * 32
+        echo = ("cloudflare/list-dns-records", {"zone_id": remembered}, {"zone_id": remembered})
+        work = recording_cases._send(echo, message="DNS a cada hora")
+        asked = recording_cases._record(work)
+        self.assertEqual(asked.code, "routine-binding-unsourced")
+        (entry,) = routine_recorder.rerun_work(self.span((work,), asked))
+        self.assertEqual(entry["inputs"][0]["source"], None)
+
     def test_a_protected_value_is_withheld_even_where_json_escaping_would_hide_it(self) -> None:
         secret = 'tok"en\\1'
         slot = routine_recording.Slot(

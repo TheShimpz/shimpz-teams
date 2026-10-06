@@ -108,12 +108,14 @@ class Slot:
 
     Each input is (member, kind, value): ``value`` must be sent exactly; ``clock`` must be the date its own send
     started on, in UTC; ``fresh`` must be a value one of the rerun send's own results holds, so its provenance is new,
-    and ``value`` then keeps the value the work sent, so distinct values stay distinct in the rerun.
+    and ``value`` then keeps the value the work sent, so distinct values stay distinct in the rerun. ``sources`` names,
+    for a fresh member, the Action of the earliest eligible source that returned its value, never the call itself.
     """
 
     action: tuple[str, str]
     read_only: bool
     inputs: tuple[tuple[str, str, object], ...]
+    sources: tuple[tuple[str, tuple[str, str]], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -569,7 +571,12 @@ def _manifest(context: _Context, calls: Sequence[_Call], chosen: Sequence[Pendin
         inputs = tuple(
             _slot_input(context, call, (member, value), chosen) for member, value in sorted(given.value.items())
         )
-        slots.append(Slot(call.action, call.read_only, inputs))
+        sources = tuple(
+            (member, context.calls[min(holders)].action)
+            for member, kind, value in inputs
+            if kind == "fresh" and (holders := _holders(context, call, value))
+        )
+        slots.append(Slot(call.action, call.read_only, inputs, sources))
     return Manifest(tuple(slots))
 
 
@@ -645,7 +652,7 @@ def _only_sources(send: Send, state: _Assignment) -> bool:
     """Whether every call the slots did not take is a read-only call returning a fresh value they sent."""
     sent = [json.loads(text) for text in state.backward]
     return all(
-        occurrence.read_only and any(returned(occurrence, value) for value in sent)
+        occurrence.read_only and any(_returned(occurrence, value) for value in sent)
         for place, occurrence in enumerate(send.occurrences)
         if place not in state.taken
     )
@@ -674,12 +681,12 @@ def _fills(
             before, after = _json_text(value), _json_text(sent)
             if forward.setdefault(before, after) != after or backward.setdefault(after, before) != before:
                 return None
-            if not any(item is not occurrence and returned(item, sent) for item in send.occurrences):
+            if not any(item is not occurrence and _returned(item, sent) for item in send.occurrences):
                 return None
     return forward, backward
 
 
-def returned(occurrence: trace.Occurrence, value: object) -> bool:
+def _returned(occurrence: trace.Occurrence, value: object) -> bool:
     """Whether a call returned the value at a position it kept."""
     result = occurrence.result
     return any(result.available(_pointer(position[0])) for position in _positions(result.value, value))
