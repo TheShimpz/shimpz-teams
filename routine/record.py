@@ -332,7 +332,11 @@ def _decision_scope(value: Routine) -> bool:
     decide = value.plan["output"]["mode"] == "decide"
     return (
         (_matches(value.prompt, _DIGEST_RE) if decide else value.prompt is None)
-        and (http_routine.canonical_model(value.model) == value.model if decide else value.model is None)
+        and (
+            value.model is not None and http_routine.canonical_model(value.model) == value.model
+            if decide
+            else value.model is None
+        )
         and type(value.allowance) is int
         and (1 <= value.allowance <= http_routine.MAX_ALLOWANCE if decide else value.allowance == 0)
         and routine_definition.run_units(value) <= routine_plan.MAX_STEPS
