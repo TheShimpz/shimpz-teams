@@ -99,9 +99,16 @@ def _send(
     timezone: str | None = "America/Sao_Paulo",
     started_at: int = STARTED,
 ) -> recording.Send:
-    lines = tuple(line for entry in window for line in http_payload.person_lines(entry))
+    lines = tuple(
+        line for entry in window for segment in http_payload.authored_segments(entry) for line in segment.split("\n")
+    )
     occurrences = tuple(_occurrence(call, started_at) for call in calls)
-    return recording.Send(message, http_payload.person_lines(message), lines, timezone, started_at, occurrences)
+    return recording.Send(message, http_payload.authored_segments(message), lines, timezone, started_at, occurrences)
+
+
+def _then_hourly(text: str) -> str:
+    """A request, then the person's answer that it runs every hour, as Admin composes it."""
+    return http_payload.compose_clarified(text, "Com que frequência?", EVERY_HOUR, "pt")
 
 
 def _record(*sends: recording.Send, mode: str = "show", **options) -> recording.Recorded | recording.Question:
@@ -256,13 +263,13 @@ class ClassificationTests(unittest.TestCase):
         # Each earlier read is a distinct call, so none is the same source as another.
         calls = [("reports/fetch", {"call": index}, item) for index, item in enumerate(earlier)]
         calls.append(("cloudflare/list-dns-records", {"zone_id": "z", "per_page": value}, {}))
-        recorded = _recorded(_send(*calls, message=f"{known}\n{EVERY_HOUR}", **send))
+        recorded = _recorded(_send(*calls, message=_then_hourly(known), **send))
         return _input(recorded)["per_page"], recorded.origins[recorded.document["steps"][-1]["id"]]["per_page"]
 
     def asked(self, value: object, known: str, *earlier: object) -> object:
         calls = [("reports/fetch", {"call": index}, item) for index, item in enumerate(earlier)]
         calls.append(("cloudflare/list-dns-records", {"zone_id": "z", "per_page": value}, {}))
-        return _record(_send(*calls, message=f"{known}\n{EVERY_HOUR}"))
+        return _record(_send(*calls, message=_then_hourly(known)))
 
     def test_a_value_named_in_the_request_is_a_literal_even_when_it_could_be_copied(self) -> None:
         source, origin = self.classify("abcdefgh", "use abcdefgh please", {"x": "abcdefgh"})
@@ -558,7 +565,7 @@ class SecretTests(unittest.TestCase):
         for result, known, protected in cases:
             with self.subTest(protected=protected):
                 calls = (("reports/fetch", {}, result), ("cloudflare/list-dns-records", {"zone_id": "safe-id123"}, {}))
-                send = _send(*calls, message=f"{known}\n{EVERY_HOUR}")
+                send = _send(*calls, message=_then_hourly(known))
                 protection = trace.Protection().grow((protected,))
                 self.assertEqual(
                     _code(self, lambda s=send, p=protection: _record(s, protection=p)), "routine-secret-literal"
@@ -638,6 +645,15 @@ class ScheduleTests(unittest.TestCase):
         recorded = _recorded(_send(ZONES_CALL, message="todo dia às 9h"), _send(message="melhor a cada 30 segundos"))
         self.assertEqual(recorded.schedule, {"kind": "continuous", "gap": 30, "cap": 2880})
 
+    def test_different_schedules_in_one_authored_text_are_asked_about_even_across_lines(self) -> None:
+        asked = _record(_send(ZONES_CALL, message="Run every 5 seconds.\nRun every 30 seconds."))
+        self.assertEqual(asked, recording.Question("routine-schedule-unstated"))
+
+    def test_an_answer_in_a_composed_send_wins_over_the_request_it_repeats(self) -> None:
+        composed = http_payload.compose_clarified("DNS a cada 5 segundos", "Tem certeza?", "a cada 30 segundos", "pt")
+        recorded = _recorded(_send(ZONES_CALL, message=composed))
+        self.assertEqual(recorded.schedule, {"kind": "continuous", "gap": 30, "cap": 2880})
+
     def test_no_schedule_two_in_one_text_or_one_only_asked_are_asked_again(self) -> None:
         for message in ("Cria uma rotina", "a cada hora e todo dia às 9h", "Todo dia às 9h?"):
             with self.subTest(message=message):
@@ -667,6 +683,13 @@ class TimezoneTests(unittest.TestCase):
         self.assertEqual(_record(ambiguous), recording.Question("routine-timezone-ambiguous"))
         answered = _recorded(ambiguous, _send(message="Europe/London"))
         self.assertEqual(answered.timezone, "Europe/London")
+
+    def test_a_composed_answer_settles_two_zones_its_request_repeats(self) -> None:
+        original = "DNS todo dia às 9h, Europe/Paris or Europe/London"
+        self.assertEqual(_record(_send(ZONES_CALL, message=original)), recording.Question("routine-timezone-ambiguous"))
+        composed = http_payload.compose_clarified(original, "Qual fuso?", "Europe/London", "en")
+        answered = _recorded(_send(ZONES_CALL, message=composed))
+        self.assertEqual((answered.timezone, answered.timezone_source), ("Europe/London", "person"))
 
     def test_the_latest_browser_zone_counts(self) -> None:
         recorded = _recorded(_send(ZONES_CALL, message="todo dia às 9h", timezone="Asia/Tokyo"), _send(message="ok"))

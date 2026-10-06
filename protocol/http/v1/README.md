@@ -96,8 +96,9 @@ the recommended default marked with " âœ“" and a non-empty description after " â
 it requests and authorizes nothing, and the user answers with a new chat message.
 Admin composes that message from the original request, a blank line, then the question and the answer on their own
 lines, each after its interface-language label (`payload.CLARIFICATION_LABELS`, `payload.compose_clarified`); a request
-may be clarified more than once. `payload.person_lines` reads the person's own words back out of such a message: every
-question line is dropped and each answer loses its label (ADR-0101).
+may be clarified more than once. `payload.authored_segments` reads the person's own words back out of such a message as
+segments in order: the original text, then each answer without its label, never a question; a later segment is the
+person's later word (ADR-0101).
 
 A Local chat terminal that recorded a Routine (ADR-0101) carries at most one of `routine_proposal`,
 `routine_question`, and `routine_refusal` beside the agent's own `reply`, which keeps the work the turn already did.

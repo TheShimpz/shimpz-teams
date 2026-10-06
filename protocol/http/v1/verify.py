@@ -350,7 +350,7 @@ if any(routine.canonical_diagnostics(value) is not None for value in diagnostics
 print("Team HTTP protocol integrity and golden vectors are valid")
 
 labels = vectors.get("clarification_labels", {})
-if not labels.get("composed") or not labels.get("person_lines"):
+if not labels.get("composed") or not labels.get("authored_segments"):
     fail("clarification label vectors are missing")
 if set(payload.CLARIFICATION_LABELS) != set(routine.LOCALES):
     fail("the clarification labels do not cover every interface language")
@@ -358,6 +358,6 @@ for case in labels["composed"]:
     composed = payload.compose_clarified(case["original"], case["question"], case["answer"], case["locale"])
     if composed != case["message"]:
         fail("a composed clarification vector differs")
-for case in labels["person_lines"]:
-    if list(payload.person_lines(case["message"])) != case["lines"]:
-        fail("a person-lines vector differs")
+for case in labels["authored_segments"]:
+    if list(payload.authored_segments(case["message"])) != case["segments"]:
+        fail("an authored-segments vector differs")

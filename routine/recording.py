@@ -75,7 +75,7 @@ class Send:
     """One fresh send of the person in a recording span."""
 
     message: str
-    # The person's own lines of the message: a composed clarification's question lines dropped, answers unlabelled.
+    # The person's authored segments of the message, in order: its original text, then each composed answer.
     person: tuple[str, ...]
     # The person's own lines of each untruncated user entry of the conversation window the request carried.
     window: tuple[str, ...]
@@ -208,7 +208,7 @@ def record(
     if protection.lost:
         raise RecordingError("routine-recording-unavailable")
     calls = _calls(sends, contracts)
-    texts = [line for send in sends for line in (*send.person, *send.window)]
+    texts = [line for send in sends for line in (*_lines(send.person), *send.window)]
     latest = [call for call in calls if call.send == calls[-1].send] if calls else []
     try:
         context = _Context(sends, calls, _known(texts, protection), _zone(sends, existing), asked, contracts)
@@ -226,6 +226,11 @@ def record(
     changing = [call.action for call in latest if not call.read_only]
     permitted = _permitted(actions + changing + list(recording.decide_actions), contracts)
     return Recorded(document, origins, permitted, when, timezone, source)
+
+
+def _lines(segments: Sequence[str]) -> list[str]:
+    """Each line of the person's segments: a name or number never spans two."""
+    return [line for segment in segments for line in segment.split("\n")]
 
 
 def _calls(sends: Sequence[Send], contracts: Mapping[tuple[str, str], routine_plan.ActionContract]) -> list[_Call]:
@@ -267,11 +272,14 @@ def _permitted(
 
 
 def _schedule(sends: Sequence[Send], existing: Existing | None) -> dict[str, object]:
-    """The schedule the latest send stating one states; a replacement keeps its own when none is stated."""
+    """The schedule the latest authored segment stating one states; a replacement keeps its own when none is stated.
+
+    Every reading within one segment counts, so different schedules in one text are asked about.
+    """
     latest: tuple[dict[str, object], ...] = ()
     for send in sends:
-        for line in send.person:
-            found = phrase.stated(line)
+        for segment in send.person:
+            found = phrase.stated(segment)
             if found:
                 latest = found
     if len(latest) == 1:
@@ -282,13 +290,13 @@ def _schedule(sends: Sequence[Send], existing: Existing | None) -> dict[str, obj
 
 
 def _zone(sends: Sequence[Send], existing: Existing | None) -> tuple[str, str] | None:
-    """The zone the latest send naming one names, else a replaced Routine's, else the latest browser zone, or None."""
-    for send in reversed(sends):
-        written = {zone for line in send.person for zone in phrase.zones(line)}
+    """The zone the latest authored segment names, else a replaced Routine's, else the latest browser zone, or None."""
+    for segment in reversed([segment for send in sends for segment in send.person]):
+        written = phrase.zones(segment)
         if len(written) > 1:
             raise _AskError(Question("routine-timezone-ambiguous"))
         if written:
-            return written.pop(), "person"
+            return written[0], "person"
     if existing is not None and existing.timezone_source != "none":
         return existing.timezone, existing.timezone_source
     browser = sends[-1].timezone if sends else None
@@ -636,7 +644,7 @@ def _rerun(context: _Context, value: object, choices: list[dict[str, object]]) -
     asked = context.asked
     if asked is None or asked.code != "routine-binding-ambiguous":
         return False
-    later = _known([line for send in context.sends[asked.after :] for line in send.person], trace.Protection())
+    later = _known([line for send in context.sends[asked.after :] for line in _lines(send.person)], trace.Protection())
     offered = [*asked.options, *(item["value"] for item in choices)]
     return any(later.names(option) and option != value for option in offered)
 

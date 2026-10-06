@@ -2,7 +2,7 @@
 
 A person's fresh request without files opens a send in the Team's recording span, or a new span when the last one is
 another person's, another Team incarnation's, or older than 15 minutes. A span keeps each of the person's consecutive
-sends: its message, the person's own lines of it and of the untruncated earlier sends its conversation window carried,
+sends: its message, the person's authored segments of it, the lines of the untruncated earlier sends its window carried,
 its browser timezone, its start, and every successful Action call it made, in dispatch order; and one protection set
 across them, every value Team injected into an attempt before its RPC and every string at a secret position of every
 result. A send's id is the only thing a paused turn keeps, so the same send goes on recording across a person's answer
@@ -114,8 +114,11 @@ def earlier_sends(conversation: Iterable[object]) -> tuple[str, ...]:
 
 
 def _send(started: Started, now: int) -> routine_recording.Send:
-    window = tuple(line for text in earlier_sends(started.conversation) for line in http_payload.person_lines(text))
-    person = http_payload.person_lines(started.message)
+    earlier = (
+        segment for text in earlier_sends(started.conversation) for segment in http_payload.authored_segments(text)
+    )
+    window = tuple(line for segment in earlier for line in segment.split("\n"))
+    person = http_payload.authored_segments(started.message)
     return routine_recording.Send(started.message, person, window, started.timezone, now)
 
 

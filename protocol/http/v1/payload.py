@@ -430,8 +430,8 @@ def canonical_clarification(value: object) -> dict[str, object] | None:
 
 # The labels Admin composes a clarified request with, in each interface language (ADR-0081): the original request, a
 # blank line, then "<question>: <the question>" and "<answer>: <the person's answer>" on their own lines. A request may
-# be clarified more than once, so these pairs may repeat. Team reads the person's own words out of such a message
-# (ADR-0101): it drops every question line and keeps each answer without its label.
+# be clarified more than once, so these pairs may repeat. Team reads the person's own words out of such a message as
+# its authored segments, in order (ADR-0101): the original request, then each answer, never a question.
 CLARIFICATION_LABELS = {
     "ar": {"question": "السؤال", "answer": "الإجابة"},
     "de": {"question": "Frage", "answer": "Antwort"},
@@ -450,17 +450,23 @@ def compose_clarified(original: str, question: str, answer: str, locale: str) ->
     return f"{original.strip()}\n\n{labels['question']}: {question}\n{labels['answer']}: {answer.strip()}"
 
 
-def person_lines(message: str) -> tuple[str, ...]:
-    """The lines a person wrote in a sent message: every composed question line dropped, each answer unlabelled."""
+def authored_segments(message: str) -> tuple[str, ...]:
+    """What a person wrote in a sent message, in order: its original text, then each answer, without any question.
+
+    A later segment is the person's later word, so it wins over the request it repeats.
+    """
     questions = tuple(f"{labels['question']}: " for labels in CLARIFICATION_LABELS.values())
     answers = tuple(f"{labels['answer']}: " for labels in CLARIFICATION_LABELS.values())
-    kept = []
+    segments: list[list[str]] = [[]]
     for line in message.split("\n"):
-        if line.startswith(questions):
-            continue
         answer = next((prefix for prefix in answers if line.startswith(prefix)), None)
-        kept.append(line[len(answer) :] if answer is not None else line)
-    return tuple(line for line in kept if line.strip())
+        if line.startswith(questions):
+            segments.append([])
+        elif answer is not None:
+            segments.append([line[len(answer) :]])
+        else:
+            segments[-1].append(line)
+    return tuple(text for text in ("\n".join(lines).strip() for lines in segments) if text)
 
 
 def render_clarification(clarification: dict[str, object]) -> str:

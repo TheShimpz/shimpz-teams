@@ -492,11 +492,11 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
                 lambda value: value["clarification_labels"]["composed"][0].update({"message": "drift"}),
             )
 
-        def person_lines(root: Path) -> None:
+        def authored_segments(root: Path) -> None:
             _rewrite_json(
                 root,
                 "vectors.json",
-                lambda value: value["clarification_labels"]["person_lines"][0].update({"lines": []}),
+                lambda value: value["clarification_labels"]["authored_segments"][0].update({"segments": []}),
             )
 
         def unlabelled_locale(root: Path) -> None:
@@ -505,7 +505,7 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             module.write_text(text.replace('    "zh": {"question": "问题", "answer": "回答"},\n', ""), encoding="utf-8")
             _rehash(root, "payload.py")
 
-        for mutate in (missing, composed, person_lines, unlabelled_locale):
+        for mutate in (missing, composed, authored_segments, unlabelled_locale):
             with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
                 _execute(HTTP / "verify.py", mutate)
 

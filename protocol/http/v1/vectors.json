@@ -2569,10 +2569,11 @@
       {"locale": "pt", "original": "Cria uma rotina pra mim", "question": "Com que frequência?", "answer": "A cada 30 segundos", "message": "Cria uma rotina pra mim\n\nPergunta: Com que frequência?\nResposta: A cada 30 segundos"},
       {"locale": "en", "original": "  List my DNS records ", "question": "Which zone?", "answer": " shimpz.com", "message": "List my DNS records\n\nQuestion: Which zone?\nAnswer: shimpz.com"}
     ],
-    "person_lines": [
-      {"message": "Cria uma rotina pra mim\n\nPergunta: Todo dia às 9h?\nResposta: Ainda não escolhi", "lines": ["Cria uma rotina pra mim", "Ainda não escolhi"]},
-      {"message": "DNS\n\nFrage: Wie oft?\nAntwort: Jede Stunde\n\n質問: どのゾーン?\n回答: shimpz.com", "lines": ["DNS", "Jede Stunde", "shimpz.com"]},
-      {"message": "Liste os registros\nde shimpz.com", "lines": ["Liste os registros", "de shimpz.com"]}
+    "authored_segments": [
+      {"message": "Cria uma rotina pra mim\n\nPergunta: Todo dia às 9h?\nResposta: Ainda não escolhi", "segments": ["Cria uma rotina pra mim", "Ainda não escolhi"]},
+      {"message": "DNS\na cada 5 segundos\n\nFrage: Wie oft?\nAntwort: Jede Stunde\n\n質問: どのゾーン?\n回答: shimpz.com", "segments": ["DNS\na cada 5 segundos", "Jede Stunde", "shimpz.com"]},
+      {"message": "Liste os registros\nde shimpz.com", "segments": ["Liste os registros\nde shimpz.com"]},
+      {"message": "Question: Which zone?\nAnswer: shimpz.com", "segments": ["shimpz.com"]}
     ]
   }
 }
