@@ -16,7 +16,8 @@ from local import lifecycle as local_lifecycle
 from local import names as local_names
 from local.errors import ApiProblemError as ApiProblem
 from local.labels import TEAM_LABEL, TEAM_NAME_LABEL
-from local.routine import recent as routine_recent
+from local.routine import proposal as routine_proposal
+from local.routine import recorder as routine_recorder
 
 NETWORK_A = "a" * 64
 NETWORK_B = "b" * 64
@@ -125,7 +126,8 @@ class NamedTeamCase(unittest.TestCase):
             team_names=local_names.TeamNameStore(Path(directory.name) / "inference"),
             storage=types.SimpleNamespace(destroy=mock.Mock()),
             inference_store=types.SimpleNamespace(delete=mock.Mock()),
-            routine_recent=routine_recent.RecentBook(),
+            routine_recordings=routine_recorder.RecordingBook(),
+            routine_proposals=routine_proposal.ProposalBook(),
             client=types.SimpleNamespace(networks=types.SimpleNamespace(create=self.create_network)),
         )
 
@@ -271,14 +273,15 @@ class CreateTests(NamedTeamCase):
 
     def test_a_new_incarnation_starts_without_a_leftover_record(self) -> None:
         self.controller.team_names.save("team_c", NETWORK_A, "Stale")
-        # A send the previous incarnation's person made is never cited by the new Team.
-        recent = self.controller.routine_recent
-        issued = int(time.time())
-        recent.admit("team_c", "p", {"issued_at": issued + 1, "nonce": "a" * 32}, "send 100 to Ana", True)
-        created = self.call(local_names.create_team, "team_c", "Research")
-        self.assertEqual(
-            recent.admit("team_c", "p", {"issued_at": issued + 2, "nonce": "b" * 32}, "do that", True).earlier, ()
+        # No recording turn or card of the previous incarnation can ever define a Routine of the new Team.
+        recordings, proposals = self.controller.routine_recordings, self.controller.routine_proposals
+        recording = recordings.start("team_c", ("f" * 32, NETWORK_A), "list my zones", None, int(time.time()))
+        proposals.put(
+            types.SimpleNamespace(team_id="team_c", principal="f" * 32, proposal_id="e" * 32, expires_at=float("inf"))
         )
+        created = self.call(local_names.create_team, "team_c", "Research")
+        self.assertIsNone(recordings.get("team_c", recording))
+        self.assertIsNone(proposals.take("team_c", "e" * 32, "f" * 32))
         self.assertTrue(created["created"])
         self.assertIsNone(self.controller.team_names.load("team_c", "c" * 64))
         self.assertEqual(self.controller.team_names.load("team_c", NETWORK_A), None)

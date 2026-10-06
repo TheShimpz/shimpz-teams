@@ -431,6 +431,25 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             ):
                 local_chat_continuations.encode(kind, requirements, state)
 
+    def test_a_recording_turn_keeps_only_its_recording_id_across_a_pause(self) -> None:
+        requirement = (
+            integration_challenges.IntegrationRequirement(
+                "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", ("dns.read",)),)
+            ),
+        )
+        recorded = dataclasses.replace(pending(), recording="b" * 32)
+        bindings, payload = local_chat_continuations.encode("integrations", requirement, recorded)
+        decoded = local_chat_continuations.decode_parts("integrations", payload, bindings)
+        self.assertEqual(decoded.pending.recording, "b" * 32)
+        for value in ("not-a-recording", 7):
+            document = json.loads(payload)
+            document["pending"]["recording"] = value
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "pending recording"),
+            ):
+                local_chat_continuations.decode_parts("integrations", json.dumps(document).encode(), bindings)
+
     def test_restart_preserves_the_monotonic_human_request_budget(self) -> None:
         requirement = integration_requirement("dns.read")
         state = replace(pending(), requests_used=action_human.MAX_REQUESTS_PER_TURN)

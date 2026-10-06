@@ -76,16 +76,14 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
             _delete_chat_continuation=mock.Mock(),
             _purge_human_pending=mock.Mock(),
             _commit_chat_terminal=lambda *_args: False,
+            routine_recordings=types.SimpleNamespace(end=mock.Mock()),
         )
+        pending = dataclasses.replace(_pending(), recording="b" * 32)
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_pause._terminal_human_failure(
-                subject,
-                "team_1",
-                "token",
-                _pending(),
-                "denied",
-            )
+            local_chat_pause._terminal_human_failure(subject, "team_1", "token", pending, "denied")
         self.assertEqual(caught.exception.code, "chat-stopped")
+        # A denied turn ends there, and so does its recording.
+        subject.routine_recordings.end.assert_called_once_with("team_1", "b" * 32)
 
     def test_human_pause_rejects_invalid_secret_and_auth_sequences(self) -> None:
         request = types.SimpleNamespace(kind="input:text")

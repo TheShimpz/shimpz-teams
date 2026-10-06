@@ -233,8 +233,8 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         client.start(base, "Hello", conversation=())
         self.assertEqual(json.loads(connection.requests[0][2])["attachments"], [])
 
-    def test_the_routine_compiler_gets_output_schemas_and_the_teams_daily_capacity(self):
-        """Only the compiler reads them (ADR-0092, 2026-10-05, scale); a changed output schema is a new contract."""
+    def test_the_brain_gets_output_schemas_and_the_teams_advisory_routine_capacity(self):
+        """A changed output schema is a new contract; the capacity only advises a continuous cap (ADR-0101)."""
         base = context(self.secret)
         output = {"type": "object", "properties": {"id": {"type": "string"}}}
         action = brain_runtime_client.RuntimeAction("publish", "Publish.", {"type": "object"}, output_schema=output)
@@ -594,38 +594,45 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.start(context(self.secret), "Quais modelos?", conversation=())
 
-    def test_a_completed_turn_carries_at_most_one_routine_change_and_never_with_a_question(self):
-        change = {"op": "create", "name": "DNS semanal"}
+    def test_a_completed_turn_carries_at_most_one_routine_record_and_never_with_a_question(self):
+        recorded = {"op": "record", "name": "DNS semanal"}
         client, connection = self.client(
-            _Response({"status": "completed", "clarification": None, "reply": "Ok.", "actions": [], "routine": change})
+            _Response(
+                {"status": "completed", "clarification": None, "reply": "Ok.", "actions": [], "routine": recorded}
+            )
         )
         routines = (
             {
                 "routine_id": "a" * 32,
                 "name": "Resumo",
-                "quote": "x" * 8,
                 "schedule": {"kind": "daily", "time": "08:00"},
                 "timezone": "UTC",
                 "revision": 1,
+                "daily_steps": 1,
+                "output": {"mode": "show", "when": None},
                 "steps": [{"id": "list", "assistant": "dns", "action": "list-zones", "inputs": []}],
             },
         )
-        chat = dataclasses.replace(context(self.secret), routines=routines, routine_earlier=("liste as zonas",))
-        # Local Team admits the change's closed shape against the committed message; the client only bounds where.
-        self.assertEqual(client.start(chat, "Toda segunda às 9h, confira o DNS", conversation=()).routine, change)
+        chat = dataclasses.replace(context(self.secret), routines=routines, routine_capacity=19_999)
+        # Local Team admits the record's closed shape; the client only bounds where it may appear.
+        self.assertEqual(client.start(chat, "Toda segunda às 9h, confira o DNS", conversation=()).routine, recorded)
         sent = json.loads(connection.requests[0][2])
-        self.assertEqual((sent["routines"], sent["knowledge_writable"]), ([dict(routines[0])], True))
-        self.assertEqual(sent["routine_earlier"], ["liste as zonas"])
+        self.assertEqual(
+            (sent["routines"], sent["routine_capacity"], sent["knowledge_writable"]),
+            ([dict(routines[0])], 19_999, True),
+        )
+        # The retired words of a compiled Routine are never sent.
+        self.assertFalse({"routine_earlier", "routine_draft", "routine_answer"} & set(sent))
         question = {
             "question": "Qual?",
             "options": [{"label": "A", "description": ""}, {"label": "B", "description": ""}],
+            "default_index": 0,
         }
-        question["default_index"] = 0
         rendered = "Qual?\n\n1. A ✓\n2. B"
         for routine, status, clarification, reply in (
-            (["create"], "completed", None, "Ok."),
-            (change, "action-required", None, ""),
-            (change, "completed", question, rendered),
+            (["record"], "completed", None, "Ok."),
+            (recorded, "action-required", None, ""),
+            (recorded, "completed", question, rendered),
         ):
             actions = (
                 []

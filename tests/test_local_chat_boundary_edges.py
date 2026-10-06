@@ -238,12 +238,14 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             team_name="Team",
             requirement_groups=lambda: (),
         )
-        response = ResponseRequest("team_1", "token", segment, (), (), "openai")
+        response = ResponseRequest("team_1", "token", segment, (), (), "openai", recording="b" * 32)
+        write = mock.Mock()
         subject = types.SimpleNamespace(
             _delete_chat_continuation=mock.Mock(),
             _commit_chat_terminal=lambda *_args: False,
             _lock=lambda _team_id: threading.RLock(),
-            _routine_change=mock.Mock(return_value=mock.Mock()),
+            _routine_record=mock.Mock(return_value=(write, {"routine_refusal": {"code": "routine-recording-empty"}})),
+            routine_recordings=types.SimpleNamespace(end=mock.Mock()),
         )
 
         def invalid_pending(_outcome, _groups, pending, _pauses, _complete):
@@ -255,22 +257,28 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         ):
             local_chat_api._segment_response(subject, response)
 
+        terminal = types.SimpleNamespace(
+            reply="reply",
+            routine={"op": "record"},
+            clarification=None,
+            restricted_actions=None,
+            memory=(),
+            actions=(),
+        )
+
         def conflicting_terminal(_outcome, _groups, _pending, _pauses, complete):
-            return complete(types.SimpleNamespace(reply="reply", routine={"op": "propose"}, clarification=None))
+            return complete(terminal)
 
         with (
-            mock.patch.object(
-                local_chat_api.chat_turn_engine,
-                "dispatch",
-                conflicting_terminal,
-            ),
+            mock.patch.object(local_chat_api.chat_turn_engine, "dispatch", conflicting_terminal),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
             local_chat_api._segment_response(subject, response)
         self.assertEqual(caught.exception.code, "chat-stopped")
-        # Stop won the commit, so the turn's compiled Routine change was admitted but never written.
-        subject._routine_change.assert_called_once()
-        subject._routine_change.return_value.assert_not_called()
+        # Stop won the commit, so the turn's card was admitted but never kept; the logical turn still ended.
+        subject._routine_record.assert_called_once()
+        write.assert_not_called()
+        subject.routine_recordings.end.assert_called_once_with("team_1", "b" * 32)
 
         def failing_commit(*_args):
             raise local_app.ApiProblem(503, "memory", code="memory-store-failed")
@@ -281,7 +289,22 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             self.assertRaises(local_app.ApiProblem),
         ):
             local_chat_api._segment_response(subject, response)
-        subject._routine_change.return_value.assert_not_called()
+        write.assert_not_called()
+        self.assertEqual(subject.routine_recordings.end.call_count, 2)
+
+        def committing(_team_id, _token, apply):
+            apply()
+            return True
+
+        subject._commit_chat_terminal = committing
+        with mock.patch.object(local_chat_api.chat_turn_engine, "dispatch", conflicting_terminal):
+            body = local_chat_api._segment_response(subject, response)
+        # The card or its refusal is written with the reply and carried beside it.
+        write.assert_called_once_with()
+        self.assertEqual(
+            (body["reply"], body["routine_refusal"], body["clarification"]),
+            ("reply", {"code": "routine-recording-empty"}, None),
+        )
 
         with (
             mock.patch.object(
@@ -293,6 +316,22 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         ):
             local_chat_api._segment_response(subject, response)
         self.assertEqual(caught.exception.code, "internal-error")
+
+    def test_a_card_whose_terminal_line_outgrows_its_bound_is_refused_never_cut(self) -> None:
+        write = mock.Mock()
+        terminal = types.SimpleNamespace(routine={"op": "record"})
+        body = {"team_id": "team_1", "reply": "x" * 200_000}
+        for fields, expected in (
+            ({"routine_proposal": {"name": "y" * 70_000}}, {"routine_refusal": {"code": "routine-proposal-too-large"}}),
+            ({"routine_proposal": {"name": "y"}}, {"routine_proposal": {"name": "y"}}),
+            ({"routine_refusal": {"code": "z" * 63}}, {"routine_refusal": {"code": "z" * 63}}),
+        ):
+            with self.subTest(fields=fields):
+                subject = types.SimpleNamespace(_routine_record=mock.Mock(return_value=(write, fields)))
+                chosen_write, chosen = local_chat_api._routine_outcome(subject, object(), terminal, body)
+                self.assertEqual(chosen, expected)
+                # A refused card writes nothing; a card or refusal that fits keeps its own write.
+                self.assertEqual(chosen_write is write, chosen == fields)
 
     def test_chat_rejects_invalid_input_and_observes_pending_state_twice(self) -> None:
         subject = types.SimpleNamespace()
@@ -311,8 +350,21 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
                 )
             self.assertEqual(caught.exception.code, "invalid-message")
 
+        for body, code in (
+            ({**chat_body("hello"), "request": {"issued_at": "now", "nonce": "0" * 32}}, "invalid-request"),
+            (chat_body("hello", timezone="Mars/Olympus"), "invalid-timezone"),
+        ):
+            with self.subTest(code=code), self.assertRaises(local_app.ApiProblem) as caught:
+                local_chat_api.chat(subject, "team_1", body, "openai", "key")
+            self.assertEqual(caught.exception.code, code)
+
         pending = {"status": "pending"}
         subject._pending_chat_continuation = lambda _team_id, _locale: pending
+        # A zone that loads is admitted, and the pending turn answers before anything records.
+        self.assertIs(
+            local_chat_api.chat(subject, "team_1", chat_body("hello", timezone="America/Sao_Paulo"), "openai", "key"),
+            pending,
+        )
         self.assertIs(
             local_chat_api.chat(
                 subject,

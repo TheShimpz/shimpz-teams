@@ -166,7 +166,8 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         controller.chat_turn_service = types.SimpleNamespace(
             _file_deletion_slot=lambda _team_id: nullcontext(), _forget_file=mock.Mock()
         )
-        controller.routine_recent = types.SimpleNamespace(drop=mock.Mock())
+        controller.routine_proposals = types.SimpleNamespace(drop=mock.Mock())
+        controller.routine_recordings = types.SimpleNamespace(drop=mock.Mock())
         controller.inference_store = types.SimpleNamespace(
             delete=mock.Mock(),
             load=mock.Mock(return_value=types.SimpleNamespace(provider="openai", model="gpt-6-luna", effort="low")),

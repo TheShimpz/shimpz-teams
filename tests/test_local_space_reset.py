@@ -16,8 +16,9 @@ from integrations import pkce as integration_pkce
 from local import app as local_app
 from local import labels as local_labels
 from local.routine import card as routine_card
-from local.routine import lineage as routine_lineage
-from local.routine import recent as routine_recent
+from local.routine import proposal as routine_proposal
+from local.routine import protection as routine_protection
+from local.routine import recorder as routine_recorder
 from routine import record as routine_record
 
 LOCAL_TEAM_RESIDUES = [
@@ -63,8 +64,9 @@ class LocalSpaceResetTests(LocalContractCase):
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(delete_all=lambda: events.append("delete-inference"))
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
-        controller.routine_lineage = routine_lineage.LineageBook()
-        controller.routine_recent = routine_recent.RecentBook()
+        controller.routine_recordings = routine_recorder.RecordingBook()
+        controller.routine_proposals = routine_proposal.ProposalBook()
+        controller.routine_protections = routine_protection.RunProtections()
         controller.routine_cards = routine_card.CardBook()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
@@ -96,8 +98,18 @@ class LocalSpaceResetTests(LocalContractCase):
             "disconnect-proxy"
         )
         controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
+        # Recording turns, cards, and run protection live in memory only; a reset forgets every one.
+        recording = controller.routine_recordings.start("team_1", ("f" * 32, "a" * 64), "list", None, 1)
+        controller.routine_proposals.put(
+            SimpleNamespace(team_id="team_1", principal="f" * 32, proposal_id="e" * 32, expires_at=float("inf"))
+        )
+        bound = controller.routine_protections.bind("b" * 32).grow(("protected-value",))
+        controller.routine_protections.grow("b" * 32, bound.values)
         result = controller.reset_space()
 
+        self.assertIsNone(controller.routine_recordings.get("team_1", recording))
+        self.assertIsNone(controller.routine_proposals.take("team_1", "e" * 32, "f" * 32))
+        self.assertTrue(controller.routine_protections.grow("b" * 32, ()).lost)
         self.assertEqual(result["assistants_removed"], 0)
         self.assertEqual(result["teams_removed"], 1)
         self.assertEqual(result["residue_absent"], LOCAL_TEAM_RESIDUES)
@@ -134,8 +146,9 @@ class LocalSpaceResetTests(LocalContractCase):
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(delete_all=lambda: None)
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
-        controller.routine_lineage = routine_lineage.LineageBook()
-        controller.routine_recent = routine_recent.RecentBook()
+        controller.routine_recordings = routine_recorder.RecordingBook()
+        controller.routine_proposals = routine_proposal.ProposalBook()
+        controller.routine_protections = routine_protection.RunProtections()
         controller.routine_cards = routine_card.CardBook()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),

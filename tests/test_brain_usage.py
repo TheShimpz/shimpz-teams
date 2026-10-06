@@ -72,6 +72,25 @@ class ParseAndMeterTests(unittest.TestCase):
         self.assertEqual((drained[1]["input_tokens"], drained[2]["input_tokens"]), (1800, 50))
         self.assertIsNone(meter.drain())
 
+    def test_a_routine_run_reads_the_tokens_used_since_a_point_of_its_request(self):
+        # Outside a metered request nothing is known, so nothing was used since.
+        self.assertEqual((brain_usage.tokens(), brain_usage.since({})), ({}, []))
+        with brain_usage.metered():
+            brain_usage.record("turn", "openai", "gpt-6-luna", USAGE)
+            before = brain_usage.tokens()
+            self.assertEqual(before, {("openai", "gpt-6-luna"): (900, 40)})
+            brain_usage.record("routine-recovery", "openai", "gpt-6-luna", USAGE)
+            brain_usage.record("routine-recovery", "anthropic", "claude-sonnet-5-5", USAGE)
+            self.assertEqual(
+                brain_usage.since(before),
+                [
+                    {"provider": "anthropic", "model": "claude-sonnet-5-5", "input_tokens": 900, "output_tokens": 40},
+                    {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 900, "output_tokens": 40},
+                ],
+            )
+            # A model whose tokens did not move since is left out.
+            self.assertEqual(brain_usage.since(brain_usage.tokens()), [])
+
     def test_usage_outside_a_metered_request_is_not_kept(self):
         brain_usage.record("turn", "openai", "gpt-6-luna", USAGE)
         self.assertIsNone(brain_usage.drain())

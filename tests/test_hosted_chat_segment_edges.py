@@ -368,7 +368,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             team_name="Team",
             requirement_groups=mock.Mock(return_value=((), ())),
         )
-        terminal = SimpleNamespace(reply="done")
+        terminal = SimpleNamespace(reply="done", routine=None)
         with (
             mock.patch.object(segment.chat_turn_engine, "dispatch", side_effect=lambda *_args: _args[-1](terminal)),
             mock.patch.object(state, "_commit_chat_terminal", return_value=False),
@@ -385,6 +385,22 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             segment._hosted_segment_response(
                 segment.HostedSegmentResponseRequest("team_1", "token", invalid_segment, (), (), "account_1")
             )
+
+    def test_a_routine_outcome_breaks_the_hosted_brain_contract(self) -> None:
+        # Hosted offers no Routine tool, so a Routine outcome is refused and commits nothing (ADR-0101).
+        finished = SimpleNamespace(outcome=object(), identity=(), team_name="Team", requirement_groups=lambda: ((), ()))
+        recorded = SimpleNamespace(reply="done", routine={"op": "record"})
+        commit = mock.Mock(return_value=True)
+        with (
+            mock.patch.object(segment.chat_turn_engine, "dispatch", side_effect=lambda *_args: _args[-1](recorded)),
+            mock.patch.object(state, "_commit_chat_terminal", commit),
+            self.assertRaises(state.ApiError) as caught,
+        ):
+            segment._hosted_segment_response(
+                segment.HostedSegmentResponseRequest("team_1", "token", finished, (), (), "account_1")
+            )
+        self.assertEqual(caught.exception.status, 502)
+        commit.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -214,7 +214,7 @@ class LocalResetDrainTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             controller = self._controller(directory)
             service = controller.chat_turn_service
-            # A turn committed its reply, so its token is gone, but it still holds its slot to record Routine lineage.
+            # A turn committed its reply, so its token is gone, but it still holds its slot until it fully ends.
             slot = ObservedSlot()
             service._chat_locks["team_1"] = slot
             self.assertTrue(slot.acquire())
