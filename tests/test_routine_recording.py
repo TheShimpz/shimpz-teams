@@ -777,6 +777,15 @@ class RerunTests(unittest.TestCase):
         # Earlier calls for the unchosen targets stay eligible sources; they are only not split evidence.
         self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
 
+    def test_free_text_the_assistant_wrote_is_a_literal_in_the_frozen_work(self) -> None:
+        typed = "some freely typed text"
+        remembered = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID, "query": typed}, {"result": []})
+        first = _send(remembered, message="DNS de shimpz.com a cada hora")
+        asked = _record(first)
+        self.assertEqual(asked.manifest.slots[0].inputs, (("query", "value", typed), ("zone_id", "fresh", SHIMPZ_ID)))
+        recorded = _recorded(first, _send(ZONES_CALL, remembered), asked=_pending(asked, 1))
+        self.assertEqual(_input(recorded)["query"], {"kind": "literal", "value": typed})
+
     def test_settled_split_evidence_goes_but_an_earlier_source_stays(self) -> None:
         lookup = ("reports/fetch", {"q": "ids"}, {"id": "source-id-1"})
         spans = (_send(lookup, _post("a"), message="a cada hora"), _send(_post("b")))

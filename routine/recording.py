@@ -586,7 +586,9 @@ def _slot_input(
         return member, "value", value
     if value == _date_at(context.sends[call.send].started_at, "UTC").isoformat():
         return member, "clock", None
-    if _referable(value):
+    # A value the recorder copies from a result, or asks about as an unsourced identifier, needs fresh provenance;
+    # free text or a container no result holds stays the assistant's own literal, as the recorder keeps it.
+    if _referable(value) and (_identifier(value) or _holders(context, call, value)):
         return member, "fresh", value
     return member, "value", value
 
