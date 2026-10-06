@@ -79,6 +79,38 @@ def human_pending(**changes: object) -> local_chat_continuations.PendingLocalCha
     return replace(pending(), paused_batch=PAUSED_BATCH, **changes)
 
 
+def integration_requirement(*scopes: str) -> tuple[integration_challenges.IntegrationRequirement, ...]:
+    """The demo Assistant's paused Cloudflare Integration requirement over exactly these scopes."""
+    return (
+        integration_challenges.IntegrationRequirement(
+            "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", scopes),)
+        ),
+    )
+
+
+def stored_record(
+    kind: str, bindings: tuple[str, ...], payload: bytes
+) -> local_chat_continuation_store.StoredContinuation:
+    return local_chat_continuation_store.StoredContinuation("team_1", kind, "c" * 32, 1_300, 1, bindings, payload)
+
+
+def human_requirement(
+    request: dict[str, object], kinds: tuple[str, ...], declared: tuple[str, ...] = (), *, purpose: str
+) -> action_challenges.HumanRequirement:
+    """A paused human requirement whose admitted request and localized copy come from the same fixture."""
+    admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(request), kinds, declared)
+    return action_challenges.HumanRequirement(
+        "demo-assistant",
+        "Demo Assistant",
+        "publish",
+        purpose,
+        "action-1",
+        admitted,
+        "0.4.1",
+        copy=human_request_fixtures.copy(admitted),
+    )
+
+
 class LocalChatContinuationCodecTests(unittest.TestCase):
     def _round_trip(
         self,
@@ -89,16 +121,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         if state is None:
             state = human_pending() if kind == "human" else pending()
         bindings, payload = local_chat_continuations.encode(kind, requirements, state)
-        stored = local_chat_continuation_store.StoredContinuation(
-            "team_1",
-            kind,
-            "c" * 32,
-            1_300,
-            1,
-            bindings,
-            payload,
-        )
-        decoded = local_chat_continuations.decode(stored)
+        decoded = local_chat_continuations.decode(stored_record(kind, bindings, payload))
         self.assertEqual(decoded.kind, kind)
         self.assertEqual(decoded.requirements, requirements)
         self.assertEqual(decoded.pending, state)
@@ -106,11 +129,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         self.assertEqual(local_chat_continuations.decode_parts(kind, payload, bindings), decoded)
 
     def test_rejects_an_invoked_action_whose_skill_structure_is_malformed(self) -> None:
-        requirements = (
-            integration_challenges.IntegrationRequirement(
-                "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", ("dns.read",)),)
-            ),
-        )
+        requirements = integration_requirement("dns.read")
         for invoked in (
             chat_orchestrator.InvokedAction("demo-assistant", "lookup", ("b", "a"), "sha256:" + "d" * 64),
             chat_orchestrator.InvokedAction("demo-assistant", "lookup", ("query",), "not-a-digest"),
@@ -126,22 +145,11 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 local_chat_continuations.encode("integrations", requirements, broken)
 
     def test_round_trips_the_integration_suspension(self) -> None:
-        requirements = (
-            integration_challenges.IntegrationRequirement(
-                "demo-assistant",
-                "Demo Assistant",
-                ("publish",),
-                (("cloudflare", "cloudflare", ("dns.read", "zone.read")),),
-            ),
-        )
+        requirements = integration_requirement("dns.read", "zone.read")
         self._round_trip("integrations", requirements)
 
     def test_every_admitted_action_input_survives_a_pause(self) -> None:
-        requirements = (
-            integration_challenges.IntegrationRequirement(
-                "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", ("dns.read",)),)
-            ),
-        )
+        requirements = integration_requirement("dns.read")
         action = assistant_spec.ActionSpec(
             "Publish",
             action_schema.admitted(
@@ -187,38 +195,17 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             local_chat_continuations.encode("integrations", requirements, paused(too_deep))
 
     def test_round_trips_a_local_snapshot_integration_suspension(self) -> None:
-        requirements = (
-            integration_challenges.IntegrationRequirement(
-                "demo-assistant",
-                "Demo Assistant",
-                ("publish",),
-                (("cloudflare", "cloudflare", ("dns.read", "zone.read")),),
-            ),
-        )
+        requirements = integration_requirement("dns.read", "zone.read")
         state = pending(LOCAL_IMAGE)
         bindings, payload = local_chat_continuations.encode("integrations", requirements, state)
-        decoded = local_chat_continuations.decode(
-            local_chat_continuation_store.StoredContinuation(
-                "team_1",
-                "integrations",
-                "c" * 32,
-                1_300,
-                1,
-                bindings,
-                payload,
-            )
-        )
+        decoded = local_chat_continuations.decode(stored_record("integrations", bindings, payload))
 
         self.assertEqual(decoded.requirements, requirements)
         self.assertEqual(decoded.pending, state)
         self.assertEqual(bindings, (f"demo-assistant/publish/{LOCAL_IMAGE}/-",))
 
     def test_round_trips_every_team_name_and_filename_their_owners_admit(self) -> None:
-        requirements = (
-            integration_challenges.IntegrationRequirement(
-                "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", ("dns.read",)),)
-            ),
-        )
+        requirements = integration_requirement("dns.read")
         family = "\U0001f468\u200d\U0001f469\u200d\U0001f467"
         for team_name, filename in (
             ("Research Team", "meeting notes.txt"),
@@ -229,11 +216,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 self._round_trip("integrations", requirements, pending(team_name=team_name, filename=filename))
 
     def test_rejects_team_names_and_filenames_their_owners_refuse(self) -> None:
-        requirements = (
-            integration_challenges.IntegrationRequirement(
-                "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", ("dns.read",)),)
-            ),
-        )
+        requirements = integration_requirement("dns.read")
         for team_name in ("", " Research Team", "Research\nTeam", "x" * 81):
             with (
                 self.subTest(team_name=team_name),
@@ -248,14 +231,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 local_chat_continuations.encode("integrations", requirements, pending(filename=filename))
 
     def test_rejects_mutable_or_malformed_image_identities(self) -> None:
-        requirements = (
-            integration_challenges.IntegrationRequirement(
-                "demo-assistant",
-                "Demo Assistant",
-                ("publish",),
-                (("cloudflare", "cloudflare", ("dns.read",)),),
-            ),
-        )
+        requirements = integration_requirement("dns.read")
         invalid = (
             "registry.example/assistant:latest",
             "registry.example/assistant",
@@ -314,32 +290,13 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         )
         for fields, declared, stored_input in shapes:
             request = {**base, **fields}
-            admitted = human_request_fixtures.admit(
-                human_request_fixtures.fingerprinted(request), (request["kind"],), declared
-            )
             with self.subTest(kind=request["kind"], stored_input=stored_input):
                 self._round_trip(
-                    "human",
-                    (
-                        action_challenges.HumanRequirement(
-                            "demo-assistant",
-                            "Demo Assistant",
-                            "publish",
-                            "Publish.",
-                            "action-1",
-                            admitted,
-                            "0.4.1",
-                            copy=human_request_fixtures.copy(admitted),
-                        ),
-                    ),
+                    "human", (human_requirement(request, (request["kind"],), declared, purpose="Publish."),)
                 )
 
     def test_encoding_refuses_a_continuation_that_would_not_restore(self) -> None:
-        requirements = (
-            integration_challenges.IntegrationRequirement(
-                "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", ("dns.read",)),)
-            ),
-        )
+        requirements = integration_requirement("dns.read")
         drifted = local_chat_continuations.DecodedContinuation(
             "integrations", requirements, replace(pending(), provider="anthropic")
         )
@@ -362,24 +319,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "max_length": 1024,
             "stored_input": "exa-api-key",
         }
-        requirement = (
-            action_challenges.HumanRequirement(
-                "demo-assistant",
-                "Demo Assistant",
-                "publish",
-                "Search the web.",
-                "action-1",
-                human_request_fixtures.admit(
-                    human_request_fixtures.fingerprinted(request), ("input:password",), ("exa-api-key",)
-                ),
-                "0.4.1",
-                copy=human_request_fixtures.copy(
-                    human_request_fixtures.admit(
-                        human_request_fixtures.fingerprinted(request), ("input:password",), ("exa-api-key",)
-                    )
-                ),
-            ),
-        )
+        requirement = (human_requirement(request, ("input:password",), ("exa-api-key",), purpose="Search the web."),)
         self._round_trip("human", requirement)
         self.assertEqual(requirement[0].request.stored_input, "exa-api-key")
 
@@ -401,46 +341,14 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "min_length": 1,
             "max_length": 255,
         }
-        state = pending()
-        state = local_chat_continuations.PendingLocalChat(
-            state.continuation,
-            state.assistant_ids,
-            state.file_ids,
-            state.provider,
-            state.identity,
-            (
-                action_human.ActionTranscript(
-                    "action-1",
-                    (
-                        action_human.admit_response(
-                            human_request_fixtures.admit(human_request_fixtures.fingerprinted(first), ("approval",)),
-                            True,
-                        ),
-                    ),
-                ),
-            ),
-            1,
-            paused_batch=PAUSED_BATCH,
+        answered = action_human.admit_response(
+            human_request_fixtures.admit(human_request_fixtures.fingerprinted(first), ("approval",)), True
         )
-        requirement = (
-            action_challenges.HumanRequirement(
-                "demo-assistant",
-                "Demo Assistant",
-                "publish",
-                "Publish a DNS record.",
-                "action-1",
-                human_request_fixtures.admit(human_request_fixtures.fingerprinted(current), ("input:text",)),
-                "0.4.1",
-                copy=human_request_fixtures.copy(
-                    human_request_fixtures.admit(human_request_fixtures.fingerprinted(current), ("input:text",))
-                ),
-            ),
-        )
+        state = human_pending(transcripts=(action_human.ActionTranscript("action-1", (answered,)),), requests_used=1)
+        requirement = (human_requirement(current, ("input:text",), purpose="Publish a DNS record."),)
 
         bindings, payload = local_chat_continuations.encode("human", requirement, state)
-        decoded = local_chat_continuations.decode(
-            local_chat_continuation_store.StoredContinuation("team_1", "human", "c" * 32, 1_300, 1, bindings, payload)
-        )
+        decoded = local_chat_continuations.decode(stored_record("human", bindings, payload))
 
         self.assertEqual(decoded.requirements, requirement)
         self.assertEqual(decoded.pending, state)
@@ -459,9 +367,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         state = human_pending(locale="pt", usage=usage)
 
         bindings, payload = local_chat_continuations.encode("human", requirement, state)
-        decoded = local_chat_continuations.decode(
-            local_chat_continuation_store.StoredContinuation("team_1", "human", "c" * 32, 1_300, 1, bindings, payload)
-        )
+        decoded = local_chat_continuations.decode(stored_record("human", bindings, payload))
         self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 7)
         self.assertEqual(decoded.pending.paused_batch, PAUSED_BATCH)
         self.assertEqual(decoded.pending.identity[3][0]["sha256"], "b" * 64)
@@ -480,11 +386,8 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "no usage": {**body, "pending": {k: v for k, v in body["pending"].items() if k != "usage"}},
         }
         for name, variant in variants.items():
-            stored = local_chat_continuation_store.StoredContinuation(
-                "team_1", "human", "c" * 32, 1_300, 1, bindings, json.dumps(variant).encode()
-            )
             with self.subTest(name), self.assertRaises(local_chat_continuations.ContinuationCodecError):
-                local_chat_continuations.decode(stored)
+                local_chat_continuations.decode(stored_record("human", bindings, json.dumps(variant).encode()))
 
     def test_refuses_to_persist_password_response_material(self) -> None:
         secret_request = {
@@ -498,60 +401,21 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "min_length": 1,
             "max_length": 64,
         }
-        state = pending()
-        state = local_chat_continuations.PendingLocalChat(
-            state.continuation,
-            state.assistant_ids,
-            state.file_ids,
-            state.provider,
-            state.identity,
-            (
-                action_human.ActionTranscript(
-                    "action-1",
-                    (
-                        action_human.admit_response(
-                            human_request_fixtures.admit(
-                                human_request_fixtures.fingerprinted(secret_request), ("input:password",)
-                            ),
-                            "secret",
-                        ),
-                    ),
-                ),
-            ),
-            1,
-            paused_batch=PAUSED_BATCH,
+        answered = action_human.admit_response(
+            human_request_fixtures.admit(human_request_fixtures.fingerprinted(secret_request), ("input:password",)),
+            "secret",
         )
+        state = human_pending(transcripts=(action_human.ActionTranscript("action-1", (answered,)),), requests_used=1)
 
         with self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "secret"):
             local_chat_continuations.encode(
                 "human",
-                (
-                    action_challenges.HumanRequirement(
-                        "demo-assistant",
-                        "Demo Assistant",
-                        "publish",
-                        "Publish a DNS record.",
-                        "action-1",
-                        human_request_fixtures.admit(
-                            human_request_fixtures.fingerprinted(secret_request), ("input:password",)
-                        ),
-                        "0.4.1",
-                        copy=human_request_fixtures.copy(
-                            human_request_fixtures.admit(
-                                human_request_fixtures.fingerprinted(secret_request), ("input:password",)
-                            )
-                        ),
-                    ),
-                ),
+                (human_requirement(secret_request, ("input:password",), purpose="Publish a DNS record."),),
                 state,
             )
 
     def test_only_a_human_pause_names_its_paused_action_batch(self) -> None:
-        integration = (
-            integration_challenges.IntegrationRequirement(
-                "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", ("dns.read",)),)
-            ),
-        )
+        integration = integration_requirement("dns.read")
         human = (
             human_request_fixtures.requirement(
                 human_request_fixtures.request("approval"), locale="en", assistant_id="demo-assistant"
@@ -568,63 +432,25 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 local_chat_continuations.encode(kind, requirements, state)
 
     def test_restart_preserves_the_monotonic_human_request_budget(self) -> None:
-        requirement = (
-            integration_challenges.IntegrationRequirement(
-                "demo-assistant",
-                "Demo Assistant",
-                ("publish",),
-                (("cloudflare", "cloudflare", ("dns.read",)),),
-            ),
-        )
+        requirement = integration_requirement("dns.read")
         state = replace(pending(), requests_used=action_human.MAX_REQUESTS_PER_TURN)
         bindings, payload = local_chat_continuations.encode("integrations", requirement, state)
-        decoded = local_chat_continuations.decode(
-            local_chat_continuation_store.StoredContinuation(
-                "team_1",
-                "integrations",
-                "c" * 32,
-                1_300,
-                1,
-                bindings,
-                payload,
-            )
-        )
+        decoded = local_chat_continuations.decode(stored_record("integrations", bindings, payload))
 
         self.assertEqual(decoded.pending.requests_used, action_human.MAX_REQUESTS_PER_TURN)
 
     def test_rejects_release_binding_and_decrypted_shape_drift(self) -> None:
-        requirement = (
-            integration_challenges.IntegrationRequirement(
-                "demo-assistant",
-                "Demo Assistant",
-                ("publish",),
-                (("cloudflare", "cloudflare", ("dns.read", "zone.read")),),
-            ),
-        )
+        requirement = integration_requirement("dns.read", "zone.read")
         bindings, payload = local_chat_continuations.encode("integrations", requirement, pending())
-        drifted = local_chat_continuation_store.StoredContinuation(
-            "team_1",
-            "integrations",
-            "c" * 32,
-            1_300,
-            1,
-            ("demo-assistant/publish/" + IMAGE + "/changed",),
-            payload,
-        )
+        drifted = stored_record("integrations", ("demo-assistant/publish/" + IMAGE + "/changed",), payload)
         with self.assertRaisesRegex(
             local_chat_continuations.ContinuationCodecError,
             "binding changed",
         ):
             local_chat_continuations.decode(drifted)
 
-        malformed = local_chat_continuation_store.StoredContinuation(
-            "team_1",
-            "integrations",
-            "c" * 32,
-            1_300,
-            1,
-            bindings,
-            b'{"schema":1,"kind":"integrations","requirements":[],"pending":{}}',
+        malformed = stored_record(
+            "integrations", bindings, b'{"schema":1,"kind":"integrations","requirements":[],"pending":{}}'
         )
         with self.assertRaises(local_chat_continuations.ContinuationCodecError):
             local_chat_continuations.decode(malformed)

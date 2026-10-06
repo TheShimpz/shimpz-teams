@@ -14,6 +14,12 @@ from local.chat import continuation as continuation
 from local.chat import continuation_store
 
 
+def _stored(kind: str, body: dict[str, object]) -> continuation_store.StoredContinuation:
+    return continuation_store.StoredContinuation(
+        "team_1", kind, "a" * 32, 2_000, 1, ("binding",), json.dumps(body).encode()
+    )
+
+
 class ContinuationCodecPrimitiveEdgeTests(unittest.TestCase):
     def test_closed_primitives_reject_shape_text_and_identifier_drift(self) -> None:
         invalid = (
@@ -328,15 +334,7 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
             "requirements": [],
             "pending": self.raw_pending,
         }
-        stored = continuation_store.StoredContinuation(
-            "team_1",
-            "integrations",
-            "a" * 32,
-            2_000,
-            1,
-            ("binding",),
-            json.dumps(body).encode(),
-        )
+        stored = _stored("integrations", body)
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation.decode(stored)
 
@@ -347,15 +345,7 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
                 "requirements": [],
                 "pending": self.raw_pending,
             }
-            stored = continuation_store.StoredContinuation(
-                "team_1",
-                kind,
-                "a" * 32,
-                2_000,
-                1,
-                ("binding",),
-                json.dumps(body).encode(),
-            )
+            stored = _stored(kind, body)
             with self.subTest(kind=kind), self.assertRaises(continuation.ContinuationCodecError):
                 continuation.decode(stored)
 
@@ -365,42 +355,18 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
             "requirements": [],
             "pending": self.raw_pending,
         }
-        stored = continuation_store.StoredContinuation(
-            "team_1",
-            "integrations",
-            "a" * 32,
-            2_000,
-            1,
-            ("binding",),
-            json.dumps(body).encode(),
-        )
+        stored = _stored("integrations", body)
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation.decode(stored)
 
         body["schema"] = 2
         body["kind"] = "unknown"
-        stored = continuation_store.StoredContinuation(
-            "team_1",
-            "unknown",
-            "a" * 32,
-            2_000,
-            1,
-            ("binding",),
-            json.dumps(body).encode(),
-        )
+        stored = _stored("unknown", body)
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation.decode(stored)
 
         body["kind"] = "integrations"
-        stored = continuation_store.StoredContinuation(
-            "team_1",
-            "integrations",
-            "a" * 32,
-            2_000,
-            1,
-            ("binding",),
-            json.dumps(body).encode(),
-        )
+        stored = _stored("integrations", body)
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation.decode(stored)
 
