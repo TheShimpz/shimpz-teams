@@ -34,8 +34,14 @@ class NetworkPolicyEdgeTests(unittest.TestCase):
             spec.loader.exec_module(module)
 
     def test_names_labels_and_container_shapes_are_strict(self) -> None:
-        with self.assertRaises(ValueError):
-            policy.team_assistant_container_name("alpha", "INVALID")
+        for assistant_id in ("INVALID", "a--b", "a-", "a" * 41, "a\n"):
+            with self.subTest(assistant_id=assistant_id), self.assertRaises(ValueError):
+                policy.team_assistant_container_name("alpha", assistant_id)
+        double_hyphen = {
+            "Names": ["/" + policy.TEAM_PREFIX + "alpha" + policy.ASSISTANT_WORKLOAD_DELIMITER + "a--b"],
+            "Labels": {"team.assistant.runtime": "1", "team.id": "alpha", "team.assistant": "a--b"},
+        }
+        self.assertIsNone(policy._workload_role(double_hyphen, "alpha"))
         self.assertTrue(policy.volume_name("alpha", policy.CONFIG_VOLUME_KIND).endswith("_config"))
         self.assertTrue(policy.volume_name("alpha", policy.WORKSPACE_VOLUME_KIND).endswith("_workspace"))
         with self.assertRaises(ValueError):

@@ -12,6 +12,8 @@ import re
 from collections.abc import Callable, Mapping
 from decimal import Decimal, InvalidOperation
 
+from protocol.http.v1 import payload as http_payload
+
 SUFFIX = os.environ.get("SHIMPZ_SUFFIX", "")
 TEAM_PREFIX = f"team{SUFFIX}_"
 CORE_NETWORK_PREFIX = f"net_team{SUFFIX}_"
@@ -55,7 +57,6 @@ _IMAGE_REFERENCE = re.compile(
 )
 DOCKER_IMAGE_NAME_MAX = 255
 
-ASSISTANT_ID_RE = re.compile(r"^[a-z](?:[a-z0-9-]{0,38}[a-z0-9])?$")
 EXPECTED_RUNTIME_CAP_ADD = frozenset()
 SHARED_MANAGED_LABEL = "shimpz.team.shared"
 SHARED_ROLE_LABEL = "shimpz.team.shared.role"
@@ -152,7 +153,7 @@ def team_container_name(team_id: str) -> str:
 
 
 def team_assistant_container_name(team_id: str, assistant_id: str) -> str:
-    if ASSISTANT_ID_RE.fullmatch(assistant_id) is None:
+    if http_payload.canonical_assistant_id(assistant_id) is None:
         raise ValueError(f"invalid Team Assistant id: {assistant_id!r}")
     # Dot is outside the TEAM_ID alphabet, so no valid Team runtime name can impersonate an Assistant workload.
     name = f"{TEAM_PREFIX}{team_id}{ASSISTANT_WORKLOAD_DELIMITER}{assistant_id}"
@@ -261,8 +262,7 @@ def _workload_role(metadata: Mapping, team_id: str) -> tuple[str, str] | None:
     if (
         labels.get("team.assistant.runtime") == "1"
         and labels.get("team.id") == team_id
-        and isinstance(assistant_id, str)
-        and ASSISTANT_ID_RE.fullmatch(assistant_id) is not None
+        and http_payload.canonical_assistant_id(assistant_id) is not None
         and assistant_id not in RESERVED_SERVICE_ALIASES
         and name == team_assistant_container_name(team_id, assistant_id)
     ):
