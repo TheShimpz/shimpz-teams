@@ -11,6 +11,11 @@ from hosted.install import developers_client
 from install.contract import ContractValidationError
 
 
+def _invalid_contracts():
+    """Make every Developers contract validation fail."""
+    return mock.patch.object(developers_client._CONTRACTS, "validate", side_effect=ContractValidationError("invalid"))
+
+
 class DevelopersClientEdgeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
@@ -22,14 +27,7 @@ class DevelopersClientEdgeTests(unittest.TestCase):
         self.directory.cleanup()
 
     def test_authorization_icon_and_json_failures_are_closed(self) -> None:
-        with (
-            mock.patch.object(
-                developers_client._CONTRACTS,
-                "validate",
-                side_effect=ContractValidationError("invalid"),
-            ),
-            self.assertRaises(developers_client.DevelopersClientError),
-        ):
+        with _invalid_contracts(), self.assertRaises(developers_client.DevelopersClientError):
             self.client.authorize_install({})
 
         with (
@@ -88,14 +86,7 @@ class DevelopersClientEdgeTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             developers_client.read_service_token(self.token, "token")
 
-        with (
-            mock.patch.object(
-                developers_client._CONTRACTS,
-                "validate",
-                side_effect=ContractValidationError("invalid"),
-            ),
-            self.assertRaises(developers_client.DevelopersClientError),
-        ):
+        with _invalid_contracts(), self.assertRaises(developers_client.DevelopersClientError):
             developers_client._validated("schema.json", {})
         with (
             mock.patch.object(developers_client._CONTRACTS, "validate"),
