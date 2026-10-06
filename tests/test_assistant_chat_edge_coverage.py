@@ -255,23 +255,17 @@ class ChatTurnEdgeCoverageTests(unittest.TestCase):
                 chat_turn.IntegrationResumeAdmission(None, "response"),
             )
 
-        store.claim.side_effect = integration_challenges.IntegrationChallengeNotFoundError("gone")
-        with (
-            mock.patch.object(chat_turn.integration_flow, "requirements_for_batch", return_value=()),
-            self.assertRaisesRegex(RuntimeError, "expired"),
-        ):
-            chat_turn.admit_integration_resume(strategy)
-
-        store.claim.side_effect = None
-        store.claim.return_value = SimpleNamespace()
-        with (
-            mock.patch.object(chat_turn.integration_flow, "requirements_for_batch", return_value=()),
-            self.assertRaisesRegex(RuntimeError, "expired"),
-        ):
-            chat_turn.admit_integration_resume(strategy)
-
-        store.claim.return_value = challenge
         with mock.patch.object(chat_turn.integration_flow, "requirements_for_batch", return_value=()):
+            store.claim.side_effect = integration_challenges.IntegrationChallengeNotFoundError("gone")
+            with self.assertRaisesRegex(RuntimeError, "expired"):
+                chat_turn.admit_integration_resume(strategy)
+
+            store.claim.side_effect = None
+            store.claim.return_value = SimpleNamespace()
+            with self.assertRaisesRegex(RuntimeError, "expired"):
+                chat_turn.admit_integration_resume(strategy)
+
+            store.claim.return_value = challenge
             self.assertEqual(
                 chat_turn.admit_integration_resume(strategy),
                 chat_turn.IntegrationResumeAdmission(challenge.payload, None),
