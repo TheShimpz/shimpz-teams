@@ -40,6 +40,17 @@ assistant_registry_drift = _problem(
 assistant_icon_unavailable = _problem(
     _UNAVAILABLE, "Assistant icon storage is unavailable", "assistant-icon-unavailable"
 )
+assistant_action_blocked = _problem(
+    _UNAVAILABLE,
+    "Assistant Action execution is blocked until this Assistant is reinstalled",
+    "assistant-action-blocked",
+)
+conversation_state_unavailable = _problem(
+    _UNAVAILABLE, "Team conversation state could not be deleted", "brain-runtime-failed"
+)
+integration_challenge_expired = _problem(
+    _CONFLICT, "Assistant integration request expired; retry the message", "assistant-integration-challenge-expired"
+)
 chat_stopped = _problem(_CONFLICT, "chat turn stopped", "chat-stopped")
 inference_not_configured = _problem(_CONFLICT, "Team model provider is not configured", "inference-not-configured")
 inference_provider_mismatch = _problem(

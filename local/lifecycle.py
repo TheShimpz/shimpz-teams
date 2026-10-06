@@ -16,7 +16,9 @@ from local import prepare as local_prepare
 from local.assistant.egress import PROFILE
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
+    action_state_unavailable,
     assistant_icon_unavailable,
+    conversation_state_unavailable,
     docker_unavailable,
     team_destroy_failed,
     team_resources_ownership_conflict,
@@ -60,11 +62,7 @@ def _purge_action_generation(self, generation: str) -> None:
     try:
         self.action_state.purge(generation)
     except action_journal.ActionJournalError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Team Action execution state could not be deleted",
-            code="action-state-unavailable",
-        ) from exc
+        raise action_state_unavailable() from exc
 
 
 def _team_assistant_containers(self, team_id: str) -> list:
@@ -90,11 +88,7 @@ def _delete_team_conversation(self, team_id: str, network) -> None:
     try:
         self.brain_runtime.delete_thread(thread_id)
     except brain_runtime_client.BrainRuntimeError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Team conversation state could not be deleted",
-            code="brain-runtime-failed",
-        ) from exc
+        raise conversation_state_unavailable() from exc
     self._purge_action_generation(network.id)
 
 

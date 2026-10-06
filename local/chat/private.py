@@ -18,7 +18,12 @@ from integrations import store as integration_store
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import action_file_unavailable, integration_contract_unavailable, stored_input_unavailable
+from local.errors import (
+    action_file_unavailable,
+    integration_challenge_expired,
+    integration_contract_unavailable,
+    stored_input_unavailable,
+)
 from local.install.runtime import AssistantSpec
 from local.validation import validate_team_id
 
@@ -242,11 +247,7 @@ def start_assistant_integration_authorization(
                 callback_mode=callback_mode,
             )
     except integration_challenges.IntegrationChallengeError as exc:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Assistant integration request expired; retry the message",
-            code="assistant-integration-challenge-expired",
-        ) from exc
+        raise integration_challenge_expired() from exc
     except integration_service.OAuthIntegrationUnavailableError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,

@@ -13,7 +13,12 @@ from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from local import prepare as local_prepare
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import action_state_unavailable, selected_file_not_found, team_context_changed
+from local.errors import (
+    action_state_unavailable,
+    conversation_state_unavailable,
+    selected_file_not_found,
+    team_context_changed,
+)
 from local.validation import brain_thread_id as _brain_thread_id
 from prepare import helper as preparation_helper
 from prepare import service as preparation
@@ -168,9 +173,5 @@ def forget_file(self, team_id: str, file_id: str, network: object) -> None:
     try:
         self.brain_runtime.delete_thread(_brain_thread_id(self.space_id, team_id, network.id))
     except brain_runtime_client.BrainRuntimeError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Team conversation state could not be deleted",
-            code="brain-runtime-failed",
-        ) from exc
+        raise conversation_state_unavailable() from exc
     self.storage.settle(team_id, ())

@@ -22,6 +22,7 @@ from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
+    assistant_action_blocked,
     assistant_registry_drift,
     docker_unavailable,
     inference_not_configured,
@@ -234,11 +235,7 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
             refresh=False,
         )
         if container.id in self.assistant_lifecycle._blocked_action_workloads:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Assistant Action execution is blocked until this Assistant is reinstalled",
-                code="assistant-action-blocked",
-            )
+            raise assistant_action_blocked()
         if container.status == "running":
             active.append(_ActiveAssistant(spec=spec, container_id=container.id, container=container))
     active.sort(key=lambda item: item.spec.assistant_id)

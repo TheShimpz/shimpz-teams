@@ -15,7 +15,12 @@ from local.chat.segment import SegmentRequest as _ChatSegmentRequest
 from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.chat.types import ResponseRequest as _ResponseRequest
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import chat_stopped, integration_contract_unavailable, team_context_changed
+from local.errors import (
+    chat_stopped,
+    integration_challenge_expired,
+    integration_contract_unavailable,
+    team_context_changed,
+)
 from local.routine import draft as routine_draft
 from local.routine import lineage as routine_lineage
 from local.routine import question as routine_question
@@ -353,11 +358,7 @@ def resume_chat_integrations(
                     inspect=inspect,
                     integration_store=self.assistant_integrations,
                     challenge_response=self._integration_response,
-                    expired_error=lambda: ApiProblem(
-                        HTTPStatus.CONFLICT,
-                        "Assistant integration request expired; retry the message",
-                        code="assistant-integration-challenge-expired",
-                    ),
+                    expired_error=integration_challenge_expired,
                     context_error=team_context_changed,
                     contract_error=integration_contract_unavailable,
                     end_drifted=lambda challenge: local_chat_pause._end_drifted_turn(self, team_id, challenge),

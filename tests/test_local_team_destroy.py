@@ -277,7 +277,7 @@ class LocalTeamDestroyTests(LocalContractCase):
         expected_thread = local_app._brain_thread_id("local-space", "team_1", "a" * 64)
         self.assertEqual(caught.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self.assertEqual(caught.exception.code, "action-state-unavailable")
-        self.assertEqual(caught.exception.message, "Team Action execution state could not be deleted")
+        self.assertEqual(caught.exception.message, "Team Action execution state is unavailable")
         self.assertNotIn("private-journal-path", str(caught.exception))
         self.assertEqual(
             events,
