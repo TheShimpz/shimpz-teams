@@ -614,6 +614,23 @@ class SecretTests(unittest.TestCase):
                 )
                 self.assertEqual(_input(_recorded(send))["zone_id"]["kind"], "step_output")
 
+    def test_a_question_never_offers_a_target_or_label_the_span_protects(self) -> None:
+        items = {
+            "items": [
+                {"name": "same", "id": "id-0001", "title": "tok-label-1"},
+                {"name": "same", "id": "tok-secret-2"},
+                {"name": "same", "id": "id-0003"},
+            ]
+        }
+        calls = (("reports/fetch", {}, items), ("cloudflare/list-dns-records", {"zone_id": "id-0003"}, {}))
+        unnamed = {"items": [{"id": "id-0001", "title": "tok-label-1"}, {"id": "id-0003", "title": "plain"}]}
+        protection = trace.Protection().grow(("tok-secret-2", "tok-label-1"))
+        asked = _record(_send(*calls, message=_then_hourly("same")), protection=protection)
+        self.assertEqual(asked.options, ({"value": "id-0001", "label": "same"}, {"value": "id-0003", "label": "same"}))
+        labelled = (("reports/fetch", {}, unnamed), ("cloudflare/list-dns-records", {"zone_id": "id-0003"}, {}))
+        asked = _record(_send(*labelled, message=_then_hourly("x")), protection=protection)
+        self.assertEqual(asked.options, ({"value": "id-0001", "label": None}, {"value": "id-0003", "label": "plain"}))
+
     def test_a_path_longer_than_a_plan_pointer_refuses(self) -> None:
         long_key = "k" * routine_plan.MAX_POINTER
         calls = (

@@ -239,9 +239,11 @@ def _room(candidate: record.Routine, others: tuple[record.Routine, ...]) -> rout
 
 
 class _AskedError(Exception):
-    def __init__(self, question: routine_recording.Question) -> None:
+    def __init__(self, question: routine_recording.Question, protected: frozenset[str]) -> None:
         super().__init__(question.code)
         self.question = question
+        # What the span protects as it asks, which nothing in the question may hold.
+        self.protected = protected
 
 
 def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
@@ -252,7 +254,7 @@ def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
     existing = _replaced(state, outcome["replaces"], recording)
     recorded = _recorded(outcome, recording, contracts, existing)
     if isinstance(recorded, routine_recording.Question):
-        raise _AskedError(recorded)
+        raise _AskedError(recorded, recording.protection.values)
     if not all(item["read_only"] for item in recorded.permitted):
         # Routines that change something come with rehearsal, in their own slice.
         raise RefusedError("routine-mutation-unavailable")
@@ -284,7 +286,7 @@ def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
     refused = routine_definition.over_budget(others, candidate) or record.change_room(state, 1)
     if refused == "routine-step-budget":
         # The person's interval stands; Team asks rather than run it less often than they said (ADR-0101).
-        raise _AskedError(_room(candidate, others))
+        raise _AskedError(_room(candidate, others), recording.protection.values)
     if refused is not None or not routine_definition.fits(candidate):
         raise RefusedError(refused or "routine-too-large")
     if existing is not None and any(item.routine_id == existing.routine_id for item in state.runs):
@@ -407,6 +409,11 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
             raise RefusedError("routine-secret-literal")
     except _AskedError as asking:
         question = asking.question
+        if trace.exposes(question.wire(), asking.protected):
+            # Nothing the span protects ever reaches the person, a question's targets included.
+            return (lambda: self.routine_recordings.finish(team_id, send_id)), {
+                "routine_refusal": {"code": "routine-secret-literal"}
+            }
         if http_routine.canonical_question(question.wire()) is None:
             raise _problem(
                 HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine question is invalid", "internal-error"

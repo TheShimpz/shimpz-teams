@@ -690,7 +690,7 @@ def _sourced(context: _Context, input_: tuple[_Call, str], value: object) -> dic
             return None
         raise _AskError(Question("routine-binding-unsourced"))
     if len(found) > 1:
-        raise _ambiguous(input_, value, [{"value": value, "label": None}])
+        raise _ambiguous(context, input_, value, [{"value": value, "label": None}])
     ((node, positions),) = found.items()
     bindings = [_binding(context, node, position) for position in positions]
     if len(bindings) == 1 and "options" not in bindings[0]:
@@ -699,15 +699,25 @@ def _sourced(context: _Context, input_: tuple[_Call, str], value: object) -> dic
     if len(selected) == 1:
         return selected[0]
     options = [option for item in bindings for option in item.get("options") or [{"value": value, "label": None}]]
-    raise _ambiguous(input_, value, options)
+    raise _ambiguous(context, input_, value, options)
 
 
-def _ambiguous(input_: tuple[_Call, str], value: object, options: list[dict[str, object]]) -> Exception:
-    """The question which target an input means: a scalar's choices; a container is never chosen and refuses."""
+def _ambiguous(
+    context: _Context, input_: tuple[_Call, str], value: object, options: list[dict[str, object]]
+) -> Exception:
+    """The question which target an input means: a scalar's choices; a container is never chosen and refuses.
+
+    A target the span protects is never offered, and a protected label is never shown.
+    """
     if isinstance(value, dict | list):
         return RecordingError("routine-recording-ambiguous")
+    protected = context.known.protected
     choices: list[dict[str, object]] = []
     for option in options:
+        if trace.exposes(_json_text(option["value"]), protected):
+            continue
+        if trace.exposes(option["label"], protected):
+            option = {**option, "label": None}
         if all(option["value"] != item["value"] for item in choices) and _offered(option):
             choices.append(option)
     call, member = input_

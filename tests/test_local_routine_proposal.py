@@ -281,6 +281,25 @@ class RecordedRoutineTests(LocalContractCase):
         # The card ended the span.
         self.assertIsNone(span)
 
+    def test_a_question_holding_a_protected_value_is_refused_never_published(self) -> None:
+        leaking = routine_recording.Question(
+            "routine-binding-ambiguous", ({"value": "tok-protected-9", "label": None},)
+        )
+        runtime = Recording(_record())
+
+        def prepare(service) -> None:
+            original = service.routine_recordings.start
+
+            def start(*args, **options):
+                recording_id = original(*args, **options)
+                service.routine_recordings.protect(args[0], recording_id, ("tok-protected-9",))
+                return recording_id
+
+            service.routine_recordings.start = start
+
+        with mock.patch.object(routine_recording, "record", return_value=leaking):
+            self.assertEqual(self.refusal(runtime, prepare=prepare), "routine-secret-literal")
+
     def test_a_question_its_own_contract_refuses_is_an_internal_error_never_asked(self) -> None:
         stray = routine_recording.Question("routine-other")
         with (
