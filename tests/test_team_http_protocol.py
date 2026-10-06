@@ -37,7 +37,17 @@ class FlatVerifierTests(unittest.TestCase):
     """`verify.py` runs every module of the protocol directory flat, as each consumer's copy does."""
 
     def test_the_verifier_imports_the_protocol_modules_flat_from_their_directory(self) -> None:
-        names = ("identifiers", "payload", "progress", "purpose", "routine", "strict_json", "supervisor", "websocket")
+        names = (
+            "identifiers",
+            "payload",
+            "progress",
+            "purpose",
+            "routine",
+            "strict_json",
+            "supervisor",
+            "turn",
+            "websocket",
+        )
         saved = {name: sys.modules.pop(name) for name in names if name in sys.modules}
         output = io.StringIO()
         try:

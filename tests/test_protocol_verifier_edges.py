@@ -60,6 +60,7 @@ def _execute(
             "schema_validator",
             "strict_json",
             "supervisor",
+            "turn",
             "validators",
             "validators.action_effect",
             "validators.failure",

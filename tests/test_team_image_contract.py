@@ -59,6 +59,7 @@ HOSTED_PROTOCOL_DATA = {
     "protocol/http/v1/payload.py",
     "protocol/http/v1/purpose.py",
     "protocol/http/v1/strict_json.py",
+    "protocol/http/v1/turn.py",
     "protocol/install/upstream.json",
     "protocol/install/v1/README.md",
     "protocol/install/v1/contract-files.sha256",
@@ -84,6 +85,7 @@ LOCAL_PROTOCOL_DATA = {
     "protocol/http/v1/routine.py",
     "protocol/http/v1/strict_json.py",
     "protocol/http/v1/supervisor.py",
+    "protocol/http/v1/turn.py",
     *(path for path in HOSTED_PROTOCOL_DATA if path.startswith("protocol/install/")),
 }
 DYNAMIC_IMPORT_MODULES = {"importlib", "pkgutil", "runpy"}
@@ -461,6 +463,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
                 "protocol/http/v1/payload.py",
                 "protocol/http/v1/purpose.py",
                 "protocol/http/v1/strict_json.py",
+                "protocol/http/v1/turn.py",
                 "protocol/account/delivery/v1/aad.py",
                 *ASSISTANT_PROTOCOL_RUNTIME,
             },

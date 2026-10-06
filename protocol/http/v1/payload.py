@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import unicodedata
 
 if __package__:
-    from . import identifiers, purpose
+    from . import identifiers, purpose, turn
 else:  # The protocol verifier runs every module of this directory flat.
     import identifiers
     import purpose
+    import turn
 
-# The identifier grammars and the purpose sentence rule live in their own modules, which the Brain mirrors too.
+# The identifier grammars, the purpose sentence rule, and the chat-turn bounds live in their own modules, which the
+# Brain mirrors too.
 TEAM_ID_PATTERN = identifiers.TEAM_ID_PATTERN
 ASSISTANT_ID_PATTERN = identifiers.ASSISTANT_ID_PATTERN
 ACTION_ID_PATTERN = identifiers.ACTION_ID_PATTERN
@@ -30,6 +31,24 @@ canonical_identifier = identifiers.canonical_identifier
 canonical_action_id = identifiers.canonical_action_id
 MAX_PURPOSE_CHARS = purpose.MAX_PURPOSE_CHARS
 canonical_purpose = purpose.canonical_purpose
+MAX_CHAT_MESSAGE_CHARS = turn.MAX_CHAT_MESSAGE_CHARS
+MAX_CLARIFICATION_QUESTION_CHARS = turn.MAX_CLARIFICATION_QUESTION_CHARS
+MAX_CLARIFICATION_LABEL_CHARS = turn.MAX_CLARIFICATION_LABEL_CHARS
+MAX_CLARIFICATION_DESCRIPTION_CHARS = turn.MAX_CLARIFICATION_DESCRIPTION_CHARS
+MIN_CLARIFICATION_OPTIONS = turn.MIN_CLARIFICATION_OPTIONS
+MAX_CLARIFICATION_OPTIONS = turn.MAX_CLARIFICATION_OPTIONS
+MAX_MEMORIES = turn.MAX_MEMORIES
+MAX_MEMORY_PREFERENCE_CHARS = turn.MAX_MEMORY_PREFERENCE_CHARS
+MEMORY_TOPIC_RE = turn.MEMORY_TOPIC_RE
+MAX_SKILLS = turn.MAX_SKILLS
+MAX_MEMORY_CHANGES = turn.MAX_MEMORY_CHANGES
+MIN_SKILL_STEPS = turn.MIN_SKILL_STEPS
+MAX_SKILL_STEPS = turn.MAX_SKILL_STEPS
+MAX_SKILL_INPUTS = turn.MAX_SKILL_INPUTS
+SKILL_KEY_PREFIX = turn.SKILL_KEY_PREFIX
+SKILL_KEY_RE = turn.SKILL_KEY_RE
+SKILL_INPUT_RE = turn.SKILL_INPUT_RE
+skill_key = turn.skill_key
 
 FILE_ID_PATTERN = r"^[0-9a-f]{32}$"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
@@ -58,7 +77,6 @@ ASSURANCE_HANDLE_RE = re.compile(ASSURANCE_HANDLE_PATTERN)
 MEDIA_TYPE_RE = re.compile(MEDIA_TYPE_PATTERN)
 HELP_URL_RE = re.compile(HELP_URL_PATTERN)
 
-MAX_CHAT_MESSAGE_CHARS = 16_000
 MAX_CHAT_FILES = 8
 MAX_CHAT_ASSISTANTS = 16
 MAX_TEAM_FILES = 256
@@ -71,23 +89,6 @@ MAX_MEDIA_TYPE_CHARS = 127
 MAX_CONVERSATION_ENTRIES = 8
 MAX_CONVERSATION_TEXT_CHARS = 512
 MAX_CONVERSATION_CHARS = 4_096
-MAX_CLARIFICATION_QUESTION_CHARS = 240
-MAX_CLARIFICATION_LABEL_CHARS = 80
-MAX_CLARIFICATION_DESCRIPTION_CHARS = 160
-MIN_CLARIFICATION_OPTIONS = 2
-MAX_CLARIFICATION_OPTIONS = 5
-MAX_MEMORIES = 32
-MAX_MEMORY_PREFERENCE_CHARS = 280
-MEMORY_TOPIC_RE = re.compile(r"[a-z][a-z0-9-]{0,39}\Z")
-MAX_SKILLS = 8
-# One completed turn may forget every memory and every skill at once, and never change more.
-MAX_MEMORY_CHANGES = MAX_MEMORIES + MAX_SKILLS
-MIN_SKILL_STEPS = 2
-MAX_SKILL_STEPS = 16
-MAX_SKILL_INPUTS = 32
-SKILL_KEY_PREFIX = "procedure-"
-SKILL_KEY_RE = re.compile(r"procedure-[0-9a-f]{12}\Z")
-SKILL_INPUT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}\Z")
 CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation", "locale"})
 # A Local chat body adds what direct Routine creation binds (ADR-0092): the request identity Admin issues once per sent
 # message and keeps across a transport retry or a resend, and the user's IANA timezone, or null.
@@ -494,12 +495,6 @@ def apply_memory_changes(memory: list[dict[str, str]], changes: list[dict[str, s
         if change["op"] == "remember":
             entries[change["topic"]] = change["preference"]
     return [{"topic": topic, "preference": preference} for topic, preference in entries.items()][-MAX_MEMORIES:]
-
-
-def skill_key(contracts: dict[str, str], steps: list[dict[str, object]]) -> str:
-    """The content key of one skill: the same Actions, inputs, and contracts always name the same procedure."""
-    body = json.dumps({"contracts": contracts, "steps": steps}, separators=(",", ":"), sort_keys=True)
-    return SKILL_KEY_PREFIX + hashlib.sha256(body.encode()).hexdigest()[:12]
 
 
 def _skill(value: object) -> dict[str, object]:

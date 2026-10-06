@@ -25,7 +25,7 @@ from routine import change as routine_change
 from routine import schedule as routine_schedule
 from routine.request import Request as RoutineRequest
 
-MAX_CHAT_MESSAGE_CHARS = 16_000
+MAX_CHAT_MESSAGE_CHARS = http_payload.MAX_CHAT_MESSAGE_CHARS
 
 
 def _pending_chat_continuation(self, team_id: str, locale: str | None = None) -> dict[str, object] | None:
