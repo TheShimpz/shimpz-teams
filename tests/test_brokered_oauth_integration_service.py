@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
+from test_oauth_broker_client import ACCESS, LEASE, REFRESH, SCOPES, Transport
+
 from integrations import broker as integration_broker
 from integrations import challenges as integration_challenges
 from integrations import http as integration_http
@@ -15,38 +17,9 @@ from integrations import service as integration_service
 from integrations import store as integration_store
 from tests import integration_store_fixtures
 
-SCOPES = ("dns.read", "offline_access", "zone.read")
 SESSION = "browser-session-private-123456789"
 CLAIM = "a" * 64
-ACCESS = "access-token-private-123456789"
-REFRESH = "refresh-token-private-123456789"
-LEASE = f"l2.1999999999.{'b' * 43}.{'c' * 43}.{'d' * 43}.{'e' * 43}"
 DECLARATION = {"provider": "cloudflare", "scopes": SCOPES}
-
-
-class Transport:
-    def __init__(self) -> None:
-        self.requests: list[dict[str, object]] = []
-
-    def request(self, **request) -> integration_broker.BrokerHTTPResponse:
-        self.requests.append(request)
-        operation = urlsplit(str(request["url"])).path.rsplit("/", 1)[-1]
-        payload = (
-            {"revoked": True}
-            if operation == "revoke"
-            else {
-                "access_token": ACCESS,
-                "refresh_token": REFRESH,
-                "expires_in": 3600,
-                "scopes": list(SCOPES),
-                "broker_lease": LEASE,
-            }
-        )
-        return integration_broker.BrokerHTTPResponse(
-            200,
-            "application/json",
-            json.dumps(payload, separators=(",", ":")).encode(),
-        )
 
 
 def pending() -> integration_challenges.PendingIntegrationChallenge:
