@@ -269,12 +269,46 @@ class OwnerCaseTests(unittest.TestCase):
         inputs = [step["input"]["zone_id"] for step in answered.document["steps"][1:]]
         self.assertEqual(inputs[0], {"kind": "literal", "value": SHIMPZ_ID})
         self.assertEqual(inputs[1]["where"], {"name": "other.org"})
-        # Twin-only: both twins were used, so one answer binds both and the other twin's call is run again.
+        # Twin-only: both twins were used, so one answer binds both, and the other twin's call was the choice not taken.
         twin = ("cloudflare/list-dns-records", {"zone_id": TWIN_ID}, {"result": []})
         both = _send(twins, RECORDS, twin, message="DNS de shimpz.com a cada hora")
         asked = _record(both)
         pending = recording.Asked(asked.code, 1, asked.pending)
-        self.assertEqual(_record(both, _send(message=json.dumps(SHIMPZ_ID)), asked=pending).code, "routine-work-rerun")
+        kept = _recorded(both, _send(message=json.dumps(SHIMPZ_ID)), asked=pending)
+        self.assertEqual([step["input"].get("zone_id") for step in kept.document["steps"][1:]], [inputs[0]])
+
+    def test_a_choice_among_twins_the_work_both_read_keeps_the_chosen_call_and_runs_nothing_again(self) -> None:
+        # From a live trace: the agent read the records of both zones named shimpz.com, the person chose one.
+        twins = ("cloudflare/list-zones", {}, TWINS)
+        twin = ("cloudflare/list-dns-records", {"zone_id": TWIN_ID}, {"result": []})
+        work = _send(twins, RECORDS, twin, message="A cada hora, liste os registros DNS de shimpz.com")
+        asked = _record(work)
+        self.assertEqual(asked.code, "routine-binding-ambiguous")
+        pending = recording.Asked(asked.code, 1, asked.pending)
+        recorded = _recorded(work, _send(message=json.dumps(SHIMPZ_ID)), asked=pending)
+        self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
+        self.assertEqual(
+            (_input(recorded)["zone_id"], recorded.origins["s2"]["zone_id"]),
+            ({"kind": "literal", "value": SHIMPZ_ID}, "request"),
+        )
+        self.assertEqual(recorded.document["output"]["step"], "s2")
+        # Choosing the twin works the same way, in either order of the calls.
+        reordered = _send(twins, twin, RECORDS, message="A cada hora, liste os registros DNS de shimpz.com")
+        other = _recorded(reordered, _send(message=json.dumps(TWIN_ID)), asked=pending)
+        self.assertEqual(_input(other)["zone_id"], {"kind": "literal", "value": TWIN_ID})
+
+    def test_a_changing_call_on_a_target_the_person_did_not_choose_is_never_dropped(self) -> None:
+        twins = ("cloudflare/list-zones", {}, TWINS)
+        deletes = tuple(
+            ("cloudflare/delete-dns-record", {"zone_id": zone, "record_id": "r" * 32}, {})
+            for zone in (SHIMPZ_ID, TWIN_ID)
+        )
+        work = _send(twins, *deletes, message="A cada hora, apague o registro de shimpz.com")
+        asked = _record(work)
+        self.assertEqual(asked.code, "routine-binding-ambiguous")
+        rerun = _record(work, _send(message=json.dumps(SHIMPZ_ID)), asked=recording.Asked(asked.code, 1, asked.pending))
+        self.assertEqual(rerun.code, "routine-work-rerun")
+        self.assertEqual(len(rerun.manifest.slots), 3)
 
     def test_every_answered_binding_stays_bound_through_later_binding_questions(self) -> None:
         other_id, other_twin = ZONES["result"][1]["id"], "8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5"
@@ -295,10 +329,15 @@ class OwnerCaseTests(unittest.TestCase):
         self.assertEqual(
             {step["input"]["zone_id"]["value"] for step in recorded.document["steps"][1:]}, {other_id, SHIMPZ_ID}
         )
-        # Work that later uses a twin the person did not choose is run again.
-        rejected = TWIN_ID if used == SHIMPZ_ID else other_twin
-        later = _send(listing, other, ("cloudflare/list-dns-records", {"zone_id": rejected}, {"result": [1]}), RECORDS)
+        # Work that later uses a twin the person did not choose, and never the one they chose, is run again.
+        rejected = ("cloudflare/list-dns-records", {"zone_id": TWIN_ID if used == SHIMPZ_ID else other_twin}, {"n": 1})
+        later = _send(listing, rejected)
         self.assertEqual(_record(work, *answers, later, asked=_asked(second, 2)).code, "routine-work-rerun")
+        # Beside the chosen one, its call was the choice not taken.
+        beside = _recorded(work, *answers, _send(listing, other, rejected, RECORDS), asked=_asked(second, 2))
+        self.assertEqual(
+            {step["input"]["zone_id"]["value"] for step in beside.document["steps"][1:]}, {other_id, SHIMPZ_ID}
+        )
 
     def test_work_run_again_for_a_chosen_target_must_use_exactly_that_target(self) -> None:
         items = {"items": [{"name": "same", "id": "target"}, {"name": "same", "id": "target-b"}]}

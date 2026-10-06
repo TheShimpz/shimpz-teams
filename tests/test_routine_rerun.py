@@ -130,10 +130,10 @@ class RerunTests(unittest.TestCase):
         self.assertIsInstance(_record(*spans, _send(_post("a"), read, _post("b")), asked=pending), recording.Recorded)
 
     def test_earlier_calls_for_targets_the_person_did_not_choose_are_no_split_work(self) -> None:
-        # A live trace: records for three zones, the person chose shimpz.com, and the agent reran only that one.
+        # Records for two zones, then the person chose a third, shimpz.com, and the agent reran only that one.
         chosen, others = ZONES["result"][3], ZONES["result"][:2]
         calls = [("cloudflare/list-dns-records", {"zone_id": zone["id"]}, {"result": []}) for zone in (*others, chosen)]
-        first = _send(ZONES_CALL, *calls, message="A cada 5 segundos, liste minhas zonas")
+        first = _send(ZONES_CALL, *calls[:2], message="A cada 5 segundos, liste minhas zonas")
         asked = _record(first)
         self.assertEqual(asked.code, "routine-binding-ambiguous")
         answer = _send(message=json.dumps(chosen["id"]))

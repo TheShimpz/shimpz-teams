@@ -54,7 +54,9 @@ def record(
     )
     context.replays_changes = recording.mode != "decide"
     context.frontier = frontier
-    work = [call for call in latest if call.read_only or recording.mode != "decide"]
+    work = routine_provenance._narrowed(
+        context, [call for call in latest if call.read_only or recording.mode != "decide"]
+    )
     try:
         if not latest and existing is not None:
             kept = _kept(context, recording, existing)

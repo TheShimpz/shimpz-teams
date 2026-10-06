@@ -192,6 +192,39 @@ def _binding_for(
     )
 
 
+def _narrowed(
+    context: routine_recording._Context, work: list[routine_recording._Call]
+) -> list[routine_recording._Call]:
+    """The work without its calls that sent a target the person did not choose, when one of its calls sent theirs.
+
+    Those calls were the choice not taken, so the work keeps the chosen call and runs nothing again. A changing call
+    never drops: work that changed something with another target must run again with the chosen one.
+    """
+    for binding in _bindings(context):
+        if binding.chosen is None:
+            continue
+        chosen = routine_recording._json_text(binding.chosen)
+        sent = {call.index: _sent(call, binding) for call in work}
+        others = {index for index, text in sent.items() if text is not None and text != chosen}
+        if chosen in sent.values() and all(call.read_only for call in work if call.index in others):
+            work = [call for call in work if call.index not in others]
+    return work
+
+
+def _sent(call: routine_recording._Call, binding: routine_recording.Pending) -> str | None:
+    """The JSON text of the target of ``binding`` this call sent, or None when it sent none of them."""
+    given = call.occurrence.input
+    if (
+        call.action != binding.action
+        or given.withheld
+        or not isinstance(given.value, dict)
+        or binding.member not in given.value
+    ):
+        return None
+    text = routine_recording._json_text(given.value[binding.member])
+    return text if any(text == routine_recording._json_text(target) for target, _label in binding.targets) else None
+
+
 def _same_choice(question: routine_recording.Question, pending: routine_recording.Pending) -> bool:
     """Whether a target question is the pending one again: the same input, offering the same targets."""
     asked = question.pending
