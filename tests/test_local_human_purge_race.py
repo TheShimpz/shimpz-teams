@@ -71,6 +71,20 @@ class ObservedLock:
         self.lock.__exit__(*args)
 
 
+def start_observed(
+    thread: threading.Thread, locks: tuple[ObservedLock, ...], finished: threading.Event, actor: str
+) -> None:
+    """Start ``thread`` as the observed Team-lock waiter and return once it finished or waits for a Team lock."""
+    for lock in locks:
+        lock.observed = thread
+    thread.start()
+    for _ in range(1000):
+        if finished.is_set() or any(lock.waiting.is_set() for lock in locks):
+            return
+        finished.wait(0.01)
+    raise AssertionError(f"{actor} neither finished nor waited for the Team lock")
+
+
 class LocalHumanPurgeRaceTests(LocalContractCase):
     def _paused(self, directory: str) -> tuple[local_app.LocalController, dict[str, object], str]:
         class Runtime:
@@ -193,15 +207,7 @@ class LocalHumanPurgeRaceTests(LocalContractCase):
             def reissued(*args: object) -> object:
                 fresh = reissue(*args)
                 # Stop arrives after the fresh challenge exists and before its continuation is persisted.
-                for lock in locks:
-                    lock.observed = stopper
-                stopper.start()
-                for _ in range(1000):
-                    if finished.is_set() or any(lock.waiting.is_set() for lock in locks):
-                        break
-                    finished.wait(0.01)
-                else:
-                    raise AssertionError("Stop neither finished nor waited for the Team lock")
+                start_observed(stopper, locks, finished, "Stop")
                 return fresh
 
             service.human_challenges.reissue = reissued
@@ -314,15 +320,7 @@ class LocalHumanPurgeRaceTests(LocalContractCase):
                 if not opener.is_alive() and not finished.is_set():
                     # Another tab opens the request in another language after this message read it, and the model
                     # provider then changes; the reissued challenge shares the paused batch.
-                    for lock in locks:
-                        lock.observed = opener
-                    opener.start()
-                    for _ in range(1000):
-                        if finished.is_set() or any(lock.waiting.is_set() for lock in locks):
-                            break
-                        finished.wait(0.01)
-                    else:
-                        raise AssertionError("the opening neither finished nor waited for the Team lock")
+                    start_observed(opener, locks, finished, "the opening")
                     self._change_provider(controller)
                 return challenge
 

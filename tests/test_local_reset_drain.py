@@ -16,7 +16,7 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
-from test_local_human_purge_race import ObservedLock
+from test_local_human_purge_race import ObservedLock, start_observed
 from test_local_space_reset import LOCAL_TEAM_RESIDUES
 from test_local_stop_pause_race import CHAT_BODY, PausingTurn
 from test_local_turn_lifecycle import PausingRuntime
@@ -148,15 +148,7 @@ class LocalResetDrainTests(LocalContractCase):
             def reissued(*args: object) -> object:
                 fresh = reissue(*args)
                 # The cleanup arrives after the fresh challenge exists and before its continuation is persisted.
-                for lock in locks:
-                    lock.observed = runner
-                runner.start()
-                for _ in range(1000):
-                    if finished.is_set() or any(lock.waiting.is_set() for lock in locks):
-                        break
-                    finished.wait(0.01)
-                else:
-                    raise AssertionError("the cleanup neither finished nor waited for the Team lock")
+                start_observed(runner, locks, finished, "the cleanup")
                 return fresh
 
             service.human_challenges.reissue = reissued
