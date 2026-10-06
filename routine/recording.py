@@ -26,8 +26,9 @@ work call and every source they need, ordered by their data dependencies with ev
 conflict or a cycle refuses. Before any card, Team resolves the plan against the recorded results and requires every
 reference to reproduce what each call sent.
 
-The schedule and the timezone are the person's own: the latest send that states a schedule (``routine.phrase``), and
-the latest send naming an IANA zone, else the latest send's browser zone. What cannot be read is asked, never guessed.
+The schedule, output, and timezone are the person's own, read by the protocol's phrase tables
+(``protocol/http/v1/phrase.py``): the latest segment that states each one, else the latest send's browser zone. What
+cannot be read is asked, never guessed.
 """
 
 from __future__ import annotations
@@ -40,9 +41,10 @@ import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 
+from protocol.http.v1 import phrase
 from protocol.http.v1 import routine as http_routine
-from routine import phrase, schedule, trace
 from routine import plan as routine_plan
+from routine import schedule, trace
 
 MODES = ("show", "changes", "none", "decide")
 WHEN = ("always", "changes")

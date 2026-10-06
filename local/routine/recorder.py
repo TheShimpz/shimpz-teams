@@ -30,10 +30,11 @@ from dataclasses import dataclass
 from assistant import effect as action_effect
 from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import phrase
 from protocol.http.v1 import routine as http_routine
-from routine import phrase, trace
 from routine import pin as routine_pin
 from routine import recording as routine_recording
+from routine import trace
 
 SPAN_SECONDS = 15 * 60
 MAX_SENDS = 16

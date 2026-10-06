@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import unittest
 
+from protocol.http.v1 import phrase
 from protocol.http.v1 import routine as http_routine
-from routine import phrase
 
 
 def continuous(gap: int) -> dict[str, object]:
@@ -169,7 +169,14 @@ class WrittenZoneTests(unittest.TestCase):
         self.assertEqual(phrase.zones("Todo dia às 9h, horário Europe/Lisbon"), ("Europe/Lisbon",))
         self.assertEqual(phrase.zones("at 9 UTC, yes UTC"), ("UTC",))
         self.assertEqual(phrase.zones("America/Sao_Paulo ou Europe/Paris"), ("America/Sao_Paulo", "Europe/Paris"))
-        for text in ("Portugal", "Mars/Olympus", "use utc", "https://example.com/a", "shimpz.com"):
+        for text in (
+            "Portugal",
+            "Mars/Olympus",
+            "use utc",
+            "https://example.com/a",
+            "shimpz.com",
+            "Europe/" + "x" * 40,
+        ):
             with self.subTest(text=text):
                 self.assertEqual(phrase.zones(text), ())
 

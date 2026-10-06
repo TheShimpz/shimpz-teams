@@ -119,6 +119,13 @@ and its latest answer binds it (it states a schedule, an interval, or an output,
 records again with the request's stored intent without asking the Brain, and the reply is the fixed
 `routine.answer_reply` text in the interface language (English without one).
 
+What a person's own words state about a Routine is read here too, with no model, so Team and the Brain read the
+same words alike (`phrase.py`, ADR-0101): `phrase.stated` reads the canonical schedules a text states,
+`phrase.outputs` the output choices (`show`, `changes`, `none`, `chain`), and `phrase.zones` the exact IANA zones it
+names. The tables cover the eight interface languages. A sentence that asks states nothing; a negation in any
+language rejects every reading it reaches; "show the result" qualified by "only when it changes" in its own clause is
+that one choice, while alternatives offer both. Vectors pin a reading for each language and kind.
+
 The Team→Brain Routine forms of a recording chat are defined here too, so the Brain mirrors them instead of copying
 them (ADR-0101). `routine.canonical_routine_listings` admits the Team's Routine listing: at most
 `routine.MAX_ROUTINES` entries, no Routine twice, each `routine.canonical_routine_listing` `{routine_id, name, schedule,

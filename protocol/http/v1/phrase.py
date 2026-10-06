@@ -1,4 +1,6 @@
-"""The schedule and timezone a person states in their own words, read with no model (ADR-0101).
+"""The schedule, output, and timezone a person states in their own words, read with no model (ADR-0101).
+
+This is the one rule source: Team records with it and the Brain mirrors it, so both read the same words alike.
 
 A Routine runs exactly when the person said, so Team reads it from the person's own text, never from the model. The
 table is bounded and closed: in each interface language, an interval of seconds, minutes, or hours ("a cada 30
@@ -15,10 +17,13 @@ choice label. A timezone is stated only as an exact, loadable IANA area zone suc
 from __future__ import annotations
 
 import re
+import zoneinfo
 from collections.abc import Iterator
 
-from protocol.http.v1 import routine as http_routine
-from routine import schedule
+if __package__:
+    from . import routine as http_routine
+else:  # The protocol verifier runs every module of this directory flat.
+    import routine as http_routine
 
 _DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹０１２３４５６７８９：", "01234567890123456789" + "0123456789:")
 # A sentence ends at its mark, kept with it; a period after a digit is an ordinal ("am 4."), never an end.
@@ -392,14 +397,23 @@ def outputs(text: str) -> tuple[str, ...]:
     return tuple(found)
 
 
+def _loads(name: str) -> bool:
+    """Whether a canonical IANA name loads as a zone, never a path or the host's local zone."""
+    if http_routine.canonical_timezone(name) is None:
+        return False
+    try:
+        zoneinfo.ZoneInfo(name)
+    except zoneinfo.ZoneInfoNotFoundError, ValueError:
+        return False
+    return True
+
+
 def zones(text: str) -> tuple[str, ...]:
     """Every distinct IANA area zone (or UTC) a person wrote exactly, that loads, in the order written."""
     found: list[str] = []
     for match in _ZONE_RE.finditer(text):
         name = match.group(1)
-        try:
-            schedule.zone(name)
-        except schedule.ScheduleError:
+        if not _loads(name):
             continue
         if name not in found:
             found.append(name)

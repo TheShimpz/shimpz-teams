@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import importlib
 import io
 import json
 import os
@@ -54,6 +55,7 @@ def _execute(
         module_names = (
             "identifiers",
             "payload",
+            "phrase",
             "progress",
             "purpose",
             "routine",
@@ -69,6 +71,9 @@ def _execute(
             "validators.message_catalog",
             "websocket",
         )
+
+        # zoneinfo loads importlib.resources, which must not first import under the patched pathlib.Path.
+        importlib.import_module("importlib.resources")
 
         def redirected_path(value) -> Path:
             path = Path(value)
@@ -524,6 +529,19 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         ):
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
                 _execute(HTTP / "verify.py", mutate)
+
+    def test_rejects_missing_or_drifted_routine_phrase_vectors(self) -> None:
+        def missing(value: dict[str, object]) -> None:
+            value["routine_phrase"]["stated"] = []
+
+        def drifted(value: dict[str, object]) -> None:
+            value["routine_phrase"]["outputs"][0]["outputs"] = ["none"]
+
+        for mutate in (missing, drifted):
+            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
+                _execute(
+                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
+                )
 
     def test_rejects_routine_output_choices_missing_a_language_or_naming_one_output_twice(self) -> None:
         def edited(old: str, new: str):

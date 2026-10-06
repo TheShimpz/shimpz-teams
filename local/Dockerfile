@@ -78,7 +78,7 @@ COPY local/routine/__init__.py local/routine/card.py local/routine/compiled.py l
     local/routine/recorder.py local/routine/recovery.py local/routine/run.py local/routine/state.py \
     local/routine/store.py local/routine/watchdog.py ./local/routine/
 COPY routine/__init__.py routine/cursor.py routine/definition.py routine/hold.py routine/permission.py \
-    routine/phrase.py routine/pin.py routine/plan.py routine/record.py routine/recording.py routine/schedule.py \
+    routine/pin.py routine/plan.py routine/record.py routine/recording.py routine/schedule.py \
     routine/starts.py routine/trace.py ./routine/
 COPY local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/inference.py local/http/routine.py \
     local/http/server.py local/http/stream.py ./local/http/
@@ -96,9 +96,9 @@ COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
     protocol/install/v1/verify.py \
     ./protocol/install/v1/
 COPY protocol/action/v1/schema.py ./protocol/action/v1/
-COPY protocol/http/v1/identifiers.py protocol/http/v1/payload.py protocol/http/v1/progress.py \
-    protocol/http/v1/purpose.py protocol/http/v1/routine.py protocol/http/v1/strict_json.py protocol/http/v1/supervisor.py \
-    protocol/http/v1/turn.py ./protocol/http/v1/
+COPY protocol/http/v1/identifiers.py protocol/http/v1/payload.py protocol/http/v1/phrase.py \
+    protocol/http/v1/progress.py protocol/http/v1/purpose.py protocol/http/v1/routine.py \
+    protocol/http/v1/strict_json.py protocol/http/v1/supervisor.py protocol/http/v1/turn.py ./protocol/http/v1/
 COPY protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
     protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
     protocol/assistant/v1/validators/message_catalog.py \
