@@ -144,43 +144,7 @@ class AssistantRegistry:
 def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
     document = binding.document
     try:
-        declarations = tuple(
-            assistant_manifest.IntegrationDeclaration(
-                id=integration["id"],
-                provider=integration["provider"],
-                scopes=tuple(integration["scopes"]),
-            )
-            for integration in document["integrations"]
-        )
-        stored_input_declarations = assistant_manifest.stored_input_declarations_from_documents(
-            document["stored_inputs"]
-        )
-        machine_contract = assistant_manifest.canonical_machine_contract(
-            document["machine_contract"],
-            declarations,
-            stored_input_declarations,
-            summary=document["summary"],
-            allowed_hosts=assistant_manifest.canonical_allowed_hosts(document["allowed_hosts"]),
-        )
-        if machine_contract != document["machine_contract"]:
-            raise assistant_manifest.ManifestError("machine contract is not canonical")
-        integrations = {
-            integration.id: assistant_registry.IntegrationSpec(
-                provider=integration.provider,
-                scopes=integration.scopes,
-            )
-            for integration in declarations
-        }
-        stored_inputs = {
-            stored_input.id: assistant_registry.StoredInputSpec(**stored_input.metadata())
-            for stored_input in stored_input_declarations
-        }
-        reviewed = assistant_manifest.reviewed_manifest_contract(
-            allowed_hosts=document["allowed_hosts"],
-            integrations=integrations,
-            stored_inputs=stored_inputs,
-        )
-        actions = {action["id"]: assistant_registry.action_spec(action) for action in machine_contract["actions"]}
+        contract = assistant_registry.runtime_contract(document)
         image, required_labels = _runtime_identity(binding)
         return AssistantSpec(
             assistant_id=binding.assistant_id,
@@ -188,12 +152,12 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             name=str(document["name"]),
             summary=str(document["summary"]),
             image=image,
-            actions=actions,
-            allowed_hosts=reviewed.allowed_hosts,
+            actions=contract.actions,
+            allowed_hosts=contract.allowed_hosts,
             required_image_labels=required_labels,
-            integrations=integrations,
-            stored_inputs=stored_inputs,
-            machine_contract=machine_contract,
+            integrations=contract.integrations,
+            stored_inputs=contract.stored_inputs,
+            machine_contract=contract.machine_contract,
             pack_digest=str(document["pack_digest"]),
             provenance=binding.provenance,
             platform=str(document["platform"]) if binding.provenance == "local" else None,

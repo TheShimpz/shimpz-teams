@@ -86,6 +86,61 @@ class AssistantSpec:
     contract: AssistantContract
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimeContract:
+    """The admitted runtime contract of one Assistant binding document."""
+
+    actions: dict[str, ActionSpec]
+    allowed_hosts: tuple[str, ...]
+    integrations: dict[str, IntegrationSpec]
+    stored_inputs: dict[str, StoredInputSpec]
+    machine_contract: dict[str, Any]
+
+
+def runtime_contract(document: Mapping[str, Any]) -> RuntimeContract:
+    """Admit a binding document's declarations and its exactly canonical machine contract.
+
+    Raises KeyError, TypeError, or ManifestError; each profile maps them to its own binding error.
+    """
+    declarations = tuple(
+        assistant_manifest.IntegrationDeclaration(
+            id=integration["id"],
+            provider=integration["provider"],
+            scopes=tuple(integration["scopes"]),
+        )
+        for integration in document["integrations"]
+    )
+    stored_input_declarations = assistant_manifest.stored_input_declarations_from_documents(document["stored_inputs"])
+    machine_contract = assistant_manifest.canonical_machine_contract(
+        document["machine_contract"],
+        declarations,
+        stored_input_declarations,
+        summary=document["summary"],
+        allowed_hosts=assistant_manifest.canonical_allowed_hosts(document["allowed_hosts"]),
+    )
+    if machine_contract != document["machine_contract"]:
+        raise assistant_manifest.ManifestError("machine contract is not canonical")
+    integrations = {
+        integration.id: IntegrationSpec(provider=integration.provider, scopes=integration.scopes)
+        for integration in declarations
+    }
+    stored_inputs = {
+        stored_input.id: StoredInputSpec(**stored_input.metadata()) for stored_input in stored_input_declarations
+    }
+    reviewed = assistant_manifest.reviewed_manifest_contract(
+        allowed_hosts=document["allowed_hosts"],
+        integrations=integrations,
+        stored_inputs=stored_inputs,
+    )
+    return RuntimeContract(
+        actions={action["id"]: action_spec(action) for action in machine_contract["actions"]},
+        allowed_hosts=reviewed.allowed_hosts,
+        integrations=integrations,
+        stored_inputs=stored_inputs,
+        machine_contract=machine_contract,
+    )
+
+
 def validate_assistant_id(value: object) -> str:
     assistant_id = http_payload.canonical_assistant_id(value)
     if assistant_id is None:

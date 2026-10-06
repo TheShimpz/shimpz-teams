@@ -30,43 +30,7 @@ def retained_icon(
 
 def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assistant_registry.AssistantSpec:
     try:
-        declarations = tuple(
-            assistant_manifest.IntegrationDeclaration(
-                id=integration["id"],
-                provider=integration["provider"],
-                scopes=tuple(integration["scopes"]),
-            )
-            for integration in resolution["integrations"]
-        )
-        stored_input_declarations = assistant_manifest.stored_input_declarations_from_documents(
-            resolution["stored_inputs"]
-        )
-        machine_contract = assistant_manifest.canonical_machine_contract(
-            resolution["machine_contract"],
-            declarations,
-            stored_input_declarations,
-            summary=resolution["summary"],
-            allowed_hosts=assistant_manifest.canonical_allowed_hosts(resolution["allowed_hosts"]),
-        )
-        if machine_contract != resolution["machine_contract"]:
-            raise assistant_manifest.ManifestError("machine contract is not canonical")
-        integrations = {
-            integration.id: assistant_registry.IntegrationSpec(
-                provider=integration.provider,
-                scopes=integration.scopes,
-            )
-            for integration in declarations
-        }
-        stored_inputs = {
-            stored_input.id: assistant_registry.StoredInputSpec(**stored_input.metadata())
-            for stored_input in stored_input_declarations
-        }
-        reviewed = assistant_manifest.reviewed_manifest_contract(
-            allowed_hosts=resolution["allowed_hosts"],
-            integrations=integrations,
-            stored_inputs=stored_inputs,
-        )
-        actions = {action["id"]: assistant_registry.action_spec(action) for action in machine_contract["actions"]}
+        contract = assistant_registry.runtime_contract(resolution)
         platforms = tuple(platform.removeprefix("linux/") for platform in resolution["platforms"])
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
         raise bindings.DynamicAssistantError("the dynamic Assistant runtime contract is invalid") from exc
@@ -74,7 +38,7 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
         version=resolution["assistant_version"],
         summary=resolution["summary"],
         image=resolution["image_reference"],
-        allowed_hosts=reviewed.allowed_hosts,
+        allowed_hosts=contract.allowed_hosts,
         archs=platforms,
         required_image_labels=(
             ("org.shimpz.assistant.id", assistant_id),
@@ -82,10 +46,10 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
         ),
         contract=assistant_registry.AssistantContract(
             name=resolution["name"],
-            actions=actions,
-            integrations=integrations,
-            stored_inputs=stored_inputs,
-            machine_contract=machine_contract,
+            actions=contract.actions,
+            integrations=contract.integrations,
+            stored_inputs=contract.stored_inputs,
+            machine_contract=contract.machine_contract,
             pack_digest=resolution["pack_digest"],
         ),
     )
