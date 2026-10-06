@@ -106,13 +106,7 @@ class LocalStopPauseRaceTests(LocalContractCase):
     def _controller(self, directory: str, *, human: bool) -> local_app.LocalController:
         controller = self._chat_controller(directory, Runtime())
         if human:
-            descriptor = {
-                "kind": "approval",
-                "ordinal": 0,
-                "title": "List zones",
-                "description": "Allow this Action to list the reviewed Cloudflare zones.",
-            }
-            admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
+            admitted = human_request_fixtures.list_zones_approval()
             controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
                 action_human.HumanRequestSuspensionError(admitted)
             )

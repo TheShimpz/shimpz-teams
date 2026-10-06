@@ -72,16 +72,6 @@ class ObservedLock:
 
 
 class LocalHumanPurgeRaceTests(LocalContractCase):
-    @staticmethod
-    def _approval_request() -> action_human.HumanRequest:
-        descriptor = {
-            "kind": "approval",
-            "ordinal": 0,
-            "title": "List zones",
-            "description": "Allow this Action to list the reviewed Cloudflare zones.",
-        }
-        return human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
-
     def _paused(self, directory: str) -> tuple[local_app.LocalController, dict[str, object], str]:
         class Runtime:
             purpose = staticmethod(lambda *_args: None)
@@ -99,7 +89,7 @@ class LocalHumanPurgeRaceTests(LocalContractCase):
                 raise AssertionError("an ended paused turn must not resume the Brain")
 
         controller = self._chat_controller(directory, Runtime())
-        admitted = self._approval_request()
+        admitted = human_request_fixtures.list_zones_approval()
         controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
             action_human.HumanRequestSuspensionError(admitted)
         )

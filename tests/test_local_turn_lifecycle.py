@@ -87,16 +87,6 @@ def _identity_request(kind: str) -> action_human.HumanRequest:
 
 
 class LocalTurnLifecycleTests(LocalContractCase):
-    @staticmethod
-    def _approval_request() -> action_human.HumanRequest:
-        descriptor = {
-            "kind": "approval",
-            "ordinal": 0,
-            "title": "List zones",
-            "description": "Allow this Action to list the reviewed Cloudflare zones.",
-        }
-        return human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
-
     def test_local_snapshot_persists_an_integration_pause(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             runtime = PausingRuntime("the missing Integration must pause before Brain resume")
@@ -140,7 +130,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             runtime = Runtime()
             controller = self._chat_controller(directory, runtime)
-            admitted = self._approval_request()
+            admitted = human_request_fixtures.list_zones_approval()
             invocations: list[tuple[object, ...]] = []
 
             def invoke(*args):
@@ -244,7 +234,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             runtime = PausingRuntime("a denied Action must not resume the Brain")
             controller = self._chat_controller(directory, runtime)
-            _suspend(controller, self._approval_request())
+            _suspend(controller, human_request_fixtures.list_zones_approval())
             paused = _chat(controller, "List zones")
             denied = _resume(controller, {"challenge_id": paused["challenge_id"], "decision": "deny"})
             batches = _batch_count(controller)
@@ -257,7 +247,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             runtime = PausingRuntime("an expired Action must not resume the Brain")
             controller = self._chat_controller(directory, runtime)
-            admitted = self._approval_request()
+            admitted = human_request_fixtures.list_zones_approval()
             _suspend(controller, admitted)
             paused = _chat(controller, "List zones")
             before = _batch_count(controller)
@@ -296,7 +286,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             runtime = PausingRuntime("an expired Action must not resume the Brain")
             controller = self._chat_controller(directory, runtime)
-            admitted = self._approval_request()
+            admitted = human_request_fixtures.list_zones_approval()
             _suspend(controller, admitted)
             _chat(controller, "List zones")
             challenge = controller.chat_turn_service.human_challenges.current("team_1")

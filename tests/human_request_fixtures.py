@@ -125,6 +125,17 @@ def admit(
     )
 
 
+def list_zones_approval() -> action_human.HumanRequest:
+    """The admitted approval the harness Cloudflare Action asks before it lists the reviewed zones."""
+    descriptor = {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": "List zones",
+        "description": "Allow this Action to list the reviewed Cloudflare zones.",
+    }
+    return admit(fingerprinted(descriptor), ("approval",))
+
+
 def request(kind: str, ordinal: int = 0, *, stored_inputs: tuple[str, ...] = (), **fields: object):
     """One admitted request of this kind with default copy."""
     return admit(descriptor(kind, ordinal, **fields), stored_inputs=stored_inputs)
