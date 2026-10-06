@@ -286,6 +286,24 @@ class SelectorFailureTests(CompiledRunCase):
         self.assertEqual((result["status"], actions), ("held", ["list-zones"]))
         self.assertEqual(len(state.incidents), 1)
 
+    def test_unreadable_or_changed_evidence_never_proves_a_read_only_prefix(self) -> None:
+        run = record.Run("e" * 32, "f" * 32, "leased", 0, generation="g")
+        binding = SimpleNamespace(revision=1)
+        current = SimpleNamespace(revision=2, permitted=())
+        cases = (
+            ({"side_effect": routine_store.RoutineStoreError("x")}, current),
+            ({"return_value": (None, None, None)}, current),
+            ({"return_value": (None, SimpleNamespace(binding=binding), SimpleNamespace())}, current),
+        )
+        for sealed, routine in cases:
+            with (
+                self.subTest(sealed=sealed),
+                mock.patch.object(routine_compiled, "_sealed", **sealed),
+                mock.patch.object(routine_compiled.routine_state, "load"),
+                mock.patch.object(routine_compiled.record, "routine", return_value=routine),
+            ):
+                self.assertFalse(routine_compiled._read_only_prefix(None, "team_1", run))
+
 
 class DiagnosticTests(CompiledRunCase):
     """A failed attempt's sanitized failure or transport condition outlives the segment, its archive, and a restart."""
