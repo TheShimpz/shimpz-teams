@@ -431,6 +431,28 @@ class RecordedRoutineTests(LocalContractCase):
                 answer = http_payload.compose_clarified(original, "Qual zona?", json.dumps(SHIMPZ), "pt")
                 self.assertEqual(self.chat(service, _body(answer))["routine_refusal"]["code"], code)
 
+    def test_a_record_call_for_new_work_supersedes_the_pending_question(self) -> None:
+        runtime = Sends(
+            (("list-dns-records",), _record()),
+            (("list-zones",), _record(name="Zonas")),
+            (("list-dns-records",), _record()),
+            ((), _record()),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            asked = self.chat(service, _body("Liste os registros DNS de shimpz.com a cada 30 segundos"))
+            zones = self.chat(service, _body("Agora só liste as zonas a cada 30 segundos"))
+            again = self.chat(service, _body("Liste os registros DNS de shimpz.com a cada 30 segundos"))
+            continued = self.chat(service, _body("Pode continuar"))
+        self.assertEqual(asked["routine_question"]["code"], "routine-binding-unsourced")
+        self.assertEqual(
+            (zones["routine_proposal"]["name"], [step["action"] for step in zones["routine_proposal"]["steps"]]),
+            ("Zonas", ["list-zones"]),
+        )
+        # The same intent recorded again keeps waiting for the verified rerun.
+        self.assertEqual(again["routine_question"]["code"], "routine-binding-unsourced")
+        self.assertEqual(continued["routine_question"]["code"], "routine-binding-unsourced")
+
     def test_a_verified_rerun_that_ends_in_prose_applies_the_stored_intent(self) -> None:
         runtime = Sends(
             (("list-dns-records",), _record()),

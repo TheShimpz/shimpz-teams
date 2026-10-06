@@ -241,18 +241,26 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
     kept = None
     if existing is not None:
         kept = routine_recording.Existing(existing.plan, existing.schedule)
+    # A record call for other work than the stored intent supersedes its question; one continuing it keeps verifying.
+    stored = recording.intent
+    continuing = stored is None or _work(stored) == _work(intent)
     try:
         return routine_recording.record(
             recording.sends,
             choice,
             recording.protection,
             contracts,
-            asked=recording.asked,
+            asked=recording.asked if continuing else None,
             existing=kept,
             frontier=recording.frontier,
         )
     except routine_recording.RecordingError as exc:
         raise RefusedError(exc.code) from exc
+
+
+def _work(intent: routine_recorder.Intent) -> tuple[object, ...]:
+    """What makes two intents the same work: the Routine's name, output, decision Actions, and what it replaces."""
+    return intent.name, intent.output, intent.decide_actions, intent.replaces
 
 
 def _room(candidate: record.Routine, others: tuple[record.Routine, ...]) -> routine_recording.Question:
