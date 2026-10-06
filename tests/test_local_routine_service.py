@@ -186,6 +186,17 @@ class RoutineServiceCase(LocalContractCase):
             ("openai", API_KEY),
         )
 
+    def answer_human(
+        self, service, run_id: str, challenge_id: str, decision: str = "submit", *, provider="openai", key=API_KEY
+    ):
+        """Answer a frozen run's open challenge: approve it with True, or deny it."""
+        answer = {
+            "challenge_id": challenge_id,
+            "decision": decision,
+            **({"value": True} if decision == "submit" else {}),
+        }
+        return service.resume_routine_human("team_1", run_id, answer, provider, key)
+
     def state(self, service) -> record.TeamRoutines:
         return service.routine_store.load("team_1")
 
@@ -406,13 +417,7 @@ class FreezeTests(RoutineServiceCase):
             self.assertIsNone(service.human_challenges.current("team_1"))
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             self.assertEqual(opened["run_id"], claim["run_id"])
-            resumed = service.resume_routine_human(
-                "team_1",
-                claim["run_id"],
-                {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
-                "openai",
-                API_KEY,
-            )
+            resumed = self.answer_human(service, claim["run_id"], opened["challenge_id"])
             state = self.state(service)
         self.assertEqual(resumed["status"], "done")
         detail = state.notices[-1].detail
@@ -425,13 +430,7 @@ class FreezeTests(RoutineServiceCase):
             # Only the display name changes; the run's Team context keeps the immutable creation label.
             controller.team_names.save("team_1", "a" * 64, "Growth")
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
-            resumed = service.resume_routine_human(
-                "team_1",
-                claim["run_id"],
-                {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
-                "openai",
-                API_KEY,
-            )
+            resumed = self.answer_human(service, claim["run_id"], opened["challenge_id"])
         self.assertEqual(resumed["status"], "done")
 
     def test_an_answer_refused_while_a_chat_holds_the_team_stays_answerable(self) -> None:
@@ -463,13 +462,7 @@ class FreezeTests(RoutineServiceCase):
             finally:
                 release.set()
                 worker.join()
-            resumed = service.resume_routine_human(
-                "team_1",
-                run_id,
-                {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
-                "openai",
-                API_KEY,
-            )
+            resumed = self.answer_human(service, run_id, opened["challenge_id"])
             self.assertEqual(resumed["status"], "done")
             self.assertIsNone(service.current_routine_challenge("team_1"))
             self.assertEqual(self.state(service).runs, ())
@@ -479,18 +472,10 @@ class FreezeTests(RoutineServiceCase):
             _controller, service, claim, _frozen = self.paused(directory)
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             with self.assertRaises(local_app.ApiProblem) as expired:
-                service.resume_routine_human(
-                    "team_1", claim["run_id"], {"challenge_id": "0" * 32, "decision": "deny"}, "openai", API_KEY
-                )
+                self.answer_human(service, claim["run_id"], "0" * 32, "deny")
             self.assertEqual(expired.exception.code, "human-request-expired")
             self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "frozen")
-            denied = service.resume_routine_human(
-                "team_1",
-                claim["run_id"],
-                {"challenge_id": opened["challenge_id"], "decision": "deny"},
-                "openai",
-                API_KEY,
-            )
+            denied = self.answer_human(service, claim["run_id"], opened["challenge_id"], "deny")
             self.assertEqual((denied["status"], self.state(service).notices[-1].outcome), ("denied", "denied"))
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim, _frozen = self.paused(directory)
@@ -515,13 +500,7 @@ class FreezeTests(RoutineServiceCase):
                     service.resume_routine_human("team_1", claim["run_id"], body, "openai", API_KEY)
                 self.assertEqual(refused.exception.code, code)
             with self.assertRaises(local_app.ApiProblem) as provider:
-                service.resume_routine_human(
-                    "team_1",
-                    claim["run_id"],
-                    {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
-                    "anthropic",
-                    API_KEY,
-                )
+                self.answer_human(service, claim["run_id"], opened["challenge_id"], provider="anthropic")
             self.assertEqual(provider.exception.code, "inference-provider-mismatch")
             for run_id, code in (("0" * 32, "routine-run-not-found"), (7, "routine-run-not-found")):
                 with self.subTest(run_id=run_id), self.assertRaises(local_app.ApiProblem) as missing:
@@ -558,13 +537,7 @@ class FreezeTests(RoutineServiceCase):
             self.assertNotIn("purpose", portuguese)
             # Another language replaced the earlier challenge: only the newest one can be answered.
             with self.assertRaises(local_app.ApiProblem) as stale:
-                service.resume_routine_human(
-                    "team_1",
-                    claim["run_id"],
-                    {"challenge_id": japanese["challenge_id"], "decision": "submit", "value": True},
-                    "openai",
-                    "sk-test-0123456789",
-                )
+                self.answer_human(service, claim["run_id"], japanese["challenge_id"])
             self.assertEqual(stale.exception.code, "human-request-expired")
 
             with (
@@ -591,13 +564,7 @@ class FreezeTests(RoutineServiceCase):
                     if opened is None:
                         service.open_routine_challenge("team_1", claim["run_id"], "en")
                     else:
-                        service.resume_routine_human(
-                            "team_1",
-                            claim["run_id"],
-                            {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
-                            "openai",
-                            "sk-test-0123456789",
-                        )
+                        self.answer_human(service, claim["run_id"], opened["challenge_id"])
                 self.assertEqual(changed.exception.code, "team-context-changed")
                 self.assertEqual(self.state(service).notices[-1].detail["code"], "team-context-changed")
 

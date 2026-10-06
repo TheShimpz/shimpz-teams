@@ -243,15 +243,8 @@ class RunFaultTests(RoutineServiceCase):
 
     def test_every_frozen_ending_after_a_restart_says_the_run_lost_its_protection(self) -> None:
         endings = {
-            "deny": lambda service, run_id: service.resume_routine_human(
-                "team_1",
-                run_id,
-                {
-                    "challenge_id": service.open_routine_challenge("team_1", run_id, "en")["challenge_id"],
-                    "decision": "deny",
-                },
-                "openai",
-                API_KEY,
+            "deny": lambda service, run_id: self.answer_human(
+                service, run_id, service.open_routine_challenge("team_1", run_id, "en")["challenge_id"], "deny"
             ),
             "stop": lambda service, run_id: service.stop_routine("team_1", run_id),
             "delete": lambda service, run_id: service.delete_routine(
@@ -406,13 +399,7 @@ class FrozenFaultTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim = self.frozen(directory)
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
-            resumed = service.resume_routine_human(
-                "team_1",
-                claim["run_id"],
-                {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
-                "openai",
-                API_KEY,
-            )
+            resumed = self.answer_human(service, claim["run_id"], opened["challenge_id"])
             self.assertEqual(resumed["status"], "held")
             state = self.state(service)
             self.assertEqual((state.runs, [item.incident_id for item in state.incidents]), ((), [claim["run_id"]]))
@@ -475,13 +462,7 @@ class FrozenFaultTests(RoutineServiceCase):
                 unreadable[0],
                 self.assertRaises(local_app.ApiProblem) as replay,
             ):
-                service.resume_routine_human(
-                    "team_1",
-                    run_id,
-                    {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
-                    "openai",
-                    API_KEY,
-                )
+                self.answer_human(service, run_id, opened["challenge_id"])
             self.assertEqual(replay.exception.code, "team-context-unavailable")
             (held,) = self.state(service).runs
             self.assertEqual((held.run_id, held.status), (run_id, "frozen"))
@@ -529,13 +510,7 @@ class FrozenFaultTests(RoutineServiceCase):
             challenge = service.routine_human_challenges.current("team_1")
             object.__setattr__(challenge, "payload", ("0" * 32, challenge.payload[1]))
             with self.assertRaises(local_app.ApiProblem) as other:
-                service.resume_routine_human(
-                    "team_1",
-                    claim["run_id"],
-                    {"challenge_id": opened["challenge_id"], "decision": "deny"},
-                    "openai",
-                    API_KEY,
-                )
+                self.answer_human(service, claim["run_id"], opened["challenge_id"], "deny")
             self.assertEqual(other.exception.code, "human-request-expired")
             self.routine(service)
             leased = service.claim_routine_run()

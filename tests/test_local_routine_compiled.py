@@ -197,8 +197,7 @@ class ExecutionTests(CompiledRunCase):
             claim = service.claim_routine_run()
             self.assertEqual(self.run_without_key(service, claim)["status"], "frozen")
             opened = service.open_routine_challenge("team_1", claim["run_id"], "pt")
-            answer = {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True}
-            resumed = service.resume_routine_human("team_1", claim["run_id"], answer, "openai", "")
+            resumed = self.answer_human(service, claim["run_id"], opened["challenge_id"], key="")
             state = self.state(service)
         self.assertEqual((resumed["status"], brain.calls), ("done", []))
         self.assertEqual(
@@ -226,10 +225,9 @@ class ExecutionTests(CompiledRunCase):
             run_id = claim["run_id"]
             self.assertEqual(self.run_without_key(service, claim)["status"], "frozen")
             opened = service.open_routine_challenge("team_1", run_id, "pt")
-            answer = {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True}
             unreadable = routine_store.RoutineStoreError("Routine cursor could not be read")
             with mock.patch.object(service.routine_store, "cursor", side_effect=unreadable):
-                resumed = service.resume_routine_human("team_1", run_id, answer, "openai", "")
+                resumed = self.answer_human(service, run_id, opened["challenge_id"], key="")
             state = self.state(service)
             recovered = routine_incident.open_recovery(service, "team_1", run_id)
         self.assertEqual((resumed["status"], brain.calls, calls), ("held", [], ["list-zones", "list-dns-records"]))

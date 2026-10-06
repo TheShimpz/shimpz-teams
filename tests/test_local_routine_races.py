@@ -10,7 +10,6 @@ import time
 from unittest import mock
 
 from test_local_routine_service import (
-    API_KEY,
     ASSISTANT,
     KEY,
     RoutineServiceCase,
@@ -115,13 +114,7 @@ class NoticeTests(FrozenCase):
                 {"deliveries": [{"team_id": "team_1", "notice_id": claim["run_id"], "version": 1}]}
             )
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
-            service.resume_routine_human(
-                "team_1",
-                claim["run_id"],
-                {"challenge_id": opened["challenge_id"], "decision": "deny"},
-                "openai",
-                API_KEY,
-            )
+            self.answer_human(service, claim["run_id"], opened["challenge_id"], "deny")
             (ended,) = self.state(service).notices
             self.assertEqual((ended.notice_id, ended.outcome, ended.version), (claim["run_id"], "denied", 2))
             self.assertEqual(self.state(service).discards, ())
@@ -135,13 +128,7 @@ class EndingRaceTests(FrozenCase):
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             service.routine_store.update("team_1", lambda state: record.begin_delete(state, claim["routine_id"]))
             with self.assertRaises(local_app.ApiProblem) as caught:
-                service.resume_routine_human(
-                    "team_1",
-                    claim["run_id"],
-                    {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
-                    "openai",
-                    API_KEY,
-                )
+                self.answer_human(service, claim["run_id"], opened["challenge_id"])
             self.assertEqual(caught.exception.code, "routine-run-not-frozen")
             self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "frozen")
 
@@ -162,13 +149,7 @@ class EndingRaceTests(FrozenCase):
                 ),
                 self.assertRaises(local_app.ApiProblem) as denied,
             ):
-                service.resume_routine_human(
-                    "team_1",
-                    claim["run_id"],
-                    {"challenge_id": opened["challenge_id"], "decision": "deny"},
-                    "openai",
-                    API_KEY,
-                )
+                self.answer_human(service, claim["run_id"], opened["challenge_id"], "deny")
             self.assertEqual((changed.exception.code, denied.exception.code), ("routine-run-not-frozen",) * 2)
             resumed = record.run(self.state(service), claim["run_id"])
             self.assertEqual((resumed.status, resumed.generation), ("leased", snapshot.generation))
@@ -310,13 +291,7 @@ class StopBeforeRegistrationTests(FrozenCase):
                 mock.patch.object(routine_human, "_current_context", side_effect=stopped_meanwhile),
                 self.assertRaises(local_app.ApiProblem) as caught,
             ):
-                service.resume_routine_human(
-                    "team_1",
-                    claim["run_id"],
-                    {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
-                    "openai",
-                    API_KEY,
-                )
+                self.answer_human(service, claim["run_id"], opened["challenge_id"])
             # Stop withdrew the challenge with the run, so the answer finds nothing to consume and nothing resumes.
             self.assertEqual(caught.exception.code, "human-request-expired")
             self.assertEqual(self.state(service).runs, ())
