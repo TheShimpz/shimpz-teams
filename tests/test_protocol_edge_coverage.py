@@ -155,6 +155,8 @@ class ProgressEdgeCoverageTests(unittest.TestCase):
         for line in (b'{"type":"terminal","type":"terminal"}\n', b'{"v":NaN}\n', b'{"v":[1e999]}\n'):
             with self.subTest(line=line), self.assertRaises(progress.ProgressContractError):
                 progress.decode_line(line)
+        finite = progress.decode_line(b'{"body":{"v":0.5},"status":200,"type":"terminal"}\n')
+        self.assertEqual(finite["body"], {"v": 0.5})
         cases = (
             None,
             {"phase": "bad", "state": "started", "seq": 1},

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import re
+import runpy
+import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from protocol.http.v1 import identifiers, payload, routine
 
@@ -26,6 +31,23 @@ class TeamHttpProtocolTests(unittest.TestCase):
         self.assertEqual(set(expected), actual)
         for filename, digest in expected.items():
             self.assertEqual(hashlib.sha256((PROTOCOL / filename).read_bytes()).hexdigest(), digest)
+
+
+class FlatVerifierTests(unittest.TestCase):
+    """`verify.py` runs every module of the protocol directory flat, as each consumer's copy does."""
+
+    def test_the_verifier_imports_the_protocol_modules_flat_from_their_directory(self) -> None:
+        names = ("identifiers", "payload", "progress", "purpose", "routine", "strict_json", "supervisor", "websocket")
+        saved = {name: sys.modules.pop(name) for name in names if name in sys.modules}
+        output = io.StringIO()
+        try:
+            with mock.patch.object(sys, "path", [str(PROTOCOL), *sys.path]), contextlib.redirect_stdout(output):
+                runpy.run_path(str(PROTOCOL / "verify.py"), run_name="team_protocol_verifier")
+        finally:
+            for name in names:
+                sys.modules.pop(name, None)
+            sys.modules.update(saved)
+        self.assertIn("golden vectors are valid", output.getvalue())
 
 
 class IdentifierAuthorityTests(unittest.TestCase):
