@@ -175,13 +175,9 @@ def end_frozen(self, team_id: str, run_id: str, outcome: str, detail: dict[str, 
     """End a run only while it is still frozen; False when a replay or another ending reached it first."""
     now = int(time.time())
 
-    def end(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
-        try:
-            return routine_runs.end(state, run_id, now, outcome, detail, status="frozen"), True
-        except record.RoutineStateError:
-            return state, False
-
-    return routine_state.update(self, team_id, end)
+    return routine_state.applied(
+        self, team_id, lambda state: routine_runs.end(state, run_id, now, outcome, detail, status="frozen")
+    )
 
 
 def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:

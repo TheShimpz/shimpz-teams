@@ -172,13 +172,7 @@ def hold(self, team_id: str, run_id: str, lease: record.Lease) -> None:
     """Fence a leased run's live lease, then hold it until its incident is durable and indexed."""
     now = int(time.time())
 
-    def fence(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
-        try:
-            return routine_hold.fence(state, run_id, lease, now), True
-        except record.RoutineStateError:
-            return state, False
-
-    if not routine_state.update(self, team_id, fence):
+    if not routine_state.applied(self, team_id, lambda state: routine_hold.fence(state, run_id, lease, now)):
         raise local_errors.routine_lease_invalid()
     reconcile(self, team_id, run_id)
 
@@ -216,13 +210,9 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
     revision = None if snapshot is None else snapshot.binding.revision
     step = _held_step(self, team_id, snapshot)
 
-    def settle(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
-        try:
-            return routine_hold.settle_hold(state, run_id, now, revision, step), True
-        except record.RoutineStateError:
-            return state, False
-
-    return routine_state.update(self, team_id, settle)
+    return routine_state.applied(
+        self, team_id, lambda state: routine_hold.settle_hold(state, run_id, now, revision, step)
+    )
 
 
 def _held_step(self, team_id: str, snapshot: Recovery | None) -> routine_hold.HeldStep:
@@ -419,14 +409,7 @@ def pause(self, team_id: str, incident_id: str, reason: str) -> None:
 
 def set_paused(self, team_id: str, routine_id: str, paused: bool) -> None:
     """Pausing disables dispatch while every incident stays; resuming never bypasses an unresolved one."""
-
-    def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
-        try:
-            return record.set_paused(state, routine_id, paused), True
-        except record.RoutineStateError:
-            return state, False
-
-    if not routine_state.update(self, team_id, change):
+    if not routine_state.applied(self, team_id, lambda state: record.set_paused(state, routine_id, paused)):
         raise local_errors.routine_not_found()
 
 

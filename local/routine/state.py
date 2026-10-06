@@ -51,6 +51,18 @@ def update[T](service, team_id: str, change: Callable[[record.TeamRoutines], tup
         raise unavailable() from exc
 
 
+def applied(service, team_id: str, transition: Callable[[record.TeamRoutines], record.TeamRoutines]) -> bool:
+    """Write ``transition`` through ``update``; False when it refused, which leaves the state as it was."""
+
+    def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
+        try:
+            return transition(state), True
+        except record.RoutineStateError:
+            return state, False
+
+    return update(service, team_id, change)
+
+
 def call[T](action: Callable[[], T]) -> T:
     """Any other Routine store operation, such as a continuation's, failing closed the same way."""
     try:

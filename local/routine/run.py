@@ -528,14 +528,12 @@ def halt_routine_run(self, team_id: str, run_id: str) -> bool:
         return stop_routine_run(self, team_id, run_id)
     now = int(time.time())
 
-    def end(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
-        try:
-            return routine_runs.end(state, run_id, now, "stopped", {"actions": []}, status="leased"), True
-        except record.RoutineStateError:
-            return state, False
-
     try:
-        return routine_state.update(self, team_id, end)
+        return routine_state.applied(
+            self,
+            team_id,
+            lambda state: routine_runs.end(state, run_id, now, "stopped", {"actions": []}, status="leased"),
+        )
     finally:
         with self._active_chat_guard:
             self._routine_halting.discard(run_id)
