@@ -52,8 +52,10 @@ def _execute(
             mutate(mirror)
         output = io.StringIO()
         module_names = (
+            "identifiers",
             "payload",
             "progress",
+            "purpose",
             "routine",
             "schema_validator",
             "strict_json",

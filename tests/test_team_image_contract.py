@@ -54,7 +54,9 @@ HOSTED_PROTOCOL_DATA = {
     "protocol/account/authority/v1/vectors.json",
     "protocol/account/authority/v1/verify.py",
     "protocol/account/delivery/v1/aad.py",
+    "protocol/http/v1/identifiers.py",
     "protocol/http/v1/payload.py",
+    "protocol/http/v1/purpose.py",
     "protocol/install/upstream.json",
     "protocol/install/v1/README.md",
     "protocol/install/v1/contract-files.sha256",
@@ -72,8 +74,10 @@ HOSTED_PROTOCOL_DATA = {
 }
 LOCAL_PROTOCOL_DATA = {
     *ASSISTANT_PROTOCOL_RUNTIME,
+    "protocol/http/v1/identifiers.py",
     "protocol/http/v1/payload.py",
     "protocol/http/v1/progress.py",
+    "protocol/http/v1/purpose.py",
     "protocol/http/v1/routine.py",
     "protocol/http/v1/strict_json.py",
     "protocol/http/v1/supervisor.py",
@@ -447,7 +451,13 @@ class StaticTeamImageContractTests(unittest.TestCase):
         protocol_runtime_data = {path for path in hosted_paths if path.startswith("protocol/")}
         self.assertEqual(
             protocol_runtime_data,
-            {"protocol/http/v1/payload.py", "protocol/account/delivery/v1/aad.py", *ASSISTANT_PROTOCOL_RUNTIME},
+            {
+                "protocol/http/v1/identifiers.py",
+                "protocol/http/v1/payload.py",
+                "protocol/http/v1/purpose.py",
+                "protocol/account/delivery/v1/aad.py",
+                *ASSISTANT_PROTOCOL_RUNTIME,
+            },
         )
         local_protocol_runtime_data = {path for path in local_paths if path.startswith("protocol/")}
         self.assertEqual(

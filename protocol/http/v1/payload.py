@@ -7,9 +7,25 @@ import json
 import re
 import unicodedata
 
-TEAM_ID_PATTERN = r"^[a-z0-9_]{1,40}$"
-ASSISTANT_ID_PATTERN = r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
-ACTION_ID_PATTERN = r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+if __package__:
+    from . import identifiers, purpose
+else:  # The protocol verifier runs every module of this directory flat.
+    import identifiers
+    import purpose
+
+# The identifier grammars and the purpose sentence rule live in their own modules, which the Brain mirrors too.
+TEAM_ID_PATTERN = identifiers.TEAM_ID_PATTERN
+ASSISTANT_ID_PATTERN = identifiers.ASSISTANT_ID_PATTERN
+ACTION_ID_PATTERN = identifiers.ACTION_ID_PATTERN
+TEAM_ID_RE = identifiers.TEAM_ID_RE
+ASSISTANT_ID_RE = identifiers.ASSISTANT_ID_RE
+ACTION_ID_RE = identifiers.ACTION_ID_RE
+canonical_team_id = identifiers.canonical_team_id
+canonical_assistant_id = identifiers.canonical_assistant_id
+canonical_action_id = identifiers.canonical_action_id
+MAX_PURPOSE_CHARS = purpose.MAX_PURPOSE_CHARS
+canonical_purpose = purpose.canonical_purpose
+
 FILE_ID_PATTERN = r"^[0-9a-f]{32}$"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 SOURCE_DIGEST_PATTERN = rf"^sha256:{SHA256_PATTERN[1:-1]}$"
@@ -26,15 +42,10 @@ HELP_URL_PATTERN = (
     r"(?:\?(?:[A-Za-z0-9._~!$&()*+,;=:@/?-]|%[0-9A-F]{2})+)?(?![\s\S])"
 )
 MAX_HELP_URL_CHARS = 2_048
-# The Brain's task-bound sentence for why an Action pauses for a person (ADR-0090).
-MAX_PURPOSE_CHARS = 280
 # The rendered copy bounds of a human request's catalog references (Assistant Spec v1, ADR-0091).
 RENDERED_FIELD_CHARS = {"title": 80, "description": 500, "label": 80, "placeholder": 120}
 RENDERED_OPTION_CHARS = {"label": 80, "description": 160}
 
-TEAM_ID_RE = re.compile(TEAM_ID_PATTERN)
-ASSISTANT_ID_RE = re.compile(ASSISTANT_ID_PATTERN)
-ACTION_ID_RE = re.compile(ACTION_ID_PATTERN)
 FILE_ID_RE = re.compile(FILE_ID_PATTERN)
 SHA256_RE = re.compile(SHA256_PATTERN)
 SOURCE_DIGEST_RE = re.compile(SOURCE_DIGEST_PATTERN)
@@ -131,22 +142,6 @@ def canonical_conversation(value: object) -> list[dict[str, object]] | None:
     return entries
 
 
-def canonical_team_id(value: object) -> str | None:
-    return value if isinstance(value, str) and TEAM_ID_RE.fullmatch(value) is not None else None
-
-
-def canonical_assistant_id(value: object) -> str | None:
-    if not isinstance(value, str) or len(value) > 80 or ASSISTANT_ID_RE.fullmatch(value) is None:
-        return None
-    return value
-
-
-def canonical_action_id(value: object) -> str | None:
-    if not isinstance(value, str) or len(value) > 128 or ACTION_ID_RE.fullmatch(value) is None:
-        return None
-    return value
-
-
 def canonical_locale(value: object) -> str | None:
     """Return one closed interface language code, or None."""
     return value if isinstance(value, str) and value in CHAT_LOCALES else None
@@ -181,32 +176,6 @@ def canonical_request_identity(value: object) -> dict[str, object] | None:
 def canonical_help_url(value: object) -> str | None:
     """Return one exact Stored Input key page, or None."""
     if not isinstance(value, str) or len(value) > MAX_HELP_URL_CHARS or HELP_URL_RE.fullmatch(value) is None:
-        return None
-    return value
-
-
-def canonical_purpose(value: object) -> str | None:
-    """Return one plain single-line purpose sentence, or None.
-
-    It carries no control, format, or line-separator character, no dash punctuation other than a hyphen inside a word,
-    and nothing that reads as a link, so it can only explain, never point somewhere.
-    """
-    if (
-        not isinstance(value, str)
-        or unicodedata.normalize("NFC", value) != value
-        or value.strip() != value
-        or not 1 <= len(value) <= MAX_PURPOSE_CHARS
-        or any(
-            unicodedata.category(character)[0] == "C"
-            or unicodedata.category(character) in {"Zl", "Zp"}
-            or (unicodedata.category(character) == "Pd" and character != "-")
-            for character in value
-        )
-        or " -" in value
-        or "- " in value
-        or "://" in value
-        or "www." in value.casefold()
-    ):
         return None
     return value
 
