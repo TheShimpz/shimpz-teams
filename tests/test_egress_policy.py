@@ -81,48 +81,30 @@ class SharedEgressPolicyTests(unittest.TestCase):
 
         target.write_bytes(b"safe")
         target.chmod(0o600)
+
+        def read_exact() -> bytes:
+            return egress_policy._read_exact_private_file(
+                target, mode=0o600, group=None, minimum_bytes=4, maximum_bytes=4
+            )
+
         with (
             mock.patch.object(os, "read", return_value=b""),
             self.assertRaisesRegex(egress_policy.EgressPolicyDriftError, "changed while"),
         ):
-            egress_policy._read_exact_private_file(
-                target,
-                mode=0o600,
-                group=None,
-                minimum_bytes=4,
-                maximum_bytes=4,
-            )
+            read_exact()
         with (
             mock.patch.object(os, "read", side_effect=[b"safe", b"x"]),
             self.assertRaisesRegex(egress_policy.EgressPolicyDriftError, "changed while"),
         ):
-            egress_policy._read_exact_private_file(
-                target,
-                mode=0o600,
-                group=None,
-                minimum_bytes=4,
-                maximum_bytes=4,
-            )
+            read_exact()
         with (
             mock.patch.object(os, "open", side_effect=OSError("denied")),
             self.assertRaisesRegex(egress_policy.EgressPolicyDriftError, "unavailable"),
         ):
-            egress_policy._read_exact_private_file(
-                target,
-                mode=0o600,
-                group=None,
-                minimum_bytes=4,
-                maximum_bytes=4,
-            )
+            read_exact()
         target.chmod(0o640)
         with self.assertRaisesRegex(egress_policy.EgressPolicyDriftError, "metadata drifted"):
-            egress_policy._read_exact_private_file(
-                target,
-                mode=0o600,
-                group=None,
-                minimum_bytes=4,
-                maximum_bytes=4,
-            )
+            read_exact()
 
     def test_store_and_identity_metadata_are_strict(self) -> None:
         missing = egress_policy.EgressPolicyStore(self.root / "missing", os.getgid(), "localhost")
