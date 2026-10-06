@@ -14,6 +14,8 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+_DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
 
 @dataclass(frozen=True, slots=True)
 class PrivateFileIdentity:
@@ -41,17 +43,47 @@ def empty_state() -> dict[str, object]:
     return {"schema": 1, "teams": {}, "last_generation": 0}
 
 
-def replace_durably(path: Path, payload: bytes, *, mode: int = 0o600, group: int | None = None) -> None:
-    """Atomically and durably replace ``path`` with ``payload``; any failure raises ``OSError``.
+def fsync_directory(path: Path) -> None:
+    """Commit the entries of directory ``path``, never through a symbolic link; any failure raises ``OSError``."""
+    directory = os.open(path, _DIRECTORY_FLAGS)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
-    A unique, exclusively created temporary receives its final group and mode before any byte, is fsynced, replaces
-    ``path``, and the parent directory is fsynced. A crash therefore leaves the complete prior file or the complete
-    new one, never a partial write, and a returned replacement survives power loss.
+
+def replace_durably(path: Path, payload: bytes, *, mode: int = 0o600, group: int | None = None) -> None:
+    """Atomically and durably replace ``path`` with ``payload``; any failure raises ``OSError``."""
+    directory = os.open(path.parent, _DIRECTORY_FLAGS)
+    try:
+        replace_in_directory(directory, path.name, payload, mode=mode, group=group)
+    finally:
+        os.close(directory)
+
+
+def replace_in_directory(
+    directory: int,
+    name: str,
+    payload: bytes,
+    *,
+    mode: int = 0o600,
+    group: int | None = None,
+) -> None:
+    """Atomically and durably replace entry ``name`` of the open ``directory``; any failure raises ``OSError``.
+
+    A unique, exclusively created temporary in that same directory receives its final group and mode before any
+    byte, is fsynced, replaces ``name``, and the directory is fsynced. A crash therefore leaves the complete prior
+    file or the complete new one, never a partial write, and a returned replacement survives power loss.
     """
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+    temporary = f".{name}.{secrets.token_hex(8)}.tmp"
     descriptor = -1
     try:
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, mode)
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            mode,
+            dir_fd=directory,
+        )
         if group is not None:
             os.fchown(descriptor, -1, group)
         os.fchmod(descriptor, mode)
@@ -64,19 +96,15 @@ def replace_durably(path: Path, payload: bytes, *, mode: int = 0o600, group: int
         os.fsync(descriptor)
         os.close(descriptor)
         descriptor = -1
-        temporary.replace(path)
-        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        os.rename(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
+        os.fsync(directory)
     finally:
         if descriptor >= 0:
             os.close(descriptor)
         # After a successful replace the temporary is gone; after a failure (for example a read-only volume) its
         # cleanup must not replace the original persistence error.
         with suppress(OSError):
-            temporary.unlink()
+            os.unlink(temporary, dir_fd=directory)
 
 
 @dataclass(frozen=True, slots=True)

@@ -97,14 +97,14 @@ class PrivateStateEdgeCoverageTests(unittest.TestCase):
         read_only = OSError(30, "Read-only file system")
         real_open = os.open
 
-        def create_denied(path, flags, *args):
+        def create_denied(path, flags, *args, **kwargs):
             if flags & os.O_CREAT:
                 raise read_only
-            return real_open(path, flags, *args)
+            return real_open(path, flags, *args, **kwargs)
 
         with (
             mock.patch.object(private_state.os, "open", side_effect=create_denied),
-            mock.patch.object(Path, "unlink", side_effect=read_only),
+            mock.patch.object(private_state.os, "unlink", side_effect=read_only),
             self.assertRaisesRegex(RuntimeError, "could not be persisted"),
         ):
             self.state.key(self.root / "private" / "new-key", "key", allow_create=True)
@@ -143,6 +143,55 @@ class PrivateStateEdgeCoverageTests(unittest.TestCase):
         ):
             private_state.replace_durably(path, b"next")
         self.assertEqual([entry.name for entry in self.root.iterdir()], ["record"])
+
+    def test_replace_stays_anchored_to_the_opened_directory(self) -> None:
+        opened = self.root / "opened"
+        opened.mkdir()
+        directory = os.open(opened, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, directory)
+        opened.rename(self.root / "moved")
+        opened.mkdir()
+
+        private_state.replace_in_directory(directory, "record", b"anchored")
+
+        self.assertEqual((self.root / "moved" / "record").read_bytes(), b"anchored")
+        self.assertEqual(list(opened.iterdir()), [])
+
+    def test_replace_rejects_a_symbolic_link_parent_before_any_write(self) -> None:
+        target = self.root / "target"
+        target.mkdir()
+        link = self.root / "link"
+        link.symlink_to(target, target_is_directory=True)
+
+        with self.assertRaises(OSError):
+            private_state.replace_durably(link / "record", b"value")
+        self.assertEqual(list(target.iterdir()), [])
+
+    def test_replace_completes_partial_writes(self) -> None:
+        path = self.root / "record"
+        real_write = os.write
+
+        def one_byte(descriptor: int, view: memoryview) -> int:
+            return real_write(descriptor, view[:1])
+
+        with mock.patch.object(private_state.os, "write", side_effect=one_byte):
+            private_state.replace_durably(path, b"complete")
+        self.assertEqual(path.read_bytes(), b"complete")
+
+    def test_every_replace_step_failure_propagates_and_leaves_no_temporary(self) -> None:
+        path = self.root / "record"
+        path.write_bytes(b"old")
+        descriptors = len(list(Path("/proc/self/fd").iterdir()))
+        for step in ("fchown", "fchmod", "fsync", "rename"):
+            with (
+                self.subTest(step=step),
+                mock.patch.object(private_state.os, step, side_effect=OSError(step)),
+                self.assertRaisesRegex(OSError, step),
+            ):
+                private_state.replace_durably(path, b"new", group=os.getgid())
+            self.assertEqual([entry.name for entry in self.root.iterdir()], ["record"])
+            self.assertEqual(path.read_bytes(), b"old")
+        self.assertEqual(len(list(Path("/proc/self/fd").iterdir())), descriptors)
 
     def test_record_shapes_has_records_prune_and_delete_edges(self) -> None:
         state = private_state.empty_state()
