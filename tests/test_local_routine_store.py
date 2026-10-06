@@ -380,6 +380,8 @@ class TamperTests(StoreCase):
             "position type": {"position": {"phase": "replay", "step": True}},
             "a decision call past the allowance": {"position": {"phase": "decision", "call": 65}},
             "no call but a position": {"assistant_id": "", "action": "", "steps": 1},
+            "no call with a boolean count": {"assistant_id": "", "action": "", "position": None, "steps": False},
+            "no call with a float count": {"assistant_id": "", "action": "", "position": None, "steps": 0.0},
             "usage": {"usage": {"duration_ms": 1}},
             "rehearsal type": {"rehearsal": 1},
             "protection type": {"protection_lost": "no"},

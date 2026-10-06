@@ -406,6 +406,7 @@ def _decode_incident(value: object) -> record.Incident:
         and isinstance(value["assistant_id"], str)
         and isinstance(value["action"], str)
         # The held call and its position: all named, or all empty when the run sealed no cursor before it was held.
+        and type(value["steps"]) is int
         and (
             (value["assistant_id"], value["action"], value["position"], value["steps"]) == ("", "", None, 0)
             or (
