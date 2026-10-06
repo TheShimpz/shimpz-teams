@@ -223,7 +223,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             network,
             existing,
         )
-        self.assertEqual(subject._create_assistant_container.call_args.kwargs, {})
+        self.assertIsNone(subject._create_assistant_container.call_args.kwargs["authorize_start"])
 
     def test_outdated_replacement_detects_race_maps_removal_and_releases_egress(self) -> None:
         subject = self._replacement_subject()
@@ -786,9 +786,8 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
             "team_1",
             "shimpz-cloudflare",
         )
-        self.assertEqual(
-            controller.assistant_lifecycle._create_assistant_container.call_args.kwargs,
-            {},
+        self.assertIsNone(
+            controller.assistant_lifecycle._create_assistant_container.call_args.kwargs["authorize_start"]
         )
 
         controller, container, _events = self._lifecycle_controller()

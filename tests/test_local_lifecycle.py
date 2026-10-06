@@ -82,7 +82,7 @@ class LocalLifecycleTests(LocalContractCase):
         )
         trusted_image = object()
         controller.assistant_lifecycle._trusted_image = lambda _spec: events.append("trusted") or trusted_image
-        controller.assistant_lifecycle._create_assistant_container = lambda _team_id, _spec, _network, image: (
+        controller.assistant_lifecycle._create_assistant_container = lambda _team_id, _spec, _network, image, **_: (
             events.append(("create", image))
         )
 
@@ -206,7 +206,7 @@ class LocalLifecycleTests(LocalContractCase):
         )
         controller.assistant_lifecycle.registry = controller.registry
         controller.assistant_lifecycle._trusted_image = lambda spec: events.append(("trust", spec.image)) or object()
-        controller.assistant_lifecycle._create_assistant_container = lambda _team_id, spec, _network, _image: (
+        controller.assistant_lifecycle._create_assistant_container = lambda _team_id, spec, _network, _image, **_: (
             events.append(("create", spec.image))
         )
         controller.assistant_lifecycle.updates = SimpleNamespace(
@@ -297,7 +297,7 @@ class LocalLifecycleTests(LocalContractCase):
         labels[local_app.ASSISTANT_LABEL] = spec.assistant_id
         container.name = controller.assistant_lifecycle._container_name("team_1", spec.assistant_id)
         controller.assistant_lifecycle._trusted_image = lambda _spec: events.append("trusted") or object()
-        controller.assistant_lifecycle._create_assistant_container = lambda *_args: events.append("create")
+        controller.assistant_lifecycle._create_assistant_container = lambda *_args, **_: events.append("create")
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda *_args: self.fail(
             "an outdated manifest must not block release discovery"
         )

@@ -193,7 +193,7 @@ def _create_assistant_container(
         self._validate_container(container, team_id, spec, network.name)
         self._wait_ready(container, spec)
         self._active_assistant_genesis(_ActiveAssistant(spec, container.id, container))
-    except ApiProblem as exc:
+    except (ApiProblem, DockerException) as exc:
         cleanup_error = self._rollback_assistant_install(
             team_id,
             spec,
@@ -203,17 +203,8 @@ def _create_assistant_container(
         )
         if cleanup_error is not None:
             raise cleanup_error from exc
-        raise
-    except DockerException as exc:
-        cleanup_error = self._rollback_assistant_install(
-            team_id,
-            spec,
-            network,
-            container,
-            egress_prepared=egress_prepared,
-        )
-        if cleanup_error is not None:
-            raise cleanup_error from exc
+        if isinstance(exc, ApiProblem):
+            raise
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Docker could not install the Assistant",
@@ -239,10 +230,7 @@ def _replace_unready_assistant(
         existing.remove(force=True)
     except DockerException as exc:
         raise assistant_replace_failed() from exc
-    if authorize_start is None:
-        self._create_assistant_container(team_id, spec, network, image)
-    else:
-        self._create_assistant_container(team_id, spec, network, image, authorize_start=authorize_start)
+    self._create_assistant_container(team_id, spec, network, image, authorize_start=authorize_start)
 
 
 def _replace_outdated_assistant(
@@ -279,10 +267,7 @@ def _replace_outdated_assistant(
             network,
             remaining_egress=remaining_egress,
         )
-    if authorize_start is None:
-        self._create_assistant_container(team_id, spec, network, image)
-    else:
-        self._create_assistant_container(team_id, spec, network, image, authorize_start=authorize_start)
+    self._create_assistant_container(team_id, spec, network, image, authorize_start=authorize_start)
 
 
 def _restore_previous_assistant(self, team_id: str, spec: AssistantSpec, network, image) -> None:
@@ -674,16 +659,7 @@ def _install_assistant_unguarded(
             return {"assistant": assistant_id, "installed": False}
 
         image = self._assistant_image(spec)
-        if authorize_start is None:
-            self._create_assistant_container(team_id, spec, network, image)
-        else:
-            self._create_assistant_container(
-                team_id,
-                spec,
-                network,
-                image,
-                authorize_start=authorize_start,
-            )
+        self._create_assistant_container(team_id, spec, network, image, authorize_start=authorize_start)
         return {"assistant": assistant_id, "installed": True}
 
 
