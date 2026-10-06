@@ -423,34 +423,7 @@ def _resume_chat_integrations(
         if not isinstance(pending, hosted_assistants._PendingHostedChat):
             raise AssertionError("shared integration resume returned invalid state")
 
-        segment = hosted_chat_segment._run_hosted_chat_segment(
-            hosted_chat_segment.HostedChatSegmentRequest(
-                team_id=team_id,
-                file_ids=list(pending.file_ids),
-                assistant_ids=pending.assistant_ids,
-                token=token,
-                container=container,
-                owner=lease.owner,
-                continuation=pending.continuation,
-                expected_identity=pending.identity,
-                transcripts=pending.transcripts,
-                requests_used=pending.requests_used,
-                locale=pending.locale,
-            )
-        )
-        return hosted_chat_segment._hosted_segment_response(
-            hosted_chat_segment.HostedSegmentResponseRequest(
-                team_id,
-                token,
-                segment,
-                pending.assistant_ids,
-                pending.file_ids,
-                pending.owner,
-                pending.transcripts,
-                pending.requests_used,
-                usage=pending.usage,
-            )
-        )
+        return hosted_chat_segment.continue_paused(team_id, token, container, lease.owner, pending, pending)
 
 
 def _resume_chat_human(

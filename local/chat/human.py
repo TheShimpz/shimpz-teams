@@ -8,8 +8,7 @@ from action import challenges as action_challenges
 from action import human as action_human
 from chat import progress as chat_progress
 from local.chat import pause as local_chat_pause
-from local.chat.segment import SegmentRequest
-from local.chat.types import PendingLocalChat, ResponseRequest
+from local.chat.types import PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import human_request_expired, human_request_invalid, human_response_invalid
 from local.validation import validate_team_id
@@ -180,32 +179,6 @@ def resume_chat_human(
             admission = _admit_human_response(self, team_id, challenge, pending, decision, value)
             if admission is None:
                 return self._terminal_human_failure(team_id, token, pending, "denied")
-        segment = self._run_chat_segment(
-            SegmentRequest(
-                team_id=team_id,
-                file_ids=list(pending.file_ids),
-                assistant_ids=pending.assistant_ids,
-                provider=provider,
-                api_key=api_key,
-                token=token,
-                continuation=pending.continuation,
-                expected_identity=pending.identity,
-                transcripts=admission.transcripts,
-                requests_used=admission.requests_used,
-                locale=pending.locale,
-                progress=progress or chat_progress.Reporter(),
-            )
-        )
-        return self._segment_response(
-            ResponseRequest(
-                team_id,
-                token,
-                segment,
-                pending.assistant_ids,
-                pending.file_ids,
-                provider,
-                admission.transcripts,
-                admission.requests_used,
-                usage=pending.usage,
-            )
+        return local_chat_pause._continue_paused(
+            self, team_id, token, pending, admission, (provider, api_key), progress
         )

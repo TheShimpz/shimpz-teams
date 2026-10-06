@@ -7,11 +7,14 @@ from action import challenges as action_challenges
 from action import human as action_human
 from action import journal as action_journal
 from chat import orchestrator as chat_orchestrator
+from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
+from local.chat.segment import SegmentRequest
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import PendingLocalChat as _PendingLocalChat
+from local.chat.types import ResponseRequest
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import action_state_unavailable, chat_stopped, human_request_invalid, team_context_changed
 
@@ -208,3 +211,50 @@ def _paused_setup(self, team_id: str, provider: str, challenge: object) -> tuple
             raise
         _end_drifted_turn(self, team_id, challenge)
     return pending, current
+
+
+def _continue_paused(
+    self,
+    team_id: str,
+    token: str,
+    pending: _PendingLocalChat,
+    effective: object,
+    credentials: tuple[str, str],
+    progress: chat_progress.Reporter | None,
+) -> dict[str, object]:
+    """Run the admitted remainder of a paused turn.
+
+    `effective` carries the transcripts and request count the remainder starts from: the paused turn's own for an
+    Integration resume, the admitted human response's for a human resume.
+    """
+    provider, api_key = credentials
+    transcripts, requests_used = effective.transcripts, effective.requests_used
+    segment = self._run_chat_segment(
+        SegmentRequest(
+            team_id=team_id,
+            file_ids=list(pending.file_ids),
+            assistant_ids=pending.assistant_ids,
+            provider=provider,
+            api_key=api_key,
+            token=token,
+            continuation=pending.continuation,
+            expected_identity=pending.identity,
+            transcripts=transcripts,
+            requests_used=requests_used,
+            locale=pending.locale,
+            progress=progress or chat_progress.Reporter(),
+        )
+    )
+    return self._segment_response(
+        ResponseRequest(
+            team_id,
+            token,
+            segment,
+            pending.assistant_ids,
+            pending.file_ids,
+            provider,
+            transcripts,
+            requests_used,
+            usage=pending.usage,
+        )
+    )

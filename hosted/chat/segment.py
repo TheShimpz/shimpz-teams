@@ -765,3 +765,46 @@ def _chat_in_turn(request: HostedChatSegmentRequest) -> dict[str, object]:
             usage=usage,
         )
     )
+
+
+def continue_paused(
+    team_id: str,
+    token: str,
+    container: object,
+    owner: str,
+    pending: hosted_assistants._PendingHostedChat,
+    effective: object,
+) -> dict[str, object]:
+    """Run the admitted remainder of a paused Hosted turn.
+
+    `effective` carries the transcripts and request count the remainder starts from: the paused turn's own for an
+    Integration resume, the admitted human response's for a human resume.
+    """
+    segment = _run_hosted_chat_segment(
+        HostedChatSegmentRequest(
+            team_id=team_id,
+            file_ids=list(pending.file_ids),
+            assistant_ids=pending.assistant_ids,
+            token=token,
+            container=container,
+            owner=owner,
+            continuation=pending.continuation,
+            expected_identity=pending.identity,
+            transcripts=effective.transcripts,
+            requests_used=effective.requests_used,
+            locale=pending.locale,
+        )
+    )
+    return _hosted_segment_response(
+        HostedSegmentResponseRequest(
+            team_id,
+            token,
+            segment,
+            pending.assistant_ids,
+            pending.file_ids,
+            pending.owner,
+            effective.transcripts,
+            effective.requests_used,
+            usage=pending.usage,
+        )
+    )

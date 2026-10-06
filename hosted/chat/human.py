@@ -150,34 +150,7 @@ def resume_chat_human(
         if admission is None:
             reason = "denied" if decision == "deny" else "authentication-failed"
             return hosted_chat_segment._terminal_hosted_human_failure(team_id, token, pending, reason)
-        segment = hosted_chat_segment._run_hosted_chat_segment(
-            hosted_chat_segment.HostedChatSegmentRequest(
-                team_id=team_id,
-                file_ids=list(pending.file_ids),
-                assistant_ids=pending.assistant_ids,
-                token=token,
-                container=container,
-                owner=lease.owner,
-                continuation=pending.continuation,
-                expected_identity=pending.identity,
-                transcripts=admission.transcripts,
-                requests_used=admission.requests_used,
-                locale=pending.locale,
-            )
-        )
-        return hosted_chat_segment._hosted_segment_response(
-            hosted_chat_segment.HostedSegmentResponseRequest(
-                team_id,
-                token,
-                segment,
-                pending.assistant_ids,
-                pending.file_ids,
-                pending.owner,
-                admission.transcripts,
-                admission.requests_used,
-                usage=pending.usage,
-            )
-        )
+        return hosted_chat_segment.continue_paused(team_id, token, container, lease.owner, pending, admission)
 
 
 def cancel_pending(team_id: str) -> bool:
