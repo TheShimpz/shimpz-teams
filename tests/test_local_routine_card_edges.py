@@ -7,21 +7,12 @@ import tempfile
 from types import SimpleNamespace
 from unittest import mock
 
+import routine_fixture
 from test_local_routine_card import CardCase
 from test_local_routine_recovery import Assistant, failed
 
 from local.routine import manage as routine_manage
 from routine import record
-
-
-def _update_routine(service, routine_id: str, **changes: object) -> None:
-    service.routine_store.update(
-        "team_1",
-        lambda state: (
-            record._replace_routine(state, dataclasses.replace(record.routine(state, routine_id), **changes)),
-            None,
-        ),
-    )
 
 
 class CardBindingTests(CardCase):
@@ -52,14 +43,14 @@ class CardBindingTests(CardCase):
     def test_a_card_opened_while_the_routine_is_deleting_restarts_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
-            _update_routine(service, value.routine_id, deleting=True)
+            routine_fixture.update_routine(service, value.routine_id, deleting=True)
             self.refused(service, run_id, "run", "routine-not-found")
             self.assertTrue(record.routine(self.state(service), value.routine_id).deleting)
 
     def test_rodar_refuses_a_routine_that_awaits_reconfirmation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
-            _update_routine(service, value.routine_id, needs_reconfirm=True)
+            routine_fixture.update_routine(service, value.routine_id, needs_reconfirm=True)
             self.refused(service, run_id, "run", "routine-contracts-changed")
             self.assertEqual(record.routine(self.state(service), value.routine_id).run_requested, 0)
 

@@ -10,6 +10,7 @@ import unittest
 from typing import ClassVar
 from unittest import mock
 
+import routine_fixture
 from local_assistant_fixture import mutating_spec
 from test_local_chat_scope import LOOKUP_INPUT
 from test_local_routine_compiled import ZONE
@@ -763,15 +764,7 @@ class ContinuationDeadlineTests(BalanceCase):
         def failing_streak(service, **kwargs):
             # Two no-effect failures already ran before this cycle.
             value = real_routine(service, **kwargs)
-            service.routine_store.update(
-                "team_1",
-                lambda state: (
-                    record._replace_routine(
-                        state, dataclasses.replace(record.routine(state, value.routine_id), failures=2)
-                    ),
-                    None,
-                ),
-            )
+            routine_fixture.update_routine(service, value.routine_id, failures=2)
             return value
 
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])

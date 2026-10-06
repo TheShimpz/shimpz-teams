@@ -165,15 +165,7 @@ class RoutineServiceCase(LocalContractCase):
         value = dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
         service.routine_store.update("team_1", lambda state: (record.add_routine(state, value), None))
         due = fired if next_run_at is None else next_run_at
-        service.routine_store.update(
-            "team_1",
-            lambda state: (
-                record._replace_routine(
-                    state, dataclasses.replace(record.routine(state, value.routine_id), next_run_at=due)
-                ),
-                None,
-            ),
-        )
+        routine_fixture.update_routine(service, value.routine_id, next_run_at=due)
         return value
 
     # The Routine key's fingerprint the Team admits; the HTTP cases sign with a real key and set theirs.

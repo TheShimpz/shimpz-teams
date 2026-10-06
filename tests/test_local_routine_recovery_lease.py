@@ -176,16 +176,7 @@ class AtomicCardTests(AutomaticCase):
                             ),
                         )
                     else:
-                        service.routine_store.update(
-                            "team_1",
-                            lambda state, routine_id=value.routine_id: (
-                                record._replace_routine(
-                                    state,
-                                    dataclasses.replace(record.routine(state, routine_id), revision=2),
-                                ),
-                                None,
-                            ),
-                        )
+                        routine_fixture.update_routine(service, value.routine_id, revision=2)
                     # Even a check that let it through is refused by the transition's own write.
                     with (
                         mock.patch.object(

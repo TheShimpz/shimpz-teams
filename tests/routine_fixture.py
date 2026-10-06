@@ -90,6 +90,19 @@ def put(store, team_id: str, state) -> None:
     store.update(team_id, lambda _before: (state, None))
 
 
+def update_routine(service, routine_id: str, **changes: object) -> None:
+    """Change fields of one of team_1's Routines in place through the store's write path."""
+    from routine import record
+
+    service.routine_store.update(
+        "team_1",
+        lambda state: (
+            record._replace_routine(state, dataclasses.replace(record.routine(state, routine_id), **changes)),
+            None,
+        ),
+    )
+
+
 # A completed run's notice detail: the summary of the plan it carried out.
 DONE = {
     "plan": {
