@@ -313,9 +313,13 @@ def rerun_work(span: Span | None) -> tuple[dict[str, object], ...] | None:
     Each entry is one call, or ``count`` consecutive identical ones: its Action and each input member's kind. A value
     input shows its exact JSON text unless the span protects it or it is too long, and whether it is a target the
     person chose; a fresh input shows only the Action Team found its earlier value in, which must run again first.
-    Work past the protocol's bounds (``routine.canonical_rerun``) is not shown at all.
+    Work past the protocol's bounds (``routine.canonical_rerun``), or of a span whose protection was lost, is not shown
+    at all.
     """
     if span is None or span.asked is None or span.asked.manifest is None or span.asked.code not in _RERUN_SHOWN:
+        return None
+    if span.protection.lost:
+        # With its protection lost, nothing the span holds may be shown.
         return None
     entries: list[dict[str, object]] = []
     for slot in span.asked.manifest.slots:
@@ -337,7 +341,8 @@ def _rerun_input(span: Span, slot: routine_recording.Slot, item: tuple[str, str,
     shown = {"member": member, "kind": kind, "value": None, "chosen": False, "source": None}
     if kind == "value":
         text = json.dumps(value, ensure_ascii=False)
-        visible = len(text) <= http_routine.MAX_RERUN_LITERAL_CHARS and not trace.exposes(text, span.protection.values)
+        # The value itself is checked, every string and key in it: escaping its JSON text could hide a protected one.
+        visible = len(text) <= http_routine.MAX_RERUN_LITERAL_CHARS and not trace.exposes(value, span.protection.values)
         chosen = any(
             (binding.action, binding.member) == (slot.action, member)
             and json.dumps(binding.chosen, ensure_ascii=False) == text

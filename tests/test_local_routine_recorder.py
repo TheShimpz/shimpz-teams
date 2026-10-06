@@ -297,6 +297,18 @@ class RecordingBookTests(unittest.TestCase):
         shown = routine_recorder.rerun_work(self.span((recording_cases._send(),), ordinary))
         self.assertEqual(http_routine.canonical_rerun(shown), list(shown))
 
+    def test_a_protected_value_is_withheld_even_where_json_escaping_would_hide_it(self) -> None:
+        secret = 'tok"en\\1'
+        slot = routine_recording.Slot(
+            ("reports", "post"), False, (("note", "value", {"text": f"use {secret} now"}), ("t", "value", "x"))
+        )
+        question = routine_recording.Question("routine-binding-unsourced", manifest=routine_recording.Manifest((slot,)))
+        span = self.span((recording_cases._send(),), question, protected=(secret,))
+        (entry,) = routine_recorder.rerun_work(span)
+        self.assertEqual([item["value"] for item in entry["inputs"]], [None, '"x"'])
+        lost = dataclasses.replace(span, protection=trace.Protection(lost=True))
+        self.assertIsNone(routine_recorder.rerun_work(lost))
+
     @staticmethod
     def span(sends, question, protected=()) -> routine_recorder.Span:
         asked = routine_recording.Asked(
