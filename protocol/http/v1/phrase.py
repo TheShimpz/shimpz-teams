@@ -397,62 +397,65 @@ def outputs(text: str) -> tuple[str, ...]:
     return tuple(found)
 
 
-# How a question asks what Team reads from the person's own words, by language. When or how often (or how many times a
-# day) counts only as the whole question, or beside a word about the Routine running, so a question about a time-like
-# input of the work ("what time range", "how often does it fail") is the Brain's own. What to do with the result counts
-# as it is.
-_WHEN_ASKS = (
-    (
-        "pt",
-        r"com que frequência|\b(?:a|de) cada quanto tempo|\bde quanto em quanto tempo"
-        r"|\bquantas vezes por (?:dia|hora|semana|mês)\b|\b(?:que|qual(?: o)?|em que) (?:horas?|horário)\b",
-        r"\b(?:rod|execut|repet|verific|dispar|rotina|quer)",
-    ),
-    (
-        "en",
-        r"\bhow (?:often|frequently)\b|\b(?:at )?what time\b|\bwhich schedule\b"
-        r"|\bhow many times (?:a|per) (?:day|hour|week|month)\b",
-        r"\b(?:run|runs|repeat|execute|check|trigger|routine|want|like)\b",
-    ),
-    (
-        "es",
-        r"con qué frecuencia|\bcada cuánto\b|\ba qué hora\b|\bcuántas veces al día\b",
-        r"\b(?:ejecut|repet|corr|comprob|rutina|quier)",
-    ),
-    (
-        "fr",
-        r"à quelle fréquence|\btous les combien\b|à quelle heure|\bcombien de fois par jour\b",
-        r"(?:exécut|répét|lanc|vérifi|tourn|routine|voul|souhait)",
-    ),
-    (
-        "de",
-        r"\bwie oft\b|\bum wie viel uhr\b|\bwann soll\b|\bwie viele male pro tag\b",
-        r"(?:lauf|läuft|ausgeführt|ausführ|wiederhol|prüf|routine|möcht)",
-    ),
-    ("ja", r"どのくらいの頻度|何時に|頻度|1日に何回", r"(?:実行|繰り返|チェック|ルーティン|確認)"),
-    ("zh", r"多久一次|多长时间一次|频率|几点|每天几次|一天几次", r"(?:运行|执行|重复|检查|例行)"),
-    ("ar", r"كم مرة|كل كم|في أي وقت|أي ساعة", r"(?:تشغيل|تنفيذ|تكرار|يعمل|الروتين|تريد)"),
-)
-_RESULT_ASKS = (
-    r"(?:quer|prefere|deseja) receber (?:o|os) resultados?|\bo que (?:\w+ ){0,4}com (?:o|os) resultados?",
-    r"\b(?:like|want) to (?:receive|get|see) the results?|\b(?:do|happen) (?:with|to) the results?",
+# How a question asks what Team reads from the person's own words, by language: each a whole interrogative phrase, so
+# a question about a time-like input of the work ("what time range", "how often does it fail") is the Brain's own.
+# When or how often a Routine runs, its run limit, or what it does with its result:
+_ASK_PHRASES = (
+    # pt
+    r"\bcom que frequência (?:a rotina |ela |isso )?(?:deve |vai |precisa )?"
+    r"(?:rodar|executar|ser executada|se repetir)",
+    r"\b(?:a|de) cada quanto tempo (?:a rotina |ela |isso )?(?:deve |vai )?(?:rodar|executar|se repetir)",
+    r"\b(?:em )?que (?:horas?|horário) (?:a rotina |ela |isso )?(?:deve |vai )?(?:rodar|executar)",
+    r"\bquantas vezes por (?:dia|hora|semana|mês) (?:a rotina |ela |isso )?(?:deve |vai |pode )?(?:rodar|executar)",
+    r"\blimite de execuções\b",
+    r"\b(?:quer|prefere|deseja) receber (?:o|os) resultados?\b|\bo que (?:\w+ ){0,4}com (?:o|os) resultados?\b",
+    # en
+    r"\bhow (?:often|frequently) (?:should|do you want|would you like|will) (?:it|the routine|this) "
+    r"(?:to )?(?:run|repeat)",
+    r"\b(?:at )?what time (?:should|do you want|would you like|will) (?:it|the routine|this) (?:to )?(?:run|start)",
+    r"\bhow many times (?:a|per) (?:day|hour|week|month) (?:should|can|will) (?:it|the routine|this) run\b",
+    r"\brun limit\b|\bhow many runs (?:a|per) day\b",
+    r"\b(?:like|want) to (?:receive|get|see) the results?\b|\b(?:do|happen) (?:with|to) the results?\b",
+    # es
+    r"\bcon qué frecuencia (?:debe |quieres que )?(?:se ejecute|se repita|ejecutarse|correr)",
+    r"\bcada cuánto (?:tiempo )?(?:debe |quieres que )?(?:se ejecute|se repita|ejecutarse)",
+    r"\ba qué hora (?:debe |quieres que )?(?:se ejecute|ejecutarse|correr)",
+    r"\bcuántas veces al día (?:debe |quieres que )?(?:se ejecute|ejecutarse)",
+    r"\blímite de ejecuciones\b",
     r"(?:quieres|prefieres|desea) recibir (?:el|los) resultados?|\bqué \w+ con (?:el|los) resultados?",
+    # fr
+    r"à quelle fréquence (?:doit-elle |doit-il |voulez-vous qu'elle |faut-il )?"
+    r"(?:s'exécuter|tourner|la lancer|se répéter)",
+    r"à quelle heure (?:doit-elle |doit-il |voulez-vous qu'elle |faut-il )?(?:s'exécuter|tourner|la lancer)",
+    r"\bcombien de fois par jour (?:doit-elle |doit-il )?(?:s'exécuter|tourner)",
+    r"\blimite d'exécutions\b",
     r"recevoir (?:le|les) résultats?|\bque faire (?:du|des) résultats?",
+    # de
+    r"\bwie oft soll (?:sie|es|die routine) (?:laufen|ausgeführt werden)",
+    r"\b(?:um wie viel uhr|wann) soll (?:sie|es|die routine) (?:laufen|ausgeführt werden)",
+    r"\bwie viele male pro tag soll (?:sie|es|die routine) (?:laufen|ausgeführt werden)",
+    r"\bausführungslimit|\blimit der ausführungen\b",
     r"\bwie möchte\w* \w+ das ergebnis|\bwas soll mit dem ergebnis",
-    r"結果をどのように|結果をどう",
-    r"如何接收结果|结果(?:怎么|如何)处理|如何处理结果",
-    r"كيف تريد استلام النتيجة|ماذا (?:أفعل|نفعل) بالنتيجة",
+    # ja
+    r"どのくらいの頻度で実行|何時に実行|1日に何回実行|実行回数の上限|結果をどのように|結果をどう",
+    # zh
+    r"多久(?:运行|执行)一次|几点(?:运行|执行)|每天(?:运行|执行)几次|(?:运行|执行)次数上限|如何接收结果|结果(?:怎么|如何)处理|如何处理结果",
+    # ar
+    r"كم مرة (?:يجب أن )?(?:يعمل|تعمل|يتم تشغيل)|في أي وقت (?:يجب أن )?(?:يعمل|تعمل|يتم تشغيل)|حد التشغيل"
+    r"|كيف تريد استلام النتيجة|ماذا (?:أفعل|نفعل) بالنتيجة",
 )
-_BARE_END = r"[\s?？؟.!。]*\Z"
-
-
-def _asks_when(folded: str) -> bool:
-    """Whether a question asks when or how often a Routine runs: the phrase alone, or beside a word of running."""
-    for _language, phrases, running in _WHEN_ASKS:
-        for match in re.finditer(phrases, folded):
-            if re.match(_BARE_END, folded[match.end() :]) or re.search(running, folded):
-                return True
-    return False
+# The same questions asked bare: they count only as the whole question.
+_BARE_ASKS = (
+    r"com que frequência|(?:a|de) cada quanto tempo|de quanto em quanto tempo|quantas vezes por (?:dia|hora|semana)",
+    r"how (?:often|frequently)|how many times (?:a|per) (?:day|hour|week)",
+    r"con qué frecuencia|cada cuánto(?: tiempo)?|cuántas veces al día",
+    r"à quelle fréquence|tous les combien|combien de fois par jour",
+    r"wie oft|wie viele male pro tag",
+    r"どのくらいの頻度|1日に何回",
+    r"多久一次|多长时间一次|每天几次|一天几次",
+    r"كم مرة|كل كم",
+)
+_BARE_PUNCTUATION = " ¿¡?？؟.!。"
 
 
 _QUESTION_MARKS = str.maketrans(dict.fromkeys(_ASKS, "."))
@@ -468,8 +471,10 @@ def team_asks(text: str) -> bool:
     plain = text.translate(_QUESTION_MARKS)
     if stated(plain) or outputs(plain):
         return True
-    folded = text.translate(_DIGITS).casefold().strip()
-    return _asks_when(folded) or any(re.search(pattern, folded) for pattern in _RESULT_ASKS)
+    folded = text.translate(_DIGITS).casefold().strip(_BARE_PUNCTUATION)
+    return any(re.search(pattern, folded) for pattern in _ASK_PHRASES) or any(
+        re.fullmatch(pattern, folded) for pattern in _BARE_ASKS
+    )
 
 
 def _loads(name: str) -> bool:

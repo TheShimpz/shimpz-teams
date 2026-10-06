@@ -287,6 +287,15 @@ class TeamAsksTests(unittest.TestCase):
             "如何接收结果?",
             "كم مرة؟",
             "كيف تريد استلام النتيجة؟",
+            # How many times a Routine may run.
+            "What is the run limit?",
+            "Qual é o limite de execuções da rotina?",
+            "¿Cuál es el límite de ejecuciones?",
+            "Quelle est la limite d'exécutions ?",
+            "Wie hoch ist das Ausführungslimit?",
+            "実行回数の上限は?",
+            "运行次数上限是多少?",
+            "ما هو حد التشغيل؟",
             # One option label that states a choice Team reads.
             "A cada 30 segundos",
             "Todo dia às 9h?",
@@ -311,7 +320,16 @@ class TeamAsksTests(unittest.TestCase):
             "哪个区域?",
             "أي منطقة؟",
             "shimpz.com",
-            # Work questions about time-like inputs, in every language.
+            # Work questions about time-like inputs, in every language, even beside words about the Routine.
+            "What time range do you want the report to cover?",
+            "What time range should the routine's report cover?",
+            "Qual intervalo de tempo você quer que o relatório da rotina cubra?",
+            "¿Qué rango de horas quieres que cubra el informe de la rutina?",
+            "Quelle plage horaire voulez-vous que le rapport de la routine couvre ?",
+            "Welchen Zeitraum soll der Bericht der Routine abdecken?",
+            "ルーティンのレポートはどの期間を対象にしますか?",
+            "例行任务的报告要覆盖哪个时间范围?",
+            "ما الفترة الزمنية التي تريد أن يغطيها تقرير الروتين؟",
             "What timeout should the HTTP request use?",
             "What time range should the report cover?",
             "How often does the API return errors?",
