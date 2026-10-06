@@ -8,7 +8,7 @@ import threading
 from unittest import mock
 
 import routine_fixture
-from test_local_routine_automatic import AutomaticCase, Brain
+from test_local_routine_automatic import AutomaticCase, Brain, captured_timer
 from test_local_routine_recovery import RECORD, Assistant, failed
 
 from inference import client as inference_client
@@ -265,17 +265,6 @@ class StopPrecedenceTests(AutomaticCase):
     def test_a_deadline_after_a_persons_stop_never_turns_it_into_exhaustion(self) -> None:
         fired: list[object] = []
 
-        class Captured:
-            def __init__(self, _seconds, function) -> None:
-                self.daemon = False
-                fired.append(function)
-
-            def start(self) -> None:
-                return
-
-            def cancel(self) -> None:
-                return
-
         box: list[object] = []
 
         class Interrupted(Assistant):
@@ -294,7 +283,7 @@ class StopPrecedenceTests(AutomaticCase):
             ticks = iter([0.0, 0.0, 0.0])
             with (
                 service._exclusive_chat_turn("team_1") as token,
-                mock.patch.object(routine_recovery.threading, "Timer", Captured),
+                mock.patch.object(routine_recovery.threading, "Timer", captured_timer(fired)),
                 mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 999.0)),
             ):
                 run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)

@@ -25,6 +25,25 @@ from routine import hold as routine_hold
 from routine import record
 
 
+def captured_timer(fired: list[object], delays: list[float] | None = None) -> type:
+    """The deadline timer class, which records its callback (and delay) for the test to fire where it chooses."""
+
+    class Captured:
+        def __init__(self, seconds, function) -> None:
+            self.daemon = False
+            fired.append(function)
+            if delays is not None:
+                delays.append(seconds)
+
+        def start(self) -> None:
+            return
+
+        def cancel(self) -> None:
+            return
+
+    return Captured
+
+
 class Brain:
     """The Brain as the automatic episode may reach it: only its one recovery decision, each answer in turn."""
 
@@ -531,19 +550,6 @@ class ContinuationDeadlineTests(BalanceCase):
     def test_a_deadline_between_continuation_steps_holds_the_partial_run_and_pauses_as_exhausted(self) -> None:
         fired: list[object] = []
 
-        class Captured:
-            """The deadline timer, fired by the test at the exact point it chooses."""
-
-            def __init__(self, _seconds, function) -> None:
-                self.daemon = False
-                fired.append(function)
-
-            def start(self) -> None:
-                return
-
-            def cancel(self) -> None:
-                return
-
         real_resume = routine_recovery.routine_compiled.CompiledRuntime.resume
 
         def resume(runtime, context, results):
@@ -562,7 +568,7 @@ class ContinuationDeadlineTests(BalanceCase):
         )
         with (
             tempfile.TemporaryDirectory() as directory,
-            mock.patch.object(routine_recovery.threading, "Timer", Captured),
+            mock.patch.object(routine_recovery.threading, "Timer", captured_timer(fired)),
             mock.patch.object(routine_recovery.routine_compiled.CompiledRuntime, "resume", resume),
             mock.patch.object(self, "plan", lambda service, *_steps: type(self).plan(service, *controller_plan)),
         ):
@@ -580,17 +586,6 @@ class ContinuationDeadlineTests(BalanceCase):
     def test_the_timer_is_set_for_what_is_left_and_nothing_starts_once_it_ran_out(self) -> None:
         delays: list[float] = []
 
-        class Captured:
-            def __init__(self, seconds, _function) -> None:
-                self.daemon = False
-                delays.append(seconds)
-
-            def start(self) -> None:
-                return
-
-            def cancel(self) -> None:
-                return
-
         brain = Brain("retry")
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
@@ -599,7 +594,7 @@ class ContinuationDeadlineTests(BalanceCase):
             # Taken at 0, armed at 12, and already past its deadline when the episode would start work.
             ticks = iter([0.0, 12.0])
             with (
-                mock.patch.object(routine_recovery.threading, "Timer", Captured),
+                mock.patch.object(routine_recovery.threading, "Timer", captured_timer([], delays)),
                 mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 30.0)),
             ):
                 outcome = routine_recovery.automatic(service, run, API_KEY)
@@ -662,17 +657,6 @@ class ContinuationDeadlineTests(BalanceCase):
     def test_a_deadline_just_before_the_continuation_registers_still_holds_and_pauses(self) -> None:
         fired: list[object] = []
 
-        class Captured:
-            def __init__(self, _seconds, function) -> None:
-                self.daemon = False
-                fired.append(function)
-
-            def start(self) -> None:
-                return
-
-            def cancel(self) -> None:
-                return
-
         real_provider = routine_recovery._provider
         calls: list[str] = []
 
@@ -689,7 +673,7 @@ class ContinuationDeadlineTests(BalanceCase):
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         with (
             tempfile.TemporaryDirectory() as directory,
-            mock.patch.object(routine_recovery.threading, "Timer", Captured),
+            mock.patch.object(routine_recovery.threading, "Timer", captured_timer(fired)),
             mock.patch.object(routine_recovery, "_provider", side_effect=provider),
         ):
             service, value, run_id = self.run_held(directory, assistant, brain)
@@ -703,17 +687,6 @@ class ContinuationDeadlineTests(BalanceCase):
     def test_a_deadline_that_cancels_the_continuation_before_it_reopens_still_pauses_as_exhausted(self) -> None:
         fired: list[object] = []
 
-        class Captured:
-            def __init__(self, _seconds, function) -> None:
-                self.daemon = False
-                fired.append(function)
-
-            def start(self) -> None:
-                return
-
-            def cancel(self) -> None:
-                return
-
         real_continued = routine_recovery.routine_cursor.continued
 
         def continued(cursor):
@@ -725,7 +698,7 @@ class ContinuationDeadlineTests(BalanceCase):
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         with (
             tempfile.TemporaryDirectory() as directory,
-            mock.patch.object(routine_recovery.threading, "Timer", Captured),
+            mock.patch.object(routine_recovery.threading, "Timer", captured_timer(fired)),
             mock.patch.object(routine_recovery.routine_cursor, "continued", side_effect=continued),
         ):
             service, value, run_id = self.run_held(directory, assistant, brain)
@@ -752,17 +725,6 @@ class ContinuationDeadlineTests(BalanceCase):
         """Run a retried continuation and cancel it, by its deadline or a person, once every step is sealed complete."""
         fired: list[object] = []
         box: list[object] = []
-
-        class Captured:
-            def __init__(self, _seconds, function) -> None:
-                self.daemon = False
-                fired.append(function)
-
-            def start(self) -> None:
-                return
-
-            def cancel(self) -> None:
-                return
 
         real_resume = routine_recovery.routine_compiled.CompiledRuntime.resume
 
@@ -825,7 +787,7 @@ class ContinuationDeadlineTests(BalanceCase):
             tempfile.TemporaryDirectory() as directory,
             mock.patch.object(self, "service", service),
             mock.patch.object(self, "routine", failing_streak),
-            mock.patch.object(routine_recovery.threading, "Timer", Captured),
+            mock.patch.object(routine_recovery.threading, "Timer", captured_timer(fired)),
             mock.patch.object(routine_recovery.routine_compiled.CompiledRuntime, "resume", resume),
         ):
             service_value, value, _run_id = self.run_held(directory, assistant, Brain("retry"))
