@@ -38,6 +38,11 @@ def _stored(*, kind: str = "human", expires_at: int = 2_000) -> continuation_sto
     )
 
 
+def _unavailable_problem() -> local_app.ApiProblem:
+    """The problem the controller raises when chat continuation state cannot be read or written."""
+    return local_app.ApiProblem(HTTPStatus.SERVICE_UNAVAILABLE, "unavailable", code="chat-state-unavailable")
+
+
 class LocalChatStateEdgeTests(unittest.TestCase):
     def test_file_metadata_validates_shape_and_maps_storage_failures(self) -> None:
         subject = types.SimpleNamespace()
@@ -267,15 +272,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             local_chat_state._raise_chat_continuation_problem(continuation_store.ContinuationStoreError("unavailable"))
         self.assertEqual(caught.exception.code, "chat-state-unavailable")
 
-        subject = types.SimpleNamespace(
-            _raise_chat_continuation_problem=mock.Mock(
-                side_effect=local_app.ApiProblem(
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                    "unavailable",
-                    code="chat-state-unavailable",
-                )
-            )
-        )
+        subject = types.SimpleNamespace(_raise_chat_continuation_problem=mock.Mock(side_effect=_unavailable_problem()))
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_state._persist_chat_continuation(
                 subject,
@@ -323,13 +320,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             requirements=(),
             pending=_pending(),
         )
-        subject._raise_chat_continuation_problem = mock.Mock(
-            side_effect=local_app.ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "unavailable",
-                code="chat-state-unavailable",
-            )
-        )
+        subject._raise_chat_continuation_problem = mock.Mock(side_effect=_unavailable_problem())
         with (
             mock.patch.object(local_chat_state.time, "time", return_value=1_000),
             mock.patch.object(local_continuation, "decode", return_value=decoded),
@@ -395,13 +386,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         )
 
         decoded = types.SimpleNamespace(kind="integrations", pending=_pending())
-        subject._raise_chat_continuation_problem = mock.Mock(
-            side_effect=local_app.ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "unavailable",
-                code="chat-state-unavailable",
-            )
-        )
+        subject._raise_chat_continuation_problem = mock.Mock(side_effect=_unavailable_problem())
         with (
             mock.patch.object(local_continuation, "decode", return_value=decoded),
             self.assertRaises(local_app.ApiProblem),
