@@ -68,21 +68,23 @@ class ScheduleContractTests(unittest.TestCase):
         self.assertEqual(http_routine.daily_rate({"kind": "daily", "time": "09:00"}), 1)
         self.assertEqual(http_routine.daily_rate({"kind": "weekly", "weekday": 0, "time": "09:00"}), Fraction(1, 7))
         self.assertEqual(http_routine.daily_rate({"kind": "monthly", "day": 1, "time": "09:00"}), Fraction(1, 28))
-        continuous = {"kind": "continuous", "gap": 5, "cap": 300}
-        self.assertEqual((http_routine.daily_rate(continuous), http_routine.daily_cap(continuous)), (300, 300))
+        continuous = {"kind": "continuous", "gap": 30, "cap": 2880}
+        self.assertEqual((http_routine.daily_rate(continuous), http_routine.daily_cap(continuous)), (2880, 2880))
         self.assertEqual(http_routine.daily_cap({"kind": "weekly", "weekday": 0, "time": "09:00"}), 1)
         self.assertEqual(http_routine.daily_cap({"kind": "hourly", "every": 5}), 5)
 
-    def test_a_continuous_schedule_is_bounded_in_gap_and_cap(self):
-        for gap, cap in ((5, 1), (86_400, 1000)):
+    def test_a_continuous_schedule_runs_its_stated_gap_all_day(self):
+        # The cap is always the gap's whole day, so no cap ever rewrites the interval the person stated (ADR-0101).
+        for gap, cap in ((5, http_routine.MAX_CONTINUOUS_CAP), (7, 12_343), (30, 2880), (86_400, 1)):
             value = {"kind": "continuous", "gap": gap, "cap": cap}
-            self.assertEqual(http_routine.canonical_schedule(value), value)
+            self.assertEqual((http_routine.canonical_schedule(value), http_routine.continuous_cap(gap)), (value, cap))
         for value in (
-            {"kind": "continuous", "gap": 4, "cap": 10},
-            {"kind": "continuous", "gap": 86_401, "cap": 10},
+            {"kind": "continuous", "gap": 4, "cap": 21_600},
+            {"kind": "continuous", "gap": 86_401, "cap": 1},
             {"kind": "continuous", "gap": 5, "cap": 0},
-            {"kind": "continuous", "gap": 5, "cap": 1001},
-            {"kind": "continuous", "gap": 5.0, "cap": 10},
+            {"kind": "continuous", "gap": 30, "cap": 1000},
+            {"kind": "continuous", "gap": 7, "cap": 12_342},
+            {"kind": "continuous", "gap": 5.0, "cap": 17_280},
             {"kind": "continuous", "gap": 5, "cap": True},
             {"kind": "continuous", "gap": 5},
         ):
@@ -117,7 +119,7 @@ class NextRunTests(unittest.TestCase):
         self.assertEqual(schedule.next_run(daily, "UTC", ANCHOR, at(2026, 9, 30, 9)), at(2026, 10, 1, 9))
 
     def test_a_continuous_run_is_due_its_gap_after_an_instant_never_before_the_anchor(self):
-        continuous = {"kind": "continuous", "gap": 5, "cap": 10}
+        continuous = {"kind": "continuous", "gap": 5, "cap": 17_280}
         self.assertEqual(schedule.next_run(continuous, "UTC", ANCHOR, at(2026, 9, 30)), at(2026, 9, 30, 0, 0, 5))
         self.assertEqual(
             schedule.next_run(continuous, "UTC", at(2026, 10, 1), at(2026, 9, 30)), at(2026, 10, 1, 0, 0, 5)

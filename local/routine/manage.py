@@ -38,6 +38,7 @@ def routine_view(value: record.Routine) -> dict[str, object]:
         "output": routine_definition.disposition(value.plan),
         "schedule": dict(value.schedule),
         "timezone": value.timezone,
+        "timezone_source": value.timezone_source,
         "assistant_ids": [assistant for assistant, _digest in value.assistants],
         "next_run_at": _instant(value.next_run_at),
         "needs_reconfirm": value.needs_reconfirm,

@@ -428,6 +428,41 @@ def canonical_clarification(value: object) -> dict[str, object] | None:
         return None
 
 
+# The labels Admin composes a clarified request with, in each interface language (ADR-0081): the original request, a
+# blank line, then "<question>: <the question>" and "<answer>: <the person's answer>" on their own lines. A request may
+# be clarified more than once, so these pairs may repeat. Team reads the person's own words out of such a message
+# (ADR-0101): it drops every question line and keeps each answer without its label.
+CLARIFICATION_LABELS = {
+    "ar": {"question": "السؤال", "answer": "الإجابة"},
+    "de": {"question": "Frage", "answer": "Antwort"},
+    "en": {"question": "Question", "answer": "Answer"},
+    "es": {"question": "Pregunta", "answer": "Respuesta"},
+    "fr": {"question": "Question", "answer": "Réponse"},
+    "ja": {"question": "質問", "answer": "回答"},
+    "pt": {"question": "Pergunta", "answer": "Resposta"},
+    "zh": {"question": "问题", "answer": "回答"},
+}
+
+
+def compose_clarified(original: str, question: str, answer: str, locale: str) -> str:
+    """The exact message a clarification's answer sends, as Admin composes it in ``locale``."""
+    labels = CLARIFICATION_LABELS[locale]
+    return f"{original.strip()}\n\n{labels['question']}: {question}\n{labels['answer']}: {answer.strip()}"
+
+
+def person_lines(message: str) -> tuple[str, ...]:
+    """The lines a person wrote in a sent message: every composed question line dropped, each answer unlabelled."""
+    questions = tuple(f"{labels['question']}: " for labels in CLARIFICATION_LABELS.values())
+    answers = tuple(f"{labels['answer']}: " for labels in CLARIFICATION_LABELS.values())
+    kept = []
+    for line in message.split("\n"):
+        if line.startswith(questions):
+            continue
+        answer = next((prefix for prefix in answers if line.startswith(prefix)), None)
+        kept.append(line[len(answer) :] if answer is not None else line)
+    return tuple(line for line in kept if line.strip())
+
+
 def render_clarification(clarification: dict[str, object]) -> str:
     """The exact plain reply that accompanies one canonical clarification: the question, then numbered options.
 

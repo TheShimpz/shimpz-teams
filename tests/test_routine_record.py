@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import datetime
 import json
@@ -24,7 +25,7 @@ DIGEST = "sha256:" + "c" * 64
 DAILY = {"kind": "daily", "time": "09:00"}
 HOURLY = {"kind": "hourly", "every": 1}
 WEEKLY = {"kind": "weekly", "weekday": 0, "time": "09:00"}
-CONTINUOUS = {"kind": "continuous", "gap": 5, "cap": 1000}
+CONTINUOUS = {"kind": "continuous", "gap": 5, "cap": 17_280}
 BATCH = ("net_1:routine:" + "f" * 32, "d" * 64)
 STEP = {"phase": "replay", "step": 1}
 
@@ -84,6 +85,7 @@ DEFINED = {
     "output": {"mode": "show", "step": 1, "when": None},
     "schedule": {"kind": "daily", "time": "09:00"},
     "timezone": "UTC",
+    "timezone_source": "browser",
     "state": "active",
     "permitted": {"total": 1, "changes": 0},
     "model": None,
@@ -437,7 +439,7 @@ class AddTests(unittest.TestCase):
         plan["steps"] = [{**plan["steps"][0], "id": f"s{index}"} for index in range(100)]
         plan["output"] = {"mode": "none", "step": None, "when": None}
         hundred = routine_fixture.confirmed(
-            dataclasses.replace(routine(), plan=plan, schedule={"kind": "continuous", "gap": 5, "cap": 200})
+            dataclasses.replace(routine(), plan=plan, schedule={"kind": "continuous", "gap": 432, "cap": 200})
         )
         hundred = dataclasses.replace(hundred, next_run_at=record.next_after(hundred, ANCHOR))
         # 200 runs of 100 steps is exactly the Team's 20,000 daily steps.
@@ -446,19 +448,22 @@ class AddTests(unittest.TestCase):
         self.assertEqual(routine_definition.capacity(state.routines), 0)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-step-budget"):
             record.add_routine(state, routine("b" * 32))
-        over = dataclasses.replace(hundred, schedule={"kind": "continuous", "gap": 5, "cap": 201})
+        over = dataclasses.replace(hundred, schedule={"kind": "continuous", "gap": 430, "cap": 201})
         over = dataclasses.replace(over, next_run_at=record.next_after(over, ANCHOR))
         with self.assertRaisesRegex(record.RoutineStateError, "routine-step-budget"):
             record.add_routine(record.TeamRoutines(), over)
 
-    def test_a_team_holds_at_most_eight_routines_whose_caps_fit_its_daily_ceiling(self):
+    def test_a_team_holds_at_most_eight_routines_whose_caps_fit_its_daily_budget(self):
         state = added(*(routine(f"{index:032x}") for index in range(record.MAX_ROUTINES)))
         with self.assertRaisesRegex(record.RoutineStateError, "routine-limit"):
             record.add_routine(state, routine("f" * 32))
-        # A continuous Routine's cap of 1,000 runs a day leaves no room for another Routine's single daily run.
+        # A one-step Routine every five seconds takes 17,280 of the Team's 20,000 daily steps: one every 30 seconds,
+        # 2,880 more, no longer fits beside it, while a daily one does.
         busy = added(routine("b" * 32, CONTINUOUS))
-        with self.assertRaisesRegex(record.RoutineStateError, "routine-rate-limit"):
-            record.add_routine(busy, routine())
+        record.add_routine(busy, routine())
+        every_thirty = {"kind": "continuous", "gap": 30, "cap": 2880}
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-step-budget"):
+            record.add_routine(busy, routine("c" * 32, every_thirty))
         with self.assertRaisesRegex(record.RoutineStateError, "routine-not-found"):
             record.routine(busy, "0" * 32)
 
@@ -496,16 +501,16 @@ class ClaimTests(unittest.TestCase):
         eleven = epoch(2026, 10, 1, 23)
         state = at(at(added(routine("a" * 32), routine("b" * 32)), "a" * 32, eleven), "b" * 32, eleven - 60)
         self.assertEqual(record.claimable(state, eleven).routine_id, "b" * 32)
-        # The Team's ceiling counts every start in the last 24 hours, whatever Routine made it, even a deleted one.
+        # The Team's daily steps count every start in the last 24 hours, whatever Routine made it, even a deleted one.
         first = eleven - 86_400 + 30
-        full = tuple(("c" * 32, first + index, 1) for index in range(record.routine_starts.TEAM_CEILING))
+        full = tuple(("c" * 32, first + index, 1) for index in range(record.routine_starts.MAX_STARTS))
         capped = dataclasses.replace(state, starts=full)
         self.assertIsNone(record.claimable(capped, eleven))
         # The window rolls to the second: the oldest start leaves it exactly 24 hours after it was made.
         self.assertIsNone(record.claimable(capped, first + 86_400 - 1))
         self.assertEqual(record.next_due(capped, eleven), first + 86_400)
         after, claim = record.claim(capped, first + 86_400, KEY)
-        self.assertEqual((claim.run.routine_id, len(after.starts)), ("b" * 32, record.routine_starts.TEAM_CEILING))
+        self.assertEqual((claim.run.routine_id, len(after.starts)), ("b" * 32, record.routine_starts.MAX_STARTS))
         self.assertEqual(after.starts[-1], ("b" * 32, first + 86_400, 1))
 
     def test_reconfirmation_and_deletion_stop_claims(self):
@@ -1127,10 +1132,11 @@ class ConfirmedChangeTests(unittest.TestCase):
         changed = record.scheduled(dataclasses.replace(routine(), name="DNS summary", schedule=WEEKLY), NINE)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-revision-changed"):
             record.update(state, changed, 2, NINE)
-        with self.assertRaisesRegex(record.RoutineStateError, "routine-rate-limit"):
+        every_thirty = {"kind": "continuous", "gap": 30, "cap": 2880}
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-step-budget"):
             record.update(
-                added(routine(), routine("b" * 32, {"kind": "continuous", "gap": 5, "cap": 990})),
-                record.scheduled(dataclasses.replace(routine(), schedule=HOURLY), NINE),
+                added(routine(), routine("b" * 32, CONTINUOUS)),
+                record.scheduled(dataclasses.replace(routine(), schedule=every_thirty), NINE),
                 1,
                 NINE,
             )
@@ -1209,6 +1215,15 @@ class DecisionDefinitionTests(unittest.TestCase):
 
     def test_a_definition_out_of_its_zone_or_revision_is_invalid(self):
         self.assertFalse(record.definition_valid(dataclasses.replace(routine(), timezone="Mars/Olympus")))
+        # A Routine with no known zone keeps UTC by convention, runs only where no zone is needed, and never reads
+        # the run date.
+        unzoned = dataclasses.replace(routine(schedule=HOURLY), timezone_source="none")
+        self.assertTrue(record.definition_valid(unzoned))
+        self.assertFalse(record.definition_valid(dataclasses.replace(routine(), timezone_source="none")))
+        self.assertFalse(record.definition_valid(dataclasses.replace(routine(), timezone_source="phone")))
+        clocked = copy.deepcopy(unzoned.plan)
+        clocked["steps"][0]["input"] = {"day": {"kind": "run_clock", "format": "date"}}
+        self.assertFalse(record.definition_valid(dataclasses.replace(unzoned, plan=clocked)))
         self.assertFalse(record.definition_valid(dataclasses.replace(routine(), revision=0)))
         self.assertTrue(record.definition_valid(routine()))
 

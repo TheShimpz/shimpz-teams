@@ -208,7 +208,7 @@ class RoundTripTests(StoreCase):
         worst = dataclasses.replace(
             state,
             notices=notices,
-            starts=tuple(("a" * 32, NINE + index, 256) for index in range(record.routine_starts.TEAM_CEILING)),
+            starts=tuple(("a" * 32, NINE + index, 256) for index in range(record.routine_starts.MAX_STARTS)),
             incidents=incidents,
             discards=tuple(
                 (f"{index:032x}", f"{NETWORK}:routine:{index:032x}") for index in range(record.MAX_DISCARDS)
@@ -342,7 +342,7 @@ class TamperTests(StoreCase):
             "start steps type": lambda value: value.update(starts=[["a" * 32, 5, True]]),
             "starts out of order": lambda value: value.update(starts=[["a" * 32, 9, 1], ["a" * 32, 5, 1]]),
             "too many starts": lambda value: value.update(
-                starts=[["a" * 32, index, 1] for index in range(record.routine_starts.TEAM_CEILING + 1)]
+                starts=[["a" * 32, index, 1] for index in range(record.routine_starts.MAX_STARTS + 1)]
             ),
             # A definition the Team's budgets never admit is never loaded either (ADR-0092, 2026-10-05, scale).
             "definition over its budget": lambda value: value["routines"][0]["plan"]["steps"][0].update(

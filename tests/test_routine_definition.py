@@ -51,7 +51,7 @@ def _defined(**changes: object) -> record.Routine:
         record.Routine(
             routine_id="a" * 32,
             name="DNS",
-            schedule={"kind": "continuous", "gap": 30, "cap": 100},
+            schedule={"kind": "continuous", "gap": 864, "cap": 100},
             timezone="UTC",
             assistants=(),
             plan=routine_fixture.plan_document(),
@@ -110,9 +110,11 @@ class DefinitionTests(unittest.TestCase):
             with self.subTest(change=change):
                 self.assertEqual(routine_definition.definition_bytes(dataclasses.replace(value, **change)), plain)
 
-    def test_a_budget_names_the_rate_the_units_or_the_bytes_it_outgrows(self) -> None:
-        busy = _defined(routine_id="b" * 32, schedule={"kind": "continuous", "gap": 30, "cap": 1000})
-        self.assertEqual(routine_definition.over_budget([busy], _defined()), "routine-rate-limit")
+    def test_a_budget_names_the_units_or_the_bytes_it_outgrows(self) -> None:
+        busy = _defined(routine_id="b" * 32, schedule={"kind": "continuous", "gap": 5, "cap": 17_280})
+        every_thirty = {"kind": "continuous", "gap": 30, "cap": 2880}
+        self.assertEqual(routine_definition.over_budget([busy], _defined(schedule=every_thirty)), "routine-step-budget")
+        self.assertIsNone(routine_definition.over_budget([busy], _defined()))
         heavy = {
             **routine_fixture.plan_document(),
             "steps": [{**routine_fixture.plan_document()["steps"][0], "id": f"s{index}"} for index in range(201)],

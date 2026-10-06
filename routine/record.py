@@ -86,6 +86,9 @@ class Routine:
     reported_missed: int = 0
     # Each authenticated change of the Routine is a new revision, which a compiled cursor binds (ADR-0092).
     revision: int = 1
+    # Where its timezone came from: the person's browser, a zone the person wrote, or none, when the Routine needs no
+    # zone and ``timezone`` is "UTC" only by convention (ADR-0101).
+    timezone_source: str = "browser"
     # Pausar: no dispatch until resumed; an unresolved incident still holds the Routine after that.
     paused: bool = False
     # Owed a rehearsal before it may run by schedule (ADR-0101 section 8); a pause never clears it.
@@ -395,6 +398,8 @@ def definition_valid(value: Routine) -> bool:
         and http_routine.canonical_name(value.name) is not None
         and routine_plan.well_formed(value.plan)
         and value.plan["timezone"] == value.timezone
+        and http_routine.zoned(canonical, value.timezone, value.timezone_source)
+        and (value.timezone_source != "none" or not routine_plan.clocked(value.plan))
         and canonical is not None
         and _permitted(value)
         and _assistants(value)

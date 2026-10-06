@@ -328,6 +328,7 @@ for name, admit in (
     ("routine_decision_record", routine.canonical_decision_record),
     ("routine_proposal", routine.canonical_proposal),
     ("routine_refusal", routine.canonical_refusal),
+    ("routine_question", routine.canonical_question),
     ("routine_proposal_answer", routine.canonical_proposal_answer),
 ):
     cases = vectors.get(name, {})
@@ -347,3 +348,16 @@ if any(routine.canonical_diagnostics(value) is not None for value in diagnostics
     fail("an invalid routine diagnostics vector was admitted")
 
 print("Team HTTP protocol integrity and golden vectors are valid")
+
+labels = vectors.get("clarification_labels", {})
+if not labels.get("composed") or not labels.get("person_lines"):
+    fail("clarification label vectors are missing")
+if set(payload.CLARIFICATION_LABELS) != set(routine.LOCALES):
+    fail("the clarification labels do not cover every interface language")
+for case in labels["composed"]:
+    composed = payload.compose_clarified(case["original"], case["question"], case["answer"], case["locale"])
+    if composed != case["message"]:
+        fail("a composed clarification vector differs")
+for case in labels["person_lines"]:
+    if list(payload.person_lines(case["message"])) != case["lines"]:
+        fail("a person-lines vector differs")

@@ -28,9 +28,11 @@ RUN_MS = 1200
 
 
 def defined(gap: int = 5) -> record.Routine:
-    # A Routine that shows no result keeps the compact minute rollup of its healthy runs (ADR-0101).
+    # A one-step Routine that shows no result keeps the compact minute rollup of its healthy runs (ADR-0101); every
+    # five seconds all day it uses 17,280 of the Team's 20,000 daily steps.
     value = base.routine(
-        schedule={"kind": "continuous", "gap": gap, "cap": 1000}, plan=routine_fixture.chain_document()
+        schedule={"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)},
+        plan=routine_fixture.plan_document(output={"mode": "none", "step": None, "when": None}),
     )
     return dataclasses.replace(value, name=NAME)
 

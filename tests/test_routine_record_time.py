@@ -11,6 +11,7 @@ import unittest
 import routine_fixture
 from test_routine_record import HOURLY, KEY, NINE, IncidentNoticeTests, added, at, bound, claimed, routine
 
+from protocol.http.v1 import routine as http_routine
 from routine import hold as routine_hold
 from routine import plan as routine_plan
 from routine import record
@@ -171,8 +172,8 @@ class HoldTimeTests(unittest.TestCase):
 class ContinuousTests(unittest.TestCase):
     """A continuous Routine runs again its gap after each run ends, never overlapping, within its rolling cap."""
 
-    def continuous(self, cap: int = 3) -> record.TeamRoutines:
-        value = routine(schedule={"kind": "continuous", "gap": 5, "cap": cap})
+    def continuous(self, gap: int = 5) -> record.TeamRoutines:
+        value = routine(schedule={"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)})
         return at(added(value), "a" * 32, NINE)
 
     def test_the_next_run_is_due_its_gap_after_the_previous_one_ended_and_never_overlaps(self):
@@ -198,7 +199,8 @@ class ContinuousTests(unittest.TestCase):
         self.assertEqual(record.routine(stopped, "a" * 32).next_run_at, NINE + 55)
 
     def test_a_continuous_routine_never_skips_a_backlog_and_waits_out_its_cap_to_the_second(self):
-        state = self.continuous(cap=2)
+        # Every twelve hours: at most two starts in any rolling 24 hours, even when a person forces earlier ones.
+        state = self.continuous(gap=43_200)
         # A long outage reports no missed runs: it simply starts when it may.
         swept = record.sweep(state, NINE + 7 * 86_400)
         self.assertEqual((swept.notices, record.routine(swept, "a" * 32).missed), ((), 0))
@@ -216,7 +218,7 @@ class ContinuousTests(unittest.TestCase):
         self.assertEqual(record.claimable(state, boundary).routine_id, "a" * 32)
 
     def test_a_skipped_hold_ends_the_run_so_the_next_one_waits_its_gap_after_the_skip(self):
-        state = self.continuous(cap=1000)
+        state = self.continuous()
         state, claim = record.claim(state, NINE, KEY)
         run_id = claim.run.run_id
         lease = record.lease_of(claim.lease_token, KEY)

@@ -21,16 +21,16 @@ from protocol.http.v1 import routine as http_routine
 from routine import record
 from routine import starts as routine_starts
 
-CONTINUOUS = {"kind": "continuous", "gap": 5, "cap": 100}
+CONTINUOUS = {"kind": "continuous", "gap": 5, "cap": http_routine.continuous_cap(5)}
 
 
-def continuous(routine_id: str = "a" * 32, *, cap: int = 100, at: int = 1_800_000_000) -> record.Routine:
+def continuous(routine_id: str = "a" * 32, *, at: int = 1_800_000_000, gap: int = 5) -> record.Routine:
     value = routine_fixture.confirmed(
         record.Routine(
             routine_id=routine_id,
             name="Zones",
             plan=routine_fixture.plan_document(),
-            schedule={"kind": "continuous", "gap": 5, "cap": cap},
+            schedule={"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)},
             timezone="UTC",
             assistants=(),
             anchor=at,
@@ -51,12 +51,12 @@ def caught_up(state: record.TeamRoutines) -> record.TeamRoutines:
 class SimulatedDayTests(unittest.TestCase):
     """A simulated clock runs continuous Routines back to back for more than a day."""
 
-    def test_a_day_of_back_to_back_runs_never_overlaps_and_stops_exactly_at_the_cap(self) -> None:
+    def test_back_to_back_runs_never_overlap_and_each_starts_its_gap_after_the_previous_ended(self) -> None:
         start = 1_800_000_000
         state = record.add_routine(record.TeamRoutines(), continuous(at=start - 5))
         now, starts, running = start, [], None
         key = "e" * 64
-        while now < start + 2 * 86_400 and len(starts) < 101:
+        while now < start + 86_400 and len(starts) < 100:
             if running is None:
                 state, claim = record.claim(state, now, key)
                 if claim is not None:
@@ -71,17 +71,16 @@ class SimulatedDayTests(unittest.TestCase):
                 self.assertEqual(record.routine(state, "a" * 32).next_run_at, now + 5)
             due = record.next_due(state, now)
             now = now + 1 if due is None or running is not None else max(now + 1, due)
-        # A hundred runs, each its gap after the previous ended; the hundred-and-first only once the first left the
-        # rolling window, to the second.
-        gaps = {later - earlier for earlier, later in itertools.pairwise(starts[:100])}
-        self.assertEqual(gaps, {8})
-        self.assertEqual(starts[100], starts[0] + 86_400)
+        # A hundred runs, each its gap after the previous ended: the cap is its whole day and never holds one back.
+        gaps = {later - earlier for earlier, later in itertools.pairwise(starts)}
+        self.assertEqual((len(starts), gaps), (100, {8}))
 
     def test_continuous_routines_take_turns_and_a_scheduled_one_due_earlier_goes_first(self) -> None:
         state = record.TeamRoutines()
+        # Two one-step Routines every 10 seconds fill 17,280 of the Team's 20,000 daily steps.
         for routine_id in ("a" * 32, "b" * 32):
-            state = record.add_routine(state, continuous(routine_id, at=1_800_000_000))
-        key, now, order = "e" * 64, 1_800_000_005, []
+            state = record.add_routine(state, continuous(routine_id, at=1_800_000_000, gap=10))
+        key, now, order = "e" * 64, 1_800_000_010, []
         for _turn in range(6):
             state, claim = record.claim(state, now, key)
             order.append(claim.run.routine_id)
@@ -104,11 +103,11 @@ class SimulatedDayTests(unittest.TestCase):
         self.assertEqual(record.claimable(delivered, due).routine_id, "a" * 32)
         self.assertEqual(record.next_due(delivered, due - 1), due)
 
-    def test_the_team_window_counts_every_start_and_frees_one_at_a_time(self) -> None:
-        starts = tuple(("a" * 32, 1000 + index, 1) for index in range(routine_starts.TEAM_CEILING))
+    def test_the_team_window_holds_at_most_one_start_a_step_and_frees_one_at_a_time(self) -> None:
+        starts = tuple(("a" * 32, 1000 + index, 1) for index in range(routine_starts.MAX_STARTS))
         self.assertEqual(routine_starts.free_at(starts, "b" * 32, None, 1000 + 86_399), 1000 + 86_400)
         self.assertEqual(routine_starts.free_at(starts, "b" * 32, None, 1000 + 86_400), 1000 + 86_400)
-        self.assertEqual(len(routine_starts.started(starts, "b" * 32, 1000 + 86_400, 1)), routine_starts.TEAM_CEILING)
+        self.assertEqual(len(routine_starts.started(starts, "b" * 32, 1000 + 86_400, 1)), routine_starts.MAX_STARTS)
 
     def test_the_team_window_reserves_every_step_each_start_may_run(self) -> None:
         """At most 20,000 business steps start in any rolling 24 hours, whatever started them (scale)."""
@@ -122,16 +121,16 @@ class SimulatedDayTests(unittest.TestCase):
         self.assertEqual(routine_starts.free_at(partial, "c" * 32, None, 4000, steps), 3000 + 86_400)
 
     def test_the_team_window_frees_its_oldest_start_whichever_routine_made_it(self) -> None:
-        # Sorted by Routine id, "a" at 5 would look older than "b" at 0 and hold the ceiling 5 seconds too long.
+        # Sorted by Routine id, "a" at 5 would look older than "b" at 0 and hold the budget 5 seconds too long.
         starts = (("b" * 32, 0, 1), ("a" * 32, 5, 1))
-        with mock.patch.object(routine_starts, "TEAM_CEILING", 2):
+        with mock.patch.object(routine_starts.routine_plan, "MAX_DAILY_STEPS", 2):
             self.assertEqual(routine_starts.free_at(starts, "c" * 32, None, 10), 86_400)
             self.assertEqual(routine_starts.free_at(starts, "a" * 32, 2, 10), 86_400)
             self.assertEqual(routine_starts.free_at(starts, "a" * 32, 1, 10), 86_405)
 
 
 class ServiceLoadTests(RoutineHttpCase):
-    def continuous_routine(self, service) -> record.Routine:
+    def continuous_routine(self, service, gap: int = 5) -> record.Routine:
         contracts = routine_contracts.current_contracts(service, "team_1", ("shimpz-cloudflare",))
         now = int(time.time())
         plan = self.plan(service)
@@ -139,7 +138,7 @@ class ServiceLoadTests(RoutineHttpCase):
             routine_id=record.new_id(),
             name="Zones",
             plan=plan,
-            schedule=dict(CONTINUOUS),
+            schedule={"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)},
             timezone="UTC",
             assistants=tuple(sorted(contracts.items())),
             anchor=now - 60,
@@ -211,8 +210,8 @@ class ServiceLoadTests(RoutineHttpCase):
     def test_a_team_leases_one_run_at_a_time_however_many_of_its_routines_are_due(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
-            self.continuous_routine(service)
-            self.continuous_routine(service)
+            self.continuous_routine(service, gap=10)
+            self.continuous_routine(service, gap=10)
             first = service.claim_routine_run()
             self.assertIsNotNone(first)
             # Its other due Routine waits for the leased run's end, which wakes Admin; it is not hinted meanwhile.

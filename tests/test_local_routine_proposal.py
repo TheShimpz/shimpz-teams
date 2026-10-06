@@ -59,7 +59,7 @@ MESSAGE = (
     "Pergunta: Com que frequência?\nResposta: A cada 30 segundos\n"
     "Pergunta: De qual zona?\nResposta: shimpz.com"
 )
-CONTINUOUS = {"kind": "continuous", "gap": 30, "cap": 1000}
+CONTINUOUS = {"kind": "continuous", "gap": 30, "cap": 2880}
 HOURLY = {"kind": "hourly", "every": 1}
 
 
@@ -172,7 +172,7 @@ class RecordedRoutineTests(LocalContractCase):
             again = self.confirm(service, card["proposal_id"])
             state = service.routine_store.load("team_1")
         self.assertEqual(http_routine.canonical_proposal(card), card)
-        self.assertEqual((card["schedule"], card["clamped"], card["rehearsal"]), (CONTINUOUS, False, False))
+        self.assertEqual((card["schedule"], card["timezone_source"], card["rehearsal"]), (CONTINUOUS, "browser", False))
         zones, records = card["steps"]
         self.assertEqual((zones["action"], records["action"]), ("list-zones", "list-dns-records"))
         zone_id = next(item for item in records["inputs"] if item["member"] == "zone_id")
@@ -314,15 +314,25 @@ class RecordedRoutineTests(LocalContractCase):
             with self.subTest(name=name), mock.patch.object(target, name, 512):
                 self.assertEqual(self.refusal(Recording(_record())), "routine-proposal-too-large")
 
-    def test_a_continuous_cap_is_clamped_to_what_the_team_has_left_and_refused_when_nothing_is(self) -> None:
-        with (
-            mock.patch.object(routine_definition, "capacity", return_value=2 * 400),
-            tempfile.TemporaryDirectory() as directory,
-        ):
+    def test_a_routine_without_a_known_timezone_runs_only_where_none_is_needed(self) -> None:
+        unzoned = {**_body(), "timezone": None}
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, Recording(_record()))
+            card = self.chat(service, unzoned)["routine_proposal"]
+        self.assertEqual((card["timezone"], card["timezone_source"]), ("UTC", "none"))
+        daily = _record(schedule={"kind": "daily", "time": "09:00"})
+        self.assertEqual(self.refusal(Recording(daily), unzoned), "routine-timezone-unstated")
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, Recording(_record(timezone="Europe/Lisbon")))
+            card = self.chat(service)["routine_proposal"]
+        self.assertEqual((card["timezone"], card["timezone_source"]), ("Europe/Lisbon", "person"))
+
+    def test_a_continuous_cap_is_never_lowered_to_fit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
             card = self.chat(service)["routine_proposal"]
-        self.assertEqual((card["schedule"]["cap"], card["clamped"]), (400, True))
-        with mock.patch.object(routine_definition, "capacity", return_value=1):
+        self.assertEqual((card["schedule"]["cap"], card["daily_cap"]), (2880, 2880))
+        with mock.patch.object(routine_definition, "capacity", return_value=2 * 2879):
             self.assertEqual(self.refusal(Recording(_record())), "routine-step-budget")
 
     def test_a_replacement_without_actions_keeps_the_steps_and_confirms_as_the_next_revision(self) -> None:

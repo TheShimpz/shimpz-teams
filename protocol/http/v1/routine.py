@@ -21,11 +21,13 @@ MAX_ROUTINES = 8
 MAX_ROUTINE_NAME_CHARS = 80
 # The ordered Actions of a recorded plan (ADR-0092 section 3, ADR-0101): one Action may repeat.
 MAX_ROUTINE_STEPS = 256
-# A Team's starts in any rolling 24 hours, and the bound on the sum of its Routines' caps (ADR-0092 section 9).
-MAX_DAILY_RUNS = 1000
 # A continuous Routine starts its next run this long, at least, after the previous one ended; at most a day.
 MIN_CONTINUOUS_GAP_SECONDS = 5
 MAX_CONTINUOUS_GAP_SECONDS = 86_400
+DAY_SECONDS = 86_400
+# A continuous Routine's cap is always its gap's whole day, never lowered, so the interval a person stated is what
+# runs; the Team's daily Action-step budget alone bounds the sum (ADR-0101).
+MAX_CONTINUOUS_CAP = -(-DAY_SECONDS // MIN_CONTINUOUS_GAP_SECONDS)
 # The healthy runs a continuous Routine can end in one minute bucket, since each next run starts its gap after.
 MAX_ROLLUP_RUNS = 60 // MIN_CONTINUOUS_GAP_SECONDS
 MAX_NOTICE_ACTIONS = 16
@@ -100,20 +102,28 @@ def canonical_schedule(value: object) -> dict[str, object] | None:
     """The exact schedule, or None.
 
     Hourly every 1..24 hours, daily, weekly (0 = Monday), monthly on day 1..28, or continuous: ``gap`` seconds (5 to
-    86,400) after each run ends, and at most ``cap`` (1 to 1,000) starts in any rolling 24 hours.
+    86,400) after each run ends, and ``cap`` exactly ``continuous_cap(gap)`` starts in any rolling 24 hours.
     """
     kind = value.get("kind") if isinstance(value, dict) else None
     if not isinstance(kind, str) or kind not in SCHEDULE_KINDS or set(value) != _FIELDS[kind]:
         return None
     if kind == "continuous":
-        valid = _whole(value["gap"], MIN_CONTINUOUS_GAP_SECONDS, MAX_CONTINUOUS_GAP_SECONDS) and _whole(
-            value["cap"], 1, MAX_DAILY_RUNS
+        gap = value["gap"]
+        valid = (
+            _whole(gap, MIN_CONTINUOUS_GAP_SECONDS, MAX_CONTINUOUS_GAP_SECONDS)
+            and type(value["cap"]) is int
+            and value["cap"] == continuous_cap(gap)
         )
     elif kind == "hourly":
         valid = _whole(value["every"], 1, 24)
     else:
         valid = _wall_clock(value)
     return dict(value) if valid else None
+
+
+def continuous_cap(gap: int) -> int:
+    """A continuous Routine's starts in any rolling 24 hours: as many as its gap allows all day, ceil(86400 / gap)."""
+    return -(-DAY_SECONDS // gap)
 
 
 def canonical_name(value: object) -> str | None:
@@ -140,11 +150,24 @@ def canonical_timezone(value: object) -> str | None:
     return value if isinstance(value, str) and TIMEZONE_RE.fullmatch(value) is not None else None
 
 
-def daily_rate(schedule: dict[str, object]) -> Fraction:
-    """The runs per day a canonical schedule allows, its cap for a continuous one.
+# Where a Routine's timezone came from (ADR-0101): the person's browser, a zone the person wrote, or none at all, when
+# the Routine needs no zone and stores "UTC" only by convention, which no consumer may read as the person's zone.
+TIMEZONE_SOURCES = ("browser", "person", "none")
+CONVENTIONAL_TIMEZONE = "UTC"
+CALENDAR_KINDS = frozenset({"daily", "weekly", "monthly"})
 
-    A Team's Routines may sum to at most MAX_DAILY_RUNS.
-    """
+
+def zoned(schedule: object, timezone: object, source: object) -> bool:
+    """Whether a timezone and its source fit a schedule: a calendar schedule needs a known zone, and none means UTC."""
+    if source not in TIMEZONE_SOURCES or canonical_timezone(timezone) is None or not isinstance(schedule, dict):
+        return False
+    if source == "none":
+        return timezone == CONVENTIONAL_TIMEZONE and schedule.get("kind") not in CALENDAR_KINDS
+    return True
+
+
+def daily_rate(schedule: dict[str, object]) -> Fraction:
+    """The runs per day a canonical schedule allows, its cap for a continuous one."""
     kind = schedule["kind"]
     if kind == "continuous":
         return Fraction(schedule["cap"])
@@ -655,7 +678,7 @@ def _defined(detail: dict[str, object]) -> bool:
         and summary is not None
         and _disposed(detail["output"], summary["steps"])
         and canonical_schedule(detail["schedule"]) == detail["schedule"]
-        and canonical_timezone(detail["timezone"]) is not None
+        and zoned(detail["schedule"], detail["timezone"], detail["timezone_source"])
         and _scope(detail, summary["steps"])
     )
 
@@ -709,7 +732,18 @@ def _failed_at(detail: dict[str, object]) -> bool:
 
 
 _COMPLETED_FIELDS = {"plan", "output", "decision"}
-_DEFINED_FIELDS = {"name", "plan", "output", "schedule", "timezone", "state", "permitted", "model", "allowance"}
+_DEFINED_FIELDS = {
+    "name",
+    "plan",
+    "output",
+    "schedule",
+    "timezone",
+    "timezone_source",
+    "state",
+    "permitted",
+    "model",
+    "allowance",
+}
 # Each outcome's exact detail fields and check: denied and stopped name the Actions that completed; held, paused, and
 # user-skipped name the call whose effects are unresolved, and user-skipped the card choice that set the run aside.
 _DETAILS = {
@@ -790,8 +824,8 @@ def _optional(value: object, pattern: re.Pattern[str]) -> bool:
 
 def canonical_routine_view(value: object) -> dict[str, object] | None:
     """One Routine as a Supervisor sees it: its plan summary (steps are paged), disposition, and standing scope."""
-    fields = {"routine_id", "name", "schedule", "timezone", "assistant_ids", "next_run_at", "needs_reconfirm"}
-    scope = {"state", "permitted", "permissions_revision", "model", "allowance"}
+    fields = {"routine_id", "name", "schedule", "timezone", "timezone_source", "assistant_ids", "next_run_at"}
+    scope = {"needs_reconfirm", "state", "permitted", "permissions_revision", "model", "allowance"}
     if not isinstance(value, dict) or set(value) != fields | scope | {"deleting", "plan", "output"}:
         return None
     summary = canonical_summary(value["plan"])
@@ -802,7 +836,7 @@ def canonical_routine_view(value: object) -> dict[str, object] | None:
         and _disposed(value["output"], summary["steps"])
         and value["schedule"] is not None
         and canonical_schedule(value["schedule"]) == value["schedule"]
-        and canonical_timezone(value["timezone"]) is not None
+        and zoned(value["schedule"], value["timezone"], value["timezone_source"])
         and _assistant_ids(value["assistant_ids"], minimum=0)
         and _instant(value["next_run_at"])
         and type(value["needs_reconfirm"]) is bool
@@ -1342,10 +1376,15 @@ def _changes(value: dict[str, object]) -> bool:
     return not all(item["read_only"] for item in [*value["steps"], *value["permitted"]])
 
 
+def _clocked(steps: list[object]) -> bool:
+    """Whether a card's plan reads the run date, which only a known timezone can give."""
+    return any(item["origin"] == "clock" for step in steps for item in step["inputs"])
+
+
 def canonical_proposal(value: object) -> dict[str, object] | None:
     """One recorded Routine's confirmation card, within its byte bound."""
-    fields = {"proposal_id", "expires_at", "replaces", "name", "schedule", "timezone", "next_runs", "daily_cap"}
-    rest = {"clamped", "output", "steps", "permitted", "decision", "rehearsal"}
+    fields = {"proposal_id", "expires_at", "replaces", "name", "schedule", "timezone", "timezone_source", "next_runs"}
+    rest = {"daily_cap", "output", "steps", "permitted", "decision", "rehearsal"}
     if not isinstance(value, dict) or set(value) != fields | rest:
         return None
     steps, runs = value["steps"], value["next_runs"]
@@ -1357,20 +1396,72 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
         and _optional(value["replaces"], ROUTINE_ID_RE)
         and canonical_name(value["name"]) == value["name"]
         and canonical_schedule(value["schedule"]) == value["schedule"]
-        and canonical_timezone(value["timezone"]) is not None
+        and zoned(value["schedule"], value["timezone"], value["timezone_source"])
         and isinstance(runs, list)
         and 1 <= len(runs) <= MAX_NEXT_RUNS
         and all(_instant(item) for item in runs)
         and runs == sorted(runs)
-        and _whole(value["daily_cap"], 1, MAX_DAILY_RUNS)
-        and type(value["clamped"]) is bool
+        and type(value["daily_cap"]) is int
+        and value["daily_cap"] == daily_cap(value["schedule"])
         and all(_card_step(item, index) for index, item in enumerate(steps, start=1))
+        and (value["timezone_source"] != "none" or not _clocked(steps))
         and _card_permitted(value["permitted"])
         and (value["decision"] is not None) == (value["output"]["mode"] == "decide")
         and _card_decision(value["decision"])
         and len(steps) + (0 if value["decision"] is None else value["decision"]["allowance"]) <= MAX_ROUTINE_STEPS
         and value["rehearsal"] is _changes(value)
         and encoded_bytes(value) <= MAX_PROPOSAL_BYTES
+    )
+    return copy.deepcopy(value) if valid else None
+
+
+# What Team asks the person, through the chat, before a recording can become a card (ADR-0101): the recording span
+# is kept and the person's answer is an ordinary send in it. Only an ambiguous binding offers targets to choose from;
+# an interval over the Team's budget carries the shortest interval that fits, in seconds.
+QUESTION_CODES = (
+    "routine-schedule-unstated",
+    "routine-interval-over-budget",
+    "routine-no-room",
+    "routine-binding-ambiguous",
+    "routine-binding-unsourced",
+    "routine-work-split",
+    "routine-work-rerun",
+    "routine-timezone-ambiguous",
+    "routine-timezone-unstated",
+)
+MAX_QUESTION_OPTIONS = 8
+MAX_QUESTION_OPTION_CHARS = 120
+
+
+def _question_option(value: object) -> bool:
+    """One target a person may choose: the value its input would take, and the item member that names it, if any."""
+    if not isinstance(value, dict) or set(value) != {"value", "label"}:
+        return False
+    chosen, label = value["value"], value["label"]
+    scalar = (
+        _plain(chosen, MAX_QUESTION_OPTION_CHARS)
+        if isinstance(chosen, str)
+        else type(chosen) is int and len(str(chosen)) <= MAX_QUESTION_OPTION_CHARS
+    )
+    return scalar and (label is None or _plain(label, MAX_QUESTION_OPTION_CHARS))
+
+
+def canonical_question(value: object) -> dict[str, object] | None:
+    """One question Team asks before a card: its code, its targets for an ambiguous binding, and a fitting interval."""
+    if not isinstance(value, dict) or set(value) != {"code", "options", "value"} or value["code"] not in QUESTION_CODES:
+        return None
+    code, options, interval = value["code"], value["options"], value["value"]
+    valid = (
+        isinstance(options, list)
+        and (code == "routine-binding-ambiguous" or not options)
+        and len(options) <= MAX_QUESTION_OPTIONS
+        and all(_question_option(item) for item in options)
+        and len({json.dumps(item["value"]) for item in options}) == len(options)
+        and (
+            _whole(interval, MIN_CONTINUOUS_GAP_SECONDS, MAX_CONTINUOUS_GAP_SECONDS)
+            if code == "routine-interval-over-budget"
+            else interval is None
+        )
     )
     return copy.deepcopy(value) if valid else None
 

@@ -166,6 +166,7 @@ def detail(value: object) -> dict[str, object]:
         "output": disposition(value.plan),
         "schedule": dict(value.schedule),
         "timezone": value.timezone,
+        "timezone_source": value.timezone_source,
         **scope(value),
     }
 
@@ -204,16 +205,8 @@ def capacity(routines: Sequence[object]) -> int:
     return routine_plan.MAX_DAILY_STEPS - sum(daily_steps(item) for item in routines)
 
 
-def daily_rate_allows(routines: Sequence[object], schedule_value: dict[str, object]) -> bool:
-    """Whether the Routines' rolling 24-hour caps, with this schedule's, fit under the Team ceiling together."""
-    total = sum((http_routine.daily_cap(item.schedule) for item in routines), http_routine.daily_cap(schedule_value))
-    return total <= http_routine.MAX_DAILY_RUNS
-
-
 def over_budget(others: Sequence[object], admitted: object) -> str | None:
     """Which Team budget a definition outgrows beside the Team's other Routines, or None: rate, steps, or bytes."""
-    if not daily_rate_allows(others, admitted.schedule):
-        return "routine-rate-limit"
     if daily_steps(admitted) > capacity(others):
         return "routine-step-budget"
     if sum(definition_bytes(item) for item in (*others, admitted)) > routine_plan.TEAM_DEFINITION_BYTES:

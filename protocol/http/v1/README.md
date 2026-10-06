@@ -94,16 +94,33 @@ labels are distinct ignoring case. `payload.canonical_clarification` validates i
 must equal `payload.render_clarification`: the question, a blank line, then one numbered line per option,
 the recommended default marked with " ✓" and a non-empty description after " — ". The question is presentation only:
 it requests and authorizes nothing, and the user answers with a new chat message.
+Admin composes that message from the original request, a blank line, then the question and the answer on their own
+lines, each after its interface-language label (`payload.CLARIFICATION_LABELS`, `payload.compose_clarified`); a request
+may be clarified more than once. `payload.person_lines` reads the person's own words back out of such a message: every
+question line is dropped and each answer loses its label (ADR-0101).
 
-A Local chat terminal that recorded a Routine (ADR-0101) carries at most one of `routine_proposal` and
-`routine_refusal` beside the agent's own `reply`, which keeps the work the turn already did. `routine_refusal`
-(`routine.canonical_refusal`) is exactly `{code}`, a closed-grammar code that Admin words in the interface language
-(for example `routine-mutation-unavailable` or `routine-secret-literal`); nothing was created. `routine_proposal` is
+A Local chat terminal that recorded a Routine (ADR-0101) carries at most one of `routine_proposal`,
+`routine_question`, and `routine_refusal` beside the agent's own `reply`, which keeps the work the turn already did.
+`routine_refusal` (`routine.canonical_refusal`) is exactly `{code}`, a closed-grammar code that Admin words in the
+interface language (for example `routine-mutation-unavailable` or `routine-secret-literal`); nothing was created.
+`routine_question` (`routine.canonical_question`) is `{code, options, value}`: Team asks the person before any card,
+the recording is kept, and the person's answer is an ordinary chat message. Its code is one of
+`routine.QUESTION_CODES`: how often it runs (`routine-schedule-unstated`), a stated interval the Team's daily budget
+cannot hold (`routine-interval-over-budget`, whose `value` is the shortest interval in seconds that fits) or no room at
+all (`routine-no-room`), which item an input means (`routine-binding-ambiguous`, whose `options` are at most 8
+targets `{value, label}`: the string or integer the input would take and the item member that names it, or `null`), a
+value that no earlier result provides (`routine-binding-unsourced`), work split across messages
+(`routine-work-split`), work to run again for a chosen target (`routine-work-rerun`), and which timezone
+(`routine-timezone-ambiguous`, `routine-timezone-unstated`). Only `routine-binding-ambiguous` has options, and only
+`routine-interval-over-budget` has a value. `routine_proposal` is
 the Routine's confirmation card (`routine.canonical_proposal`), at most 160 KiB, which Team checks against the whole
-terminal line bound before publishing: `{proposal_id, expires_at, replaces, name, schedule, timezone, next_runs,
-daily_cap, clamped, output, steps, permitted, decision, rehearsal}`. `replaces` is `null` for a new Routine or the id of
-the Routine it changes; `next_runs` holds one to three instants; `clamped` says Team lowered a continuous cap to fit
-the Team's budgets; `output` is `{mode, when}`, and a shown mode shows the last step. Each step is `{position,
+terminal line bound before publishing: `{proposal_id, expires_at, replaces, name, schedule, timezone, timezone_source,
+next_runs, daily_cap, output, steps, permitted, decision, rehearsal}`. `replaces` is `null` for a new Routine or the id
+of the Routine it changes; `timezone_source` is `browser`, `person` (a zone the person wrote), or `none` (`routine.zoned`:
+only a schedule that is not daily, weekly, or monthly and a plan that never reads the run date may have none, and its
+timezone is then `UTC` by convention, never a claim about the person); `next_runs` holds one to three instants;
+`daily_cap` is exactly `routine.daily_cap` of the schedule; `output` is `{mode, when}`, and a shown mode shows the last
+step. Each step is `{position,
 assistant, action, read_only, inputs}`, and each input `{member, origin, value, step, pointer, where, item}` names
 exactly where its value comes from: `request` (named in the person's request) or `assistant` (chosen by the assistant,
 the same on every run), each with the literal's complete JSON text escaped (never cut); `clock`, the date of each run;
@@ -158,16 +175,17 @@ A Team Routine (ADR-0086) fires on a closed schedule (`routine.canonical_schedul
 hours, `daily` at `HH:MM`, `weekly` on a weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in an
 IANA timezone name (`routine.canonical_timezone`; Team also requires that the zone loads), or, only when the user asks
 for it, `continuous`: its next run is due `gap` seconds (5 to 86,400) after the previous one ended, never overlapping,
-with at most `cap` (1 to 1,000) starts in any rolling 24 hours (ADR-0092). `routine.daily_rate` is a schedule's runs per
-day and `routine.daily_cap` its whole rolling 24-hour cap; a Team's Routines' caps may sum to at most
-`routine.MAX_DAILY_RUNS` (1,000), which also bounds the Team's starts in any rolling 24 hours, whatever Routine made
-them. A Routine is recorded from the work the ordinary chat agent did in one turn and exists only once a person
+with `cap` exactly `routine.continuous_cap(gap)`, `ceil(86400 / gap)` (at most `routine.MAX_CONTINUOUS_CAP`, 17,280),
+starts in any rolling 24 hours, so the interval a person stated runs all day and no cap ever rewrites it (ADR-0101).
+`routine.daily_rate` is a schedule's runs per day and `routine.daily_cap` its whole rolling 24-hour cap; the Team's
+daily Action-step budget alone bounds what its Routines' caps may start together. A Routine is recorded from the work the ordinary chat agent did in one turn and exists only once a person
 confirms its card (ADR-0101). Its notice then has the Routine outcome `created` or `changed`, no run id, and exactly
-`{name, plan, output, schedule, timezone, state, permitted, model, allowance}`: the Routine's name
+`{name, plan, output, schedule, timezone, timezone_source, state, permitted, model, allowance}`: the Routine's name
 (`routine.canonical_name`, 1 to 80 NFC printable characters on one line), its revision's summary, its output
 disposition (`routine.canonical_disposition`: `{mode, step, when}`, where `mode` is `show`, `changes`, `none`, or
 `decide`; `step` is the 1-based position of the shown step for `show` and `changes`, and `when` is `always` or
-`changes` for `decide` only), its schedule and zone, and its standing scope: its `state` (`active`, `paused`, or
+`changes` for `decide` only), its schedule, zone, and the zone's source (`routine.zoned`, as on the card), and its
+standing scope: its `state` (`active`, `paused`, or
 `rehearsal`, waiting for a rehearsal before it can run), its permitted Actions as `{total, changes}`
 (`routine.canonical_permitted`, at most `routine.MAX_PERMITTED`), and, only for `decide`, the frozen model and a decision
 allowance of 1 to 64 calls, with the plan's steps and the allowance together at most 256. A plan holds 0 to 256 steps,
@@ -185,8 +203,8 @@ its JSON (at most 120 characters, every control or invisible character escaped),
 or a `step_output` naming an earlier step by position and an RFC 6901 pointer, and, when it selects through an array
 item, its `where` (`{member, value_json}`) and that item's `item` pointer (otherwise both `null`); `stored_inputs` names
 the Stored Inputs the step's Action uses by id only, never a value. The Routine view a Supervisor lists
-(`routine.canonical_routine_view`) carries the same name, summary, disposition, and standing scope with its
-`permissions_revision`. `GET /v1/teams/:team_id/routines` answers the Team's whole list, every Routine, live run, and
+(`routine.canonical_routine_view`) carries the same name, summary, disposition, schedule, zone and its source, and
+standing scope with its `permissions_revision`. `GET /v1/teams/:team_id/routines` answers the Team's whole list, every Routine, live run, and
 unresolved incident, within `routine.MAX_ROUTINE_LIST_BYTES`; it is the only Team answer above the Local API's 128 KiB
 response cap.
 
@@ -352,7 +370,7 @@ once with it: only while `issued_at` is less than 900 seconds old and at most 60
 (`payload.request_identity_fresh`, exclusive at 900 s, the same second the receipt stops being live), and only while
 the Team holds fewer than 256 live receipts; expiry and saturation refuse the change and never evict a valid
 receipt. `timezone` is the browser's IANA zone name (`routine.canonical_timezone`) or `null`; Team uses it only as the
-default zone of a Routine the message creates.
+zone of a Routine the message records when the person writes no zone of their own (ADR-0101).
 
 A Routine run (ADR-0086) is started by a separate Local Routine identity, never a human Supervisor assertion. Its
 Ed25519 assertion travels in `X-Shimpz-Routine` with the JWT key id `local-routine-v1` and the audience

@@ -181,7 +181,7 @@ class CardTests(unittest.TestCase):
             1_800_000_000,
         )
         recorded = routine_recording.Recorded(document, {"s1": {}, "s2": {"day": "clock", "zone": "step"}}, permitted)
-        view = routine_proposal.card("e" * 32, candidate, recorded, (None, False, 1_800_000_900))
+        view = routine_proposal.card("e" * 32, candidate, recorded, (None, 1_800_000_900))
         day, zone = view["steps"][1]["inputs"]
         self.assertEqual(
             day,

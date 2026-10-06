@@ -481,6 +481,34 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
 
         self._assert_vector_mutations_refused(missing, accepted_invalid, rejected_valid, refusal=SystemExit)
 
+    def test_rejects_missing_or_drifted_clarification_label_vectors(self) -> None:
+        def missing(root: Path) -> None:
+            _rewrite_json(root, "vectors.json", lambda value: value["clarification_labels"].update({"composed": []}))
+
+        def composed(root: Path) -> None:
+            _rewrite_json(
+                root,
+                "vectors.json",
+                lambda value: value["clarification_labels"]["composed"][0].update({"message": "drift"}),
+            )
+
+        def person_lines(root: Path) -> None:
+            _rewrite_json(
+                root,
+                "vectors.json",
+                lambda value: value["clarification_labels"]["person_lines"][0].update({"lines": []}),
+            )
+
+        def unlabelled_locale(root: Path) -> None:
+            module = root / "payload.py"
+            text = module.read_text(encoding="utf-8")
+            module.write_text(text.replace('    "zh": {"question": "问题", "answer": "回答"},\n', ""), encoding="utf-8")
+            _rehash(root, "payload.py")
+
+        for mutate in (missing, composed, person_lines, unlabelled_locale):
+            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
+                _execute(HTTP / "verify.py", mutate)
+
     def test_rejects_missing_or_drifted_rendered_copy_vectors(self) -> None:
         def missing(value: dict[str, object]) -> None:
             value["rendered_copy"]["invalid"] = []

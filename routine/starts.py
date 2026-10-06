@@ -1,19 +1,20 @@
-"""A Team's Routine starts in any rolling 24 hours, without I/O (ADR-0092 section 9).
+"""A Team's Routine starts in any rolling 24 hours, without I/O (ADR-0092 section 9, ADR-0101).
 
 Each start is kept as its Routine, its instant, and the business steps its revision may run, for exactly one window, so
-the Team-wide ceilings survive a Routine's pause, change, deletion, or recreation, while each Routine's own cap counts
+the Team's daily budget survives a Routine's pause, change, deletion, or recreation, while each Routine's own cap counts
 only its own starts. A start reserves every step of its revision (ADR-0092 amendment, 2026-10-05, scale): at most
 ``routine_plan.MAX_DAILY_STEPS`` business steps start in any window, whatever Routine, revision, or person's Rodar
-started them. At a cap, nothing starts until enough starts leave the window; no Brain is asked.
+started them, so the window never holds more than that many starts. At a cap, nothing starts until enough starts leave
+the window; no Brain is asked.
 """
 
 from __future__ import annotations
 
-from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
 
 WINDOW_SECONDS = 86_400
-TEAM_CEILING = http_routine.MAX_DAILY_RUNS
+# Every start reserves at least one step, so the window holds at most this many (ADR-0101).
+MAX_STARTS = routine_plan.MAX_DAILY_STEPS
 
 Starts = tuple[tuple[str, int, int], ...]
 
@@ -43,11 +44,10 @@ def _steps_free_at(current: Starts, steps: int, now: int) -> int:
 
 
 def free_at(starts: Starts, routine_id: str, cap: int | None, now: int, steps: int = 1) -> int:
-    """The earliest instant the Routine may start again under its own cap, when it has one, and the Team ceilings."""
+    """The earliest instant the Routine may start again under its own cap, when it has one, and the Team's budget."""
     current = window(starts, now)
     own = now if cap is None else _free_at([at for item, at, _steps in current if item == routine_id], cap, now)
-    team = _free_at([at for _item, at, _steps in current], TEAM_CEILING, now)
-    return max(own, team, _steps_free_at(current, steps, now))
+    return max(own, _steps_free_at(current, steps, now))
 
 
 def started(starts: Starts, routine_id: str, now: int, steps: int) -> Starts:

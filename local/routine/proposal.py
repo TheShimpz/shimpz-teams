@@ -161,6 +161,7 @@ def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
             "name": item.name,
             "schedule": dict(item.schedule),
             "timezone": item.timezone,
+            "timezone_source": item.timezone_source,
             "revision": item.revision,
             "daily_steps": routine_definition.daily_steps(item),
             "output": {"mode": item.plan["output"]["mode"], "when": item.plan["output"]["when"]},
@@ -215,13 +216,17 @@ def _replaced(state: record.TeamRoutines, routine_id: str | None, recording) -> 
     return found
 
 
-def _timezone(outcome: dict[str, object], recording) -> str:
+def _timezone(outcome: dict[str, object], recording) -> tuple[str, str]:
     timezone = outcome["timezone"] or recording.timezone or DEFAULT_TIMEZONE
     try:
         routine_schedule.zone(timezone)
     except routine_schedule.ScheduleError as exc:
         raise RefusedError("routine-recording-invalid") from exc
-    return timezone
+    if outcome["timezone"] is None and recording.timezone is None:
+        if outcome["schedule"]["kind"] in http_routine.CALENDAR_KINDS:
+            raise RefusedError("routine-timezone-unstated")
+        return timezone, "none"
+    return timezone, "person" if outcome["timezone"] else "browser"
 
 
 def _turn_date(value: object, started_at: int) -> str | None:
@@ -249,27 +254,13 @@ def _recorded(outcome, recording, timezone: str, contracts, existing: record.Rou
         raise RefusedError(exc.code) from exc
 
 
-def _clamped(schedule: dict[str, object], units: int, others: tuple[record.Routine, ...]) -> tuple[dict, bool]:
-    """A continuous schedule's cap lowered to the largest the Team's daily budgets leave; others are as they are."""
-    if schedule["kind"] != "continuous":
-        return schedule, False
-    room = min(
-        routine_definition.capacity(others) // units,
-        http_routine.MAX_DAILY_RUNS - sum(http_routine.daily_cap(item.schedule) for item in others),
-    )
-    if room < 1:
-        raise RefusedError("routine-step-budget")
-    cap = min(schedule["cap"], room)
-    return {**schedule, "cap": cap}, cap != schedule["cap"]
-
-
 def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
     """The candidate Routine a recording defines, admitted against the Team's current contracts and budgets."""
     recording = _recording(self, response)
     contracts = routine_contracts.contracts(_current(self, response, recording))
     state = routine_state.load(self, response.team_id)
     existing = _replaced(state, outcome["replaces"], recording)
-    timezone = _timezone(outcome, recording)
+    timezone, source = _timezone(outcome, recording)
     recorded = _recorded(outcome, recording, timezone, contracts, existing)
     if not all(item["read_only"] for item in recorded.permitted):
         # Routines that change something come with rehearsal, in their own slice.
@@ -281,12 +272,10 @@ def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
     scopes = dict(response.segment.contracts)
     routine_id = record.new_id() if existing is None else existing.routine_id
     others = tuple(item for item in state.routines if item.routine_id != routine_id)
-    units = len(recorded.document["steps"])
-    schedule, clamped = _clamped(dict(outcome["schedule"]), units, others)
     candidate = record.Routine(
         routine_id,
         outcome["name"],
-        schedule,
+        dict(outcome["schedule"]),
         timezone,
         tuple(
             sorted((assistant, scopes[assistant]) for assistant in {item["assistant"] for item in recorded.permitted})
@@ -295,6 +284,7 @@ def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
         anchor=0,
         next_run_at=0,
         permitted=recorded.permitted,
+        timezone_source=source,
     )
     try:
         candidate = record.scheduled(candidate, int(time.time()))
@@ -305,7 +295,7 @@ def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
         raise RefusedError(refused or "routine-too-large")
     if existing is not None and any(item.routine_id == existing.routine_id for item in state.runs):
         raise RefusedError("routine-busy")
-    return recording, candidate, recorded, clamped, existing
+    return recording, candidate, recorded, existing
 
 
 def _escaped_json(value: object) -> str:
@@ -348,7 +338,7 @@ def _instant(epoch: float) -> str:
 
 def card(proposal_id: str, candidate: record.Routine, recorded, framing: tuple[str | None, bool, int]) -> dict:
     """The confirmation card: every step, every input's complete value or source, the schedule, and the scope."""
-    replaces, clamped, expires_at = framing
+    replaces, expires_at = framing
     document = candidate.plan
     positions = {step["id"]: index for index, step in enumerate(document["steps"], start=1)}
     entries = {(item["assistant"], item["action"]): item for item in candidate.permitted}
@@ -372,9 +362,9 @@ def card(proposal_id: str, candidate: record.Routine, recorded, framing: tuple[s
         "name": candidate.name,
         "schedule": dict(candidate.schedule),
         "timezone": candidate.timezone,
+        "timezone_source": candidate.timezone_source,
         "next_runs": _next_runs(candidate),
         "daily_cap": http_routine.daily_cap(candidate.schedule),
-        "clamped": clamped,
         "output": {"mode": document["output"]["mode"], "when": document["output"]["when"]},
         "steps": steps,
         "permitted": [
@@ -393,6 +383,7 @@ def _digest(candidate: record.Routine, view: dict[str, object], expected_revisio
         "name": candidate.name,
         "schedule": candidate.schedule,
         "timezone": candidate.timezone,
+        "timezone_source": candidate.timezone_source,
         "assistants": [list(pair) for pair in candidate.assistants],
         "plan": candidate.plan,
         "permitted": list(candidate.permitted),
@@ -410,11 +401,11 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
     """
     outcome = _outcome(proposed)
     try:
-        recording, candidate, recorded, clamped, existing = _candidate(self, response, outcome)
+        recording, candidate, recorded, existing = _candidate(self, response, outcome)
         proposal_id = record.new_id()
         expires_at = time.time() + PROPOSAL_SECONDS
         replaces = None if existing is None else existing.routine_id
-        view = card(proposal_id, candidate, recorded, (replaces, clamped, expires_at))
+        view = card(proposal_id, candidate, recorded, (replaces, expires_at))
         if http_routine.encoded_bytes(view) > http_routine.MAX_PROPOSAL_BYTES:
             raise RefusedError("routine-proposal-too-large")
         if trace.exposes(view, recording.protection.values):

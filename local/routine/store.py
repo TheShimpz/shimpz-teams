@@ -57,7 +57,7 @@ MAX_NOTICE_BYTES = (
     + 8 * 1024
 )
 _NOTICES_BYTES = (record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES) * MAX_NOTICE_BYTES
-_RECORDS_BYTES = http_routine.MAX_DAILY_RUNS * 64 + record.MAX_DISCARDS * 256
+_RECORDS_BYTES = routine_starts.MAX_STARTS * 64 + record.MAX_DISCARDS * 256
 _ROUTINES_BYTES = routine_plan.TEAM_DEFINITION_BYTES + record.MAX_ROUTINES * 18 * 1024
 MAX_STATE_BYTES = _ROUTINES_BYTES + _NOTICES_BYTES + _RECORDS_BYTES + record.MAX_INCIDENTS * 4 * 1024 + 64 * 1024
 # Reads of one state file that may race its atomic replace before a failure is taken as real.
@@ -76,6 +76,7 @@ _ROUTINE_FIELDS = frozenset(
         "plan",
         "schedule",
         "timezone",
+        "timezone_source",
         "assistants",
         "anchor",
         "next_run_at",
@@ -451,7 +452,7 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         and isinstance(value["notices"], list)
         and len(value["notices"]) <= record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES
         and isinstance(value["starts"], list)
-        and len(value["starts"]) <= routine_starts.TEAM_CEILING
+        and len(value["starts"]) <= routine_starts.MAX_STARTS
         and isinstance(value["discards"], list)
         and len(value["discards"]) <= record.MAX_DISCARDS
         and isinstance(value["incidents"], list)
