@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import unittest
+from collections.abc import Iterator
 from email.message import Message
 from http import HTTPStatus
 from io import BytesIO
@@ -69,6 +71,15 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             record_raw, body = body[:size], body[size + 2 :]
             records.append(progress_contract.decode_line(record_raw))
         return headers, records
+
+    @contextlib.contextmanager
+    def _verified(self, trace: str = "c" * 32) -> Iterator[tuple[mock.Mock, mock.Mock]]:
+        """Verify the assertion as the Supervisor session and record the request audit under ``trace``."""
+        with (
+            mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
+            mock.patch.object(http_audit.local_audit, "record", return_value=trace) as record,
+        ):
+            yield verify, record
 
     @staticmethod
     def _evidence() -> authority.Evidence:
@@ -138,10 +149,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         )
         request_audit = http_audit.RequestAudit()
 
-        with (
-            mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
-            mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32) as record,
-        ):
+        with self._verified("d" * 32) as (verify, record):
             result = handler._authorized_route(request_audit)
             request_audit.record(result[2], result="ok")
 
@@ -206,10 +214,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         decision_key = "tsk-test-0123456789abcdef"
         headers = (*_model_headers(raw), ("X-Shimpz-Decision-Api-Key", decision_key))
         handler = self._handler("POST", "/v1/teams/team_1/chat/intent-route", controller, body=raw, headers=headers)
-        with (
-            mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
-            mock.patch.object(http_audit.local_audit, "record", return_value="c" * 32),
-        ):
+        with self._verified() as (verify, _record):
             handler._authorized_route(http_audit.RequestAudit())
         self.assertEqual(
             verify.call_args.kwargs["request"].decision,
@@ -253,10 +258,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             headers=_model_headers(raw, api_key),
         )
 
-        with (
-            mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
-            mock.patch.object(http_audit.local_audit, "record", return_value="c" * 32),
-        ):
+        with self._verified() as (verify, _record):
             handler._authorized_route(http_audit.RequestAudit())
 
         self.assertEqual(
@@ -315,11 +317,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             headers=_model_headers(raw),
         )
 
-        with (
-            mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
-            mock.patch.object(http_audit.local_audit, "record", return_value="c" * 32),
-            mock.patch.object(handler, "_stream_chat_route"),
-        ):
+        with self._verified() as (verify, _record), mock.patch.object(handler, "_stream_chat_route"):
             handler._authorized_route(http_audit.RequestAudit())
 
         self.assertEqual(
@@ -374,10 +372,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             headers=_model_headers(raw),
         )
 
-        with (
-            mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
-            mock.patch.object(http_audit.local_audit, "record", return_value="c" * 32),
-        ):
+        with self._verified() as (verify, _record):
             handler._authorized_route(http_audit.RequestAudit())
 
         self.assertEqual(verify.call_args.kwargs["request"].body["length"], len(raw))
