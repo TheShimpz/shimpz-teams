@@ -12,7 +12,6 @@ import dataclasses
 import secrets
 from dataclasses import dataclass
 
-from protocol.http.v1 import routine as http_routine
 from routine import claim as routine_claim
 from routine import definition as routine_definition
 from routine import plan as routine_plan
@@ -250,10 +249,7 @@ def release_incident(state: record.TeamRoutines, incident_id: str) -> record.Tea
 def used(state: record.TeamRoutines, incident_id: str, models: list[dict[str, object]]) -> record.TeamRoutines:
     """Add the tokens a held run's recovery reported to the usage its notices and continuation carry (ADR-0101)."""
     value = incident(state, incident_id)
-    usage = routine_runs.joined_usage(value.usage, {"duration_ms": 0, "models": models})
-    if http_routine.canonical_run_usage(usage) != usage:
-        raise record.RoutineStateError("usage-invalid")
-    return _replace_incident(state, dataclasses.replace(value, usage=usage))
+    return _replace_incident(state, dataclasses.replace(value, usage=routine_runs.added_usage(value.usage, models)))
 
 
 def charge_incident(state: record.TeamRoutines, incident_id: str, seconds: int) -> record.TeamRoutines:

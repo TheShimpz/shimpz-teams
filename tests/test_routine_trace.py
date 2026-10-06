@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from routine import plan as routine_plan
 from routine import trace
 
 SECRET_SCHEMA = {
@@ -124,7 +125,7 @@ class OccurrenceTests(unittest.TestCase):
         # A value of many withheld members carries a pointer for each, which a span's byte bound counts.
         members = {f"token_{index:05d}": "x" for index in range(9000)}
         kept = trace.keep(members, {}, ())
-        self.assertGreater(trace.kept_bytes(kept), len(trace.encoded(kept.value)) + 9000 * 12)
+        self.assertGreater(trace.kept_bytes(kept), len(routine_plan.canonical(kept.value)) + 9000 * 12)
         self.assertGreater(_occurrence(result=kept).size, trace.kept_bytes(kept))
 
 

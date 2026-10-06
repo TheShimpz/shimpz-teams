@@ -15,7 +15,6 @@ archive marker released.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import time
 from collections.abc import Callable
@@ -34,6 +33,7 @@ from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import strict_json
 from routine import claim as routine_claim
 from routine import cursor as routine_cursor
+from routine import definition as routine_definition
 from routine import hold as routine_hold
 from routine import plan as routine_plan
 from routine import record
@@ -52,7 +52,7 @@ class Recovery:
 
     @property
     def plan_digest(self) -> str:
-        return "sha256:" + hashlib.sha256(routine_plan.canonical(self.plan)).hexdigest()
+        return routine_definition.plan_digest(self.plan)
 
     def document(self) -> dict[str, object]:
         binding = self.binding

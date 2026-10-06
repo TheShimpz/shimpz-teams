@@ -412,6 +412,10 @@ def refusal(cursor: routine_cursor.Cursor) -> str | None:
     return None if cursor.remaining("retries") else "routine-retry-exhausted"
 
 
+def _cannot_continue(code: str) -> ApiProblem:
+    return ApiProblem(409, "Routine run cannot continue", code=code)
+
+
 def continue_run(self, team_id: str, incident_id: str, token: str, progress=None, *, seconds: int | None = None) -> str:
     """Resume a held run as a continuation in its next generation; returns how that continuation ended.
 
@@ -420,11 +424,11 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     opened = routine_incident.open_recovery(self, team_id, incident_id)
     refused = refusal(opened.cursor)
     if refused is not None:
-        raise ApiProblem(409, "Routine run cannot continue", code=refused)
+        raise _cannot_continue(refused)
     try:
         cursor = _seal(self, team_id, routine_cursor.continued(opened.cursor))
     except routine_cursor.CursorError as exc:
-        raise ApiProblem(409, "Routine run cannot continue", code=exc.code) from exc
+        raise _cannot_continue(exc.code) from exc
     generation = routine_claim.generation_for(
         opened.recovery.binding.incarnation, incident_id, cursor.generation_suffix
     )
@@ -444,10 +448,10 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     if not routine_run.unstopped(
         self, token, lambda: False, lambda: results.append(routine_state.update(self, team_id, reopen))
     ):
-        raise ApiProblem(409, "Routine run cannot continue", code="routine-recovery-stopped")
+        raise _cannot_continue("routine-recovery-stopped")
     (reopened,) = results
     if isinstance(reopened, str):
-        raise ApiProblem(409, "Routine run cannot continue", code=reopened)
+        raise _cannot_continue(reopened)
     value, routine, lease_token = reopened
     # The resolved hold's evidence goes; a later hold of this continuation seals its own.
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, incident_id))

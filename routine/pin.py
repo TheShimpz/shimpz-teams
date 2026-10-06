@@ -15,6 +15,7 @@ from collections.abc import Iterable, Mapping
 
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
+from routine import plan as routine_plan
 
 FORMAT = "shimpz-routine-action-pin-v1"
 SCOPE_FORMAT = "shimpz-routine-assistant-pin-v1"
@@ -93,8 +94,7 @@ def _action_pin(
         "pack": spec.pack_digest,
         "locale": locale,
     }
-    encoded = json.dumps(document, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
-    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return "sha256:" + hashlib.sha256(routine_plan.canonical(document)).hexdigest()
 
 
 def _integration(declaration: object) -> Mapping[str, object]:

@@ -14,7 +14,6 @@ ever persisted: a Team restart drops every occurrence and set, and recording is 
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
@@ -54,16 +53,12 @@ def escape(token: str) -> str:
     return token.replace("~", "~0").replace("/", "~1")
 
 
-def encoded(value: object) -> bytes:
-    return json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")).encode()
-
-
 def keep(value: object, schema: object, protected: Iterable[str]) -> Kept:
     """The kept form of one value under its reviewed schema: every position that may be secret withheld whole."""
     root = schema if isinstance(schema, dict) else {}
     withheld: set[str] = set()
     kept = _kept(root, tuple(item for item in protected if item), withheld, value, root, ("", ""), 0)
-    if len(encoded(kept)) > MAX_KEPT_BYTES:
+    if len(routine_plan.canonical(kept)) > MAX_KEPT_BYTES:
         return Kept(None, frozenset({""}), oversize=True)
     return Kept(kept, frozenset(withheld))
 
@@ -180,7 +175,7 @@ class Protection:
 
 def kept_bytes(kept: Kept) -> int:
     """The encoded size of a kept value with every pointer it withholds."""
-    return len(encoded({"value": kept.value, "withheld": sorted(kept.withheld)}))
+    return len(routine_plan.canonical({"value": kept.value, "withheld": sorted(kept.withheld)}))
 
 
 @dataclass(frozen=True, slots=True)
