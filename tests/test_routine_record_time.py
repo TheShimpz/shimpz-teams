@@ -9,7 +9,8 @@ import dataclasses
 import unittest
 
 import routine_fixture
-from test_routine_record import HOURLY, KEY, NINE, IncidentNoticeTests, added, at, bound, claimed, routine
+from test_routine_incident import IncidentNoticeTests
+from test_routine_record import HOURLY, KEY, NINE, added, at, bound, claimed, routine
 
 from protocol.http.v1 import routine as http_routine
 from routine import claim as routine_claim
