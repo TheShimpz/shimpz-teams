@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import tempfile
 import unittest
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -23,6 +25,30 @@ from tests.local_snapshot_fixtures import archive as _archive
 from tests.local_snapshot_fixtures import client as _client
 from tests.local_snapshot_fixtures import fresh_installing_lifecycle as _fresh_installing_lifecycle
 from tests.test_local_publication_install import _runtime_resolution
+
+
+def _registry(root: Path) -> assistant_registry.AssistantRegistry:
+    """A durable Assistant registry under ``root`` that validates Local snapshot records."""
+    return assistant_registry.AssistantRegistry(
+        DynamicAssistantStore(root / "bindings.json", local_record_validator=snapshots.validate_record)
+    )
+
+
+def _controller(client: object, registry: object, lifecycle: object) -> SimpleNamespace:
+    """The controller surface the Local snapshot service reads, with a recording icon store."""
+    return SimpleNamespace(
+        client=client, registry=registry, assistant_icons=mock.MagicMock(), assistant_lifecycle=lifecycle
+    )
+
+
+@contextlib.contextmanager
+def _admitting(admitted: object, **apply: object) -> Iterator[mock.Mock]:
+    """Admit ``admitted`` as the snapshot and stub the Local apply step with ``apply``; yield the apply stub."""
+    with (
+        mock.patch.object(service.snapshots, "admit", return_value=admitted),
+        mock.patch.object(service, "_apply_local_snapshot", **apply) as apply_local,
+    ):
+        yield apply_local
 
 
 class LocalSnapshotTests(unittest.TestCase):
@@ -319,12 +345,7 @@ class LocalSnapshotTests(unittest.TestCase):
         client, _image_value, _container_value = _client()
         admitted = snapshots.admit(client, IMAGE_ID)
         with tempfile.TemporaryDirectory() as directory:
-            registry = assistant_registry.AssistantRegistry(
-                DynamicAssistantStore(
-                    Path(directory) / "bindings.json",
-                    local_record_validator=snapshots.validate_record,
-                )
-            )
+            registry = _registry(Path(directory))
             spec = registry.put_local("team_1", admitted.record)
 
             self.assertEqual(spec.provenance, "local")
@@ -506,20 +527,10 @@ class LocalSnapshotTests(unittest.TestCase):
         lifecycle.replace_published_with_local.side_effect = lambda _team_id, _previous, install_successor: (
             install_successor(lifecycle.install_assistant)
         )
-        controller = SimpleNamespace(
-            client=client,
-            registry=registry,
-            assistant_icons=mock.MagicMock(),
-            assistant_lifecycle=lifecycle,
-        )
+        controller = _controller(client, registry, lifecycle)
 
         with (
-            mock.patch.object(service.snapshots, "admit", return_value=admitted),
-            mock.patch.object(
-                service,
-                "_apply_local_snapshot",
-                return_value={"assistant": "fixture-assistant", "installed": True},
-            ) as apply_local,
+            _admitting(admitted, return_value={"assistant": "fixture-assistant", "installed": True}) as apply_local,
         ):
             result = service.install_local_snapshot(controller, "team_1", IMAGE_ID)
 
@@ -548,12 +559,7 @@ class LocalSnapshotTests(unittest.TestCase):
         )
         registry.bindings.return_value = (registry.binding.return_value,)
         lifecycle = mock.Mock()
-        controller = SimpleNamespace(
-            client=client,
-            registry=registry,
-            assistant_icons=mock.MagicMock(),
-            assistant_lifecycle=lifecycle,
-        )
+        controller = _controller(client, registry, lifecycle)
 
         with (
             mock.patch.object(service.snapshots, "admit", return_value=admitted),
@@ -573,20 +579,12 @@ class LocalSnapshotTests(unittest.TestCase):
             registry = mock.Mock()
             registry.binding.return_value = None
             registry.bindings.return_value = ()
-            return SimpleNamespace(
-                client=client,
-                registry=registry,
-                assistant_icons=mock.MagicMock(),
-                assistant_lifecycle=_fresh_installing_lifecycle(mock.Mock()),
-            )
+            return _controller(client, registry, _fresh_installing_lifecycle(mock.Mock()))
 
         rollback = controller()
         with (
-            mock.patch.object(service.snapshots, "admit", return_value=admitted),
-            mock.patch.object(
-                service,
-                "_apply_local_snapshot",
-                side_effect=ApiProblemError(503, "rollback", code="assistant-install-rollback-incomplete"),
+            _admitting(
+                admitted, side_effect=ApiProblemError(503, "rollback", code="assistant-install-rollback-incomplete")
             ),
             self.assertRaises(ApiProblemError),
         ):
@@ -599,12 +597,7 @@ class LocalSnapshotTests(unittest.TestCase):
 
         binding_failure = controller()
         with (
-            mock.patch.object(service.snapshots, "admit", return_value=admitted),
-            mock.patch.object(
-                service,
-                "_apply_local_snapshot",
-                side_effect=bindings.DynamicAssistantError("conflict"),
-            ),
+            _admitting(admitted, side_effect=bindings.DynamicAssistantError("conflict")),
             self.assertRaises(ApiProblemError) as caught,
         ):
             service.install_local_snapshot(binding_failure, "team_1", IMAGE_ID)
@@ -626,12 +619,7 @@ class LocalSnapshotTests(unittest.TestCase):
         replacement_failure = controller()
         replacement_failure.registry.binding.return_value = candidate
         with (
-            mock.patch.object(service.snapshots, "admit", return_value=admitted),
-            mock.patch.object(
-                service,
-                "_apply_local_snapshot",
-                side_effect=bindings.DynamicAssistantError("conflict"),
-            ),
+            _admitting(admitted, side_effect=bindings.DynamicAssistantError("conflict")),
             self.assertRaises(ApiProblemError),
         ):
             service.install_local_snapshot(replacement_failure, "team_1", IMAGE_ID)
@@ -691,12 +679,7 @@ class LocalSnapshotTests(unittest.TestCase):
         client, _image_value, _container_value = _client()
         record = snapshots.admit(client, IMAGE_ID).record
         with tempfile.TemporaryDirectory() as directory:
-            registry = assistant_registry.AssistantRegistry(
-                DynamicAssistantStore(
-                    Path(directory) / "bindings.json",
-                    local_record_validator=snapshots.validate_record,
-                )
-            )
+            registry = _registry(Path(directory))
             registry.put_local("team_1", record)
             existing = registry.binding("team_1", "fixture-assistant")
             controller = SimpleNamespace(registry=registry, assistant_lifecycle=mock.Mock())
@@ -763,12 +746,7 @@ class LocalSnapshotTests(unittest.TestCase):
         publication = _runtime_resolution()
         publication["assistant_id"] = "fixture-assistant"
         with tempfile.TemporaryDirectory() as directory:
-            registry = assistant_registry.AssistantRegistry(
-                DynamicAssistantStore(
-                    Path(directory) / "bindings.json",
-                    local_record_validator=snapshots.validate_record,
-                )
-            )
+            registry = _registry(Path(directory))
             local_spec = registry.put_local("team_1", record)
             local_binding = registry.binding("team_1", local_spec.assistant_id)
             self.assertIsNotNone(local_binding)
@@ -798,12 +776,7 @@ class LocalSnapshotTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            registry = assistant_registry.AssistantRegistry(
-                DynamicAssistantStore(
-                    root / "bindings.json",
-                    local_record_validator=snapshots.validate_record,
-                )
-            )
+            registry = _registry(root)
             icon_store = AssistantIconStore(root / "icons")
             lifecycle = _fresh_installing_lifecycle(
                 mock.Mock(return_value={"assistant": "fixture-assistant", "installed": True})
@@ -848,12 +821,7 @@ class LocalSnapshotTests(unittest.TestCase):
         admitted = snapshots.admit(client, IMAGE_ID)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            registry = assistant_registry.AssistantRegistry(
-                DynamicAssistantStore(
-                    root / "bindings.json",
-                    local_record_validator=snapshots.validate_record,
-                )
-            )
+            registry = _registry(root)
             icon_store = AssistantIconStore(root / "icons")
             controller = SimpleNamespace(
                 client=client,
