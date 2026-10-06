@@ -20,6 +20,7 @@ from local.routine import compiled as routine_compiled
 from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
 from local.routine import run as routine_run
+from local.routine import state as routine_state
 from local.routine import store as routine_store
 from routine import hold as routine_hold
 from routine import record
@@ -55,21 +56,17 @@ def _recover(service, team_id: str, value: record.Run) -> str | None:
 
     A run whose cursor completed every step ends done; a run that may have acted is held, so its incident keeps the
     evidence of its partial effects; only a run that dispatched nothing fails interrupted. The run is re-read in the
-    same write: one that ended or changed lease since the pass read it is left alone. A run that lost its protection,
-    as every run does across a restart, says so and shows nothing it produced, so no ``changes`` baseline moves.
+    same write: one that ended or changed lease since the pass read it is left alone. The write marks a run that lost
+    its protection, as every run does across a restart, so its notice says so and shows nothing it produced.
     """
     now = int(time.time())
     progress = routine_compiled.progress(service, team_id, value)
-    # Even a run that dispatched nothing may have bound its protection with its first cursor in an earlier boot.
-    lost = routine_compiled.protection_lost(service, team_id, value)
-    shown = routine_compiled.sealed_shown(service, team_id, value) if progress == "done" and not lost else None
+    shown = routine_compiled.sealed_shown(service, team_id, value) if progress == "done" else None
 
     def recover(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
         current = next((item for item in state.runs if item.run_id == value.run_id), None)
         if current is None or current.status != "leased" or current.lease_sha256 != value.lease_sha256:
             return state, None
-        if lost:
-            state = record.lose_protection(state, value.run_id)
         if progress == "done":
             return record.complete_recovered(state, value.run_id, value.lease_sha256, now, shown), "done"
         if progress == "partial":
@@ -78,7 +75,7 @@ def _recover(service, team_id: str, value: record.Run) -> str | None:
             state, value.run_id, now, "failed", {"code": "interrupted", "actions": [], "position": None, "steps": None}
         ), "failed"
 
-    return service.routine_store.update(team_id, recover)
+    return service.routine_store.update(team_id, routine_state.reconciled(service, team_id, recover))
 
 
 def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bool) -> None:

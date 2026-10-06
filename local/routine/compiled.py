@@ -400,20 +400,21 @@ def sealed_shown(self, team_id: str, value: record.Run) -> dict[str, object] | N
 
 
 def protection_lost(self, team_id: str, value: record.Run) -> bool:
-    """Whether a run nothing drives any more has lost its protection, sealing the loss in its cursor first.
+    """Whether a run has lost its protection, sealing the loss in its cursor first.
 
-    Protection lives only in the boot that bound it: a cursor sealed in another boot, one this process no longer holds
-    protection for, or one that cannot be read has lost it, and the loss is never undone. A run with neither a cursor
-    nor a journal batch never bound any; one whose batch began with no cursor cannot show what it protected.
+    Protection is bound with a run's first cursor and lives only in the boot that bound it: a cursor sealed in another
+    boot, one this process no longer holds protection for, or one that cannot be read has lost it, and the loss is
+    never undone. A run with no cursor has dispatched nothing, since every dispatch is sealed before its values are
+    injected, so it has nothing to protect.
     """
     if not value.generation:
         return False
     try:
-        batch, _snapshot, cursor = _sealed(self, team_id, value)
+        _batch, _snapshot, cursor = _sealed(self, team_id, value)
     except action_journal.ActionJournalError, routine_store.RoutineStoreError, ApiProblem:
         return True
     if cursor is None:
-        return batch is not None
+        return False
     if cursor.protection_lost:
         return True
     if not self.routine_protections.current(value.run_id, cursor.boot).lost:
@@ -422,18 +423,11 @@ def protection_lost(self, team_id: str, value: record.Run) -> bool:
     return True
 
 
-def observe_loss(self, team_id: str, value: record.Run) -> bool:
-    """Whether a run lost its protection; a loss seen now is sealed in its cursor and recorded on the run for good."""
-    if not protection_lost(self, team_id, value):
-        return False
-
-    def lose(state: record.TeamRoutines) -> tuple[record.TeamRoutines, None]:
-        if not any(item.run_id == value.run_id for item in state.runs):
-            return state, None
-        return record.lose_protection(state, value.run_id), None
-
-    routine_state.update(self, team_id, lose)
-    return True
+def lost_runs(self, team_id: str) -> frozenset[str]:
+    """The Team's runs that lost their protection, each loss sealed in its run's cursor first (ADR-0101 section 6)."""
+    return frozenset(
+        item.run_id for item in self.routine_store.load(team_id).runs if protection_lost(self, team_id, item)
+    )
 
 
 def _plan(self, team_id: str, routine: record.Routine) -> routine_plan.Plan:

@@ -25,9 +25,29 @@ def load(service, team_id: str) -> record.TeamRoutines:
         raise unavailable() from exc
 
 
+def reconciled[T](
+    service, team_id: str, change: Callable[[record.TeamRoutines], tuple[record.TeamRoutines, T]]
+) -> Callable[[record.TeamRoutines], tuple[record.TeamRoutines, T]]:
+    """``change`` after every run that lost its protection is marked so, in the same write (ADR-0101 section 6).
+
+    Every Routine state write goes through this one rule, so whatever ends a run (its worker, a person's Stop, denial,
+    or deletion, or the watchdog) records the loss in that run's notice and shows nothing the run produced. A loss is
+    sealed in the run's cursor before the write and never undone.
+    """
+    lost = service._routine_lost_runs(team_id)
+
+    def marked(state: record.TeamRoutines) -> tuple[record.TeamRoutines, T]:
+        for item in state.runs:
+            if item.run_id in lost and not item.protection_lost:
+                state = record.lose_protection(state, item.run_id)
+        return change(state)
+
+    return marked
+
+
 def update[T](service, team_id: str, change: Callable[[record.TeamRoutines], tuple[record.TeamRoutines, T]]) -> T:
     try:
-        return service.routine_store.update(team_id, change)
+        return service.routine_store.update(team_id, reconciled(service, team_id, change))
     except routine_store.RoutineStoreError as exc:
         raise unavailable() from exc
 

@@ -176,13 +176,7 @@ def settle_team(self, team_id: str) -> None:
 
 
 def end_frozen(self, team_id: str, run_id: str, outcome: str, detail: dict[str, object]) -> bool:
-    """End a run only while it is still frozen; False when a replay or another ending reached it first.
-
-    A loss of the run's protection not yet recorded, as after a restart, is recorded first, so its notice says so.
-    """
-    value = next((item for item in routine_state.load(self, team_id).runs if item.run_id == run_id), None)
-    if value is not None and value.status == "frozen":
-        self._observe_routine_loss(team_id, value)
+    """End a run only while it is still frozen; False when a replay or another ending reached it first."""
     now = int(time.time())
 
     def end(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:

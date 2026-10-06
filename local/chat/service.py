@@ -266,7 +266,7 @@ class ChatTurnService:
     resume_routine_integrations = local_routine_human.resume_routine_integrations
     current_routine_challenge = local_routine_human.current_routine_challenge
     _cancel_routine_challenge = local_routine_human.cancel_routine_challenge
-    _observe_routine_loss = local_routine_compiled.observe_loss
+    _routine_lost_runs = local_routine_compiled.lost_runs
     routine_notices = local_routine_notices.routine_notices
     acknowledge_routine_notices = local_routine_notices.acknowledge_notices
     stop_routine = local_routine_notices.stop_routine

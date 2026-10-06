@@ -540,7 +540,7 @@ class WatchdogRecoveryTests(CompiledRunCase):
             compiled.seal(routine_cursor.lose_protection(compiled.cursor))
             sealed = routine_compiled.protection_lost(service, "team_1", run)
         self.assertEqual(
-            (kept, unreadable, unbound, begun, ungenerated, sealed), (False, True, False, True, False, True)
+            (kept, unreadable, unbound, begun, ungenerated, sealed), (False, True, False, False, False, True)
         )
 
     def test_a_completed_cursor_of_another_plan_is_held_never_finished_done(self) -> None:
@@ -583,21 +583,24 @@ class WatchdogRecoveryTests(CompiledRunCase):
         # The step-zero cursor bound in the earlier boot is sealed as lost before the run ends.
         self.assertTrue(sealed[-1].protection_lost)
 
-    def test_a_loss_observed_after_the_run_ended_is_sealed_in_its_cursor_only(self) -> None:
+    def test_a_listed_run_of_another_boot_is_lost_and_its_cursor_seals_the_loss(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, _brain, value = self.compiled(directory, None)
             compiled = RuntimeTests.runtime(self, service, value)
             run_id = compiled.cursor.binding.run_id
-            stale = record.run(self.state(service), run_id)
-            stale = dataclasses.replace(stale, generation=f"{'a' * 64}:routine:{run_id}")
+            generation = f"{'a' * 64}:routine:{run_id}"
             service.routine_store.update(
-                "team_1", lambda state: (record.end(state, run_id, 0, "stopped", {"actions": []}), None)
+                "team_1",
+                lambda state: (
+                    record._replace_run(state, dataclasses.replace(record.run(state, run_id), generation=generation)),
+                    None,
+                ),
             )
+            kept = routine_compiled.lost_runs(service, "team_1")
             service.routine_protections = local_routine_protection.RunProtections()
-            lost = routine_compiled.observe_loss(service, "team_1", stale)
+            lost = routine_compiled.lost_runs(service, "team_1")
             cursor = service.routine_store.cursor("team_1", compiled.cursor.binding)
-            runs = self.state(service).runs
-        self.assertEqual((lost, cursor.protection_lost, runs), (True, True, ()))
+        self.assertEqual((kept, lost, cursor.protection_lost), (frozenset(), frozenset({run_id}), True))
 
     def test_a_crash_before_any_dispatch_fails_the_run_interrupted(self) -> None:
         def patch(_service):

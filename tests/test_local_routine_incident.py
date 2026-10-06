@@ -319,7 +319,8 @@ class RecoverySnapshotTests(IncidentCase):
             service.routine_store, service.action_state = reopened_store, reopened_journal
             opened = routine_incident.open_recovery(service, "team_1", run_id)
             self.assertEqual(opened.recovery, snapshot)
-            self.assertEqual(opened.cursor, cursor)
+            # Its cursor was bound in another boot, so the first Routine write sealed its loss.
+            self.assertEqual(opened.cursor, routine_cursor.lose_protection(cursor))
             self.assertEqual(opened.cursor.operation_id, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6")
             self.assertEqual(opened.recovery.plan_digest, cursor.plan)
             self.assertEqual(reopened_journal.current_batch(generation), (batch.fingerprint, "archived"))

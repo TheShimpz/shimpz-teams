@@ -44,7 +44,7 @@ def broken(*_args, **_kwargs):
 
 class StateAccessTests(RoutineServiceCase):
     def test_every_store_failure_is_one_retryable_problem(self) -> None:
-        service = SimpleNamespace(routine_store=SimpleNamespace(load=broken, update=broken))
+        service = SimpleNamespace(routine_store=SimpleNamespace(load=broken, update=broken), _routine_lost_runs=broken)
         for call in (
             lambda: routine_state.load(service, "team_1"),
             lambda: routine_state.update(service, "team_1", lambda state: (state, None)),
@@ -208,7 +208,7 @@ class RunFaultTests(RoutineServiceCase):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(self.state(service).notices[-1].detail["code"], "request-unavailable")
 
-    def test_a_frozen_choice_request_opened_after_a_restart_is_refused_and_records_the_loss(self) -> None:
+    def test_a_frozen_choice_request_opened_after_a_restart_is_refused_and_seals_the_loss(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim = self.paused(directory, choice())
             self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
@@ -221,7 +221,8 @@ class RunFaultTests(RoutineServiceCase):
             frozen = record.run(self.state(service), claim["run_id"])
             cursor = routine_compiled._sealed(service, "team_1", frozen)[2]
         self.assertEqual((caught.exception.status, caught.exception.code), (409, "human-request-invalid"))
-        self.assertEqual((frozen.status, frozen.protection_lost, cursor.protection_lost), ("frozen", True, True))
+        # The loss is sealed in the cursor now; the run's next write marks it, whatever ends the run.
+        self.assertEqual((frozen.status, cursor.protection_lost), ("frozen", True))
 
     def test_every_frozen_ending_after_a_restart_says_the_run_lost_its_protection(self) -> None:
         endings = {
