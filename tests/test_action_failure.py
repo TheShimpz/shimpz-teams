@@ -12,6 +12,8 @@ from types import SimpleNamespace
 from unittest import mock
 from urllib.parse import quote
 
+from test_action_rpc_exchange import rpc_strategy
+
 from action import execution as action_execution
 from action import failure as action_failure
 from action import human as action_human
@@ -277,17 +279,7 @@ class FailureProjectionTests(unittest.TestCase):
             api.exec_create.return_value = {"Id": "exec"}
             api.exec_start.return_value = stream
             api.exec_inspect.return_value = details
-            strategy = action_execution.RpcExchangeStrategy(
-                api=api,
-                user="10001:10001",
-                workdir="/workdir",
-                timeout=1,
-                maximum=1024,
-                transport_errors=(RuntimeError,),
-                fail_stop=mock.Mock(),
-                cancelled=mock.Mock(),
-                close_stream=mock.Mock(),
-            )
+            strategy = rpc_strategy(api, workdir="/workdir", timeout=1, transport_errors=(RuntimeError,))
             with (
                 self.subTest(expected=expected),
                 mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(frame, stderr)),

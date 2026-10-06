@@ -19,6 +19,8 @@ sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
+from test_action_rpc_exchange import rpc_strategy
+
 from action import dispatch as action_dispatch
 from action import execution as action_execution
 from action import human as action_human
@@ -311,17 +313,7 @@ class HeldActionBatchTests(unittest.TestCase):
 
 
 def _rpc_strategy(api: object) -> action_execution.RpcExchangeStrategy:
-    return action_execution.RpcExchangeStrategy(
-        api=api,
-        user="10001:10001",
-        workdir="/srv",
-        timeout=0.2,
-        maximum=1024,
-        transport_errors=(),
-        fail_stop=mock.Mock(),
-        cancelled=lambda _exc: None,
-        close_stream=mock.Mock(),
-    )
+    return rpc_strategy(api, workdir="/srv", timeout=0.2, cancelled=lambda _exc: None)
 
 
 class NeverDispatchedTests(unittest.TestCase):

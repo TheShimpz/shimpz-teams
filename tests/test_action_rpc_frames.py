@@ -20,6 +20,7 @@ sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from hosted_assistant_fixture import hosted_assistants, runtime_state
+from test_action_rpc_exchange import rpc_strategy
 
 from action import execution as action_execution
 from action import human as action_human
@@ -520,13 +521,10 @@ class ActionRpcFrameTests(unittest.TestCase):
             exec_start=lambda *_args, **_kwargs: stream,
             exec_inspect=lambda *_args, **_kwargs: {"ExitCode": 0},
         )
-        strategy = action_execution.RpcExchangeStrategy(
-            api=api,
-            user="10001:10001",
-            workdir=container_spec.CONTAINER_TMP,
+        strategy = rpc_strategy(
+            api,
             timeout=0.5,
             maximum=action_execution.MAX_RPC_REQUEST_BYTES,
-            transport_errors=(),
             fail_stop=lambda: None,
             cancelled=lambda _error: None,
             close_stream=lambda _stream: None,
@@ -554,12 +552,9 @@ class ActionRpcFrameTests(unittest.TestCase):
             cancelled = mock.Mock()
             close = mock.Mock()
             return (
-                action_execution.RpcExchangeStrategy(
-                    api=api,
-                    user="10001:10001",
-                    workdir=container_spec.CONTAINER_TMP,
+                rpc_strategy(
+                    api,
                     timeout=1,
-                    maximum=1024,
                     transport_errors=(TransportError,),
                     fail_stop=fail_stop,
                     cancelled=cancelled,
@@ -645,17 +640,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         fail_stop = mock.Mock()
         cancelled = mock.Mock()
         close = mock.Mock()
-        strategy = action_execution.RpcExchangeStrategy(
-            api=api,
-            user="10001:10001",
-            workdir=container_spec.CONTAINER_TMP,
-            timeout=1,
-            maximum=1024,
-            transport_errors=(),
-            fail_stop=fail_stop,
-            cancelled=cancelled,
-            close_stream=close,
-        )
+        strategy = rpc_strategy(api, timeout=1, fail_stop=fail_stop, cancelled=cancelled, close_stream=close)
         with self.assertRaises(action_execution.RpcExchangeError) as unavailable:
             action_execution.rpc_exchange("container", ["command"], b"request", strategy)
         self.assertEqual(unavailable.exception.kind, "failed")

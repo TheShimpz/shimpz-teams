@@ -86,17 +86,7 @@ class ActionRpcExchangeTests(unittest.TestCase):
             exec_start=lambda *_args, **_kwargs: SimpleNamespace(_sock=object()),
             exec_inspect=lambda *_args, **_kwargs: {"ExitCode": 0},
         )
-        strategy = action_execution.RpcExchangeStrategy(
-            api=api,
-            user="10001:10001",
-            workdir=container_spec.CONTAINER_TMP,
-            timeout=60,
-            maximum=1024,
-            transport_errors=(),
-            fail_stop=mock.Mock(),
-            cancelled=mock.Mock(),
-            close_stream=mock.Mock(),
-        )
+        strategy = rpc_strategy(api, timeout=60)
 
         def exchange(_socket, _data, deadline, _maximum) -> tuple[bytes, bytes]:
             seen.append(deadline)
@@ -116,18 +106,7 @@ class ActionRpcExchangeTests(unittest.TestCase):
         api = mock.Mock()
         api.exec_create.return_value = {"Id": "exec"}
         fail_stop = mock.Mock()
-        strategy = action_execution.RpcExchangeStrategy(
-            api=api,
-            user="10001:10001",
-            workdir=container_spec.CONTAINER_TMP,
-            timeout=60,
-            maximum=1024,
-            transport_errors=(),
-            fail_stop=fail_stop,
-            cancelled=mock.Mock(),
-            close_stream=mock.Mock(),
-            deadline=time.monotonic() - 1,
-        )
+        strategy = rpc_strategy(api, timeout=60, fail_stop=fail_stop, deadline=time.monotonic() - 1)
         with self.assertRaises(action_execution.RpcExchangeError) as expired:
             action_execution.rpc_exchange("container", ["command"], b"request", strategy)
         self.assertEqual(
@@ -165,17 +144,7 @@ class ActionRpcExchangeTests(unittest.TestCase):
 
         api = SimpleNamespace(exec_create=lambda *_a, **_k: {"Id": "exec"}, exec_start=slow_start)
         fail_stop = mock.Mock()
-        strategy = action_execution.RpcExchangeStrategy(
-            api=api,
-            user="10001:10001",
-            workdir=container_spec.CONTAINER_TMP,
-            timeout=0.2,
-            maximum=1024,
-            transport_errors=(),
-            fail_stop=fail_stop,
-            cancelled=mock.Mock(),
-            close_stream=lambda _stream: closed.set(),
-        )
+        strategy = rpc_strategy(api, timeout=0.2, fail_stop=fail_stop, close_stream=lambda _stream: closed.set())
         started = time.monotonic()
         with self.assertRaises(action_execution.RpcExchangeError) as caught:
             action_execution.rpc_exchange("container", ["command"], b"request", strategy)
@@ -186,7 +155,7 @@ class ActionRpcExchangeTests(unittest.TestCase):
         self.assertTrue(closed.wait(5))
 
 
-def _strategy(api: object, **changes: object) -> action_execution.RpcExchangeStrategy:
+def rpc_strategy(api: object, **changes: object) -> action_execution.RpcExchangeStrategy:
     return dataclasses.replace(
         action_execution.RpcExchangeStrategy(
             api=api,
@@ -215,13 +184,13 @@ class DockerCallBoundTests(unittest.TestCase):
             return SimpleNamespace(_sock=object())
 
         api = SimpleNamespace(exec_create=lambda *_a, **_k: {"Id": "exec"}, exec_start=hanging_start)
-        strategies = [_strategy(api) for _ in range(action_dispatch.MAX_DOCKER_CALLS)]
+        strategies = [rpc_strategy(api) for _ in range(action_dispatch.MAX_DOCKER_CALLS)]
         for strategy in strategies:
             with self.assertRaises(action_execution.RpcExchangeError) as timed_out:
                 action_execution.rpc_exchange("container", ["command"], b"request", strategy)
             self.assertEqual(timed_out.exception.kind, "timeout")
             strategy.fail_stop.assert_called_once_with()
-        saturated = _strategy(SimpleNamespace(exec_create=mock.Mock(), exec_start=mock.Mock()))
+        saturated = rpc_strategy(SimpleNamespace(exec_create=mock.Mock(), exec_start=mock.Mock()))
         with self.assertRaises(action_execution.RpcExchangeError) as refused:
             action_execution.rpc_exchange("container", ["command"], b"request", saturated)
         self.assertEqual(refused.exception.condition, "deadline-expired-before-dispatch")
@@ -251,7 +220,7 @@ class DockerCallBoundTests(unittest.TestCase):
         stop = threading.Event()
         threading.Timer(0.2, stop.set).start()
         api = SimpleNamespace(exec_create=mock.Mock(), exec_start=mock.Mock())
-        waiting = _strategy(api, timeout=30)
+        waiting = rpc_strategy(api, timeout=30)
         started = time.monotonic()
         with (
             mock.patch.object(action_dispatch, "_DOCKER_CALL_SLOTS", saturated),
@@ -301,7 +270,7 @@ class DockerCallBoundTests(unittest.TestCase):
     def test_stop_never_abandons_the_exit_inspection_of_a_dispatched_workload(self) -> None:
         api = SimpleNamespace(exec_inspect=lambda _exec_id: {"ExitCode": 0})
         with action_dispatch.observing_stop(lambda: True):
-            details = action_execution._inspect_exec("exec", _strategy(api), time.monotonic() + 5)
+            details = action_execution._inspect_exec("exec", rpc_strategy(api), time.monotonic() + 5)
         self.assertEqual(details, {"ExitCode": 0})
 
     def test_exit_inspection_is_bounded_by_the_same_deadline(self) -> None:
@@ -326,7 +295,7 @@ class DockerCallBoundTests(unittest.TestCase):
             exec_start=lambda *_a, **_k: SimpleNamespace(_sock=object()),
             exec_inspect=late_inspect,
         )
-        late = _strategy(api, deadline=160.0)
+        late = rpc_strategy(api, deadline=160.0)
         with (
             mock.patch.object(action_execution.time, "monotonic", side_effect=lambda: clock[0]),
             mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b"{}", b"")),
@@ -343,7 +312,7 @@ class DockerCallBoundTests(unittest.TestCase):
             exec_start=lambda *_a, **_k: SimpleNamespace(_sock=object()),
             exec_inspect=lambda _exec_id: release.wait(10) or {"ExitCode": 0},
         )
-        slow = _strategy(hanging, timeout=0.3)
+        slow = rpc_strategy(hanging, timeout=0.3)
         started = time.monotonic()
         with (
             mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b"{}", b"")),
