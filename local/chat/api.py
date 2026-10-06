@@ -66,7 +66,9 @@ def _routine_outcome(self, response: _ResponseRequest, terminal: chat_orchestrat
     write, fields = self._routine_record(response, terminal.routine)
     line = {"type": "terminal", "status": 200, "body": {**body, **fields}}
     if "routine_proposal" in fields and _line_bytes(line) > http_progress.MAX_LINE_BYTES:
-        return (lambda: None), {"routine_refusal": {"code": "routine-proposal-too-large"}}
+        return (lambda: self.routine_recordings.finish(response.team_id, response.recording)), {
+            "routine_refusal": {"code": "routine-proposal-too-large"}
+        }
     return write, fields
 
 
@@ -133,11 +135,7 @@ def _segment_response(
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
         body = chat_turn_engine.terminal_body(team_id, segment.team_name, terminal, response.usage)
-        try:
-            committed, fields = commit(terminal, body)
-        finally:
-            # The logical turn ended here, whatever its commit did: nothing more is recorded for it.
-            self.routine_recordings.end(team_id, response.recording)
+        committed, fields = commit(terminal, body)
         if not committed:
             raise chat_stopped()
         return {**body, **fields}
@@ -179,19 +177,20 @@ def _timezone(value: object) -> str | None:
 def _recording(
     self, team_id: str, identity: dict[str, object], send: tuple[str, list, str | None, tuple]
 ) -> str | None:
-    """Open the recording of a new turn that may define a Routine, or None.
+    """Open the send of a new turn in the Team's recording span, or None, which ends any span.
 
-    Only a person's fresh request without files records, in the Team incarnation it starts in (ADR-0101 section 4.1);
-    the person's earlier sends in the request's conversation window join the text whose names it matches.
+    Only a person's fresh request without files records, in the Team incarnation it starts in (ADR-0101); the person's
+    earlier sends in the request's conversation window join the text whose names it matches.
     """
     message, file_ids, timezone, conversation = send
     principal = local_audit.human_principal()
     now = int(time.time())
     if principal is None or file_ids or not http_payload.request_identity_fresh(identity["issued_at"], now):
+        self.routine_recordings.drop(team_id)
         return None
     incarnation = self.assistant_lifecycle._network(team_id).id
-    earlier = local_routine_recorder.earlier_sends(conversation)
-    return self.routine_recordings.start(team_id, (principal, incarnation), message, timezone, now, earlier=earlier)
+    started = local_routine_recorder.Started(message, tuple(conversation), timezone)
+    return self.routine_recordings.start(team_id, (principal, incarnation), started, now)
 
 
 def chat(
@@ -247,38 +246,33 @@ def chat(
         # The turn is admitted: its duration runs from here to its terminal, across every resume.
         usage = brain_usage.TurnUsage.start()
         recording = _recording(self, team_id, identity, (message, file_ids, timezone, conversation))
-        try:
-            segment = self._run_chat_segment(
-                _ChatSegmentRequest(
-                    team_id=team_id,
-                    file_ids=file_ids,
-                    assistant_ids=assistant_ids,
-                    provider=provider,
-                    api_key=api_key,
-                    token=token,
-                    message=message,
-                    conversation=conversation,
-                    locale=locale,
-                    progress=progress or chat_progress.Reporter(),
-                    recording=recording,
-                )
+        segment = self._run_chat_segment(
+            _ChatSegmentRequest(
+                team_id=team_id,
+                file_ids=file_ids,
+                assistant_ids=assistant_ids,
+                provider=provider,
+                api_key=api_key,
+                token=token,
+                message=message,
+                conversation=conversation,
+                locale=locale,
+                progress=progress or chat_progress.Reporter(),
+                recording=recording,
             )
-            return self._segment_response(
-                _ResponseRequest(
-                    team_id,
-                    token,
-                    segment,
-                    assistant_ids,
-                    tuple(file_ids),
-                    provider,
-                    usage=usage,
-                    recording=recording,
-                )
+        )
+        return self._segment_response(
+            _ResponseRequest(
+                team_id,
+                token,
+                segment,
+                assistant_ids,
+                tuple(file_ids),
+                provider,
+                usage=usage,
+                recording=recording,
             )
-        except BaseException:
-            # A failed turn records nothing more; a paused one keeps its recording for the answer.
-            self.routine_recordings.end(team_id, recording)
-            raise
+        )
 
 
 def resume_chat_integrations(

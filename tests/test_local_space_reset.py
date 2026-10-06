@@ -99,7 +99,9 @@ class LocalSpaceResetTests(LocalContractCase):
         )
         controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
         # Recording turns, cards, and run protection live in memory only; a reset forgets every one.
-        recording = controller.routine_recordings.start("team_1", ("f" * 32, "a" * 64), "list", None, 1)
+        recording = controller.routine_recordings.start(
+            "team_1", ("f" * 32, "a" * 64), routine_recorder.Started("list", (), None), 1
+        )
         controller.routine_proposals.put(
             SimpleNamespace(team_id="team_1", principal="f" * 32, proposal_id="e" * 32, expires_at=float("inf"))
         )

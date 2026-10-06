@@ -275,7 +275,9 @@ class CreateTests(NamedTeamCase):
         self.controller.team_names.save("team_c", NETWORK_A, "Stale")
         # No recording turn or card of the previous incarnation can ever define a Routine of the new Team.
         recordings, proposals = self.controller.routine_recordings, self.controller.routine_proposals
-        recording = recordings.start("team_c", ("f" * 32, NETWORK_A), "list my zones", None, int(time.time()))
+        recording = recordings.start(
+            "team_c", ("f" * 32, NETWORK_A), routine_recorder.Started("list my zones", (), None), int(time.time())
+        )
         proposals.put(
             types.SimpleNamespace(team_id="team_c", principal="f" * 32, proposal_id="e" * 32, expires_at=float("inf"))
         )

@@ -35,14 +35,11 @@ from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record, trace
 from routine import recording as routine_recording
-from routine import schedule as routine_schedule
 
 PROPOSAL_SECONDS = 15 * 60
-# The zone of a Routine the agent named none for and whose browser reported none.
-DEFAULT_TIMEZONE = "UTC"
-_OUTCOME_FIELDS = frozenset(
-    {"op", "name", "schedule", "timezone", "output", "notes", "decide_actions", "replaces", "turn_date"}
-)
+# The record call names the Routine and what each run does with its result; when it runs and in which zone are the
+# person's own words, which Team reads (ADR-0101).
+_OUTCOME_FIELDS = frozenset({"op", "name", "output", "notes", "decide_actions", "replaces", "turn_date"})
 _DATE_TEXT = 10
 
 
@@ -133,8 +130,6 @@ def _outcome(value: object) -> dict[str, object]:
         and set(value) == _OUTCOME_FIELDS
         and value["op"] == "record"
         and http_routine.canonical_name(value["name"]) == value["name"]
-        and http_routine.canonical_schedule(value["schedule"]) == value["schedule"]
-        and (value["timezone"] is None or http_routine.canonical_timezone(value["timezone"]) is not None)
         and isinstance(output, dict)
         and set(output) == {"mode", "when"}
         and output["mode"] in http_routine.OUTPUT_MODES
@@ -186,7 +181,7 @@ def routine_capacity(self, team_id: str) -> int:
 
 
 def _recording(self, response: object):
-    """The turn's open recording, still the same person's, usable, and still protected."""
+    """The turn's recording span, still the same person's, usable, and still protected."""
     found = self.routine_recordings.get(response.team_id, response.recording)
     if found is None or found.principal != local_audit.human_principal() or found.protection.lost:
         raise RefusedError("routine-recording-unavailable")
@@ -216,42 +211,37 @@ def _replaced(state: record.TeamRoutines, routine_id: str | None, recording) -> 
     return found
 
 
-def _timezone(outcome: dict[str, object], recording) -> tuple[str, str]:
-    timezone = outcome["timezone"] or recording.timezone or DEFAULT_TIMEZONE
-    try:
-        routine_schedule.zone(timezone)
-    except routine_schedule.ScheduleError as exc:
-        raise RefusedError("routine-recording-invalid") from exc
-    if outcome["timezone"] is None and recording.timezone is None:
-        if outcome["schedule"]["kind"] in http_routine.CALENDAR_KINDS:
-            raise RefusedError("routine-timezone-unstated")
-        return timezone, "none"
-    return timezone, "person" if outcome["timezone"] else "browser"
-
-
-def _turn_date(value: object, started_at: int) -> str | None:
-    """Brain's pinned date counts only when it is the UTC date the recording turn started on."""
-    started = datetime.datetime.fromtimestamp(started_at, datetime.UTC).date().isoformat()
-    return value if value == started else None
-
-
-def _recorded(outcome, recording, timezone: str, contracts, existing: record.Routine | None):
-    """The recorded plan, its input origins, and its permitted Actions.
-
-    A replacement whose turn ran no Action keeps the replaced Routine's steps and changes only how and when it runs.
-    """
+def _recorded(outcome, recording, contracts, existing: record.Routine | None):
+    """The recorded plan with its origins, permitted Actions, schedule, and zone, or the question to ask first."""
     mode = outcome["output"]["mode"]
     if mode == "decide" or outcome["notes"] or outcome["decide_actions"]:
         # Decisions come with their own slice; nothing here admits one yet.
         raise RefusedError("routine-recording-invalid")
-    choice = routine_recording.Recording(mode, None, timezone, ())
-    traced = dataclasses.replace(recording.trace, turn_date=_turn_date(outcome["turn_date"], recording.started_at))
+    choice = routine_recording.Recording(mode, None, ())
+    kept = None
+    if existing is not None:
+        kept = routine_recording.Existing(existing.plan, existing.schedule, existing.timezone, existing.timezone_source)
     try:
-        if existing is not None and not traced.occurrences:
-            return routine_recording.kept(existing.plan, choice, recording.known, recording.protection, contracts)
-        return routine_recording.record(traced, choice, recording.known, recording.protection, contracts)
+        return routine_recording.record(
+            recording.sends, choice, recording.protection, contracts, asked=recording.asked, existing=kept
+        )
     except routine_recording.RecordingError as exc:
         raise RefusedError(exc.code) from exc
+
+
+def _room(candidate: record.Routine, others: tuple[record.Routine, ...]) -> routine_recording.Question:
+    """What to ask when the stated schedule outgrows the Team's daily steps: the shortest interval that fits, if any."""
+    fits = routine_definition.capacity(others) // routine_definition.run_units(candidate)
+    if fits < 1:
+        return routine_recording.Question("routine-no-room")
+    shortest = max(http_routine.MIN_CONTINUOUS_GAP_SECONDS, -(-http_routine.DAY_SECONDS // fits))
+    return routine_recording.Question("routine-interval-over-budget", value=shortest)
+
+
+class _AskedError(Exception):
+    def __init__(self, question: routine_recording.Question) -> None:
+        super().__init__(question.code)
+        self.question = question
 
 
 def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
@@ -260,8 +250,9 @@ def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
     contracts = routine_contracts.contracts(_current(self, response, recording))
     state = routine_state.load(self, response.team_id)
     existing = _replaced(state, outcome["replaces"], recording)
-    timezone, source = _timezone(outcome, recording)
-    recorded = _recorded(outcome, recording, timezone, contracts, existing)
+    recorded = _recorded(outcome, recording, contracts, existing)
+    if isinstance(recorded, routine_recording.Question):
+        raise _AskedError(recorded)
     if not all(item["read_only"] for item in recorded.permitted):
         # Routines that change something come with rehearsal, in their own slice.
         raise RefusedError("routine-mutation-unavailable")
@@ -275,8 +266,8 @@ def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
     candidate = record.Routine(
         routine_id,
         outcome["name"],
-        dict(outcome["schedule"]),
-        timezone,
+        dict(recorded.schedule),
+        recorded.timezone,
         tuple(
             sorted((assistant, scopes[assistant]) for assistant in {item["assistant"] for item in recorded.permitted})
         ),
@@ -284,13 +275,16 @@ def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
         anchor=0,
         next_run_at=0,
         permitted=recorded.permitted,
-        timezone_source=source,
+        timezone_source=recorded.timezone_source,
     )
     try:
         candidate = record.scheduled(candidate, int(time.time()))
     except record.RoutineStateError as exc:
         raise RefusedError(str(exc)) from exc
     refused = routine_definition.over_budget(others, candidate) or record.change_room(state, 1)
+    if refused == "routine-step-budget":
+        # The person's interval stands; Team asks rather than run it less often than they said (ADR-0101).
+        raise _AskedError(_room(candidate, others))
     if refused is not None or not routine_definition.fits(candidate):
         raise RefusedError(refused or "routine-too-large")
     if existing is not None and any(item.routine_id == existing.routine_id for item in state.runs):
@@ -396,10 +390,11 @@ def _digest(candidate: record.Routine, view: dict[str, object], expected_revisio
 def admit(self, response: object, proposed: object) -> tuple[Callable[[], None], dict[str, object]]:
     """A completed turn's ``record`` as the write that keeps its card, and the terminal field the reply carries.
 
-    The caller holds the Team lifecycle lock and runs the write in the reply's commit, under the Stop guard; a
-    recording that cannot become a Routine writes nothing and carries its refusal.
+    The caller holds the Team lifecycle lock and runs the write in the reply's commit, under the Stop guard. A card or a
+    refusal ends the recording span; a question keeps it, with what it asked, for the person's answer.
     """
     outcome = _outcome(proposed)
+    team_id, send_id = response.team_id, response.recording
     try:
         recording, candidate, recorded, existing = _candidate(self, response, outcome)
         proposal_id = record.new_id()
@@ -410,8 +405,17 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
             raise RefusedError("routine-proposal-too-large")
         if trace.exposes(view, recording.protection.values):
             raise RefusedError("routine-secret-literal")
+    except _AskedError as asking:
+        question = asking.question
+        if http_routine.canonical_question(question.wire()) is None:
+            raise _problem(
+                HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine question is invalid", "internal-error"
+            ) from asking
+        return (lambda: self.routine_recordings.asked(team_id, send_id, question)), {
+            "routine_question": question.wire()
+        }
     except RefusedError as exc:
-        return (lambda: None), {"routine_refusal": {"code": exc.code}}
+        return (lambda: self.routine_recordings.finish(team_id, send_id)), {"routine_refusal": {"code": exc.code}}
     if http_routine.canonical_proposal(view) != view:
         raise _problem(HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine card is invalid", "internal-error")
     expected = None if existing is None else existing.revision
@@ -427,7 +431,12 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
         _digest(candidate, view, expected),
         self.routine_proposals.deadline(),
     )
-    return (lambda: self.routine_proposals.put(proposal)), {"routine_proposal": view}
+
+    def keep() -> None:
+        self.routine_proposals.put(proposal)
+        self.routine_recordings.finish(team_id, send_id)
+
+    return keep, {"routine_proposal": view}
 
 
 def _principal() -> str:

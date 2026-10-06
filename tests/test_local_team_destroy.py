@@ -39,7 +39,9 @@ def _routine_books(controller: local_app.LocalController) -> None:
 
 def _open_recording_and_card(controller: local_app.LocalController) -> str:
     """Open a recording turn and a card for team_1, as a person's turn would; returns the recording id."""
-    recording = controller.routine_recordings.start("team_1", ("f" * 32, "a" * 64), "list", None, 1)
+    recording = controller.routine_recordings.start(
+        "team_1", ("f" * 32, "a" * 64), routine_recorder.Started("list", (), None), 1
+    )
     controller.routine_proposals.put(
         SimpleNamespace(team_id="team_1", principal="f" * 32, proposal_id="e" * 32, expires_at=float("inf"))
     )

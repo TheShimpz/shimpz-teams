@@ -14,6 +14,7 @@ from local_controller_harness import LocalContractCase
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local import audit as local_audit
+from local.chat import api as local_chat_api
 from local.routine import contracts as routine_contracts
 from local.routine import manage as routine_manage
 from local.routine import store as routine_store
@@ -22,6 +23,7 @@ from protocol.http.v1 import routine as http_routine
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
+from routine import recording as routine_recording
 
 PRINCIPAL = "a" * 32
 OTHER = "b" * 32
@@ -60,15 +62,12 @@ MESSAGE = (
     "Pergunta: De qual zona?\nResposta: shimpz.com"
 )
 CONTINUOUS = {"kind": "continuous", "gap": 30, "cap": 2880}
-HOURLY = {"kind": "hourly", "every": 1}
 
 
 def _record(**changes: object) -> dict[str, object]:
     value = {
         "op": "record",
         "name": "DNS de shimpz.com",
-        "schedule": CONTINUOUS,
-        "timezone": None,
         "output": {"mode": "show", "when": None},
         "notes": "",
         "decide_actions": [],
@@ -110,6 +109,35 @@ class Recording:
 
     def _done(self):
         return brain_runtime_client.RuntimeTurn("completed", "Pronto.", (), routine=self.outcomes.pop(0))
+
+
+class Sends:
+    """A scripted chat agent across sends: each send runs its own calls, then replies, recording only when told to."""
+
+    def __init__(self, *scripts: tuple[tuple[str, ...], dict[str, object] | None]) -> None:
+        self.scripts = list(scripts)
+        self.contexts: list[brain_runtime_client.RuntimeContext] = []
+
+    def start(self, context, _message, *, conversation=()):
+        self.contexts.append(context)
+        self.calls, self.outcome = self.scripts.pop(0)
+        self.done = 0
+        return self._next()
+
+    def resume(self, _context, _results):
+        return self._next()
+
+    def _next(self):
+        if self.done == len(self.calls):
+            return brain_runtime_client.RuntimeTurn("completed", "Pronto.", (), routine=self.outcome)
+        action = self.calls[self.done]
+        self.done += 1
+        given = {"page": 1, "per_page": 25}
+        if action == "list-dns-records":
+            # The agent remembers shimpz.com's id from a lookup, whenever it ran.
+            given = {"zone_id": SHIMPZ, **given}
+        request = brain_runtime_client.ActionRequest(f"i-{self.done}", ASSISTANT, action, given)
+        return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
 
 def _body(message: str = MESSAGE, *, files=(), issued_at: int | None = None) -> dict[str, object]:
@@ -162,6 +190,16 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(response["reply"], "Pronto.")
         return response["routine_refusal"]["code"]
 
+    def question(self, runtime, body: dict[str, object] | None = None, *, prepare=lambda service: None) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            prepare(service)
+            response = self.chat(service, body)
+            self.assertEqual(service.routine_store.load("team_1").routines, ())
+        self.assertNotIn("routine_proposal", response)
+        self.assertEqual(response["reply"], "Pronto.")
+        return response["routine_question"]
+
     def test_the_owners_turn_records_a_card_whose_confirmation_creates_the_routine(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
@@ -210,12 +248,69 @@ class RecordedRoutineTests(LocalContractCase):
             card = self.chat(service, body)["routine_proposal"]
         zone_id = next(item for item in card["steps"][1]["inputs"] if item["member"] == "zone_id")
         self.assertEqual((zone_id["origin"], zone_id["where"]["value_json"]), ("selector", '"shimpz.com"'))
-        # Without the earlier send, nothing the person wrote names the zone, so its id is the assistant's literal.
+        # Without the earlier send, nothing the person wrote names the zone, so its id is read by its position.
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
             alone = self.chat(service, _body("Faça isso a cada 30 segundos"))["routine_proposal"]
         zone_id = next(item for item in alone["steps"][1]["inputs"] if item["member"] == "zone_id")
-        self.assertEqual(zone_id["origin"], "assistant")
+        self.assertEqual((zone_id["origin"], zone_id["pointer"], zone_id["where"]), ("step", "/zones/1/id", None))
+
+    def test_a_lookup_in_an_earlier_send_is_the_source_of_the_remembered_id(self) -> None:
+        runtime = Sends((("list-zones",), None), (("list-dns-records",), _record()))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            first = self.chat(service, _body("Liste os registros DNS"))
+            card = self.chat(service, _body("shimpz.com, a cada 30 segundos"))["routine_proposal"]
+        self.assertNotIn("routine_question", first)
+        self.assertEqual([step["action"] for step in card["steps"]], ["list-zones", "list-dns-records"])
+        zone_id = next(item for item in card["steps"][1]["inputs"] if item["member"] == "zone_id")
+        self.assertEqual((zone_id["origin"], zone_id["where"]["value_json"]), ("selector", '"shimpz.com"'))
+
+    def test_a_question_keeps_the_span_and_the_persons_answer_completes_the_card(self) -> None:
+        runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), _record()))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            asked = self.chat(service, _body("Liste os registros DNS de shimpz.com"))["routine_question"]
+            card = self.chat(service, _body("A cada 30 segundos"))["routine_proposal"]
+            span = service.routine_recordings._spans.get("team_1")
+        self.assertEqual(asked, {"code": "routine-schedule-unstated", "options": [], "value": None})
+        self.assertEqual(
+            (card["schedule"], [step["action"] for step in card["steps"]]),
+            (CONTINUOUS, ["list-zones", "list-dns-records"]),
+        )
+        # The card ended the span.
+        self.assertIsNone(span)
+
+    def test_a_question_its_own_contract_refuses_is_an_internal_error_never_asked(self) -> None:
+        stray = routine_recording.Question("routine-other")
+        with (
+            mock.patch.object(routine_recording, "record", return_value=stray),
+            self.assertRaises(local_app.ApiProblem) as caught,
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            self.chat(self.controller(directory, Recording(_record())))
+        self.assertEqual(caught.exception.code, "internal-error")
+
+    def test_a_send_with_files_ends_the_span(self) -> None:
+        runtime = Sends((("list-zones",), None), (("list-dns-records",), _record()))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            self.chat(service, _body("Liste os registros DNS de shimpz.com"))
+            recording = local_chat_api._recording(
+                service, "team_1", {"issued_at": int(time.time())}, ("m", ["f"], None, ())
+            )
+            asked = self.chat(service, _body("shimpz.com, a cada 30 segundos"))["routine_question"]
+        self.assertIsNone(recording)
+        self.assertEqual(asked["code"], "routine-binding-unsourced")
+
+    def test_the_brain_sees_where_each_routines_timezone_came_from(self) -> None:
+        runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])
+            self.chat(service, _body("Quais rotinas eu tenho?"))
+        ((listed),) = runtime.contexts[1].routines
+        self.assertEqual((listed["timezone"], listed["timezone_source"]), ("America/Sao_Paulo", "browser"))
 
     def test_cancelling_revokes_the_card_and_it_never_confirms(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -320,20 +415,25 @@ class RecordedRoutineTests(LocalContractCase):
             service = self.controller(directory, Recording(_record()))
             card = self.chat(service, unzoned)["routine_proposal"]
         self.assertEqual((card["timezone"], card["timezone_source"]), ("UTC", "none"))
-        daily = _record(schedule={"kind": "daily", "time": "09:00"})
-        self.assertEqual(self.refusal(Recording(daily), unzoned), "routine-timezone-unstated")
+        daily = {**_body("DNS de shimpz.com todo dia às 9h"), "timezone": None}
+        asked = self.question(Recording(_record()), daily)
+        self.assertEqual(asked, {"code": "routine-timezone-unstated", "options": [], "value": None})
         with tempfile.TemporaryDirectory() as directory:
-            service = self.controller(directory, Recording(_record(timezone="Europe/Lisbon")))
-            card = self.chat(service)["routine_proposal"]
+            service = self.controller(directory, Recording(_record()))
+            card = self.chat(service, _body(f"{MESSAGE}\nNo fuso Europe/Lisbon"))["routine_proposal"]
         self.assertEqual((card["timezone"], card["timezone_source"]), ("Europe/Lisbon", "person"))
 
-    def test_a_continuous_cap_is_never_lowered_to_fit(self) -> None:
+    def test_a_stated_interval_is_never_lowered_and_one_over_the_budget_is_asked_about(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
             card = self.chat(service)["routine_proposal"]
         self.assertEqual((card["schedule"]["cap"], card["daily_cap"]), (2880, 2880))
+        # Two steps every 30 seconds take 5,760 daily steps; with 5,758 left, every 31 seconds is the shortest fit.
         with mock.patch.object(routine_definition, "capacity", return_value=2 * 2879):
-            self.assertEqual(self.refusal(Recording(_record())), "routine-step-budget")
+            asked = self.question(Recording(_record()))
+        self.assertEqual(asked, {"code": "routine-interval-over-budget", "options": [], "value": 31})
+        with mock.patch.object(routine_definition, "capacity", return_value=1):
+            self.assertEqual(self.question(Recording(_record()))["code"], "routine-no-room")
 
     def test_a_replacement_without_actions_keeps_the_steps_and_confirms_as_the_next_revision(self) -> None:
         hourly = {"kind": "hourly", "every": 1}
@@ -343,8 +443,8 @@ class RecordedRoutineTests(LocalContractCase):
             created = self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])
             routine_id = created["routine_id"]
             runtime.calls = False
-            runtime.outcomes.append(_record(schedule=hourly, replaces=routine_id, name="DNS por hora"))
-            card = self.chat(service)["routine_proposal"]
+            runtime.outcomes.append(_record(replaces=routine_id, name="DNS por hora"))
+            card = self.chat(service, _body("Mude para a cada hora"))["routine_proposal"]
             answer = self.confirm(service, card["proposal_id"])
             state = service.routine_store.load("team_1")
         (routine,) = state.routines
@@ -401,19 +501,19 @@ class RecordedRoutineTests(LocalContractCase):
             )
 
         with tempfile.TemporaryDirectory() as directory:
-            runtime = Recording(_record(schedule=HOURLY))
+            runtime = Recording(_record())
             service = self.controller(directory, runtime)
             routine_id = self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])["routine_id"]
             # The Routine moves on while the turn that was shown its first revision is still running.
             runtime.between = lambda: bump(service)
-            runtime.outcomes.append(_record(schedule=HOURLY, replaces=routine_id))
+            runtime.outcomes.append(_record(replaces=routine_id))
             changed = self.chat(service)
             runtime.between = lambda: None
-            runtime.outcomes.append(_record(schedule=HOURLY))
+            runtime.outcomes.append(_record())
             created = self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])["routine_id"]
             # A Routine created after a turn's listing was never shown to it, so the turn cannot replace it.
             service.routine_recordings.listed = lambda *_args: None
-            runtime.outcomes.append(_record(schedule=HOURLY, replaces=created))
+            runtime.outcomes.append(_record(replaces=created))
             unlisted = self.chat(service)
         self.assertEqual(changed["routine_refusal"]["code"], "routine-revision-changed")
         self.assertEqual(unlisted["routine_refusal"]["code"], "routine-not-found")
@@ -461,7 +561,7 @@ class RecordedRoutineTests(LocalContractCase):
 
     def test_each_later_refusal_keeps_the_reply_and_creates_nothing(self) -> None:
         cases = [
-            ("routine-recording-invalid", {"outcome": _record(timezone="Mars/Olympus")}),
+            ("routine-recording-invalid", {"outcome": _record(notes="Também apague os antigos.")}),
             ("plan-input-type", {"patch": (routine_plan, "admit", routine_plan.PlanError("plan-input-type"))}),
             ("routine-invalid", {"patch": (record, "scheduled", record.RoutineStateError("routine-invalid"))}),
             ("routine-rate-limit", {"patch": (routine_definition, "over_budget", None), "value": "routine-rate-limit"}),

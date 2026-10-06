@@ -15,6 +15,7 @@ from inference import client as brain_runtime_client
 from local import app as local_app
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.routine import proposal as routine_proposal
+from local.routine import recorder as routine_recorder
 from local.routine import store as routine_store
 
 RUN = "f" * 32
@@ -141,7 +142,9 @@ class RecordingTests(LocalContractCase):
         controller = self._chat_controller(directory, ScriptedRuntime(acting(), completed()))
         controller.assistant_lifecycle.invoke = invoke
         books = controller.chat_turn_service.routine_recordings
-        recording = books.start("team_1", (PRINCIPAL, INCARNATION), "List my zones", None, int(time.time()))
+        recording = books.start(
+            "team_1", (PRINCIPAL, INCARNATION), routine_recorder.Started("List my zones", (), None), int(time.time())
+        )
         return controller, books, recording
 
     def test_a_successful_call_is_an_occurrence_and_its_capabilities_are_protected(self) -> None:
@@ -157,7 +160,7 @@ class RecordingTests(LocalContractCase):
             controller, books, recording = self.controller(directory, invoke)
             run_chat(controller.chat_turn_service, recording)
             found = books.get("team_1", recording)
-        (occurrence,) = found.trace.occurrences
+        (occurrence,) = found.sends[-1].occurrences
         self.assertEqual(
             (occurrence.assistant, occurrence.action, occurrence.read_only, occurrence.operation_id),
             ("shimpz-cloudflare", LIST.action, True, seen[0].operation_id),
@@ -176,7 +179,7 @@ class RecordingTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem):
                 run_chat(controller.chat_turn_service, recording)
             found = books.get("team_1", recording)
-        self.assertEqual(found.trace.occurrences, ())
+        self.assertEqual(found.sends[-1].occurrences, ())
         self.assertIn("capability-value-2", found.protection.values)
 
     def test_an_ordinary_turn_protects_nothing_and_records_nothing(self) -> None:
@@ -190,4 +193,4 @@ class RecordingTests(LocalContractCase):
             controller, books, recording = self.controller(directory, invoke)
             run_chat(controller.chat_turn_service, None)
             found = books.get("team_1", recording)
-        self.assertEqual((seen, found.trace.occurrences), ([None], ()))
+        self.assertEqual((seen, found.sends[-1].occurrences), ([None], ()))

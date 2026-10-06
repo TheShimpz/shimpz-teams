@@ -76,8 +76,6 @@ def _terminal_human_failure(
     self.human_challenges.cancel_team(team_id)
     self._delete_chat_continuation(team_id)
     self._purge_human_pending(pending)
-    # The logical turn ends here, so its recording does too.
-    self.routine_recordings.end(team_id, pending.recording)
     if not self._commit_chat_terminal(team_id, token):
         raise chat_stopped()
     return {

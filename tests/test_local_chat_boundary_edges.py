@@ -275,10 +275,9 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         ):
             local_chat_api._segment_response(subject, response)
         self.assertEqual(caught.exception.code, "chat-stopped")
-        # Stop won the commit, so the turn's card was admitted but never kept; the logical turn still ended.
+        # Stop won the commit, so the turn's card was admitted but never kept, and its span went on unchanged.
         subject._routine_record.assert_called_once()
         write.assert_not_called()
-        subject.routine_recordings.end.assert_called_once_with("team_1", "b" * 32)
 
         def failing_commit(*_args):
             raise local_app.ApiProblem(503, "memory", code="memory-store-failed")
@@ -290,7 +289,6 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         ):
             local_chat_api._segment_response(subject, response)
         write.assert_not_called()
-        self.assertEqual(subject.routine_recordings.end.call_count, 2)
 
         def committing(_team_id, _token, apply):
             apply()

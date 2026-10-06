@@ -200,11 +200,15 @@ class RoutineLifecycleTests(unittest.TestCase):
             self.subject.routine_proposals,
             self.subject.routine_protections,
         )
-        recording = recordings.start("team_1", ("f" * 32, NETWORK), "Listar registros DNS", None, NINE)
+        recording = recordings.start(
+            "team_1", ("f" * 32, NETWORK), routine_recorder.Started("Listar registros DNS", (), None), NINE
+        )
         protections.bind("a" * 32)
         routine_lifecycle.delete_team_routines(self.subject, "team_1")
         self.assertIsNone(recordings.get("team_1", recording))
-        recording = recordings.start("team_2", ("f" * 32, NETWORK), "Listar registros DNS", None, NINE)
+        recording = recordings.start(
+            "team_2", ("f" * 32, NETWORK), routine_recorder.Started("Listar registros DNS", (), None), NINE
+        )
         routine_lifecycle.delete_all_routines(self.subject)
         self.assertIsNone(recordings.get("team_2", recording))
         self.assertTrue(protections.current("a" * 32, protections.boot).lost)

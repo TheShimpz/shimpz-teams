@@ -117,47 +117,15 @@ class ProtectionTests(unittest.TestCase):
         self.assertEqual(full.grow(("v1",)), full)
 
 
-class TraceTests(unittest.TestCase):
-    def test_occurrences_append_in_dispatch_order(self) -> None:
-        recorded = trace.Trace("2026-10-05", 1_760_000_000)
-        recorded = recorded.add(_occurrence()).add(_occurrence(action="list-dns-records"))
-        self.assertEqual([item.action for item in recorded.occurrences], ["list-zones", "list-dns-records"])
-        first = recorded.occurrences[0]
+class OccurrenceTests(unittest.TestCase):
+    def test_an_occurrence_counts_its_kept_values_and_every_pointer_they_withhold(self) -> None:
+        first = _occurrence()
         self.assertEqual(first.size, trace.kept_bytes(first.input) + trace.kept_bytes(first.result))
-
-    def test_the_occurrence_and_byte_bounds_refuse_a_larger_recording(self) -> None:
-        recorded = trace.Trace(None, 1)
-        occurrence = _occurrence()
-        for _ in range(trace.MAX_OCCURRENCES):
-            recorded = recorded.add(occurrence)
-        with self.assertRaises(trace.TraceError) as raised:
-            recorded.add(occurrence)
-        self.assertEqual(raised.exception.code, "routine-recording-too-large")
-        large = _occurrence(result=trace.keep("x" * (trace.MAX_KEPT_BYTES - 16), {}, ()))
-        recorded = trace.Trace(None, 1)
-        with self.assertRaises(trace.TraceError):
-            for _ in range(5):
-                recorded = recorded.add(large)
-
-    def test_withheld_pointers_count_toward_the_byte_bound(self) -> None:
-        # A value of many withheld members carries a pointer for each, which the bound counts.
+        # A value of many withheld members carries a pointer for each, which a span's byte bound counts.
         members = {f"token_{index:05d}": "x" for index in range(9000)}
         kept = trace.keep(members, {}, ())
         self.assertGreater(trace.kept_bytes(kept), len(trace.encoded(kept.value)) + 9000 * 12)
-        heavy = _occurrence(result=kept)
-        recorded = trace.Trace(None, 1)
-        with self.assertRaises(trace.TraceError):
-            while True:
-                recorded = recorded.add(heavy)
-        self.assertLessEqual(sum(item.size for item in recorded.occurrences), trace.MAX_TRACE_BYTES)
-
-    def test_a_trace_made_whole_is_bounded_too(self) -> None:
-        large = _occurrence(result=trace.keep("x" * (trace.MAX_KEPT_BYTES - 16), {}, ()))
-        with self.assertRaises(trace.TraceError) as raised:
-            trace.Trace(None, 1, (large,) * 5)
-        self.assertEqual(raised.exception.code, "routine-recording-too-large")
-        with self.assertRaises(trace.TraceError):
-            trace.Trace(None, 1, (_occurrence(),) * (trace.MAX_OCCURRENCES + 1))
+        self.assertGreater(_occurrence(result=kept).size, trace.kept_bytes(kept))
 
 
 if __name__ == "__main__":

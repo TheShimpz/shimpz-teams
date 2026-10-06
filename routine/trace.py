@@ -1,20 +1,19 @@
-"""The memory-only trace of one recording chat turn's Action calls, and the values it protects (ADR-0101).
+"""The memory-only occurrences of a recording span's Action calls, and the values it protects (ADR-0101).
 
-A Routine is recorded from work the ordinary chat agent actually did. While a Local turn may record one, Team keeps each
+A Routine is recorded from work the ordinary chat agent actually did. While a Local send may record one, Team keeps each
 successful Action call in dispatch order: its journal operation id, Assistant Action, complete pin, whether the
 reviewed effect proves it read-only, its dispatch instant, and its model-given input and validated result as kept
 values. A kept value is the exact JSON with every position that may be secret withheld whole and recorded out of band
 as an RFC 6901 pointer: a schema-secret position, a credential-shaped string, a string holding a value Team injected,
 and an object holding a credential-shaped or injected key. Private envelopes and human answers are never kept.
 
-The turn also keeps a protection set: every value an invocation was given or returned in secret. It only grows, and a
-turn that would exceed its bound loses it, irreversibly, so nothing the turn wrote may then enter a Routine. Nothing
-here is ever persisted: a Team restart drops the trace and the set, and recording is then unavailable.
+The span also keeps a protection set: every value an invocation was given or returned in secret. It only grows, and a
+span that would exceed its bound loses it, irreversibly, so nothing it wrote may then enter a Routine. Nothing here is
+ever persisted: a Team restart drops every occurrence and set, and recording is then unavailable.
 """
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -22,23 +21,15 @@ from dataclasses import dataclass, field
 from assistant import manifest as assistant_manifest
 from routine import plan as routine_plan
 
-# The calls one turn may record: the plan bound.
+# The calls one recording span may keep: the plan bound.
 MAX_OCCURRENCES = routine_plan.MAX_STEPS
 # A kept value larger than this is withheld whole, so nothing can be copied from it.
 MAX_KEPT_BYTES = 256 * 1024
-# Every kept input and result of one turn, together.
+# Every kept input and result of one recording span, together.
 MAX_TRACE_BYTES = 1024 * 1024
 # The protection set of one turn or run: past either bound it is lost, never evicted (ADR-0101 section 6.2).
 MAX_PROTECTED_VALUES = 128
 MAX_PROTECTED_BYTES = 64 * 1024
-
-
-class TraceError(ValueError):
-    """The trace refused a call; ``code`` is the stable reason."""
-
-    def __init__(self, code: str) -> None:
-        super().__init__(code)
-        self.code = code
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,22 +201,3 @@ class Occurrence:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "size", kept_bytes(self.input) + kept_bytes(self.result))
-
-
-@dataclass(frozen=True, slots=True)
-class Trace:
-    """A recording turn's successful calls in dispatch order, the UTC date Brain pinned for it, and its start.
-
-    Every trace, however it is made, holds at most MAX_OCCURRENCES calls and MAX_TRACE_BYTES of kept values.
-    """
-
-    turn_date: str | None
-    started_at: int
-    occurrences: tuple[Occurrence, ...] = ()
-
-    def __post_init__(self) -> None:
-        if len(self.occurrences) > MAX_OCCURRENCES or sum(item.size for item in self.occurrences) > MAX_TRACE_BYTES:
-            raise TraceError("routine-recording-too-large")
-
-    def add(self, occurrence: Occurrence) -> Trace:
-        return dataclasses.replace(self, occurrences=(*self.occurrences, occurrence))

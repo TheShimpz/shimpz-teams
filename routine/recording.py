@@ -1,40 +1,44 @@
-"""Team's deterministic recording of a Routine plan from a chat turn's own trace, with no model (ADR-0101).
+"""Team's deterministic recording of a Routine plan from a person's recent chat sends, with no model (ADR-0101).
 
-The chat agent runs the recurring work once and then calls ``record``; Team builds the plan from its own trace of that
-turn's successful Action calls. Which calls replay is fixed: in ``show``, ``changes``, and ``none`` every call replays,
-so a change repeats on every run; in ``decide`` only read-only calls replay, and every changing call's Action joins the
-permitted set instead, so no conditional effect ever becomes unconditional.
+The chat agent runs the recurring work and calls ``record``; Team builds the plan from its own memory-only trace of the
+recording span: the person's consecutive fresh sends in one Team incarnation, each with its own message, the person's
+own words in it, the untruncated earlier sends its conversation window carried, its browser timezone, its start, and
+its successful Action calls in dispatch order.
 
-Each top-level input member's whole value of each replay step is classified by the first rule that applies, against
-the person's request (the known text): the turn's Team-admitted message and each untruncated earlier send of the person
-in the conversation window that same request carried. A name or number counts only within one of those texts, never
-across two:
+The work is the calls of the latest send that ran any Action; earlier sends only provide sources. Each top-level input
+member of a plan call is classified by the first rule that applies:
 
-1. a secret (withheld, credential-shaped, protected by the turn, or bound for a secret destination) refuses;
-2. a non-empty string occurring in the known text, or a number whose JSON text is a whole token of it, is a literal the
-   person named;
-3. the UTC date Brain pinned for the turn is the run date, when the turn did not start near local midnight; otherwise
-   it is a fixed literal;
-4. a long string, a long integer, or a non-empty container that an earlier read-only replay step returned at exactly
-   one available position is copied from it, crossing at most one array by the item's single sibling member that the
-   known text names and no other item shares;
+1. a secret (withheld, credential-shaped, protected by the span, or bound for a secret destination) refuses;
+2. a non-empty string occurring in one line the person wrote, or a number whose JSON text is a whole token of one, is
+   a literal the person named;
+3. the UTC date its own send started on is the run date, when that send did not start near local midnight; otherwise
+   a fixed literal; with no timezone known, the person is asked for one;
+4. a long string, a long integer, or a non-empty container is copied from the one call result in the span holding it:
+   from its one position, through the array item whose single member the person named and no other item shares, or
+   from the indexed item when the person named no member of it. A value no result holds, or one several hold that no
+   named member separates, is asked about and never frozen;
 5. anything else is a literal the assistant chose, the same on every run.
 
-Equality is exact and type-sensitive (``plan.same``). Every call replays in order, the same Action for several items
-included; only a read-only call that a later call of the same Action repeats with identical input is dropped, unless a
-step reads it, and a value is never copied from such a superseded call. The result is a plan document, each input's
-origin for the confirmation card, and the permitted Actions at their pins.
+A source is one specific occurrence; read-only calls of the same Action with identical input and result and no changing
+call between them are one source, its earliest. The plan holds every work call and every source they need, ordered by
+their data dependencies with every changing call kept where it ran; a conflict or a cycle refuses. Before any card,
+Team resolves the plan against the recorded results and requires every reference to reproduce what each call sent.
+
+The schedule and the timezone are the person's own: the latest send that states a schedule (``routine.phrase``), and
+the latest send naming an IANA zone, else the latest send's browser zone. What cannot be read is asked, never guessed.
 """
 
 from __future__ import annotations
 
 import datetime
+import heapq
 import re
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from protocol.http.v1 import routine as http_routine
+from routine import phrase, schedule, trace
 from routine import plan as routine_plan
-from routine import schedule, trace
 
 MODES = ("show", "changes", "none", "decide")
 WHEN = ("always", "changes")
@@ -56,21 +60,77 @@ class RecordingError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Recording:
-    """What the ``record`` call chose: the output mode, when a decision runs, the timezone, and extra Actions."""
+    """What the ``record`` call chose: the output mode, when a decision runs, and extra decision Actions."""
 
     mode: str
     when: str | None
-    timezone: str
     decide_actions: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
+class Send:
+    """One fresh send of the person in a recording span."""
+
+    message: str
+    # The person's own lines of the message: a composed clarification's question lines dropped, answers unlabelled.
+    person: tuple[str, ...]
+    # The person's own lines of each untruncated user entry of the conversation window the request carried.
+    window: tuple[str, ...]
+    # The browser's validated IANA zone, or None.
+    timezone: str | None
+    started_at: int
+    occurrences: tuple[trace.Occurrence, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class Asked:
+    """The question a span last asked, which the person's later sends may answer."""
+
+    code: str
+    # The values a person may name to choose a target.
+    options: tuple[object, ...]
+    # How many sends the span held when it asked: only later sends answer it.
+    after: int
+
+
+@dataclass(frozen=True, slots=True)
+class Question:
+    """What Team asks the person before a card; ``options`` are targets ``{value, label}``."""
+
+    code: str
+    options: tuple[dict[str, object], ...] = ()
+    value: int | None = None
+
+    def wire(self) -> dict[str, object]:
+        return {"code": self.code, "options": [dict(item) for item in self.options], "value": self.value}
+
+
+class _AskError(Exception):
+    def __init__(self, question: Question) -> None:
+        super().__init__(question.code)
+        self.question = question
+
+
+@dataclass(frozen=True, slots=True)
+class Existing:
+    """A replaced Routine: its plan, and the schedule and zone a replacement keeps unless the person states others."""
+
+    plan: Mapping[str, object]
+    schedule: dict[str, object]
+    timezone: str
+    timezone_source: str
+
+
+@dataclass(frozen=True, slots=True)
 class Recorded:
-    """The recorded plan document, each input's origin by step and member, and the permitted Actions at their pins."""
+    """The recorded plan document, each input's origin by step and member, the permitted Actions, and when it runs."""
 
     document: dict[str, object]
     origins: dict[str, dict[str, str]]
     permitted: tuple[dict[str, object], ...]
+    schedule: dict[str, object]
+    timezone: str
+    timezone_source: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,53 +148,83 @@ class _Known:
 
 
 def _known(texts: Sequence[str], protection: trace.Protection) -> _Known:
-    """The request's texts, with every whole number token each one writes on its own."""
+    """The person's texts, with every whole number token each one writes on its own."""
     numbers = frozenset(match.group() for text in texts for match in _NUMBER_RE.finditer(text))
     return _Known(tuple(texts), numbers, protection.values)
 
 
+@dataclass(frozen=True, slots=True)
+class _Call:
+    """One call of the span: its global dispatch index, its send, and its occurrence."""
+
+    index: int
+    send: int
+    occurrence: trace.Occurrence
+
+    @property
+    def action(self) -> tuple[str, str]:
+        return (self.occurrence.assistant, self.occurrence.action)
+
+    @property
+    def read_only(self) -> bool:
+        return self.occurrence.read_only
+
+
+@dataclass(slots=True)
+class _Context:
+    sends: Sequence[Send]
+    calls: list[_Call]
+    known: _Known
+    zone: tuple[str, str] | None
+    asked: Asked | None
+    contracts: Mapping[tuple[str, str], routine_plan.ActionContract]
+    # Every call's source representative, and each plan call's classified inputs and their origins.
+    classes: dict[int, int] = field(default_factory=dict)
+    inputs: dict[int, tuple[dict[str, dict[str, object]], dict[str, str]]] = field(default_factory=dict)
+
+
 def record(
-    recorded: trace.Trace,
+    sends: Sequence[Send],
     recording: Recording,
-    known: Sequence[str],
     protection: trace.Protection,
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract],
-) -> Recorded:
-    """The plan a recording turn's trace defines from the request's ``known`` texts; raises RecordingError."""
+    *,
+    asked: Asked | None = None,
+    existing: Existing | None = None,
+) -> Recorded | Question:
+    """The plan a recording span defines, or the question to ask first; raises RecordingError when it cannot be one."""
     _admit(recording, contracts)
     if protection.lost:
         raise RecordingError("routine-recording-unavailable")
-    for occurrence in recorded.occurrences:
-        contract = contracts.get((occurrence.assistant, occurrence.action))
-        if contract is None or contract.pin != occurrence.pin:
+    calls = _calls(sends, contracts)
+    texts = [line for send in sends for line in (*send.person, *send.window)]
+    latest = [call for call in calls if call.send == calls[-1].send] if calls else []
+    try:
+        context = _Context(sends, calls, _known(texts, protection), _zone(sends, existing), asked, contracts)
+        if not latest and existing is not None:
+            return _kept(context, recording, existing)
+        work = [call for call in latest if call.read_only or recording.mode != "decide"]
+        document, origins = _plan(context, recording, work)
+        when = _schedule(sends, existing)
+        timezone, source = _zoned(context, when, document)
+    except _AskError as asking:
+        return asking.question
+    document["timezone"] = timezone
+    actions = [(step["assistant"], step["action"]) for step in document["steps"]]
+    changing = [call.action for call in latest if not call.read_only]
+    permitted = _permitted(actions + changing + list(recording.decide_actions), contracts)
+    return Recorded(document, origins, permitted, when, timezone, source)
+
+
+def _calls(sends: Sequence[Send], contracts: Mapping[tuple[str, str], routine_plan.ActionContract]) -> list[_Call]:
+    """Every call of the span in dispatch order; one whose Action is no longer at its pin refuses the recording."""
+    occurrences = [(position, item) for position, send in enumerate(sends) for item in send.occurrences]
+    calls = [_Call(index, send, occurrence) for index, (send, occurrence) in enumerate(occurrences)]
+    for call in calls:
+        contract = contracts.get(call.action)
+        if contract is None or contract.pin != call.occurrence.pin:
             raise RecordingError("plan-pin-drift")
-    decide = recording.mode == "decide"
-    replayed = [item for item in recorded.occurrences if item.read_only or not decide]
-    if not replayed and not decide:
-        raise RecordingError("routine-recording-empty")
-    context = _known(known, protection)
-    steps = [
-        _step(index, occurrence, replayed[:index], recorded, recording.timezone, context, contracts)
-        for index, occurrence in enumerate(replayed)
-    ]
-    if not decide:
-        steps = _pruned(steps, replayed)
-    steps, origins = _renumbered(steps)
-    changing = [item for item in recorded.occurrences if not item.read_only]
-    permitted = _permitted(
-        [(step["assistant"], step["action"]) for step, _origin in steps]
-        + [(item.assistant, item.action) for item in changing]
-        + list(recording.decide_actions),
-        contracts,
-    )
-    shown = steps[-1][0]["id"] if recording.mode in routine_plan.SHOWN_MODES else None
-    document = {
-        "version": routine_plan.VERSION,
-        "timezone": recording.timezone,
-        "steps": [step for step, _origin in steps],
-        "output": {"mode": recording.mode, "step": shown, "when": recording.when},
-    }
-    return Recorded(document, origins, permitted)
+    return calls
 
 
 def _admit(recording: Recording, contracts: Mapping[tuple[str, str], routine_plan.ActionContract]) -> None:
@@ -161,21 +251,234 @@ def _permitted(
     )
 
 
-def _step(
-    index: int,
-    occurrence: trace.Occurrence,
-    earlier: list[trace.Occurrence],
-    recorded: trace.Trace,
-    timezone: str,
-    known: _Known,
-    contracts: Mapping[tuple[str, str], routine_plan.ActionContract],
-) -> tuple[dict[str, object], dict[str, str]]:
-    """One replay step, provisionally named by its replay position, and the origin of each of its inputs."""
-    given = occurrence.input
+# --- When it runs ----------------------------------------------------------------------------------------------------
+
+
+def _schedule(sends: Sequence[Send], existing: Existing | None) -> dict[str, object]:
+    """The schedule the latest send stating one states; a replacement keeps its own when none is stated."""
+    latest: tuple[dict[str, object], ...] = ()
+    for send in sends:
+        for line in send.person:
+            found = phrase.stated(line)
+            if found:
+                latest = found
+    if len(latest) == 1:
+        return dict(latest[0])
+    if not latest and existing is not None:
+        return dict(existing.schedule)
+    raise _AskError(Question("routine-schedule-unstated"))
+
+
+def _zone(sends: Sequence[Send], existing: Existing | None) -> tuple[str, str] | None:
+    """The zone the latest send naming one names, else a replaced Routine's, else the latest browser zone, or None."""
+    for send in reversed(sends):
+        written = {zone for line in send.person for zone in phrase.zones(line)}
+        if len(written) > 1:
+            raise _AskError(Question("routine-timezone-ambiguous"))
+        if written:
+            return written.pop(), "person"
+    if existing is not None and existing.timezone_source != "none":
+        return existing.timezone, existing.timezone_source
+    browser = sends[-1].timezone if sends else None
+    return None if browser is None else (browser, "browser")
+
+
+def _zoned(context: _Context, when: dict[str, object], document: dict[str, object]) -> tuple[str, str]:
+    """The Routine's zone: required by a calendar schedule or a run date, only a convention when neither needs one."""
+    if context.zone is not None:
+        return context.zone
+    if when["kind"] in http_routine.CALENDAR_KINDS or routine_plan.clocked(document):
+        raise _AskError(Question("routine-timezone-unstated"))
+    return http_routine.CONVENTIONAL_TIMEZONE, "none"
+
+
+# --- What it runs ----------------------------------------------------------------------------------------------------
+
+
+def _kept(context: _Context, recording: Recording, existing: Existing) -> Recorded:
+    """A replacement that ran no Action: the replaced plan's steps exactly, on a new schedule, zone, or output."""
+    steps = [dict(step) for step in existing.plan["steps"]]
+    for step in steps:
+        contract = context.contracts.get((step["assistant"], step["action"]))
+        if contract is None or contract.pin != step["pin"]:
+            raise RecordingError("plan-pin-drift")
+    if not steps and recording.mode != "decide":
+        raise RecordingError("routine-recording-empty")
+    origins = {
+        step["id"]: {member: _kept_origin(source, context.known) for member, source in step["input"].items()}
+        for step in steps
+    }
+    document = _document(steps, steps[-1]["id"] if steps else None, recording)
+    when = _schedule(context.sends, existing)
+    timezone, source = _zoned(context, when, document)
+    document["timezone"] = timezone
+    actions = [(step["assistant"], step["action"]) for step in steps] + list(recording.decide_actions)
+    return Recorded(document, origins, _permitted(actions, context.contracts), when, timezone, source)
+
+
+def _document(steps: list[dict[str, object]], last: str | None, recording: Recording) -> dict[str, object]:
+    return {
+        "version": routine_plan.VERSION,
+        "timezone": http_routine.CONVENTIONAL_TIMEZONE,
+        "steps": steps,
+        "output": {
+            "mode": recording.mode,
+            "step": last if recording.mode in routine_plan.SHOWN_MODES else None,
+            "when": recording.when,
+        },
+    }
+
+
+def _kept_origin(source: Mapping[str, object], known: _Known) -> str:
+    """How the card names a kept input's origin, as a recording would now."""
+    if source["kind"] == "literal":
+        return "request" if known.names(source["value"]) else "assistant"
+    if source["kind"] == "run_clock":
+        return "clock"
+    return "selector" if "where" in source else "step"
+
+
+def _plan(context: _Context, recording: Recording, work: list[_Call]) -> tuple[dict[str, object], dict]:
+    """The plan document and each step's input origins, from the work and every source it needs."""
+    if not work and recording.mode != "decide":
+        raise RecordingError("routine-recording-empty")
+    _classes(context)
+    nodes = _closure(context, work)
+    _split(context, work, nodes)
+    order = _ordered(context, nodes)
+    names = {node: f"s{position}" for position, node in enumerate(order, start=1)}
+    steps = [_step(context, nodes[node], names) for node in order]
+    origins = {names[node]: context.inputs[node][1] for node in order}
+    work_nodes = {context.classes[call.index] for call in work}
+    shown = next((names[node] for node in reversed(order) if node in work_nodes), None)
+    _verify(context, nodes, steps, names)
+    return _document(steps, shown, recording), origins
+
+
+def _closure(context: _Context, work: list[_Call]) -> dict[int, _Call]:
+    """The plan calls: each work call's source representative, and every source their inputs read, transitively."""
+    nodes: dict[int, _Call] = {}
+    pending = [context.classes[call.index] for call in work]
+    while pending:
+        node = pending.pop()
+        if node in nodes:
+            continue
+        nodes[node] = context.calls[node]
+        _classify_call(context, nodes[node])
+        inputs, _origins = context.inputs[node]
+        pending.extend(source["node"] for source in inputs.values() if "node" in source)
+    return nodes
+
+
+def _step(context: _Context, call: _Call, names: dict[int, str]) -> dict[str, object]:
+    inputs, _origins = context.inputs[call.index]
+    return {
+        "id": names[call.index],
+        "assistant": call.occurrence.assistant,
+        "action": call.occurrence.action,
+        "pin": call.occurrence.pin,
+        "input": {member: _named(source, names) for member, source in inputs.items()},
+    }
+
+
+def _named(source: dict[str, object], names: dict[int, str]) -> dict[str, object]:
+    if "node" not in source:
+        return dict(source)
+    named = {key: value for key, value in source.items() if key != "node"}
+    return {"kind": "step_output", "step": names[source["node"]], **named}
+
+
+def _classes(context: _Context) -> None:
+    """Each call's source: its earliest read-only twin (same Action, input, and result) with no change between."""
+    last_change = -1
+    representatives: dict[bytes, int] = {}
+    for call in context.calls:
+        key = _identity(call.occurrence) if call.read_only else None
+        if not call.read_only:
+            last_change = call.index
+        representative = representatives.get(key) if key is not None else None
+        if representative is None or representative < last_change:
+            representative = call.index
+            if key is not None:
+                representatives[key] = representative
+        context.classes[call.index] = representative
+
+
+def _identity(occurrence: trace.Occurrence) -> bytes | None:
+    """What makes two read-only calls one source; a call holding anything withheld is only itself."""
+    if any(item.withheld or item.oversize for item in (occurrence.input, occurrence.result)):
+        return None
+    return routine_plan.canonical(
+        [occurrence.assistant, occurrence.action, occurrence.input.value, occurrence.result.value]
+    )
+
+
+def _split(context: _Context, work: list[_Call], nodes: dict[int, _Call]) -> None:
+    """Ask when an earlier send ran a work Action for something the work did not run again."""
+    latest = context.calls[-1].send if context.calls else None
+    for call in context.calls:
+        if call.send == latest or context.classes[call.index] in nodes:
+            continue
+        same = [item for item in work if item.action == call.action]
+        if same and not any(_same_input(item.occurrence, call.occurrence) for item in same):
+            raise _AskError(Question("routine-work-split"))
+
+
+def _same_input(left: trace.Occurrence, right: trace.Occurrence) -> bool:
+    return (
+        not left.input.withheld and not right.input.withheld and routine_plan.same(left.input.value, right.input.value)
+    )
+
+
+def _edges(context: _Context, nodes: dict[int, _Call]) -> dict[int, set[int]]:
+    """Each plan call's successors: what reads it, and every call on the far side of a changing call."""
+    edges: dict[int, set[int]] = {node: set() for node in nodes}
+    for node in nodes:
+        for source in context.inputs[node][0].values():
+            if "node" in source:
+                edges[source["node"]].add(node)
+    for changing in (node for node, call in nodes.items() if not call.read_only):
+        for other in nodes:
+            if other < changing:
+                edges[other].add(changing)
+            elif other > changing:
+                edges[changing].add(other)
+    return edges
+
+
+def _ordered(context: _Context, nodes: dict[int, _Call]) -> list[int]:
+    """The plan calls in data-dependency order, earliest first, every changing call where it ran; refuses a cycle."""
+    edges = _edges(context, nodes)
+    incoming = dict.fromkeys(nodes, 0)
+    for targets in edges.values():
+        for target in targets:
+            incoming[target] += 1
+    ready = [node for node, count in incoming.items() if count == 0]
+    heapq.heapify(ready)
+    order: list[int] = []
+    while ready:
+        node = heapq.heappop(ready)
+        order.append(node)
+        for target in edges[node]:
+            incoming[target] -= 1
+            if incoming[target] == 0:
+                heapq.heappush(ready, target)
+    if len(order) != len(nodes):
+        changed = any(not call.read_only for node, call in nodes.items() if node not in order)
+        raise RecordingError("routine-recording-conflict" if changed else "routine-recording-cyclic")
+    return order
+
+
+# --- Each input ------------------------------------------------------------------------------------------------------
+
+
+def _classify_call(context: _Context, call: _Call) -> None:
+    """Classify every top-level input member of one plan call; refuses a secret."""
+    given = call.occurrence.input
     if given.oversize:
         raise RecordingError("routine-recording-too-large")
-    schema = contracts[(occurrence.assistant, occurrence.action)].input_schema
-    if given.withheld or not isinstance(given.value, dict) or trace.exposes(given.value, known.protected):
+    schema = context.contracts[call.action].input_schema
+    if given.withheld or not isinstance(given.value, dict) or trace.exposes(given.value, context.known.protected):
         raise RecordingError("routine-secret-literal")
     try:
         secret = routine_plan.secret_literal(schema, given.value)
@@ -186,30 +489,32 @@ def _step(
     inputs: dict[str, dict[str, object]] = {}
     origins: dict[str, str] = {}
     for member, value in given.value.items():
-        inputs[member], origins[member] = _classified(value, earlier, recorded, timezone, known)
-    step = {
-        "id": f"s{index + 1}",
-        "assistant": occurrence.assistant,
-        "action": occurrence.action,
-        "pin": occurrence.pin,
-        "input": inputs,
-    }
-    return step, origins
+        inputs[member], origins[member] = _classified(context, call, value)
+    context.inputs[call.index] = (inputs, origins)
 
 
-def _classified(
-    value: object, earlier: list[trace.Occurrence], recorded: trace.Trace, timezone: str, known: _Known
-) -> tuple[dict[str, object], str]:
-    if known.names(value):
+def _classified(context: _Context, call: _Call, value: object) -> tuple[dict[str, object], str]:
+    if context.known.names(value):
         return {"kind": "literal", "value": value}, "request"
-    if isinstance(value, str) and value == recorded.turn_date:
-        if _date_at(recorded.started_at, "UTC") == _date_at(recorded.started_at, timezone):
-            return {"kind": "run_clock", "format": "date"}, "clock"
+    clock = _clock(context, call, value)
+    if clock is not None:
+        return clock
+    if not _referable(value):
         return {"kind": "literal", "value": value}, "assistant"
-    copied = _copied(value, earlier, known) if _referable(value) else None
-    if copied is not None and _representable(copied):
-        _unexposed(copied, known)
-        return copied, "selector" if "where" in copied else "step"
+    source = _sourced(context, call, value)
+    _unexposed(source, context.known)
+    return source, "selector" if "where" in source else "step"
+
+
+def _clock(context: _Context, call: _Call, value: object) -> tuple[dict[str, object], str] | None:
+    """The run date, when the value is the UTC date its own send started on; None when it is not that date."""
+    started = context.sends[call.send].started_at
+    if not isinstance(value, str) or value != _date_at(started, "UTC").isoformat():
+        return None
+    if context.zone is None:
+        raise _AskError(Question("routine-timezone-unstated"))
+    if _date_at(started, context.zone[0]) == _date_at(started, "UTC"):
+        return {"kind": "run_clock", "format": "date"}, "clock"
     return {"kind": "literal", "value": value}, "assistant"
 
 
@@ -245,25 +550,118 @@ def _pointer(tokens: tuple[str, ...]) -> str:
     return "".join("/" + trace.escape(token) for token in tokens)
 
 
-def _copied(value: object, earlier: list[trace.Occurrence], known: _Known) -> dict[str, object] | None:
-    """The source copying ``value`` from the one available position an earlier replay step returned it at, or None."""
-    found = [
-        (index, position)
-        for index, occurrence in enumerate(earlier)
-        if not _superseded(occurrence, earlier[index + 1 :])
-        for position in _positions(occurrence.result.value, value)
-        if occurrence.result.available(_pointer(position[0]))
-    ]
-    if len(found) != 1 or not earlier[found[0][0]].read_only:
-        return None
-    index, (tokens, arrays) = found[0]
+def _holders(context: _Context, consumer: _Call, value: object) -> dict[int, list[_Position]]:
+    """Each source representative whose read-only result holds ``value``, and the available positions it is at."""
+    found: dict[int, list[_Position]] = {}
+    for call in context.calls:
+        representative = context.classes[call.index]
+        if call.index == consumer.index or not call.read_only or representative in found:
+            continue
+        positions = [
+            position
+            for position in _positions(call.occurrence.result.value, value)
+            if call.occurrence.result.available(_pointer(position[0]))
+        ]
+        if positions:
+            found[representative] = positions
+    return found
+
+
+def _sourced(context: _Context, consumer: _Call, value: object) -> dict[str, object]:
+    """The one source occurrence and position holding ``value``; anything else is asked about or refused."""
+    found = _holders(context, consumer, value)
+    if not found:
+        raise _AskError(Question("routine-binding-unsourced"))
+    if len(found) > 1:
+        raise _ambiguous(context, value, [{"value": value, "label": None}])
+    ((node, positions),) = found.items()
+    bindings = [_binding(context, node, position) for position in positions]
+    if len(bindings) == 1 and "options" not in bindings[0]:
+        return bindings[0]
+    selected = [item for item in bindings if "where" in item]
+    if len(selected) == 1:
+        return selected[0]
+    options = [option for item in bindings for option in item.get("options", [{"value": value, "label": None}])]
+    raise _ambiguous(context, value, options)
+
+
+def _ambiguous(context: _Context, value: object, options: list[dict[str, object]]) -> Exception:
+    """The question which target an input means: a scalar's choices; a container is never chosen and refuses."""
+    if isinstance(value, dict | list):
+        return RecordingError("routine-recording-ambiguous")
+    choices: list[dict[str, object]] = []
+    for option in options:
+        if all(option["value"] != item["value"] for item in choices) and _offered(option):
+            choices.append(option)
+    if _rerun(context, value, choices):
+        return _AskError(Question("routine-work-rerun"))
+    shown = tuple(choices) if len(choices) <= http_routine.MAX_QUESTION_OPTIONS else ()
+    return _AskError(Question("routine-binding-ambiguous", shown))
+
+
+def _offered(option: dict[str, object]) -> bool:
+    """Whether a target can be shown as one choice of the question."""
+    question = {"code": "routine-binding-ambiguous", "options": [option], "value": None}
+    return http_routine.canonical_question(question) is not None
+
+
+def _rerun(context: _Context, value: object, choices: list[dict[str, object]]) -> bool:
+    """Whether the person, answering the last question, chose a target other than the one the work used."""
+    asked = context.asked
+    if asked is None or asked.code != "routine-binding-ambiguous":
+        return False
+    later = _known([line for send in context.sends[asked.after :] for line in send.person], trace.Protection())
+    offered = [*asked.options, *(item["value"] for item in choices)]
+    return any(later.names(option) and option != value for option in offered)
+
+
+def _binding(context: _Context, node: int, position: _Position) -> dict[str, object]:
+    """How one position is read: its pointer, or through the one array it crosses by a member the person named."""
+    tokens, arrays = position
     crossed = [place for place, is_array in enumerate(arrays) if is_array]
-    step = f"s{index + 1}"
-    if not crossed:
-        return {"kind": "step_output", "step": step, "pointer": _pointer(tokens)}
-    if len(crossed) > 1:
-        return None
-    return _selected(earlier[index].result, tokens, crossed[0], step, known)
+    plain = {"node": node, "pointer": _pointer(tokens)}
+    if len(crossed) != 1:
+        return plain
+    result = context.calls[node].occurrence.result
+    place = crossed[0]
+    array_tokens, rest = tokens[:place], tokens[place + 1 :]
+    items = _at(result.value, array_tokens)
+    chosen = int(tokens[place])
+    item = items[chosen]
+    if not isinstance(item, dict):
+        return plain
+    named = [
+        (key, constant)
+        for key, constant in item.items()
+        if (not rest or key != rest[0]) and _selectable(constant, context.known)
+    ]
+    unique = [pair for pair in named if _unique(result, array_tokens, items, chosen, *pair)]
+    if len(unique) == 1:
+        return {"node": node, "pointer": _pointer(array_tokens), "where": dict(unique), "item": _pointer(rest)}
+    if not named:
+        return plain
+    return {"options": _targets(items, named, rest)}
+
+
+def _targets(items: list, named: list[tuple[str, object]], rest: tuple[str, ...]) -> list[dict[str, object]]:
+    """Each array item sharing a named member, as a target: the value its input would take and that member."""
+    targets = []
+    for key, constant in named:
+        for item in items:
+            if isinstance(item, dict) and key in item and routine_plan.same(item[key], constant):
+                chosen = _reached(item, rest)
+                if isinstance(chosen, str | int) and not isinstance(chosen, bool):
+                    targets.append({"value": chosen, "label": constant if isinstance(constant, str) else None})
+    return targets
+
+
+def _reached(value: object, tokens: tuple[str, ...]) -> object:
+    """The node an item's member tokens reach, or None when one names nothing there; they cross no array."""
+    for token in tokens:
+        if not isinstance(value, dict) or token not in value:
+            return None
+        value = value[token]
+    return value
 
 
 def _at(value: object, tokens: tuple[str, ...]) -> object:
@@ -271,47 +669,6 @@ def _at(value: object, tokens: tuple[str, ...]) -> object:
     for token in tokens:
         value = value[int(token)] if isinstance(value, list) else value[token]
     return value
-
-
-def _selected(
-    result: trace.Kept, tokens: tuple[str, ...], place: int, step: str, known: _Known
-) -> dict[str, object] | None:
-    """A selector through one array: the item's single member the known text names and no other item may share."""
-    array_tokens, rest = tokens[:place], tokens[place + 1 :]
-    items = _at(result.value, array_tokens)
-    chosen = int(tokens[place])
-    item = items[chosen]
-    if not isinstance(item, dict):
-        return None
-    candidates = [
-        (key, constant)
-        for key, constant in item.items()
-        if (not rest or key != rest[0])
-        and _selectable(constant, known)
-        and _unique(result, array_tokens, items, chosen, key, constant)
-    ]
-    if len(candidates) != 1:
-        return None
-    return {
-        "kind": "step_output",
-        "step": step,
-        "pointer": _pointer(array_tokens),
-        "where": dict(candidates),
-        "item": _pointer(rest),
-    }
-
-
-def _representable(source: dict[str, object]) -> bool:
-    """Whether every derived pointer fits the plan's pointer grammar; one that does not cannot be copied through."""
-    return all(routine_plan.pointer_tokens(source.get(key, "")) is not None for key in ("pointer", "item"))
-
-
-def _unexposed(source: dict[str, object], known: _Known) -> None:
-    """Refuse a reference whose path or selector holds a value the turn protects, raw or as its escaped pointer."""
-    pointers = [source["pointer"], source.get("item", "")]
-    tokens = [token for pointer in pointers for token in routine_plan.pointer_tokens(pointer)]
-    if trace.exposes([*pointers, *tokens, source.get("where", {})], known.protected):
-        raise RecordingError("routine-secret-literal")
 
 
 def _selectable(constant: object, known: _Known) -> bool:
@@ -332,89 +689,52 @@ def _unique(result: trace.Kept, array_tokens: tuple[str, ...], items: list, chos
     return True
 
 
-def _superseded(occurrence: trace.Occurrence, later: list[trace.Occurrence]) -> bool:
-    """Whether a read-only call is repeated later by the same Action with exactly the same complete input."""
-    return occurrence.read_only and any(
-        (item.assistant, item.action) == (occurrence.assistant, occurrence.action)
-        and not item.input.withheld
-        and not occurrence.input.withheld
-        and routine_plan.same(item.input.value, occurrence.input.value)
-        for item in later
-    )
+def _unexposed(source: dict[str, object], known: _Known) -> None:
+    """Refuse a reference no plan pointer can hold, or whose path or selector holds a value the span protects."""
+    pointers = [source["pointer"], source.get("item", "")]
+    tokens = [routine_plan.pointer_tokens(pointer) for pointer in pointers]
+    if any(item is None for item in tokens):
+        raise RecordingError("routine-recording-too-large")
+    flat = [token for item in tokens for token in item]
+    if trace.exposes([*pointers, *flat, source.get("where", {})], known.protected):
+        raise RecordingError("routine-secret-literal")
 
 
-def _pruned(
-    steps: list[tuple[dict[str, object], dict[str, str]]], replayed: list[trace.Occurrence]
-) -> list[tuple[dict[str, object], dict[str, str]]]:
-    """Every step except a read-only one that a later call repeats with identical input and no kept step reads."""
-    kept: list[tuple[dict[str, object], dict[str, str]]] = []
-    read: set[str] = set()
-    for index in reversed(range(len(steps))):
-        step, origins = steps[index]
-        if step["id"] not in read and _superseded(replayed[index], replayed[index + 1 :]):
+# --- Verification ----------------------------------------------------------------------------------------------------
+
+
+def _verify(context: _Context, nodes: dict[int, _Call], steps: list[dict[str, object]], names: dict[int, str]) -> None:
+    """Every step, resolved against the recorded results, reproduces what each call it stands for sent."""
+    results = {names[node]: call.occurrence.result.value for node, call in nodes.items()}
+    by_name = {step["id"]: step for step in steps}
+    for call in context.calls:
+        node = context.classes[call.index]
+        if node not in nodes:
             continue
-        kept.append((step, origins))
-        read.update(source["step"] for source in step["input"].values() if source["kind"] == "step_output")
-    return list(reversed(kept))
+        step = by_name[names[node]]
+        sent = call.occurrence.input.value
+        if not isinstance(sent, dict) or set(sent) != set(step["input"]):
+            raise RecordingError("routine-recording-unverified")
+        started = context.sends[call.send].started_at
+        for member, source in step["input"].items():
+            if not routine_plan.same(_resolved(context, source, results, started), sent[member]):
+                raise RecordingError("routine-recording-unverified")
 
 
-def _renumbered(
-    steps: list[tuple[dict[str, object], dict[str, str]]],
-) -> tuple[list[tuple[dict[str, object], dict[str, str]]], dict[str, dict[str, str]]]:
-    """The kept steps named ``s1`` onward by their position, with every reference and origin following."""
-    names = {step["id"]: f"s{index}" for index, (step, _origin) in enumerate(steps, start=1)}
-    renamed = []
-    for step, origins in steps:
-        inputs = {
-            member: {**source, "step": names[source["step"]]} if source["kind"] == "step_output" else source
-            for member, source in step["input"].items()
-        }
-        renamed.append(({**step, "id": names[step["id"]], "input": inputs}, origins))
-    return renamed, {step["id"]: origins for step, origins in renamed}
-
-
-def kept(
-    plan: Mapping[str, object],
-    recording: Recording,
-    known: Sequence[str],
-    protection: trace.Protection,
-    contracts: Mapping[tuple[str, str], routine_plan.ActionContract],
-) -> Recorded:
-    """A replacement that ran no Action: the replaced plan's steps exactly, run on a new schedule, zone, or output.
-
-    The complete plan is rebuilt and admitted again by the caller; every step's Action must still be at its pin, and a
-    literal is named in the request only when the request names it now.
-    """
-    _admit(recording, contracts)
-    if protection.lost:
-        raise RecordingError("routine-recording-unavailable")
-    steps = [dict(step) for step in plan["steps"]]
-    for step in steps:
-        contract = contracts.get((step["assistant"], step["action"]))
-        if contract is None or contract.pin != step["pin"]:
-            raise RecordingError("plan-pin-drift")
-    if not steps and recording.mode != "decide":
-        raise RecordingError("routine-recording-empty")
-    context = _known(known, protection)
-    origins = {
-        step["id"]: {member: _kept_origin(source, context) for member, source in step["input"].items()}
-        for step in steps
-    }
-    shown = steps[-1]["id"] if recording.mode in routine_plan.SHOWN_MODES else None
-    document = {
-        "version": routine_plan.VERSION,
-        "timezone": recording.timezone,
-        "steps": steps,
-        "output": {"mode": recording.mode, "step": shown, "when": recording.when},
-    }
-    actions = [(step["assistant"], step["action"]) for step in steps] + list(recording.decide_actions)
-    return Recorded(document, origins, _permitted(actions, contracts))
-
-
-def _kept_origin(source: Mapping[str, object], known: _Known) -> str:
-    """How the card names a kept input's origin, as a recording would now."""
+def _resolved(context: _Context, source: Mapping[str, object], results: Mapping[str, object], started: int) -> object:
     if source["kind"] == "literal":
-        return "request" if known.names(source["value"]) else "assistant"
+        return source["value"]
     if source["kind"] == "run_clock":
-        return "clock"
-    return "selector" if "where" in source else "step"
+        instant = datetime.datetime.fromtimestamp(started, datetime.UTC)
+        return routine_plan.clock_value(source["format"], instant, context.zone[0])
+    try:
+        if "where" in source:
+            return routine_plan.select_where(
+                results[source["step"]], source["pointer"], source["where"], source["item"]
+            )
+        return routine_plan.select(results[source["step"]], source["pointer"])
+    except routine_plan.PlanError:
+        return _UNRESOLVED
+
+
+_UNRESOLVED = object()
