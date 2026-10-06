@@ -17,11 +17,16 @@ else:  # The protocol verifier runs every module of this directory flat.
 TEAM_ID_PATTERN = identifiers.TEAM_ID_PATTERN
 ASSISTANT_ID_PATTERN = identifiers.ASSISTANT_ID_PATTERN
 ACTION_ID_PATTERN = identifiers.ACTION_ID_PATTERN
+MAX_ASSISTANT_ID_CHARS = identifiers.MAX_ASSISTANT_ID_CHARS
+MAX_IDENTIFIER_CHARS = identifiers.MAX_IDENTIFIER_CHARS
+MAX_ACTION_ID_CHARS = identifiers.MAX_ACTION_ID_CHARS
 TEAM_ID_RE = identifiers.TEAM_ID_RE
 ASSISTANT_ID_RE = identifiers.ASSISTANT_ID_RE
+IDENTIFIER_RE = identifiers.IDENTIFIER_RE
 ACTION_ID_RE = identifiers.ACTION_ID_RE
 canonical_team_id = identifiers.canonical_team_id
 canonical_assistant_id = identifiers.canonical_assistant_id
+canonical_identifier = identifiers.canonical_identifier
 canonical_action_id = identifiers.canonical_action_id
 MAX_PURPOSE_CHARS = purpose.MAX_PURPOSE_CHARS
 canonical_purpose = purpose.canonical_purpose

@@ -8,9 +8,10 @@ import re
 import unittest
 from pathlib import Path
 
-from protocol.http.v1 import payload, routine
+from protocol.http.v1 import identifiers, payload, routine
 
 PROTOCOL = Path(__file__).resolve().parents[1] / "protocol" / "http" / "v1"
+ASSISTANT_PROTOCOL = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1"
 MANIFEST = PROTOCOL / "contract-files.sha256"
 ROW = re.compile(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)")
 
@@ -25,6 +26,21 @@ class TeamHttpProtocolTests(unittest.TestCase):
         self.assertEqual(set(expected), actual)
         for filename, digest in expected.items():
             self.assertEqual(hashlib.sha256((PROTOCOL / filename).read_bytes()).hexdigest(), digest)
+
+
+class IdentifierAuthorityTests(unittest.TestCase):
+    """Assistant ids and Assistant-declared identifiers follow the pinned Developers published-Assistant protocol."""
+
+    def test_developers_identifier_grammars_and_bounds_are_the_protocol_definitions(self) -> None:
+        manifest = json.loads((ASSISTANT_PROTOCOL / "manifest.schema.json").read_bytes())["$defs"]
+        machine = json.loads((ASSISTANT_PROTOCOL / "machine-contract.schema.json").read_bytes())["$defs"]
+        self.assertEqual(manifest["assistantIdentifier"]["pattern"], identifiers.ASSISTANT_ID_PATTERN)
+        self.assertEqual(manifest["assistantIdentifier"]["maxLength"], identifiers.MAX_ASSISTANT_ID_CHARS)
+        for definitions in (manifest, machine):
+            self.assertEqual(definitions["identifier"]["pattern"], identifiers.IDENTIFIER_PATTERN)
+            self.assertEqual(definitions["identifier"]["maxLength"], identifiers.MAX_IDENTIFIER_CHARS)
+        self.assertIs(payload.canonical_assistant_id, identifiers.canonical_assistant_id)
+        self.assertIs(payload.canonical_identifier, identifiers.canonical_identifier)
 
 
 class LocalizedChallengeContractTests(unittest.TestCase):

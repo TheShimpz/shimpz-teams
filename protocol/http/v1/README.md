@@ -4,6 +4,9 @@ Team owns the closed identifiers, payload projections, and WebSocket frame bound
 and Store. `payload.py` validates Team-facing HTTP values without trusting upstream fields.
 `identifiers.py` owns the closed Team, Assistant, and Action identifier grammars and `purpose.py` the Action purpose
 sentence rule; `payload.py` re-exports both, and the Brain consumes these two files as a pinned mirror.
+An Assistant id (at most 40 characters) and an Assistant's Integration, provider, or Stored Input identifier
+(`canonical_identifier`, at most 64) use the Developers published-Assistant grammar; an Action id uses Team's wider
+grammar, which also admits `.` and `_` separators, within 128 characters.
 `websocket.py` validates the bounded `shimpz.chat.v7` frame primitives and redacts unsafe errors.
 `progress.py` owns the closed metadata-only progress events and NDJSON terminal framing used by
 Local Team chat. An Action occurrence carries only its canonical reviewed Assistant and Action

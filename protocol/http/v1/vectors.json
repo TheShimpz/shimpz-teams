@@ -394,12 +394,16 @@
       "invalid": ["", "Team", "team-name", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
     },
     "assistant": {
-      "valid": ["a", "hello-world"],
-      "invalid": ["", "Hello", "hello_world", "hello--world"]
+      "valid": ["a", "hello-world", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+      "invalid": ["", "Hello", "hello_world", "hello--world", "hello-world\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+    },
+    "identifier": {
+      "valid": ["a", "api-token", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+      "invalid": ["", "Api-token", "api_token", "api.token", "api--token", "api-token\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 7]
     },
     "action": {
-      "valid": ["list-zones", "dns.read", "zone_get"],
-      "invalid": ["", "List-zones", "../shell", "dns..read"]
+      "valid": ["list-zones", "dns.read", "zone_get", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+      "invalid": ["", "List-zones", "../shell", "dns..read", "dns.read\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
     },
     "source_digest": {
       "valid": ["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
