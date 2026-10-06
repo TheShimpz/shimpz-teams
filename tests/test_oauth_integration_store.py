@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -44,6 +45,34 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             root / "key" / "aes256.key",
             clock=clock,
         )
+
+    def test_sealed_state_bytes_stay_pinned_and_decode_after_reopen(self) -> None:
+        # Existing Local state holds exactly these bytes; a format change must be a deliberate contract change.
+        with tempfile.TemporaryDirectory() as directory:
+            store = self._store(Path(directory))
+            store.key_path.parent.mkdir(mode=0o700)
+            store.key_path.write_bytes(bytes(range(32)))
+            store.key_path.chmod(0o600)
+            nonces = iter((b"\x01" * 12, b"\x02" * 12))
+            with (
+                mock.patch("os.urandom", side_effect=lambda _size: next(nonces)),
+                mock.patch.object(integration_store.private_state, "timestamp", return_value="2026-10-05T00:00:00Z"),
+            ):
+                store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
+                store.put("team_2", "other", "cloudflare", "cloudflare", SCOPES, tokens(refresh=None), None)
+
+            self.assertEqual(
+                hashlib.sha256(store.state_path.read_bytes()).hexdigest(),
+                "677e882eea9a5f443365c01ea78707bfedf87d87a46577fbe0d88d36b2b70a90",
+            )
+            reopened = self._store(Path(directory))
+            self.assertEqual(
+                reopened.resolve("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, self.fail), ACCESS
+            )
+            self.assertEqual(
+                reopened.metadata("team_1", "shimpz-cloudflare", DECLARATIONS)[0].integration,
+                integration_store.OAuthIntegrationIdentity(**ACCOUNT),
+            )
 
     def test_inventory_includes_missing_and_encrypted_integration_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

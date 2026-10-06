@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import stat
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
@@ -21,6 +23,27 @@ class EncryptedContinuationStoreTests(unittest.TestCase):
             root / "continuations" / "state" / "continuations.json",
             root / "continuations" / "key" / "aes256.key",
         )
+
+    def test_sealed_state_bytes_stay_pinned_and_decode_after_reopen(self) -> None:
+        # Existing Local state holds exactly these bytes; a format change must be a deliberate contract change.
+        with tempfile.TemporaryDirectory() as directory:
+            state_path, key_path = self._paths(directory)
+            key_path.parent.mkdir(mode=0o700, parents=True)
+            key_path.write_bytes(bytes(range(32)))
+            key_path.chmod(0o600)
+            store = local_chat_continuation_store.EncryptedContinuationStore(state_path, key_path, now=lambda: 1_000)
+            nonces = iter((b"\x01" * 12, b"\x02" * 12))
+            with mock.patch("os.urandom", side_effect=lambda _size: next(nonces)):
+                store.put("team_1", "integrations", "a" * 32, 1_300, ("b-binding", "a-binding ✓"), b"\x00private\xff")
+                store.put("team_2", "human", "b" * 32, 1_400, ("one",), b"second")
+
+            self.assertEqual(
+                hashlib.sha256(state_path.read_bytes()).hexdigest(),
+                "f89fd62bcd43e245bd42ba333849021e3f22d003e940699ac32796e37efae811",
+            )
+            reopened = local_chat_continuation_store.EncryptedContinuationStore(state_path, key_path, now=lambda: 1_001)
+            first = reopened.current("team_1")
+            self.assertEqual((first.bindings, first.payload), (("a-binding ✓", "b-binding"), b"\x00private\xff"))
 
     def test_round_trip_survives_reopen_without_plaintext_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

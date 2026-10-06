@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import stat
 import tempfile
@@ -28,6 +29,28 @@ class StoredInputStoreTests(unittest.TestCase):
             root / "state" / "stored-inputs.json",
             root / "key" / "aes256.key",
         )
+
+    def test_sealed_state_bytes_stay_pinned_and_decode_after_reopen(self) -> None:
+        # Existing Local state holds exactly these bytes; a format change must be a deliberate contract change.
+        with tempfile.TemporaryDirectory() as directory:
+            store = self._store(Path(directory))
+            store.key_path.parent.mkdir(mode=0o700)
+            store.key_path.write_bytes(bytes(range(32)))
+            store.key_path.chmod(0o600)
+            nonces = iter((b"\x01" * 12, b"\x02" * 12))
+            with (
+                mock.patch("os.urandom", side_effect=lambda _size: next(nonces)),
+                mock.patch.object(stored_input.private_state, "timestamp", return_value="2026-10-05T00:00:00Z"),
+            ):
+                store.seal("team_1", "whatsapp", "whatsapp-token", "password", "pässwörd ✓", ORIGIN)
+                store.seal("team_2", "other", "token", "password", TOKEN, "b" * 64)
+
+            self.assertEqual(
+                hashlib.sha256(store.state_path.read_bytes()).hexdigest(),
+                "dddeb845b799389832f7317f1ccee1a2c1cee636b7190a4115cc8820a5e8881b",
+            )
+            resolved = self._store(Path(directory)).resolve("team_1", "whatsapp", "whatsapp-token", "password")
+            self.assertEqual((resolved.value, resolved.generation, resolved.origin), ("pässwörd ✓", 1, ORIGIN))
 
     def test_inventory_seals_encrypted_value_and_never_projects_plaintext(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
