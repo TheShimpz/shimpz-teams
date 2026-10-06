@@ -48,6 +48,68 @@ def _runtime_resolution() -> dict[str, object]:
     return resolution
 
 
+def _publication_controller(directory: str) -> local_app.LocalController:
+    """A Local controller with an empty durable registry and a Developers peer that serves the fixture icon."""
+    controller = object.__new__(local_app.LocalController)
+    controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+    controller.developers = mock.Mock()
+    controller.developers.icon.return_value = ICON
+    controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
+    return controller
+
+
+def _bind_helpers(store: DynamicAssistantStore) -> tuple[str, ...]:
+    """Bind helper-0 through helper-3 to team_1 and return their ids."""
+    assistant_ids = tuple(f"helper-{index}" for index in range(4))
+    for assistant_id in assistant_ids:
+        resolution = _runtime_resolution()
+        resolution["assistant_id"] = assistant_id
+        store.put("team_1", resolution)
+    return assistant_ids
+
+
+def _bind_foreign(store: DynamicAssistantStore, assistant_id: str = "helper-0", **fields: object) -> None:
+    """Bind a homonymous or Team-foreign Assistant to team_2."""
+    foreign = _runtime_resolution()
+    foreign["assistant_id"] = assistant_id
+    foreign.update(fields)
+    store.put("team_2", foreign)
+
+
+def _ordered_reads(store: DynamicAssistantStore, containers: list[SimpleNamespace]):
+    """Docker listing and registry reads that record their order; returns (order, list_containers, read_bindings)."""
+    order: list[str] = []
+    read_registry = store._read
+
+    def list_containers(**_kwargs):
+        order.append("docker")
+        return containers
+
+    def read_bindings():
+        order.append("registry")
+        return read_registry()
+
+    return order, list_containers, read_bindings
+
+
+def _spec_lifecycle(store: DynamicAssistantStore, list_containers) -> SimpleNamespace:
+    """The Assistant lifecycle surface that enumerates a Team's running Assistant specs."""
+    return SimpleNamespace(
+        _network=lambda _team_id: object(),
+        _assistant_filters=lambda _team_id: {},
+        _base_labels=lambda team_id, kind: {"team": team_id, "kind": kind},
+        _container_name=lambda team_id, assistant_id: f"{team_id}-{assistant_id}",
+        _labels_include=lambda actual, expected: all(actual.get(key) == value for key, value in expected.items()),
+        client=SimpleNamespace(containers=SimpleNamespace(list=mock.Mock(side_effect=list_containers))),
+        registry=AssistantRegistry(store),
+    )
+
+
+def _spec_container(assistant_id: str) -> SimpleNamespace:
+    labels = {"team": "team_1", "kind": "assistant", local_app.ASSISTANT_LABEL: assistant_id}
+    return SimpleNamespace(labels=labels, name=f"team_1-{assistant_id}", status="running")
+
+
 class _Response:
     def __init__(self, status: int, value: object, *, raw: bytes | None = None) -> None:
         self.status = status
@@ -215,35 +277,14 @@ class LocalPublicationInstallTests(unittest.TestCase):
     def test_chat_inventory_reads_and_validates_the_registry_once_for_four_assistants(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = DynamicAssistantStore(Path(directory) / "bindings.json")
-            containers = []
-            for index in range(4):
-                resolution = _runtime_resolution()
-                resolution["assistant_id"] = f"helper-{index}"
-                if index == 0:
-                    first_name = resolution["name"]
-                store.put("team_1", resolution)
-                containers.append(
-                    SimpleNamespace(
-                        id=f"container-{index}",
-                        labels={local_app.ASSISTANT_LABEL: resolution["assistant_id"]},
-                        status="running",
-                    )
+            containers = [
+                SimpleNamespace(
+                    id=f"container-{index}", labels={local_app.ASSISTANT_LABEL: assistant_id}, status="running"
                 )
-            foreign = _runtime_resolution()
-            foreign["assistant_id"] = "helper-0"
-            foreign["name"] = "Foreign Assistant"
-            store.put("team_2", foreign)
-            order = []
-
-            def list_containers(**_kwargs):
-                order.append("docker")
-                return containers
-
-            read_registry = store._read
-
-            def read_bindings():
-                order.append("registry")
-                return read_registry()
+                for index, assistant_id in enumerate(_bind_helpers(store))
+            ]
+            _bind_foreign(store, name="Foreign Assistant")
+            order, list_containers, read_bindings = _ordered_reads(store, containers)
 
             lifecycle = SimpleNamespace(
                 client=SimpleNamespace(containers=SimpleNamespace(list=mock.Mock(side_effect=list_containers))),
@@ -262,7 +303,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
             self.assertEqual(read.call_count, 1)
             self.assertEqual(order, ["docker", "registry"])
             self.assertEqual(tuple(item.spec.assistant_id for item in active), tuple(f"helper-{i}" for i in range(4)))
-            self.assertEqual(active[0].spec.name, first_name)
+            self.assertEqual(active[0].spec.name, RESOLUTION["name"])
             self.assertEqual(lifecycle._validate_container.call_count, 4)
 
             lifecycle.client.containers.list.side_effect = None
@@ -274,44 +315,13 @@ class LocalPublicationInstallTests(unittest.TestCase):
     def test_spec_enumeration_uses_one_team_scoped_registry_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = DynamicAssistantStore(Path(directory) / "bindings.json")
-            containers = []
-            for index in range(4):
-                resolution = _runtime_resolution()
-                resolution["assistant_id"] = f"helper-{index}"
-                store.put("team_1", resolution)
-                labels = {"team": "team_1", "kind": "assistant", local_app.ASSISTANT_LABEL: resolution["assistant_id"]}
-                containers.append(SimpleNamespace(labels=labels, name=f"team_1-helper-{index}", status="running"))
-            foreign = _runtime_resolution()
-            foreign["assistant_id"] = "helper-0"
-            foreign["name"] = "Foreign Assistant"
-            store.put("team_2", foreign)
+            containers = [_spec_container(assistant_id) for assistant_id in _bind_helpers(store)]
+            _bind_foreign(store, name="Foreign Assistant")
             containers.reverse()
-            foreign_only = _runtime_resolution()
-            foreign_only["assistant_id"] = "foreign-only"
-            store.put("team_2", foreign_only)
-            order = []
+            _bind_foreign(store, "foreign-only")
+            order, list_containers, read_bindings = _ordered_reads(store, containers)
 
-            def list_containers(**_kwargs):
-                order.append("docker")
-                return containers
-
-            read_registry = store._read
-
-            def read_bindings():
-                order.append("registry")
-                return read_registry()
-
-            lifecycle = SimpleNamespace(
-                _network=lambda _team_id: object(),
-                _assistant_filters=lambda _team_id: {},
-                _base_labels=lambda team_id, kind: {"team": team_id, "kind": kind},
-                _container_name=lambda team_id, assistant_id: f"{team_id}-{assistant_id}",
-                _labels_include=lambda actual, expected: all(
-                    actual.get(key) == value for key, value in expected.items()
-                ),
-                client=SimpleNamespace(containers=SimpleNamespace(list=mock.Mock(side_effect=list_containers))),
-                registry=AssistantRegistry(store),
-            )
+            lifecycle = _spec_lifecycle(store, list_containers)
 
             with (
                 mock.patch.object(store, "_read", side_effect=read_bindings) as read,
@@ -359,41 +369,11 @@ class LocalPublicationInstallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             store = DynamicAssistantStore(root / "bindings.json")
-            containers = []
-            for index in range(4):
-                resolution = _runtime_resolution()
-                resolution["assistant_id"] = f"helper-{index}"
-                store.put("team_1", resolution)
-                labels = {"team": "team_1", "kind": "assistant", local_app.ASSISTANT_LABEL: resolution["assistant_id"]}
-                containers.append(SimpleNamespace(labels=labels, name=f"team_1-helper-{index}", status="running"))
-            foreign = _runtime_resolution()
-            foreign["assistant_id"] = "helper-0"
-            foreign["name"] = "Foreign Assistant"
-            foreign["assistant_version"] = "9.9.9"
-            store.put("team_2", foreign)
-            order = []
+            containers = [_spec_container(assistant_id) for assistant_id in _bind_helpers(store)]
+            _bind_foreign(store, name="Foreign Assistant", assistant_version="9.9.9")
+            order, list_containers, read_bindings = _ordered_reads(store, containers)
 
-            def list_containers(**_kwargs):
-                order.append("docker")
-                return containers
-
-            read_registry = store._read
-
-            def read_bindings():
-                order.append("registry")
-                return read_registry()
-
-            lifecycle = SimpleNamespace(
-                _network=lambda _team_id: object(),
-                _assistant_filters=lambda _team_id: {},
-                _base_labels=lambda team_id, kind: {"team": team_id, "kind": kind},
-                _container_name=lambda team_id, assistant_id: f"{team_id}-{assistant_id}",
-                _labels_include=lambda actual, expected: all(
-                    actual.get(key) == value for key, value in expected.items()
-                ),
-                client=SimpleNamespace(containers=SimpleNamespace(list=mock.Mock(side_effect=list_containers))),
-                registry=AssistantRegistry(store),
-            )
+            lifecycle = _spec_lifecycle(store, list_containers)
             lifecycle._assistant_specs = lambda team_id: local_resources._assistant_specs(lifecycle, team_id)
             subject = SimpleNamespace(
                 _lock=lambda _team_id: nullcontext(),
@@ -448,32 +428,12 @@ class LocalPublicationInstallTests(unittest.TestCase):
     def test_installed_inventory_uses_one_team_scoped_registry_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = DynamicAssistantStore(Path(directory) / "bindings.json")
-            containers = []
-            for index in range(4):
-                resolution = _runtime_resolution()
-                resolution["assistant_id"] = f"helper-{index}"
-                store.put("team_1", resolution)
-                containers.append(
-                    SimpleNamespace(
-                        labels={local_app.ASSISTANT_LABEL: resolution["assistant_id"]},
-                        status="running",
-                    )
-                )
-            foreign = _runtime_resolution()
-            foreign["assistant_id"] = "helper-0"
-            foreign["assistant_version"] = "9.9.9"
-            store.put("team_2", foreign)
-            order = []
-
-            def list_containers(**_kwargs):
-                order.append("docker")
-                return containers
-
-            read_registry = store._read
-
-            def read_bindings():
-                order.append("registry")
-                return read_registry()
+            containers = [
+                SimpleNamespace(labels={local_app.ASSISTANT_LABEL: assistant_id}, status="running")
+                for assistant_id in _bind_helpers(store)
+            ]
+            _bind_foreign(store, assistant_version="9.9.9")
+            order, list_containers, read_bindings = _ordered_reads(store, containers)
 
             lifecycle = SimpleNamespace(
                 _network=lambda _team_id: object(),
@@ -535,12 +495,8 @@ class LocalPublicationInstallTests(unittest.TestCase):
         successor["source_digest"] = f"sha256:{'9' * 64}"
         events: list[str] = []
         with tempfile.TemporaryDirectory() as directory:
-            controller = object.__new__(local_app.LocalController)
-            controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            controller = _publication_controller(directory)
             controller.registry.put("team_1", current)
-            controller.developers = mock.Mock()
-            controller.developers.icon.return_value = ICON
-            controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
             controller.developers.resolve.side_effect = lambda _digest: events.append("resolve") or successor
             controller.artifact_trust = mock.Mock()
             controller.artifact_trust.verify.side_effect = lambda _resolution: events.append("verify")
@@ -572,12 +528,8 @@ class LocalPublicationInstallTests(unittest.TestCase):
         resolution = _runtime_resolution()
         events: list[str] = []
         with tempfile.TemporaryDirectory() as directory:
-            controller = object.__new__(local_app.LocalController)
-            controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            controller = _publication_controller(directory)
             controller.registry.put("team_1", resolution)
-            controller.developers = mock.Mock()
-            controller.developers.icon.return_value = ICON
-            controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
             controller.developers.resolve.side_effect = lambda _digest: events.append("resolve") or resolution
             controller.artifact_trust = mock.Mock()
             controller.artifact_trust.verify.side_effect = lambda _resolution: events.append("verify")
@@ -599,11 +551,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
     def test_automatic_update_fence_rejects_a_removed_binding_before_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            controller = object.__new__(local_app.LocalController)
-            controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
-            controller.developers = mock.Mock()
-            controller.developers.icon.return_value = ICON
-            controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
+            controller = _publication_controller(directory)
 
             with self.assertRaises(local_app.ApiProblem) as caught:
                 controller.install_publication(
@@ -643,11 +591,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         resolution = _runtime_resolution()
         events: list[str] = []
         with tempfile.TemporaryDirectory() as directory:
-            controller = object.__new__(local_app.LocalController)
-            controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
-            controller.developers = mock.Mock()
-            controller.developers.icon.return_value = ICON
-            controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
+            controller = _publication_controller(directory)
             controller.developers.resolve.side_effect = lambda _digest: events.append("resolve") or resolution
             controller.artifact_trust = mock.Mock()
             controller.artifact_trust.verify.side_effect = lambda _resolution: events.append("verify")
@@ -678,11 +622,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         changed = copy.deepcopy(resolution)
         changed["oci_digest"] = "sha256:" + ("0" * 64)
         with tempfile.TemporaryDirectory() as directory:
-            controller = object.__new__(local_app.LocalController)
-            controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
-            controller.developers = mock.Mock()
-            controller.developers.icon.return_value = ICON
-            controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
+            controller = _publication_controller(directory)
             controller.developers.resolve.side_effect = (resolution, changed)
             controller.artifact_trust = mock.Mock()
 
@@ -734,14 +674,10 @@ class LocalStartAuthorizationCompensationTests(unittest.TestCase):
             events.append(("create", name, image_id))
             return _StartAuthorizationContainer(name, image_id, events)
 
-        controller = object.__new__(local_app.LocalController)
+        controller = _publication_controller(directory)
         controller.space_id = "local-space"
         controller.cpuset_cpus = "0"
         controller._locks = (threading.RLock(),)
-        controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
-        controller.developers = mock.Mock()
-        controller.developers.icon.return_value = ICON
-        controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
         controller.artifact_trust = mock.Mock()
         controller.client = SimpleNamespace(
             containers=SimpleNamespace(create=create),
