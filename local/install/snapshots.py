@@ -385,31 +385,21 @@ def _labels(image) -> dict[str, str]:
     return labels
 
 
+# The package members an install preview reads; installing also extracts the source package before them.
+_PREVIEW_MEMBERS = (
+    (assistant_manifest.MANIFEST_PATH, "shimpz.toml", assistant_manifest.MAX_MANIFEST_BYTES),
+    (assistant_manifest.CONTRACT_PATH, "shimpz.contract.json", assistant_manifest.MAX_CONTRACT_BYTES),
+    (assistant_language.PACK_PATH, "shimpz.pack.json", assistant_language.MAX_PACK_BYTES),
+    (ICON_PATH, "icon.png", 1024 * 1024),
+)
+
+
 def _extract_files(client, image_id: str) -> dict[str, bytes]:
-    return _extract_paths(
-        client,
-        image_id,
-        (
-            (SOURCE_PATH, "source.package", 32 * 1024 * 1024),
-            (assistant_manifest.MANIFEST_PATH, "shimpz.toml", assistant_manifest.MAX_MANIFEST_BYTES),
-            (assistant_manifest.CONTRACT_PATH, "shimpz.contract.json", assistant_manifest.MAX_CONTRACT_BYTES),
-            (assistant_language.PACK_PATH, "shimpz.pack.json", assistant_language.MAX_PACK_BYTES),
-            (ICON_PATH, "icon.png", 1024 * 1024),
-        ),
-    )
+    return _extract_paths(client, image_id, ((SOURCE_PATH, "source.package", 32 * 1024 * 1024), *_PREVIEW_MEMBERS))
 
 
 def _extract_preview_files(client, image_id: str) -> dict[str, bytes]:
-    return _extract_paths(
-        client,
-        image_id,
-        (
-            (assistant_manifest.MANIFEST_PATH, "shimpz.toml", assistant_manifest.MAX_MANIFEST_BYTES),
-            (assistant_manifest.CONTRACT_PATH, "shimpz.contract.json", assistant_manifest.MAX_CONTRACT_BYTES),
-            (assistant_language.PACK_PATH, "shimpz.pack.json", assistant_language.MAX_PACK_BYTES),
-            (ICON_PATH, "icon.png", 1024 * 1024),
-        ),
-    )
+    return _extract_paths(client, image_id, _PREVIEW_MEMBERS)
 
 
 def _extract_paths(
