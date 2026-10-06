@@ -2755,7 +2755,17 @@
       {"text": "Welchen Zeitraum soll der Bericht der Routine abdecken?", "asks": false},
       {"text": "ルーティンのレポートはどの期間を対象にしますか?", "asks": false},
       {"text": "例行任务的报告要覆盖哪个时间范围?", "asks": false},
-      {"text": "ما الفترة الزمنية التي تريد أن يغطيها تقرير الروتين؟", "asks": false}
+      {"text": "ما الفترة الزمنية التي تريد أن يغطيها تقرير الروتين؟", "asks": false},
+      {"text": "What time?", "asks": true},
+      {"text": "Que horas?", "asks": true},
+      {"text": "¿A qué hora?", "asks": true},
+      {"text": "À quelle heure ?", "asks": true},
+      {"text": "Um wie viel Uhr?", "asks": true},
+      {"text": "何時?", "asks": true},
+      {"text": "几点?", "asks": true},
+      {"text": "في أي وقت؟", "asks": true},
+      {"text": "09:00", "asks": true},
+      {"text": "18:00", "asks": true}
     ]
   }
 }

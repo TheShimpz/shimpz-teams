@@ -454,6 +454,10 @@ _BARE_ASKS = (
     r"どのくらいの頻度|1日に何回",
     r"多久一次|多长时间一次|每天几次|一天几次",
     r"كم مرة|كل كم",
+    # The time of day, asked bare, or offered as an option that is only a time.
+    r"(?:at )?what time|(?:a |em )?que (?:horas|horário)|a qué hora|à quelle heure|um wie viel uhr",
+    r"何時に?|几点|في أي وقت",
+    r"(?:[01]?\d|2[0-3])(?::[0-5]\d| ?h(?:[0-5]\d)?| ?(?:am|pm))",
 )
 _BARE_PUNCTUATION = " ¿¡?？؟.!。"
 
