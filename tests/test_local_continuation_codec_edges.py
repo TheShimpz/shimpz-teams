@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import types
 import unittest
@@ -89,24 +90,12 @@ class ContinuationCodecBindingEdgeTests(unittest.TestCase):
         state = pending()
         identity = list(state.identity)
         identity[2] = ("malformed",)
-        malformed = continuation.PendingLocalChat(
-            state.continuation,
-            state.assistant_ids,
-            state.file_ids,
-            state.provider,
-            tuple(identity),
-        )
+        malformed = dataclasses.replace(state, identity=tuple(identity))
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._release_images(malformed)
 
         identity[2] = (("demo-assistant", "not-a-digest", "container"),)
-        malformed = continuation.PendingLocalChat(
-            state.continuation,
-            state.assistant_ids,
-            state.file_ids,
-            state.provider,
-            tuple(identity),
-        )
+        malformed = dataclasses.replace(state, identity=tuple(identity))
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._release_images(malformed)
 
