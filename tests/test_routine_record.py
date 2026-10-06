@@ -1117,6 +1117,18 @@ class ConfirmedChangeTests(unittest.TestCase):
         with self.assertRaisesRegex(record.RoutineStateError, "routine-exists"):
             record.create(state, routine(), NINE + 5)
 
+    def test_a_notice_keeps_the_timezone_source_it_was_written_with(self):
+        unzoned = dataclasses.replace(routine(schedule=HOURLY), timezone_source="none")
+        state = record.create(record.TeamRoutines(), unzoned, NINE)
+        lisbon = {**unzoned.plan, "timezone": "Europe/Lisbon"}
+        zoned = dataclasses.replace(unzoned, timezone="Europe/Lisbon", timezone_source="person", plan=lisbon)
+        zoned = record.scheduled(zoned, NINE)
+        state = record.update(state, zoned, 1, NINE + 1)
+        state, _runs = record.begin_delete(state, "a" * 32)
+        state = record.complete_delete(state, "a" * 32, NINE + 2)
+        details = [(item.outcome, item.detail.get("timezone_source")) for item in state.notices]
+        self.assertEqual(details, [("created", "none"), ("changed", "person"), ("deleted", None)])
+
     def test_room_for_a_change_counts_only_undelivered_notices(self):
         self.assertIsNone(record.change_room(record.TeamRoutines(), 1))
         full = dataclasses.replace(
