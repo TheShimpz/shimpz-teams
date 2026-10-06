@@ -188,12 +188,8 @@ def _apply_local_snapshot(
         installer = install_assistant or self.assistant_lifecycle.install_assistant
         try:
             return installer(team_id, spec.assistant_id)
-        except ApiProblem as exc:
-            if created and exc.code != "assistant-install-rollback-incomplete":
-                self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
-            raise
-        except bindings.DynamicAssistantError:
-            if created:
+        except (ApiProblem, bindings.DynamicAssistantError) as exc:
+            if created and not (isinstance(exc, ApiProblem) and exc.code == "assistant-install-rollback-incomplete"):
                 self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
             raise
     candidate, successor = self.registry.local_replacement(
@@ -334,12 +330,8 @@ def _apply_publication(self, team_id, assistant_id, source_digest, existing, res
                 spec.assistant_id,
                 authorize_start=authorize_start,
             )
-        except ApiProblem as exc:
-            if created and exc.code != "assistant-install-rollback-incomplete":
-                self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
-            raise
-        except bindings.DynamicAssistantError:
-            if created:
+        except (ApiProblem, bindings.DynamicAssistantError) as exc:
+            if created and not (isinstance(exc, ApiProblem) and exc.code == "assistant-install-rollback-incomplete"):
                 self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
             raise
     return self._install_bound_publication(
