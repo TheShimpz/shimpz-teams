@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import sys
 import threading
 from pathlib import Path
@@ -9,17 +8,13 @@ from types import SimpleNamespace
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase, TestAssistantRegistry
+from test_local_team_destroy import _record_routine_state, _routine_books
 
-from action import challenges as action_challenges
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from local import app as local_app
 from local import labels as local_labels
-from local.routine import card as routine_card
-from local.routine import proposal as routine_proposal
-from local.routine import protection as routine_protection
 from local.routine import recorder as routine_recorder
-from routine import record as routine_record
 
 LOCAL_TEAM_RESIDUES = [
     "action_checkpoints",
@@ -63,24 +58,8 @@ class LocalSpaceResetTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(delete_all=lambda: events.append("delete-inference"))
-        controller.routine_human_challenges = action_challenges.HumanChallengeStore()
-        controller.routine_recordings = routine_recorder.RecordingBook()
-        controller.routine_proposals = routine_proposal.ProposalBook()
-        controller.routine_protections = routine_protection.RunProtections()
-        controller.routine_cards = routine_card.CardBook()
-        controller.routine_store = SimpleNamespace(
-            load=lambda _team_id: routine_record.TeamRoutines(),
-            delete=lambda _team_id: events.append("routines-delete"),
-            teams=lambda: (),
-            delete_all=lambda: events.append("routines-delete-all"),
-            lock=lambda _team_id: contextlib.nullcontext(),
-            exclusive=contextlib.nullcontext,
-        )
-        controller.routine_diagnostics = SimpleNamespace(
-            delete=lambda _team_id: events.append("diagnostics-delete"),
-            delete_all=lambda: events.append("diagnostics-delete-all"),
-            delete_routine=lambda _team_id, _routine_id: None,
-        )
+        _routine_books(controller)
+        _record_routine_state(controller, events)
         controller.brain_runtime = SimpleNamespace(
             delete_thread=lambda thread_id: events.append(("delete-thread", thread_id))
         )
@@ -147,24 +126,8 @@ class LocalSpaceResetTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(delete_all=lambda: None)
-        controller.routine_human_challenges = action_challenges.HumanChallengeStore()
-        controller.routine_recordings = routine_recorder.RecordingBook()
-        controller.routine_proposals = routine_proposal.ProposalBook()
-        controller.routine_protections = routine_protection.RunProtections()
-        controller.routine_cards = routine_card.CardBook()
-        controller.routine_store = SimpleNamespace(
-            load=lambda _team_id: routine_record.TeamRoutines(),
-            delete=lambda _team_id: events.append("routines-delete"),
-            teams=lambda: (),
-            delete_all=lambda: events.append("routines-delete-all"),
-            lock=lambda _team_id: contextlib.nullcontext(),
-            exclusive=contextlib.nullcontext,
-        )
-        controller.routine_diagnostics = SimpleNamespace(
-            delete=lambda _team_id: events.append("diagnostics-delete"),
-            delete_all=lambda: events.append("diagnostics-delete-all"),
-            delete_routine=lambda _team_id, _routine_id: None,
-        )
+        _routine_books(controller)
+        _record_routine_state(controller, events)
         controller.brain_runtime = SimpleNamespace(delete_thread=lambda _thread_id: None)
         controller.action_state = SimpleNamespace(purge=lambda _generation: None)
         controller._wire_collaborators()
