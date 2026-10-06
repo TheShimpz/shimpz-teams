@@ -186,11 +186,11 @@ class RecordingBook:
         self._change(team_id, recording_id, add)
 
     def asked(self, team_id: str, recording_id: str, question: routine_recording.Question) -> None:
-        """Keep what the span asked, so the person's next sends answer it."""
-        options = tuple(item["value"] for item in question.options)
+        """Keep what the span asked, and the choice it binds, so the person's next sends answer it."""
 
         def keep(found: Span) -> Span:
-            return dataclasses.replace(found, asked=routine_recording.Asked(question.code, options, len(found.sends)))
+            asked = routine_recording.Asked(question.code, len(found.sends), question.pending)
+            return dataclasses.replace(found, asked=asked)
 
         self._change(team_id, recording_id, keep)
 

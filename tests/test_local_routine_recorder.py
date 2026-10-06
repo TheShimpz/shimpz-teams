@@ -113,7 +113,7 @@ class RecordingBookTests(unittest.TestCase):
         first = book.start("team_1", BINDING, _started(), 1)
         question = routine_recording.Question("routine-binding-ambiguous", ({"value": "a-zone", "label": None},))
         book.asked("team_1", first, question)
-        self.assertEqual(book.get("team_1", first).asked, routine_recording.Asked(question.code, ("a-zone",), 1))
+        self.assertEqual(book.get("team_1", first).asked, routine_recording.Asked(question.code, 1, question.pending))
         for index in range(routine_recorder.MAX_SENDS):
             send = book.start("team_1", BINDING, _started(), 2 + index)
         self.assertEqual(book.get("team_1", send).asked.after, 0)

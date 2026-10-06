@@ -32,6 +32,7 @@ the latest send naming an IANA zone, else the latest send's browser zone. What c
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import heapq
 import json
@@ -86,14 +87,29 @@ class Send:
 
 
 @dataclass(frozen=True, slots=True)
+class Pending:
+    """The choice a target question binds: the input of one call it asked about, and every target it may take.
+
+    Once the person chose a target other than the one the work used, ``chosen`` holds it, and the work run again
+    must send exactly that target in the same Action's input.
+    """
+
+    consumer: str
+    action: tuple[str, str]
+    member: str
+    # Each target as (value, label).
+    targets: tuple[tuple[object, str | None], ...]
+    chosen: object = None
+
+
+@dataclass(frozen=True, slots=True)
 class Asked:
     """The question a span last asked, which the person's later sends may answer."""
 
     code: str
-    # The values a person may name to choose a target.
-    options: tuple[object, ...]
     # How many sends the span held when it asked: only later sends answer it.
     after: int
+    pending: Pending | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +119,8 @@ class Question:
     code: str
     options: tuple[dict[str, object], ...] = ()
     value: int | None = None
+    # The choice a target question binds, which only Team keeps.
+    pending: Pending | None = field(default=None, compare=False)
 
     def wire(self) -> dict[str, object]:
         """The question as the chat reply carries it: each target as its exact JSON text, which no client rounds."""
@@ -362,6 +380,7 @@ def _plan(context: _Context, recording: Recording, work: list[_Call]) -> tuple[d
     """The plan document and each step's input origins, from the work and every source it needs."""
     if not work and recording.mode != "decide":
         raise RecordingError("routine-recording-empty")
+    _rerun(context, work)
     _classes(context)
     nodes = _closure(context, work)
     _split(context, work, nodes)
@@ -437,11 +456,29 @@ def _twins(left: trace.Occurrence, right: trace.Occurrence) -> bool:
     )
 
 
+def _rerun(context: _Context, work: list[_Call]) -> None:
+    """Ask again until the work, run again for the person's chosen target, sends exactly that target."""
+    pending = None if context.asked is None else context.asked.pending
+    if pending is None or pending.chosen is None:
+        return
+    sent = [
+        call.occurrence.input.value.get(pending.member)
+        for call in work
+        if call.action == pending.action and isinstance(call.occurrence.input.value, dict)
+    ]
+    if not sent or not all(routine_plan.same(value, pending.chosen) for value in sent):
+        raise _AskError(Question("routine-work-rerun", pending=pending))
+
+
 def _split(context: _Context, work: list[_Call], nodes: dict[int, _Call]) -> None:
     """Ask when an earlier send ran a work Action for something the work did not run again."""
     latest = context.calls[-1].send if context.calls else None
+    pending = None if context.asked is None else context.asked.pending
     for call in context.calls:
         if call.send == latest or context.classes[call.index] in nodes:
+            continue
+        if pending is not None and pending.chosen is not None and call.action == pending.action:
+            # The work ran again for the person's chosen target: the earlier call it replaces is no split.
             continue
         same = [item for item in work if item.action == call.action]
         if same and not any(_same_input(item.occurrence, call.occurrence) for item in same):
@@ -513,19 +550,21 @@ def _classify_call(context: _Context, call: _Call) -> None:
     inputs: dict[str, dict[str, object]] = {}
     origins: dict[str, str] = {}
     for member, value in given.value.items():
-        inputs[member], origins[member] = _classified(context, call, value)
+        inputs[member], origins[member] = _classified(context, (call, member), value)
     context.inputs[call.index] = (inputs, origins)
 
 
-def _classified(context: _Context, call: _Call, value: object) -> tuple[dict[str, object], str]:
-    if context.known.names(value):
+def _classified(context: _Context, input_: tuple[_Call, str], value: object) -> tuple[dict[str, object], str]:
+    call, _member = input_
+    answered = _answered(context, input_, value)
+    if answered or (answered is None and context.known.names(value)):
         return {"kind": "literal", "value": value}, "request"
     clock = _clock(context, call, value)
     if clock is not None:
         return clock
     if not _referable(value):
         return {"kind": "literal", "value": value}, "assistant"
-    source = _sourced(context, call, value)
+    source = _sourced(context, input_, value)
     if source is None:
         return {"kind": "literal", "value": value}, "assistant"
     _unexposed(source, context.known)
@@ -599,19 +638,59 @@ def _identifier(value: object) -> bool:
     return type(value) is int or (isinstance(value, str) and not any(character.isspace() for character in value))
 
 
-def _sourced(context: _Context, consumer: _Call, value: object) -> dict[str, object] | None:
+def _answered(context: _Context, input_: tuple[_Call, str], value: object) -> bool | None:
+    """How the person answered the target question about this very input: None when none is pending for it.
+
+    True when they chose exactly this value; False when their answer chose no target exactly, or named the target's
+    item, which the ordinary reading then selects. A substring of an answer never confirms a target, and choosing
+    another target asks for the work again.
+    """
+    call, member = input_
+    asked = context.asked
+    pending = None if asked is None else asked.pending
+    if pending is None or member != pending.member:
+        return None
+    if pending.chosen is not None:
+        return True if call.action == pending.action and routine_plan.same(value, pending.chosen) else None
+    if call.occurrence.operation_id != pending.consumer:
+        return None
+    selection = _selection(context, asked)
+    if selection is None:
+        return False
+    chosen, by_label = selection
+    if not routine_plan.same(chosen, value):
+        raise _AskError(Question("routine-work-rerun", pending=dataclasses.replace(pending, chosen=chosen)))
+    return not by_label
+
+
+def _selection(context: _Context, asked: Asked) -> tuple[object, bool] | None:
+    """The target the person's latest answer selects exactly, by its value or by a label no other target shares."""
+    targets = asked.pending.targets
+    for segment in reversed([segment for send in context.sends[asked.after :] for segment in send.person]):
+        answer = segment.strip()
+        by_value = [value for value, _label in targets if answer == (value if isinstance(value, str) else str(value))]
+        by_label = [value for value, label in targets if label is not None and answer == label]
+        if len(by_value) == 1:
+            return by_value[0], False
+        if len(by_label) == 1:
+            return by_label[0], True
+    return None
+
+
+def _sourced(context: _Context, input_: tuple[_Call, str], value: object) -> dict[str, object] | None:
     """The one source occurrence and position holding ``value``, or None for text nothing holds; else it asks.
 
     An identifier nothing returned is asked about, since freezing one would replay a remembered id; free text or a
     container the assistant wrote and nothing returned is its own choice, the same on every run.
     """
+    consumer, _member = input_
     found = _holders(context, consumer, value)
     if not found:
         if not _identifier(value):
             return None
         raise _AskError(Question("routine-binding-unsourced"))
     if len(found) > 1:
-        raise _ambiguous(context, value, [{"value": value, "label": None}])
+        raise _ambiguous(input_, value, [{"value": value, "label": None}])
     ((node, positions),) = found.items()
     bindings = [_binding(context, node, position) for position in positions]
     if len(bindings) == 1 and "options" not in bindings[0]:
@@ -620,10 +699,10 @@ def _sourced(context: _Context, consumer: _Call, value: object) -> dict[str, obj
     if len(selected) == 1:
         return selected[0]
     options = [option for item in bindings for option in item.get("options") or [{"value": value, "label": None}]]
-    raise _ambiguous(context, value, options)
+    raise _ambiguous(input_, value, options)
 
 
-def _ambiguous(context: _Context, value: object, options: list[dict[str, object]]) -> Exception:
+def _ambiguous(input_: tuple[_Call, str], value: object, options: list[dict[str, object]]) -> Exception:
     """The question which target an input means: a scalar's choices; a container is never chosen and refuses."""
     if isinstance(value, dict | list):
         return RecordingError("routine-recording-ambiguous")
@@ -631,26 +710,17 @@ def _ambiguous(context: _Context, value: object, options: list[dict[str, object]
     for option in options:
         if all(option["value"] != item["value"] for item in choices) and _offered(option):
             choices.append(option)
-    if _rerun(context, value, choices):
-        return _AskError(Question("routine-work-rerun"))
+    call, member = input_
+    targets = tuple((item["value"], item["label"]) for item in choices)
+    pending = Pending(call.occurrence.operation_id, call.action, member, targets)
     shown = tuple(choices) if len(choices) <= http_routine.MAX_QUESTION_OPTIONS else ()
-    return _AskError(Question("routine-binding-ambiguous", shown))
+    return _AskError(Question("routine-binding-ambiguous", shown, pending=pending))
 
 
 def _offered(option: dict[str, object]) -> bool:
     """Whether a target can be shown as one choice of the question."""
     question = Question("routine-binding-ambiguous", (option,)).wire()
     return http_routine.canonical_question(question) is not None
-
-
-def _rerun(context: _Context, value: object, choices: list[dict[str, object]]) -> bool:
-    """Whether the person, answering the last question, chose a target other than the one the work used."""
-    asked = context.asked
-    if asked is None or asked.code != "routine-binding-ambiguous":
-        return False
-    later = _known([line for send in context.sends[asked.after :] for line in _lines(send.person)], trace.Protection())
-    offered = [*asked.options, *(item["value"] for item in choices)]
-    return any(later.names(option) and option != value for option in offered)
 
 
 def _binding(context: _Context, node: int, position: _Position) -> dict[str, object]:
