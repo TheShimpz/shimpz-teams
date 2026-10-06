@@ -44,6 +44,9 @@ SCOPES = ("dns.read", "zone.read")
 ACCESS_TOKEN = "-".join(("hosted", "access", "token", "value", "123456789"))
 ANCHOR_ID = "a" * 64
 ZONE_INPUT = {"page": 1, "per_page": 25}
+REQUIREMENT = integration_challenges.IntegrationRequirement(
+    ASSISTANT_ID, "Shimpz Cloudflare", ("list-zones",), (("cloudflare", "cloudflare", SCOPES),)
+)
 
 
 def _zones(name: str = "example.com") -> dict[str, object]:
@@ -69,6 +72,21 @@ def _evidence(integrations: dict[str, object]) -> object:
         action_human.ActionTranscript("interrupt"),
         "a" * 64,
         "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+    )
+
+
+def _callback_binding(owner: str) -> integration_pkce.OAuthCallbackBinding:
+    """The callback binding of the Assistant's Cloudflare Integration for ``owner`` on the Team anchor."""
+    return integration_pkce.OAuthCallbackBinding(TEAM_ID, ASSISTANT_ID, "cloudflare", (owner, ANCHOR_ID))
+
+
+def _account_paused_pending() -> object:
+    """account_1's Hosted turn paused before any Action, waiting for the Assistant's Integration."""
+    continuation = chat_orchestrator.ChatContinuation(
+        brain_runtime_client.RuntimeTurn("action-required", "", ()), (), (), 0
+    )
+    return hosted_assistants._PendingHostedChat(
+        continuation, (ASSISTANT_ID,), (), "account_1", (ANCHOR_ID, "account_1")
     )
 
 
@@ -393,14 +411,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         )
         challenge = challenge_store.create(
             TEAM_ID,
-            (
-                integration_challenges.IntegrationRequirement(
-                    ASSISTANT_ID,
-                    "Shimpz Cloudflare",
-                    ("list-zones",),
-                    (("cloudflare", "cloudflare", SCOPES),),
-                ),
-            ),
+            (REQUIREMENT,),
             pending,
         )
         fake_service = types.SimpleNamespace(
@@ -424,12 +435,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             ),
             disconnect=lambda *_args: True,
         )
-        callback_binding = integration_pkce.OAuthCallbackBinding(
-            TEAM_ID,
-            ASSISTANT_ID,
-            "cloudflare",
-            ("integration_1", ANCHOR_ID),
-        )
+        callback_binding = _callback_binding("integration_1")
         fake_pkce = types.SimpleNamespace(inspect_callback=lambda **_kwargs: callback_binding)
         lease = hosted_resources._AuthorizationLease(
             TEAM_ID,
@@ -509,14 +515,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         pkce = types.SimpleNamespace(cancel_team=mock.Mock(return_value=1))
         challenges.create(
             TEAM_ID,
-            (
-                integration_challenges.IntegrationRequirement(
-                    ASSISTANT_ID,
-                    "Shimpz Cloudflare",
-                    ("list-zones",),
-                    (("cloudflare", "cloudflare", SCOPES),),
-                ),
-            ),
+            (REQUIREMENT,),
             object(),
         )
         with (
@@ -536,16 +535,8 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         # The store the shared resume admission recognizes, whichever module copy this suite loaded.
         challenges = hosted_chat_api.chat_turn_engine.integration_challenges.IntegrationChallengeStore()
         pkce = integration_pkce.OAuthPKCEChallengeStore()
-        continuation = chat_orchestrator.ChatContinuation(
-            brain_runtime_client.RuntimeTurn("action-required", "", ()), (), (), 0
-        )
-        pending = hosted_assistants._PendingHostedChat(
-            continuation, (ASSISTANT_ID,), (), "account_1", (ANCHOR_ID, "account_1")
-        )
-        requirement = integration_challenges.IntegrationRequirement(
-            ASSISTANT_ID, "Shimpz Cloudflare", ("list-zones",), (("cloudflare", "cloudflare", SCOPES),)
-        )
-        paused = challenges.create(TEAM_ID, (requirement,), pending)
+        pending = _account_paused_pending()
+        paused = challenges.create(TEAM_ID, (REQUIREMENT,), pending)
         pkce.create(
             session_binding="browser-session-binding-value",
             team_id=TEAM_ID,
@@ -623,15 +614,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
     def test_an_oauth_start_never_issues_state_for_a_pause_whose_commit_fails(self) -> None:
         challenges = integration_challenges.IntegrationChallengeStore()
         pkce = integration_pkce.OAuthPKCEChallengeStore()
-        continuation = chat_orchestrator.ChatContinuation(
-            brain_runtime_client.RuntimeTurn("action-required", "", ()), (), (), 0
-        )
-        pending = hosted_assistants._PendingHostedChat(
-            continuation, (ASSISTANT_ID,), (), "account_1", (ANCHOR_ID, "account_1")
-        )
-        requirement = integration_challenges.IntegrationRequirement(
-            ASSISTANT_ID, "Shimpz Cloudflare", ("list-zones",), (("cloudflare", "cloudflare", SCOPES),)
-        )
+        pending = _account_paused_pending()
         lease = hosted_resources._AuthorizationLease(TEAM_ID, ANCHOR_ID, "account_1", ("account", "account_1"))
 
         def authorization_url(_challenge, session, *, assistant_id, integration_id, resource_binding):
@@ -681,7 +664,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 self.assertRaises(runtime_state.ApiError),
             ):
                 hosted_chat_segment._pause_hosted_connection(
-                    TEAM_ID, "token", types.SimpleNamespace(continuation=continuation), (requirement,), pending
+                    TEAM_ID, "token", types.SimpleNamespace(continuation=pending.continuation), (REQUIREMENT,), pending
                 )
         finally:
             slot.release()
@@ -762,9 +745,6 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
     def test_ending_a_paused_integration_turn_rejects_an_invalid_continuation(self) -> None:
         challenges = integration_challenges.IntegrationChallengeStore()
-        requirement = integration_challenges.IntegrationRequirement(
-            ASSISTANT_ID, "Shimpz Cloudflare", ("list-zones",), (("cloudflare", "cloudflare", SCOPES),)
-        )
         batched = hosted_assistants._PendingHostedChat(
             types.SimpleNamespace(), (ASSISTANT_ID,), (), "account_1", ("identity",), paused_batch="batch"
         )
@@ -773,19 +753,14 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             self.assertFalse(harness.hosted_chat_lifecycle.cancel_paused_integration(TEAM_ID))
             # An Integration pause precedes its batch, so a continuation holding one, or none at all, is invalid.
             for payload in (object(), batched):
-                challenges.create(TEAM_ID, (requirement,), payload)
+                challenges.create(TEAM_ID, (REQUIREMENT,), payload)
                 with self.subTest(payload=payload), self.assertRaises(AssertionError):
                     harness.hosted_chat_lifecycle.cancel_paused_integration(TEAM_ID)
                 self.assertIsNone(challenges.current(TEAM_ID))
         pkce.cancel_team.assert_called_once_with(TEAM_ID)
 
     def test_callback_revalidates_owner_and_container_before_token_exchange(self) -> None:
-        binding = integration_pkce.OAuthCallbackBinding(
-            TEAM_ID,
-            ASSISTANT_ID,
-            "cloudflare",
-            ("a" * 32, ANCHOR_ID),
-        )
+        binding = _callback_binding("a" * 32)
         complete = mock.Mock()
         service = types.SimpleNamespace(complete=complete)
         body = _callback()
@@ -825,12 +800,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
     def test_callback_rejects_pending_teardown_before_exchange(self) -> None:
         owner = "a" * 32
-        binding = integration_pkce.OAuthCallbackBinding(
-            TEAM_ID,
-            ASSISTANT_ID,
-            "cloudflare",
-            (owner, ANCHOR_ID),
-        )
+        binding = _callback_binding(owner)
         complete = mock.Mock()
         with (
             mock.patch.multiple(
@@ -848,12 +818,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
     def test_callback_holds_the_team_lifecycle_lock_through_exchange_and_store(self) -> None:
         owner = "a" * 32
-        binding = integration_pkce.OAuthCallbackBinding(
-            TEAM_ID,
-            ASSISTANT_ID,
-            "cloudflare",
-            (owner, ANCHOR_ID),
-        )
+        binding = _callback_binding(owner)
         entered = threading.Event()
         release = threading.Event()
         result: list[object] = []
@@ -902,12 +867,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
     def test_callback_compensation_failure_is_audited_and_fails_explicitly(self) -> None:
         owner = "a" * 32
-        binding = integration_pkce.OAuthCallbackBinding(
-            TEAM_ID,
-            ASSISTANT_ID,
-            "cloudflare",
-            (owner, ANCHOR_ID),
-        )
+        binding = _callback_binding(owner)
         mismatched = hosted_chat_api.integration_service.OAuthIntegrationCompletion(
             TEAM_ID,
             "other-assistant",
