@@ -12,6 +12,7 @@ from test_assistant_manifest import FIXTURE_SUMMARY, _reviewed_catalog
 
 from assistant import action_schema
 from assistant import manifest as assistant_manifest
+from protocol.action.v1 import schema as action_protocol
 
 REFERENCE_CONTRACT = Path(__file__).resolve().parent / "fixtures" / "reference-assistant" / "shimpz.contract.json"
 
@@ -151,8 +152,8 @@ class AssistantActionSchemaTests(unittest.TestCase):
 
         current = json.loads(json.dumps(reviewed.machine_contract))
         schema = current["actions"][0]["input_schema"]
-        schema.update({"$schema": action_schema._DRAFT_2020_12, "$id": "https://example.test/action.json"})
-        schema["properties"]["page"] = {"$schema": action_schema._DRAFT_2020_12, "type": "integer"}
+        schema.update({"$schema": action_protocol.DRAFT_2020_12, "$id": "https://example.test/action.json"})
+        schema["properties"]["page"] = {"$schema": action_protocol.DRAFT_2020_12, "type": "integer"}
         parsed = assistant_manifest.parse_machine_contract(
             json.dumps(current).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
         )
@@ -214,7 +215,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
                 self.assertRaisesRegex(assistant_manifest.ManifestError, "every reference without a cycle"),
             ):
                 assistant_manifest._machine_schema(schema, kind="input")
-            self.assertIsNone(action_schema.expanded_subschemas(schema))
+            self.assertIsNone(action_protocol.expanded_subschemas(schema))
 
     def test_machine_schema_bounds_validation_work_with_every_reference_expanded(self) -> None:
         def doubling(levels: int) -> dict[str, object]:
@@ -231,13 +232,13 @@ class AssistantActionSchemaTests(unittest.TestCase):
         # 189 JSON values whose validation of `{}` alone would visit about 2^33 subschemas.
         attack = doubling(30)
         self.assertTrue(action_schema.json_nodes_within(attack, 189))
-        self.assertEqual(action_schema.expanded_subschemas(attack), 12_884_901_791)
+        self.assertEqual(action_protocol.expanded_subschemas(attack), 12_884_901_791)
         started = time.perf_counter()
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "too large once its references are expanded"):
             assistant_manifest._machine_schema(attack, kind="input")
         self.assertLess(time.perf_counter() - started, 1.0)
         # Eight levels expand to 3,041 subschemas; a ninth would exceed the bound.
-        self.assertEqual(action_schema.expanded_subschemas(doubling(8)), 3_041)
+        self.assertEqual(action_protocol.expanded_subschemas(doubling(8)), 3_041)
         self.assertEqual(assistant_manifest._machine_schema(doubling(8), kind="input")["type"], "object")
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "too large once its references are expanded"):
             assistant_manifest._machine_schema(doubling(9), kind="input")
@@ -248,7 +249,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
             "$defs": {"a/b~": {"type": "string"}},
             "properties": {"x": {"$ref": "#/$defs/a~1b~0"}, "y": {"$ref": "#/$defs/a~1b~0"}},
         }
-        self.assertEqual(action_schema.expanded_subschemas(shared), 7)
+        self.assertEqual(action_protocol.expanded_subschemas(shared), 7)
 
     def test_every_real_action_schema_expands_to_its_literal_subschemas(self) -> None:
         contracts = [reviewed.machine_contract for reviewed in _reviewed_catalog().values()]
@@ -265,11 +266,11 @@ class AssistantActionSchemaTests(unittest.TestCase):
         self.assertGreater(len(schemas), 2)
         for schema in schemas:
             with self.subTest(schema=sorted(schema)):
-                expanded = action_schema.expanded_subschemas(schema)
+                expanded = action_protocol.expanded_subschemas(schema)
                 self.assertIsNotNone(expanded)
                 # Without references, every counted subschema is one of the literal JSON values.
                 self.assertFalse(action_schema.json_nodes_within(schema, expanded - 1))
-                self.assertLessEqual(expanded, action_schema.MAX_EXPANDED_SUBSCHEMAS)
+                self.assertLessEqual(expanded, action_protocol.MAX_EXPANDED_SUBSCHEMAS)
                 self.assertEqual(assistant_manifest._machine_schema(schema, kind="output"), schema)
 
     def test_payload_validation_still_fails_closed_on_an_unadmitted_reference_cycle(self) -> None:
