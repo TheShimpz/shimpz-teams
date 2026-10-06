@@ -296,7 +296,7 @@ class TeamAsksTests(unittest.TestCase):
             "実行回数の上限は?",
             "运行次数上限是多少?",
             "ما هو حد التشغيل؟",
-            # A bare question for the time of day, and an option that is only a time.
+            # A bare question for the time of day.
             "What time?",
             "Que horas?",
             "¿A qué hora?",
@@ -305,10 +305,7 @@ class TeamAsksTests(unittest.TestCase):
             "何時?",
             "几点?",
             "في أي وقت؟",
-            "09:00",
-            "18:00",
-            "9h",
-            "9am",
+            "Mostrar sempre",
             # One option label that states a choice Team reads.
             "A cada 30 segundos",
             "Todo dia às 9h?",
@@ -318,6 +315,18 @@ class TeamAsksTests(unittest.TestCase):
         for text in asks:
             with self.subTest(text=text):
                 self.assertIs(phrase.team_asks(text), True)
+
+    def test_a_time_option_is_teams_only_when_its_question_is(self) -> None:
+        # A time alone states no schedule: its question decides whether Team or the Brain asks it.
+        options = ("09:00", "18:00", "9h", "9am")
+        self.assertIs(phrase.team_asks("Which start time should the report query use?"), False)
+        self.assertIs(phrase.team_asks("What time?"), True)
+        for option in options:
+            with self.subTest(option=option):
+                self.assertIs(phrase.team_asks(option), False)
+        for option in ("A cada 30 segundos", "Todo dia às 9h", "Mostrar sempre"):
+            with self.subTest(option=option):
+                self.assertIs(phrase.team_asks(option), True)
 
     def test_work_and_item_questions_are_the_brains_own(self) -> None:
         for text in (
