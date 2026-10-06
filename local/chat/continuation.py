@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 import re
 from collections.abc import Callable
@@ -14,6 +13,7 @@ from action import human as action_human
 from action import journal as action_journal
 from assistant import action_schema
 from chat import orchestrator as chat_orchestrator
+from core import canonical_json
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import usage as brain_usage
@@ -417,13 +417,7 @@ def encode(
         "pending": _pending_payload(pending),
     }
     try:
-        payload = json.dumps(
-            body,
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        payload = canonical_json.encode(body)
     except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise ContinuationCodecError("continuation could not be encoded") from exc
     if not 1 <= len(payload) <= limit:

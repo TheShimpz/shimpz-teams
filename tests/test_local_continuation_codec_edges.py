@@ -139,11 +139,7 @@ class ContinuationCodecBindingEdgeTests(unittest.TestCase):
             ),
         )
         with (
-            mock.patch.object(
-                continuation.json,
-                "dumps",
-                side_effect=TypeError("unencodable"),
-            ),
+            mock.patch.object(continuation.canonical_json, "encode", side_effect=TypeError("unencodable")),
             self.assertRaisesRegex(
                 continuation.ContinuationCodecError,
                 "could not be encoded",
@@ -153,7 +149,7 @@ class ContinuationCodecBindingEdgeTests(unittest.TestCase):
 
         oversized = "x" * (continuation.local_chat_continuation_store.MAX_PLAINTEXT_BYTES + 1)
         with (
-            mock.patch.object(continuation.json, "dumps", return_value=oversized),
+            mock.patch.object(continuation.canonical_json, "encode", return_value=oversized.encode()),
             self.assertRaisesRegex(
                 continuation.ContinuationCodecError,
                 "fixed byte limit",

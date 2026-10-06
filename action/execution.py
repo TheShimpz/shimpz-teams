@@ -23,6 +23,7 @@ from action import human as action_human
 from action import journal as action_journal
 from action import result as action_result
 from action import stored_input as action_stored_input
+from core import canonical_json
 from protocol.assistant.v1.validators import input_file as input_file_validator
 from protocol.http.v1 import strict_json
 
@@ -144,7 +145,7 @@ def action_operation(
     if not isinstance(assistant_image, str) or not assistant_image:
         raise action_journal.ActionJournalConflictError("Assistant generation is invalid")
     try:
-        encoded = json.dumps(
+        encoded = canonical_json.encode(
             {
                 "assistant_container_id": assistant_container_id,
                 "assistant_id": request.assistant_id,
@@ -154,12 +155,8 @@ def action_operation(
                 "files": files or [],
                 "input": request.input,
                 "action": request.action,
-            },
-            allow_nan=False,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
+            }
+        )
     except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise action_journal.ActionJournalConflictError("Action request cannot be fingerprinted") from exc
     return action_journal.Operation(request.interrupt_id, hashlib.sha256(encoded).hexdigest())
@@ -662,18 +659,14 @@ def integration_generations(
 def stored_input_origin(request: object) -> str:
     """Bind a newly consumed Stored Input to one exact Brain Action interrupt."""
     try:
-        encoded = json.dumps(
+        encoded = canonical_json.encode(
             {
                 "action": request.action,
                 "assistant_id": request.assistant_id,
                 "input": request.input,
                 "interrupt_id": request.interrupt_id,
-            },
-            allow_nan=False,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
+            }
+        )
     except (AttributeError, TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise action_journal.ActionJournalConflictError("Action Stored Input origin is invalid") from exc
     return hashlib.sha256(encoded).hexdigest()

@@ -6,8 +6,9 @@ result is never accepted that the journal could not persist.
 
 from __future__ import annotations
 
-import json
 import math
+
+from core import canonical_json
 
 # Matches the Assistant RPC frame bound; the RPC boundary refuses any result this encoding could not admit.
 MAX_RESULT_BYTES = 512 * 1024
@@ -51,13 +52,7 @@ def canonical(value: object, max_bytes: int) -> bytes:
     """The result's canonical UTF-8 JSON bytes, refused beyond ``max_bytes``."""
     walk(value)
     try:
-        encoded = json.dumps(
-            value,
-            allow_nan=False,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
+        encoded = canonical_json.encode(value)
     except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise ActionResultError("Action result is not canonical JSON") from exc
     if len(encoded) > max_bytes:

@@ -33,6 +33,7 @@ from typing import Any
 
 from assistant import action_schema
 from assistant import manifest as assistant_manifest
+from core.canonical_json import encode as canonical
 from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_run as http_routine_run
@@ -195,10 +196,6 @@ class ActionContract:
     read_only: bool = False
     # The Stored Inputs the Action uses, by name only, sorted.
     stored_inputs: tuple[str, ...] = ()
-
-
-def canonical(value: object) -> bytes:
-    return json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def admit(document: object, contracts: Mapping[tuple[str, str], ActionContract]) -> Plan:

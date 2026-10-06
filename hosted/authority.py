@@ -17,6 +17,8 @@ from urllib.parse import urlparse
 
 from jsonschema import Draft202012Validator
 
+from core import canonical_json
+
 ACCOUNT_URL = os.environ.get("SHIMPZ_ACCOUNT_URL", "http://account:7079")
 CAPABILITY_FILE = Path(
     os.environ.get(
@@ -68,13 +70,7 @@ def binding_digest(binding: object) -> str:
     if errors:
         raise AuthorityUnavailableError("Account authority binding is invalid")
     try:
-        encoded = json.dumps(
-            binding,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
+        encoded = canonical_json.encode(binding)
     except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise AuthorityUnavailableError("Account authority binding is invalid") from exc
     if len(encoded) > MAX_BINDING_BYTES:

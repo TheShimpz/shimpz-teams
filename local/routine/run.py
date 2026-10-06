@@ -16,6 +16,7 @@ from http import HTTPStatus
 
 from action import human as action_human
 from chat import orchestrator as chat_orchestrator
+from core import canonical_json
 from inference import config as inference_config
 from local import audit as local_audit
 from local import authority as local_authority
@@ -307,8 +308,7 @@ REDACTED = "[redacted]"
 
 def request_fingerprint(request: dict[str, object]) -> str:
     """The SHA-256 of a request's canonical JSON, as a public challenge descriptor names it."""
-    canonical = json.dumps(request, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
+    return hashlib.sha256(canonical_json.encode(request)).hexdigest()
 
 
 def _redacted(value: object, pattern: re.Pattern[str] | None) -> object:

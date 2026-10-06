@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from core import canonical_json
 from core.container import network as network_policy
 from install import lock
 from install.contract import ContractValidationError, ContractValidator
@@ -222,7 +223,7 @@ class DynamicAssistantStore:
             "version": _FORMAT_VERSION,
             "bindings": [_encode_binding(binding) for binding in sorted(bindings, key=_binding_key)],
         }
-        encoded = _canonical_bytes(document)
+        encoded = canonical_json.encode(document)
         if len(encoded) > _MAX_FILE_BYTES:
             raise DynamicAssistantError("the dynamic Assistant registry is too large")
         try:
@@ -274,7 +275,7 @@ def _binding(
         "provenance": provenance,
         document_name: document,
     }
-    digest = f"sha256:{hashlib.sha256(_canonical_bytes(digest_value)).hexdigest()}"
+    digest = f"sha256:{hashlib.sha256(canonical_json.encode(digest_value)).hexdigest()}"
     return DynamicAssistantBinding(team_id, digest, provenance, document)
 
 
@@ -341,13 +342,3 @@ def _validate_identity(team_id: object, assistant_id: object) -> None:
     _validate_team_id(team_id)
     if http_payload.canonical_assistant_id(assistant_id) is None:
         raise DynamicAssistantError("the Assistant id is invalid")
-
-
-def _canonical_bytes(value: object) -> bytes:
-    return json.dumps(
-        value,
-        allow_nan=False,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")

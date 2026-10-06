@@ -8,6 +8,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from core import canonical_json
 from protocol.assistant.v1.validators import human_request as human_request_validator
 from protocol.http.v1 import payload as http_payload
 
@@ -311,12 +312,6 @@ def _fingerprint(request: object) -> str:
 
 def _canonical(value: object) -> bytes:
     try:
-        return json.dumps(
-            value,
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        return canonical_json.encode(value)
     except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise HumanRequestError("Assistant Action human request is invalid") from exc
