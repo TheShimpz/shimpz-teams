@@ -379,31 +379,18 @@ class OAuthHTTPClientTests(unittest.TestCase):
             with self.subTest(response=provider_response), self.assertRaises(integration_http.OAuthHTTPError):
                 integration_http.OAuthHTTPClient._tokens(provider_response, expected_scopes=expected)
 
+        exchange = {
+            "provider_id": "cloudflare",
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_CREDENTIAL,
+            "redirect_uri": integration_http.HOSTED_REDIRECT_URI,
+            "code": CODE,
+            "code_verifier": VERIFIER,
+            "scopes": SCOPES,
+        }
         for operation, kwargs in (
-            (
-                "exchange_code",
-                {
-                    "provider_id": "cloudflare",
-                    "client_id": CLIENT_ID,
-                    "client_secret": CLIENT_CREDENTIAL,
-                    "redirect_uri": integration_http.HOSTED_REDIRECT_URI,
-                    "code": CODE,
-                    "code_verifier": "v" * 42,
-                    "scopes": SCOPES,
-                },
-            ),
-            (
-                "exchange_code",
-                {
-                    "provider_id": "cloudflare",
-                    "client_id": CLIENT_ID,
-                    "client_secret": CLIENT_CREDENTIAL,
-                    "redirect_uri": integration_http.HOSTED_REDIRECT_URI,
-                    "code": CODE,
-                    "code_verifier": VERIFIER,
-                    "scopes": ("invalid",),
-                },
-            ),
+            ("exchange_code", {**exchange, "code_verifier": "v" * 42}),
+            ("exchange_code", {**exchange, "scopes": ("invalid",)}),
             (
                 "refresh",
                 {
