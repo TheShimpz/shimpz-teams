@@ -83,14 +83,17 @@ def _trace(*calls: tuple, turn_date: str | None = "2026-10-05", started_at: int 
     return recorded
 
 
-def _record(recorded: trace.Trace, known: str, mode: str = "show", **options) -> recording.Recorded:
-    """Record a trace; options are ``when``, ``timezone``, ``decide``, ``protection``, and ``contracts``."""
+def _record(recorded: trace.Trace, known: str | tuple[str, ...], mode: str = "show", **options) -> recording.Recorded:
+    """Record a trace against the request: one text, or the send and earlier sends.
+
+    Options are ``when``, ``timezone``, ``decide``, ``protection``, and ``contracts``.
+    """
     return recording.record(
         recorded,
         recording.Recording(
             mode, options.get("when"), options.get("timezone", "America/Sao_Paulo"), options.get("decide", ())
         ),
-        known,
+        (known,) if isinstance(known, str) else known,
         options.get("protection") or trace.Protection(),
         options.get("contracts", CONTRACTS),
     )
@@ -161,7 +164,8 @@ class OwnerCaseTests(unittest.TestCase):
 
 class ClassificationTests(unittest.TestCase):
     def classify(self, value: object, known: str, *earlier: object, **options) -> tuple[object, str]:
-        calls = [("reports/fetch", {}, item) for item in earlier]
+        # Each earlier read is a distinct call, so none repeats another with identical input.
+        calls = [("reports/fetch", {"call": index}, item) for index, item in enumerate(earlier)]
         calls.append(("cloudflare/list-dns-records", {"zone_id": "z", "per_page": value}, {}))
         recorded = _record(_trace(*calls, **options.pop("trace", {})), known, **options)
         return _input(recorded)["per_page"], recorded.origins[recorded.document["steps"][-1]["id"]]["per_page"]
@@ -378,8 +382,28 @@ class SecretTests(unittest.TestCase):
         self.assertEqual(code, "routine-recording-too-large")
 
 
+class KnownTextTests(unittest.TestCase):
+    def test_a_name_from_an_earlier_send_of_the_conversation_anchors_the_selector(self) -> None:
+        recorded = _record(
+            _trace(
+                ("cloudflare/list-zones", {}, ZONES),
+                ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID, "per_page": 50}, {"result": []}),
+            ),
+            ("Faça isso a cada hora", "Liste os registros DNS de shimpz.com, 50 por página"),
+        )
+        zone, per_page = (_input(recorded)[name] for name in ("zone_id", "per_page"))
+        self.assertEqual((zone["where"], recorded.origins["s2"]["zone_id"]), ({"name": "shimpz.com"}, "selector"))
+        self.assertEqual((per_page, recorded.origins["s2"]["per_page"]), ({"kind": "literal", "value": 50}, "request"))
+
+    def test_no_name_or_number_spans_two_sends(self) -> None:
+        recorded = _record(
+            _trace(("reports/fetch", {"site": "shimpz.com", "port": 8443}, {})), ("shimpz", ".com 84", "43 hoje")
+        )
+        self.assertEqual(recorded.origins["s1"], {"site": "assistant", "port": "assistant"})
+
+
 class BoundaryTests(unittest.TestCase):
-    def test_every_call_replays_and_unreferenced_middle_reads_are_pruned(self) -> None:
+    def test_every_call_replays_in_order_and_no_unread_read_is_dropped(self) -> None:
         recorded = _record(
             _trace(
                 ("reports/fetch", {}, {"unused": 1}),
@@ -394,12 +418,48 @@ class BoundaryTests(unittest.TestCase):
         steps = recorded.document["steps"]
         self.assertEqual(
             [(step["id"], step["action"]) for step in steps],
-            [("s1", "list-zones"), ("s2", "post"), ("s3", "list-dns-records")],
+            [("s1", "fetch"), ("s2", "list-zones"), ("s3", "post"), ("s4", "fetch"), ("s5", "list-dns-records")],
         )
-        self.assertEqual(steps[2]["input"]["zone_id"]["step"], "s1")
-        self.assertEqual(recorded.document["output"], {"mode": "changes", "step": "s3", "when": None})
-        self.assertEqual(set(recorded.origins), {"s1", "s2", "s3"})
-        self.assertEqual(recorded.origins["s2"], {"text": "assistant"})
+        self.assertEqual(steps[4]["input"]["zone_id"]["step"], "s2")
+        self.assertEqual(recorded.document["output"], {"mode": "changes", "step": "s5", "when": None})
+        self.assertEqual(set(recorded.origins), {"s1", "s2", "s3", "s4", "s5"})
+        self.assertEqual(recorded.origins["s3"], {"text": "assistant"})
+
+    def test_the_same_action_for_several_items_keeps_every_call(self) -> None:
+        zones = ZONES["result"]
+        calls = [("cloudflare/list-dns-records", {"zone_id": item["id"]}, {"result": []}) for item in zones[:3]]
+        recorded = _record(_trace(("cloudflare/list-zones", {}, ZONES), *calls), "x")
+        steps = recorded.document["steps"]
+        self.assertEqual([step["action"] for step in steps], ["list-zones", *["list-dns-records"] * 3])
+        self.assertEqual([step["input"]["zone_id"]["value"] for step in steps[1:]], [item["id"] for item in zones[:3]])
+        self.assertEqual(recorded.document["output"]["step"], "s4")
+
+    def test_only_a_read_a_later_identical_call_repeats_is_dropped(self) -> None:
+        repeated = _record(_trace(("reports/fetch", {"q": 1}, {"a": 1}), ("reports/fetch", {"q": 1}, {"a": 2})), "x")
+        self.assertEqual(
+            [step["input"] for step in repeated.document["steps"]], [{"q": {"kind": "literal", "value": 1}}]
+        )
+        typed = _record(_trace(("reports/fetch", {"q": 1}, {}), ("reports/fetch", {"q": True}, {})), "x")
+        varied = _record(_trace(("reports/fetch", {"q": 1}, {}), ("reports/fetch", {"q": 2}, {})), "x")
+        self.assertEqual(len(typed.document["steps"]), 2)
+        self.assertEqual(len(varied.document["steps"]), 2)
+
+    def test_a_repeated_lookup_is_read_through_its_latest_call(self) -> None:
+        records = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID}, {"result": []})
+        again = _record(
+            _trace(("cloudflare/list-zones", {}, ZONES), ("cloudflare/list-zones", {}, ZONES), records), "shimpz.com"
+        )
+        self.assertEqual([step["action"] for step in again.document["steps"]], ["list-zones", "list-dns-records"])
+        self.assertEqual(_input(again)["zone_id"]["step"], "s1")
+        self.assertEqual(_input(again)["zone_id"]["where"], {"name": "shimpz.com"})
+        # A lookup a later step reads stays, even when the same lookup runs again after that step.
+        read = _record(
+            _trace(("cloudflare/list-zones", {}, ZONES), records, ("cloudflare/list-zones", {}, ZONES)), "shimpz.com"
+        )
+        self.assertEqual(
+            [step["action"] for step in read.document["steps"]], ["list-zones", "list-dns-records", "list-zones"]
+        )
+        self.assertEqual(_input(read, 1)["zone_id"]["step"], "s1")
 
     def test_none_mode_shows_nothing_and_still_keeps_the_last_step(self) -> None:
         recorded = _record(_trace(("reports/fetch", {}, {}), ("reports/fetch", {}, {})), "x", "none")
@@ -468,7 +528,7 @@ if __name__ == "__main__":
 
 
 class PruningTests(unittest.TestCase):
-    def test_a_read_only_step_whose_only_reader_was_pruned_is_pruned_too(self) -> None:
+    def test_reads_nothing_later_reads_still_replay_and_the_last_step_is_shown(self) -> None:
         recorded = _record(
             _trace(
                 ("cloudflare/list-zones", {}, ZONES),
@@ -477,8 +537,10 @@ class PruningTests(unittest.TestCase):
             ),
             "shimpz.com",
         )
-        self.assertEqual([step["action"] for step in recorded.document["steps"]], ["fetch"])
-        self.assertEqual(recorded.document["output"], {"mode": "show", "step": "s1", "when": None})
+        self.assertEqual(
+            [step["action"] for step in recorded.document["steps"]], ["list-zones", "list-dns-records", "fetch"]
+        )
+        self.assertEqual(recorded.document["output"], {"mode": "show", "step": "s3", "when": None})
 
 
 class WholeInputSecretTests(unittest.TestCase):
@@ -573,7 +635,7 @@ class KeptTests(unittest.TestCase):
         return recording.kept(
             options.get("plan", KEPT_PLAN),
             choice,
-            options.get("known", "now with 50 per page"),
+            options.get("known", ("now with 50 per page",)),
             options.get("protection", trace.Protection()),
             CONTRACTS,
         )

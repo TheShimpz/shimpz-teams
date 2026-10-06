@@ -6,7 +6,9 @@ so a change repeats on every run; in ``decide`` only read-only calls replay, and
 permitted set instead, so no conditional effect ever becomes unconditional.
 
 Each top-level input member's whole value of each replay step is classified by the first rule that applies, against
-the turn's Team-admitted message (the known text):
+the person's request (the known text): the turn's Team-admitted message and each untruncated earlier send of the person
+in the conversation window that same request carried. A name or number counts only within one of those texts, never
+across two:
 
 1. a secret (withheld, credential-shaped, protected by the turn, or bound for a secret destination) refuses;
 2. a non-empty string occurring in the known text, or a number whose JSON text is a whole token of it, is a literal the
@@ -18,15 +20,17 @@ the turn's Team-admitted message (the known text):
    known text names and no other item shares;
 5. anything else is a literal the assistant chose, the same on every run.
 
-Equality is exact and type-sensitive (``plan.same``). A read-only step nothing later reads is pruned, except the last.
-The result is a plan document, each input's origin for the confirmation card, and the permitted Actions at their pins.
+Equality is exact and type-sensitive (``plan.same``). Every call replays in order, the same Action for several items
+included; only a read-only call that a later call of the same Action repeats with identical input is dropped, unless a
+step reads it, and a value is never copied from such a superseded call. The result is a plan document, each input's
+origin for the confirmation card, and the permitted Actions at their pins.
 """
 
 from __future__ import annotations
 
 import datetime
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
 from routine import plan as routine_plan
@@ -71,7 +75,7 @@ class Recorded:
 
 @dataclass(frozen=True, slots=True)
 class _Known:
-    text: str
+    texts: tuple[str, ...]
     numbers: frozenset[str]
     protected: frozenset[str]
 
@@ -79,18 +83,24 @@ class _Known:
         if isinstance(value, bool):
             return False
         if isinstance(value, str):
-            return bool(value) and value in self.text
+            return bool(value) and any(value in text for text in self.texts)
         return isinstance(value, int | float) and routine_plan.canonical(value).decode() in self.numbers
+
+
+def _known(texts: Sequence[str], protection: trace.Protection) -> _Known:
+    """The request's texts, with every whole number token each one writes on its own."""
+    numbers = frozenset(match.group() for text in texts for match in _NUMBER_RE.finditer(text))
+    return _Known(tuple(texts), numbers, protection.values)
 
 
 def record(
     recorded: trace.Trace,
     recording: Recording,
-    known: str,
+    known: Sequence[str],
     protection: trace.Protection,
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract],
 ) -> Recorded:
-    """The plan a recording turn's trace defines; raises RecordingError with its stable reason."""
+    """The plan a recording turn's trace defines from the request's ``known`` texts; raises RecordingError."""
     _admit(recording, contracts)
     if protection.lost:
         raise RecordingError("routine-recording-unavailable")
@@ -102,7 +112,7 @@ def record(
     replayed = [item for item in recorded.occurrences if item.read_only or not decide]
     if not replayed and not decide:
         raise RecordingError("routine-recording-empty")
-    context = _Known(known, frozenset(match.group() for match in _NUMBER_RE.finditer(known)), protection.values)
+    context = _known(known, protection)
     steps = [
         _step(index, occurrence, replayed[:index], recorded, recording.timezone, context, contracts)
         for index, occurrence in enumerate(replayed)
@@ -240,6 +250,7 @@ def _copied(value: object, earlier: list[trace.Occurrence], known: _Known) -> di
     found = [
         (index, position)
         for index, occurrence in enumerate(earlier)
+        if not _superseded(occurrence, earlier[index + 1 :])
         for position in _positions(occurrence.result.value, value)
         if occurrence.result.available(_pointer(position[0]))
     ]
@@ -321,14 +332,26 @@ def _unique(result: trace.Kept, array_tokens: tuple[str, ...], items: list, chos
     return True
 
 
+def _superseded(occurrence: trace.Occurrence, later: list[trace.Occurrence]) -> bool:
+    """Whether a read-only call is repeated later by the same Action with exactly the same complete input."""
+    return occurrence.read_only and any(
+        (item.assistant, item.action) == (occurrence.assistant, occurrence.action)
+        and not item.input.withheld
+        and not occurrence.input.withheld
+        and routine_plan.same(item.input.value, occurrence.input.value)
+        for item in later
+    )
+
+
 def _pruned(
     steps: list[tuple[dict[str, object], dict[str, str]]], replayed: list[trace.Occurrence]
 ) -> list[tuple[dict[str, object], dict[str, str]]]:
-    """Every step except a read-only one, not the last, that no kept later step reads."""
+    """Every step except a read-only one that a later call repeats with identical input and no kept step reads."""
     kept: list[tuple[dict[str, object], dict[str, str]]] = []
     read: set[str] = set()
-    for (step, origins), occurrence in reversed(list(zip(steps, replayed, strict=True))):
-        if kept and occurrence.read_only and step["id"] not in read:
+    for index in reversed(range(len(steps))):
+        step, origins = steps[index]
+        if step["id"] not in read and _superseded(replayed[index], replayed[index + 1 :]):
             continue
         kept.append((step, origins))
         read.update(source["step"] for source in step["input"].values() if source["kind"] == "step_output")
@@ -353,7 +376,7 @@ def _renumbered(
 def kept(
     plan: Mapping[str, object],
     recording: Recording,
-    known: str,
+    known: Sequence[str],
     protection: trace.Protection,
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract],
 ) -> Recorded:
@@ -372,7 +395,7 @@ def kept(
             raise RecordingError("plan-pin-drift")
     if not steps and recording.mode != "decide":
         raise RecordingError("routine-recording-empty")
-    context = _Known(known, frozenset(match.group() for match in _NUMBER_RE.finditer(known)), protection.values)
+    context = _known(known, protection)
     origins = {
         step["id"]: {member: _kept_origin(source, context) for member, source in step["input"].items()}
         for step in steps
