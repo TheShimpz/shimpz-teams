@@ -131,7 +131,7 @@ def _validate_resolve(value: dict[str, object]) -> None:
     ):
         raise ContractValidationError("resolve_input_file_mismatch")
     intent_ids = _intent_ids(intents)
-    required_ids = _required_integration_ids(contract)
+    required_ids = _required_ids(contract, "integrations")
     if len(intent_ids) != len(intents) or len(set(intent_ids)) != len(intent_ids):
         raise ContractValidationError("resolve_integration_mismatch")
     if set(intent_ids) != required_ids:
@@ -140,7 +140,7 @@ def _validate_resolve(value: dict[str, object]) -> None:
     if not isinstance(stored_inputs, list):
         return
     stored_input_ids = _intent_ids(stored_inputs)
-    required_stored_input_ids = _required_stored_input_ids(contract)
+    required_stored_input_ids = _required_ids(contract, "stored_inputs")
     if len(stored_input_ids) != len(stored_inputs) or len(set(stored_input_ids)) != len(stored_input_ids):
         raise ContractValidationError("resolve_stored_input_mismatch")
     if not required_stored_input_ids.issubset(stored_input_ids):
@@ -176,27 +176,15 @@ def _intent_ids(intents: list[object]) -> list[str]:
     return [intent["id"] for intent in intents if isinstance(intent, dict) and isinstance(intent.get("id"), str)]
 
 
-def _required_integration_ids(contract: dict[str, object]) -> set[str]:
+def _required_ids(contract: dict[str, object], field: str) -> set[str]:
+    """The ids every Action of the contract names in one requirement field."""
     actions = contract.get("actions")
     if not isinstance(actions, list):
         return set()
     return {
-        integration
+        required
         for action in actions
-        if isinstance(action, dict) and isinstance(action.get("integrations"), list)
-        for integration in action["integrations"]
-        if isinstance(integration, str)
-    }
-
-
-def _required_stored_input_ids(contract: dict[str, object]) -> set[str]:
-    actions = contract.get("actions")
-    if not isinstance(actions, list):
-        return set()
-    return {
-        stored_input
-        for action in actions
-        if isinstance(action, dict) and isinstance(action.get("stored_inputs"), list)
-        for stored_input in action["stored_inputs"]
-        if isinstance(stored_input, str)
+        if isinstance(action, dict) and isinstance(action.get(field), list)
+        for required in action[field]
+        if isinstance(required, str)
     }

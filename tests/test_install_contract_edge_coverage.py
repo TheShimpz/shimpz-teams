@@ -83,7 +83,7 @@ class InstallContractEdgeCoverageTests(unittest.TestCase):
             "image_reference": "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 64,
         }
         install_contract._validate_resolve({**base, "integrations": None, "machine_contract": {}})
-        self.assertEqual(install_contract._required_integration_ids({"actions": None}), set())
+        self.assertEqual(install_contract._required_ids({"actions": None}, "integrations"), set())
 
         duplicate = [{"id": "cloudflare"}, {"id": "cloudflare"}]
         contract = {"actions": [{"integrations": ["cloudflare"]}]}
