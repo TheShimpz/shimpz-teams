@@ -28,6 +28,14 @@ ASSISTANT_ULIMITS = local_container_policy.ASSISTANT_ULIMITS
 log = logging.getLogger("shimpz.team.local.assistant.lifecycle")
 
 
+def _forget_container_review(self, container_id: str) -> None:
+    """Drop every review this controller cached for one Assistant container, so its next use is reviewed afresh."""
+    self._assistant_genesis_cache.discard(container_id)
+    self._assistant_allowed_hosts_cache.discard(container_id)
+    self._assistant_machine_contract_cache.discard(container_id)
+    self._assistant_language_cache.discard(container_id)
+
+
 def _is_replaceable_readiness_failure(problem: ApiProblem) -> bool:
     return problem.code == "assistant-not-ready"
 
@@ -84,10 +92,7 @@ def _rollback_assistant_install(
 ) -> ApiProblem | None:
     incomplete = False
     if container is not None:
-        self._assistant_genesis_cache.discard(container.id)
-        self._assistant_allowed_hosts_cache.discard(container.id)
-        self._assistant_machine_contract_cache.discard(container.id)
-        self._assistant_language_cache.discard(container.id)
+        _forget_container_review(self, container.id)
         try:
             container.remove(force=True)
         except NotFound:
@@ -230,10 +235,7 @@ def _replace_unready_assistant(
     image = self._assistant_image(spec)
     self._validate_container(existing, team_id, spec, network.name)
     try:
-        self._assistant_genesis_cache.discard(existing.id)
-        self._assistant_allowed_hosts_cache.discard(existing.id)
-        self._assistant_machine_contract_cache.discard(existing.id)
-        self._assistant_language_cache.discard(existing.id)
+        _forget_container_review(self, existing.id)
         existing.remove(force=True)
     except DockerException as exc:
         raise assistant_replace_failed() from exc
@@ -266,10 +268,7 @@ def _replace_outdated_assistant(
         self._team_has_egress_assistant(team_id, excluding=spec.assistant_id) if spec.allowed_hosts else None
     )
     try:
-        self._assistant_genesis_cache.discard(existing.id)
-        self._assistant_allowed_hosts_cache.discard(existing.id)
-        self._assistant_machine_contract_cache.discard(existing.id)
-        self._assistant_language_cache.discard(existing.id)
+        _forget_container_review(self, existing.id)
         existing.remove(force=True)
     except DockerException as exc:
         raise assistant_replace_failed() from exc
@@ -464,10 +463,7 @@ def update_assistant(
             else None
         )
         try:
-            self._assistant_genesis_cache.discard(existing.id)
-            self._assistant_allowed_hosts_cache.discard(existing.id)
-            self._assistant_machine_contract_cache.discard(existing.id)
-            self._assistant_language_cache.discard(existing.id)
+            _forget_container_review(self, existing.id)
             existing.remove(force=True)
             if previous.allowed_hosts:
                 self._release_assistant_egress(
@@ -746,10 +742,7 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
                 code="docker-remove-failed",
             ) from exc
         self._blocked_action_workloads.discard(container.id)
-        self._assistant_genesis_cache.discard(container.id)
-        self._assistant_allowed_hosts_cache.discard(container.id)
-        self._assistant_machine_contract_cache.discard(container.id)
-        self._assistant_language_cache.discard(container.id)
+        _forget_container_review(self, container.id)
         if retired_image_id is not None and (binding is None or binding.provenance == "published"):
             self._queue_residue(retired_image_id)
         if spec.allowed_hosts:
