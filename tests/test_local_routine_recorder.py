@@ -186,6 +186,17 @@ class RecordingBookTests(unittest.TestCase):
             with self.subTest(code=code, answer=answer):
                 self.assertEqual(answered(code, answer), expected)
         self.assertIsNone(answered("routine-schedule-unstated", "a cada hora", composed=False))
+        # Only Admin's complete composition, ending in its answer, is an answer Team records itself.
+        for message in (
+            "Resposta: a cada hora",
+            "Liste\n\nResposta: a cada hora",
+            "Liste\n\nQuestion: Qual?\nResposta: a cada hora",
+            "Liste\nPergunta: Qual?\nResposta: a cada hora",
+            "Liste\nmais\nPergunta: Qual?\nResposta: a cada hora",
+            "Liste\n\nPergunta: Qual?\nResposta: a cada hora\nAgora liste as zonas",
+        ):
+            with self.subTest(message=message):
+                self.assertIsNone(answered("routine-schedule-unstated", message, composed=False))
         self.assertIsNone(answered("routine-schedule-unstated", "a cada hora", kept=None))
         self.assertIsNone(routine_recorder.answered(None))
 

@@ -271,14 +271,23 @@ _INTERVAL_KINDS = frozenset({"continuous", "hourly"})
 
 
 def _latest_answer(message: str) -> str | None:
-    """The answer of the last composed answer line in a message, or None when it composes no answer."""
-    answers = tuple(f"{labels['answer']}: " for labels in http_payload.CLARIFICATION_LABELS.values())
-    found = None
-    for line in message.split("\n"):
-        prefix = next((item for item in answers if line.startswith(item)), None)
-        if prefix is not None:
-            found = line[len(prefix) :].strip()
-    return found
+    """The answer a message ends with when it is exactly Admin's composed clarification answer, else None.
+
+    The message must be the composition ``payload.compose_clarified`` makes of an original request, one question, and
+    one answer in one interface language, so the answer is its last authored segment and nothing follows it.
+    """
+    lines = message.split("\n")
+    if len(lines) < 4:
+        return None
+    for locale, labels in http_payload.CLARIFICATION_LABELS.items():
+        question, answer = f"{labels['question']}: ", f"{labels['answer']}: "
+        if not (lines[-2].startswith(question) and lines[-1].startswith(answer)):
+            continue
+        original, asked, given = "\n".join(lines[:-3]), lines[-2][len(question) :], lines[-1][len(answer) :]
+        composed = http_payload.compose_clarified(original, asked, given, locale)
+        if original.strip() and given.strip() and composed == message:
+            return given
+    return None
 
 
 def settled(span: Span | None) -> Intent | None:
