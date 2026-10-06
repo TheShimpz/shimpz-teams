@@ -122,7 +122,9 @@ records again with the request's stored intent without asking the Brain, and the
 What a person's own words state about a Routine is read here too, with no model, so Team and the Brain read the
 same words alike (`phrase.py`, ADR-0101): `phrase.stated` reads the canonical schedules a text states,
 `phrase.outputs` the output choices (`show`, `changes`, `none`, `chain`), and `phrase.zones` the exact IANA zones it
-names. The tables cover the eight interface languages. A sentence that asks states nothing; a negation in any
+names. `phrase.team_asks(text)` is true when one clarification question or option label asks or states a schedule,
+an interval, an output choice, or how many times a Routine may run, which Team asks itself and the Brain never does.
+The tables cover the eight interface languages. A sentence that asks states nothing; a negation in any
 language rejects every reading it reaches; "show the result" qualified by "only when it changes" in its own clause is
 that one choice, while alternatives offer both. Vectors pin a reading for each language and kind.
 

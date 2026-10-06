@@ -264,6 +264,58 @@ class StatedOutputTests(unittest.TestCase):
         self.assertEqual(set(phrase.outputs("Mostrar sempre. Ou só quando mudar.")), {"show", "changes"})
 
 
+class TeamAsksTests(unittest.TestCase):
+    """What Team asks the person itself, so the Brain's guard keeps its own questions to the work (ADR-0101)."""
+
+    def test_asking_or_stating_a_schedule_an_output_or_limits_in_every_language(self) -> None:
+        asks = (
+            "Com que frequência a rotina deve rodar?",
+            "Como você quer receber o resultado?",
+            "Quantas vezes por dia?",
+            "How often should it run?",
+            "How do you want to receive the results?",
+            "How many times a day?",
+            "¿Con qué frecuencia?",
+            "¿Cómo quieres recibir el resultado?",
+            "À quelle fréquence ?",
+            "Comment voulez-vous recevoir les résultats ?",
+            "Wie oft soll sie laufen?",
+            "Was soll mit dem Ergebnis passieren?",
+            "どのくらいの頻度で実行しますか?",
+            "結果をどのように受け取りますか?",
+            "多久一次?",
+            "如何接收结果?",
+            "كم مرة؟",
+            "كيف تريد استلام النتيجة؟",
+            # One option label that states a choice Team reads.
+            "A cada 30 segundos",
+            "Todo dia às 9h?",
+            "Mostrar somente quando mudar",
+            "Não mostrar",
+        )
+        for text in asks:
+            with self.subTest(text=text):
+                self.assertIs(phrase.team_asks(text), True)
+
+    def test_work_and_item_questions_are_the_brains_own(self) -> None:
+        for text in (
+            "Qual zona?",
+            "O que fazer?",
+            "O que a rotina deve fazer?",
+            "Which zone should I use?",
+            "What should the routine do?",
+            "¿Qué zona?",
+            "Quelle zone ?",
+            "Welche Zone?",
+            "どのゾーン?",
+            "哪个区域?",
+            "أي منطقة؟",
+            "shimpz.com",
+        ):
+            with self.subTest(text=text):
+                self.assertIs(phrase.team_asks(text), False)
+
+
 class ZoneTokenTests(unittest.TestCase):
     def test_a_whole_zone_beside_sentence_punctuation_counts_and_a_partial_offset_never_does(self) -> None:
         cases = {

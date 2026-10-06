@@ -2709,6 +2709,26 @@
       {"text": "America/Sao_Paulo ou Europe/Paris", "zones": ["America/Sao_Paulo", "Europe/Paris"]},
       {"text": "at 9 UTC+3", "zones": []},
       {"text": "Mars/Olympus", "zones": []}
+    ],
+    "team_asks": [
+      {"text": "Com que frequência a rotina deve rodar?", "asks": true},
+      {"text": "Como você quer receber o resultado?", "asks": true},
+      {"text": "Quantas vezes por dia?", "asks": true},
+      {"text": "How often should it run?", "asks": true},
+      {"text": "How many times a day?", "asks": true},
+      {"text": "¿Con qué frecuencia?", "asks": true},
+      {"text": "Comment voulez-vous recevoir les résultats ?", "asks": true},
+      {"text": "Wie oft soll sie laufen?", "asks": true},
+      {"text": "結果をどのように受け取りますか?", "asks": true},
+      {"text": "多久一次?", "asks": true},
+      {"text": "كم مرة؟", "asks": true},
+      {"text": "A cada 30 segundos", "asks": true},
+      {"text": "Mostrar somente quando mudar", "asks": true},
+      {"text": "Qual zona?", "asks": false},
+      {"text": "O que a rotina deve fazer?", "asks": false},
+      {"text": "Which zone should I use?", "asks": false},
+      {"text": "どのゾーン?", "asks": false},
+      {"text": "أي منطقة؟", "asks": false}
     ]
   }
 }

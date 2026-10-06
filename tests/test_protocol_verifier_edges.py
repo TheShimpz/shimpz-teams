@@ -537,7 +537,10 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def drifted(value: dict[str, object]) -> None:
             value["routine_phrase"]["outputs"][0]["outputs"] = ["none"]
 
-        for mutate in (missing, drifted):
+        def asks_drifted(value: dict[str, object]) -> None:
+            value["routine_phrase"]["team_asks"][0]["asks"] = False
+
+        for mutate in (missing, drifted, asks_drifted):
             with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
                 _execute(
                     HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)

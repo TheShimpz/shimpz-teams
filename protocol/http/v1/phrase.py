@@ -397,6 +397,41 @@ def outputs(text: str) -> tuple[str, ...]:
     return tuple(found)
 
 
+# How a question asks what Team reads from the person's own words: when or how often a Routine runs, how many times
+# a day, or what it does with its result. Matched on the casefolded text, by language.
+_TEAM_QUESTIONS = (
+    ("pt", r"com que frequência|(?:a|de) cada quanto tempo|de quanto em quanto tempo|quantas vezes por"),
+    ("pt", r"(?:que|qual(?: o)?) horário|que horas|limite de execuções"),
+    ("pt", r"(?:quer|prefere|deseja) receber (?:o|os) resultados?|o que (?:\w+ ){0,4}com (?:o|os) resultados?"),
+    ("en", r"how often|how frequently|what time|which schedule|how many times (?:a|per)\b|run limit"),
+    ("en", r"(?:like|want) to (?:receive|get|see) the results?|(?:do|happen) (?:with|to) the results?"),
+    ("es", r"con qué frecuencia|cada cuánto|a qué hora|cuántas veces al día"),
+    ("es", r"(?:quieres|prefieres|desea) recibir (?:el|los) resultados?|qué \w+ con (?:el|los) resultados?"),
+    ("fr", r"à quelle fréquence|tous les combien|à quelle heure|combien de fois par jour"),
+    ("fr", r"recevoir (?:le|les) résultats?|que faire (?:du|des) résultats?"),
+    ("de", r"wie oft|um wie viel uhr|wann soll|wie viele male pro tag"),
+    ("de", r"wie möchte\w* \w+ das ergebnis|was soll mit dem ergebnis"),
+    ("ja", r"どのくらいの頻度|何時に|頻度|1日に何回|結果をどのように|結果をどう"),
+    ("zh", r"多久一次|多长时间一次|频率|几点|每天几次|一天几次|如何接收结果|结果(?:怎么|如何)处理|如何处理结果"),
+    ("ar", r"كم مرة|كل كم|في أي وقت|أي ساعة|كيف تريد استلام النتيجة|ماذا (?:أفعل|نفعل) بالنتيجة"),
+)
+_QUESTION_MARKS = str.maketrans(dict.fromkeys(_ASKS, "."))
+
+
+def team_asks(text: str) -> bool:
+    """Whether a text asks or states what Team reads from the person's words, so the Brain never asks it.
+
+    That is a schedule, an interval, an output choice, or how many times a Routine may run. The Brain's guard calls it
+    on one clarification question or option label. A stated reading counts even inside a question; a work or item
+    question ("qual zona?") does not.
+    """
+    plain = text.translate(_QUESTION_MARKS)
+    if stated(plain) or outputs(plain):
+        return True
+    folded = text.translate(_DIGITS).casefold()
+    return any(re.search(pattern, folded) for _language, pattern in _TEAM_QUESTIONS)
+
+
 def _loads(name: str) -> bool:
     """Whether a canonical IANA name loads as a zone, never a path or the host's local zone."""
     if http_routine.canonical_timezone(name) is None:
