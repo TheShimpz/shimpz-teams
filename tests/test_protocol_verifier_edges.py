@@ -394,6 +394,16 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
 
 
 class TeamHttpVerifierEdgeTests(unittest.TestCase):
+    def _assert_vector_mutations_refused(
+        self, *mutations: object, refusal: type[BaseException] | tuple[type[BaseException], ...]
+    ) -> None:
+        """The pinned protocol verifier refuses vectors.json after each one of these mutations."""
+        for mutate in mutations:
+            with self.subTest(mutate=mutate), self.assertRaises(refusal):
+                _execute(
+                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
+                )
+
     def test_accepts_the_current_pinned_protocol(self) -> None:
         self.assertIn("golden vectors are valid", _execute(HTTP / "verify.py"))
 
@@ -436,11 +446,7 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             flip_case("chat_stream_lines", valid=True),
             flip_case("chat_stream_lines", valid=False),
         )
-        for mutate in mutations:
-            with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
-                _execute(
-                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
-                )
+        self._assert_vector_mutations_refused(*mutations, refusal=SystemExit)
 
     def test_rejects_supervisor_and_identifier_vector_drift(self) -> None:
         def accepted_supervisor(value: dict[str, object]) -> None:
@@ -455,16 +461,13 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def valid_negative_identifier(value: dict[str, object]) -> None:
             value["identifiers"]["assistant"]["invalid"] = ["assistant"]
 
-        for mutate in (
+        self._assert_vector_mutations_refused(
             accepted_supervisor,
             rejected_supervisor,
             invalid_positive_identifier,
             valid_negative_identifier,
-        ):
-            with self.subTest(mutate=mutate), self.assertRaises((SystemExit, ValueError)):
-                _execute(
-                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
-                )
+            refusal=(SystemExit, ValueError),
+        )
 
     def test_rejects_missing_or_drifted_chat_conversation_vectors(self) -> None:
         def missing(value: dict[str, object]) -> None:
@@ -476,11 +479,7 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def rejected_valid(value: dict[str, object]) -> None:
             value["chat_conversation"]["valid"] = [{"generated": "nine-entries"}]
 
-        for mutate in (missing, accepted_invalid, rejected_valid):
-            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
-                _execute(
-                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
-                )
+        self._assert_vector_mutations_refused(missing, accepted_invalid, rejected_valid, refusal=SystemExit)
 
     def test_rejects_missing_or_drifted_rendered_copy_vectors(self) -> None:
         def missing(value: dict[str, object]) -> None:
@@ -492,11 +491,7 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def rejected_valid(value: dict[str, object]) -> None:
             value["rendered_copy"]["valid"] = [value["rendered_copy"]["invalid"][0]]
 
-        for mutate in (missing, accepted_invalid, rejected_valid):
-            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
-                _execute(
-                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
-                )
+        self._assert_vector_mutations_refused(missing, accepted_invalid, rejected_valid, refusal=SystemExit)
 
     def test_rejects_missing_or_drifted_clarification_vectors(self) -> None:
         def missing(value: dict[str, object]) -> None:
@@ -511,11 +506,9 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def drifted_rendering(value: dict[str, object]) -> None:
             value["clarification"]["rendered"][0] = "Something else"
 
-        for mutate in (missing, accepted_invalid, rejected_valid, drifted_rendering):
-            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
-                _execute(
-                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
-                )
+        self._assert_vector_mutations_refused(
+            missing, accepted_invalid, rejected_valid, drifted_rendering, refusal=SystemExit
+        )
 
     def test_rejects_missing_or_drifted_skill_vectors(self) -> None:
         def missing(value: dict[str, object]) -> None:
@@ -530,11 +523,9 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def drifted_apply(value: dict[str, object]) -> None:
             value["knowledge_apply"][0]["result"]["skills"] = []
 
-        for mutate in (missing, accepted_invalid, rejected_valid, drifted_apply):
-            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
-                _execute(
-                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
-                )
+        self._assert_vector_mutations_refused(
+            missing, accepted_invalid, rejected_valid, drifted_apply, refusal=SystemExit
+        )
 
     def test_rejects_missing_or_drifted_memory_vectors(self) -> None:
         def missing(value: dict[str, object]) -> None:
@@ -549,11 +540,9 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def drifted_apply(value: dict[str, object]) -> None:
             value["memory_apply"][0]["result"] = []
 
-        for mutate in (missing, accepted_invalid, rejected_valid, drifted_apply):
-            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
-                _execute(
-                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
-                )
+        self._assert_vector_mutations_refused(
+            missing, accepted_invalid, rejected_valid, drifted_apply, refusal=SystemExit
+        )
 
     def test_rejects_missing_or_drifted_routine_vectors(self) -> None:
         def missing_schedules(value: dict[str, object]) -> None:
@@ -677,19 +666,15 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def admitted_invalid_label(value: dict[str, object]) -> None:
             value["action_label_text"]["invalid_labels"] = ["Valid label"]
 
-        for mutate in (
+        self._assert_vector_mutations_refused(
             missing_purpose,
             rejected_help_url,
             admitted_invalid_locale,
             admitted_invalid_turn_usage,
             rejected_label,
             admitted_invalid_label,
-        ):
-            with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
-                _execute(
-                    HTTP / "verify.py",
-                    lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation),
-                )
+            refusal=SystemExit,
+        )
 
 
 class AssistantInstallVerifierEdgeTests(unittest.TestCase):
