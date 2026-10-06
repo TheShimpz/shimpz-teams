@@ -16,9 +16,10 @@ import secrets
 from dataclasses import dataclass
 
 from action import journal as action_journal
+from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
-from routine import grant as routine_grant
+from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import schedule
 from routine import starts as routine_starts
@@ -53,8 +54,8 @@ MAX_UNRESOLVED_INCIDENTS = http_routine.MAX_UNRESOLVED_INCIDENTS
 # Incident records kept in all; a released one gives way, oldest first, but an unresolved one, or a skipped one whose
 # cleanup is still pending, never does.
 MAX_INCIDENTS = 2 * MAX_UNRESOLVED_INCIDENTS
-# Live receipts of requests that changed a Routine (ADR-0092); saturation refuses a change, never evicts a receipt.
-MAX_RECEIPTS = 256
+# Undelivered Routine outcomes beside every run's: a created or changed notice and, once, a deleted one per Routine.
+MAX_ROUTINE_NOTICES = 2 * MAX_ROUTINES
 # A new or changed Routine never fires sooner than this after it is durable.
 INITIAL_DELAY_SECONDS = 30
 # Consecutive no-effect failures that pause a Routine (ADR-0092 section 6).
@@ -69,13 +70,11 @@ class RoutineStateError(ValueError):
 class Routine:
     routine_id: str
     name: str
-    # The user's own words that state the standing request (ADR-0092).
-    quote: str
     schedule: dict[str, object]
     timezone: str
     # (assistant_id, scope pin) of each Assistant the plan uses, pinned at creation, sorted by assistant id.
     assistants: tuple[tuple[str, str], ...]
-    # The canonical compiled plan document: its ordered steps, each Action's complete pin, and every input source.
+    # The canonical recorded plan document: its ordered steps, each Action's complete pin, and every input source.
     plan: dict[str, object]
     anchor: int
     next_run_at: int
@@ -89,13 +88,30 @@ class Routine:
     revision: int = 1
     # Pausar: no dispatch until resumed; an unresolved incident still holds the Routine after that.
     paused: bool = False
-    # The evidence of the request that granted this revision, bound to its receipt, revision, and plan (grant.py).
-    grant: dict[str, object] | None = None
+    # Owed a rehearsal before it may run by schedule (ADR-0101 section 8); a pause never clears it.
+    rehearsal: bool = False
+    # The person's authenticated confirmation of the card that defined this revision (ADR-0101 section 5.3):
+    # {proposal_id, proposal_digest, principal, incarnation, confirmed_at}.
+    confirmation: dict[str, object] | None = None
+    # Every Action the Routine may call at its pin: {assistant, action, pin, read_only, stored_inputs}, sorted.
+    permitted: tuple[dict[str, object], ...] = ()
+    # Grows with every permission a person adds while a run waits (ADR-0101 section 6.7).
+    permissions_revision: int = 0
+    # A decision's sealed base prompt by digest, its frozen model {provider, model, effort}, and its allowance.
+    prompt: str | None = None
+    model: dict[str, str] | None = None
+    allowance: int = 0
+    # The sealed input of the last decided run, {id, digest}, which a ``changes`` decision compares with.
+    baseline: dict[str, str] | None = None
+    # The run that rehearsed the current revision and permissions, {run_id, revision, permissions_revision}.
+    rehearsed: dict[str, object] | None = None
     # Consecutive runs that failed with no effect; a success resets it, and three pause the Routine (ADR-0092).
     failures: int = 0
     # A continuous Routine's healthy runs rolled up into the notice of the minute starting at ``rollup_minute``.
     rollup_minute: int = 0
     rollup_runs: int = 0
+    # The summed usage of that minute's runs, which the rollup notice carries (ADR-0101 section 10).
+    rollup_usage: dict[str, object] | None = None
     # A person's Rodar: when they asked for one fresh run of a fixed schedule, kept until a claim starts it, so neither
     # a cap nor a late scheduler turns it into a missed firing; 0 when none is pending. It never moves the cadence.
     run_requested: int = 0
@@ -125,9 +141,15 @@ class Run:
     notice_version: int = 0
     # The human requests the logical run has answered, through every freeze, hold, and continuation; never reset.
     requests_used: int = 0
-    # A frozen run's step, by 1-based position among its plan's steps; both 0 while it is not frozen.
-    step: int = 0
+    # A frozen run's call by position ({"phase", "step"|"call"}) and its plan's step count; None and 0 otherwise.
+    position: dict[str, object] | None = None
     steps: int = 0
+    # The run's active time and model usage so far, through every freeze, hold, and continuation (ADR-0101 §10).
+    usage: dict[str, object] = dataclasses.field(default_factory=lambda: {"duration_ms": 0, "models": []})
+    # A rehearsal of a Routine that may change anything (ADR-0101 section 8).
+    rehearsal: bool = False
+    # The run lost the protection of its secret values, so nothing it produced since may be shown (section 6.2).
+    protection_lost: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,8 +162,11 @@ class Notice:
     detail: dict[str, object]
     # Grows when a skipped notice is updated; Admin acknowledges the exact version it delivered.
     version: int = 1
-    # The Routine's quoted request, so the transcript names the work even after the Routine is deleted.
-    quote: str = ""
+    # The Routine's name when this version was written, so the transcript names the work after a rename or deletion.
+    name: str = ""
+    # The run's usage, or a rollup's summed usage; None for other Routine outcomes.
+    usage: dict[str, object] | None = None
+    protection_lost: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,18 +188,21 @@ class Incident:
     status: str = "unresolved"
     # The held run's last notice version, which its continuation goes on from so Admin replaces the same row.
     notice_version: int = 0
-    # The Routine's quoted request, so the incident's notices still name the work after the Routine is deleted.
-    quote: str = ""
-    # The step the run was held at, as its sealed cursor names it; both empty when no snapshot was sealed.
+    # The Routine's name when the run was held, so the incident's notices still name the work after it is deleted.
+    name: str = ""
+    # The call the run was held at, as its sealed cursor names it; both empty when no snapshot was sealed.
     assistant_id: str = ""
     action: str = ""
     # The run's active time left when it was held, which its continuation goes on from; a hold never refills it.
     active_seconds_left: int = routine_plan.SHORT_ACTIVE_SECONDS
-    # The 1-based position of the held step among its plan's steps, and their count; both 0 when none was sealed.
-    step: int = 0
+    # The held call's position and its plan's step count; None and 0 when none was sealed.
+    position: dict[str, object] | None = None
     steps: int = 0
-    # The held run's answered human requests, which its continuation goes on from.
+    # The held run's answered human requests, usage, rehearsal, and protection, which its continuation goes on from.
     requests_used: int = 0
+    usage: dict[str, object] = dataclasses.field(default_factory=lambda: {"duration_ms": 0, "models": []})
+    rehearsal: bool = False
+    protection_lost: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,16 +216,6 @@ class TeamRoutines:
     # (run_id, generation) of ended runs whose journal generation, continuation, and cursor are still held.
     discards: tuple[tuple[str, str], ...] = ()
     incidents: tuple[Incident, ...] = ()
-    # (receipt, expires_at) of each request that changed a Routine; a receipt outlives the Routine it changed.
-    receipts: tuple[tuple[str, int], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class Replacement:
-    """A Routine's recompiled definition and its request's receipt and expiry, which replace it as its next revision."""
-
-    value: Routine
-    receipt: tuple[str, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,7 +226,7 @@ class Claim:
     revision: int = 1
     plan_digest: str = ""
     mode: str = "scheduled"
-    # The run's active time, from its revision's step count; Admin bounds its worker's wait by it.
+    # The run's active time, from its revision's units; Admin bounds its worker's wait by it.
     active_seconds: int = routine_plan.SHORT_ACTIVE_SECONDS
 
 
@@ -258,50 +276,161 @@ def grace_seconds(routine_value: Routine) -> int:
     return min(period, MAX_GRACE_SECONDS)
 
 
-def _admitted(value: Routine, revision: int = 1) -> Routine:
-    """A copy of a new Routine revision in the closed contract; anything else is refused before it can be persisted."""
-    canonical = http_routine.canonical_schedule(value.schedule)
+_HEX32_RE = re.compile(r"[0-9a-f]{32}\Z")
+_HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
+_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+
+
+def _confirmed(value: object) -> bool:
+    """The authenticated confirmation of the card that defined a revision, with the Team incarnation it was in."""
+    return (
+        isinstance(value, dict)
+        and set(value) == {"proposal_id", "proposal_digest", "principal", "incarnation", "confirmed_at"}
+        and _matches(value["proposal_id"], _HEX32_RE)
+        and _matches(value["proposal_digest"], _DIGEST_RE)
+        and _matches(value["principal"], _HEX32_RE)
+        and _matches(value["incarnation"], _HEX64_RE)
+        and type(value["confirmed_at"]) is int
+        and value["confirmed_at"] > 0
+    )
+
+
+def _matches(value: object, pattern: re.Pattern[str]) -> bool:
+    return isinstance(value, str) and pattern.fullmatch(value) is not None
+
+
+def _permitted(value: Routine) -> bool:
+    """Every permitted Action once, sorted, at a complete pin, covering every step's Action at the step's own pin."""
+    entries = value.permitted
+    if not isinstance(entries, tuple) or len(entries) > http_routine.MAX_PERMITTED:
+        return False
+    fields = {"assistant", "action", "pin", "read_only", "stored_inputs"}
+    if not all(
+        isinstance(item, dict)
+        and set(item) == fields
+        and http_identifiers.canonical_assistant_id(item["assistant"]) is not None
+        and http_identifiers.canonical_action_id(item["action"]) is not None
+        and _matches(item["pin"], routine_plan.PIN_RE)
+        and type(item["read_only"]) is bool
+        and isinstance(item["stored_inputs"], list)
+        and len(item["stored_inputs"]) <= http_routine.MAX_STEP_STORED_INPUTS
+        and all(http_identifiers.canonical_identifier(name) is not None for name in item["stored_inputs"])
+        and item["stored_inputs"] == sorted(set(item["stored_inputs"]))
+        for item in entries
+    ):
+        return False
+    pins = {(item["assistant"], item["action"]): item["pin"] for item in entries}
+    return (
+        list(pins) == sorted(pins)
+        and len(pins) == len(entries)
+        and all(pins.get((step["assistant"], step["action"])) == step["pin"] for step in value.plan["steps"])
+    )
+
+
+def _decision_scope(value: Routine) -> bool:
+    """Only a decision has a base prompt, a model, and an allowance, which its steps leave room for."""
+    decide = value.plan["output"]["mode"] == "decide"
+    return (
+        (_matches(value.prompt, _DIGEST_RE) if decide else value.prompt is None)
+        and (http_routine.canonical_model(value.model) == value.model if decide else value.model is None)
+        and type(value.allowance) is int
+        and (1 <= value.allowance <= http_routine.MAX_ALLOWANCE if decide else value.allowance == 0)
+        and routine_definition.run_units(value) <= routine_plan.MAX_STEPS
+        and (value.baseline is None or (decide and _baseline(value.baseline)))
+    )
+
+
+def _baseline(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"id", "digest"}
+        and _matches(value["id"], _HEX32_RE)
+        and _matches(value["digest"], _HEX64_RE)
+    )
+
+
+def _rehearsed(value: Routine) -> bool:
+    """None, or the run that rehearsed exactly this revision and these permissions."""
+    rehearsed = value.rehearsed
+    return rehearsed is None or (
+        isinstance(rehearsed, dict)
+        and set(rehearsed) == {"run_id", "revision", "permissions_revision"}
+        and _matches(rehearsed["run_id"], _HEX32_RE)
+        and rehearsed["revision"] == value.revision
+        and rehearsed["permissions_revision"] == value.permissions_revision
+    )
+
+
+def _assistants(value: Routine) -> bool:
+    """Exactly the Assistants of the plan's steps and permitted Actions, each with its scope pin, sorted."""
     assistants = tuple(value.assistants)
-    try:
-        schedule.zone(value.timezone)
-    except schedule.ScheduleError as exc:
-        raise RoutineStateError("routine-invalid") from exc
-    if (
-        http_routine.ROUTINE_ID_RE.fullmatch(value.routine_id) is None
-        or http_routine.canonical_name(value.name) is None
-        or http_routine.canonical_quote(value.quote) is None
-        or not routine_plan.well_formed(value.plan)
-        or value.plan["timezone"] != value.timezone
-        or sorted({step["assistant"] for step in value.plan["steps"]}) != [item for item, _pin in assistants]
-        or canonical is None
-        or not assistants
-        or len(assistants) > http_routine.MAX_NOTICE_ASSISTANTS
-        or list(assistants) != sorted(set(assistants))
-        or len({assistant for assistant, _digest in assistants}) != len(assistants)
-        or not all(
-            http_routine.ASSISTANT_ID_RE.fullmatch(assistant) and http_payload.SOURCE_DIGEST_RE.fullmatch(digest)
+    used = sorted({item["assistant"] for item in value.permitted})
+    return (
+        [item for item, _pin in assistants] == used
+        and len(assistants) <= http_routine.MAX_NOTICE_ASSISTANTS
+        and list(assistants) == sorted(set(assistants))
+        and all(
+            http_identifiers.canonical_assistant_id(assistant) is not None
+            and http_payload.SOURCE_DIGEST_RE.fullmatch(digest)
             for assistant, digest in assistants
         )
-        or type(value.anchor) is not int
-        or value.next_run_at != next_after(dataclasses.replace(value, schedule=canonical), value.anchor)
-        or not routine_grant.valid(value.grant, value.plan, revision)
-    ):
+    )
+
+
+def definition_valid(value: Routine) -> bool:
+    """Whether a Routine's definition is in its closed contract: identity, plan, scope, confirmation, and schedule."""
+    canonical = http_routine.canonical_schedule(value.schedule)
+    try:
+        schedule.zone(value.timezone)
+    except schedule.ScheduleError:
+        return False
+    return (
+        http_routine.ROUTINE_ID_RE.fullmatch(value.routine_id) is not None
+        and http_routine.canonical_name(value.name) is not None
+        and routine_plan.well_formed(value.plan)
+        and value.plan["timezone"] == value.timezone
+        and canonical is not None
+        and _permitted(value)
+        and _assistants(value)
+        and _confirmed(value.confirmation)
+        and _decision_scope(value)
+        and type(value.rehearsal) is bool
+        and type(value.paused) is bool
+        and type(value.permissions_revision) is int
+        and value.permissions_revision >= 0
+        and type(value.revision) is int
+        and 1 <= value.revision < 2**31
+        and _rehearsed(value)
+        and type(value.anchor) is int
+        and value.next_run_at == next_after(dataclasses.replace(value, schedule=canonical), value.anchor)
+    )
+
+
+def _admitted(value: Routine, revision: int = 1) -> Routine:
+    """A copy of a new Routine revision in the closed contract; anything else is refused before it can be persisted."""
+    if not definition_valid(dataclasses.replace(value, revision=revision, rehearsed=None)):
         raise RoutineStateError("routine-invalid")
     # Every page of what a Supervisor inspects is deliverable, and the definition fits its own budget (scale).
-    if not routine_grant.fits(value):
+    if not routine_definition.fits(value):
         raise RoutineStateError("routine-too-large")
-    return Routine(
-        value.routine_id,
-        value.name,
-        value.quote,
-        canonical,
-        value.timezone,
-        assistants,
-        copy.deepcopy(value.plan),
-        value.anchor,
-        value.next_run_at,
+    return dataclasses.replace(
+        value,
+        schedule=http_routine.canonical_schedule(value.schedule),
+        plan=copy.deepcopy(value.plan),
+        permitted=tuple(copy.deepcopy(item) for item in value.permitted),
         revision=revision,
-        grant=copy.deepcopy(value.grant),
+        rehearsed=None,
+        needs_reconfirm=False,
+        deleting=False,
+        gap_started_at=0,
+        missed=0,
+        reported_missed=0,
+        failures=0,
+        rollup_minute=0,
+        rollup_runs=0,
+        rollup_usage=None,
+        run_requested=0,
+        output_digest="",
     )
 
 
@@ -315,74 +444,35 @@ def scheduled(value: Routine, now: int) -> Routine:
 
 
 def _budgets(others: tuple[Routine, ...], admitted: Routine) -> None:
-    refused = routine_grant.over_budget(others, admitted)
+    refused = routine_definition.over_budget(others, admitted)
     if refused is not None:
         raise RoutineStateError(refused)
 
 
-def _receipt(state: TeamRoutines, receipt: str, expires_at: int, now: int) -> tuple[TeamRoutines, bool]:
-    """Record one request's receipt; False when that request already changed a Routine, so it never acts twice.
-
-    Expired receipts go first, as their requests can change nothing; saturation refuses, never evicting a live one.
-    """
-    if http_payload.SHA256_RE.fullmatch(receipt) is None or type(expires_at) is not int:
-        raise RoutineStateError("routine-receipt-invalid")
-    if expires_at <= now:
-        # An expired request can no longer be told apart from a replay once its receipt is gone: it never acts.
-        raise RoutineStateError("routine-request-expired")
-    live = tuple(item for item in state.receipts if item[1] > now)
-    if any(key == receipt for key, _expires in live):
-        return dataclasses.replace(state, receipts=live), False
-    if len(live) >= MAX_RECEIPTS:
-        raise RoutineStateError("routine-receipts-full")
-    return dataclasses.replace(state, receipts=(*live, (receipt, expires_at))), True
-
-
-def has_receipt(state: TeamRoutines, receipt: str, now: int) -> bool:
-    """Whether a request with this receipt already changed a Routine and its receipt is still live."""
-    return any(key == receipt and expires > now for key, expires in state.receipts)
-
-
-def change_room(state: TeamRoutines, now: int, notices: int) -> str | None:
+def change_room(state: TeamRoutines, notices: int) -> str | None:
     """Why one more Routine change adding ``notices`` new notices cannot be admitted now; None when it fits.
 
-    It is checked before anything is paid for; the change's own write checks again with what only it can tell.
+    It is checked before a card is shown; the confirmation's own write checks again with what only it can tell.
     """
-    if sum(expires > now for _receipt, expires in state.receipts) >= MAX_RECEIPTS:
-        return "routine-receipts-full"
-    if len(state.notices) + notices > MAX_UNDELIVERED_NOTICES + MAX_ROUTINES:
+    if len(state.notices) + notices > MAX_UNDELIVERED_NOTICES + MAX_ROUTINE_NOTICES:
         return "notices-full"
     return None
 
 
-def create(state: TeamRoutines, value: Routine, now: int, receipt: str, expires_at: int) -> tuple[TeamRoutines, bool]:
-    """Add a Routine with its created notice and the receipt of the request that made it, in one transition.
-
-    A request whose receipt is live changes nothing: a resend never creates twice, nor recreates a deleted Routine.
-    """
-    state, fresh = _receipt(state, receipt, expires_at, now)
-    if not fresh:
-        return state, False
-    state = add_routine(
-        state, dataclasses.replace(value, grant=routine_grant.complete(value.grant, receipt, 1, value.plan))
-    )
+def create(state: TeamRoutines, value: Routine, now: int) -> TeamRoutines:
+    """Add a confirmed Routine with its created notice in one transition; its minted id never exists twice."""
+    state = add_routine(state, value)
     admitted = routine(state, value.routine_id)
-    return _notice(
-        state, Notice(new_id(), admitted.routine_id, "", "created", now, routine_grant.definition(admitted))
-    ), True
+    detail = routine_definition.detail(admitted)
+    return _notice(state, Notice(new_id(), admitted.routine_id, "", "created", now, detail))
 
 
-def update(
-    state: TeamRoutines, value: Routine, expected_revision: int, now: int, receipt: str, expires_at: int
-) -> tuple[TeamRoutines, bool]:
-    """Replace a Routine's definition as its next revision, with its changed notice and the request's receipt.
+def update(state: TeamRoutines, value: Routine, expected_revision: int, now: int) -> TeamRoutines:
+    """Replace a Routine's definition as its next revision, with its changed notice.
 
-    Only the revision the request saw changes, never while a run is live or it is being deleted; it clears a scope
-    hold, keeps a pause and the minute rollup, and restarts its schedule.
+    Only the revision the card saw changes, never while a run is live or it is being deleted; it clears a scope hold,
+    keeps a pause and the minute rollup, and restarts its schedule.
     """
-    state, fresh = _receipt(state, receipt, expires_at, now)
-    if not fresh:
-        return state, False
     current = routine(state, value.routine_id)
     if current.deleting:
         raise RoutineStateError("routine-not-found")
@@ -390,19 +480,19 @@ def update(
         raise RoutineStateError("routine-revision-changed")
     if any(item.routine_id == current.routine_id for item in state.runs):
         raise RoutineStateError("routine-busy")
-    revision = current.revision + 1
-    granted = dataclasses.replace(value, grant=routine_grant.complete(value.grant, receipt, revision, value.plan))
-    admitted = _admitted(granted, revision)
+    admitted = _admitted(value, current.revision + 1)
     _budgets(tuple(item for item in state.routines if item.routine_id != current.routine_id), admitted)
     # The minute rollup outlives a change: its notice id is the Routine's and the minute's, so a count restarted at 1
     # would reuse a delivered version of the same notice.
     changed = dataclasses.replace(
-        admitted, paused=current.paused, rollup_minute=current.rollup_minute, rollup_runs=current.rollup_runs
+        admitted,
+        paused=current.paused,
+        rollup_minute=current.rollup_minute,
+        rollup_runs=current.rollup_runs,
+        rollup_usage=current.rollup_usage,
     )
     state = _replace_routine(state, changed)
-    return _notice(
-        state, Notice(new_id(), changed.routine_id, "", "changed", now, routine_grant.definition(changed))
-    ), True
+    return _notice(state, Notice(new_id(), changed.routine_id, "", "changed", now, routine_definition.detail(changed)))
 
 
 def add_routine(state: TeamRoutines, value: Routine) -> TeamRoutines:
@@ -474,7 +564,9 @@ def _run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail:
     A completed or recovered run resets its Routine's failure streak; a failed one extends it, the third pausing it.
     """
     version = value.notice_version + 1
-    state = _notice(state, Notice(value.run_id, value.routine_id, value.run_id, outcome, now, detail, version))
+    notice = Notice(value.run_id, value.routine_id, value.run_id, outcome, now, detail, version)
+    usage = copy.deepcopy(value.usage)
+    state = _notice(state, dataclasses.replace(notice, usage=usage, protection_lost=value.protection_lost))
     if outcome in {"done", "recovered", "failed"}:
         current = routine(state, value.routine_id)
         failures = current.failures + 1 if outcome == "failed" else 0
@@ -495,11 +587,12 @@ def _notice(state: TeamRoutines, notice: Notice) -> TeamRoutines:
     detail = http_routine.canonical_notice_detail(notice.outcome, notice.detail)
     if detail is None:
         raise RoutineStateError("notice-invalid")
-    notice = dataclasses.replace(notice, detail=detail, quote=notice.quote or routine(state, notice.routine_id).quote)
+    # Each version names the Routine as it is now, so a later rename never retitles an earlier version.
+    notice = dataclasses.replace(notice, detail=detail, name=notice.name or routine(state, notice.routine_id).name)
     if type(notice.version) is not int or notice.version < 1:
         raise RoutineStateError("notice-invalid")
     kept = tuple(item for item in state.notices if item.notice_id != notice.notice_id)
-    if len(kept) >= MAX_UNDELIVERED_NOTICES + MAX_ROUTINES:
+    if len(kept) >= MAX_UNDELIVERED_NOTICES + MAX_ROUTINE_NOTICES:
         raise RoutineStateError("notices-full")
     return dataclasses.replace(state, notices=(*kept, notice))
 
@@ -565,8 +658,8 @@ def free_at(state: TeamRoutines, routine_value: Routine, now: int) -> int:
     A scheduled Routine's own firings already bound its starts, and a late start never delays the next firing.
     """
     cap = http_routine.daily_cap(routine_value.schedule) if continuous(routine_value) else None
-    steps = len(routine_value.plan["steps"])
-    return routine_starts.free_at(state.starts, routine_value.routine_id, cap, now, steps)
+    units = routine_definition.run_units(routine_value)
+    return routine_starts.free_at(state.starts, routine_value.routine_id, cap, now, units)
 
 
 def _due_at(routine_value: Routine) -> int:
@@ -585,7 +678,7 @@ def _ready(state: TeamRoutines, busy: set[str], long: bool = True) -> list[Routi
         and not item.deleting
         and not item.paused
         and item.routine_id not in busy
-        and (long or not routine_plan.long_run(len(item.plan["steps"])))
+        and (long or not routine_plan.long_run(routine_definition.run_units(item)))
     ]
 
 
@@ -682,7 +775,7 @@ def _lease(
 ) -> tuple[TeamRoutines, Claim]:
     """Start one run of the claimed Routine under every start cap, its lease covering only its segment's start."""
     token = secrets.token_urlsafe(32)
-    steps = len(due.plan["steps"])
+    units = routine_definition.run_units(due)
     leased = Run(
         run_id=new_id(),
         routine_id=due.routine_id,
@@ -691,16 +784,16 @@ def _lease(
         lease_sha256=lease_sha256(token),
         lease_key=key_fingerprint,
         lease_expires_at=now + LEASE_SECONDS,
-        active_seconds_left=routine_plan.active_seconds(steps),
+        active_seconds_left=routine_plan.active_seconds(units),
     )
     state = dataclasses.replace(
         _replace_routine(state, due),
         runs=(*state.runs, leased),
         served_at=now,
-        starts=routine_starts.started(state.starts, due.routine_id, now, steps),
+        starts=routine_starts.started(state.starts, due.routine_id, now, units),
     )
     mode = http_routine.run_mode(due.schedule)
-    digest = routine_grant.plan_digest(due.plan)
+    digest = routine_definition.plan_digest(due.plan)
     return state, Claim(leased, token, due.revision, digest, mode, leased.active_seconds_left)
 
 
@@ -766,42 +859,85 @@ def bind_generation(state: TeamRoutines, run_id: str, lease: Lease, now: int, ne
     return _replace_run(state, dataclasses.replace(value, generation=generation, lease_expires_at=extended))
 
 
-def spend(state: TeamRoutines, run_id: str, lease: Lease, now: int, seconds: int) -> TeamRoutines:
-    if type(seconds) is not int or seconds < 0:
+def spend(state: TeamRoutines, run_id: str, lease: Lease, now: int, elapsed: tuple[int, int]) -> TeamRoutines:
+    """Charge one segment's active time to the run: whole seconds against its budget, milliseconds to its usage."""
+    seconds, milliseconds = elapsed
+    if type(seconds) is not int or seconds < 0 or type(milliseconds) is not int or milliseconds < 0:
         raise RoutineStateError("invalid-duration")
     value = _live(state, run_id, lease, now)
-    return _replace_run(state, dataclasses.replace(value, active_seconds_left=value.active_seconds_left - seconds))
+    usage = {**value.usage, "duration_ms": min(value.usage["duration_ms"] + milliseconds, MAX_USAGE_MS)}
+    return _replace_run(
+        state, dataclasses.replace(value, active_seconds_left=value.active_seconds_left - seconds, usage=usage)
+    )
+
+
+# A run's summed active duration, the chat usage bound (ADR-0082).
+MAX_USAGE_MS = http_payload.MAX_TURN_DURATION_MS
+
+
+def joined_usage(first: dict[str, object], second: dict[str, object]) -> dict[str, object]:
+    """Two usages summed: their durations, and each provider and model's tokens, models sorted and distinct."""
+    totals: dict[tuple[str, str], list[int]] = {}
+    for model in [*first["models"], *second["models"]]:
+        counts = totals.setdefault((model["provider"], model["model"]), [0, 0])
+        counts[0] = min(counts[0] + model["input_tokens"], http_payload.MAX_TURN_USAGE_TOKENS)
+        counts[1] = min(counts[1] + model["output_tokens"], http_payload.MAX_TURN_USAGE_TOKENS)
+    models = [
+        {"provider": provider, "model": model, "input_tokens": counts[0], "output_tokens": counts[1]}
+        for (provider, model), counts in sorted(totals.items())
+    ]
+    duration = min(first["duration_ms"] + second["duration_ms"], MAX_USAGE_MS)
+    return {"duration_ms": duration, "models": models[: http_payload.MAX_TURN_USAGE_MODELS]}
+
+
+def used(state: TeamRoutines, run_id: str, models: list[dict[str, object]]) -> TeamRoutines:
+    """Add the tokens a run's model calls reported, its recovery's included, to its usage (ADR-0082, ADR-0101)."""
+    value = run(state, run_id)
+    usage = joined_usage(value.usage, {"duration_ms": 0, "models": models})
+    if http_routine.canonical_run_usage(usage) != usage:
+        raise RoutineStateError("usage-invalid")
+    return _replace_run(state, dataclasses.replace(value, usage=usage))
+
+
+def lose_protection(state: TeamRoutines, run_id: str) -> TeamRoutines:
+    """The run lost the protection of its secret values; every later version of its notice says so, for good."""
+    value = run(state, run_id)
+    return _replace_run(state, dataclasses.replace(value, protection_lost=True))
 
 
 def freeze(
-    state: TeamRoutines, run_id: str, lease: Lease, now: int, request: tuple[str, str, str, int]
+    state: TeamRoutines, run_id: str, lease: Lease, now: int, request: tuple[str, str, str, dict[str, object]]
 ) -> TeamRoutines:
-    """Park a run for a human; it keeps no lease, and the same Routine never fires while it is frozen.
+    """Park a run for a person; it keeps no lease, and the same Routine never fires while it is frozen.
 
-    ``request`` is its kind and the Assistant Action that asked at its step's 1-based position, which must name that
-    step of the plan. A Routine being deleted never freezes a run: its deletion ends only the frozen runs it saw.
+    ``request`` is its kind and the Assistant Action that asked at its call's position: a replay step, which must be
+    that step of the plan, or a decision call. A Routine being deleted never freezes a run: its deletion ends only the
+    frozen runs it saw.
     """
-    request_kind, assistant_id, action, step = request
+    request_kind, assistant_id, action, position = request
     value = _live(state, run_id, lease, now)
     current = routine(state, value.routine_id)
     if current.deleting:
         raise RoutineStateError("routine-deleting")
     steps = current.plan["steps"]
+    placed = http_routine.canonical_position(position, len(steps))
     if (
-        request_kind not in {"human", "integrations"}
-        or http_routine.ASSISTANT_ID_RE.fullmatch(assistant_id) is None
-        or http_routine.ACTION_ID_RE.fullmatch(action) is None
-        or type(step) is not int
-        or not 1 <= step <= len(steps)
-        or (steps[step - 1]["assistant"], steps[step - 1]["action"]) != (assistant_id, action)
+        request_kind not in http_routine.REQUEST_KINDS
+        or http_identifiers.canonical_assistant_id(assistant_id) is None
+        or http_identifiers.canonical_action_id(action) is None
+        or placed is None
+        or (
+            placed["phase"] == "replay"
+            and (steps[placed["step"] - 1]["assistant"], steps[placed["step"] - 1]["action"]) != (assistant_id, action)
+        )
     ):
         raise RoutineStateError("freeze-invalid")
     if sum(item.status == "frozen" for item in state.runs) >= MAX_FROZEN_RUNS:
         raise RoutineStateError("frozen-limit")
-    placed = {"request_kind": request_kind, "assistant_id": assistant_id, "action": action, "step": step}
-    state, value = _run_notice(state, value, "frozen", now, {**placed, "steps": len(steps)})
+    fields = {"request_kind": request_kind, "assistant_id": assistant_id, "action": action, "position": placed}
+    state, value = _run_notice(state, value, "frozen", now, {**fields, "steps": len(steps)})
     unleased = {"lease_sha256": "", "lease_key": "", "lease_expires_at": 0}
-    return _replace_run(state, dataclasses.replace(value, status="frozen", **unleased, **placed, steps=len(steps)))
+    return _replace_run(state, dataclasses.replace(value, status="frozen", **unleased, **fields, steps=len(steps)))
 
 
 def thaw(state: TeamRoutines, run_id: str, now: int, requests_used: int) -> tuple[TeamRoutines, str]:
@@ -823,7 +959,7 @@ def thaw(state: TeamRoutines, run_id: str, now: int, requests_used: int) -> tupl
         request_kind="",
         assistant_id="",
         action="",
-        step=0,
+        position=None,
         steps=0,
         requests_used=max(value.requests_used, requests_used),
     )
@@ -854,20 +990,25 @@ def finish(
 
 
 def _completion(state: TeamRoutines, value: Run, outcome: str, now: int, shown: dict | None) -> TeamRoutines:
-    """How a completed run tells the person, by its Routine's output disposition (ADR-0092 amendment, 2026-10-05).
+    """How a completed run tells the person, by its Routine's output disposition (ADR-0092 amendment, ADR-0101).
 
     ``show`` publishes the result every run; ``changes`` only when its keyed digest differs from the last shown one,
-    recorded in the same write; ``chain`` keeps the compact notice or rollup; ``none`` publishes nothing. A result not
-    kept is unavailable; a run with a notice of its own always gets its terminal version.
+    recorded in the same write; ``none`` publishes nothing, a continuous Routine's healthy run rolling up into its
+    minute's notice. A result not kept is unavailable, and so is every result after the run lost its protection, which
+    never moves the ``changes`` baseline; a run with a notice of its own always gets its terminal version.
     """
     current = routine(state, value.routine_id)
     disposition = current.plan["output"]
     mode, step = disposition["mode"], disposition["step"]
-    detail: dict[str, object] = {"plan": routine_grant.summary(current.plan, current.revision), "output": None}
+    detail: dict[str, object] = {
+        "plan": routine_definition.summary(current.plan, current.revision),
+        "output": None,
+        "decision": None,
+    }
     if mode in routine_plan.SHOWN_MODES:
         # On the wire the shown step is its position (ADR-0092 amendment, 2026-10-05, scale).
-        position = routine_grant.disposition(current.plan)["step"]
-        valid = shown is not None and shown.get("step") == step
+        position = routine_definition.disposition(current.plan)["step"]
+        valid = shown is not None and shown.get("step") == step and not value.protection_lost
         output = shown["output"] if valid else routine_plan.output_state(position, "unavailable")
         digest = shown["digest"] if valid else None
         if mode == "changes" and output["state"] == "shown":
@@ -878,10 +1019,10 @@ def _completion(state: TeamRoutines, value: Run, outcome: str, now: int, shown: 
             else:
                 state = _replace_routine(state, dataclasses.replace(current, output_digest=digest or ""))
         return _run_notice(state, value, outcome, now, {**detail, "output": output})[0]
-    if mode == "none" and not value.notice_version:
-        return _quiet(state, current)
-    rolled = _healthy(state, value, now) if outcome == "done" and mode == "chain" else None
-    return rolled if rolled is not None else _run_notice(state, value, outcome, now, detail)[0]
+    if not value.notice_version and not value.protection_lost:
+        rolled = _healthy(state, value, now) if outcome == "done" else None
+        return _quiet(state, current) if rolled is None else rolled
+    return _run_notice(state, value, outcome, now, detail)[0]
 
 
 def _quiet(state: TeamRoutines, current: Routine) -> TeamRoutines:
@@ -892,21 +1033,25 @@ def _quiet(state: TeamRoutines, current: Routine) -> TeamRoutines:
 def _healthy(state: TeamRoutines, value: Run, now: int) -> TeamRoutines | None:
     """Roll a continuous Routine's healthy run into the one versioned notice of the minute it ended in, or None.
 
-    Only a run with no earlier notice of its own rolls up; its count doubles as the notice version Admin acknowledges,
-    so a notice acknowledged mid-minute is replaced by the next version (ADR-0092 section 9).
+    Its count doubles as the notice version Admin acknowledges, so a notice acknowledged mid-minute is replaced by the
+    next version, which carries the minute's summed usage (ADR-0092 section 9, ADR-0101).
     """
     current = routine(state, value.routine_id)
-    if value.notice_version or not continuous(current):
+    if not continuous(current):
         return None
     minute = now - now % 60
-    runs = current.rollup_runs + 1 if current.rollup_minute == minute else 1
+    same = current.rollup_minute == minute
+    runs = current.rollup_runs + 1 if same else 1
     # The rollup minute only moves forward: a clock stepped back into an earlier minute, which may already be
-    # delivered, or past the count gaps allow, gives the run its own notice and leaves the counters as they are.
+    # delivered, or past the count gaps allow, gives the run no rollup and leaves the counters as they are.
     if minute < current.rollup_minute or runs > http_routine.MAX_ROLLUP_RUNS:
         return None
+    usage = joined_usage(current.rollup_usage, value.usage) if same and current.rollup_usage else value.usage
+    rolled = dataclasses.replace(current, rollup_minute=minute, rollup_runs=runs, rollup_usage=usage, failures=0)
+    state = _replace_routine(state, rolled)
     notice_id = hashlib.sha256(f"healthy:{current.routine_id}:{minute}".encode()).hexdigest()[:32]
-    state = _replace_routine(state, dataclasses.replace(current, rollup_minute=minute, rollup_runs=runs, failures=0))
-    return _notice(state, Notice(notice_id, current.routine_id, "", "healthy", minute, {"runs": runs}, runs))
+    notice = Notice(notice_id, current.routine_id, "", "healthy", minute, {"runs": runs}, runs)
+    return _notice(state, dataclasses.replace(notice, usage=copy.deepcopy(usage)))
 
 
 def end(
@@ -978,11 +1123,15 @@ def begin_delete(state: TeamRoutines, routine_id: str) -> tuple[TeamRoutines, tu
     return _replace_routine(state, dataclasses.replace(value, deleting=True)), runs
 
 
-def complete_delete(state: TeamRoutines, routine_id: str) -> TeamRoutines:
-    """Remove a deleting Routine once none of its runs remains; its undelivered notices stay."""
+def complete_delete(state: TeamRoutines, routine_id: str, now: int) -> TeamRoutines:
+    """Remove a deleting Routine once none of its runs remains, publishing its ``deleted`` notice in the same write.
+
+    The notice names the Routine as it was and closes its timeline; it and every undelivered notice outlive the record.
+    """
     value = routine(state, routine_id)
     if not value.deleting or any(item.routine_id == routine_id for item in state.runs):
         raise RoutineStateError("routine-busy")
+    state = _notice(state, Notice(new_id(), routine_id, "", "deleted", now, {}))
     return dataclasses.replace(state, routines=tuple(item for item in state.routines if item.routine_id != routine_id))
 
 

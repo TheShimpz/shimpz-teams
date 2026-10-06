@@ -1,21 +1,21 @@
-"""The compiled plan of a Routine and the resolution of each step's inputs, without I/O (ADR-0092 section 3).
+"""The recorded plan of a Routine and the resolution of each step's inputs, without I/O (ADR-0092 §3, ADR-0101).
 
 A plan is versioned declarative JSON: at most 256 ordered steps (its admission budget below), each naming one exact
-Assistant Action by its complete pin, the same Action as often as the person asks with its own inputs, and giving each
-top-level input member it holds exactly one value: a ``literal``, a ``run_clock`` token rendered from the run's one
-immutable start instant in the plan's timezone, or a ``step_output`` that copies one JSON value, selected by an RFC 6901
-pointer, from a completed earlier step of the same run. Every required member is present; an optional one only when the
-person set it. There is no coercion, interpolation, expression, branch, loop, or cross-run lookup. Outputs can only fill
-inputs: they never choose an Assistant, an Action, a schedule, or a step. A missing path, an invalid index or escape,
-and a value its destination schema refuses (null included) fail closed. Only the selected values are retained, never a
-complete output, and a literal that a secret belongs in is refused: such a value must be the Action's declared Stored
-Input. An Action that declares a file input is refused in v1: a Routine holds no file grant, so no literal id or copied
-output may stand for an attached file (ADR-0093).
+Assistant Action by its complete pin, the same Action as often as the work needs with its own inputs, and giving each
+top-level input member it holds exactly one value: a ``literal``, the ``run_clock`` date of the run's one immutable
+start instant in the plan's timezone, or a ``step_output`` that copies one JSON value from a completed earlier step of
+the same run, selected by an RFC 6901 pointer, or through the one array item whose ``where`` member equals a constant
+and then the item's own ``item`` pointer. Every required member is present. There is no coercion, interpolation,
+expression, branch, loop, or cross-run lookup. Outputs can only fill inputs: they never choose an Assistant, an Action,
+a schedule, or a step. A missing path, an invalid index or escape, a selector matching no item or several, and a value
+its destination schema refuses (null included) fail closed before dispatch. Only the selected values are retained, never
+a complete output, and a literal that a secret belongs in is refused: such a value must be the Action's declared Stored
+Input. An Action that declares a file input is refused: a Routine holds no file grant, so no literal id or copied output
+may stand for an attached file (ADR-0093).
 
-A plan also states what a completed run does with its result (ADR-0092 amendment, 2026-10-05, output): ``show`` one
-step's result to the person after every run, show it only when it ``changes``, hand it to a later step (``chain``), or
-show ``none`` of it. A ``step_text`` source copies an earlier step's selected value as deterministic plain text, the one
-narrow conversion a plan has, for a destination that takes a string.
+A plan also states what a completed run does with its result: ``show`` one step's result to the person after every run,
+show it only when it ``changes``, show ``none`` of it, or ``decide``: a decision turn judges the run's results
+``always``, or only when they ``changes``. A ``decide`` plan may have no steps at all (ADR-0101).
 """
 
 from __future__ import annotations
@@ -33,12 +33,11 @@ from typing import Any
 
 from assistant import action_schema
 from assistant import manifest as assistant_manifest
+from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import routine as http_routine
 from routine import schedule
 
-VERSION = 2
-# The version of a plan Team records from a chat turn's own trace (ADR-0101); admission takes it in the next slice.
-RECORDED_VERSION = 3
+VERSION = 3
 
 # The one admission budget (ADR-0092 amendment, 2026-10-05, scale). A plan holds at most 256 steps and one Action may
 # repeat with its own inputs. Every other bound of a Routine's scale is stated here or derives from these, so none is
@@ -82,19 +81,16 @@ def long_run(steps: int) -> bool:
 MAX_RETAINED_BYTES = 128 * 1024
 MAX_POINTER = 256
 STEP_ID_RE = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
-ASSISTANT_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
-ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 PIN_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
 _INDEX_RE = re.compile(r"(?:0|[1-9][0-9]{0,8})\Z")
-CLOCK_FORMATS = ("date", "time", "datetime", "epoch_seconds")
-# What a completed run does with its result; ``show`` and ``changes`` name the step whose result is shown.
-OUTPUT_MODES = ("show", "changes", "chain", "none")
-SHOWN_MODES = frozenset({"show", "changes"})
-# Sources that copy a value an earlier step of the same run returned.
-BINDINGS = frozenset({"step_output", "step_text"})
-# The longest text a step_text source renders; a longer one is refused before dispatch, never cut.
-MAX_TEXT_BYTES = 16 * 1024
+# The one run-clock token a recording infers: the run's date in the plan's timezone (ADR-0101).
+CLOCK_FORMATS = ("date",)
+# What a completed run does with its result; ``show`` and ``changes`` name the step whose result is shown, and
+# ``decide`` hands every result to a decision turn, ``always`` or only when the results ``changes``.
+OUTPUT_MODES = http_routine.OUTPUT_MODES
+SHOWN_MODES = http_routine.SHOWN_MODES
+DECISION_WHEN = http_routine.DECISION_WHEN
 # A secret is never a literal: one of these in a destination name, or a destination marked write-only or as a password.
 _SECRET_MARKERS = (
     "secret",
@@ -138,8 +134,11 @@ class Plan:
     timezone: str
     steps: tuple[Step, ...]
     digest: str
-    # What a completed run does with its result: {"mode": one of OUTPUT_MODES, "step": the shown step id or None}.
-    output: Mapping[str, object] = dataclasses.field(default_factory=lambda: {"mode": "none", "step": None})
+    # What a completed run does with its result: {"mode": one of OUTPUT_MODES, "step": the shown step id or None,
+    # "when": a decision's condition or None}.
+    output: Mapping[str, object] = dataclasses.field(
+        default_factory=lambda: {"mode": "none", "step": None, "when": None}
+    )
 
     def position(self, step_id: str) -> int:
         """A step's 1-based position, which names it on the wire (ADR-0092 amendment, 2026-10-05, scale)."""
@@ -151,18 +150,36 @@ class Plan:
             return None
         return next(step for step in self.steps if step.step_id == self.output["step"])
 
-    def references(self, step_id: str) -> tuple[str, ...]:
-        """The pointers later steps select from ``step_id``'s output, sorted, each once."""
+    def references(self, step_id: str) -> tuple[Selector, ...]:
+        """The complete selectors later steps apply to ``step_id``'s output, sorted, each once."""
         return tuple(
             sorted(
                 {
-                    source["pointer"]
+                    selector(source)[1:]
                     for step in self.steps
                     for source in step.inputs.values()
-                    if source["kind"] in BINDINGS and source["step"] == step_id
+                    if source["kind"] == "step_output" and source["step"] == step_id
                 }
             )
         )
+
+
+# One selection from a step's output: its pointer, its canonical ``where`` text ("" when it selects by pointer
+# alone), and its item pointer; two steps selecting different items of one array never share a key.
+Selector = tuple[str, str, str]
+# A selection's complete key in a run: the step it selects from, then its selector.
+Key = tuple[str, str, str, str]
+
+
+def selector(source: Mapping[str, object]) -> Key:
+    """A ``step_output`` source's complete selection key."""
+    where = source.get("where")
+    return (
+        source["step"],
+        source["pointer"],
+        "" if where is None else canonical(where).decode(),
+        source.get("item", ""),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +192,8 @@ class ActionContract:
     output_schema: Mapping[str, Any] = dataclasses.field(default_factory=dict)
     # Whether the reviewed effect proves the Action read-only; anything not proven counts as a change (ADR-0092 §4).
     read_only: bool = False
+    # The Stored Inputs the Action uses, by name only, sorted.
+    stored_inputs: tuple[str, ...] = ()
 
 
 def canonical(value: object) -> bytes:
@@ -220,23 +239,23 @@ def _document(document: object) -> tuple[str, list[object], object, bytes]:
     except schedule.ScheduleError as exc:
         raise PlanError("plan-timezone-invalid") from exc
     raw_steps = document["steps"]
-    if not isinstance(raw_steps, list) or not 1 <= len(raw_steps) <= MAX_STEPS:
+    if not isinstance(raw_steps, list) or len(raw_steps) > MAX_STEPS:
         raise PlanError("plan-invalid")
     return timezone, raw_steps, document["output"], encoded
 
 
 def _output(value: object, steps: list[Step]) -> None:
-    """The run's output disposition: a shown step must be one of the plan's; a chain needs a binding to hand it on."""
-    if not isinstance(value, dict) or set(value) != {"mode", "step"} or value["mode"] not in OUTPUT_MODES:
+    """The run's output disposition: a shown step is one of the plan's; only a decision has a condition or no steps."""
+    if not isinstance(value, dict) or set(value) != {"mode", "step", "when"} or value["mode"] not in OUTPUT_MODES:
         raise PlanError("plan-output-invalid")
-    shown = value["step"]
-    if value["mode"] in SHOWN_MODES:
+    mode, shown, when = value["mode"], value["step"], value["when"]
+    if mode in SHOWN_MODES:
         valid = isinstance(shown, str) and any(step.step_id == shown for step in steps)
     else:
         valid = shown is None
-    if value["mode"] == "chain":
-        valid = valid and any(source["kind"] in BINDINGS for step in steps for source in step.inputs.values())
-    if not valid:
+    # Only a decision has a condition, and only a decision may have no step to run.
+    decided = when in DECISION_WHEN if mode == "decide" else when is None and bool(steps)
+    if not (valid and decided):
         raise PlanError("plan-output-invalid")
 
 
@@ -248,8 +267,8 @@ def _step_shape(raw: object, earlier: tuple[str, ...]) -> tuple[str, str, str, s
     if (
         not _matches(step_id, STEP_ID_RE)
         or step_id in earlier
-        or not _matches(assistant_id, ASSISTANT_ID_RE)
-        or not _matches(action, ACTION_ID_RE)
+        or http_identifiers.canonical_assistant_id(assistant_id) is None
+        or http_identifiers.canonical_action_id(action) is None
         or not _matches(pin, PIN_RE)
         or not isinstance(inputs, dict)
     ):
@@ -285,23 +304,40 @@ def _matches(value: object, pattern: re.Pattern[str]) -> bool:
     return isinstance(value, str) and pattern.fullmatch(value) is not None
 
 
+_SOURCE_FIELDS = (
+    frozenset({"kind", "value"}),
+    frozenset({"kind", "format"}),
+    frozenset({"kind", "step", "pointer"}),
+    frozenset({"kind", "step", "pointer", "where", "item"}),
+)
+_SOURCES = tuple(zip(("literal", "run_clock", "step_output", "step_output"), _SOURCE_FIELDS, strict=True))
+
+
 def _source(source: object, earlier: tuple[str, ...]) -> None:
-    """One value source's closed shape: a literal, a run-clock format, or a reference to an earlier step."""
+    """One value source's closed shape: a literal, the run date, or a reference to an earlier step's output."""
     kind = source.get("kind") if isinstance(source, dict) else None
-    fields = {
-        "literal": {"kind", "value"},
-        "run_clock": {"kind", "format"},
-        "step_output": {"kind", "step", "pointer"},
-        "step_text": {"kind", "step", "pointer"},
-    }
-    if kind not in fields or set(source) != fields[kind]:
+    if not any(kind == name and set(source) == fields for name, fields in _SOURCES):
         raise PlanError("plan-input-invalid")
     if kind == "literal" and _holds_credential(source["value"]):
         raise PlanError("plan-secret-literal")
     if kind == "run_clock" and source["format"] not in CLOCK_FORMATS:
         raise PlanError("plan-input-invalid")
-    if kind in BINDINGS and (source["step"] not in earlier or pointer_tokens(source["pointer"]) is None):
+    if kind == "step_output" and (
+        source["step"] not in earlier
+        or pointer_tokens(source["pointer"]) is None
+        or ("where" in source and not (_where(source["where"]) and pointer_tokens(source["item"]) is not None))
+    ):
         raise PlanError("plan-reference-invalid")
+
+
+def _where(value: object) -> bool:
+    """A selector's one member, whose value is a string or an integer, never a boolean."""
+    return (
+        isinstance(value, dict)
+        and len(value) == 1
+        and all(isinstance(key, str) for key in value)
+        and all(isinstance(constant, str) or type(constant) is int for constant in value.values())
+    )
 
 
 def _typed(name: str, source: Mapping[str, object], schema: Mapping[str, Any]) -> None:
@@ -483,15 +519,9 @@ def _admit_member(schema: Mapping[str, Any], name: str, value: object) -> None:
 
 
 def clock_value(form: str, instant: datetime.datetime, timezone: str) -> object:
-    """One run-clock token rendered from the run's start instant in the plan's timezone."""
-    local = instant.astimezone(schedule.zone(timezone))
-    rendered: dict[str, Callable[[], object]] = {
-        "date": lambda: local.date().isoformat(),
-        "time": lambda: local.strftime("%H:%M"),
-        "datetime": lambda: local.isoformat(timespec="seconds"),
-        "epoch_seconds": lambda: int(instant.timestamp()),
-    }
-    return rendered[form]()
+    """The run date: the run's start instant as a date in the plan's timezone; ``form`` is always ``date``."""
+    del form
+    return instant.astimezone(schedule.zone(timezone)).date().isoformat()
 
 
 def pointer_tokens(pointer: object) -> tuple[str, ...] | None:
@@ -552,13 +582,7 @@ def select_where(value: object, pointer: str, where: object, item: str) -> objec
     that is not an object, lacks the member, or holds another value or type does not match. No match fails closed as a
     missing reference, and several as an ambiguous one, so the dependent step is never dispatched.
     """
-    if (
-        pointer_tokens(pointer) is None
-        or pointer_tokens(item) is None
-        or not isinstance(where, dict)
-        or len(where) != 1
-        or not all(isinstance(constant, str) or type(constant) is int for constant in where.values())
-    ):
+    if pointer_tokens(pointer) is None or pointer_tokens(item) is None or not _where(where):
         raise PlanError("plan-reference-invalid")
     items = select(value, pointer)
     if not isinstance(items, list):
@@ -572,22 +596,25 @@ def select_where(value: object, pointer: str, where: object, item: str) -> objec
     return select(matches[0], item)
 
 
-def selections(plan: Plan, step_id: str, result: object) -> dict[str, object]:
-    """Every value later steps select from one completed step's result, keyed by pointer."""
-    return {pointer: select(result, pointer) for pointer in plan.references(step_id)}
+def selections(plan: Plan, step_id: str, result: object) -> dict[Selector, object]:
+    """Every value later steps select from one completed step's result, keyed by selector."""
+    return {key: _selected(result, key) for key in plan.references(step_id)}
 
 
-def retained_within(selected: Mapping[tuple[str, str], object]) -> bool:
+def _selected(result: object, key: Selector) -> object:
+    pointer, where, item = key
+    return select(result, pointer) if not where else select_where(result, pointer, json.loads(where), item)
+
+
+def retained_within(selected: Mapping[Key, object]) -> bool:
     """Whether a run's retained selections fit their byte bound."""
-    return len(canonical([[step, pointer, value] for (step, pointer), value in sorted(selected.items())])) <= (
-        MAX_RETAINED_BYTES
-    )
+    return len(canonical([[*key, value] for key, value in sorted(selected.items())])) <= MAX_RETAINED_BYTES
 
 
 def resolve(
     plan: Plan,
     step: Step,
-    selected: Mapping[tuple[str, str], object],
+    selected: Mapping[Key, object],
     started_at: int,
     validate: Callable[[dict[str, object]], object],
 ) -> dict[str, object]:
@@ -599,9 +626,8 @@ def resolve(
             resolved[name] = copy.deepcopy(source["value"])
         elif source["kind"] == "run_clock":
             resolved[name] = clock_value(source["format"], instant, plan.timezone)
-        elif (source["step"], source["pointer"]) in selected:
-            chosen = copy.deepcopy(selected[(source["step"], source["pointer"])])
-            resolved[name] = chosen if source["kind"] == "step_output" else _text_within(chosen)
+        elif selector(source) in selected:
+            resolved[name] = copy.deepcopy(selected[selector(source)])
         else:
             raise PlanError("plan-reference-missing")
     if len(canonical(resolved)) > MAX_RESOLVED_INPUT_BYTES:
@@ -612,52 +638,6 @@ def resolve(
     except ValueError as exc:
         raise PlanError("plan-input-type") from exc
     return resolved
-
-
-def text(value: object) -> str:
-    """One selected value as deterministic, locale-neutral plain text, complete and never cut.
-
-    A string selected whole is itself, verbatim. Anything else is unambiguous: every key and scalar inside it is its
-    JSON text, so a string is quoted and escaped and can never make another line, field, or item. A list is one ``-``
-    line per item and an object one ``"key":`` line per member in sorted key order; a scalar follows on the same line
-    after a space, a non-empty list or object on the next lines indented two spaces more. An empty list or object is
-    its JSON text.
-    """
-    if isinstance(value, str):
-        return value
-    return "\n".join(_text_lines(value, 0)) if isinstance(value, dict | list) and value else _json_text(value)
-
-
-def _json_text(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
-
-
-def _text_lines(value: object, depth: int) -> list[str]:
-    indent = "  " * depth
-    if isinstance(value, list):
-        entries = [("-", item) for item in value]
-    else:
-        entries = [(_json_text(key) + ":", value[key]) for key in sorted(value)]
-    lines: list[str] = []
-    for label, item in entries:
-        if isinstance(item, dict | list) and item:
-            lines.append(indent + label)
-            lines.extend(_text_lines(item, depth + 1))
-        else:
-            lines.append(f"{indent}{label} {_json_text(item)}")
-    return lines
-
-
-def _text_within(value: object) -> str:
-    """The value's text when it is encodable and within its bound; anything else is refused before dispatch."""
-    rendered = text(value)
-    try:
-        size = len(rendered.encode("utf-8"))
-    except UnicodeEncodeError as exc:
-        raise PlanError("plan-input-type") from exc
-    if size > MAX_TEXT_BYTES:
-        raise PlanError("plan-input-type")
-    return rendered
 
 
 def commitment(resolved: Mapping[str, object]) -> str:
@@ -704,15 +684,16 @@ class OutputError(ValueError):
     """A result could not be projected; the run shows its result as unavailable."""
 
 
-def output_safe(result: object, schema: object) -> dict[str, object]:
+def output_safe(result: object, schema: object, protected: frozenset[str] = frozenset()) -> dict[str, object]:
     """The complete safe form of one validated result under its Action's reviewed output schema.
 
-    It keeps every key, text, and number exactly as the result has them, apart from what it redacts, so a change is
-    compared on the complete data; escaping, shortening, and every cut belong to the shown form alone.
+    It keeps every key, text, and number exactly as the result has them, apart from what it redacts: also every string
+    or key that holds a value the run protects (ADR-0101 section 6.2). A change is compared on the complete data;
+    escaping, shortening, and every cut belong to the shown form alone.
     """
     root = schema if isinstance(schema, dict) else {}
     try:
-        return _output_node(result, root, root, "", 0)
+        return _output_node(result, (root, frozenset(item for item in protected if item)), root, "", 0)
     except (PlanError, RecursionError, TypeError, ValueError) as exc:
         raise OutputError("routine-output-unavailable") from exc
 
@@ -745,21 +726,28 @@ def output_state(step: str, state: str) -> dict[str, object]:
     return {"step": step, "state": state, "value": None, "truncated": False}
 
 
-def _output_node(value: object, root: dict, subschema: object, name: str, depth: int) -> dict[str, object]:
+def _output_node(value: object, context: tuple, subschema: object, name: str, depth: int) -> dict[str, object]:
+    root, protected = context
     if depth > MAX_SAFE_OUTPUT_DEPTH:
         return dict(OUTPUT_ELIDED)
     candidates = applicable(root, subschema, 0, value)
     if secret_position(root, name, candidates):
         return dict(OUTPUT_REDACTED)
     if isinstance(value, dict):
-        return _output_fields(value, root, candidates, depth)
+        return _output_fields(value, context, candidates, depth)
     if isinstance(value, list):
         items = [
-            _output_node(item, root, item_schemas(candidates, index), name, depth + 1)
+            _output_node(item, context, item_schemas(candidates, index), name, depth + 1)
             for index, item in enumerate(value)
         ]
         return {"kind": "list", "items": items, "omitted": 0}
+    if isinstance(value, str) and _protects(value, protected):
+        return dict(OUTPUT_REDACTED)
     return _output_scalar(value)
+
+
+def _protects(text: str, protected: frozenset[str]) -> bool:
+    return any(secret in text for secret in protected)
 
 
 def _output_scalar(value: object) -> dict[str, object]:
@@ -776,12 +764,15 @@ def _output_scalar(value: object) -> dict[str, object]:
     raise OutputError("routine-output-unavailable")
 
 
-def _output_fields(value: dict, root: dict, candidates: list, depth: int) -> dict[str, object]:
-    """An object's members in sorted key order, each under its member schema; a credential-shaped key is redacted."""
+def _output_fields(value: dict, context: tuple, candidates: list, depth: int) -> dict[str, object]:
+    """An object's members in sorted key order, each under its member schema; a credential-shaped key is redacted.
+
+    So is a key that holds a value the run protects.
+    """
     fields: list[list[object]] = []
     redacted = 0
     for key in sorted(value):
-        if assistant_manifest.resembles_credential(key):
+        if assistant_manifest.resembles_credential(key) or _protects(key, context[1]):
             redacted += 1
             label = OUTPUT_REDACTED_KEY if redacted == 1 else f"{OUTPUT_REDACTED_KEY} {redacted}"
             fields.append([label, dict(OUTPUT_REDACTED)])
@@ -791,7 +782,7 @@ def _output_fields(value: dict, root: dict, candidates: list, depth: int) -> dic
         except PlanError:
             fields.append([key, dict(OUTPUT_REDACTED)])
             continue
-        fields.append([key, _output_node(value[key], root, member, key, depth + 1)])
+        fields.append([key, _output_node(value[key], context, member, key, depth + 1)])
     return {"kind": "fields", "fields": fields, "omitted": 0}
 
 
@@ -868,12 +859,13 @@ def _output_text(node: dict[str, object], chars: int) -> tuple[dict[str, object]
 # under that step's reviewed output schema along its pointer, so a secret position on the way withholds the whole
 # preview and one inside it is redacted; every member is then redacted under the Action's own input schema, every
 # credential-shaped string or key is redacted, and every string holding a value Team injected into the attempt is
-# redacted, all before any cut. A ``step_text`` member shows the value it was rendered from, never the flattened text.
+# redacted, all before any cut. A value selected through an array item is walked along the array's pointer, then under
+# every schema any of its items may have, then along the item's own pointer.
 INPUT_REDACTED = "[redacted]"
 
 
 def input_preview(
-    plan: Plan, step: Step, resolved: Mapping[str, object], selected: Mapping[tuple[str, str], object], protected
+    plan: Plan, step: Step, resolved: Mapping[str, object], selected: Mapping[Key, object], protected
 ) -> list[dict[str, object]]:
     """Each input member of one attempt, sorted, as ``{member, source, value}`` with a redacted preview or None."""
     previews = []
@@ -894,38 +886,56 @@ _WITHHELD = object()
 def _shown_input(plan, step, member, resolved, selected, protected) -> object:
     source = step.inputs[member]
     value = resolved[member]
-    if source["kind"] in BINDINGS:
+    if source["kind"] == "step_output":
         origin = next(item for item in plan.steps if item.step_id == source["step"])
         root = dict(origin.output_schema)
-        subschema = _pointed(root, source["pointer"])
+        path: list[str | None] = list(pointer_tokens(source["pointer"]))
+        if "where" in source:
+            path += [None, *pointer_tokens(source["item"])]
+        subschema = _pointed(root, path)
         if subschema is None:
             return _WITHHELD
-        tokens = pointer_tokens(source["pointer"])
-        name = tokens[-1] if tokens else ""
-        value = _redacted(selected[(source["step"], source["pointer"])], root, subschema, name, 0)
+        names = [token for token in path if token is not None]
+        value = _redacted(selected[selector(source)], root, subschema, names[-1] if names else "", 0)
     root = dict(step.input_schema)
     member_schema = member_schemas(applicable(root, root, 0, dict(resolved)), member)
     # Every schema is walked against the original keys first; injected values and keys are scrubbed only after.
     return _scrubbed(_redacted(value, root, member_schema, member, 0), protected)
 
 
-def _pointed(root: dict, pointer: str) -> dict | None:
-    """The subschemas a pointer reaches in a source output schema, or None when a position on its way may be secret.
+def _pointed(root: dict, path: list[str | None]) -> dict | None:
+    """The subschemas a path reaches in a source output schema, or None when a position on its way may be secret.
 
-    The root and every position on the way count, each with every dependent schema it might apply.
+    The root and every position on the way count, each with every dependent schema it might apply. A ``None`` token is
+    any one item of an array: every schema any item may have applies there.
     """
     subschema: object = root
     if secret_position(root, "", applicable(root, root, 0, UNKNOWN)):
         return None
-    for token in pointer_tokens(pointer) or ():
+    for token in path:
         candidates = applicable(root, subschema, 0, UNKNOWN)
-        reached = member_schemas(candidates, token)
+        if token is None:
+            reached = {"allOf": _any_item(candidates)}
+            token = ""
+        else:
+            reached = member_schemas(candidates, token)
         if _INDEX_RE.fullmatch(token) is not None:
             reached["allOf"].extend(item_schemas(candidates, int(token))["allOf"])
         if secret_position(root, token, applicable(root, reached, 0, UNKNOWN)):
             return None
         subschema = reached
     return subschema if isinstance(subschema, dict) else {}
+
+
+def _any_item(candidates: list[Mapping[str, Any]]) -> list[object]:
+    """Every schema any item of an array may have: each of its prefix items and its items."""
+    found: list[object] = []
+    for item in candidates:
+        if isinstance(item.get("prefixItems"), list):
+            found.extend(item["prefixItems"])
+        if "items" in item:
+            found.append(item["items"])
+    return found
 
 
 def _scrubbed(value: object, protected: tuple[str, ...]) -> object:

@@ -1,4 +1,4 @@
-"""The compiled cursor of one Routine run, without I/O (ADR-0092 sections 3 and 5).
+"""The cursor of one Routine run, without I/O (ADR-0092 sections 3 and 5, ADR-0101 section 6).
 
 A cursor binds the Team incarnation, the Routine and its revision, the run, the exact plan (whose digest covers every
 step's complete pin), the run's one start instant, the current step, that step's logical ``operation_id``, attempts,
@@ -6,6 +6,12 @@ and resolved-input commitment, the values later steps selected from completed on
 and its keyed comparison digest (ADR-0092 amendment, 2026-10-05, output), and the remaining recovery budgets. A
 completed step is never run again: the successful prefix is durable even when a later step fails. Restart never
 replenishes a budget, and no secret, human response, or complete output is ever held here.
+
+It also records the Team boot its run protection was bound in, and whether that protection was lost, which is never
+undone. A run whose plan decides then moves from its ``replay`` phase to its ``decision`` phase and on to ``closed``:
+its cursor keeps every replay step's kept result in an accumulator (the decision's input), the sealed candidate that
+holds it, the decision's allowance and what it used, every decision call's operation with Team's classification of its
+outcome, and the model the decision is bound to.
 """
 
 from __future__ import annotations
@@ -15,11 +21,12 @@ import re
 from dataclasses import dataclass
 
 from action import journal as action_journal
+from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import strict_json
 from routine import plan as routine_plan
 
-VERSION = 3
+VERSION = 4
 MAX_CURSOR_BYTES = 256 * 1024
 # The initial automatic recovery bounds; consumption is persisted before any paid dispatch.
 BUDGETS = (
@@ -45,6 +52,14 @@ _WORKLOAD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _FIELDS = frozenset(
     {
         "version",
+        "boot",
+        "protection_lost",
+        "phase",
+        "accumulator",
+        "candidate",
+        "reservation",
+        "calls",
+        "model",
         "incarnation",
         "routine_id",
         "revision",
@@ -67,6 +82,27 @@ _FIELDS = frozenset(
     }
 )
 _SHOWN_FIELDS = frozenset({"step", "output", "digest"})
+# Where a run is: replaying its plan's steps, in its decision turn, or with its decision closed (decide plans only).
+PHASES = ("replay", "decision", "closed")
+# The kept replay results a decision reads, together; past it the accumulator is ``over`` and the decision refused.
+MAX_ACCUMULATOR_BYTES = 64 * 1024
+# A decision call's operation, as Team classified it: reserved before its RPC, dispatched, then settled.
+CALL_STATES = ("reserved", "dispatched", "succeeded", "failed", "stopped")
+_CALL_FIELDS = frozenset(
+    {
+        "operation_id",
+        "assistant",
+        "action",
+        "read_only",
+        "commitment",
+        "attempts",
+        "state",
+        "fault",
+        "workload",
+        "dispatched_at",
+        "absent",
+    }
+)
 
 
 class CursorError(ValueError):
@@ -85,6 +121,23 @@ class Binding:
     routine_id: str
     revision: int
     run_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class Call:
+    """One decision call's operation and Team's classification of it, recorded before its RPC (ADR-0101 §6.6)."""
+
+    operation_id: str
+    assistant: str
+    action: str
+    read_only: bool
+    commitment: str
+    attempts: int = 1
+    state: str = "reserved"
+    fault: str = ""
+    workload: str = ""
+    dispatched_at: int = 0
+    absent: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +166,17 @@ class Cursor:
     # The shown step's result as its notice shows it, and the keyed digest of its safe form, or None when no step
     # shown so far: {"step", "output", "digest"}; it outlives later steps, holds, and continuations.
     shown: dict[str, object] | None = None
+    # The Team boot the run's protection was bound in (ADR-0101 section 6.2), and whether it was lost; never regained.
+    boot: str = ""
+    protection_lost: bool = False
+    # A decide plan's phase, its accumulated kept results {"results": [[step, kept]], "over"}, the sealed candidate
+    # that holds them, its allowance and what it used, its calls, and the model its decision is bound to.
+    phase: str = "replay"
+    accumulator: dict[str, object] | None = None
+    candidate: str | None = None
+    reservation: tuple[int, int] = (0, 0)
+    calls: tuple[Call, ...] = ()
+    model: dict[str, str] | None = None
 
     @property
     def generation_suffix(self) -> str:
@@ -121,16 +185,28 @@ class Cursor:
     def remaining(self, budget: str) -> int:
         return dict(self.budgets)[budget]
 
-    def selections(self) -> dict[tuple[str, str], object]:
-        return {(step, pointer): value for step, pointer, value in self.selected}
+    def selections(self) -> dict[routine_plan.Key, object]:
+        return {tuple(item[:4]): item[4] for item in self.selected}
 
     def done(self, plan: routine_plan.Plan) -> bool:
+        """Whether the run is complete: every step replayed, and for a decide plan its decision closed."""
+        if plan.output["mode"] == "decide":
+            return self.phase == "closed"
+        return self.step == len(plan.steps)
+
+    def replayed(self, plan: routine_plan.Plan) -> bool:
+        """Whether every replay step completed."""
         return self.step == len(plan.steps)
 
 
-def start(plan: routine_plan.Plan, binding: Binding, started_at: int) -> Cursor:
-    """A run's first cursor, at its first step with every budget whole."""
-    return _checked(Cursor(binding, plan.digest, started_at))
+def start(plan: routine_plan.Plan, binding: Binding, started_at: int, boot: str) -> Cursor:
+    """A run's first cursor, at its first step with every budget whole, its protection bound in this Team boot."""
+    return _checked(Cursor(binding, plan.digest, started_at, boot=boot))
+
+
+def lose_protection(cursor: Cursor) -> Cursor:
+    """Record that the run's protection was lost; it is never regained (ADR-0101 section 6.2)."""
+    return _checked(dataclasses.replace(cursor, protection_lost=True))
 
 
 def dispatch(
@@ -149,7 +225,7 @@ def dispatch(
     are kept with it; an unknown workload can never be proven stopped.
     """
     _same_plan(cursor, plan)
-    if cursor.done(plan) or not action_journal.valid_operation_id(operation_id):
+    if cursor.replayed(plan) or not action_journal.valid_operation_id(operation_id):
         raise CursorError("cursor-dispatch-invalid")
     if not isinstance(commitment, str) or _HEX64_RE.fullmatch(commitment) is None:
         raise CursorError("cursor-dispatch-invalid")
@@ -181,7 +257,7 @@ def complete(cursor: Cursor, plan: routine_plan.Plan, result: object, shown: dic
     The plan's shown step also keeps ``shown``, its bounded result and comparison digest; no other step may.
     """
     _same_plan(cursor, plan)
-    if cursor.done(plan) or cursor.operation_id is None:
+    if cursor.replayed(plan) or cursor.operation_id is None:
         raise CursorError("cursor-not-dispatched")
     step_id = plan.steps[cursor.step].step_id
     try:
@@ -200,10 +276,24 @@ def complete(cursor: Cursor, plan: routine_plan.Plan, result: object, shown: dic
         )
     ):
         raise CursorError("cursor-shown-invalid")
-    selected = (*cursor.selected, *((step_id, pointer, value) for pointer, value in sorted(chosen.items())))
-    advanced = Cursor(cursor.binding, cursor.plan, cursor.started_at, cursor.step + 1, selected=selected)
+    selected = (*cursor.selected, *((step_id, *key, value) for key, value in sorted(chosen.items())))
     kept = cursor.shown if shown is None else shown
-    return _checked(dataclasses.replace(advanced, budgets=cursor.budgets, segment=cursor.segment, shown=kept))
+    return _checked(
+        dataclasses.replace(
+            cursor,
+            step=cursor.step + 1,
+            operation_id=None,
+            attempts=0,
+            commitment=None,
+            selected=selected,
+            absent=False,
+            carried=False,
+            fault="",
+            workload="",
+            dispatched_at=0,
+            shown=kept,
+        )
+    )
 
 
 def proven_absent(cursor: Cursor) -> Cursor:
@@ -269,7 +359,7 @@ def _document(cursor: Cursor) -> dict[str, object]:
         "operation_id": cursor.operation_id,
         "attempts": cursor.attempts,
         "commitment": cursor.commitment,
-        "selected": [[step, pointer, value] for step, pointer, value in cursor.selected],
+        "selected": [list(item) for item in cursor.selected],
         "budgets": dict(cursor.budgets),
         "segment": cursor.segment,
         "absent": cursor.absent,
@@ -278,7 +368,19 @@ def _document(cursor: Cursor) -> dict[str, object]:
         "workload": cursor.workload,
         "dispatched_at": cursor.dispatched_at,
         "shown": cursor.shown,
+        "boot": cursor.boot,
+        "protection_lost": cursor.protection_lost,
+        "phase": cursor.phase,
+        "accumulator": cursor.accumulator,
+        "candidate": cursor.candidate,
+        "reservation": {"allowance": cursor.reservation[0], "used": cursor.reservation[1]},
+        "calls": [_call_document(call) for call in cursor.calls],
+        "model": cursor.model,
     }
+
+
+def _call_document(call: Call) -> dict[str, object]:
+    return {name: getattr(call, name) for name in sorted(_CALL_FIELDS)}
 
 
 def encode(cursor: Cursor) -> bytes:
@@ -294,10 +396,13 @@ def decode(raw: bytes, binding: Binding) -> Cursor:
         raise CursorError("cursor-invalid") from exc
     if not isinstance(value, dict) or set(value) != _FIELDS or value["version"] != VERSION:
         raise CursorError("cursor-invalid")
-    selected, budgets = value["selected"], value["budgets"]
-    if not isinstance(selected, list) or not all(isinstance(item, list) and len(item) == 3 for item in selected):
+    selected, budgets, reservation = value["selected"], value["budgets"], value["reservation"]
+    if not isinstance(selected, list) or not all(isinstance(item, list) and len(item) == 5 for item in selected):
         raise CursorError("cursor-invalid")
-    if not isinstance(budgets, dict):
+    if not isinstance(budgets, dict) or not isinstance(reservation, dict) or set(reservation) != {"allowance", "used"}:
+        raise CursorError("cursor-invalid")
+    calls = value["calls"]
+    if not isinstance(calls, list) or not all(isinstance(item, dict) and set(item) == _CALL_FIELDS for item in calls):
         raise CursorError("cursor-invalid")
     cursor = Cursor(
         Binding(value["incarnation"], value["routine_id"], value["revision"], value["run_id"]),
@@ -307,7 +412,7 @@ def decode(raw: bytes, binding: Binding) -> Cursor:
         value["operation_id"],
         value["attempts"],
         value["commitment"],
-        tuple((item[0], item[1], item[2]) for item in selected),
+        tuple(tuple(item) for item in selected),
         tuple(sorted(budgets.items())),
         value["segment"],
         value["absent"],
@@ -316,6 +421,14 @@ def decode(raw: bytes, binding: Binding) -> Cursor:
         value["workload"],
         value["dispatched_at"],
         value["shown"],
+        value["boot"],
+        value["protection_lost"],
+        value["phase"],
+        value["accumulator"],
+        value["candidate"],
+        (reservation["allowance"], reservation["used"]),
+        tuple(Call(**item) for item in calls),
+        value["model"],
     )
     if cursor.binding != binding or routine_plan.canonical(_document(cursor)) != raw:
         raise CursorError("cursor-invalid")
@@ -358,12 +471,99 @@ def _checked(cursor: Cursor) -> Cursor:
         and cursor.dispatched_at >= 0
         and (dispatched or (cursor.workload, cursor.dispatched_at) == ("", 0))
         and _shown_valid(cursor.shown)
+        and isinstance(cursor.boot, str)
+        and _ID_RE.fullmatch(cursor.boot) is not None
+        and type(cursor.protection_lost) is bool
+        and _decision_valid(cursor)
     )
     if not valid:
         raise CursorError("cursor-invalid")
     if len(routine_plan.canonical(_document(cursor))) > MAX_CURSOR_BYTES:
         raise CursorError("cursor-too-large")
     return cursor
+
+
+def _decision_valid(cursor: Cursor) -> bool:
+    """A decide plan's phase and its parts: replay holds no decision call, and only a decision holds a candidate."""
+    allowance, used = cursor.reservation if isinstance(cursor.reservation, tuple) else (None, None)
+    return (
+        cursor.phase in PHASES
+        and _accumulator_valid(cursor.accumulator)
+        and (cursor.phase == "replay" or cursor.accumulator is not None)
+        and (cursor.candidate is None or (isinstance(cursor.candidate, str) and _ID_RE.fullmatch(cursor.candidate)))
+        and (cursor.phase != "replay" or (cursor.candidate is None and cursor.calls == () and cursor.model is None))
+        and type(allowance) is int
+        and type(used) is int
+        and 0 <= used <= allowance <= http_routine.MAX_ALLOWANCE
+        and isinstance(cursor.calls, tuple)
+        and len(cursor.calls) <= used
+        and all(_call_valid(call) for call in cursor.calls)
+        and len({call.operation_id for call in cursor.calls}) == len(cursor.calls)
+        and (cursor.model is None or http_routine.canonical_model(cursor.model) == cursor.model)
+    )
+
+
+def _accumulator_valid(value: object) -> bool:
+    """None, or the kept replay results by step with whether they outgrew the decision's input bound."""
+    if value is None:
+        return True
+    if not isinstance(value, dict) or set(value) != {"results", "over"} or type(value["over"]) is not bool:
+        return False
+    results = value["results"]
+    return (
+        isinstance(results, list)
+        and len(results) <= routine_plan.MAX_STEPS
+        and all(
+            isinstance(item, list)
+            and len(item) == 2
+            and isinstance(item[0], str)
+            and routine_plan.STEP_ID_RE.fullmatch(item[0]) is not None
+            and _kept_valid(item[1])
+            for item in results
+        )
+        and len({item[0] for item in results}) == len(results)
+        and (value["over"] or len(routine_plan.canonical(results)) <= MAX_ACCUMULATOR_BYTES)
+        and (not value["over"] or results == [])
+    )
+
+
+def _kept_valid(value: object) -> bool:
+    """One kept result: its exact JSON and the sorted pointers it withholds."""
+    return (
+        isinstance(value, dict)
+        and set(value) == {"value", "withheld"}
+        and isinstance(value["withheld"], list)
+        and all(routine_plan.pointer_tokens(item) is not None for item in value["withheld"])
+        and value["withheld"] == sorted(set(value["withheld"]))
+    )
+
+
+def _call_valid(call: object) -> bool:
+    """One decision call: reserved without a workload, dispatched with one, a failure classified, absent after one."""
+    if not isinstance(call, Call):
+        return False
+    dispatched = call.state != "reserved"
+    return (
+        action_journal.valid_operation_id(call.operation_id)
+        and http_identifiers.canonical_assistant_id(call.assistant) is not None
+        and http_identifiers.canonical_action_id(call.action) is not None
+        and type(call.read_only) is bool
+        and isinstance(call.commitment, str)
+        and _HEX64_RE.fullmatch(call.commitment) is not None
+        and type(call.attempts) is int
+        and 1 <= call.attempts <= http_routine.MAX_DIAGNOSTIC_ATTEMPTS
+        and call.state in CALL_STATES
+        and call.fault in FAULTS
+        and (call.fault != "") == (call.state == "failed")
+        and isinstance(call.workload, str)
+        and (call.workload == "" or _WORKLOAD_RE.fullmatch(call.workload) is not None)
+        and type(call.dispatched_at) is int
+        and call.dispatched_at >= 0
+        and ((call.workload, call.dispatched_at) == ("", 0)) == (not dispatched)
+        and (not dispatched or call.dispatched_at > 0)
+        and type(call.absent) is bool
+        and (not call.absent or (call.state == "failed" and call.fault != "policy"))
+    )
 
 
 def binding_valid(binding: object) -> bool:
@@ -407,15 +607,20 @@ def _budgets_valid(budgets: object) -> bool:
     )
 
 
-def _selections_valid(selected: tuple[tuple[str, str, object], ...]) -> bool:
-    keys = [(step, pointer) for step, pointer, _value in selected]
+def _selections_valid(selected: tuple[tuple[object, ...], ...]) -> bool:
+    keys = [tuple(item[:4]) for item in selected]
     return (
-        all(
+        all(len(item) == 5 for item in selected)
+        and all(
             isinstance(step, str)
             and routine_plan.STEP_ID_RE.fullmatch(step) is not None
             and routine_plan.pointer_tokens(pointer) is not None
-            for step, pointer in keys
+            and isinstance(where, str)
+            and isinstance(item, str)
+            and (where != "" or item == "")
+            and routine_plan.pointer_tokens(item) is not None
+            for step, pointer, where, item in keys
         )
         and len(set(keys)) == len(keys)
-        and routine_plan.retained_within(dict(zip(keys, (value for *_key, value in selected), strict=True)))
+        and routine_plan.retained_within(dict(zip(keys, (item[4] for item in selected), strict=True)))
     )

@@ -119,7 +119,7 @@ def record(
     )
     shown = steps[-1][0]["id"] if recording.mode in routine_plan.SHOWN_MODES else None
     document = {
-        "version": routine_plan.RECORDED_VERSION,
+        "version": routine_plan.VERSION,
         "timezone": recording.timezone,
         "steps": [step for step, _origin in steps],
         "output": {"mode": recording.mode, "step": shown, "when": recording.when},
@@ -145,6 +145,7 @@ def _permitted(
             "action": action,
             "pin": contracts[(assistant, action)].pin,
             "read_only": contracts[(assistant, action)].read_only,
+            "stored_inputs": sorted(contracts[(assistant, action)].stored_inputs),
         }
         for assistant, action in sorted(set(actions))
     )
@@ -347,3 +348,50 @@ def _renumbered(
         }
         renamed.append(({**step, "id": names[step["id"]], "input": inputs}, origins))
     return renamed, {step["id"]: origins for step, origins in renamed}
+
+
+def kept(
+    plan: Mapping[str, object],
+    recording: Recording,
+    known: str,
+    protection: trace.Protection,
+    contracts: Mapping[tuple[str, str], routine_plan.ActionContract],
+) -> Recorded:
+    """A replacement that ran no Action: the replaced plan's steps exactly, run on a new schedule, zone, or output.
+
+    The complete plan is rebuilt and admitted again by the caller; every step's Action must still be at its pin, and a
+    literal is named in the request only when the request names it now.
+    """
+    _admit(recording, contracts)
+    if protection.lost:
+        raise RecordingError("routine-recording-unavailable")
+    steps = [dict(step) for step in plan["steps"]]
+    for step in steps:
+        contract = contracts.get((step["assistant"], step["action"]))
+        if contract is None or contract.pin != step["pin"]:
+            raise RecordingError("plan-pin-drift")
+    if not steps and recording.mode != "decide":
+        raise RecordingError("routine-recording-empty")
+    context = _Known(known, frozenset(match.group() for match in _NUMBER_RE.finditer(known)), protection.values)
+    origins = {
+        step["id"]: {member: _kept_origin(source, context) for member, source in step["input"].items()}
+        for step in steps
+    }
+    shown = steps[-1]["id"] if recording.mode in routine_plan.SHOWN_MODES else None
+    document = {
+        "version": routine_plan.VERSION,
+        "timezone": recording.timezone,
+        "steps": steps,
+        "output": {"mode": recording.mode, "step": shown, "when": recording.when},
+    }
+    actions = [(step["assistant"], step["action"]) for step in steps] + list(recording.decide_actions)
+    return Recorded(document, origins, _permitted(actions, contracts))
+
+
+def _kept_origin(source: Mapping[str, object], known: _Known) -> str:
+    """How the card names a kept input's origin, as a recording would now."""
+    if source["kind"] == "literal":
+        return "request" if known.names(source["value"]) else "assistant"
+    if source["kind"] == "run_clock":
+        return "clock"
+    return "selector" if "where" in source else "step"

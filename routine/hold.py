@@ -1,10 +1,9 @@
-"""Holding a Routine run and settling its incident, without I/O (ADR-0092 sections 5 and 7).
+"""Holding a Routine run and settling its incident, without I/O (ADR-0092 sections 5 and 7, ADR-0101).
 
-A held run's incident is indexed as the run ends, keeps the run's notice, quote, step, and remaining active time, and
-outlives a deleted Routine's record only until it is released. It is resumed as a continuation under a fresh internal
-lease after Team-admitted evidence, or set aside by a person: Rodar, which requests one fresh run; Recriar, which
-replaces the Routine in place; or the Routine's deletion. A person's card checks the exact state it was opened on in the
-same write.
+A held run's incident is indexed as the run ends, keeps the run's notice, name, held call, remaining active time, usage,
+rehearsal, and lost protection, and outlives a deleted Routine's record only until it is released. It is resumed as a
+continuation under a fresh internal lease after Team-admitted evidence, or set aside by a person: Rodar, which requests
+one fresh run, or the Routine's deletion. A person's card checks the exact state it was opened on in the same write.
 """
 
 from __future__ import annotations
@@ -13,13 +12,15 @@ import dataclasses
 import secrets
 from dataclasses import dataclass
 
+from protocol.http.v1 import routine as http_routine
+from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
 
-# The step a held run stopped at: its Assistant, Action, 1-based position, and its plan's step count; all empty when
-# the run sealed no cursor (ADR-0092 amendment, 2026-10-05, scale).
-HeldStep = tuple[str, str, int, int]
-UNKNOWN_STEP: HeldStep = ("", "", 0, 0)
+# The call a held run stopped at: its Assistant, Action, position, and its plan's step count; all empty when the run
+# sealed no cursor (ADR-0092 amendment, 2026-10-05, scale; ADR-0101 positions).
+HeldStep = tuple[str, str, dict[str, object] | None, int]
+UNKNOWN_STEP: HeldStep = ("", "", None, 0)
 
 
 def settle_hold(
@@ -47,13 +48,16 @@ def settle_hold(
         now,
         executed,
         notice_version=value.notice_version,
-        quote=current.quote,
+        name=current.name,
         assistant_id=step[0],
         action=step[1],
         active_seconds_left=value.active_seconds_left,
-        step=step[2],
+        position=step[2],
         steps=step[3],
         requests_used=value.requests_used,
+        usage=value.usage,
+        rehearsal=value.rehearsal,
+        protection_lost=value.protection_lost,
     )
     kept = list(state.incidents)
     while len(kept) >= record.MAX_INCIDENTS:
@@ -109,6 +113,9 @@ def reopen_incident(
         generation=generation,
         notice_version=value.notice_version,
         requests_used=value.requests_used,
+        usage=value.usage,
+        rehearsal=value.rehearsal,
+        protection_lost=value.protection_lost,
     )
     return (
         dataclasses.replace(
@@ -125,12 +132,12 @@ def reopen_incident(
 def step_detail(step: HeldStep) -> dict[str, object]:
     assistant_id, action, position, steps = step
     if not assistant_id:
-        return {"assistant_id": None, "action": None, "step": None, "steps": None}
-    return {"assistant_id": assistant_id, "action": action, "step": position, "steps": steps}
+        return {"assistant_id": None, "action": None, "position": None, "steps": None}
+    return {"assistant_id": assistant_id, "action": action, "position": position, "steps": steps}
 
 
 def held_step(value: record.Incident) -> HeldStep:
-    return (value.assistant_id, value.action, value.step, value.steps)
+    return (value.assistant_id, value.action, value.position, value.steps)
 
 
 def _incident_notice(
@@ -139,7 +146,16 @@ def _incident_notice(
     """Publish the next version of the held run's one notice, which outlives a deleted Routine with the incident."""
     version = value.notice_version + 1
     notice = record.Notice(
-        value.incident_id, value.routine_id, value.incident_id, outcome, now, detail, version, value.quote
+        value.incident_id,
+        value.routine_id,
+        value.incident_id,
+        outcome,
+        now,
+        detail,
+        version,
+        value.name,
+        value.usage,
+        value.protection_lost,
     )
     return record._notice(state, notice), dataclasses.replace(value, notice_version=version)
 
@@ -178,7 +194,7 @@ def skip_incident(
 ) -> record.TeamRoutines:
     """A person sets the held run aside, never verified, replayed, or fabricated; its possible effects stay unresolved.
 
-    ``choice`` is how: Rodar (``run``), Recriar (``recreate``), or deleting the Routine (``delete``), which the run's
+    ``choice`` is how: Rodar (``run``) or deleting the Routine (``delete``), which the run's
     ``user-skipped`` notice names; it is distinct from the Routine's own missed-schedule skip. A card's ``expected``
     state is checked in the same write. Setting it aside is the held run's end: a continuous Routine's next run is due
     its gap after it, however long the run was held.
@@ -207,22 +223,6 @@ def run_incident(state: record.TeamRoutines, incident_id: str, now: int, expecte
     return record._replace_routine(state, dataclasses.replace(current, run_requested=now))
 
 
-def recreate_incident(
-    state: record.TeamRoutines, incident_id: str, now: int, expected: Expected, replacement: record.Replacement
-) -> record.TeamRoutines:
-    """Recriar: set the held run aside and replace the Routine with its recompiled definition, in one write.
-
-    The replacement is the Routine's next revision, with its changed notice and its request's receipt; the Routine
-    leaves its pause with a fresh failure streak and is first due by its new schedule.
-    """
-    value = incident(state, incident_id)
-    state = skip_incident(state, incident_id, now, expected, choice="recreate")
-    state, changed = record.update(state, replacement.value, expected.current, now, *replacement.receipt)
-    if not changed:
-        raise record.RoutineStateError("routine-receipt-replayed")
-    return record.set_paused(state, value.routine_id, False)
-
-
 def pause_incident(state: record.TeamRoutines, incident_id: str, now: int, reason: str) -> record.TeamRoutines:
     """Recovery paused the Routine an unresolved incident holds, and the run's notice says why."""
     value = incident(state, incident_id)
@@ -247,6 +247,15 @@ def release_incident(state: record.TeamRoutines, incident_id: str) -> record.Tea
     )
 
 
+def used(state: record.TeamRoutines, incident_id: str, models: list[dict[str, object]]) -> record.TeamRoutines:
+    """Add the tokens a held run's recovery reported to the usage its notices and continuation carry (ADR-0101)."""
+    value = incident(state, incident_id)
+    usage = record.joined_usage(value.usage, {"duration_ms": 0, "models": models})
+    if http_routine.canonical_run_usage(usage) != usage:
+        raise record.RoutineStateError("usage-invalid")
+    return _replace_incident(state, dataclasses.replace(value, usage=usage))
+
+
 def charge_incident(state: record.TeamRoutines, incident_id: str, seconds: int) -> record.TeamRoutines:
     """Reserve part of an unresolved incident's remaining active time for its recovery; never more than it has."""
     value = incident(state, incident_id)
@@ -265,7 +274,9 @@ def refund_incident(state: record.TeamRoutines, incident_id: str, generation: st
     current = next((item for item in state.routines if item.routine_id == value.routine_id), None)
     if current is None or current.revision != value.revision:
         return state
-    refunded = min(routine_plan.active_seconds(len(current.plan["steps"])), value.active_seconds_left + seconds)
+    refunded = min(
+        routine_plan.active_seconds(routine_definition.run_units(current)), value.active_seconds_left + seconds
+    )
     return _replace_incident(state, dataclasses.replace(value, active_seconds_left=refunded))
 
 
