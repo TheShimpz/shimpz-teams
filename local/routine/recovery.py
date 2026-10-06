@@ -244,8 +244,8 @@ def workload_stopped(self, team_id: str, opened: routine_incident.OpenedRecovery
 
     No operation is open, the attempt ended in a way Team itself classified, the journal proves it never acted, or its
     workload is proven stopped since it was dispatched. An attempt with no recorded workload and no such proof stays
-    unknown. It reads only sealed evidence, never the current contracts, so a Routine whose Assistants changed can
-    still be recreated. An already accepted provider request is beyond what any local proof can stop.
+    unknown. It reads only sealed evidence, never the current contracts, so a held run of a Routine whose Assistants
+    changed can still be settled. An already accepted provider request is beyond what any local proof can stop.
     """
     cursor = opened.cursor
     if cursor.operation_id is None or cursor.fault in _TRUSTED_FAULTS:

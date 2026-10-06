@@ -125,7 +125,7 @@ def _incident_id(route: strict_http.ControllerRouteMatch) -> str:
 
 
 def _card(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
-    """A person's recovery card of one held run: open it with an empty body, or answer it once with Rodar or Recriar."""
+    """A person's recovery card of one held run: open it with an empty body, or answer it once with Rodar or Excluir."""
     service = handler.server.controller.chat_turn_service
     incident_id = _incident_id(route)
     if route.operation == "routine-card-open":

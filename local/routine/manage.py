@@ -228,7 +228,7 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
                 end_frozen(self, team_id, value.run_id, "stopped", {"actions": []})
         # A held run is set aside as its incident is indexed; that ending completes the deletion.
     for incident_id in held:
-        # A verification, recovery episode, or Recriar still in progress is stopped; it changes nothing after this.
+        # A verification or recovery episode still in progress is stopped; it changes nothing after this.
         self._stop_routine_run(team_id, incident_id)
     for item in routine_state.load(self, team_id).incidents:
         if item.incident_id in held and item.status == "skipped":
