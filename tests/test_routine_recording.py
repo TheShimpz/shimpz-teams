@@ -113,7 +113,7 @@ def _then_hourly(text: str) -> str:
 
 
 def _record(*sends: recording.Send, mode: str = "show", **options) -> recording.Recorded | recording.Question:
-    """Record a span; options are ``when``, ``decide``, ``protection``, ``contracts``, ``asked``, ``existing``."""
+    """Record a span; options are ``when``, ``decide``, ``protection``, ``contracts``, ``asked``, and the rest."""
     return recording.record(
         sends,
         recording.Recording(mode, options.get("when"), options.get("decide", ())),
@@ -121,6 +121,7 @@ def _record(*sends: recording.Send, mode: str = "show", **options) -> recording.
         options.get("contracts", CONTRACTS),
         asked=options.get("asked"),
         existing=options.get("existing"),
+        frontier=options.get("frontier", 0),
     )
 
 
@@ -688,6 +689,19 @@ class RerunTests(unittest.TestCase):
         )
         stale = _send(lookup, dated, started_at=tomorrow)
         self.assertEqual(_record(first, stale, asked=pending).code, "routine-binding-unsourced")
+
+    def test_settled_split_evidence_goes_but_an_earlier_source_stays(self) -> None:
+        lookup = ("reports/fetch", {"q": "ids"}, {"id": "source-id-1"})
+        spans = (_send(lookup, _post("a"), message="a cada hora"), _send(_post("b")))
+        pending = _pending(_record(*spans), 2)
+        settled = _send(_post("a"), _post("b"))
+        work = _send(("cloudflare/list-dns-records", {"zone_id": "source-id-1"}, {}))
+        recorded = _recorded(*spans, settled, work, asked=pending)
+        self.assertEqual(_actions(recorded), ["fetch", "list-dns-records"])
+        self.assertEqual(_input(recorded)["zone_id"], {"kind": "step_output", "step": "s1", "pointer": "/id"})
+        # New split work counts only the calls since the frontier.
+        split = _record(*spans, settled, _send(_post("c")), asked=pending)
+        self.assertEqual([slot.inputs[0][2] for slot in split.manifest.slots], ["a", "b", "c"])
 
     def test_a_date_the_person_named_stays_that_date_in_the_rerun(self) -> None:
         lookup = ("reports/fetch", {"q": "ids"}, {"id": "remembered-1"})

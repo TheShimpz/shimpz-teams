@@ -234,6 +234,8 @@ class _Context:
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract]
     # Whether changing calls replay on every run, so their results are sources too: never in a decision.
     replays_changes: bool = True
+    # The send that settled a rerun: no call before it counts as split work.
+    frontier: int = 0
     # Every call's source representative, and each plan call's classified inputs and their origins.
     classes: dict[int, int] = field(default_factory=dict)
     inputs: dict[int, tuple[dict[str, dict[str, object]], dict[str, str]]] = field(default_factory=dict)
@@ -251,8 +253,8 @@ def record(
 ) -> Recorded | Question:
     """The plan a recording span defines, or the question to ask first; raises RecordingError when it cannot be one.
 
-    Only calls from ``frontier`` on count. A pending rerun question stands until one later send's calls satisfy its
-    manifest; that send is then the new frontier, and nothing before it counts as a call any more.
+    A pending rerun question stands until one later send's calls satisfy its manifest; that send is then the new
+    ``frontier``, and no call before it counts as split work any more, though each may still be a source.
     """
     _admit(recording, contracts)
     if protection.lost:
@@ -262,11 +264,12 @@ def record(
         if settled is None:
             return Question(asked.code, pending=asked.pending, manifest=asked.manifest, frontier=frontier)
         frontier = max(frontier, settled)
-    calls = _calls(sends, contracts, frontier)
+    calls = _calls(sends, contracts)
     texts = [line for send in sends for line in (*_lines(send.person), *send.window)]
     latest = [call for call in calls if call.send == calls[-1].send] if calls else []
     context = _Context(sends, calls, _known(texts, protection), _zone(sends), asked, contracts)
     context.replays_changes = recording.mode != "decide"
+    context.frontier = frontier
     work = [call for call in latest if call.read_only or recording.mode != "decide"]
     try:
         if not latest and existing is not None:
@@ -308,13 +311,9 @@ def _lines(segments: Sequence[str]) -> list[str]:
     return [line for segment in segments for line in segment.split("\n")]
 
 
-def _calls(
-    sends: Sequence[Send], contracts: Mapping[tuple[str, str], routine_plan.ActionContract], frontier: int
-) -> list[_Call]:
-    """Every call from the frontier on, in dispatch order; one whose Action is no longer at its pin refuses."""
-    occurrences = [
-        (position, item) for position, send in enumerate(sends) if position >= frontier for item in send.occurrences
-    ]
+def _calls(sends: Sequence[Send], contracts: Mapping[tuple[str, str], routine_plan.ActionContract]) -> list[_Call]:
+    """Every call of the span in dispatch order; one whose Action is no longer at its pin refuses the recording."""
+    occurrences = [(position, item) for position, send in enumerate(sends) for item in send.occurrences]
     calls = [_Call(index, send, occurrence) for index, (send, occurrence) in enumerate(occurrences)]
     for call in calls:
         contract = contracts.get(call.action)
@@ -539,11 +538,15 @@ def _split(context: _Context, work: list[_Call], nodes: dict[int, _Call]) -> Non
     """Ask when an earlier send ran a work Action for something the work did not run again."""
     latest = context.calls[-1].send if context.calls else None
     for call in context.calls:
-        if call.send == latest or context.classes[call.index] in nodes:
+        if call.send == latest or call.send < context.frontier or context.classes[call.index] in nodes:
             continue
         same = [item for item in work if item.action == call.action]
         if same and not any(_same_input(item.occurrence, call.occurrence) for item in same):
-            split = [item for item in context.calls if item.send != latest and item.action == call.action]
+            split = [
+                item
+                for item in context.calls
+                if item.send != latest and item.send >= context.frontier and item.action == call.action
+            ]
             manifest = _manifest(context, sorted([*split, *work], key=lambda item: item.index), None)
             raise _AskError(Question("routine-work-split", manifest=manifest))
 
