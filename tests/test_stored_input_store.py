@@ -5,6 +5,7 @@ import json
 import stat
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -243,8 +244,8 @@ class StoredInputStoreTests(unittest.TestCase):
             lambda: stored_input._public_text("line\nfeed", "label", 80),
             lambda: stored_input._declarations(object()),
             lambda: stored_input._declarations({"token": object()}),
-            lambda: stored_input._declared_ids("token"),
-            lambda: stored_input._declared_ids(("token", "token")),
+            lambda: stored_input._POLICY.declared_ids("token"),
+            lambda: stored_input._POLICY.declared_ids(("token", "token")),
         )
         for call in invalid_calls:
             with self.subTest(call=call), self.assertRaises(stored_input.StoredInputValidationError):
@@ -257,8 +258,8 @@ class StoredInputStoreTests(unittest.TestCase):
         with self.assertRaises(stored_input.StoredInputValidationError):
             stored_input._declarations(too_many)
         with self.assertRaises(stored_input.StoredInputValidationError):
-            stored_input._declared_ids(too_many)
-        self.assertEqual(stored_input._declared_ids({"token": object()}), ("token",))
+            stored_input._POLICY.declared_ids(too_many)
+        self.assertEqual(stored_input._POLICY.declared_ids({"token": object()}), ("token",))
 
     def test_state_shape_and_record_metadata_fail_closed(self) -> None:
         valid_record = {
@@ -350,7 +351,7 @@ class StoredInputStoreTests(unittest.TestCase):
                 store._read_state()
 
             with (
-                mock.patch.object(stored_input, "MAX_STATE_BYTES", 1),
+                mock.patch.object(store, "_policy", replace(store._policy, maximum_state_bytes=1)),
                 self.assertRaisesRegex(
                     stored_input.StoredInputStoreError,
                     "byte limit",

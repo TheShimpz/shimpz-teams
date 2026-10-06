@@ -8,6 +8,7 @@ import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -123,11 +124,8 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             store = self._store(Path(directory))
             store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
 
-            with mock.patch.object(
-                integration_store,
-                "_validate_state",
-                wraps=integration_store._validate_state,
-            ) as validate_state:
+            validate_state = mock.Mock(wraps=integration_store._validate_state)
+            with mock.patch.object(store, "_policy", replace(store._policy, validate_state=validate_state)):
                 for _ in range(2):
                     self.assertEqual(
                         store.resolve(
@@ -761,7 +759,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 self.subTest(identifiers=identifiers),
                 self.assertRaises(integration_store.OAuthIntegrationValidationError),
             ):
-                integration_store._declared_ids(identifiers)
+                integration_store._POLICY.declared_ids(identifiers)
 
     def test_store_initialization_cache_clock_and_size_guards_fail_closed(self) -> None:
         with self.assertRaises(integration_store.OAuthIntegrationStoreError):
@@ -801,7 +799,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             ):
                 store._read_state()
             with (
-                mock.patch.object(integration_store, "MAX_STATE_BYTES", 1),
+                mock.patch.object(store, "_policy", replace(store._policy, maximum_state_bytes=1)),
                 self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "byte limit"),
             ):
                 store._write_state(integration_store.private_state.empty_state())

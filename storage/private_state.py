@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import os
 import secrets
 import stat
-from collections.abc import Mapping
+import threading
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -370,3 +372,143 @@ class PrivateState:
             raise self.error_class(self.malformed_state)
         return teams
 
+
+@dataclass(frozen=True, slots=True)
+class RecordPolicy:
+    """What one encrypted per-(Team, Assistant) record store supplies to ``RecordStore``."""
+
+    private: PrivateState
+    label: str
+    record_label: str
+    maximum_state_bytes: int
+    records_per_assistant: int
+    validation_error: type[RuntimeError]
+    team_id: Callable[[object], str]
+    component_id: Callable[[object, str], str]
+    decode_state: Callable[[bytes], object]
+    validate_state: Callable[[object], dict[str, object]]
+
+    def declared_ids(self, value: object) -> tuple[str, ...]:
+        """Admit the distinct record ids an Assistant release declares, as a mapping's keys or an iterable."""
+        values: Iterable[object]
+        if isinstance(value, Mapping):
+            values = value.keys()
+        elif isinstance(value, Iterable) and not isinstance(value, str | bytes):
+            values = value
+        else:
+            raise self.validation_error(f"{self.label} ids are invalid")
+        declared: dict[str, None] = {}
+        for raw_id in values:
+            if len(declared) == self.records_per_assistant:
+                raise self.validation_error(f"{self.label} ids are invalid")
+            record_id = self.component_id(raw_id, self.record_label)
+            if record_id in declared:
+                raise self.validation_error(f"{self.label} ids are invalid")
+            declared[record_id] = None
+        return tuple(declared)
+
+
+class RecordStore:
+    """Encrypted records per (Team, Assistant) in one identity-cached state file beside a separate keyring.
+
+    Each store's module keeps its record schema, plaintext, AAD, limits and id grammar in its ``RecordPolicy``. Every
+    state access holds ``_lock``, every mutation edits a private copy of the cached state, and every write drops the
+    cache whether or not it succeeds.
+    """
+
+    def __init__(self, state_path: Path, key_path: Path, policy: RecordPolicy) -> None:
+        self._policy = policy
+        self.state_path, self.key_path = policy.private.separate_paths(state_path, key_path, policy.label)
+        self._lock = threading.RLock()
+        self._state_cache_identity: PrivateFileIdentity | None = None
+        self._state_cache: dict[str, object] | None = None
+
+    def _read_state(self) -> dict[str, object]:
+        policy = self._policy
+        snapshot = policy.private.read_private_file_if_changed(
+            self.state_path,
+            policy.maximum_state_bytes,
+            f"{policy.label} state",
+            self._state_cache_identity,
+            cache_initialized=self._state_cache is not None,
+        )
+        if snapshot.unchanged:
+            if self._state_cache is None:
+                raise policy.private.error_class(f"{policy.label} state cache is unavailable")
+            return self._state_cache
+        state = (
+            empty_state() if snapshot.payload is None else policy.validate_state(policy.decode_state(snapshot.payload))
+        )
+        self._state_cache_identity = snapshot.identity
+        self._state_cache = state
+        return state
+
+    def _read_state_for_update(self) -> dict[str, object]:
+        return copy.deepcopy(self._read_state())
+
+    def _drop_state_cache(self) -> None:
+        self._state_cache_identity = None
+        self._state_cache = None
+
+    def _write_state(self, state: Mapping[str, object]) -> None:
+        policy = self._policy
+        try:
+            policy.private.write_json(
+                self.state_path,
+                policy.validate_state(dict(state)),
+                policy.maximum_state_bytes,
+                f"{policy.label} state",
+            )
+        finally:
+            self._drop_state_cache()
+
+    def _key(self, *, allow_create: bool = False) -> bytes:
+        return self._policy.private.key(self.key_path, f"{self._policy.label} keyring", allow_create=allow_create)
+
+    def _owner(self, team_id: object, assistant_id: object) -> tuple[str, str]:
+        return self._policy.team_id(team_id), self._policy.component_id(assistant_id, "Assistant id")
+
+    def retain_declared(self, team_id: object, assistant_id: object, declared_ids: object) -> bool:
+        """Atomically discard the records an Assistant's current release no longer declares."""
+        team, assistant = self._owner(team_id, assistant_id)
+        declared = set(self._policy.declared_ids(declared_ids))
+        private = self._policy.private
+        with self._lock:
+            state = self._read_state_for_update()
+            records = private.records(state, team, assistant, create=False)
+            undeclared = set(records) - declared
+            if not undeclared:
+                return False
+            for record_id in undeclared:
+                records.pop(record_id)
+            private.prune_empty_records(state, team, assistant)
+            self._write_state(state)
+            return True
+
+    def delete_assistant(self, team_id: object, assistant_id: object) -> bool:
+        team, assistant = self._owner(team_id, assistant_id)
+        with self._lock:
+            state = self._read_state_for_update()
+            removed = self._policy.private.delete_assistant(state, team, assistant)
+            if removed:
+                self._write_state(state)
+            return removed
+
+    def delete_team(self, team_id: object) -> bool:
+        team = self._policy.team_id(team_id)
+        with self._lock:
+            state = self._read_state_for_update()
+            removed = self._policy.private.delete_team(state, team)
+            if removed:
+                self._write_state(state)
+            return removed
+
+    def delete_all(self) -> bool:
+        """Atomically purge every record during an owned Space reset."""
+        with self._lock:
+            state = self._read_state_for_update()
+            if not self._policy.private.has_records(state):
+                return False
+            state["teams"] = {}
+            self._write_state(state)
+            return True
