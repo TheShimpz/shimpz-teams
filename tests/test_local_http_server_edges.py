@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import http.client
 import unittest
+from collections.abc import Iterator
 from email.message import Message
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -566,6 +568,16 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
 
 
 class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
+    @contextlib.contextmanager
+    def _assertion_admitted(self, trace: str) -> Iterator[None]:
+        """Admit the Supervisor assertion and record the request audit under ``trace``."""
+        with (
+            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
+            mock.patch.object(authority, "verify", return_value=self.evidence()),
+            mock.patch.object(http_audit.local_audit, "record", return_value=trace),
+        ):
+            yield
+
     @staticmethod
     def evidence() -> authority.Evidence:
         return authority.Evidence("a" * 32, "session", "b" * 64, "c" * 32, 2_200_000_000)
@@ -645,11 +657,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         icon_route = self.route("assistant-icon", team_id="team_1", assistant_id="assistant")
         handler._resolved_route.return_value = ([], icon_route)
         handler._send_icon = mock.Mock()
-        with (
-            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
-            mock.patch.object(authority, "verify", return_value=self.evidence()),
-            mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32),
-        ):
+        with self._assertion_admitted("d" * 32):
             self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
         handler._send_icon.assert_called_once_with(b"png")
 
@@ -659,11 +667,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         )
         handler._resolved_route.return_value = ([], local_icon_route)
         handler._send_icon.reset_mock()
-        with (
-            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
-            mock.patch.object(authority, "verify", return_value=self.evidence()),
-            mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32),
-        ):
+        with self._assertion_admitted("d" * 32):
             self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
         controller.local_snapshot_icon.assert_called_once_with("sha256:" + "a" * 64)
         handler._send_icon.assert_called_once_with(b"local-png")
@@ -674,11 +678,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             code="local-assistant-preview-busy",
         )
         handler._send = mock.Mock()
-        with (
-            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
-            mock.patch.object(authority, "verify", return_value=self.evidence()),
-            mock.patch.object(http_audit.local_audit, "record", return_value="e" * 32),
-        ):
+        with self._assertion_admitted("e" * 32):
             self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
         handler._send.assert_called_once_with(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -695,12 +695,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             "Local Assistant preview is unavailable",
             code="local-assistant-preview-unavailable",
         )
-        with (
-            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
-            mock.patch.object(authority, "verify", return_value=self.evidence()),
-            mock.patch.object(http_audit.local_audit, "record", return_value="f" * 32),
-            self.assertRaises(ApiProblemError) as caught,
-        ):
+        with self._assertion_admitted("f" * 32), self.assertRaises(ApiProblemError) as caught:
             handler._authorized_route(http_audit.RequestAudit())
         self.assertEqual(caught.exception.code, "local-assistant-preview-unavailable")
 
@@ -710,11 +705,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             self.route("local-assistant-summary", image_hash="a" * 64, locale="pt"),
         )
         handler._send.reset_mock()
-        with (
-            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
-            mock.patch.object(authority, "verify", return_value=self.evidence()),
-            mock.patch.object(http_audit.local_audit, "record", return_value="a" * 32),
-        ):
+        with self._assertion_admitted("a" * 32):
             self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
         controller.local_snapshot_summary.assert_called_once_with("sha256:" + "a" * 64, "pt")
         handler._send.assert_called_once_with(
@@ -727,11 +718,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             code="local-assistant-preview-busy",
         )
         handler._send.reset_mock()
-        with (
-            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
-            mock.patch.object(authority, "verify", return_value=self.evidence()),
-            mock.patch.object(http_audit.local_audit, "record", return_value="b" * 32),
-        ):
+        with self._assertion_admitted("b" * 32):
             self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
         self.assertEqual(handler._send.call_args.args[1]["retry_after_ms"], 250)
 
