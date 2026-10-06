@@ -130,6 +130,32 @@ class SharedStrictHttpTest(unittest.TestCase):
         headers.add_header("Content-Type", "application/json")
         self.assertEqual(strict_http.read_json_object(headers, BytesIO(b"{}"), max_bytes=10), {})
 
+    def test_every_body_entrypoint_admits_only_a_decimal_content_length(self) -> None:
+        def headers(length: str) -> Message:
+            message = Message()
+            message.add_header("Content-Length", length)
+            message.add_header("Content-Type", "application/json")
+            message.add_header("X-Shimpz-Filename", "file.txt")
+            return message
+
+        # int() alone would admit a sign, digit separators, other whitespace, and non-ASCII digits.
+        for length in ("+2", "-0", "2_0", "", " ", "\v2", "2\n", "٢", "２", "9" * 5000):
+            for read in (
+                lambda message: strict_http.read_json_document(message, BytesIO(b"{}"), max_bytes=10),
+                lambda message: strict_http.file_upload_metadata(message, max_bytes=10),
+                strict_http.reject_body,
+            ):
+                with self.subTest(length=length), self.assertRaises(strict_http.HttpContractError) as caught:
+                    read(headers(length))
+                self.assertEqual(
+                    (caught.exception.status, caught.exception.code), (HTTPStatus.BAD_REQUEST, "content-length")
+                )
+
+        # Optional whitespace around the value is not part of it (RFC 9110).
+        self.assertEqual(strict_http.read_json_document(headers(" \t2 "), BytesIO(b"{}"), max_bytes=10)[1], {})
+        self.assertEqual(strict_http.file_upload_metadata(headers("\t2"), max_bytes=10).length, 2)
+        strict_http.reject_body(headers(" 0\t"))
+
     def test_file_metadata_and_content_reject_framing_encoding_and_io_errors(self) -> None:
         invalid_headers = (
             (("Transfer-Encoding", "chunked"),),

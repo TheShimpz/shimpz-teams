@@ -74,8 +74,16 @@ def _content_length(headers: object) -> int:
             "one Content-Length is required",
             code="content-length",
         )
+    return _declared_length(lengths[0])
+
+
+def _declared_length(value: str) -> int:
+    """One Content-Length value: ASCII digits only, with optional surrounding space or tab (RFC 9110 OWS)."""
+    digits = value.strip(" \t")
     try:
-        return int(lengths[0])
+        if not digits.isascii() or not digits.isdigit():
+            raise ValueError("Content-Length is not a decimal length")
+        return int(digits)
     except ValueError as exc:
         raise HttpContractError(
             HTTPStatus.BAD_REQUEST,
@@ -238,17 +246,7 @@ def reject_body(headers: object) -> None:
             "invalid Content-Length",
             code="content-length",
         )
-    if not lengths:
-        return
-    try:
-        length = int(lengths[0])
-    except ValueError as exc:
-        raise HttpContractError(
-            HTTPStatus.BAD_REQUEST,
-            "invalid Content-Length",
-            code="content-length",
-        ) from exc
-    if length != 0:
+    if lengths and _declared_length(lengths[0]) != 0:
         raise HttpContractError(
             HTTPStatus.BAD_REQUEST,
             "this request cannot have a body",
