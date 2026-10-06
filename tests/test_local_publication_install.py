@@ -15,6 +15,8 @@ from types import SimpleNamespace
 from typing import ClassVar
 from unittest import mock
 
+from test_developers_client import _Response
+
 from action import stored_input as action_stored_input
 from install.bindings import DynamicAssistantError, DynamicAssistantStore, binding_from_resolution
 from install.contract import CONTRACT_ROOT
@@ -108,15 +110,6 @@ def _spec_lifecycle(store: DynamicAssistantStore, list_containers) -> SimpleName
 def _spec_container(assistant_id: str) -> SimpleNamespace:
     labels = {"team": "team_1", "kind": "assistant", local_app.ASSISTANT_LABEL: assistant_id}
     return SimpleNamespace(labels=labels, name=f"team_1-{assistant_id}", status="running")
-
-
-class _Response:
-    def __init__(self, status: int, value: object, *, raw: bytes | None = None) -> None:
-        self.status = status
-        self._body = raw if raw is not None else json.dumps(value, separators=(",", ":")).encode()
-
-    def read(self, amount: int) -> bytes:
-        return self._body[:amount]
 
 
 class _Connection:
