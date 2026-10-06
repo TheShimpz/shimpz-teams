@@ -37,6 +37,20 @@ TEST_REFRESHED_REFRESH_TOKEN = "-".join(("refreshed", "refresh", "token", "12345
 TEST_TURN_TOKEN = "-".join(("turn", "token", "private", "123456789"))
 
 
+def _integration_store(directory: str) -> integration_store.OAuthIntegrationStore:
+    """The Local Integration store under a test directory, as the Controller lays it out."""
+    return integration_store.OAuthIntegrationStore(
+        Path(directory) / "state" / "integrations.json", Path(directory) / "key" / "aes256.key"
+    )
+
+
+def _list_zones() -> brain_runtime_client.ActionRequest:
+    """A fresh Brain request for the Cloudflare Assistant's first list-zones page."""
+    return brain_runtime_client.ActionRequest(
+        interrupt_id="call-1", assistant_id="shimpz-cloudflare", action="list-zones", input={"page": 1, "per_page": 25}
+    )
+
+
 class LocalOAuthArtifactCurrencyTests(LocalContractCase):
     def test_callback_requires_the_target_assistant_to_run_its_current_artifact(self) -> None:
         controller, container, inspections = self._lifecycle_controller()
@@ -140,10 +154,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
     def test_team_integration_teardown_prevents_same_id_resurrection(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
-            controller.assistant_integrations = integration_store.OAuthIntegrationStore(
-                Path(directory) / "state" / "integrations.json",
-                Path(directory) / "key" / "aes256.key",
-            )
+            controller.assistant_integrations = _integration_store(directory)
             controller.assistant_integrations.put(
                 "team_1",
                 "shimpz-cloudflare",
@@ -173,10 +184,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             controller = object.__new__(local_app.LocalController)
             controller._locks = tuple(threading.RLock() for _ in range(64))
             controller.registry = self._registry()
-            controller.assistant_integrations = integration_store.OAuthIntegrationStore(
-                Path(directory) / "state" / "integrations.json",
-                Path(directory) / "key" / "aes256.key",
-            )
+            controller.assistant_integrations = _integration_store(directory)
             controller._wire_collaborators()
             controller.assistant_lifecycle._assistant_specs = lambda _team: (
                 controller.registry.get("team_1", "shimpz-cloudflare"),
@@ -428,34 +436,15 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             "session_binding": "browser-session-private-123456789",
         }
         handler.command = "POST"
+        authorize_path = ["v1", "teams", "team_1", "assistant-integrations", "challenges", "a" * 32, "authorize"]
 
-        authorize = handler._assistant_integration_route(
-            [
-                "v1",
-                "teams",
-                "team_1",
-                "assistant-integrations",
-                "challenges",
-                "a" * 32,
-                "authorize",
-            ]
-        )
+        authorize = handler._assistant_integration_route(authorize_path)
         self.assertEqual(authorize[0], HTTPStatus.OK)
         self.assertEqual(authorize[2], "assistant-integration-authorize")
 
         handler.command = "DELETE"
         handler._body = lambda **_kwargs: {"session_binding": "browser-session-private-123456789"}
-        cancelled = handler._assistant_integration_route(
-            [
-                "v1",
-                "teams",
-                "team_1",
-                "assistant-integrations",
-                "challenges",
-                "a" * 32,
-                "authorize",
-            ]
-        )
+        cancelled = handler._assistant_integration_route(authorize_path)
         self.assertEqual(cancelled[:3], (HTTPStatus.OK, {"cancelled": True}, "assistant-integration-cancel"))
 
         handler.command = "POST"
@@ -464,17 +453,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             "session_binding": "browser-session-private-123456789",
         }
         with self.assertRaisesRegex(local_app.ApiProblem, "OAuth authorization is invalid"):
-            handler._assistant_integration_route(
-                [
-                    "v1",
-                    "teams",
-                    "team_1",
-                    "assistant-integrations",
-                    "challenges",
-                    "a" * 32,
-                    "authorize",
-                ]
-            )
+            handler._assistant_integration_route(authorize_path)
 
         handler._body = lambda **_kwargs: {
             "state": "s" * 43,
@@ -501,12 +480,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
 
     def test_chat_pauses_before_any_action_when_integration_is_missing(self) -> None:
         spec = self._registry()["shimpz-cloudflare"]
-        request = brain_runtime_client.ActionRequest(
-            interrupt_id="call-1",
-            assistant_id=spec.assistant_id,
-            action="list-zones",
-            input={"page": 1, "per_page": 25},
-        )
+        request = _list_zones()
 
         class Runtime:
             def start(self, _context, _message, *, conversation=()):
@@ -525,10 +499,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 metadata_connection=lambda _team_id, _files: contextlib.nullcontext(None),
                 settle=lambda _team_id, _files: None,
             )
-            controller.assistant_integrations = integration_store.OAuthIntegrationStore(
-                Path(directory) / "state" / "integrations.json",
-                Path(directory) / "key" / "aes256.key",
-            )
+            controller.assistant_integrations = _integration_store(directory)
             controller._wire_collaborators()
             active = ActiveAssistant(spec, "b" * 64)
             setup = (
@@ -567,12 +538,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
     def test_integration_resume_is_one_use_and_returns_completed_turn(self) -> None:
         registry = self._registry()
         spec = registry["shimpz-cloudflare"]
-        request = brain_runtime_client.ActionRequest(
-            interrupt_id="call-1",
-            assistant_id=spec.assistant_id,
-            action="list-zones",
-            input={"page": 1, "per_page": 25},
-        )
+        request = _list_zones()
         continuation = chat_orchestrator.ChatContinuation(
             turn=brain_runtime_client.RuntimeTurn("action-required", "", (request,)),
             seen_interrupts=(),
@@ -596,10 +562,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
             controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
             controller.oauth_pkce = SimpleNamespace(cancel_team=lambda _team: 0)
-            controller.assistant_integrations = integration_store.OAuthIntegrationStore(
-                Path(directory) / "state" / "integrations.json",
-                Path(directory) / "key" / "aes256.key",
-            )
+            controller.assistant_integrations = _integration_store(directory)
             controller._wire_collaborators()
             config = inference_config.InferenceConfig("openai", "gpt-5-nano")
             active = ActiveAssistant(spec, "b" * 64)
@@ -754,12 +717,7 @@ class LocalOAuthRefreshTurnTests(LocalContractCase):
         )
 
     def test_expired_grant_refreshes_once_before_action_batch(self) -> None:
-        request = brain_runtime_client.ActionRequest(
-            interrupt_id="call-1",
-            assistant_id="shimpz-cloudflare",
-            action="list-zones",
-            input={"page": 1, "per_page": 25},
-        )
+        request = _list_zones()
         refresh_calls: list[tuple[object, ...]] = []
 
         def refresh(provider, scopes, refresh_token, broker_lease):
@@ -790,12 +748,7 @@ class LocalOAuthRefreshTurnTests(LocalContractCase):
         self.assertEqual(metadata[0].generation, 2)
 
     def test_refresh_failure_is_fail_closed_without_oauth_challenge(self) -> None:
-        request = brain_runtime_client.ActionRequest(
-            interrupt_id="call-1",
-            assistant_id="shimpz-cloudflare",
-            action="list-zones",
-            input={"page": 1, "per_page": 25},
-        )
+        request = _list_zones()
 
         def refresh(*_args):
             raise integration_broker.OAuthBrokerClientError("OAuth broker operation failed")
