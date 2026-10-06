@@ -27,6 +27,19 @@ from inference import client as brain_runtime_client
 from tests import human_request_fixtures
 
 
+def _action_batch(journal, binding, execute, preflight, *, generation="generation-1", thread="thread-1", **options):
+    """An ActionBatch over the single Assistant ``binding``, identified by its container id and image."""
+    return action_execution.ActionBatch(
+        journal,
+        generation,
+        thread,
+        {"assistant": binding},
+        action_execution.ActionBatchStrategy(
+            lambda item: (item.container_id, item.spec.image), execute, preflight, **options
+        ),
+    )
+
+
 class ActionBatchTests(unittest.TestCase):
     def test_both_action_batch_adapters_reject_the_same_generation_drift(self) -> None:
         request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "lookup", {"query": "safe"})
@@ -85,17 +98,7 @@ class ActionBatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
-            batch = action_execution.ActionBatch(
-                journal,
-                "generation-1",
-                "thread-1",
-                {"assistant": binding},
-                action_execution.ActionBatchStrategy(
-                    lambda item: (item.container_id, item.spec.image),
-                    execute,
-                    preflight,
-                ),
-            )
+            batch = _action_batch(journal, binding, execute, preflight)
 
             batch.prepare((request,))
             result = batch.invoke(request)
@@ -126,17 +129,14 @@ class ActionBatchTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
                 self.addCleanup(journal.close)
-                batch = action_execution.ActionBatch(
+                batch = _action_batch(
                     journal,
-                    "generation",
-                    "thread",
-                    {"assistant": binding},
-                    action_execution.ActionBatchStrategy(
-                        lambda item: (item.container_id, item.spec.image),
-                        lambda _request, _evidence, _operation_id: {"ok": True},
-                        lambda _request: None,
-                        stored_input_generations=generations,
-                    ),
+                    binding,
+                    lambda _request, _evidence, _operation_id: {"ok": True},
+                    lambda _request: None,
+                    generation="generation",
+                    thread="thread",
+                    stored_input_generations=generations,
                 )
                 batch.prepare((first, second))
                 batch.invoke(first)
@@ -168,16 +168,13 @@ class ActionBatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
-            batch = action_execution.ActionBatch(
+            batch = _action_batch(
                 journal,
-                "generation",
-                "thread",
-                {"assistant": binding},
-                action_execution.ActionBatchStrategy(
-                    lambda item: (item.container_id, item.spec.image),
-                    lambda _request, _evidence, _operation_id: {"ok": True},
-                    lambda _request: None,
-                ),
+                binding,
+                lambda _request, _evidence, _operation_id: {"ok": True},
+                lambda _request: None,
+                generation="generation",
+                thread="thread",
             )
             with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "not prepared"):
                 batch.invoke(request)
@@ -210,17 +207,7 @@ class ActionBatchTests(unittest.TestCase):
             journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
             execute = mock.Mock(side_effect=[suspension, {"ok": True}])
-            batch = action_execution.ActionBatch(
-                journal,
-                "generation-1",
-                "thread-1",
-                {"assistant": binding},
-                action_execution.ActionBatchStrategy(
-                    lambda item: (item.container_id, item.spec.image),
-                    execute,
-                    lambda _request: None,
-                ),
-            )
+            batch = _action_batch(journal, binding, execute, lambda _request: None)
             batch.prepare((request,))
 
             with self.assertRaises(action_human.HumanRequestSuspensionError):
@@ -234,16 +221,11 @@ class ActionBatchTests(unittest.TestCase):
             journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
             journal_source = mock.Mock(return_value=journal)
-            batch = action_execution.ActionBatch(
+            batch = _action_batch(
                 journal_source,
-                "generation-1",
-                "thread-1",
-                {"assistant": binding},
-                action_execution.ActionBatchStrategy(
-                    lambda item: (item.container_id, item.spec.image),
-                    lambda _request, _evidence, _operation_id: (_ for _ in ()).throw(RuntimeError("terminal failure")),
-                    lambda _request: None,
-                ),
+                binding,
+                lambda _request, _evidence, _operation_id: (_ for _ in ()).throw(RuntimeError("terminal failure")),
+                lambda _request: None,
             )
             batch.prepare((request,))
             with self.assertRaisesRegex(RuntimeError, "terminal failure"):
@@ -267,17 +249,7 @@ class ActionBatchTests(unittest.TestCase):
             self.addCleanup(journal.close)
 
             def attempt() -> action_execution.ActionBatch:
-                return action_execution.ActionBatch(
-                    journal,
-                    "generation-1",
-                    "thread-1",
-                    {"assistant": binding},
-                    action_execution.ActionBatchStrategy(
-                        lambda item: (item.container_id, item.spec.image),
-                        execute,
-                        lambda _request: None,
-                    ),
-                )
+                return _action_batch(journal, binding, execute, lambda _request: None)
 
             batch = attempt()
             self.assertFalse(batch.terminate())
@@ -455,18 +427,7 @@ class NeverDispatchedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
-            batch = action_execution.ActionBatch(
-                journal,
-                "generation-1",
-                "thread-1",
-                {"assistant": binding},
-                action_execution.ActionBatchStrategy(
-                    lambda item: (item.container_id, item.spec.image),
-                    execute,
-                    lambda _request: None,
-                    stopped=stop.is_set,
-                ),
-            )
+            batch = _action_batch(journal, binding, execute, lambda _request: None, stopped=stop.is_set)
             batch.prepare((request,))
             started = time.monotonic()
             with (
