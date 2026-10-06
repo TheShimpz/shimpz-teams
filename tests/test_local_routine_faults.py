@@ -77,7 +77,7 @@ class RunFaultTests(RoutineServiceCase):
             self.assertEqual(
                 self.state(service).notices[-1].detail,
                 # The run ends at the step that asked, by its position.
-                {"code": "request-unavailable", "actions": [], "step": 1, "steps": 1},
+                {"code": "request-unavailable", "actions": [], "position": {"phase": "replay", "step": 1}, "steps": 1},
             )
             self.assertEqual(service.routine_store.continuations("team_1"), ())
 
@@ -93,7 +93,10 @@ class RunFaultTests(RoutineServiceCase):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             detail = self.state(service).notices[-1].detail
             # It fails at the step that asked, by its position.
-            self.assertEqual((detail["code"], detail["step"], detail["steps"]), ("freeze-unavailable", 1, 1))
+            self.assertEqual(
+                (detail["code"], detail["position"], detail["steps"]),
+                ("freeze-unavailable", {"phase": "replay", "step": 1}, 1),
+            )
             self.assertEqual(service.routine_store.continuations("team_1"), ())
 
     def test_a_missing_integration_freezes_the_run_and_a_resume_continues_it(self) -> None:
@@ -211,7 +214,9 @@ class FrozenFaultTests(RoutineServiceCase):
             self.assertEqual(service.routine_store.continuations("team_1"), (claim["run_id"],))
             self.assertTrue(service.delete_routine("team_1", claim["routine_id"])["deleted"])
             self.assertEqual(service.routine_store.continuations("team_1"), ())
-            self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
+            # The frozen run ends stopped, and the deletion's own notice closes the Routine's timeline after it.
+            outcomes = [(item.outcome, item.run_id) for item in self.state(service).notices[-2:]]
+            self.assertEqual(outcomes, [("stopped", claim["run_id"]), ("deleted", "")])
 
     def test_a_corrupt_continuation_or_a_vanished_team_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -463,7 +468,7 @@ class TeamIsolationTests(RoutineServiceCase):
             state = self.state(service)
             self.assertEqual(
                 (state.runs, state.notices[-1].detail),
-                ((), {"code": "interrupted", "actions": [], "step": None, "steps": None}),
+                ((), {"code": "interrupted", "actions": [], "position": None, "steps": None}),
             )
             local_app.local_audit.record.assert_any_call(
                 "routine-watchdog",

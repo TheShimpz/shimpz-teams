@@ -1,4 +1,4 @@
-"""A recorded Routine plan document and confirmed definitions for Routine record, store, and service tests (ADR-0101)."""
+"""A recorded Routine plan and confirmed definitions for Routine record, store, and service tests (ADR-0101)."""
 
 from __future__ import annotations
 

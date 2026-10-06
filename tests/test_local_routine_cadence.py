@@ -13,10 +13,10 @@ from unittest import mock
 
 import routine_fixture
 from test_local_routine_http import CLAIM, RoutineHttpCase
-from test_local_routine_service import CHANGE, Runtime
+from test_local_routine_service import Runtime
 
+from local.routine import contracts as routine_contracts
 from local.routine import run as routine_run
-from local.routine import turn as routine_turn
 from protocol.http.v1 import routine as http_routine
 from routine import record
 from routine import starts as routine_starts
@@ -25,15 +25,14 @@ CONTINUOUS = {"kind": "continuous", "gap": 5, "cap": 100}
 
 
 def continuous(routine_id: str = "a" * 32, *, cap: int = 100, at: int = 1_800_000_000) -> record.Routine:
-    value = routine_fixture.granted(
+    value = routine_fixture.confirmed(
         record.Routine(
             routine_id=routine_id,
             name="Zones",
-            quote="Continuously, list my zones",
             plan=routine_fixture.plan_document(),
             schedule={"kind": "continuous", "gap": 5, "cap": cap},
             timezone="UTC",
-            assistants=(("dns", "sha256:" + "c" * 64),),
+            assistants=(),
             anchor=at,
             next_run_at=0,
         )
@@ -133,20 +132,20 @@ class SimulatedDayTests(unittest.TestCase):
 
 class ServiceLoadTests(RoutineHttpCase):
     def continuous_routine(self, service) -> record.Routine:
-        contracts = routine_turn.current_contracts(service, "team_1", ("shimpz-cloudflare",))
+        contracts = routine_contracts.current_contracts(service, "team_1", ("shimpz-cloudflare",))
         now = int(time.time())
-        value = routine_fixture.granted(
-            record.Routine(
-                routine_id=record.new_id(),
-                name="Zones",
-                quote=CHANGE["quote"],
-                plan=self.plan(service),
-                schedule=dict(CONTINUOUS),
-                timezone="UTC",
-                assistants=tuple(sorted(contracts.items())),
-                anchor=now - 60,
-                next_run_at=0,
-            )
+        plan = self.plan(service)
+        value = record.Routine(
+            routine_id=record.new_id(),
+            name="Zones",
+            plan=plan,
+            schedule=dict(CONTINUOUS),
+            timezone="UTC",
+            assistants=tuple(sorted(contracts.items())),
+            anchor=now - 60,
+            next_run_at=0,
+            permitted=self.permitted(service, plan),
+            confirmation=dict(routine_fixture.CONFIRMATION),
         )
         value = dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
         service.routine_store.update("team_1", lambda state: (record.add_routine(state, value), None))
@@ -199,12 +198,15 @@ class ServiceLoadTests(RoutineHttpCase):
             _controller, service = self.service(directory, Runtime())
             value = self.continuous_routine(service)
             minute = int(time.time()) // 60 * 60
-            rollup = record.Notice("c" * 32, value.routine_id, "", "healthy", minute, {"runs": 3}, 3)
+            usage = {"duration_ms": 3600, "models": []}
+            rollup = record.Notice("c" * 32, value.routine_id, "", "healthy", minute, {"runs": 3}, 3, usage=usage)
             service.routine_store.update("team_1", lambda state: (record._notice(state, rollup), None))
             batch = service.routine_notices()
         self.assertEqual(http_routine.canonical_notice_batch(batch), batch)
         (notice,) = [item for item in batch["notices"] if item["outcome"] == "healthy"]
         self.assertEqual((notice["run_id"], notice["version"], notice["created_at"][-3:]), (None, 3, "00Z"))
+        # The rollup names the Routine as it was and carries its runs' summed usage.
+        self.assertEqual((notice["name"], notice["usage"], notice["protection_lost"]), ("Zones", usage, False))
 
     def test_a_team_leases_one_run_at_a_time_however_many_of_its_routines_are_due(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

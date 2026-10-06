@@ -23,9 +23,9 @@ from action import challenges as action_challenges
 from action import human as action_human
 from local import app as local_app
 from local.routine import compiled as routine_compiled
+from local.routine import contracts as routine_contracts
 from local.routine import human as routine_human
 from local.routine import run as routine_run
-from local.routine import turn as routine_turn
 from local.routine import watchdog as routine_watchdog
 from routine import record
 
@@ -101,7 +101,13 @@ class NoticeTests(FrozenCase):
             )
             self.assertEqual(
                 notice.detail,
-                {"request_kind": "human", "assistant_id": ASSISTANT, "action": "list-zones", "step": 1, "steps": 1},
+                {
+                    "request_kind": "human",
+                    "assistant_id": ASSISTANT,
+                    "action": "list-zones",
+                    "position": {"phase": "replay", "step": 1},
+                    "steps": 1,
+                },
             )
             service.acknowledge_routine_notices(
                 {"deliveries": [{"team_id": "team_1", "notice_id": claim["run_id"], "version": 1}]}
@@ -174,11 +180,13 @@ class ExecutionBoundTests(RoutineServiceCase):
             _controller, service = self.service(directory, runtime)
             self.routine(service)
             claim = service.claim_routine_run()
-            with mock.patch.object(routine_turn, "current_contracts", return_value={ASSISTANT: "sha256:" + "0" * 64}):
+            with mock.patch.object(
+                routine_contracts, "current_contracts", return_value={ASSISTANT: "sha256:" + "0" * 64}
+            ):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(
                 self.state(service).notices[-1].detail,
-                {"code": "team-context-changed", "actions": [], "step": None, "steps": None},
+                {"code": "team-context-changed", "actions": [], "position": None, "steps": None},
             )
             self.assertEqual(runtime.contexts, [])
 
@@ -199,7 +207,7 @@ class ExecutionBoundTests(RoutineServiceCase):
             self.assertEqual(outcome, "failed")
             self.assertEqual(
                 self.state(service).notices[-1].detail,
-                {"code": "active-time-exceeded", "actions": [], "step": None, "steps": None},
+                {"code": "active-time-exceeded", "actions": [], "position": None, "steps": None},
             )
 
 
@@ -365,7 +373,9 @@ class ChallengeEndingRaceTests(FrozenCase):
                     service.open_routine_challenge("team_1", claim["run_id"], "en")
                 self.assertEqual(results, [True])
                 self.assertIsNone(service.current_routine_challenge("team_1"))
-                self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
+                # The run's own notice says stopped; a deletion's notice closes the timeline after it.
+                ended = next(item for item in self.state(service).notices if item.run_id == claim["run_id"])
+                self.assertEqual(ended.outcome, "stopped")
                 self.assertEqual(self.state(service).runs, ())
 
     def test_cancelling_a_run_challenge_never_cancels_its_replacement(self) -> None:

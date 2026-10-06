@@ -32,9 +32,9 @@ from local.routine import run as routine_run
 from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
 from routine import cursor as routine_cursor
-from routine import grant as routine_grant
+from routine import definition as routine_definition
 from routine import plan as routine_plan
-from routine import record
+from routine import record, trace
 
 ZONE = "c" * 32
 ZONES = {"zones": [{"id": ZONE, "name": "example.com"}], "pagination": LOOKUP_RESULT["pagination"]}
@@ -127,7 +127,16 @@ class ExecutionTests(CompiledRunCase):
         output = {"step": 2, "state": "shown", "value": shown, "truncated": False}
         self.assertEqual(
             [(item.outcome, item.detail) for item in state.notices],
-            [("done", {"plan": routine_grant.summary(value.plan, value.revision), "output": output})],
+            [
+                (
+                    "done",
+                    {
+                        "plan": routine_definition.summary(value.plan, value.revision),
+                        "output": output,
+                        "decision": None,
+                    },
+                )
+            ],
         )
         self.assertEqual(leftovers, ((), ()))
 
@@ -147,7 +156,9 @@ class ExecutionTests(CompiledRunCase):
             opened = routine_incident.open_recovery(service, "team_1", claim["run_id"])
         self.assertEqual((actions, brain.calls), (["list-zones", "list-dns-records"], []))
         # The successful prefix is durable: the cursor stands at the failed step with the value it selected.
-        self.assertEqual((opened.cursor.step, opened.cursor.selections()), (1, {("zones", "/zones/0/id"): ZONE}))
+        self.assertEqual(
+            (opened.cursor.step, opened.cursor.selections()), (1, {("zones", "/zones/0/id", "", ""): ZONE})
+        )
         self.assertIsNotNone(opened.cursor.operation_id)
 
     def test_a_missing_reference_holds_and_nothing_runs_when_the_plan_no_longer_admits(self) -> None:
@@ -166,7 +177,7 @@ class ExecutionTests(CompiledRunCase):
         self.assertEqual(invoked, [])
         self.assertEqual(
             (state.notices[-1].detail, state.incidents),
-            ({"code": "plan-pin-drift", "actions": [], "step": None, "steps": None}, ()),
+            ({"code": "plan-pin-drift", "actions": [], "position": None, "steps": None}, ()),
         )
 
     def test_a_human_request_freezes_mid_plan_and_the_answer_never_reruns_the_prefix(self) -> None:
@@ -193,7 +204,7 @@ class ExecutionTests(CompiledRunCase):
         # The replay is the same logical operation.
         self.assertEqual(calls[1][1], calls[2][1])
         detail = state.notices[-1].detail
-        summary = routine_grant.summary(value.plan, value.revision)
+        summary = routine_definition.summary(value.plan, value.revision)
         self.assertEqual((detail["plan"], detail["output"]["state"]), (summary, "shown"))
 
     def test_a_reopened_run_that_cannot_read_its_cursor_is_held_with_its_completed_prefix(self) -> None:
@@ -221,7 +232,9 @@ class ExecutionTests(CompiledRunCase):
         self.assertEqual((resumed["status"], brain.calls, calls), ("held", [], ["list-zones", "list-dns-records"]))
         self.assertEqual([item.incident_id for item in state.incidents], [run_id])
         # The unreadable cursor leaves the held notice without a step; it never blocks the incident.
-        self.assertEqual(state.notices[-1].detail, {"assistant_id": None, "action": None, "step": None, "steps": None})
+        self.assertEqual(
+            state.notices[-1].detail, {"assistant_id": None, "action": None, "position": None, "steps": None}
+        )
         # The completed first step and the dispatched second one stay as evidence, never cleaned up as a failure.
         self.assertEqual(recovered.cursor.step, 1)
         self.assertIsNotNone(recovered.cursor.operation_id)
@@ -285,10 +298,34 @@ class DiagnosticTests(CompiledRunCase):
         deep: BaseException = action_execution.RpcExchangeError("timeout")
         for _depth in range(8):
             deep = self.problem(deep)
-        self.assertIsNone(local_routine_diagnostics.evidence(deep))
-        self.assertEqual(local_routine_diagnostics.evidence(deep.__cause__), (None, "timeout"))
+        kept = trace.Protection()
+        self.assertIsNone(local_routine_diagnostics.evidence(deep, kept))
+        self.assertEqual(local_routine_diagnostics.evidence(deep.__cause__, kept), (None, "timeout"))
 
-    def test_a_diagnostic_that_would_hold_an_injected_value_is_never_kept(self) -> None:
+    def test_a_failure_is_redacted_against_the_whole_run_and_withheld_after_a_loss(self) -> None:
+        failure = action_failure.ActionFailure(
+            "Err-secret-1", "saw secret-1 and SECRET-1", "secret-1.example", 503, "x secret-1 y", False, False
+        )
+        problem = self.problem(action_failure.ActionFailedError(failure))
+        redacted, condition = local_routine_diagnostics.evidence(problem, trace.Protection().grow(("secret-1",)))
+        self.assertIsNone(condition)
+        self.assertNotIn("secret-1", json.dumps(redacted).lower())
+        self.assertEqual((redacted["provider"], redacted["http_status"], redacted["redacted"]), (None, 503, True))
+        withheld, _condition = local_routine_diagnostics.evidence(problem, trace.Protection(lost=True))
+        self.assertEqual(
+            withheld,
+            {
+                "error_type": "withheld",
+                "message": "",
+                "provider": None,
+                "http_status": 503,
+                "response_excerpt": None,
+                "redacted": True,
+                "truncated": False,
+            },
+        )
+
+    def test_a_diagnostic_that_would_hold_an_injected_value_is_kept_redacted(self) -> None:
         evidence = action_execution.ActionInvocationEvidence(
             action_execution.RpcPrivateInputs(
                 {"cloudflare": {"access_token": "tok-123", "scopes": ["a"], "expires_in": 3600}}, {"key": "k"}
@@ -305,7 +342,10 @@ class DiagnosticTests(CompiledRunCase):
                     directory, self.problem(action_failure.ActionFailedError(leaked))
                 )
             details = service.routine_run_diagnostics("team_1", run_id, int(time.time()))
-        self.assertEqual(details["diagnostics"], [])
+        # Re-redacted against everything the run protects before it is kept, so the value never reaches the record.
+        [diagnostic] = details["diagnostics"]
+        self.assertNotIn("tok-123", json.dumps(diagnostic))
+        self.assertTrue(diagnostic["failure"]["redacted"])
 
 
 class Crash(BaseException):
@@ -363,7 +403,7 @@ class WatchdogRecoveryTests(CompiledRunCase):
         self.assertEqual((actions, state.runs), (["list-zones"], ()))
         self.assertEqual([item.incident_id for item in state.incidents], [run_id])
         self.assertEqual((opened.cursor.step, opened.cursor.operation_id), (1, None))
-        self.assertEqual(opened.cursor.selections(), {("zones", "/zones/0/id"): ZONE})
+        self.assertEqual(opened.cursor.selections(), {("zones", "/zones/0/id", "", ""): ZONE})
 
     def test_a_crash_before_the_terminal_commit_finishes_a_completed_run_done(self) -> None:
         def patch(_service):
@@ -406,7 +446,7 @@ class WatchdogRecoveryTests(CompiledRunCase):
         self.assertEqual((actions, state.incidents), ([], ()))
         self.assertEqual(
             [item.detail for item in state.notices],
-            [{"code": "interrupted", "actions": [], "step": None, "steps": None}],
+            [{"code": "interrupted", "actions": [], "position": None, "steps": None}],
         )
 
 
@@ -459,7 +499,7 @@ class RealRpcTests(CompiledRunCase):
         self.assertNotEqual(first["operation_id"], second["operation_id"])
         self.assertEqual(set(first["integrations"]), {"cloudflare"})
         detail = state.notices[-1].detail
-        summary = routine_grant.summary(value.plan, value.revision)
+        summary = routine_definition.summary(value.plan, value.revision)
         self.assertEqual((detail["plan"], detail["output"]["state"]), (summary, "shown"))
 
 
@@ -615,7 +655,7 @@ class ShownResultTests(CompiledRunCase):
 
     def shown_runtime(self, service, value: record.Routine) -> routine_compiled.CompiledRuntime:
         compiled = self.runtime(service, value)
-        compiled.seal(dataclasses.replace(compiled.cursor, step=1, selected=(("zones", "/zones/0/id", ZONE),)))
+        compiled.seal(dataclasses.replace(compiled.cursor, step=1, selected=(("zones", "/zones/0/id", "", "", ZONE),)))
         request = compiled.start(None, "").actions[0]
         compiled.dispatching(request, self.OPERATION)
         return compiled

@@ -35,7 +35,7 @@ from local.routine import diagnostics as routine_diagnostics
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import supervisor as contract
-from routine import grant as routine_grant
+from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
 from tests import human_request_fixtures
@@ -191,7 +191,7 @@ class SchedulerRouteTests(RoutineHttpCase):
             claimed = json.loads(raw)
             claim = claimed["run"]
             self.assertEqual((claim["provider"], claimed["next_due_at"]), ("openai", None))
-            self.assertEqual((claim["revision"], claim["plan_digest"]), (1, routine_grant.plan_digest(value.plan)))
+            self.assertEqual((claim["revision"], claim["plan_digest"]), (1, routine_definition.plan_digest(value.plan)))
             self.assertEqual((status, claim["team_id"]), (200, "team_1"))
             status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
             # Nothing to claim: the hint is the Routine's next firing, which the claim moved past now.
@@ -348,7 +348,7 @@ class SessionRouteTests(RoutineHttpCase):
                 attempt=1,
                 assistant_id="shimpz-cloudflare",
                 action="list-zones",
-                step=1,
+                position={"phase": "replay", "step": 1},
                 recorded_at=int(time.time()),
                 condition="stderr-output",
             )
@@ -424,7 +424,7 @@ class RecoveryRouteTests(RoutineHttpCase):
             with mock.patch.object(local_authority, "verify", return_value=self.session) as verify:
                 status, _type, raw = self.request("GET", base)
                 listed = json.loads(raw)
-                self.assertEqual((listed["incidents"], listed["routines"][0]["paused"]), ([], False))
+                self.assertEqual((listed["incidents"], listed["routines"][0]["state"]), ([], "active"))
                 self.assertIsNotNone(http_routine.canonical_routine_view(listed["routines"][0]))
                 cases = (
                     (f"{base}/incidents/bad/card", EMPTY, 404, "routine-incident-unavailable"),
@@ -435,13 +435,8 @@ class RecoveryRouteTests(RoutineHttpCase):
                     # Excluir is the Routine's confirmed deletion, never a card answer; nor are the retired choices.
                     (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"delete"}', 422, "invalid-body"),
                     (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"skip"}', 422, "invalid-body"),
-                    # Recriar needs the model credential the assertion binds; the route never makes it optional.
-                    (
-                        incident + "/answer",
-                        b'{"nonce":"' + b"b" * 32 + b'","choice":"recreate"}',
-                        422,
-                        "routine-card-credential-invalid",
-                    ),
+                    # Recriar is retired: its choice is no card answer at all.
+                    (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"recreate"}', 422, "invalid-body"),
                     (incident + "/answer", nonce.encode(), 404, "routine-incident-unavailable"),
                     (f"{base}/{'f' * 32}/resume", EMPTY, 404, "routine-not-found"),
                     (f"{base}/bad/resume", EMPTY, 404, "routine-not-found"),
@@ -454,10 +449,10 @@ class RecoveryRouteTests(RoutineHttpCase):
                     with self.subTest(path=path, body=body):
                         status, _type, raw = self.request("POST", path, body)
                         self.assertEqual((status, json.loads(raw)["code"]), (code, problem))
-                # A credential on an answer is bound by the Supervisor assertion; Rodar never carries one.
+                # A card answer runs no model: a credential sent with one is never bound or used.
                 status, _type, raw = self.request("POST", incident + "/answer", nonce.encode(), self.model())
-                self.assertEqual((status, json.loads(raw)["code"]), (422, "routine-card-credential-invalid"))
-                self.assertIsNotNone(verify.call_args.kwargs["request"].model)
+                self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-incident-unavailable"))
+                self.assertIsNone(verify.call_args.kwargs["request"].model)
                 # Pausar turns the whole Routine's dispatch off; Retomar turns it back on.
                 status, _type, raw = self.request("POST", f"{base}/{value.routine_id}/pause", EMPTY)
                 paused = {key: item for key, item in json.loads(raw).items() if key != "trace_id"}
@@ -478,6 +473,38 @@ class RecoveryRouteTests(RoutineHttpCase):
                 self.assertEqual((status, answered.call_args.args[2]), (200, json.loads(nonce)))
 
 
+class ProposalRouteTests(RoutineHttpCase):
+    def test_a_session_confirms_a_card_with_an_empty_body_and_cancels_it_with_a_bodiless_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.serve(directory, Runtime())
+            card = f"/v1/teams/team_1/routines/proposals/{'a' * 32}"
+            answer = {"team_id": "team_1", "proposal_id": "a" * 32, "routine_id": "b" * 32, "status": "created"}
+            with (
+                mock.patch.object(local_authority, "verify", return_value=self.session) as verify,
+                mock.patch.object(service, "confirm_routine_proposal", return_value=answer) as confirmed,
+                mock.patch.object(service, "revoke_routine_proposal", return_value=answer) as revoked,
+            ):
+                cases = (
+                    ("POST", "/v1/teams/team_1/routines/proposals/bad", EMPTY, 404, "routine-proposal-expired"),
+                    ("DELETE", "/v1/teams/team_1/routines/proposals/bad", None, 404, "routine-proposal-expired"),
+                    ("POST", card, b'{"confirm":true}', 422, "invalid-body"),
+                )
+                for method, path, body, code, problem in cases:
+                    with self.subTest(method=method, path=path):
+                        status, _type, raw = self.request(method, path, body)
+                        self.assertEqual((status, json.loads(raw)["code"]), (code, problem))
+                self.assertEqual((confirmed.call_count, revoked.call_count), (0, 0))
+                status, _type, raw = self.request("POST", card, EMPTY)
+                self.assertEqual((status, json.loads(raw)["status"]), (200, "created"))
+                self.assertEqual(confirmed.call_args.args, ("team_1", "a" * 32))
+                status, _type, raw = self.request("DELETE", card)
+                self.assertEqual((status, json.loads(raw)["status"]), (200, "created"))
+                self.assertEqual(revoked.call_args.args, ("team_1", "a" * 32))
+                # Both answers are a Supervisor's own, bound by the session assertion, and carry no model credential.
+                self.assertEqual(verify.call_args.kwargs["request"].method, "DELETE")
+                self.assertIsNone(verify.call_args.kwargs["request"].model)
+
+
 class NoticeBacklogTests(RoutineHttpCase):
     def test_a_backlog_of_maximum_notices_drains_in_bounded_batches(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -486,7 +513,15 @@ class NoticeBacklogTests(RoutineHttpCase):
             large = routine_fixture.large_completion()
             notices = tuple(
                 record.Notice(
-                    f"{index:032x}", value.routine_id, f"{index:032x}", "done", int(time.time()), large, 1, value.quote
+                    f"{index:032x}",
+                    value.routine_id,
+                    f"{index:032x}",
+                    "done",
+                    int(time.time()),
+                    large,
+                    1,
+                    value.name,
+                    {"duration_ms": 1, "models": []},
                 )
                 for index in range(20)
             )

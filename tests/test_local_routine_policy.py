@@ -96,7 +96,7 @@ class PolicyHoldTests(AutomaticCase):
         self.assertEqual([action for action, _id in assistant.calls], ["list-zones"])
         # Verification can neither admit absence nor continue; the person decides on the card, which shows the step.
         self.assertEqual((manual, refused), ("policy", "routine-policy-hold"))
-        self.assertEqual((card["choices"], card["action"]), (["run", "recreate", "delete"], cursor_action(state)))
+        self.assertEqual((card["choices"], card["action"]), (["run", "delete"], cursor_action(state)))
 
     def test_a_read_only_handled_failure_is_still_proven_absent(self) -> None:
         assistant = ReadOnlyFault(failed())
@@ -119,7 +119,7 @@ class PolicyHoldTests(AutomaticCase):
         # Even a read-only Action is not admitted as absent while its workload may still run.
         self.assertEqual((verdict, cursor.fault, cursor.absent), ("unquiesced", "unquiesced", False))
         self.assertEqual(routine_recovery.refusal(cursor), "routine-workload-unquiesced")
-        self.assertEqual(card["choices"], ["run", "recreate", "delete"])
+        self.assertEqual(card["choices"], ["run", "delete"])
 
     def restarted(self, directory: str, assistant: Assistant, brain: Brain):
         """A fresh controller over the same durable Team state, as after a Team restart."""

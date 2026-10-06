@@ -38,6 +38,8 @@ TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123
 CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "b" * 64
 OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 64
 TEST_ASSISTANT_VERSION = "0.1.0"
+
+
 def _routine_books(controller) -> None:
     """The recording turns, cards, and run protection a controller shares with its chat service (ADR-0101)."""
     controller.routine_recordings = local_routine_recorder.RecordingBook()

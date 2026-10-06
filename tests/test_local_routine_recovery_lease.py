@@ -9,7 +9,6 @@ from unittest import mock
 
 import routine_fixture
 from test_local_routine_automatic import AutomaticCase, Brain
-from test_local_routine_card import CREDENTIAL, MESSAGE, Compiler, _change, _compiled
 from test_local_routine_recovery import RECORD, Assistant, failed
 
 from inference import client as inference_client
@@ -18,7 +17,6 @@ from local import audit as local_audit
 from local.routine import card as routine_card
 from local.routine import recovery as routine_recovery
 from local.routine import run as routine_run
-from local.routine import source as routine_source
 from local.routine import watchdog as routine_watchdog
 from routine import hold as routine_hold
 from routine import record
@@ -66,31 +64,21 @@ class RecoveryLeaseTests(AutomaticCase):
         self.assertEqual(state.incidents[0].status, "unresolved")
         self.assertIsNotNone(service.routine_store.incident("team_1", run_id))
 
-    def test_deletion_reaches_recriar_while_it_compiles_and_nothing_it_compiled_commits(self) -> None:
+    def test_deletion_reaches_the_automatic_episode_and_nothing_continues(self) -> None:
         box: list[object] = []
+
+        class Deleting(Brain):
+            def routine_recovery(self, payload, provider, model):
+                box[0].delete_routine("team_1", box[0].routine_store.load("team_1").routines[0].routine_id)
+                return super().routine_recovery(payload, provider, model)
+
+        assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory, self.capturing(box):
-            service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
-            network = service.assistant_lifecycle._network("team_1").id
-            routine_source.seal(
-                service, "team_1", routine_source.Source(value.routine_id, network, (("said", MESSAGE),))
-            )
-
-            class Deleting(Compiler):
-                def routine_compile(self, payload, provider, model):
-                    box[0].delete_routine("team_1", value.routine_id)
-                    return super().routine_compile(payload, provider, model)
-
-            service.brain_runtime = Deleting(_compiled(_change()))
-            with local_audit.bind_request_principal(PERSON):
-                card = service.open_routine_card("team_1", run_id)
-                with self.assertRaises(local_app.ApiProblem) as caught:
-                    service.answer_routine_card(
-                        "team_1", run_id, {"nonce": card["nonce"], "choice": "recreate"}, CREDENTIAL
-                    )
+            service, _value, run_id = self.run_held(directory, assistant, Deleting("retry"))
             routine_watchdog.check(service)
             state = self.state(service)
-        self.assertEqual(caught.exception.code, "routine-recovery-stopped")
-        # The deletion set the held run aside; the compiled replacement never became a Routine.
+        # The deletion set the held run aside; the operation ran once and never again.
+        self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
         self.assertEqual((state.routines, [item.status for item in state.incidents]), ((), ["released"]))
         notice = next(item for item in state.notices if item.notice_id == run_id)
         self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "delete"))
@@ -190,9 +178,7 @@ class AtomicCardTests(AutomaticCase):
                             lambda state, routine_id=value.routine_id: (
                                 record._replace_routine(
                                     state,
-                                    routine_fixture.granted(
-                                        dataclasses.replace(record.routine(state, routine_id), revision=2)
-                                    ),
+                                    dataclasses.replace(record.routine(state, routine_id), revision=2),
                                 ),
                                 None,
                             ),

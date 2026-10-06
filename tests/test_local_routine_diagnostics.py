@@ -42,7 +42,7 @@ def _diagnostic(**changes: object) -> diagnostics.Diagnostic:
         attempt=1,
         assistant_id="shimpz-cloudflare",
         action="replace-dns-record",
-        step=1,
+        position={"phase": "replay", "step": 1},
         recorded_at=NOW,
         failure=FAILURE,
     )
@@ -294,9 +294,22 @@ BINDING = diagnostics.RunBinding(ROUTINE, RUN, 2, "sha256:" + "f" * 64, 4)
 INPUTS = [{"member": "page", "source": "literal", "value": "1"}]
 
 
-def _step(position: int = 1, status: str = "done", **changes: object) -> diagnostics.StepRecord:
-    value = diagnostics.StepRecord(BINDING, position, "shimpz-cloudflare", "list-zones", status, 1, 812, NOW, INPUTS)
+def _step(step: int = 1, status: str = "done", **changes: object) -> diagnostics.StepRecord:
+    placed = {"phase": "replay", "step": step}
+    value = diagnostics.StepRecord(BINDING, placed, "shimpz-cloudflare", "list-zones", status, 1, 812, NOW, INPUTS)
     return dataclasses.replace(value, **changes)
+
+
+def _call(call: int = 1, status: str = "done", **changes: object) -> diagnostics.StepRecord:
+    """One decision call's record: the model chose its inputs, so they show as decision previews."""
+    inputs = [{"member": "record_id", "source": "decision", "value": '"r1"'}]
+    return _step(
+        1, status, position={"phase": "decision", "call": call}, action="delete-dns-record", inputs=inputs, **changes
+    )
+
+
+def _positions(page: dict[str, object]) -> list[tuple[str, int]]:
+    return [diagnostics.position_key(entry["position"]) for entry in page["steps"]]
 
 
 class StepRecordCase(unittest.TestCase):
@@ -382,7 +395,7 @@ class StepRecordTests(StepRecordCase):
             page = self.page(snapshot, offset)
             self.assertLessEqual(http_routine.encoded_bytes(page["steps"]), http_routine.MAX_PAGE_BYTES)
             self.assertLess(http_routine.encoded_bytes({**page, "trace_id": "f" * 32}), 128 * 1024)
-            positions.extend(step["position"] for step in page["steps"])
+            positions.extend(step["position"]["step"] for step in page["steps"])
             snapshot, offset = page["snapshot"], page["next"]
         self.assertEqual(positions, list(range(1, 201)))
 
@@ -415,6 +428,14 @@ class StepRecordTests(StepRecordCase):
             _step(1, binding=dataclasses.replace(BINDING, plan_digest="x")),
             _step(1, inputs=[{"member": "page", "source": "secret", "value": "1"}]),
         )
+        invalid = (
+            *invalid,
+            _step(1, "not-permitted"),
+            _call(1, "untested"),
+            _call(65),
+            _step(1, position={"phase": "replay", "step": True}),
+            _step(1, position={"phase": "planning", "step": 1}),
+        )
         for item in invalid:
             with self.subTest(item=item), self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "invalid"):
                 self.store.record_step("team_1", INCARNATION, item, ())
@@ -425,8 +446,13 @@ class StepRecordTests(StepRecordCase):
             escaped = _step(1, inputs=[{"member": "page", "source": "literal", "value": json.dumps(value)[1:-1]}])
             with self.subTest(value=value), self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "protected"):
                 self.store.record_step("team_1", INCARNATION, escaped, (value,))
-        with self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "invalid"):
-            self.store.record_run("team_1", INCARNATION, diagnostics.RunRecord(BINDING, 5, True, NOW))
+        for terminal in (
+            diagnostics.RunRecord(BINDING, 5, True, NOW),
+            diagnostics.RunRecord(BINDING, 1, True, NOW, calls=65),
+            diagnostics.RunRecord(BINDING, 1, True, NOW, decision={"state": "decided"}),
+        ):
+            with self.subTest(terminal=terminal), self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "invalid"):
+                self.store.record_run("team_1", INCARNATION, terminal)
         with (
             mock.patch.object(diagnostics, "MAX_STEP_PLAINTEXT_BYTES", 64),
             self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "byte limit"),
@@ -475,6 +501,114 @@ class StepRecordOrderTests(StepRecordCase):
         ):
             self.page()
         self.assertEqual(caught.exception.code, "routine-state-unavailable")
+
+
+DECIDED = {
+    "state": "decided",
+    "code": None,
+    "model": {"provider": "openai", "model": "gpt-6-luna", "effort": "low"},
+    "rules": ["Delete records older than 10 days"],
+    "rationale": "Two records matched.",
+    "notify": True,
+    "usage": {
+        "duration_ms": 900,
+        "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 9, "output_tokens": 2}],
+    },
+}
+
+
+class DecisionCallPageTests(StepRecordCase):
+    """A run's replay steps, then its decision calls, and its decision record, from its own records (ADR-0101)."""
+
+    def test_a_live_run_pages_its_known_decision_calls_after_its_steps(self) -> None:
+        binding = dataclasses.replace(BINDING, total=2)
+        for position in (1, 2):
+            self.store.record_step("team_1", INCARNATION, _step(position, binding=binding), ())
+        for call in (1, 3):
+            self.store.record_step("team_1", INCARNATION, _call(call, binding=binding), ())
+        page = self.page()
+        self.assertEqual(http_routine.canonical_run_steps(page), page)
+        self.assertEqual((page["replay"], page["total"], page["decision"]), (2, 5, None))
+        self.assertEqual(
+            _positions(page), [("replay", 1), ("replay", 2), ("decision", 1), ("decision", 2), ("decision", 3)]
+        )
+        # Only a run's terminal record says which calls occurred, so a missing call is never shown as not run.
+        self.assertEqual([entry["status"] for entry in page["steps"]], ["done", "done", "done", "unavailable", "done"])
+
+    def test_an_ended_run_pages_every_call_it_started_and_its_decision_record(self) -> None:
+        binding = dataclasses.replace(BINDING, total=2)
+        self.store.record_step("team_1", INCARNATION, _step(1, binding=binding), ())
+        self.store.record_step("team_1", INCARNATION, _call(1, binding=binding), ())
+        terminal = diagnostics.RunRecord(binding, 2, False, NOW + 1, calls=3, decision=DECIDED)
+        self.store.record_run("team_1", INCARNATION, terminal)
+        page = self.page()
+        self.assertEqual(http_routine.canonical_run_steps(page), page)
+        self.assertEqual((page["total"], page["decision"], page["ended"]), (5, DECIDED, True))
+        self.assertEqual(
+            [entry["status"] for entry in page["steps"]], ["done", "unavailable", "done", "unavailable", "unavailable"]
+        )
+
+    def test_a_run_with_no_step_or_call_has_one_empty_page(self) -> None:
+        binding = dataclasses.replace(BINDING, total=0)
+        unchanged = dict.fromkeys(DECIDED) | {"state": "unchanged", "rules": []}
+        self.store.record_run("team_1", INCARNATION, diagnostics.RunRecord(binding, 0, False, NOW, decision=unchanged))
+        page = self.page()
+        self.assertEqual((page["total"], page["offset"], page["steps"], page["next"]), (0, 0, [], None))
+        self.assertEqual(page["decision"], unchanged)
+        with self.assertRaises(ApiProblemError) as caught:
+            self.page(offset=1)
+        self.assertEqual(caught.exception.code, "routine-run-steps-not-found")
+
+    def test_an_old_run_pages_from_its_own_records_with_no_routine_at_all(self) -> None:
+        # The service reads no Routine state: a run of a replaced or deleted revision still renders.
+        self.assertFalse(hasattr(self.service, "routine_store"))
+        self.store.record_step("team_1", INCARNATION, _step(1, binding=dataclasses.replace(BINDING, revision=1)), ())
+        self.assertEqual(self.page()["revision"], 1)
+
+    def test_a_record_at_no_position_sorts_apart_and_disagrees(self) -> None:
+        self.assertEqual(diagnostics.position_key(None), ("", 0))
+        self.assertEqual(diagnostics.position_key({"phase": "decision", "call": 4}), ("decision", 4))
+
+
+class FailureEvidenceTests(unittest.TestCase):
+    """A failed attempt's diagnostic is redacted against the run's whole protection, and withheld after its loss."""
+
+    def failed(self, failure: dict[str, object]) -> Exception:
+        from action import failure as action_failure
+
+        problem = ApiProblemError(HTTPStatus.BAD_GATEWAY, "failed", code="assistant-action-failed")
+        problem.__cause__ = action_failure.ActionFailedError(action_failure.ActionFailure(**failure))
+        return problem
+
+    def test_a_value_an_earlier_step_returned_in_secret_never_reaches_the_diagnostic(self) -> None:
+        from routine import trace
+
+        echoed = {**FAILURE, "message": "Bad key SchemaSecretAbc rejected", "response_excerpt": "SCHEMASECRETABC"}
+        protection = trace.Protection().grow(("SchemaSecretAbc",))
+        failure, condition = diagnostics.evidence(self.failed(echoed), protection)
+        self.assertIsNone(condition)
+        self.assertNotIn("schemasecretabc", json.dumps(failure).lower())
+        self.assertTrue(failure["redacted"])
+        self.assertEqual(http_routine.canonical_failure(failure), failure)
+
+    def test_after_the_run_lost_its_protection_only_the_status_is_kept(self) -> None:
+        from routine import trace
+
+        failure, _condition = diagnostics.evidence(self.failed(FAILURE), trace.Protection(lost=True))
+        self.assertEqual(
+            failure,
+            {
+                "error_type": "withheld",
+                "message": "",
+                "provider": None,
+                "http_status": 404,
+                "response_excerpt": None,
+                "redacted": True,
+                "truncated": False,
+            },
+        )
+        self.assertEqual(http_routine.canonical_failure(failure), failure)
+        self.assertIsNone(diagnostics.evidence(ValueError("other"), trace.Protection()))
 
 
 if __name__ == "__main__":

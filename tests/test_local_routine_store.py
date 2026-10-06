@@ -30,18 +30,49 @@ def put(store: routine_store.RoutineStore, team_id: str, state: record.TeamRouti
 
 
 def routine(routine_id: str = "a" * 32) -> record.Routine:
-    value = routine_fixture.granted(
+    value = routine_fixture.confirmed(
         record.Routine(
             routine_id=routine_id,
             name="Resumo de DNS",
-            quote="Todo dia às 9, resuma as mudanças de DNS.",
             plan=routine_fixture.plan_document(timezone="America/Sao_Paulo"),
             schedule={"kind": "daily", "time": "09:00"},
             timezone="America/Sao_Paulo",
-            assistants=(("dns", "sha256:" + "c" * 64),),
+            assistants=(),
             anchor=NINE - 86_400,
             next_run_at=0,
         )
+    )
+    return dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
+
+
+USAGE = {
+    "duration_ms": 1200,
+    "models": [
+        {"provider": "openai", "model": f"gpt-{index:02d}", "input_tokens": 10**9, "output_tokens": 10**9}
+        for index in range(16)
+    ],
+}
+
+
+def decision_routine(routine_id: str = "d" * 32) -> record.Routine:
+    """A decision Routine at every scope field: no replay step, a prompt, a model, an allowance, and a baseline."""
+    plan = routine_fixture.plan_document(timezone="UTC", output={"mode": "decide", "step": None, "when": "changes"})
+    plan["steps"] = []
+    value = dataclasses.replace(
+        routine(routine_id),
+        plan=plan,
+        timezone="UTC",
+        schedule={"kind": "hourly", "every": 1},
+        permitted=(),
+        assistants=(),
+        prompt="sha256:" + "1" * 64,
+        model={"provider": "openai", "model": "gpt-6-luna", "effort": "low"},
+        allowance=16,
+        baseline={"id": "2" * 32, "digest": "3" * 64},
+        rehearsal=True,
+        permissions_revision=2,
+        rehearsed={"run_id": "4" * 32, "revision": 1, "permissions_revision": 2},
+        rollup_usage={"duration_ms": 5, "models": []},
     )
     return dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
 
@@ -54,7 +85,8 @@ def busy_state() -> record.TeamRoutines:
     state, first = record.claim(state, now, KEY)
     lease = record.lease_of(first.lease_token, KEY)
     state = record.bind_generation(state, first.run.run_id, lease, now, NETWORK)
-    state = record.freeze(state, first.run.run_id, lease, now, ("human", "dns", "check", 1))
+    position = {"phase": "replay", "step": 1}
+    state = record.freeze(state, first.run.run_id, lease, now, ("human", "dns", "check", position))
     state, second = record.claim(state, now, KEY)
     lease = record.lease_of(second.lease_token, KEY)
     state = record.bind_generation(state, second.run.run_id, lease, now, NETWORK)
@@ -79,7 +111,9 @@ class StoreCase(unittest.TestCase):
 class RoundTripTests(StoreCase):
     def test_a_team_state_round_trips_exactly_and_an_absent_one_is_empty(self):
         self.assertEqual(self.store.load("team_1"), record.TeamRoutines())
-        state = busy_state()
+        state = record.add_routine(busy_state(), decision_routine())
+        run = dataclasses.replace(state.runs[0], usage=USAGE, rehearsal=True, protection_lost=True)
+        state = dataclasses.replace(state, runs=(run, *state.runs[1:]))
         put(self.store, "team_1", state)
         self.assertEqual(self.store.load("team_1"), state)
         self.assertEqual(self.state_file().stat().st_mode & 0o777, 0o600)
@@ -107,9 +141,11 @@ class RoundTripTests(StoreCase):
                     NINE,
                     routine_fixture.large_completion(),
                     1,
-                    "\U0001f600" * 500,
+                    "\U0001f600" * 80,
+                    USAGE,
+                    True,
                 )
-                for index in range(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES)
+                for index in range(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES)
             ),
         )
         put(self.store, "team_1", worst)
@@ -121,7 +157,7 @@ class RoundTripTests(StoreCase):
             put(self.store, "team_2", worst)
 
     def test_the_largest_state_a_team_can_admit_fits_its_derived_bound(self):
-        """Every definition at the Team's budget, every notice, start, receipt, and incident at its own (scale)."""
+        """Every definition at the Team's budget, every notice, start, and incident at its own (scale)."""
 
         def large(routine_id: str, inputs: int) -> record.Routine:
             plan = routine_fixture.plan_document(timezone="America/Sao_Paulo")
@@ -133,35 +169,46 @@ class RoundTripTests(StoreCase):
                 }
                 for index in range(routine_store.routine_plan.MAX_STEPS)
             ]
-            plan["output"] = {"mode": "none", "step": None}
-            value = dataclasses.replace(
-                routine(routine_id), plan=plan, name="\U0001f600" * 80, quote="\U0001f600" * 500
+            plan["output"] = {"mode": "none", "step": None, "when": None}
+            return routine_fixture.confirmed(
+                dataclasses.replace(routine(routine_id), plan=plan, name="\U0001f600" * 80)
             )
-            return routine_fixture.granted(value)
 
         state = record.TeamRoutines()
-        for index, inputs in enumerate((6, 6)):
+        # Four plans near their own bound fill the Team's definition budget; the rest are small.
+        for index, inputs in enumerate((17, 17, 17, 16)):
             state = record.add_routine(state, large(f"{index:032x}", inputs))
-        for index in range(2, record.MAX_ROUTINES):
+        for index in range(4, record.MAX_ROUTINES):
             state = record.add_routine(state, routine(f"{index:032x}"))
-        definitions = sum(routine_store.routine_grant.definition_bytes(item) for item in state.routines)
+        definitions = sum(routine_store.routine_definition.definition_bytes(item) for item in state.routines)
         self.assertGreater(definitions, routine_store.routine_plan.TEAM_DEFINITION_BYTES * 0.9)
-        quote = "\U0001f600" * 500
+        name = "\U0001f600" * 80
         notices = tuple(
             record.Notice(
-                f"{index:032x}", "a" * 32, f"{index:032x}", "done", NINE, routine_fixture.large_completion(), 1, quote
+                f"{index:032x}",
+                "a" * 32,
+                f"{index:032x}",
+                "done",
+                NINE,
+                routine_fixture.large_completion(),
+                1,
+                name,
+                USAGE,
+                True,
             )
-            for index in range(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES)
+            for index in range(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES)
+        )
+        self.assertGreater(
+            max(len(json.dumps(item.detail).encode()) for item in notices), routine_store.MAX_NOTICE_BYTES // 2
         )
         incidents = tuple(
-            record.Incident(f"{index:032x}", "a" * 32, f"{NETWORK}:routine:{index:032x}", NINE, quote=quote)
+            record.Incident(f"{index:032x}", "a" * 32, f"{NETWORK}:routine:{index:032x}", NINE, name=name, usage=USAGE)
             for index in range(record.MAX_INCIDENTS)
         )
         worst = dataclasses.replace(
             state,
             notices=notices,
             starts=tuple(("a" * 32, NINE + index, 256) for index in range(record.routine_starts.TEAM_CEILING)),
-            receipts=tuple((f"{index:064x}", NINE) for index in range(record.MAX_RECEIPTS)),
             incidents=incidents,
             discards=tuple(
                 (f"{index:032x}", f"{NETWORK}:routine:{index:032x}") for index in range(record.MAX_DISCARDS)
@@ -200,7 +247,31 @@ class TamperTests(StoreCase):
             "schema": lambda value: value.update(schema=1),
             "team": lambda value: value.update(team_id="team_2"),
             "extra field": lambda value: value.update(extra=1),
-            "routine shape": lambda value: value["routines"][0].pop("quote"),
+            "routine shape": lambda value: value["routines"][0].pop("confirmation"),
+            "unconfirmed": lambda value: value["routines"][0].update(confirmation=None),
+            "confirmation principal": lambda value: value["routines"][0]["confirmation"].update(principal="person"),
+            "no permitted Action for the step": lambda value: value["routines"][0].update(permitted=[]),
+            "permitted pin drift": lambda value: value["routines"][0]["permitted"][0].update(pin="sha256:" + "0" * 64),
+            "permitted read-only type": lambda value: value["routines"][0]["permitted"][0].update(read_only=1),
+            "a model without a decision": lambda value: value["routines"][0].update(
+                model={"provider": "openai", "model": "gpt-6-luna", "effort": "low"}
+            ),
+            "an allowance without a decision": lambda value: value["routines"][0].update(allowance=1),
+            "a prompt without a decision": lambda value: value["routines"][0].update(prompt="sha256:" + "1" * 64),
+            "a baseline without a decision": lambda value: value["routines"][0].update(
+                baseline={"id": "2" * 32, "digest": "3" * 64}
+            ),
+            "rehearsed for another revision": lambda value: value["routines"][0].update(
+                rehearsed={"run_id": "4" * 32, "revision": 9, "permissions_revision": 0}
+            ),
+            "rehearsal type": lambda value: value["routines"][0].update(rehearsal=1),
+            "paused type": lambda value: value["routines"][0].update(paused=1),
+            "permissions revision": lambda value: value["routines"][0].update(permissions_revision=-1),
+            "rollup usage": lambda value: value["routines"][0].update(rollup_usage={"duration_ms": 1}),
+            "assistants beyond the permitted": lambda value: value["routines"][0].update(
+                assistants=[*value["routines"][0]["assistants"], ["web", "sha256:" + "a" * 64]]
+            ),
+            "output digest": lambda value: value["routines"][0].update(output_digest="x"),
             "schedule": lambda value: value["routines"][0].update(schedule={"kind": "daily", "time": "25:00"}),
             "timezone": lambda value: value["routines"][0].update(timezone="../etc"),
             "assistants": lambda value: value["routines"][0].update(assistants=[["dns", "md5"]]),
@@ -226,7 +297,19 @@ class TamperTests(StoreCase):
             "answered requests type": lambda value: value["runs"][0].update(requests_used=True),
             "notice detail": lambda value: value["notices"][0].update(detail={"actions": [["dns", "x"]], "result": 1}),
             "notice version": lambda value: value["notices"][0].update(version=0),
-            "notice quote": lambda value: value["notices"][0].update(quote=""),
+            "notice name": lambda value: value["notices"][0].update(name=""),
+            "notice usage": lambda value: value["notices"][0].update(usage=None),
+            "notice protection type": lambda value: value["notices"][0].update(protection_lost=1),
+            "run usage": lambda value: value["runs"][0].update(usage={"duration_ms": 1}),
+            "run rehearsal type": lambda value: value["runs"][0].update(rehearsal=1),
+            "run protection type": lambda value: value["runs"][0].update(protection_lost=0),
+            "frozen position past its plan": lambda value: value["runs"][frozen].update(
+                position={"phase": "replay", "step": 2}
+            ),
+            "frozen without a position": lambda value: value["runs"][frozen].update(position=None),
+            "held with a position": lambda value: value["runs"][held].update(
+                position={"phase": "replay", "step": 1}, steps=1
+            ),
             "run notice version": lambda value: value["runs"][0].update(notice_version=-1),
             "retired run field": lambda value: value["runs"][held].update(batch=["", ""]),
             "discard shape": lambda value: value["discards"][0].append("x"),
@@ -254,8 +337,8 @@ class TamperTests(StoreCase):
                 starts=[["a" * 32, index, 1] for index in range(record.routine_starts.TEAM_CEILING + 1)]
             ),
             # A definition the Team's budgets never admit is never loaded either (ADR-0092, 2026-10-05, scale).
-            "definition over its budget": lambda value: value["routines"][0]["grant"]["sources"]["check"].update(
-                {f"m{index}": value["routines"][0]["grant"]["output"] for index in range(4000)}
+            "definition over its budget": lambda value: value["routines"][0]["plan"]["steps"][0].update(
+                input={f"m{index}": {"kind": "literal", "value": "x" * 100} for index in range(4000)}
             ),
         }
         for name, mutate in mutations.items():
@@ -271,22 +354,27 @@ class TamperTests(StoreCase):
     def test_an_altered_incident_fails_closed(self):
         state = busy_state()
         held = next(item for item in state.runs if item.status == "held")
-        put(self.store, "team_1", routine_hold.settle_hold(state, held.run_id, NINE, 1, ("dns", "check", 1, 1)))
+        step = ("dns", "check", {"phase": "replay", "step": 1}, 1)
+        put(self.store, "team_1", routine_hold.settle_hold(state, held.run_id, NINE, 1, step))
         base = json.loads(self.state_file().read_text())
         self.assertEqual(base["incidents"][0]["assistant_id"], "dns")
         mutations = {
-            "quote": {"quote": ""},
+            "name": {"name": ""},
             "assistant": {"assistant_id": "Bad"},
-            "half a step": {"action": ""},
+            "half a call": {"action": ""},
             "action type": {"action": 1},
             "time beyond the run's": {"active_seconds_left": record.ACTIVE_SECONDS + 1},
             "time type": {"active_seconds_left": True},
             "answered requests past the turn's": {"requests_used": 17},
-            "a step with no position": {"step": 0},
-            "a position past its plan": {"step": 2, "steps": 1},
-            "a plan of too many steps": {"step": 1, "steps": 257},
-            "position type": {"step": True},
-            "no step but a position": {"assistant_id": "", "action": "", "step": 1, "steps": 1},
+            "a call with no position": {"position": None},
+            "a position past its plan": {"position": {"phase": "replay", "step": 2}, "steps": 1},
+            "a plan of too many steps": {"steps": 257},
+            "position type": {"position": {"phase": "replay", "step": True}},
+            "a decision call past the allowance": {"position": {"phase": "decision", "call": 65}},
+            "no call but a position": {"assistant_id": "", "action": "", "steps": 1},
+            "usage": {"usage": {"duration_ms": 1}},
+            "rehearsal type": {"rehearsal": 1},
+            "protection type": {"protection_lost": "no"},
         }
         for name, change in mutations.items():
             with self.subTest(name=name):
@@ -294,9 +382,14 @@ class TamperTests(StoreCase):
                 value["incidents"][0].update(change)
                 self.assert_refused(value)
         value = json.loads(json.dumps(base))
-        value["incidents"][0].update(assistant_id="", action="", step=0, steps=0)
+        value["incidents"][0].update(assistant_id="", action="", position=None, steps=0)
         self.write(value)
         self.assertEqual(self.store.load("team_1").incidents[0].action, "")
+        value["incidents"][0].update(
+            assistant_id="dns", action="check", position={"phase": "decision", "call": 3}, steps=0, rehearsal=True
+        )
+        self.write(value)
+        self.assertEqual(self.store.load("team_1").incidents[0].position, {"phase": "decision", "call": 3})
 
     def test_a_state_file_that_is_not_private_fails_closed(self):
         put(self.store, "team_1", busy_state())
@@ -342,7 +435,13 @@ class ContinuationTests(StoreCase):
             self.store.continuation("team_1", "a" * 32)
         self.store.put_continuation("team_1", "a" * 32, b"payload")
         path = self.store._team_dir("team_1") / f"{'a' * 32}.continuation"
-        for content in (b"[", json.dumps({"algorithm": "none", "nonce": "", "ciphertext": ""}).encode()):
+        # An envelope whose nonce or ciphertext is not the sealed shape is malformed, never an authentication failure.
+        short = {"algorithm": "AES-256-GCM", "nonce": "AAAA", "ciphertext": "A" * 24}
+        for content in (
+            b"[",
+            json.dumps({"algorithm": "none", "nonce": "", "ciphertext": ""}).encode(),
+            json.dumps(short).encode(),
+        ):
             with self.subTest(content=content):
                 path.write_bytes(content)
                 with self.assertRaisesRegex(routine_store.RoutineStoreError, "malformed"):
@@ -351,14 +450,6 @@ class ContinuationTests(StoreCase):
         self.store.delete_continuation("team_1", "a" * 32)
         self.assertEqual(self.store.continuations("team_1"), ())
         self.assertEqual(self.store.continuations("team_9"), ())
-
-    def test_an_empty_oversized_or_non_bytes_source_is_refused_and_nothing_is_written(self):
-        for payload in (b"", "text", b"x" * (routine_store.MAX_SOURCE_BYTES + 1)):
-            with self.subTest(size=len(payload)), self.assertRaisesRegex(routine_store.RoutineStoreError, "invalid"):
-                self.store.put_source("team_1", "a" * 32, payload)
-        self.assertIsNone(self.store.source("team_1", "a" * 32))
-        self.store.put_source("team_1", "a" * 32, b"x" * routine_store.MAX_SOURCE_BYTES)
-        self.assertEqual(self.store.source("team_1", "a" * 32), b"x" * routine_store.MAX_SOURCE_BYTES)
 
 
 class DeletionTests(StoreCase):

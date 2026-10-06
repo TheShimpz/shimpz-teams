@@ -26,6 +26,9 @@ from routine import plan as routine_plan
 from routine import record
 from tests.test_routine_plan import CONTRACTS, _document
 
+# The Team boot a cursor's run protection was bound in.
+BOOT = "0" * 32
+
 
 def _operation(name: str) -> action_journal.Operation:
     return action_journal.Operation(name, hashlib.sha256(name.encode()).hexdigest())
@@ -116,9 +119,9 @@ class HoldTests(IncidentCase):
             routine_fixture.set_aside(service, "team_1", run_id)
             self.assertIsNone(service.routine_store.incident("team_1", run_id))
             # A cursor a crash left behind, whose run and incident are gone, is removed by the next pass.
-            plan = routine_plan.admit(_document(output={"mode": "chain", "step": None}), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "none", "step": None, "when": None}), CONTRACTS)
             orphan = routine_cursor.Binding("a" * 64, "b" * 32, 1, "e" * 32)
-            service.routine_store.put_cursor("team_1", routine_cursor.start(plan, orphan, 0))
+            service.routine_store.put_cursor("team_1", routine_cursor.start(plan, orphan, 0, BOOT))
             routine_watchdog.check(service)
             self.assertEqual(service.routine_store.cursors("team_1"), ())
 
@@ -163,9 +166,9 @@ class ResolutionTests(IncidentCase):
     def test_pular_permits_future_cycles_and_then_releases_what_the_incident_kept(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
-            plan = routine_plan.admit(_document(output={"mode": "chain", "step": None}), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "none", "step": None, "when": None}), CONTRACTS)
             binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
-            service.routine_store.put_cursor("team_1", routine_cursor.start(plan, binding, 0))
+            service.routine_store.put_cursor("team_1", routine_cursor.start(plan, binding, 0, BOOT))
             routine_incident.hold(service, "team_1", run_id, lease)
             routine_manage.drain(service, "team_1")
             routine_watchdog.check(service)
@@ -257,13 +260,16 @@ class RecoverySnapshotTests(IncidentCase):
     def compiled(self, service, value: record.Routine, run_id: str, generation: str, revision: int):
         """Seal the run's recovery snapshot and its first cursor, as the executor does before its first dispatch."""
         incarnation = generation.removesuffix(f":routine:{run_id}")
-        document = _document(output={"mode": "chain", "step": None})
+        document = _document(output={"mode": "none", "step": None, "when": None})
         plan = routine_plan.admit(document, CONTRACTS)
         binding = routine_cursor.Binding(incarnation, value.routine_id, revision, run_id)
-        snapshot = routine_incident.Recovery(binding, value.quote, document)
+        snapshot = routine_incident.Recovery(binding, value.name, document)
         routine_incident.seal_recovery(service, "team_1", snapshot)
         cursor = routine_cursor.dispatch(
-            routine_cursor.start(plan, binding, 1_800_000_000), plan, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6", "d" * 64
+            routine_cursor.start(plan, binding, 1_800_000_000, BOOT),
+            plan,
+            "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+            "d" * 64,
         )
         service.routine_store.put_cursor("team_1", cursor)
         return snapshot, cursor
@@ -277,7 +283,7 @@ class RecoverySnapshotTests(IncidentCase):
                 lambda state: (
                     record._replace_routine(
                         state,
-                        routine_fixture.granted(
+                        routine_fixture.confirmed(
                             dataclasses.replace(record.routine(state, value.routine_id), revision=3)
                         ),
                     ),
@@ -294,7 +300,7 @@ class RecoverySnapshotTests(IncidentCase):
                 lambda state: (
                     record._replace_routine(
                         state,
-                        routine_fixture.granted(
+                        routine_fixture.confirmed(
                             dataclasses.replace(record.routine(state, value.routine_id), revision=4)
                         ),
                     ),
@@ -335,7 +341,8 @@ class RecoverySnapshotTests(IncidentCase):
             for store in (service.routine_store, restarted):
                 service.routine_store = store
                 for changed in (
-                    dataclasses.replace(snapshot, quote="Every day at 10, delete my zones"),
+                    dataclasses.replace(snapshot, name="Excluir minhas zonas"),
+                    dataclasses.replace(snapshot, rehearsal=True),
                     dataclasses.replace(snapshot, plan=_document(timezone="UTC")),
                     dataclasses.replace(snapshot, binding=dataclasses.replace(snapshot.binding, revision=2)),
                     dataclasses.replace(snapshot, binding=dataclasses.replace(snapshot.binding, incarnation="f" * 64)),
@@ -370,7 +377,9 @@ class RecoverySnapshotTests(IncidentCase):
                 lambda: store.delete_cursor("team_1", run_id),
                 lambda: store.put_cursor(
                     "team_1",
-                    routine_cursor.start(routine_plan.admit(_document(timezone="UTC"), CONTRACTS), snapshot.binding, 0),
+                    routine_cursor.start(
+                        routine_plan.admit(_document(timezone="UTC"), CONTRACTS), snapshot.binding, 0, BOOT
+                    ),
                 ),
                 lambda: store.put_incident(
                     "team_1",
@@ -416,15 +425,45 @@ class RecoverySnapshotTests(IncidentCase):
             for invalid in (
                 b"not json",
                 routine_plan.canonical({"version": 2}),
-                routine_plan.canonical({"version": 1, "binding": "x", "quote": "Q", "plan": {}}),
+                routine_plan.canonical({"version": 1, "binding": "x", "name": "Q", "plan": {}, "rehearsal": False}),
                 routine_plan.canonical(
-                    {"version": 1, "binding": [incarnation, value.routine_id, 0, run_id], "quote": "Q", "plan": {}}
+                    {
+                        "version": 1,
+                        "binding": [incarnation, value.routine_id, 0, run_id],
+                        "name": "Q",
+                        "plan": {},
+                        "rehearsal": False,
+                    }
                 ),
                 routine_plan.canonical(
-                    {"version": 1, "binding": [incarnation, value.routine_id, 1, run_id], "quote": 1, "plan": {}}
+                    {
+                        "version": 1,
+                        "binding": [incarnation, value.routine_id, 1, run_id],
+                        "name": 1,
+                        "plan": {},
+                        "rehearsal": False,
+                    }
                 ),
                 routine_plan.canonical(
-                    {"version": 1, "binding": [incarnation, value.routine_id, 1, "e" * 32], "quote": "Q", "plan": {}}
+                    {
+                        "version": 1,
+                        "binding": [incarnation, value.routine_id, 1, run_id],
+                        "name": "Q",
+                        "plan": {},
+                        "rehearsal": 1,
+                    }
+                ),
+                routine_plan.canonical(
+                    {"version": 1, "binding": [incarnation, value.routine_id, 1, run_id], "quote": "Q", "plan": {}}
+                ),
+                routine_plan.canonical(
+                    {
+                        "version": 1,
+                        "binding": [incarnation, value.routine_id, 1, "e" * 32],
+                        "name": "Q",
+                        "plan": {},
+                        "rehearsal": False,
+                    }
                 ),
                 routine_plan.canonical({"version": 1, "extra": 1}),
             ):
@@ -471,7 +510,7 @@ class CapacityTests(IncidentCase):
                     index,
                     1,
                     "released",
-                    quote=value.quote,
+                    name=value.name,
                 )
                 for index in range(1, record.MAX_INCIDENTS)
             )
@@ -533,9 +572,9 @@ class SealedStateTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, _lease, _generation, _batch = self.held_run(directory, batch=False)
             store = service.routine_store
-            plan = routine_plan.admit(_document(output={"mode": "chain", "step": None}), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "none", "step": None, "when": None}), CONTRACTS)
             binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
-            cursor = routine_cursor.start(plan, binding, 0)
+            cursor = routine_cursor.start(plan, binding, 0, BOOT)
             store.put_cursor("team_1", cursor)
             self.assertEqual(store.cursor("team_1", binding), cursor)
             self.assertEqual(store.cursors("team_1"), (run_id,))
@@ -580,7 +619,7 @@ class SealedStateTests(IncidentCase):
     def test_the_receipt_handoff_seals_the_cursor_before_receipts_go(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, _lease, generation, _batch = self.held_run(directory, batch=False)
-            plan = routine_plan.admit(_document(output={"mode": "chain", "step": None}), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "none", "step": None, "when": None}), CONTRACTS)
             binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
             operation = _operation("publish")
             prepared = service.action_state.prepare_batch(generation, "thread", (operation,), archivable=True)
@@ -588,7 +627,7 @@ class SealedStateTests(IncidentCase):
             result = {"id": "post-1", "meta": {"a/b": [["news"]]}}
             service.action_state.complete(prepared, operation, result)
             dispatched = routine_cursor.dispatch(
-                routine_cursor.start(plan, binding, 0), plan, started.operation_id, "d" * 64
+                routine_cursor.start(plan, binding, 0, BOOT), plan, started.operation_id, "d" * 64
             )
             advanced = routine_cursor.complete(dispatched, plan, result)
             order: list[str] = []
@@ -608,7 +647,7 @@ class SealedStateTests(IncidentCase):
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertEqual(order, ["crashed"])
 
-    def test_routine_state_version_eight_admits_held_runs_incidents_plans_grants_receipts_and_output_digests(
+    def test_routine_state_version_nine_admits_held_runs_incidents_plans_confirmations_and_output_digests(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -617,17 +656,15 @@ class SealedStateTests(IncidentCase):
             routine_incident.set_paused(service, "team_1", value.routine_id, True)
             path = service.routine_store._team_dir("team_1") / "state.json"
             document = json.loads(path.read_bytes())
-            self.assertEqual(document["schema"], 8)
+            self.assertEqual(document["schema"], 9)
             self.assertEqual(document["routines"][0]["run_requested"], 0)
             self.assertEqual(document["routines"][0]["output_digest"], "")
-            self.assertEqual(document["routines"][0]["plan"]["version"], 2)
+            self.assertEqual(document["routines"][0]["plan"]["version"], 3)
+            self.assertNotIn("receipts", document)
             digest = dict(document, routines=[{**document["routines"][0], "output_digest": "d" * 64}])
             self.assertEqual(
                 routine_store._decode(json.dumps(digest).encode(), "team_1").routines[0].output_digest, "d" * 64
             )
-            receipt = ["c" * 64, 2_000_000_000]
-            document["receipts"] = [receipt]
-            self.assertEqual(routine_store._decode(json.dumps(document).encode(), "team_1").receipts, (tuple(receipt),))
             self.assertEqual(document["routines"][0]["revision"], 1)
             self.assertEqual(document["incidents"][0]["status"], "unresolved")
             for mutate in (
@@ -643,14 +680,10 @@ class SealedStateTests(IncidentCase):
                 lambda value: value["routines"][0].update(output_digest=None),
                 lambda value: value["routines"][0].update(name=""),
                 lambda value: value["routines"][0].update(plan={"version": 1}),
+                lambda value: value["routines"][0].update(confirmation=None),
                 lambda value: value["routines"][0].update(grant=None),
-                lambda value: value["routines"][0]["grant"].update(revision=2),
-                lambda value: value["routines"][0]["grant"].update(plan="sha256:" + "0" * 64),
-                lambda value: value.update(receipts=[["C" * 64, 1]]),
-                lambda value: value.update(receipts=[["c" * 64, -1]]),
-                lambda value: value.update(receipts=[["c" * 64, 1], ["c" * 64, 2]]),
-                lambda value: value.update(receipts=[["c" * 64]]),
-                lambda value: value.update(receipts={}),
+                lambda value: value["routines"][0]["confirmation"].update(proposal_digest="sha256:x"),
+                lambda value: value.update(receipts=[]),
             ):
                 tampered = json.loads(path.read_bytes())
                 mutate(tampered)
@@ -661,11 +694,10 @@ class SealedStateTests(IncidentCase):
 class IncidentRecordTests(IncidentCase):
     def test_claims_reserve_incident_room_and_never_displace_unresolved_evidence(self) -> None:
         base = record.TeamRoutines()
-        routine = routine_fixture.granted(
+        routine = routine_fixture.confirmed(
             record.Routine(
                 "a" * 32,
                 "N",
-                "Q",
                 {"kind": "daily", "time": "09:00"},
                 "UTC",
                 (("dns", "sha256:" + "0" * 64),),
@@ -725,6 +757,39 @@ class IncidentRecordTests(IncidentCase):
                 record.Lease("1" * 64, "2" * 64),
                 1,
             )
+
+
+HELD_STEPS = [{"assistant": "dns", "action": "check"}, {"assistant": "dns", "action": "notify"}]
+
+
+class HeldCallTests(unittest.TestCase):
+    """The call a held run's notice names: its last decision call, else its current replay step, else nothing."""
+
+    def cursor(self, **changes: object) -> routine_cursor.Cursor:
+        binding = routine_cursor.Binding("a" * 64, "b" * 32, 1, "e" * 32)
+        return dataclasses.replace(routine_cursor.Cursor(binding, "sha256:" + "d" * 64, 0, boot=BOOT), **changes)
+
+    def test_a_decision_call_outranks_the_replay_step_it_followed(self) -> None:
+        calls = tuple(
+            routine_cursor.Call(f"{index}" * 32, "dns", action, False, "sha256:" + "c" * 64)
+            for index, action in ((1, "check"), (2, "purge"))
+        )
+        decided = self.cursor(step=2, calls=calls)
+        self.assertEqual(
+            routine_incident.held_call(decided, HELD_STEPS), ("dns", "purge", {"phase": "decision", "call": 2}, 2)
+        )
+        # A decision plan with no replay steps still names its call.
+        self.assertEqual(routine_incident.held_call(decided, [])[2], {"phase": "decision", "call": 2})
+
+    def test_a_replay_names_its_current_step_and_a_finished_one_its_last(self) -> None:
+        for step, expected in ((0, ("check", 1)), (1, ("notify", 2)), (2, ("notify", 2))):
+            with self.subTest(step=step):
+                action, position = expected
+                self.assertEqual(
+                    routine_incident.held_call(self.cursor(step=step), HELD_STEPS),
+                    ("dns", action, {"phase": "replay", "step": position}, 2),
+                )
+        self.assertEqual(routine_incident.held_call(self.cursor(), []), routine_hold.UNKNOWN_STEP)
 
 
 if __name__ == "__main__":

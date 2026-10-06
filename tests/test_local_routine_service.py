@@ -24,14 +24,13 @@ from local import audit as local_audit
 from local import authority as local_authority
 from local.install.registry import AssistantRegistry
 from local.labels import ASSISTANT_LABEL
+from local.routine import contracts as routine_contracts
 from local.routine import human as routine_human
 from local.routine import run as routine_run
 from local.routine import store as routine_store
-from local.routine import turn as routine_turn
 from local.routine import watchdog as routine_watchdog
-from routine import grant as routine_grant
+from routine import definition as routine_definition
 from routine import hold as routine_hold
-from routine import pin as routine_pin
 from routine import record
 from tests import human_request_fixtures
 
@@ -40,13 +39,7 @@ API_KEY = "sk-test-0123456789"
 # SHA-256 of API_KEY, written out so tests check the fingerprint the boundary binds instead of recomputing it.
 API_KEY_SHA256 = "0d3b560722915d2f931a4c4100a00ecbce063d121e577e6b93bbbe7c05f23ad6"
 ASSISTANT = "shimpz-cloudflare"
-CHANGE = {
-    "op": "propose",
-    "quote": "Every day at 9, list my zones",
-    "schedule": {"kind": "daily", "time": "09:00"},
-    "timezone": None,
-    "routine_id": None,
-}
+CHANGE = {"schedule": {"kind": "daily", "time": "09:00"}}
 LIST = brain_runtime_client.ActionRequest("action-1", ASSISTANT, "list-zones", LOOKUP_INPUT)
 
 
@@ -109,12 +102,12 @@ class RoutineServiceCase(LocalContractCase):
 
     @staticmethod
     def plan(service, *steps: tuple[str, str, dict[str, object]]) -> dict[str, object]:
-        """A compiled plan of literal-input steps, each pinned to the Team's current Action contract."""
+        """A recorded plan of literal-input steps, each pinned to the Team's current Action contract."""
         _name, _network, active = service._team_assistants("team_1")
-        contracts = routine_turn.contracts(tuple(active.values()), routine_pin.SCOPE_LOCALE)
+        contracts = routine_contracts.contracts(tuple(active.values()))
         steps = steps or (("zones", "list-zones", LOOKUP_INPUT),)
         return {
-            "version": 2,
+            "version": 3,
             "timezone": "UTC",
             "steps": [
                 {
@@ -127,24 +120,41 @@ class RoutineServiceCase(LocalContractCase):
                 for step_id, action, inputs in steps
             ],
             # The last step's result is shown after every run unless a test chooses another disposition.
-            "output": {"mode": "show", "step": steps[-1][0]},
+            "output": {"mode": "show", "step": steps[-1][0], "when": None},
         }
 
+    @staticmethod
+    def permitted(service, plan: dict[str, object]) -> tuple[dict[str, object], ...]:
+        """Every Action of ``plan`` at the Team's current pin, effect, and Stored Inputs, as a recording permits it."""
+        _name, _network, active = service._team_assistants("team_1")
+        contracts = routine_contracts.contracts(tuple(active.values()))
+        actions = sorted({(step["assistant"], step["action"]) for step in plan["steps"]})
+        return tuple(
+            {
+                "assistant": assistant,
+                "action": action,
+                "pin": contracts[(assistant, action)].pin,
+                "read_only": contracts[(assistant, action)].read_only,
+                "stored_inputs": list(contracts[(assistant, action)].stored_inputs),
+            }
+            for assistant, action in actions
+        )
+
     def routine(self, service, *, next_run_at: int | None = None, plan: dict | None = None) -> record.Routine:
-        """Add one daily compiled Routine pinned to the Team's current contracts, due now unless told otherwise."""
-        contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
-        value = routine_fixture.granted(
-            record.Routine(
-                routine_id=record.new_id(),
-                name="Daily zones",
-                quote=CHANGE["quote"],
-                plan=plan or self.plan(service),
-                schedule=dict(CHANGE["schedule"]),
-                timezone="UTC",
-                assistants=tuple(sorted(contracts.items())),
-                anchor=int(time.time()) - 3 * 86_400,
-                next_run_at=0,
-            )
+        """Add one daily confirmed Routine pinned to the Team's current contracts, due now unless told otherwise."""
+        contracts = routine_contracts.current_contracts(service, "team_1", (ASSISTANT,))
+        document = plan or self.plan(service)
+        value = record.Routine(
+            routine_id=record.new_id(),
+            name="Daily zones",
+            plan=document,
+            schedule=dict(CHANGE["schedule"]),
+            timezone="UTC",
+            assistants=tuple(sorted(contracts.items())),
+            anchor=int(time.time()) - 3 * 86_400,
+            next_run_at=0,
+            permitted=self.permitted(service, document),
+            confirmation=dict(routine_fixture.CONFIRMATION),
         )
         value = dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
         service.routine_store.update("team_1", lambda state: (record.add_routine(state, value), None))
@@ -208,7 +218,7 @@ class RunTests(RoutineServiceCase):
         self.assertEqual(result["status"], "done")
         self.assertEqual(state.runs, ())
         ((outcome, detail),) = [(item.outcome, item.detail) for item in state.notices]
-        summary = routine_grant.summary(state.routines[0].plan, 1)
+        summary = routine_definition.summary(state.routines[0].plan, 1)
         self.assertEqual((outcome, detail["plan"]), ("done", summary))
         self.assertEqual((detail["output"]["step"], detail["output"]["state"]), (1, "shown"))
         # A healthy compiled run never asks the Brain anything.
@@ -234,7 +244,9 @@ class RunTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
             value = self.routine(service)
-            with mock.patch.object(routine_turn, "current_contracts", return_value={ASSISTANT: "sha256:" + "0" * 64}):
+            with mock.patch.object(
+                routine_contracts, "current_contracts", return_value={ASSISTANT: "sha256:" + "0" * 64}
+            ):
                 self.assertIsNone(service.claim_routine_run())
             state = self.state(service)
         self.assertTrue(record.routine(state, value.routine_id).needs_reconfirm)
@@ -259,7 +271,7 @@ class RunTests(RoutineServiceCase):
         self.assertFalse(record.routine(state, value.routine_id).needs_reconfirm)
         self.assertEqual(
             [(item.outcome, item.detail) for item in state.notices],
-            [("failed", {"code": "team-context-unavailable", "actions": [], "step": None, "steps": None})],
+            [("failed", {"code": "team-context-unavailable", "actions": [], "position": None, "steps": None})],
         )
 
     def test_an_unreadable_or_malformed_registry_never_marks_the_routine_changed_or_strands_a_run(self) -> None:
@@ -279,7 +291,7 @@ class RunTests(RoutineServiceCase):
                 self.assertFalse(record.routine(state, value.routine_id).needs_reconfirm)
                 self.assertEqual(
                     state.notices[-1].detail,
-                    {"code": "team-context-unavailable", "actions": [], "step": None, "steps": None},
+                    {"code": "team-context-unavailable", "actions": [], "position": None, "steps": None},
                 )
 
     def test_an_assistant_the_team_no_longer_runs_marks_the_routine_changed(self) -> None:
@@ -383,7 +395,7 @@ class FreezeTests(RoutineServiceCase):
             state = self.state(service)
         self.assertEqual(resumed["status"], "done")
         detail = state.notices[-1].detail
-        self.assertEqual((state.runs, detail["plan"]), ((), routine_grant.summary(state.routines[0].plan, 1)))
+        self.assertEqual((state.runs, detail["plan"]), ((), routine_definition.summary(state.routines[0].plan, 1)))
         self.assertEqual(detail["output"]["state"], "shown")
 
     def test_a_rename_never_ends_a_frozen_run(self) -> None:
@@ -602,7 +614,7 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
             state = self.state(service)
             self.assertEqual(
                 (state.runs, state.notices[-1].detail),
-                ((), {"code": "interrupted", "actions": [], "step": None, "steps": None}),
+                ((), {"code": "interrupted", "actions": [], "position": None, "steps": None}),
             )
             self.assertEqual(service.routine_store.continuations("team_1"), ())
             self.routine(service)

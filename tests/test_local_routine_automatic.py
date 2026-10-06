@@ -102,6 +102,18 @@ class AutomaticTests(AutomaticCase):
         creates = [operation for action, operation in assistant.calls if action == "create-record"]
         self.assertEqual((len(creates), creates[0]), (2, creates[1]))
 
+    def test_the_decisions_reported_tokens_reach_the_recovered_runs_notice(self) -> None:
+        models = [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 10, "output_tokens": 5}]
+        assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(routine_recovery.brain_usage, "since", return_value=models),
+        ):
+            service, _value, run_id = self.run_held(directory, assistant, Brain("retry"))
+            state = self.state(service)
+        notice = next(item for item in state.notices if item.run_id == run_id)
+        self.assertEqual((self.status, notice.outcome, notice.usage["models"]), ("recovered", "recovered", models))
+
     def test_a_proven_occurrence_continues_with_no_model_call(self) -> None:
         brain = Brain()
         assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
@@ -136,7 +148,12 @@ class AutomaticTests(AutomaticCase):
                 self.assertEqual(record.routine(state, value.routine_id).paused, paused)
                 # The held run's one notice says it is held, or why recovery paused its Routine.
                 notice = state.notices[-1]
-                step = {"assistant_id": ASSISTANT, "action": "create-record", "step": 2, "steps": 2}
+                step = {
+                    "assistant_id": ASSISTANT,
+                    "action": "create-record",
+                    "position": {"phase": "replay", "step": 2},
+                    "steps": 2,
+                }
                 expected = ("held", step) if reason is None else ("paused", {**step, "reason": reason})
                 self.assertEqual((notice.notice_id, (notice.outcome, notice.detail)), (run_id, expected))
                 # Each call and its whole output cap are paid before the call; with no key, nothing is asked.

@@ -20,8 +20,9 @@ from local.errors import ApiProblemError
 from local.routine import card as routine_card
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import lifecycle as routine_lifecycle
-from local.routine import lineage as routine_lineage
-from local.routine import recent as routine_recent
+from local.routine import proposal as routine_proposal
+from local.routine import protection as routine_protection
+from local.routine import recorder as routine_recorder
 from local.routine import store as routine_store
 from local.validation import routine_thread_id
 from routine import record
@@ -37,15 +38,14 @@ def put(store: routine_store.RoutineStore, team_id: str, state: record.TeamRouti
 
 
 def routine(routine_id: str) -> record.Routine:
-    value = routine_fixture.granted(
+    value = routine_fixture.confirmed(
         record.Routine(
             routine_id=routine_id,
             name="Daily DNS check",
-            quote="Every day at 9, check the DNS.",
             plan=routine_fixture.plan_document(),
             schedule={"kind": "daily", "time": "09:00"},
             timezone="UTC",
-            assistants=(("dns", "sha256:" + "c" * 64),),
+            assistants=(),
             anchor=NINE - 86_400,
             next_run_at=0,
         )
@@ -60,7 +60,8 @@ def two_runs() -> tuple[record.TeamRoutines, str]:
     lease = record.lease_of(bound.lease_token, KEY)
     state = record.bind_generation(state, bound.run.run_id, lease, NINE, NETWORK)
     # A frozen run holds no execution slot, so the Team may lease its other due Routine.
-    state = record.freeze(state, bound.run.run_id, lease, NINE, ("human", "dns", "check", 1))
+    position = {"phase": "replay", "step": 1}
+    state = record.freeze(state, bound.run.run_id, lease, NINE, ("human", "dns", "check", position))
     state, fresh = record.claim(state, NINE, KEY)
     assert fresh is not None
     return state, bound.run.run_id
@@ -84,8 +85,9 @@ class RoutineLifecycleTests(unittest.TestCase):
             ),
             action_state=SimpleNamespace(purge=lambda generation: self.events.append(("purge", generation))),
             routine_human_challenges=action_challenges.HumanChallengeStore(),
-            routine_lineage=routine_lineage.LineageBook(),
-            routine_recent=routine_recent.RecentBook(),
+            routine_recordings=routine_recorder.RecordingBook(),
+            routine_proposals=routine_proposal.ProposalBook(),
+            routine_protections=routine_protection.RunProtections(),
             routine_cards=routine_card.CardBook(),
         )
 
@@ -115,7 +117,7 @@ class RoutineLifecycleTests(unittest.TestCase):
                 attempt=1,
                 assistant_id="dns",
                 action="replace-dns-record",
-                step=1,
+                position={"phase": "replay", "step": 1},
                 recorded_at=NINE,
                 condition="timeout",
             ),
@@ -167,7 +169,7 @@ class RoutineLifecycleTests(unittest.TestCase):
         # An ended run leaves the runs list and queues what it held; an interrupted drain leaves that queue behind.
         state, run_id = two_runs()
         state = record.end(
-            state, run_id, NINE, "failed", {"code": "lease-expired", "actions": [], "step": None, "steps": None}
+            state, run_id, NINE, "failed", {"code": "lease-expired", "actions": [], "position": None, "steps": None}
         )
         generation = f"{NETWORK}:routine:{run_id}"
         self.assertEqual(state.discards, ((run_id, generation),))
@@ -191,6 +193,22 @@ class RoutineLifecycleTests(unittest.TestCase):
             [("purge", generation)],
         )
         self.assertEqual(self.subject.routine_store.teams(), ())
+
+    def test_a_teams_recording_and_cards_go_with_it_and_a_reset_forgets_every_runs_protection(self):
+        recordings, proposals, protections = (
+            self.subject.routine_recordings,
+            self.subject.routine_proposals,
+            self.subject.routine_protections,
+        )
+        recording = recordings.start("team_1", ("f" * 32, NETWORK), "Listar registros DNS", None, NINE)
+        protections.bind("a" * 32)
+        routine_lifecycle.delete_team_routines(self.subject, "team_1")
+        self.assertIsNone(recordings.get("team_1", recording))
+        recording = recordings.start("team_2", ("f" * 32, NETWORK), "Listar registros DNS", None, NINE)
+        routine_lifecycle.delete_all_routines(self.subject)
+        self.assertIsNone(recordings.get("team_2", recording))
+        self.assertTrue(protections.current("a" * 32, protections.boot).lost)
+        self.assertEqual(proposals._cards, {})
 
     def test_a_space_reset_deletes_every_teams_routines_and_the_keyring(self):
         state, run_id = two_runs()

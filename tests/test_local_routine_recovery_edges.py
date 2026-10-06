@@ -97,8 +97,11 @@ class VerifierCallEdgeTests(RecoveryCase):
                 self.assertEqual(self.verify(service, value, run_id), "inconclusive")
 
     def test_a_verifier_runtime_asks_no_model_and_keeps_no_journal_identity(self) -> None:
-        runtime = routine_recovery.VerifierRuntime(SimpleNamespace(interrupt_id="routine-verify"))
+        protected: list[object] = []
+        runtime = routine_recovery.VerifierRuntime(SimpleNamespace(interrupt_id="routine-verify"), protected.append)
         self.assertIsNone(runtime.dispatching(None, "x"))
+        runtime.protect(("capability",))
+        self.assertEqual(protected, [("capability",)])
         self.assertIsNone(runtime.failed(None, None, None))
         self.assertIsNone(runtime.logical_operation(None))
         self.assertIsNone(runtime.purpose(None, None, "", ""))
@@ -195,7 +198,7 @@ class ContinuationEdgeTests(RecoveryCase):
 class CardEdgeTests(RecoveryCase):
     def test_a_book_drops_and_clears_its_cards_and_refuses_a_foreign_nonce(self) -> None:
         book = routine_card.CardBook(now=lambda: 0.0)
-        card = routine_card.Card("p", "a" * 64, "i" * 32, "r" * 32, 1, 1, "g", None, None, "n" * 32, 10.0)
+        card = routine_card.Card("p", "a" * 64, "i" * 32, "r" * 32, 1, 1, "g", None, "n" * 32, 10.0)
         book.open("team_1", card)
         self.assertIsNone(book.take("team_1", card.incident_id, None, "p"))
         book.open("team_2", card)
@@ -204,13 +207,13 @@ class CardEdgeTests(RecoveryCase):
         book.clear()
         self.assertIsNone(book.take("team_2", card.incident_id, card.nonce, "p"))
 
-    def test_a_drifted_step_still_offers_its_three_choices_and_a_set_aside_one_has_no_card(self) -> None:
+    def test_a_drifted_step_still_offers_its_two_choices_and_a_set_aside_one_has_no_card(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
             with mock.patch.object(routine_plan, "admit", side_effect=routine_plan.PlanError("plan-pin-drift")):
                 card = self.as_card(service, run_id)
-            # Drift is exactly what Recriar repairs, so it never keeps the card from opening.
-            self.assertEqual(card["choices"], ["run", "recreate", "delete"])
+            # Drift never keeps the card from opening: the person may still run it again or delete the Routine.
+            self.assertEqual(card["choices"], ["run", "delete"])
             routine_fixture.set_aside(service, "team_1", run_id)
             with self.assertRaises(local_app.ApiProblem) as caught:
                 self.as_card(service, run_id)
@@ -221,7 +224,7 @@ class CardEdgeTests(RecoveryCase):
             self.assertEqual(caught.exception.code, "routine-incident-unavailable")
             snapshot = mock.Mock()
             with mock.patch.object(service.routine_store, "cursor", return_value=None):
-                self.assertEqual(routine_incident._held_step(service, "team_1", snapshot), ("", "", 0, 0))
+                self.assertEqual(routine_incident._held_step(service, "team_1", snapshot), ("", "", None, 0))
 
     def as_card(self, service, run_id: str) -> dict[str, object]:
         from local import audit as local_audit
