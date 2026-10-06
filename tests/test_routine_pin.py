@@ -1,4 +1,4 @@
-"""The complete Action pin a compiled Routine step holds, and the Assistant scope pin (ADR-0092 section 3)."""
+"""The complete Action pin a recorded Routine step holds, and the Assistant scope pin (ADR-0092 section 3)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from assistant import spec as assistant_registry
 from local.chat import segment as local_chat_segment
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
-from local.routine import turn as routine_turn
+from local.routine import contracts as routine_contracts
 from routine import pin as routine_pin
 from tests import catalog_fixtures
 
@@ -212,12 +212,23 @@ class RoutinePinTests(unittest.TestCase):
         spec = _spec(actions={action["id"]: assistant_registry.action_spec(action) for action in contract["actions"]})
         digest = routine_pin.catalog_validator.catalog_digest
         with mock.patch.object(routine_pin.catalog_validator, "catalog_digest", wraps=digest) as counted:
-            contracts = routine_turn.contracts((ActiveAssistant(spec, "container"),), "pt")
+            contracts = routine_contracts.contracts((ActiveAssistant(spec, "container"),))
         counted.assert_called_once_with(contract["messages"])
         self.assertEqual(
             {key: value.pin for key, value in contracts.items()},
             {
-                (spec.assistant_id, action_id): routine_pin.action_pin(spec, action_id, "pt")
+                (spec.assistant_id, action_id): routine_pin.action_pin(spec, action_id, routine_pin.SCOPE_LOCALE)
+                for action_id in ("create-record", "find-record", "list-zones")
+            },
+        )
+        # Each contract says whether its reviewed effect proves it read-only, and names its Stored Inputs.
+        self.assertEqual(
+            {key: (value.read_only, value.stored_inputs) for key, value in contracts.items()},
+            {
+                (spec.assistant_id, action_id): (
+                    spec.actions[action_id].effect == "read_only",
+                    tuple(sorted(spec.actions[action_id].stored_inputs)),
+                )
                 for action_id in ("create-record", "find-record", "list-zones")
             },
         )

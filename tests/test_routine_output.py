@@ -1,13 +1,12 @@
-"""What a completed Routine run does with its result (ADR-0092 amendment, 2026-10-05, output).
+"""What a completed Routine run does with its result (ADR-0092 amendment, 2026-10-05, output; ADR-0101).
 
 A plan names one closed output disposition; a shown result is Team's bounded, redacted projection of one step's
 validated result, never a model's summary; ``changes`` shows it only when its keyed digest differs from the last one
-shown; ``none`` publishes nothing new; and a ``step_text`` source hands a selected value on as unambiguous text.
+shown; ``none`` publishes nothing new; and a run that lost its protection shows nothing it produced.
 """
 
 from __future__ import annotations
 
-import copy
 import dataclasses
 import json
 import unittest
@@ -18,12 +17,10 @@ import test_routine_record as base
 from test_routine_plan import CONTRACTS, _document
 
 from protocol.http.v1 import routine as http_routine
-from routine import change as routine_change
 from routine import cursor as routine_cursor
-from routine import grant as routine_grant
+from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
-from routine import request as routine_request
 
 ZONES = {
     "zones": [
@@ -50,10 +47,10 @@ def _shown_number(text: str) -> dict[str, object]:
 class DispositionTests(unittest.TestCase):
     def test_a_plan_names_one_closed_disposition_whose_shown_step_is_its_own(self) -> None:
         for output in (
-            {"mode": "show", "step": "share"},
-            {"mode": "changes", "step": "publish"},
-            {"mode": "chain", "step": None},
-            {"mode": "none", "step": None},
+            {"mode": "show", "step": "share", "when": None},
+            {"mode": "changes", "step": "publish", "when": None},
+            {"mode": "none", "step": None, "when": None},
+            {"mode": "decide", "step": None, "when": "changes"},
         ):
             with self.subTest(output=output):
                 plan = routine_plan.admit(_document(output=output), CONTRACTS)
@@ -61,22 +58,19 @@ class DispositionTests(unittest.TestCase):
                 shown = plan.shown()
                 self.assertEqual(None if shown is None else shown.step_id, output["step"])
                 self.assertTrue(routine_plan.well_formed(_document(output=output)))
-        unbound = _document(output={"mode": "chain", "step": None})
-        unbound["steps"] = unbound["steps"][:1]
-        for output, document in (
-            (None, None),
-            ({"mode": "show"}, None),
-            ({"mode": "show", "step": None}, None),
-            ({"mode": "show", "step": "missing"}, None),
-            ({"mode": "changes", "step": 1}, None),
-            ({"mode": "none", "step": "publish"}, None),
-            ({"mode": "loud", "step": None}, None),
-            ({"mode": "show", "step": "share", "extra": 1}, None),
-            # Handing the result on needs a step that takes an earlier step's value.
-            (None, unbound),
+        for output in (
+            None,
+            {"mode": "show"},
+            {"mode": "show", "step": None, "when": None},
+            {"mode": "show", "step": "missing", "when": None},
+            {"mode": "changes", "step": 1, "when": None},
+            {"mode": "none", "step": "publish", "when": None},
+            {"mode": "loud", "step": None, "when": None},
+            {"mode": "chain", "step": None, "when": None},
+            {"mode": "show", "step": "share", "when": None, "extra": 1},
         ):
-            with self.subTest(output=output, document=document):
-                candidate = document or _document(output=output)
+            with self.subTest(output=output):
+                candidate = _document(output=output)
                 with self.assertRaisesRegex(routine_plan.PlanError, "plan-output-invalid"):
                     routine_plan.admit(candidate, CONTRACTS)
                 self.assertFalse(routine_plan.well_formed(candidate))
@@ -88,20 +82,24 @@ class DispositionTests(unittest.TestCase):
     def test_the_protocol_admits_exactly_a_disposition_of_the_projected_steps(self) -> None:
         # On the wire the shown step is its position among the plan's ``steps`` (ADR-0092, 2026-10-05, scale).
         steps = 2
-        self.assertEqual(
-            http_routine.canonical_disposition({"mode": "show", "step": 2}, steps), {"mode": "show", "step": 2}
-        )
-        self.assertEqual(
-            http_routine.canonical_disposition({"mode": "none", "step": None}, steps), {"mode": "none", "step": None}
-        )
+        for value, total in (
+            ({"mode": "show", "step": 2, "when": None}, steps),
+            ({"mode": "none", "step": None, "when": None}, steps),
+            ({"mode": "decide", "step": None, "when": "always"}, 0),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(http_routine.canonical_disposition(value, total), value)
         for value, projected in (
-            ({"mode": "show", "step": 3}, steps),
-            ({"mode": "show", "step": 0}, steps),
-            ({"mode": "show", "step": "records"}, steps),
-            ({"mode": "show", "step": True}, steps),
-            ({"mode": "show", "step": 1}, "steps"),
-            ({"mode": "show", "step": 1}, 0),
-            ({"mode": "chain", "step": 1}, steps),
+            ({"mode": "show", "step": 3, "when": None}, steps),
+            ({"mode": "show", "step": 0, "when": None}, steps),
+            ({"mode": "show", "step": "records", "when": None}, steps),
+            ({"mode": "show", "step": True, "when": None}, steps),
+            ({"mode": "show", "step": 1, "when": None}, "steps"),
+            ({"mode": "show", "step": 1, "when": None}, 0),
+            ({"mode": "none", "step": None, "when": None}, 0),
+            ({"mode": "chain", "step": 1, "when": None}, steps),
+            ({"mode": "decide", "step": None, "when": None}, steps),
+            ({"mode": "show", "step": 1, "when": "always"}, steps),
             ({"mode": "show"}, steps),
             ([], steps),
         ):
@@ -327,47 +325,15 @@ class ProjectionTests(unittest.TestCase):
                 self.assertIsNone(http_routine.canonical_output(value))
 
 
-class TextTests(unittest.TestCase):
-    def test_a_selected_value_becomes_unambiguous_text(self) -> None:
-        self.assertEqual(routine_plan.text("line one\nline two"), "line one\nline two")
-        self.assertEqual(routine_plan.text(5), "5")
-        self.assertEqual(routine_plan.text(None), "null")
-        self.assertEqual(routine_plan.text([]), "[]")
-        self.assertEqual(routine_plan.text({}), "{}")
-        value = {"zones": [{"name": "a\n- forged: line", "id": 1}, "b", []], "count": 2}
-        self.assertEqual(
-            routine_plan.text(value),
-            '"count": 2\n"zones":\n  -\n    "id": 1\n    "name": "a\\n- forged: line"\n  - "b"\n  - []',
-        )
-
-    def test_a_step_text_source_copies_its_value_as_text_or_refuses_before_dispatch(self) -> None:
-        document = _document(output={"mode": "chain", "step": None})
-        document["steps"][1]["input"]["post_id"] = {"kind": "step_text", "step": "publish", "pointer": "/meta"}
-        plan = routine_plan.admit(document, CONTRACTS)
-        self.assertEqual(plan.references("publish"), ("/meta", "/meta/a~1b/0"))
-        selected = {("publish", "/meta"): {"a/b": ["x"]}, ("publish", "/meta/a~1b/0"): ["x"]}
-        resolved = routine_plan.resolve(plan, plan.steps[1], selected, 0, lambda value: value)
-        self.assertEqual(resolved["post_id"], '"a/b":\n  - "x"')
-        with (
-            mock.patch.object(routine_plan, "MAX_TEXT_BYTES", 5),
-            self.assertRaisesRegex(routine_plan.PlanError, "plan-input-type"),
-        ):
-            routine_plan.resolve(plan, plan.steps[1], selected, 0, lambda value: value)
-        document["steps"][1]["input"]["post_id"]["step"] = "share"
-        # A value that cannot be encoded as text is refused as a mistyped input, before any dispatch.
-        unencodable = {("publish", "/meta"): "lone \ud800 surrogate", ("publish", "/meta/a~1b/0"): ["x"]}
-        with self.assertRaisesRegex(routine_plan.PlanError, "plan-input-type"):
-            routine_plan.resolve(plan, plan.steps[1], unencodable, 0, lambda value: value)
-        with self.assertRaisesRegex(routine_plan.PlanError, "plan-reference-invalid"):
-            routine_plan.admit(document, CONTRACTS)
-
-
 class CursorSlotTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.plan = routine_plan.admit(_document(output={"mode": "show", "step": "publish"}), CONTRACTS)
+        self.plan = routine_plan.admit(_document(output={"mode": "show", "step": "publish", "when": None}), CONTRACTS)
         binding = routine_cursor.Binding("a" * 64, "b" * 32, 1, "c" * 32)
         self.cursor = routine_cursor.dispatch(
-            routine_cursor.start(self.plan, binding, 0), self.plan, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6", "d" * 64
+            routine_cursor.start(self.plan, binding, 0, "f" * 32),
+            self.plan,
+            "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+            "d" * 64,
         )
         self.result = {"id": "post-1", "meta": {"a/b": [["news"]]}}
         node = routine_plan.output_safe(self.result, {})
@@ -414,18 +380,18 @@ class CursorSlotTests(unittest.TestCase):
                 routine_cursor.complete(self.cursor, self.plan, self.result, slot)
 
 
-def _completed(mode: str, *, notice_version: int = 0, digest: str = "", shown: dict | None = None):
+def _completed(mode: str, *, notice_version: int = 0, digest: str = "", shown: dict | None = None, lost: bool = False):
     """A claimed run of a one-step Routine with this disposition, its Routine's last digest, and its finish."""
-    output = {"mode": mode, "step": "check" if mode in ("show", "changes") else None}
-    plan = routine_fixture.chain_document() if mode == "chain" else routine_fixture.plan_document(output=output)
-    if mode == "chain":
-        plan["output"] = {"mode": "chain", "step": None}
+    output = {"mode": mode, "step": "check" if mode in ("show", "changes") else None, "when": None}
+    plan = routine_fixture.plan_document(output=output)
     value = base.routine(plan=plan)
     state = base.at(base.added(value), value.routine_id, base.NINE)
     current = dataclasses.replace(record.routine(state, value.routine_id), output_digest=digest, failures=2)
     state, claim = record.claim(record._replace_routine(state, current), base.NINE, base.KEY)
     if notice_version:
         state = record._replace_run(state, dataclasses.replace(record.run(state, claim.run.run_id), notice_version=1))
+    if lost:
+        state = record.lose_protection(state, claim.run.run_id)
     lease = record.lease_of(claim.lease_token, base.KEY)
     return record.finish(state, claim.run.run_id, lease, base.NINE + 5, "done", {}, shown)
 
@@ -433,7 +399,7 @@ def _completed(mode: str, *, notice_version: int = 0, digest: str = "", shown: d
 def _summary(state: record.TeamRoutines) -> dict[str, object]:
     """The compact plan summary a completed run's notice carries for its only Routine."""
     (value,) = state.routines
-    return routine_grant.summary(value.plan, value.revision)
+    return routine_definition.summary(value.plan, value.revision)
 
 
 class CompletionTests(unittest.TestCase):
@@ -445,7 +411,8 @@ class CompletionTests(unittest.TestCase):
     def test_show_publishes_the_result_every_run_and_unavailable_when_it_was_not_kept(self) -> None:
         state = _completed("show", shown=self.shown)
         (notice,) = state.notices
-        self.assertEqual(notice.detail, {"plan": _summary(state), "output": self.output})
+        self.assertEqual(notice.detail, {"plan": _summary(state), "output": self.output, "decision": None})
+        self.assertEqual((notice.usage, notice.protection_lost), ({"duration_ms": 0, "models": []}, False))
         self.assertEqual(state.routines[0].failures, 0)
         self.assertEqual(state.routines[0].output_digest, "")
         (missing,) = _completed("show").notices
@@ -471,14 +438,22 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual(unavailable.notices[0].detail["output"]["state"], "unavailable")
         self.assertEqual(unavailable.routines[0].output_digest, "b" * 64)
 
-    def test_none_publishes_nothing_new_and_chain_keeps_the_compact_completion(self) -> None:
+    def test_none_publishes_nothing_new_unless_the_run_already_has_a_notice(self) -> None:
         quiet = _completed("none")
         self.assertEqual((quiet.notices, quiet.routines[0].failures), ((), 0))
         answered = _completed("none", notice_version=1)
-        self.assertEqual(answered.notices[0].detail, {"plan": _summary(answered), "output": None})
-        chained = _completed("chain")
-        self.assertEqual(chained.notices[0].detail, {"plan": _summary(chained), "output": None})
-        self.assertEqual(chained.notices[0].detail["plan"]["actions"], [["dns", "check", 1], ["dns", "notify", 1]])
+        self.assertEqual(answered.notices[0].detail, {"plan": _summary(answered), "output": None, "decision": None})
+
+    def test_a_run_that_lost_its_protection_shows_nothing_and_says_so(self) -> None:
+        shown = _completed("show", shown=self.shown, lost=True)
+        self.assertEqual(shown.notices[0].detail["output"], routine_plan.output_state(1, "unavailable"))
+        self.assertTrue(shown.notices[0].protection_lost)
+        # The changes baseline never moves on a result the run could not show.
+        changes = _completed("changes", digest="b" * 64, shown=self.shown, lost=True)
+        self.assertEqual(changes.routines[0].output_digest, "b" * 64)
+        # A run that shows nothing still says it lost its protection.
+        silent = _completed("none", lost=True)
+        self.assertEqual((silent.notices[0].outcome, silent.notices[0].protection_lost), ("done", True))
 
     def test_the_watchdog_completes_a_run_through_the_same_disposition(self) -> None:
         value = dataclasses.replace(base.routine(), output_digest="")
@@ -492,87 +467,8 @@ class CompletionTests(unittest.TestCase):
         state = _completed("changes", shown=self.shown)
         current = state.routines[0]
         changed = record.scheduled(dataclasses.replace(current, output_digest="a" * 64), base.NINE + 10)
-        updated, _fresh = record.update(state, changed, 1, base.NINE + 10, base.RECEIPT, base.NINE + 900)
+        updated = record.update(state, changed, 1, base.NINE + 10)
         self.assertEqual(updated.routines[0].output_digest, "")
-
-
-class ChangeDispositionTests(unittest.TestCase):
-    MESSAGE = "Every Monday at 9, list my zones and show me the result"
-
-    def change(self, **changes: object) -> dict[str, object]:
-        value = {
-            "op": "create",
-            "routine_id": None,
-            "expected_revision": None,
-            "continues": False,
-            "name": "Zones",
-            "request": "Every Monday at 9, list my zones",
-            "schedule": {"kind": "weekly", "weekday": 0, "time": "09:00"},
-            "timezone": None,
-            "steps": [{"id": "publish", "assistant": "shimpz-blog", "action": "publish-post", "input": {}}],
-            "output": {"mode": "show", "step": "publish", "instruction": "show me the result"},
-        }
-        value["steps"][0]["input"]["title"] = {
-            "kind": "literal",
-            "value": "zones",
-            "origins": [{"at": "", "from": "message", "text": "zones", "region": None, "instruction": None}],
-        }
-        value.update(changes)
-        return value
-
-    def compile(self, value: dict, message: str | None = None, earlier: tuple[str, ...] = (), current=None):
-        words = routine_change.Words(
-            routine_request.Request("p", message or self.MESSAGE, 0, "n", earlier=earlier).parts()
-        )
-        return routine_change.compile_change(routine_change.parse(value), words, CONTRACTS, current, "UTC")
-
-    def test_said_words_choose_the_disposition_and_are_its_provenance(self) -> None:
-        compiled = self.compile(self.change())
-        self.assertEqual(compiled.document["output"], {"mode": "show", "step": "publish"})
-        start = self.MESSAGE.index("show me the result")
-        self.assertEqual(compiled.output, {"proof": {"instruction": [start, start + 18]}, "by": None})
-        self.assertEqual(routine_change.parse(self.change()).to_dict()["output"], self.change()["output"])
-
-    def test_a_disposition_only_a_cited_send_states_is_unproven(self) -> None:
-        cited = "list my zones and show me the result"
-        with self.assertRaisesRegex(routine_change.ChangeError, "routine-output-unproven"):
-            self.compile(
-                self.change(request="Every Monday at 9, do this"), "Every Monday at 9, do this", earlier=(cited,)
-            )
-        with self.assertRaisesRegex(routine_change.ChangeError, "routine-output-unproven"):
-            self.compile(self.change(output={"mode": "show", "step": "publish", "instruction": "show it all"}))
-
-    def test_the_closed_output_shape_is_enforced(self) -> None:
-        for output in (
-            None,
-            {"mode": "kept"},
-            {"mode": "show", "step": None, "instruction": "x"},
-            {"mode": "show", "step": "Bad", "instruction": "x"},
-            {"mode": "none", "step": "publish", "instruction": "x"},
-            {"mode": "loud", "step": None, "instruction": "x"},
-            {"mode": "none", "step": None, "instruction": ""},
-            {"mode": "none", "step": None},
-        ):
-            with self.subTest(output=output), self.assertRaisesRegex(routine_change.ChangeError, "change-invalid"):
-                routine_change.parse(self.change(output=output))
-        update = self.change(op="update", routine_id="c" * 32, expected_revision=1, output={"mode": "kept"})
-        self.assertEqual(routine_change.parse(update).output, {"mode": "kept"})
-
-    def test_an_update_keeps_the_disposition_only_while_its_step_names_the_same_action(self) -> None:
-        created = self.compile(self.change())
-        current = (created.document, created.sources, {**created.output, "by": {"kept": True}})
-        update = self.change(op="update", routine_id="c" * 32, expected_revision=1, output={"mode": "kept"})
-        kept = self.compile(update, current=current)
-        self.assertEqual((kept.document["output"], kept.output), (created.document["output"], current[2]))
-        moved = copy.deepcopy(update)
-        moved["steps"][0]["action"] = "share-post"
-        moved["steps"][0]["input"] = {
-            "post_id": {"kind": "literal", "value": "zones", "origins": update["steps"][0]["input"]["title"]["origins"]}
-        }
-        with self.assertRaisesRegex(routine_change.ChangeError, "routine-output-unproven"):
-            self.compile(moved, current=current)
-        unshown = {**created.document, "output": {"mode": "none", "step": None}}
-        self.assertEqual(self.compile(moved, current=(unshown, {}, current[2])).document["output"]["mode"], "none")
 
 
 if __name__ == "__main__":

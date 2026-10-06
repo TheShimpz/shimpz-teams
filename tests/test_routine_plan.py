@@ -1,4 +1,4 @@
-"""The compiled Routine plan: admission, same-run JSON Pointer references, clock tokens, and bounds (ADR-0092)."""
+"""The recorded Routine plan: admission, same-run references and selectors, the run date, and bounds (ADR-0101)."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ CONTRACTS = {
 
 def _document(**changes: object) -> dict[str, object]:
     document = {
-        "version": 2,
+        "version": 3,
         "timezone": "America/Sao_Paulo",
         "steps": [
             {
@@ -68,11 +68,10 @@ def _document(**changes: object) -> dict[str, object]:
                 "input": {
                     "post_id": {"kind": "step_output", "step": "publish", "pointer": "/id"},
                     "tags": {"kind": "step_output", "step": "publish", "pointer": "/meta/a~1b/0"},
-                    "at": {"kind": "run_clock", "format": "epoch_seconds"},
                 },
             },
         ],
-        "output": {"mode": "show", "step": "publish"},
+        "output": {"mode": "show", "step": "publish", "when": None},
     }
     document.update(changes)
     return document
@@ -93,7 +92,7 @@ class PlanAdmissionTests(unittest.TestCase):
         document = _document()
         plan = routine_plan.admit(document, CONTRACTS)
         self.assertEqual([step.step_id for step in plan.steps], ["publish", "share"])
-        self.assertEqual(plan.references("publish"), ("/id", "/meta/a~1b/0"))
+        self.assertEqual(plan.references("publish"), (("/id", "", ""), ("/meta/a~1b/0", "", "")))
         self.assertEqual(plan.references("share"), ())
         self.assertRegex(plan.digest, r"\Asha256:[0-9a-f]{64}\Z")
         self.assertEqual(routine_plan.admit(copy.deepcopy(document), CONTRACTS).digest, plan.digest)
@@ -108,7 +107,7 @@ class PlanAdmissionTests(unittest.TestCase):
             ([], "plan-invalid"),
             ({**_document(), "extra": 1}, "plan-invalid"),
             (_document(version=1), "plan-invalid"),
-            (_document(steps=[]), "plan-invalid"),
+            (_document(steps=[]), "plan-output-invalid"),
             (_document(steps=too_many), "plan-invalid"),
             (_document(steps={}), "plan-invalid"),
             (_document(timezone="Mars/Olympus"), "plan-timezone-invalid"),
@@ -174,6 +173,12 @@ class PlanAdmissionTests(unittest.TestCase):
             (source("title", {"kind": "literal", "value": "x" * 81}), "plan-input-type"),
             (source("count", {"kind": "run_clock", "format": "date"}), "plan-input-type"),
             (source("day", {"kind": "run_clock", "format": "weekday"}), "plan-input-invalid"),
+            (source("day", {"kind": "run_clock", "format": "time"}), "plan-input-invalid"),
+            (source("title", {"kind": "step_text", "step": "publish", "pointer": "/id"}, 1), "plan-input-invalid"),
+            (
+                source("post_id", {"kind": "step_output", "step": "publish", "pointer": "/a", "where": {}}, 1),
+                "plan-input-invalid",
+            ),
             (
                 source("post_id", {"kind": "step_output", "step": "share", "pointer": "/id"}, 1),
                 "plan-reference-invalid",
@@ -474,30 +479,32 @@ class PlanResolutionTests(unittest.TestCase):
 
     def test_only_selected_values_are_retained_within_their_bound(self) -> None:
         chosen = routine_plan.selections(self.plan, "publish", self.result)
-        self.assertEqual(chosen, {"/id": "post-1", "/meta/a~1b/0": ["news"]})
+        self.assertEqual(chosen, {("/id", "", ""): "post-1", ("/meta/a~1b/0", "", ""): ["news"]})
         self.assertEqual(routine_plan.selections(self.plan, "share", {"anything": 1}), {})
-        self.assertTrue(routine_plan.retained_within({("publish", "/id"): "x"}))
-        self.assertFalse(routine_plan.retained_within({("publish", "/id"): "x" * routine_plan.MAX_RETAINED_BYTES}))
+        self.assertTrue(routine_plan.retained_within({("publish", "/id", "", ""): "x"}))
+        large = {("publish", "/id", "", ""): "x" * routine_plan.MAX_RETAINED_BYTES}
+        self.assertFalse(routine_plan.retained_within(large))
 
     def test_resolution_copies_literals_renders_one_run_clock_and_validates_the_whole_input(self) -> None:
         publish, share = self.plan.steps
         resolved = routine_plan.resolve(self.plan, publish, {}, self.started_at, _validator(PUBLISH))
         # 02:30 UTC on 1 January is still 31 December in Sao Paulo.
         self.assertEqual(resolved, {"title": "Weekly report", "day": "2025-12-31"})
-        selected = {("publish", "/id"): "post-1", ("publish", "/meta/a~1b/0"): ["news"]}
+        selected = {("publish", "/id", "", ""): "post-1", ("publish", "/meta/a~1b/0", "", ""): ["news"]}
         shared = routine_plan.resolve(self.plan, share, selected, self.started_at, _validator(SHARE))
-        self.assertEqual(shared, {"post_id": "post-1", "tags": ["news"], "at": self.started_at})
+        self.assertEqual(shared, {"post_id": "post-1", "tags": ["news"]})
         shared["tags"].append("mutated")
-        self.assertEqual(selected[("publish", "/meta/a~1b/0")], ["news"])
+        self.assertEqual(selected[("publish", "/meta/a~1b/0", "", "")], ["news"])
+        only = {("publish", "/id", "", ""): "post-1"}
         with self.assertRaises(routine_plan.PlanError) as missing:
-            routine_plan.resolve(self.plan, share, {("publish", "/id"): "post-1"}, self.started_at, _validator(SHARE))
+            routine_plan.resolve(self.plan, share, only, self.started_at, _validator(SHARE))
         self.assertEqual(missing.exception.code, "plan-reference-missing")
         for wrong in (None, 7, [""]):
             with self.subTest(wrong=wrong), self.assertRaises(routine_plan.PlanError) as typed:
                 routine_plan.resolve(
                     self.plan,
                     share,
-                    {("publish", "/id"): "post-1", ("publish", "/meta/a~1b/0"): wrong},
+                    {("publish", "/id", "", ""): "post-1", ("publish", "/meta/a~1b/0", "", ""): wrong},
                     self.started_at,
                     _validator(SHARE),
                 )
@@ -506,9 +513,7 @@ class PlanResolutionTests(unittest.TestCase):
     def test_clock_tokens_and_commitments_are_deterministic(self) -> None:
         instant = datetime.datetime(2026, 7, 4, 15, 5, 9, tzinfo=datetime.UTC)
         self.assertEqual(routine_plan.clock_value("date", instant, "Asia/Tokyo"), "2026-07-05")
-        self.assertEqual(routine_plan.clock_value("time", instant, "Asia/Tokyo"), "00:05")
-        self.assertEqual(routine_plan.clock_value("datetime", instant, "UTC"), "2026-07-04T15:05:09+00:00")
-        self.assertEqual(routine_plan.clock_value("epoch_seconds", instant, "Asia/Tokyo"), int(instant.timestamp()))
+        self.assertEqual(routine_plan.clock_value("date", instant, "UTC"), "2026-07-04")
         self.assertEqual(routine_plan.commitment({"b": 1, "a": "é"}), routine_plan.commitment({"a": "é", "b": 1}))
         self.assertNotEqual(routine_plan.commitment({"a": 1}), routine_plan.commitment({"a": "1"}))
         with (
@@ -516,10 +521,6 @@ class PlanResolutionTests(unittest.TestCase):
             self.assertRaises(routine_plan.PlanError),
         ):
             routine_plan.admit(_document(), CONTRACTS)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ScaleTests(unittest.TestCase):
@@ -533,9 +534,9 @@ class ScaleTests(unittest.TestCase):
         steps = [
             self._publish("first", title={"kind": "literal", "value": "One"}, count={"kind": "literal", "value": 1}),
             self._publish("second", title={"kind": "literal", "value": "Two"}, note={"kind": "literal", "value": None}),
-            self._publish("third", title={"kind": "step_text", "step": "first", "pointer": "/id"}),
+            self._publish("third", title={"kind": "step_output", "step": "first", "pointer": "/id"}),
         ]
-        document = {**_document(steps=steps), "output": {"mode": "show", "step": "third"}}
+        document = {**_document(steps=steps), "output": {"mode": "show", "step": "third", "when": None}}
         plan = routine_plan.admit(document, CONTRACTS)
         self.assertEqual([step.action for step in plan.steps], ["publish-post"] * 3)
         # An optional member is present only where the plan sets it; nothing fills one in.
@@ -553,7 +554,7 @@ class ScaleTests(unittest.TestCase):
             self._publish(f"s{index}", title={"kind": "literal", "value": f"Post {index}"})
             for index in range(routine_plan.MAX_STEPS)
         ]
-        document = {**_document(steps=steps), "output": {"mode": "changes", "step": "s255"}}
+        document = {**_document(steps=steps), "output": {"mode": "changes", "step": "s255", "when": None}}
         plan = routine_plan.admit(document, CONTRACTS)
         self.assertEqual((len(plan.steps), plan.position("s255"), plan.shown().step_id), (256, 256, "s255"))
         self.assertTrue(routine_plan.well_formed(document))
@@ -565,7 +566,7 @@ class ScaleTests(unittest.TestCase):
         plan = routine_plan.admit(
             {
                 **_document(steps=[self._publish("earlier", title={"kind": "literal", "value": "x"}), step]),
-                "output": {"mode": "none", "step": None},
+                "output": {"mode": "none", "step": None, "when": None},
             },
             {
                 ("shimpz-blog", "publish-post"): routine_plan.ActionContract(
@@ -576,10 +577,10 @@ class ScaleTests(unittest.TestCase):
         validated: list[object] = []
         large = "x" * routine_plan.MAX_RESOLVED_INPUT_BYTES
         with self.assertRaises(routine_plan.PlanError) as caught:
-            routine_plan.resolve(plan, plan.steps[1], {("earlier", ""): large}, 0, validated.append)
+            routine_plan.resolve(plan, plan.steps[1], {("earlier", "", "", ""): large}, 0, validated.append)
         self.assertEqual((caught.exception.code, validated), ("plan-input-too-large", []))
         fits = "x" * (routine_plan.MAX_RESOLVED_INPUT_BYTES - 64)
-        resolved = routine_plan.resolve(plan, plan.steps[1], {("earlier", ""): fits}, 0, validated.append)
+        resolved = routine_plan.resolve(plan, plan.steps[1], {("earlier", "", "", ""): fits}, 0, validated.append)
         self.assertEqual(resolved, {"title": fits})
 
 
@@ -614,19 +615,19 @@ class InputPreviewTests(unittest.TestCase):
             },
             {"id": "share", "assistant": "shimpz-blog", "action": "share-post", "pin": OTHER_PIN, "input": inputs},
         ]
-        return routine_plan.admit({**_document(steps=steps), "output": {"mode": "none", "step": None}}, contracts)
+        output = {"mode": "none", "step": None, "when": None}
+        return routine_plan.admit({**_document(steps=steps), "output": output}, contracts)
 
     def preview(self, inputs, resolved, selected, protected=(), source=SOURCE, share=SHARE) -> list[dict[str, object]]:
         plan = self.plan(inputs, source, share)
         return routine_plan.input_preview(plan, plan.steps[1], resolved, selected, protected)
 
     def test_a_value_copied_from_a_secret_source_position_is_withheld_whole(self) -> None:
-        for kind in ("step_output", "step_text"):
-            for pointer in ("/token", "/meta/api_key"):
-                inputs = {"post_id": {"kind": kind, "step": "publish", "pointer": pointer}}
-                with self.subTest(kind=kind, pointer=pointer):
-                    shown = self.preview(inputs, {"post_id": "s3cr3t"}, {("publish", pointer): "s3cr3t"})
-                    self.assertEqual(shown, [{"member": "post_id", "source": kind, "value": None}])
+        for pointer in ("/token", "/meta/api_key"):
+            inputs = {"post_id": {"kind": "step_output", "step": "publish", "pointer": pointer}}
+            with self.subTest(pointer=pointer):
+                shown = self.preview(inputs, {"post_id": "s3cr3t"}, {("publish", pointer, "", ""): "s3cr3t"})
+                self.assertEqual(shown, [{"member": "post_id", "source": "step_output", "value": None}])
 
     def test_a_secret_root_or_a_dependent_schema_on_the_way_withholds_the_copied_value(self) -> None:
         note = {"type": "object", "properties": {"note": {"type": "string"}}}
@@ -640,13 +641,12 @@ class InputPreviewTests(unittest.TestCase):
             },
             {"type": "object", "dependentSchemas": {"flag": {"properties": {"meta": {"format": "password"}}}}},
         )
-        for kind in ("step_output", "step_text"):
-            for source in sources:
-                inputs = {"post_id": {"kind": kind, "step": "publish", "pointer": "/meta/note"}}
-                with self.subTest(kind=kind, source=source):
-                    selected = {("publish", "/meta/note"): "private"}
-                    shown = self.preview(inputs, {"post_id": "private"}, selected, source=source)
-                    self.assertEqual(shown, [{"member": "post_id", "source": kind, "value": None}])
+        for source in sources:
+            inputs = {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/meta/note"}}
+            with self.subTest(source=source):
+                selected = {("publish", "/meta/note", "", ""): "private"}
+                shown = self.preview(inputs, {"post_id": "private"}, selected, source=source)
+                self.assertEqual(shown, [{"member": "post_id", "source": "step_output", "value": None}])
 
     def test_a_schema_secret_is_redacted_by_its_original_key_before_any_key_is_renamed(self) -> None:
         meta = {
@@ -659,7 +659,9 @@ class InputPreviewTests(unittest.TestCase):
         inputs = {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/meta"}}
         for protected in ((), ("entry",), ("other", "flag")):
             with self.subTest(protected=protected):
-                shown = self.preview(inputs, {"post_id": value}, {("publish", "/meta"): value}, protected, source)
+                shown = self.preview(
+                    inputs, {"post_id": value}, {("publish", "/meta", "", ""): value}, protected, source
+                )
                 self.assertNotIn("private", shown[0]["value"])
 
     def test_no_key_is_renamed_before_the_destination_schema_is_walked(self) -> None:
@@ -676,7 +678,7 @@ class InputPreviewTests(unittest.TestCase):
         }
         for protected in ((), ("api_key",)):
             with self.subTest(protected=protected):
-                selected = {("publish", "/meta"): value}
+                selected = {("publish", "/meta", "", ""): value}
                 shown = self.preview(inputs, {"meta": value, "post_id": "p-1"}, selected, protected, share=share)
                 self.assertNotIn("private", shown[0]["value"])
                 self.assertNotIn("k-1", shown[0]["value"])
@@ -685,24 +687,25 @@ class InputPreviewTests(unittest.TestCase):
         injected = 'quote"and\ncontrol'
         value = {f"k {injected}": "v", "[redacted] 0": "kept", "plain": "ok"}
         inputs = {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/id"}}
-        shown = self.preview(inputs, {"post_id": value}, {("publish", "/id"): value}, (injected,))
+        shown = self.preview(inputs, {"post_id": value}, {("publish", "/id", "", ""): value}, (injected,))
         self.assertEqual(shown[0]["value"], '{"[redacted] 0":"kept","[redacted] 1":"v","plain":"ok"}')
 
     def test_secret_positions_inside_a_copied_value_and_at_its_destination_are_redacted(self) -> None:
         meta = {"api_key": "k-123", "label": "public"}
         inputs = {
-            "post_id": {"kind": "step_text", "step": "publish", "pointer": "/meta"},
+            "post_id": {"kind": "step_output", "step": "publish", "pointer": "/meta"},
             "tags": {"kind": "literal", "value": ["a"]},
         }
-        shown = self.preview(inputs, {"post_id": "flattened text", "tags": ["a"]}, {("publish", "/meta"): meta})
-        # A step_text member shows the value it was rendered from, redacted, never the flattened text.
+        shown = self.preview(inputs, {"post_id": meta, "tags": ["a"]}, {("publish", "/meta", "", ""): meta})
         self.assertEqual(shown[0]["value"], '{"api_key":"[redacted]","label":"public"}')
         self.assertEqual(shown[1], {"member": "tags", "source": "literal", "value": '["a"]'})
         destination = {
             "post_id": {"kind": "literal", "value": "p-1"},
             "secret_note": {"kind": "step_output", "step": "publish", "pointer": "/id"},
         }
-        shown = self.preview(destination, {"post_id": "p-1", "secret_note": "plain"}, {("publish", "/id"): "plain"})
+        shown = self.preview(
+            destination, {"post_id": "p-1", "secret_note": "plain"}, {("publish", "/id", "", ""): "plain"}
+        )
         self.assertEqual(shown[1], {"member": "secret_note", "source": "step_output", "value": '"[redacted]"'})
 
     def test_credentials_and_injected_values_are_redacted_before_any_cut(self) -> None:
@@ -710,7 +713,7 @@ class InputPreviewTests(unittest.TestCase):
         injected = 'quote"and\ncontrol'
         value = {"label": f"see {injected} here", "nested": [credential], credential: "x", "ok": "fine"}
         inputs = {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/id"}}
-        shown = self.preview(inputs, {"post_id": value}, {("publish", "/id"): value}, (injected,))
+        shown = self.preview(inputs, {"post_id": value}, {("publish", "/id", "", ""): value}, (injected,))
         text = shown[0]["value"]
         self.assertNotIn(credential[:12], text)
         self.assertNotIn("quote", text)
@@ -720,14 +723,15 @@ class InputPreviewTests(unittest.TestCase):
     def test_an_unreadable_value_is_withheld_and_a_clock_shows_its_rendered_value(self) -> None:
         inputs = {
             "post_id": {"kind": "step_output", "step": "publish", "pointer": "/id"},
-            "at": {"kind": "run_clock", "format": "epoch_seconds"},
+            "title": {"kind": "run_clock", "format": "date"},
         }
-        shown = self.preview(inputs, {"post_id": "x", "at": 7}, {})
+        share = {**SHARE, "properties": {**SHARE["properties"], "title": {"type": "string"}}}
+        shown = self.preview(inputs, {"post_id": "x", "title": "2026-10-05"}, {}, share=share)
         self.assertEqual(
             shown,
             [
-                {"member": "at", "source": "run_clock", "value": "7"},
                 {"member": "post_id", "source": "step_output", "value": None},
+                {"member": "title", "source": "run_clock", "value": '"2026-10-05"'},
             ],
         )
 
@@ -736,6 +740,159 @@ class InputPreviewTests(unittest.TestCase):
         for _depth in range(routine_plan.MAX_SAFE_OUTPUT_DEPTH + 2):
             deep = [deep]
         inputs = {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/id"}}
-        shown = self.preview(inputs, {"post_id": deep}, {("publish", "/id"): deep})
+        shown = self.preview(inputs, {"post_id": deep}, {("publish", "/id", "", ""): deep})
         self.assertIn("[redacted]", shown[0]["value"])
         self.assertNotIn("leaf", shown[0]["value"])
+
+
+ZONES_OUT = {
+    "type": "object",
+    "properties": {
+        "result": {
+            "type": "array",
+            "prefixItems": [{"type": "object"}],
+            "items": {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}}},
+        }
+    },
+}
+
+
+class SelectorAndDispositionTests(unittest.TestCase):
+    """A reference through one array item's named member, and what a recorded plan does with its result (ADR-0101)."""
+
+    def plan(self, source: dict[str, object], output: dict[str, object] | None = None, out=ZONES_OUT):
+        contracts = {
+            ("shimpz-blog", "publish-post"): routine_plan.ActionContract(PIN, PUBLISH, (), out),
+            ("shimpz-blog", "share-post"): routine_plan.ActionContract(OTHER_PIN, SHARE),
+        }
+        steps = [
+            {
+                "id": "publish",
+                "assistant": "shimpz-blog",
+                "action": "publish-post",
+                "pin": PIN,
+                "input": {"title": {"kind": "literal", "value": "x"}},
+            },
+            {"id": "share", "assistant": "shimpz-blog", "action": "share-post", "pin": OTHER_PIN, "input": source},
+        ]
+        output = output or {"mode": "show", "step": "share", "when": None}
+        return routine_plan.admit({**_document(steps=steps), "output": output}, contracts)
+
+    def selector(self, **changes: object) -> dict[str, object]:
+        return {
+            "post_id": {
+                "kind": "step_output",
+                "step": "publish",
+                "pointer": "/result",
+                "where": {"name": "shimpz.com"},
+                "item": "/id",
+                **changes,
+            }
+        }
+
+    def test_a_selector_is_admitted_keyed_whole_and_resolved_through_its_one_item(self) -> None:
+        plan = self.plan(self.selector())
+        key = ("/result", '{"name":"shimpz.com"}', "/id")
+        self.assertEqual(plan.references("publish"), (key,))
+        result = {"result": [{"name": "other.org", "id": "z1"}, {"name": "shimpz.com", "id": "z2"}]}
+        chosen = routine_plan.selections(plan, "publish", result)
+        self.assertEqual(chosen, {key: "z2"})
+        resolved = routine_plan.resolve(plan, plan.steps[1], {("publish", *key): "z2"}, 0, _validator(SHARE))
+        self.assertEqual(resolved, {"post_id": "z2"})
+        with self.assertRaises(routine_plan.PlanError) as ambiguous:
+            routine_plan.selections(plan, "publish", {"result": [{"name": "shimpz.com", "id": "a"}] * 2})
+        self.assertEqual(ambiguous.exception.code, "plan-reference-ambiguous")
+
+    def test_a_selector_out_of_its_closed_shape_is_refused(self) -> None:
+        for changes in (
+            {"where": {"name": True}},
+            {"where": {"a": "x", "b": "y"}},
+            {"where": {1: "x"}},
+            {"where": {"name": 1.5}},
+            {"item": "id"},
+        ):
+            with self.subTest(changes=changes), self.assertRaises(routine_plan.PlanError) as caught:
+                self.plan(self.selector(**changes))
+            self.assertEqual(caught.exception.code, "plan-reference-invalid")
+        without_item = dict(self.selector()["post_id"])
+        del without_item["item"]
+        with self.assertRaises(routine_plan.PlanError) as caught:
+            self.plan({"post_id": without_item})
+        self.assertEqual(caught.exception.code, "plan-input-invalid")
+
+    def test_a_selected_value_is_previewed_under_every_schema_any_item_may_have(self) -> None:
+        plan = self.plan(self.selector())
+        key = ("publish", "/result", '{"name":"shimpz.com"}', "/id")
+        shown = routine_plan.input_preview(plan, plan.steps[1], {"post_id": "z2"}, {key: "z2"}, ())
+        self.assertEqual(shown, [{"member": "post_id", "source": "step_output", "value": '"z2"'}])
+        secret = {
+            "type": "object",
+            "properties": {"result": {"type": "array", "items": {"type": "object", "writeOnly": True}}},
+        }
+        withheld = self.plan(self.selector(), out=secret)
+        shown = routine_plan.input_preview(withheld, withheld.steps[1], {"post_id": "z2"}, {key: "z2"}, ())
+        self.assertEqual(shown, [{"member": "post_id", "source": "step_output", "value": None}])
+
+    def test_only_a_decision_has_a_condition_and_may_run_no_step(self) -> None:
+        decide = {"mode": "decide", "step": None, "when": "changes"}
+        self.assertIsNone(self.plan(self.selector(), decide).shown())
+        empty = {**_document(steps=[]), "output": {"mode": "decide", "step": None, "when": "always"}}
+        self.assertEqual(routine_plan.admit(empty, CONTRACTS).steps, ())
+        self.assertTrue(routine_plan.well_formed(empty))
+        for output in (
+            {"mode": "decide", "step": None, "when": None},
+            {"mode": "decide", "step": "share", "when": "always"},
+            {"mode": "show", "step": "share", "when": "always"},
+            {"mode": "none", "step": None, "when": "changes"},
+            {"mode": "chain", "step": None, "when": None},
+            {"mode": "show", "step": "share"},
+        ):
+            with self.subTest(output=output), self.assertRaises(routine_plan.PlanError) as caught:
+                self.plan(self.selector(), output)
+            self.assertEqual(caught.exception.code, "plan-output-invalid")
+        self.assertFalse(routine_plan.well_formed({**empty, "output": {"mode": "none", "step": None, "when": None}}))
+
+    def test_a_shown_result_redacts_every_value_and_key_the_run_protects(self) -> None:
+        node = routine_plan.output_safe(
+            {"note": "has tok-1 inside", "tok-1": "x", "ok": "fine"}, {}, frozenset({"tok-1"})
+        )
+        fields = dict(node["fields"])
+        self.assertEqual(fields["note"], routine_plan.OUTPUT_REDACTED)
+        self.assertEqual(fields["[redacted]"], routine_plan.OUTPUT_REDACTED)
+        self.assertEqual(fields["ok"], {"kind": "text", "value": "fine", "cut": False})
+        self.assertEqual(routine_plan.output_safe("plain", {}, frozenset({""}))["kind"], "text")
+
+
+class IndexedPreviewTests(unittest.TestCase):
+    def test_a_pointer_through_an_index_and_scalars_beside_injected_values_preview_safely(self) -> None:
+        source = {"type": "object", "properties": {"zones": {"type": "array", "prefixItems": [{"type": "object"}]}}}
+        contracts = {
+            ("shimpz-blog", "publish-post"): routine_plan.ActionContract(PIN, PUBLISH, (), source),
+            ("shimpz-blog", "share-post"): routine_plan.ActionContract(OTHER_PIN, SHARE),
+        }
+        steps = [
+            {
+                "id": "publish",
+                "assistant": "shimpz-blog",
+                "action": "publish-post",
+                "pin": PIN,
+                "input": {"title": {"kind": "literal", "value": "x"}},
+            },
+            {
+                "id": "share",
+                "assistant": "shimpz-blog",
+                "action": "share-post",
+                "pin": OTHER_PIN,
+                "input": {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/zones/0"}},
+            },
+        ]
+        output = {"mode": "none", "step": None, "when": None}
+        plan = routine_plan.admit({**_document(steps=steps), "output": output}, contracts)
+        value = {"id": 7, "flag": True, "note": None}
+        key = ("publish", "/zones/0", "", "")
+        shown = routine_plan.input_preview(plan, plan.steps[1], {"post_id": value}, {key: value}, ("secret",))
+        self.assertEqual(shown[0]["value"], '{"flag":true,"id":7,"note":null}')
+
+
+if __name__ == "__main__":
+    unittest.main()

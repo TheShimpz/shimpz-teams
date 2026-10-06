@@ -145,7 +145,13 @@ class OwnerCaseTests(unittest.TestCase):
         self.assertEqual(
             recorded.permitted,
             (
-                {"assistant": "cloudflare", "action": "list-dns-records", "pin": PIN, "read_only": True, "stored_inputs": []},
+                {
+                    "assistant": "cloudflare",
+                    "action": "list-dns-records",
+                    "pin": PIN,
+                    "read_only": True,
+                    "stored_inputs": [],
+                },
                 {"assistant": "cloudflare", "action": "list-zones", "pin": PIN, "read_only": True, "stored_inputs": []},
             ),
         )
@@ -530,3 +536,81 @@ class UnrepresentableReferenceTests(unittest.TestCase):
                 self.assertEqual(
                     _input(_record(recorded, known))["zone_id"], {"kind": "literal", "value": "safe-id123"}
                 )
+
+
+KEPT_PLAN = {
+    "version": routine_plan.VERSION,
+    "timezone": "UTC",
+    "steps": [
+        {"id": "s1", "assistant": "cloudflare", "action": "list-zones", "pin": PIN, "input": {}},
+        {
+            "id": "s2",
+            "assistant": "cloudflare",
+            "action": "list-dns-records",
+            "pin": PIN,
+            "input": {
+                "zone_id": {
+                    "kind": "step_output",
+                    "step": "s1",
+                    "pointer": "/result",
+                    "where": {"name": "a.com"},
+                    "item": "/id",
+                },
+                "type": {"kind": "literal", "value": "MX"},
+                "per_page": {"kind": "literal", "value": 50},
+            },
+        },
+    ],
+    "output": {"mode": "show", "step": "s2", "when": None},
+}
+
+
+class KeptTests(unittest.TestCase):
+    """A replacement that ran no Action keeps the replaced plan's steps exactly (ADR-0101 section 5.4)."""
+
+    def keep(self, mode: str = "changes", **options) -> recording.Recorded:
+        choice = recording.Recording(mode, options.get("when"), "America/Sao_Paulo", ())
+        return recording.kept(
+            options.get("plan", KEPT_PLAN),
+            choice,
+            options.get("known", "now with 50 per page"),
+            options.get("protection", trace.Protection()),
+            CONTRACTS,
+        )
+
+    def test_the_steps_stay_and_only_how_and_when_they_run_change(self) -> None:
+        kept = self.keep()
+        self.assertEqual(kept.document["steps"], KEPT_PLAN["steps"])
+        self.assertEqual(kept.document["timezone"], "America/Sao_Paulo")
+        self.assertEqual(kept.document["output"], {"mode": "changes", "step": "s2", "when": None})
+        self.assertEqual(
+            kept.origins, {"s1": {}, "s2": {"zone_id": "selector", "type": "assistant", "per_page": "request"}}
+        )
+        self.assertEqual([item["action"] for item in kept.permitted], ["list-dns-records", "list-zones"])
+        plain = {
+            **KEPT_PLAN,
+            "steps": [
+                KEPT_PLAN["steps"][0],
+                {
+                    **KEPT_PLAN["steps"][1],
+                    "input": {
+                        "zone_id": {"kind": "step_output", "step": "s1", "pointer": "/zone"},
+                        "day": {"kind": "run_clock", "format": "date"},
+                    },
+                },
+            ],
+        }
+        self.assertEqual(self.keep(plan=plain).origins["s2"], {"zone_id": "step", "day": "clock"})
+        decided = self.keep("decide", when="always", plan={**KEPT_PLAN, "steps": []})
+        self.assertEqual((decided.document["steps"], decided.document["output"]["step"]), ([], None))
+
+    def test_a_lost_protection_a_drifted_pin_or_no_step_to_show_refuses(self) -> None:
+        drifted = {**KEPT_PLAN, "steps": [{**KEPT_PLAN["steps"][0], "pin": DRIFTED_PIN}]}
+        cases = [
+            ({"protection": trace.Protection(lost=True)}, "routine-recording-unavailable"),
+            ({"plan": drifted}, "plan-pin-drift"),
+            ({"plan": {**KEPT_PLAN, "steps": []}}, "routine-recording-empty"),
+        ]
+        for options, code in cases:
+            with self.subTest(code=code):
+                self.assertEqual(_code(self, lambda o=options: self.keep(**o)), code)

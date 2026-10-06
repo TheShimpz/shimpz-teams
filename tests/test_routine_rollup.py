@@ -1,4 +1,7 @@
-"""A continuous Routine's healthy runs roll up into one versioned notice per minute (ADR-0092 section 9)."""
+"""A continuous Routine's healthy runs roll up into one versioned notice per minute (ADR-0092 §9, ADR-0101).
+
+The rollup carries the Routine's name as it was when each version was written and the minute's summed usage.
+"""
 
 from __future__ import annotations
 
@@ -19,14 +22,21 @@ from routine import record
 ROUTINE_ID = "a" * 32
 # A minute boundary: 09:00:00.
 MINUTE = base.NINE
+NAME = "Resumo das mudanças de DNS"
+# The active time each run of these tests spends.
+RUN_MS = 1200
 
 
-def continuous(gap: int = 5) -> record.TeamRoutines:
-    # A Routine that hands each run's result on keeps the compact minute rollup (ADR-0092 amendment, 2026-10-05).
+def defined(gap: int = 5) -> record.Routine:
+    # A Routine that shows no result keeps the compact minute rollup of its healthy runs (ADR-0101).
     value = base.routine(
         schedule={"kind": "continuous", "gap": gap, "cap": 1000}, plan=routine_fixture.chain_document()
     )
-    return base.at(base.added(value), ROUTINE_ID, MINUTE)
+    return dataclasses.replace(value, name=NAME)
+
+
+def continuous(gap: int = 5) -> record.TeamRoutines:
+    return base.at(base.added(defined(gap)), ROUTINE_ID, MINUTE)
 
 
 def run_once(state: record.TeamRoutines, start: int, end: int, outcome: str = "done") -> record.TeamRoutines:
@@ -34,10 +44,11 @@ def run_once(state: record.TeamRoutines, start: int, end: int, outcome: str = "d
     state = base.at(state, ROUTINE_ID, start)
     state, claim = record.claim(state, start, base.KEY)
     lease = record.lease_of(claim.lease_token, base.KEY)
+    state = record.spend(state, claim.run.run_id, lease, start, (1, RUN_MS))
     detail = (
         routine_fixture.DONE
         if outcome == "done"
-        else {"code": "assistant-rpc-failed", "actions": [], "step": None, "steps": None}
+        else {"code": "assistant-rpc-failed", "actions": [], "position": None, "steps": None}
     )
     return record.finish(state, claim.run.run_id, lease, end, outcome, detail)
 
@@ -65,11 +76,8 @@ def same_minute_change() -> tuple[list[list[dict[str, object]]], record.TeamRout
     first = delivery(state)
     deliveries = [first]
     state = restarted(run_once(state, MINUTE + 10, MINUTE + 11))
-    changed = record.scheduled(
-        base.routine(schedule={"kind": "continuous", "gap": 6, "cap": 1000}, plan=routine_fixture.chain_document()),
-        MINUTE + 20,
-    )
-    state, _updated = record.update(state, changed, 1, MINUTE + 20, base.RECEIPT, MINUTE + 900)
+    changed = record.scheduled(defined(gap=6), MINUTE + 20)
+    state = record.update(state, changed, 1, MINUTE + 20)
     state = run_once(state, MINUTE + 30, MINUTE + 31)
     # The first delivery's acknowledgment arrives only now, after the minute's count grew twice.
     state = acknowledged(state, first)
@@ -87,12 +95,11 @@ def backward_clock() -> tuple[list[list[dict[str, object]]], record.TeamRoutines
         if end != MINUTE + 1:
             deliveries.append(delivery(state))
             state = acknowledged(state, deliveries[-1])
+    # A run whose clock fell back into a delivered minute shows nothing, as a run of none does.
     state = run_once(state, MINUTE + 30, MINUTE + 31)
-    (individual,) = state.notices
-    if individual.outcome != "done":
-        raise AssertionError(individual.outcome)
+    if state.notices:
+        raise AssertionError(state.notices)
     deliveries.append(delivery(state))
-    state = record.acknowledge(state, frozenset({(individual.notice_id, individual.version)}))
     state = run_once(state, MINUTE + 70, MINUTE + 71)
     deliveries.append(delivery(state))
     return deliveries, acknowledged(state, deliveries[-1])
@@ -110,6 +117,8 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(deliveries, DELIVERY["same_minute_change"]["deliveries"])
         (first,), (last,) = deliveries
         self.assertEqual((last["notice_id"], last["version"], last["detail"]), (first["notice_id"], 3, {"runs": 3}))
+        # The minute's usage sums every run of it, across the change and the restart.
+        self.assertEqual(last["usage"], {"duration_ms": 3 * RUN_MS, "models": []})
         self.assertEqual(record.routine(state, ROUTINE_ID).revision, 2)
         self.assertEqual([item.outcome for item in state.notices], ["changed"])
 
@@ -140,6 +149,7 @@ class RollupTests(unittest.TestCase):
             (notice.outcome, notice.run_id, notice.created_at, notice.detail, notice.version),
             ("healthy", "", MINUTE, {"runs": 3}, 3),
         )
+        self.assertEqual((notice.name, notice.usage["duration_ms"]), (NAME, 3 * RUN_MS))
         self.assertEqual(record.routine(state, ROUTINE_ID).failures, 0)
         # The next minute starts its own notice.
         state = run_once(state, MINUTE + 60, MINUTE + 61)
@@ -177,14 +187,15 @@ class RollupTests(unittest.TestCase):
         state = record.finish(state, claim.run.run_id, lease, base.NINE + 1, "done", routine_fixture.DONE)
         self.assertEqual([item.outcome for item in state.notices], ["done"])
 
-    def test_a_clock_stepped_back_past_the_bound_falls_back_to_one_notice_per_run(self):
+    def test_a_minute_past_its_bound_rolls_up_nothing_more_and_shows_nothing(self):
         state = continuous()
         full = dataclasses.replace(
             record.routine(state, ROUTINE_ID), rollup_minute=MINUTE, rollup_runs=http_routine.MAX_ROLLUP_RUNS
         )
         state = dataclasses.replace(state, routines=(full,))
         state = run_once(state, MINUTE + 30, MINUTE + 31)
-        self.assertEqual([item.outcome for item in state.notices], ["done"])
+        self.assertEqual(state.notices, ())
+        self.assertEqual(record.routine(state, ROUTINE_ID).rollup_runs, http_routine.MAX_ROLLUP_RUNS)
 
     def test_an_hour_of_runs_every_five_seconds_delivers_one_notice_a_minute(self):
         state, now, delivered = continuous(), MINUTE, {}

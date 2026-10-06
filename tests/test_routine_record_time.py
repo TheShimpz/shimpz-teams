@@ -15,6 +15,8 @@ from routine import hold as routine_hold
 from routine import plan as routine_plan
 from routine import record
 
+REPLAY = {"phase": "replay", "step": 1}
+
 
 class ScaleClaimTests(unittest.TestCase):
     """Long runs, their leases, active time, and the Team's daily steps (ADR-0092 amendment, 2026-10-05, scale)."""
@@ -23,8 +25,8 @@ class ScaleClaimTests(unittest.TestCase):
     def long_routine(routine_id: str = "b" * 32, steps: int = 40, schedule: dict | None = None) -> record.Routine:
         plan = routine_fixture.plan_document()
         plan["steps"] = [{**plan["steps"][0], "id": f"s{index}"} for index in range(steps)]
-        plan["output"] = {"mode": "none", "step": None}
-        return routine_fixture.granted(dataclasses.replace(routine(routine_id, schedule), plan=plan))
+        plan["output"] = {"mode": "none", "step": None, "when": None}
+        return routine_fixture.confirmed(dataclasses.replace(routine(routine_id, schedule), plan=plan))
 
     def test_a_long_routine_waits_while_admin_holds_a_long_run_and_a_short_one_is_still_served(self):
         state = at(at(added(self.long_routine(), routine()), "b" * 32, NINE - 60), "a" * 32, NINE)
@@ -51,11 +53,28 @@ class ScaleClaimTests(unittest.TestCase):
 
     def test_a_freeze_names_exactly_the_step_of_the_plan_it_waits_at(self):
         state, claim, lease = claimed()
-        for request in (("human", "dns", "check", 2), ("human", "dns", "check", 0), ("human", "dns", "other", 1)):
+        for request in (
+            ("human", "dns", "check", {"phase": "replay", "step": 2}),
+            ("human", "dns", "check", {"phase": "replay", "step": 0}),
+            ("human", "dns", "other", {"phase": "replay", "step": 1}),
+            ("permission", "dns", "other", {"phase": "decision", "call": 0}),
+        ):
             with self.subTest(request=request), self.assertRaisesRegex(record.RoutineStateError, "freeze-invalid"):
                 record.freeze(state, claim.run.run_id, lease, NINE, request)
-        frozen = record.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", 1))
-        self.assertEqual(frozen.notices[-1].detail["step"], 1)
+        frozen = record.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", REPLAY))
+        self.assertEqual(frozen.notices[-1].detail["position"], REPLAY)
+        # A decision call names its own order, whatever Action the plan's steps hold.
+        call = {"phase": "decision", "call": 3}
+        waiting = record.freeze(state, claim.run.run_id, lease, NINE, ("permission", "dns", "delete-record", call))
+        notice = waiting.notices[-1]
+        self.assertEqual(
+            (notice.detail["request_kind"], notice.detail["position"], notice.detail["steps"]), ("permission", call, 1)
+        )
+        self.assertEqual(record.run(waiting, claim.run.run_id).position, call)
+        thawed, _token = record.thaw(waiting, claim.run.run_id, NINE + 1, 0)
+        self.assertEqual(
+            (record.run(thawed, claim.run.run_id).position, record.run(thawed, claim.run.run_id).steps), (None, 0)
+        )
 
     def test_a_start_reserves_every_step_of_its_revision_under_the_team_daily_steps(self):
         state = at(added(self.long_routine(schedule=HOURLY)), "b" * 32, NINE)
@@ -69,10 +88,6 @@ class ScaleClaimTests(unittest.TestCase):
         self.assertEqual(after.starts[-1], ("b" * 32, freed, 40))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 # The active time of a run of the one-step Routine these tests claim.
 ONE_STEP = routine_plan.active_seconds(1)
 
@@ -81,13 +96,15 @@ class HoldTimeTests(unittest.TestCase):
     def test_a_hold_keeps_the_run_balance_and_a_continuation_restores_it(self):
         state, claim, lease = bound()
         run_id = claim.run.run_id
-        state = record.spend(state, run_id, lease, NINE, 250)
+        state = record.spend(state, run_id, lease, NINE, (250, 250_400))
         state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
         self.assertEqual(routine_hold.incident(state, run_id).active_seconds_left, ONE_STEP - 250)
+        self.assertEqual(routine_hold.incident(state, run_id).usage, {"duration_ms": 250_400, "models": []})
         reopened, _token = routine_hold.reopen_incident(
             state, run_id, NINE + 2, record.generation_for("net_1", run_id, "s1")
         )
         self.assertEqual(record.run(reopened, run_id).active_seconds_left, ONE_STEP - 250)
+        self.assertEqual(record.run(reopened, run_id).usage["duration_ms"], 250_400)
         spent = dataclasses.replace(
             state, incidents=(dataclasses.replace(routine_hold.incident(state, run_id), active_seconds_left=0),)
         )
@@ -223,6 +240,63 @@ class ContinuousTests(unittest.TestCase):
         before = record.routine(scheduled, "a" * 32).next_run_at
         self.assertEqual(record.rebase_continuous(scheduled, "a" * 32, NINE + 10), scheduled)
         self.assertEqual(record.routine(scheduled, "a" * 32).next_run_at, before)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+MODEL = {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 10, "output_tokens": 2}
+
+
+class UsageAndProtectionTests(unittest.TestCase):
+    """A run's usage and lost protection go on through every hold and continuation (ADR-0101)."""
+
+    def test_usage_sums_active_time_and_each_models_tokens_within_their_bounds(self):
+        state, claim, lease = bound()
+        run_id = claim.run.run_id
+        state = record.spend(state, run_id, lease, NINE, (1, 1500))
+        state = record.used(state, run_id, [MODEL])
+        state = record.used(state, run_id, [MODEL, {**MODEL, "provider": "anthropic", "model": "claude-sonnet-5-5"}])
+        usage = record.run(state, run_id).usage
+        self.assertEqual(usage["duration_ms"], 1500)
+        self.assertEqual(
+            [(item["provider"], item["input_tokens"]) for item in usage["models"]], [("anthropic", 10), ("openai", 20)]
+        )
+        with self.assertRaisesRegex(record.RoutineStateError, "usage-invalid"):
+            record.used(state, run_id, [{**MODEL, "model": "Bad Model"}])
+        capped = record.joined_usage(
+            {"duration_ms": record.MAX_USAGE_MS, "models": [{**MODEL, "input_tokens": 999_999_999}]},
+            {"duration_ms": 5, "models": [{**MODEL, "input_tokens": 9}]},
+        )
+        self.assertEqual(capped["duration_ms"], record.MAX_USAGE_MS)
+        self.assertEqual(capped["models"][0]["input_tokens"], 1_000_000_000)
+        many = [{**MODEL, "model": f"m{index:02d}"} for index in range(20)]
+        self.assertEqual(
+            len(record.joined_usage({"duration_ms": 0, "models": []}, {"duration_ms": 0, "models": many})["models"]), 16
+        )
+
+    def test_a_run_notice_carries_its_usage_and_a_lost_protection_for_good(self):
+        state, claim, lease = bound()
+        run_id = claim.run.run_id
+        state = record.lose_protection(record.used(state, run_id, [MODEL]), run_id)
+        state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
+        held = state.notices[-1]
+        self.assertEqual(
+            (held.outcome, held.protection_lost, held.usage["models"][0]["model"]), ("held", True, "gpt-6-luna")
+        )
+        incident = routine_hold.incident(state, run_id)
+        self.assertTrue(incident.protection_lost)
+        recovered = routine_hold.used(state, run_id, [MODEL])
+        self.assertEqual(routine_hold.incident(recovered, run_id).usage["models"][0]["input_tokens"], 20)
+        with self.assertRaisesRegex(record.RoutineStateError, "usage-invalid"):
+            routine_hold.used(state, run_id, [{**MODEL, "provider": ""}])
+        reopened, _token = routine_hold.reopen_incident(
+            recovered, run_id, NINE + 2, record.generation_for("net_1", run_id, "s1")
+        )
+        run = record.run(reopened, run_id)
+        self.assertTrue(run.protection_lost)
+        self.assertEqual(run.usage["models"][0]["input_tokens"], 20)
 
 
 if __name__ == "__main__":
