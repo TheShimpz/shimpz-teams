@@ -756,11 +756,7 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
     contract = request.contract
     container = request.container
     action = request.action
-    if (
-        not isinstance(action, str)
-        or http_payload.ACTION_ID_RE.fullmatch(action) is None
-        or action not in contract.actions
-    ):
+    if http_payload.canonical_action_id(action) is None or action not in contract.actions:
         raise runtime_state.ApiError(
             action_execution.UNDECLARED_ACTION_STATUS,
             "Assistant requested an undeclared Action",

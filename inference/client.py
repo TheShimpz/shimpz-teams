@@ -459,10 +459,8 @@ class BrainRuntimeClient:
             if (
                 not isinstance(interrupt_id, str)
                 or action_journal.SAFE_ID_RE.fullmatch(interrupt_id) is None
-                or not isinstance(assistant_id, str)
-                or http_payload.ACTION_ID_RE.fullmatch(assistant_id) is None
-                or not isinstance(action, str)
-                or http_payload.ACTION_ID_RE.fullmatch(action) is None
+                or http_payload.canonical_assistant_id(assistant_id) is None
+                or http_payload.canonical_action_id(action) is None
                 or not isinstance(action_input, dict)
             ):
                 raise BrainRuntimeError("Brain runtime returned an invalid response")
@@ -555,22 +553,17 @@ class BrainRuntimeClient:
             actions = candidate.actions
             integrations = candidate.integrations
             if (
-                not isinstance(candidate.id, str)
-                or http_payload.ACTION_ID_RE.fullmatch(candidate.id) is None
+                http_payload.canonical_assistant_id(candidate.id) is None
                 or not isinstance(actions, tuple)
-                or any(
-                    not isinstance(item, str) or http_payload.ACTION_ID_RE.fullmatch(item) is None for item in actions
-                )
+                or any(http_payload.canonical_action_id(item) is None for item in actions)
                 or not 1 <= len(actions) <= MAX_CAPABILITY_ACTIONS
                 or actions != tuple(sorted(set(actions)))
                 or not isinstance(integrations, tuple)
                 or len(integrations) > MAX_CAPABILITY_INTEGRATIONS
                 or any(
                     not isinstance(item, RuntimeCapabilityIntegration)
-                    or not isinstance(item.id, str)
-                    or http_payload.ACTION_ID_RE.fullmatch(item.id) is None
-                    or not isinstance(item.provider, str)
-                    or http_payload.ACTION_ID_RE.fullmatch(item.provider) is None
+                    or http_payload.canonical_identifier(item.id) is None
+                    or http_payload.canonical_identifier(item.provider) is None
                     for item in integrations
                 )
             ):
@@ -620,7 +613,7 @@ class BrainRuntimeClient:
     ) -> RuntimeLifecycleReference | None:
         if value is None:
             return None
-        if not isinstance(value, RuntimeLifecycleReference) or http_payload.ACTION_ID_RE.fullmatch(value.id) is None:
+        if not isinstance(value, RuntimeLifecycleReference) or http_payload.canonical_assistant_id(value.id) is None:
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
         return RuntimeLifecycleReference(
             value.id,
@@ -696,7 +689,7 @@ class BrainRuntimeClient:
         for candidate in candidates:
             if (
                 not isinstance(candidate, RuntimeDirectoryCandidate)
-                or http_payload.ACTION_ID_RE.fullmatch(candidate.id) is None
+                or http_payload.canonical_assistant_id(candidate.id) is None
             ):
                 raise BrainRuntimeError("Brain runtime intent route request is invalid")
             name = cls._capability_text(candidate.name, MAX_INTENT_ROUTE_NAME_CHARS)
@@ -857,7 +850,7 @@ class BrainRuntimeClient:
             or "\0" in api_key
             or http_payload.canonical_locale(locale) is None
             or not 1 <= len(action_ids) <= MAX_ACTION_LABELS
-            or any(http_payload.ACTION_ID_RE.fullmatch(action_id) is None for action_id in action_ids)
+            or any(http_payload.canonical_action_id(action_id) is None for action_id in action_ids)
             or len(set(action_ids)) != len(action_ids)
         ):
             raise BrainRuntimeError("Brain runtime Action label request is invalid")

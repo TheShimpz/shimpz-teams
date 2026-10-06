@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from action import stored_input
 from assistant import manifest
+from inference import client as brain_client
 from integrations import flow, pkce, service
 from integrations import store as integration_store
 from local.install import snapshots
@@ -111,6 +112,66 @@ class DevelopersIdentifierAdmissionTests(unittest.TestCase):
         for value in ("a" * 65, "dns.read", "a,A"):
             with self.subTest(value=value), self.assertRaises(snapshots.LocalSnapshotError):
                 snapshots._capability_ids(value, maximum=2, required=True)
+
+
+class BrainRuntimeIdentifierTests(unittest.TestCase):
+    """What Team sends the Brain and admits back names each identifier by its own kind."""
+
+    Client = brain_client.BrainRuntimeClient
+
+    def _turn(self, assistant_id: str, action: str) -> dict[str, object]:
+        request = {"interrupt_id": "call-1", "assistant_id": assistant_id, "action": action, "input": {}}
+        return {
+            "status": "action-required",
+            "reply": "",
+            "actions": [request],
+            "clarification": None,
+            "memory": [],
+            "routine": None,
+        }
+
+    def test_requested_actions_name_a_canonical_assistant_and_action(self) -> None:
+        self.assertEqual(len(self.Client._parse_turn(self._turn("a" * 40, "dns.read")).actions), 1)
+        for assistant_id, action in (("a" * 41, "lookup"), ("dns.read", "lookup"), ("helper", "a" * 129)):
+            with (
+                self.subTest(assistant_id=assistant_id, action=action),
+                self.assertRaises(brain_client.BrainRuntimeError),
+            ):
+                self.Client._parse_turn(self._turn(assistant_id, action))
+
+    def test_capability_candidates_name_each_identifier_by_kind(self) -> None:
+        def candidate(assistant_id: str, action: str, integration: str, provider: str):
+            return brain_client.RuntimeCapabilityCandidate(
+                assistant_id,
+                "Helper",
+                "Helps.",
+                (action,),
+                (brain_client.RuntimeCapabilityIntegration(integration, provider),),
+            )
+
+        valid = candidate("a" * 40, "dns.read", "i" * 64, "p" * 64)
+        self.assertEqual(self.Client.validate_capability_plan_inputs("Help me", (valid,))[1], (valid,))
+        for invalid in (
+            candidate("a" * 41, "lookup", "token", "cloudflare"),
+            candidate("helper", "a" * 129, "token", "cloudflare"),
+            candidate("helper", "lookup", "i" * 65, "cloudflare"),
+            candidate("helper", "lookup", "api.token", "cloudflare"),
+            candidate("helper", "lookup", "token", "p" * 65),
+        ):
+            with self.subTest(candidate=invalid), self.assertRaises(brain_client.BrainRuntimeError):
+                self.Client.validate_capability_plan_inputs("Help me", (invalid,))
+
+    def test_lifecycle_routes_name_canonical_assistants(self) -> None:
+        context = brain_client.RuntimeLifecycleContext(locale="en")
+        for assistant_id in ("a" * 41, "dns.read"):
+            candidates = (brain_client.RuntimeDirectoryCandidate(assistant_id, "Helper"),)
+            with self.subTest(assistant_id=assistant_id), self.assertRaises(brain_client.BrainRuntimeError):
+                self.Client.validate_intent_route_inputs("Install it", "assistant-install", candidates, context)
+            reference = brain_client.RuntimeLifecycleReference(assistant_id, "Helper")
+            with self.subTest(reference=assistant_id), self.assertRaises(brain_client.BrainRuntimeError):
+                self.Client.validate_intent_route_inputs(
+                    "Remove it", None, (), brain_client.RuntimeLifecycleContext(reference, (), "en")
+                )
 
 
 if __name__ == "__main__":
