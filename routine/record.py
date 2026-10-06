@@ -401,7 +401,7 @@ def definition_valid(value: Routine) -> bool:
         and type(value.rehearsal) is bool
         and type(value.paused) is bool
         and type(value.permissions_revision) is int
-        and value.permissions_revision >= 0
+        and 0 <= value.permissions_revision < 2**31
         and type(value.revision) is int
         and 1 <= value.revision < 2**31
         and _rehearsed(value)

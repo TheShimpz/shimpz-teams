@@ -360,6 +360,7 @@ class AddTests(unittest.TestCase):
             dataclasses.replace(good, permitted=({**good.permitted[0], "stored_inputs": ["b", "a"]},)),
             dataclasses.replace(good, permitted=({**good.permitted[0], "read_only": 1},)),
             dataclasses.replace(good, permissions_revision=-1),
+            dataclasses.replace(good, permissions_revision=2**31),
             dataclasses.replace(good, rehearsal=None),
             dataclasses.replace(good, allowance=1),
             dataclasses.replace(good, model={"provider": "openai", "model": "m", "effort": "low"}),
