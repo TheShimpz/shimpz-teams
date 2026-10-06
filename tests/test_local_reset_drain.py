@@ -18,7 +18,8 @@ sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 from test_local_human_purge_race import ObservedLock
 from test_local_space_reset import LOCAL_TEAM_RESIDUES
-from test_local_stop_pause_race import CHAT_BODY, PausingTurn, Runtime
+from test_local_stop_pause_race import CHAT_BODY, PausingTurn
+from test_local_turn_lifecycle import PausingRuntime
 
 from action import human as action_human
 from local import app as local_app
@@ -48,7 +49,9 @@ class ObservedSlot:
 
 class LocalResetDrainTests(LocalContractCase):
     def _controller(self, directory: str) -> local_app.LocalController:
-        controller = self._chat_controller(directory, Runtime())
+        controller = self._chat_controller(
+            directory, PausingRuntime("a stopped turn must not resume the Brain", fresh=True)
+        )
         admitted = human_request_fixtures.list_zones_approval()
         controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
             action_human.HumanRequestSuspensionError(admitted)

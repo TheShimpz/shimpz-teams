@@ -15,9 +15,9 @@ from pathlib import Path
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase, chat_body
+from test_local_turn_lifecycle import PausingRuntime
 
 from action import human as action_human
-from inference import client as brain_runtime_client
 from integrations import broker as integration_broker
 from integrations import service as integration_service
 from local import app as local_app
@@ -25,19 +25,6 @@ from tests import human_request_fixtures
 
 GENERATION = "a" * 64
 CHAT_BODY = chat_body("List zones", assistant_ids=["shimpz-cloudflare"])
-
-
-class Runtime:
-    purpose = staticmethod(lambda *_args: None)
-
-    def start(self, _context, _message, *, conversation=()):
-        request = brain_runtime_client.ActionRequest(
-            "action-1", "shimpz-cloudflare", "list-zones", {"page": 1, "per_page": 25}
-        )
-        return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
-
-    def resume(self, _context, _results):
-        raise AssertionError("a stopped turn must not resume the Brain")
 
 
 class PausingTurn:
@@ -104,7 +91,9 @@ class ContendedLock:
 
 class LocalStopPauseRaceTests(LocalContractCase):
     def _controller(self, directory: str, *, human: bool) -> local_app.LocalController:
-        controller = self._chat_controller(directory, Runtime())
+        controller = self._chat_controller(
+            directory, PausingRuntime("a stopped turn must not resume the Brain", fresh=True)
+        )
         if human:
             admitted = human_request_fixtures.list_zones_approval()
             controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(

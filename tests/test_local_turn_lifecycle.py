@@ -44,16 +44,21 @@ LIST_ZONES = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare",
 
 
 class PausingRuntime:
-    """A Brain that asks for one list-zones Action and refuses any resume."""
+    """A Brain that asks for one list-zones Action and refuses any resume; ``fresh`` builds a new request per turn."""
 
     purpose = staticmethod(lambda *_args: None)
 
-    def __init__(self, refusal: str) -> None:
+    def __init__(self, refusal: str, *, fresh: bool = False) -> None:
         self.resume = mock.Mock(side_effect=AssertionError(refusal))
+        self.fresh = fresh
 
-    @staticmethod
-    def start(_context, _message, *, conversation=()):
-        return brain_runtime_client.RuntimeTurn("action-required", "", (LIST_ZONES,))
+    def start(self, _context, _message, *, conversation=()):
+        request = LIST_ZONES
+        if self.fresh:
+            request = brain_runtime_client.ActionRequest(
+                "action-1", "shimpz-cloudflare", "list-zones", dict(LOOKUP_INPUT)
+            )
+        return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
 
 def _chat(controller: local_app.LocalController, message: str, **fields: object) -> dict[str, object]:

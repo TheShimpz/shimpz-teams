@@ -15,8 +15,8 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase, chat_body
+from test_local_turn_lifecycle import PausingRuntime
 
-from inference import client as brain_runtime_client
 from inference import config as inference_config
 from integrations import broker as integration_broker
 from integrations import service as integration_service
@@ -27,23 +27,12 @@ OPENAI_KEY = "sk-test-0123456789"
 ANTHROPIC_KEY = "sk-ant-test-0123456789"
 
 
-class Runtime:
-    purpose = staticmethod(lambda *_args: None)
-
-    def start(self, _context, _message, *, conversation=()):
-        request = brain_runtime_client.ActionRequest(
-            "action-1", "shimpz-cloudflare", "list-zones", {"page": 1, "per_page": 25}
-        )
-        return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
-
-    def resume(self, _context, _results):
-        raise AssertionError("a drifted paused turn must not resume the Brain")
-
-
 class LocalIntegrationDriftTests(LocalContractCase):
     def _paused(self, directory: str) -> tuple[local_app.LocalController, dict[str, object]]:
         """A turn paused for the Cloudflare Integration, with the OAuth authorization the Supervisor started for it."""
-        controller = self._chat_controller(directory, Runtime())
+        controller = self._chat_controller(
+            directory, PausingRuntime("a drifted paused turn must not resume the Brain", fresh=True)
+        )
         controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare")
         service = controller.chat_turn_service
         paused = service.chat("team_1", dict(CHAT_BODY), "openai", OPENAI_KEY)
