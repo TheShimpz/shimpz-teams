@@ -71,10 +71,9 @@ class DefinitionTests(unittest.TestCase):
         self.assertEqual(routine_definition.daily_steps(_defined(plan=decide, allowance=16)), 100 * 17)
         self.assertEqual(routine_definition.capacity([_defined()]), routine_plan.MAX_DAILY_STEPS - 100)
 
-    def test_a_pause_never_clears_an_owed_rehearsal(self) -> None:
+    def test_a_routine_is_active_or_paused(self) -> None:
         self.assertEqual(routine_definition.state(_defined()), "active")
         self.assertEqual(routine_definition.state(_defined(paused=True)), "paused")
-        self.assertEqual(routine_definition.state(_defined(paused=True, rehearsal=True)), "rehearsal")
 
     def test_views_and_notices_carry_the_standing_scope_as_a_summary(self) -> None:
         changing = (
@@ -100,15 +99,12 @@ class DefinitionTests(unittest.TestCase):
         self.assertGreater(plain, len(routine_plan.canonical(value.plan)))
         self.assertGreater(routine_definition.definition_bytes(dataclasses.replace(value, model=MODEL)), plain)
 
-    def test_a_baseline_or_a_rehearsal_proof_never_changes_a_counted_definition(self) -> None:
-        # Their room is reserved at their largest, so a full Team can still record a baseline or a rehearsal.
+    def test_a_baseline_never_changes_a_counted_definition(self) -> None:
+        # Its room is reserved at its largest, so a full Team can still record a baseline.
         value = _defined()
         plain = routine_definition.definition_bytes(value)
         baseline = {"id": "b" * 32, "digest": "c" * 64}
-        proof = {"run_id": "e" * 32, "revision": 2**31 - 1, "permissions_revision": 2**31 - 1}
-        for change in ({"baseline": baseline}, {"rehearsed": proof}, {"baseline": baseline, "rehearsed": proof}):
-            with self.subTest(change=change):
-                self.assertEqual(routine_definition.definition_bytes(dataclasses.replace(value, **change)), plain)
+        self.assertEqual(routine_definition.definition_bytes(dataclasses.replace(value, baseline=baseline)), plain)
 
     def test_a_budget_names_the_units_or_the_bytes_it_outgrows(self) -> None:
         busy = _defined(routine_id="b" * 32, schedule={"kind": "continuous", "gap": 5, "cap": 17_280})

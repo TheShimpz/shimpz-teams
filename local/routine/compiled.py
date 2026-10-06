@@ -456,7 +456,7 @@ def runtime(
     binding = routine_cursor.Binding(network_id, routine.routine_id, routine.revision, value.run_id)
     plan = _plan(self, team_id, routine)
     # Write-once and sealed before the run's first dispatch; every later segment reseals the exact same bytes.
-    snapshot = routine_incident.Recovery(binding, routine.name, routine.plan, value.rehearsal)
+    snapshot = routine_incident.Recovery(binding, routine.name, routine.plan)
     routine_incident.seal_recovery(self, team_id, snapshot)
     try:
         cursor = self.routine_store.cursor(team_id, binding)

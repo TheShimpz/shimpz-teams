@@ -62,7 +62,7 @@ _ROUTINES_BYTES = routine_plan.TEAM_DEFINITION_BYTES + record.MAX_ROUTINES * 18 
 MAX_STATE_BYTES = _ROUTINES_BYTES + _NOTICES_BYTES + _RECORDS_BYTES + record.MAX_INCIDENTS * 4 * 1024 + 64 * 1024
 # Reads of one state file that may race its atomic replace before a failure is taken as real.
 UNLOCKED_READ_ATTEMPTS = 3
-# The recovery snapshot: the plan, its binding, the Routine's name, and whether the run rehearses.
+# The recovery snapshot: the plan, its binding, and the Routine's name.
 MAX_RECOVERY_BYTES = routine_plan.MAX_PLAN_BYTES + 8 * 1024
 # The incident's compact evidence: its copy of the snapshot and its batch's operation rows.
 MAX_INCIDENT_BYTES = MAX_RECOVERY_BYTES + action_journal.MAX_OPERATIONS * 512 + 8 * 1024
@@ -87,7 +87,6 @@ _ROUTINE_FIELDS = frozenset(
         "reported_missed",
         "revision",
         "paused",
-        "rehearsal",
         "confirmation",
         "permitted",
         "permissions_revision",
@@ -95,7 +94,6 @@ _ROUTINE_FIELDS = frozenset(
         "model",
         "allowance",
         "baseline",
-        "rehearsed",
         "failures",
         "rollup_minute",
         "rollup_runs",
@@ -123,7 +121,6 @@ _RUN_FIELDS = frozenset(
         "position",
         "steps",
         "usage",
-        "rehearsal",
         "protection_lost",
     }
 )
@@ -148,7 +145,6 @@ _INCIDENT_FIELDS = frozenset(
         "steps",
         "requests_used",
         "usage",
-        "rehearsal",
         "protection_lost",
     }
 )
@@ -307,9 +303,7 @@ def _decode_run(value: object) -> record.Run:
         and _requests_used(value["requests_used"])
     )
     _require(
-        http_routine.canonical_run_usage(value["usage"]) == value["usage"]
-        and type(value["rehearsal"]) is bool
-        and type(value["protection_lost"]) is bool
+        http_routine.canonical_run_usage(value["usage"]) == value["usage"] and type(value["protection_lost"]) is bool
     )
     unleased = value["lease_sha256"] == "" and value["lease_key"] == "" and value["lease_expires_at"] == 0
     position, steps = value["position"], value["steps"]
@@ -402,7 +396,6 @@ def _decode_incident(value: object) -> record.Incident:
         and value["active_seconds_left"] <= record.ACTIVE_SECONDS
         and _requests_used(value["requests_used"])
         and http_routine.canonical_run_usage(value["usage"]) == value["usage"]
-        and type(value["rehearsal"]) is bool
         and type(value["protection_lost"]) is bool
         and isinstance(value["assistant_id"], str)
         and isinstance(value["action"], str)

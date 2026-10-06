@@ -1,9 +1,9 @@
 """Holding a Routine run for a person, and the lifecycle of its incident (ADR-0092 sections 5 and 7).
 
 A run seals its immutable recovery snapshot before its first dispatch: the exact cursor binding (Team incarnation,
-Routine and revision, run), the confirmed plan, the Routine's name, and whether the run is a rehearsal (ADR-0101). A
-hold is four durable steps: the run's live lease is fenced, its incident's compact evidence is sealed with its own copy
-of that snapshot, its journal batch is archived, and the incident is indexed as the run ends. Each step is idempotent
+Routine and revision, run), the confirmed plan, and the Routine's name (ADR-0101). A hold is four durable steps: the
+run's live lease is fenced, its incident's compact evidence is sealed with its own copy of that snapshot, its journal
+batch is archived, and the incident is indexed as the run ends. Each step is idempotent
 and ``reconcile`` resumes from whichever came last, so every crash window recovers without dispatching anything. An
 incident is not an active run or discard work; it outlives its Routine, never expires, and holds the Routine until a
 person resolves it. Because it holds its snapshot independently of the Routine record and the archived journal rows, it
@@ -52,15 +52,11 @@ def _journal_unavailable() -> ApiProblem:
 
 @dataclass(frozen=True, slots=True)
 class Recovery:
-    """What recovery of one held run is authorized to use: its cursor binding, plan, its Routine's name, and rehearsal.
-
-    A rehearsal stays one through its hold and continuation, so recovery never runs an effect it only rehearses.
-    """
+    """What recovery of one held run is authorized to use: its cursor binding, plan, and its Routine's name."""
 
     binding: routine_cursor.Binding
     name: str
     plan: dict[str, object]
-    rehearsal: bool = False
 
     @property
     def plan_digest(self) -> str:
@@ -72,7 +68,6 @@ class Recovery:
             "binding": [binding.incarnation, binding.routine_id, binding.revision, binding.run_id],
             "name": self.name,
             "plan": self.plan,
-            "rehearsal": self.rehearsal,
         }
 
 
@@ -98,18 +93,17 @@ def read_recovery(value: object, run_id: str) -> Recovery:
             raise routine_state.unavailable() from exc
         if not isinstance(value, dict) or value.pop("version", None) != VERSION:
             raise routine_state.unavailable()
-    if not isinstance(value, dict) or set(value) != {"binding", "name", "plan", "rehearsal"}:
+    if not isinstance(value, dict) or set(value) != {"binding", "name", "plan"}:
         raise routine_state.unavailable()
     binding = value["binding"]
     if not isinstance(binding, list) or len(binding) != 4:
         raise routine_state.unavailable()
-    snapshot = Recovery(routine_cursor.Binding(*binding), value["name"], value["plan"], value["rehearsal"])
+    snapshot = Recovery(routine_cursor.Binding(*binding), value["name"], value["plan"])
     if (
         not routine_cursor.binding_valid(snapshot.binding)
         or snapshot.binding.run_id != run_id
         or http_routine.canonical_name(snapshot.name) != snapshot.name
         or not isinstance(snapshot.plan, dict)
-        or type(snapshot.rehearsal) is not bool
     ):
         raise routine_state.unavailable()
     return snapshot

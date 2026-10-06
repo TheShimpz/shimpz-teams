@@ -156,14 +156,6 @@ class ContractTests(unittest.TestCase):
             "created": DEFINED,
             "changed": DEFINED,
             "deleted": {},
-            "rehearsed": {
-                "plan": SUMMARY,
-                "output": None,
-                "decision": None,
-                "rehearsed": 1,
-                "untested": 0,
-                "not_permitted": 0,
-            },
         }
         self.assertEqual(set(valid), http_routine.OUTCOMES)
         for outcome, detail in valid.items():
@@ -176,7 +168,7 @@ class ContractTests(unittest.TestCase):
             ("deleted", {"name": "x"}),
             (
                 "rehearsed",
-                {"plan": SUMMARY, "output": None, "decision": None, "rehearsed": -1, "untested": 0, "not_permitted": 0},
+                {"plan": SUMMARY, "output": None, "decision": None, "rehearsed": 1, "untested": 0, "not_permitted": 0},
             ),
             (
                 "frozen",
@@ -363,7 +355,6 @@ class AddTests(unittest.TestCase):
             dataclasses.replace(good, permitted=({**good.permitted[0], "read_only": 1},)),
             dataclasses.replace(good, permissions_revision=-1),
             dataclasses.replace(good, permissions_revision=2**31),
-            dataclasses.replace(good, rehearsal=None),
             dataclasses.replace(good, allowance=1),
             dataclasses.replace(good, model={"provider": "openai", "model": "m", "effort": "low"}),
             dataclasses.replace(good, prompt="sha256:" + "0" * 64),
@@ -1192,7 +1183,7 @@ DECIDE = {"mode": "decide", "step": None, "when": "changes"}
 
 
 class DecisionDefinitionTests(unittest.TestCase):
-    """A decide definition's base prompt, model, allowance, baseline, and rehearsal record (ADR-0101)."""
+    """A decide definition's base prompt, model, allowance, and baseline (ADR-0101)."""
 
     def decided(self, **changes: object) -> record.Routine:
         plan = {**routine_fixture.plan_document(), "output": dict(DECIDE)}
@@ -1204,8 +1195,6 @@ class DecisionDefinitionTests(unittest.TestCase):
         baseline = {"id": "b" * 32, "digest": "c" * 64}
         admitted = record.routine(added(self.decided(baseline=baseline)), "a" * 32)
         self.assertEqual((admitted.allowance, admitted.model, admitted.baseline), (16, MODEL, baseline))
-        rehearsed = {"run_id": "d" * 32, "revision": 1, "permissions_revision": 0}
-        self.assertTrue(record.definition_valid(self.decided(rehearsed=rehearsed)))
         for changes in (
             {"prompt": None},
             {"model": None},
@@ -1214,8 +1203,6 @@ class DecisionDefinitionTests(unittest.TestCase):
             {"allowance": 65},
             {"baseline": {"id": "b" * 32}},
             {"baseline": {"id": "B" * 32, "digest": "c" * 64}},
-            {"rehearsed": {**rehearsed, "revision": 2}},
-            {"rehearsed": {**rehearsed, "run_id": None}},
             {"permitted": list(routine().permitted)},
             {"permitted": tuple(routine().permitted) * (http_routine.MAX_PERMITTED + 1)},
         ):

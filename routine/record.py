@@ -91,8 +91,6 @@ class Routine:
     timezone_source: str = "browser"
     # Pausar: no dispatch until resumed; an unresolved incident still holds the Routine after that.
     paused: bool = False
-    # Owed a rehearsal before it may run by schedule (ADR-0101 section 8); a pause never clears it.
-    rehearsal: bool = False
     # The person's authenticated confirmation of the card that defined this revision (ADR-0101 section 5.3):
     # {proposal_id, proposal_digest, principal, incarnation, confirmed_at}.
     confirmation: dict[str, object] | None = None
@@ -106,8 +104,6 @@ class Routine:
     allowance: int = 0
     # The sealed input of the last decided run, {id, digest}, which a ``changes`` decision compares with.
     baseline: dict[str, str] | None = None
-    # The run that rehearsed the current revision and permissions, {run_id, revision, permissions_revision}.
-    rehearsed: dict[str, object] | None = None
     # Consecutive runs that failed with no effect; a success resets it, and three pause the Routine (ADR-0092).
     failures: int = 0
     # A continuous Routine's healthy runs rolled up into the notice of the minute starting at ``rollup_minute``.
@@ -149,8 +145,6 @@ class Run:
     steps: int = 0
     # The run's active time and model usage so far, through every freeze, hold, and continuation (ADR-0101 §10).
     usage: dict[str, object] = dataclasses.field(default_factory=lambda: {"duration_ms": 0, "models": []})
-    # A rehearsal of a Routine that may change anything (ADR-0101 section 8).
-    rehearsal: bool = False
     # The run lost the protection of its secret values, so nothing it produced since may be shown (section 6.2).
     protection_lost: bool = False
 
@@ -201,10 +195,9 @@ class Incident:
     # The held call's position and its plan's step count; None and 0 when none was sealed.
     position: dict[str, object] | None = None
     steps: int = 0
-    # The held run's answered human requests, usage, rehearsal, and protection, which its continuation goes on from.
+    # The held run's answered human requests, usage, and protection, which its continuation goes on from.
     requests_used: int = 0
     usage: dict[str, object] = dataclasses.field(default_factory=lambda: {"duration_ms": 0, "models": []})
-    rehearsal: bool = False
     protection_lost: bool = False
 
 
@@ -356,20 +349,6 @@ def _baseline(value: object) -> bool:
     )
 
 
-def _rehearsed(value: Routine) -> bool:
-    """None, or the run that rehearsed exactly this revision and these permissions."""
-    rehearsed = value.rehearsed
-    return rehearsed is None or (
-        isinstance(rehearsed, dict)
-        and set(rehearsed) == {"run_id", "revision", "permissions_revision"}
-        and _matches(rehearsed["run_id"], _HEX32_RE)
-        and type(rehearsed["revision"]) is int
-        and type(rehearsed["permissions_revision"]) is int
-        and rehearsed["revision"] == value.revision
-        and rehearsed["permissions_revision"] == value.permissions_revision
-    )
-
-
 def _assistants(value: Routine) -> bool:
     """Exactly the Assistants of the plan's steps and permitted Actions, each with its scope pin, sorted."""
     assistants = tuple(value.assistants)
@@ -404,13 +383,11 @@ def definition_valid(value: Routine) -> bool:
         and _assistants(value)
         and _confirmed(value.confirmation)
         and _decision_scope(value)
-        and type(value.rehearsal) is bool
         and type(value.paused) is bool
         and type(value.permissions_revision) is int
         and 0 <= value.permissions_revision < 2**31
         and type(value.revision) is int
         and 1 <= value.revision < 2**31
-        and _rehearsed(value)
         and type(value.anchor) is int
     )
 
@@ -421,7 +398,7 @@ def _admitted(value: Routine, revision: int = 1) -> Routine:
     A new revision is scheduled from its anchor; later claims and sweeps move its next firing on.
     """
     canonical = http_routine.canonical_schedule(value.schedule)
-    if not definition_valid(dataclasses.replace(value, revision=revision, rehearsed=None)) or (
+    if not definition_valid(dataclasses.replace(value, revision=revision)) or (
         value.next_run_at != next_after(dataclasses.replace(value, schedule=canonical), value.anchor)
     ):
         raise RoutineStateError("routine-invalid")
@@ -434,7 +411,6 @@ def _admitted(value: Routine, revision: int = 1) -> Routine:
         plan=copy.deepcopy(value.plan),
         permitted=tuple(copy.deepcopy(item) for item in value.permitted),
         revision=revision,
-        rehearsed=None,
         needs_reconfirm=False,
         deleting=False,
         gap_started_at=0,

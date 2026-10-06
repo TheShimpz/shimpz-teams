@@ -343,7 +343,6 @@ class RecoverySnapshotTests(IncidentCase):
                 service.routine_store = store
                 for changed in (
                     dataclasses.replace(snapshot, name="Excluir minhas zonas"),
-                    dataclasses.replace(snapshot, rehearsal=True),
                     dataclasses.replace(snapshot, plan=_document(timezone="UTC")),
                     dataclasses.replace(snapshot, binding=dataclasses.replace(snapshot.binding, revision=2)),
                     dataclasses.replace(snapshot, binding=dataclasses.replace(snapshot.binding, incarnation="f" * 64)),
@@ -426,14 +425,13 @@ class RecoverySnapshotTests(IncidentCase):
             for invalid in (
                 b"not json",
                 routine_plan.canonical({"version": 2}),
-                routine_plan.canonical({"version": 1, "binding": "x", "name": "Q", "plan": {}, "rehearsal": False}),
+                routine_plan.canonical({"version": 1, "binding": "x", "name": "Q", "plan": {}}),
                 routine_plan.canonical(
                     {
                         "version": 1,
                         "binding": [incarnation, value.routine_id, 0, run_id],
                         "name": "Q",
                         "plan": {},
-                        "rehearsal": False,
                     }
                 ),
                 routine_plan.canonical(
@@ -442,7 +440,6 @@ class RecoverySnapshotTests(IncidentCase):
                         "binding": [incarnation, value.routine_id, 1, run_id],
                         "name": 1,
                         "plan": {},
-                        "rehearsal": False,
                     }
                 ),
                 routine_plan.canonical(
@@ -451,7 +448,7 @@ class RecoverySnapshotTests(IncidentCase):
                         "binding": [incarnation, value.routine_id, 1, run_id],
                         "name": "Q",
                         "plan": {},
-                        "rehearsal": 1,
+                        "rehearsal": False,
                     }
                 ),
                 routine_plan.canonical(
@@ -463,7 +460,6 @@ class RecoverySnapshotTests(IncidentCase):
                         "binding": [incarnation, value.routine_id, 1, "e" * 32],
                         "name": "Q",
                         "plan": {},
-                        "rehearsal": False,
                     }
                 ),
                 routine_plan.canonical({"version": 1, "extra": 1}),

@@ -115,7 +115,7 @@ no client rounds a large integer, and `label` the item's name, or `null`), a val
 `routine-interval-over-budget` has a value. `routine_proposal` is
 the Routine's confirmation card (`routine.canonical_proposal`), at most 160 KiB, which Team checks against the whole
 terminal line bound before publishing: `{proposal_id, expires_at, replaces, name, schedule, timezone, timezone_source,
-next_runs, daily_cap, output, steps, permitted, decision, rehearsal}`. `replaces` is `null` for a new Routine or the id
+next_runs, daily_cap, output, steps, permitted, decision}`. `replaces` is `null` for a new Routine or the id
 of the Routine it changes; `timezone_source` is `browser`, `person` (a zone the person wrote), or `none` (`routine.zoned`:
 the Routine then runs on `UTC` by convention, its run date included, which is never a claim about the person); `next_runs` holds one to three instants;
 `daily_cap` is exactly `routine.daily_cap` of the schedule; `output` is `{mode, when}`, and a shown mode shows the last
@@ -128,8 +128,7 @@ the same on every run), each with the literal's complete JSON text escaped (neve
 item's own pointer. `permitted` lists every Action the Routine may call, each once in identity order with whether its
 reviewed effect is read-only; `decision` is `null` unless the mode is `decide`, then `{request, notes, model,
 allowance}`, the frozen base prompt's two parts, the model `{provider, model, effort}`, and 1 to 64 decision calls, and
-`len(steps) + allowance` is at most 256. `rehearsal` is true exactly when a step or permitted Action may change
-something. A Supervisor answers the card once: `POST /v1/teams/:team_id/routines/proposals/:proposal_id` with `{}`
+`len(steps) + allowance` is at most 256. A Supervisor answers the card once: `POST /v1/teams/:team_id/routines/proposals/:proposal_id` with `{}`
 (Criar rotina) creates or changes the Routine, and `DELETE` on the same path (Cancelar) revokes the card; both answer
 `routine.canonical_proposal_answer`, `{team_id, proposal_id, routine_id, status}` with status `created`, `changed`, or
 `revoked` (whose `routine_id` is `null`). A revoked or already-consumed card is answered as such, never twice applied.
@@ -184,8 +183,7 @@ confirms its card (ADR-0101). Its notice then has the Routine outcome `created` 
 disposition (`routine.canonical_disposition`: `{mode, step, when}`, where `mode` is `show`, `changes`, `none`, or
 `decide`; `step` is the 1-based position of the shown step for `show` and `changes`, and `when` is `always` or
 `changes` for `decide` only), its schedule, zone, and the zone's source (`routine.zoned`, as on the card), and its
-standing scope: its `state` (`active`, `paused`, or
-`rehearsal`, waiting for a rehearsal before it can run), its permitted Actions as `{total, changes}`
+standing scope: its `state` (`active` or `paused`), its permitted Actions as `{total, changes}`
 (`routine.canonical_permitted`, at most `routine.MAX_PERMITTED`), and, only for `decide`, the frozen model and a decision
 allowance of 1 to 64 calls, with the plan's steps and the allowance together at most 256. A plan holds 0 to 256 steps,
 none only when it decides; on the wire a step is always named by its position, never by its internal id. The summary
@@ -231,10 +229,7 @@ at most `routine.MAX_OUTPUT_BYTES` (16 KiB); `cut`, `omitted`, `elided`, and `tr
 characters, or `null` when the decision chose not to notify and only ends a run that already had a notice), `unchanged`,
 `ceiling`, or `unavailable` with its `code` (`routine-protection-lost` when the run's protection was lost). A `changes`
 Routine publishes a completed run only when its result differs from the last one shown, and `none` publishes no
-completion of its own; a run that already has a notice always gets its terminal version. `rehearsed` ends a rehearsal
-run (ADR-0101 section 8) with the same `{plan, output, decision}` and how many effects it did not run (`rehearsed`), how
-many steps it could not test because they needed one (`untested`), and how many decision calls were outside the
-permitted set (`not_permitted`).
+completion of its own; a run that already has a notice always gets its terminal version.
 
 Every call is placed by a position (`routine.canonical_position`): `{"phase": "replay", "step": n}`, a replay step's
 1-based position among the plan's `steps`, or `{"phase": "decision", "call": n}`, a decision call's 1-based order (at
@@ -262,9 +257,7 @@ retained records (`latest` asks for the current one; a page naming a snapshot wh
 rationale, notify, usage}`, at most eight quoted rules of 200 characters and a 500-character rationale). Each entry
 (`routine.canonical_run_step`) has its `position` and is `done`, `recovered` (a verified occurrence, with no duration of
 its own), `failed` (its attempt failed; the run's notice says whether it was held), `stopped` (Stop or the run's
-deadline cut the attempt, which says nothing about whether it acted), `waiting` (frozen for a person), `rehearsed` (an
-effect a rehearsal did not run), `untested` (a replay step that needed one), or `not-permitted` (a rehearsal's decision
-call outside the permitted set), with its Assistant Action, attempt, `duration_ms`, instant, and the inputs that attempt
+deadline cut the attempt, which says nothing about whether it acted), or `waiting` (frozen for a person), with its Assistant Action, attempt, `duration_ms`, instant, and the inputs that attempt
 was given, each a redacted preview (`null` when its source's secrecy cannot be established; a decision call's are
 `decision`). A replay position with no record is `not_run` only when the run's terminal record proves it never started
 (`ended`), and `unavailable` otherwise; a decision call with no record is always `unavailable`. The page is

@@ -43,7 +43,6 @@ OUTCOMES = frozenset(
         "done",
         "healthy",
         "recovered",
-        "rehearsed",
         "held",
         "paused",
         "user-skipped",
@@ -652,11 +651,7 @@ def _disposed(value: object, steps: int) -> bool:
 
 
 def _scope(value: dict[str, object], steps: int) -> bool:
-    """A Routine's standing scope: only a decision has a model and an allowance, which its steps leave room for.
-
-    A Routine that may change anything waits for a rehearsal or has had one, so it can never be new and active
-    without one; that history is Team's, so only the closed forms are checked here.
-    """
+    """A Routine's standing scope: only a decision has a model and an allowance, which its steps leave room for."""
     decide = value["output"]["mode"] == "decide"
     return (
         value["state"] in ROUTINE_STATES
@@ -688,14 +683,6 @@ def _completed(detail: dict[str, object]) -> bool:
         summary is not None
         and (output is None or (canonical_output(output) is not None and output["step"] <= summary["steps"]))
         and _decision(detail["decision"])
-    )
-
-
-def _rehearsed(detail: dict[str, object]) -> bool:
-    """A rehearsal: as a completed run, with how many effects it did not run, could not test, or found unpermitted."""
-    return _completed(detail) and all(
-        _whole(detail[key], 0, MAX_ROUTINE_STEPS + MAX_DECISION_CALLS)
-        for key in ("rehearsed", "untested", "not_permitted")
     )
 
 
@@ -746,7 +733,6 @@ _DEFINED_FIELDS = {
 _DETAILS = {
     "done": (_COMPLETED_FIELDS, _completed),
     "recovered": (_COMPLETED_FIELDS, _completed),
-    "rehearsed": (_COMPLETED_FIELDS | {"rehearsed", "untested", "not_permitted"}, _rehearsed),
     "held": (_STEP_FIELDS, _held_step),
     "paused": (_STEP_FIELDS | {"reason"}, lambda detail: _held_step(detail) and detail["reason"] in PAUSE_REASONS),
     "user-skipped": (
@@ -784,8 +770,8 @@ MAX_NOTICE_BATCH = 1024
 # message, fits many times.
 MAX_NOTICE_BATCH_BYTES = 112 * 1024
 RUN_STATUSES = frozenset({"leased", "frozen", "held"})
-# A Routine's state (ADR-0101 section 5.5): it runs, a person paused it, or it waits for a rehearsal before it can run.
-ROUTINE_STATES = ("active", "paused", "rehearsal")
+# A Routine's state (ADR-0101 section 5.5): it runs, or a person paused it.
+ROUTINE_STATES = ("active", "paused")
 LEASE_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 _INSTANT_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
 
@@ -1185,11 +1171,10 @@ def canonical_diagnostics(value: object) -> dict[str, object] | None:
 
 # What one run did, call by call (ADR-0092 amendment, 2026-10-05, scale; ADR-0101 section 7): each replay step and
 # decision call's status, attempt, duration, and inputs as redacted previews (null when a source's secrecy is unknown).
-# A rehearsal records an effect it did not run as ``rehearsed`` and a step that needed its output as ``untested``; a
-# decision call outside the permitted set in a rehearsal is ``not-permitted``. A missing replay position is ``not_run``
+# A missing replay position is ``not_run``
 # only when the run's terminal record proves it, else ``unavailable``; a missing decision call is always
 # ``unavailable``. Pages bind the run's revision and one records snapshot, and carry the run's decision record.
-RUN_STEP_STATUSES = ("done", "recovered", "failed", "stopped", "waiting", "rehearsed", "untested", "not-permitted")
+RUN_STEP_STATUSES = ("done", "recovered", "failed", "stopped", "waiting")
 RUN_STEP_GAPS = ("not_run", "unavailable")
 RUN_INPUT_SOURCES = frozenset({"literal", "run_clock", "step_output", "decision"})
 SNAPSHOT_RE = re.compile(r"[0-9a-f]{32}\Z")
@@ -1212,10 +1197,8 @@ def _run_input(value: object) -> bool:
 
 
 def _status_phase(status: object, phase: str) -> bool:
-    """Which statuses each phase may record: untested and not_run are replay's, not-permitted a decision's."""
-    if phase == "replay":
-        return status != "not-permitted"
-    return status not in ("untested", "not_run")
+    """Which statuses each phase may record: not_run is replay's alone."""
+    return phase == "replay" or status != "not_run"
 
 
 def canonical_run_step(value: object, position: dict[str, object], steps: int) -> dict[str, object] | None:
@@ -1368,15 +1351,10 @@ def _card_output(value: object, total: int) -> bool:
     return canonical_disposition({**value, "step": shown}, total) is not None
 
 
-def _changes(value: dict[str, object]) -> bool:
-    """Whether a card's Routine may change anything, so it is rehearsed before it can run (ADR-0101 section 8)."""
-    return not all(item["read_only"] for item in [*value["steps"], *value["permitted"]])
-
-
 def canonical_proposal(value: object) -> dict[str, object] | None:
     """One recorded Routine's confirmation card, within its byte bound."""
     fields = {"proposal_id", "expires_at", "replaces", "name", "schedule", "timezone", "timezone_source", "next_runs"}
-    rest = {"daily_cap", "output", "steps", "permitted", "decision", "rehearsal"}
+    rest = {"daily_cap", "output", "steps", "permitted", "decision"}
     if not isinstance(value, dict) or set(value) != fields | rest:
         return None
     steps, runs = value["steps"], value["next_runs"]
@@ -1400,7 +1378,6 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
         and (value["decision"] is not None) == (value["output"]["mode"] == "decide")
         and _card_decision(value["decision"])
         and len(steps) + (0 if value["decision"] is None else value["decision"]["allowance"]) <= MAX_ROUTINE_STEPS
-        and value["rehearsal"] is _changes(value)
         and encoded_bytes(value) <= MAX_PROPOSAL_BYTES
     )
     return copy.deepcopy(value) if valid else None

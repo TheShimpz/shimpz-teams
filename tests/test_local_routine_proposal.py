@@ -210,7 +210,7 @@ class RecordedRoutineTests(LocalContractCase):
             again = self.confirm(service, card["proposal_id"])
             state = service.routine_store.load("team_1")
         self.assertEqual(http_routine.canonical_proposal(card), card)
-        self.assertEqual((card["schedule"], card["timezone_source"], card["rehearsal"]), (CONTINUOUS, "browser", False))
+        self.assertEqual((card["schedule"], card["timezone_source"]), (CONTINUOUS, "browser"))
         zones, records = card["steps"]
         self.assertEqual((zones["action"], records["action"]), ("list-zones", "list-dns-records"))
         zone_id = next(item for item in records["inputs"] if item["member"] == "zone_id")

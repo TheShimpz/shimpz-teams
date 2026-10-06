@@ -33,9 +33,7 @@ def run_units(value: object) -> int:
 
 
 def state(value: object) -> str:
-    """The Routine's state: waiting for a rehearsal, paused by a person, or active; a pause keeps the rehearsal owed."""
-    if value.rehearsal:
-        return "rehearsal"
+    """The Routine's state: paused by a person, or active."""
     return "paused" if value.paused else "active"
 
 
@@ -176,10 +174,9 @@ def fits(value: object) -> bool:
     return steps_fit(value.plan, value.permitted) and definition_bytes(value) <= routine_plan.MAX_DEFINITION_BYTES
 
 
-# A Routine's baseline and rehearsal proof are counted at their largest forms whatever they hold now, so recording
-# either never grows a definition its budgets already admitted.
+# A Routine's baseline is counted at its largest form whatever it holds now, so recording one never grows a
+# definition its budgets already admitted.
 _LARGEST_BASELINE = {"id": "0" * 32, "digest": "0" * 64}
-_LARGEST_REHEARSED = {"run_id": "0" * 32, "revision": 2**31 - 1, "permissions_revision": 2**31 - 1}
 
 
 def definition_bytes(value: object) -> int:
@@ -190,7 +187,6 @@ def definition_bytes(value: object) -> int:
         "prompt": value.prompt,
         "model": value.model,
         "baseline": _LARGEST_BASELINE,
-        "rehearsed": _LARGEST_REHEARSED,
     }
     return len(routine_plan.canonical(value.plan)) + len(routine_plan.canonical(standing))
 

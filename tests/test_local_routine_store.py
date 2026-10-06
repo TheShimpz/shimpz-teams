@@ -69,9 +69,7 @@ def decision_routine(routine_id: str = "d" * 32) -> record.Routine:
         model={"provider": "openai", "model": "gpt-6-luna", "effort": "low"},
         allowance=16,
         baseline={"id": "2" * 32, "digest": "3" * 64},
-        rehearsal=True,
         permissions_revision=2,
-        rehearsed={"run_id": "4" * 32, "revision": 1, "permissions_revision": 2},
         rollup_usage={"duration_ms": 5, "models": []},
     )
     return dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
@@ -112,7 +110,7 @@ class RoundTripTests(StoreCase):
     def test_a_team_state_round_trips_exactly_and_an_absent_one_is_empty(self):
         self.assertEqual(self.store.load("team_1"), record.TeamRoutines())
         state = record.add_routine(busy_state(), decision_routine())
-        run = dataclasses.replace(state.runs[0], usage=USAGE, rehearsal=True, protection_lost=True)
+        run = dataclasses.replace(state.runs[0], usage=USAGE, protection_lost=True)
         state = dataclasses.replace(state, runs=(run, *state.runs[1:]))
         put(self.store, "team_1", state)
         self.assertEqual(self.store.load("team_1"), state)
@@ -246,12 +244,7 @@ class TamperTests(StoreCase):
         mutations = {
             "schema": lambda value: value.update(schema=1),
             "schema type": lambda value: value.update(schema=float(routine_store.SCHEMA)),
-            "rehearsed revision type": lambda value: value["routines"][0].update(
-                rehearsed={"run_id": "4" * 32, "revision": True, "permissions_revision": 0}
-            ),
-            "rehearsed permissions revision type": lambda value: value["routines"][0].update(
-                rehearsed={"run_id": "4" * 32, "revision": 1, "permissions_revision": False}
-            ),
+            "a retired rehearsal proof": lambda value: value["routines"][0].update(rehearsed=None),
             "run steps type": lambda value: value["runs"][held].update(steps=False),
             "team": lambda value: value.update(team_id="team_2"),
             "extra field": lambda value: value.update(extra=1),
@@ -269,10 +262,7 @@ class TamperTests(StoreCase):
             "a baseline without a decision": lambda value: value["routines"][0].update(
                 baseline={"id": "2" * 32, "digest": "3" * 64}
             ),
-            "rehearsed for another revision": lambda value: value["routines"][0].update(
-                rehearsed={"run_id": "4" * 32, "revision": 9, "permissions_revision": 0}
-            ),
-            "rehearsal type": lambda value: value["routines"][0].update(rehearsal=1),
+            "a retired rehearsal": lambda value: value["routines"][0].update(rehearsal=False),
             "paused type": lambda value: value["routines"][0].update(paused=1),
             "permissions revision": lambda value: value["routines"][0].update(permissions_revision=-1),
             "rollup usage": lambda value: value["routines"][0].update(rollup_usage={"duration_ms": 1}),
@@ -309,7 +299,7 @@ class TamperTests(StoreCase):
             "notice usage": lambda value: value["notices"][0].update(usage=None),
             "notice protection type": lambda value: value["notices"][0].update(protection_lost=1),
             "run usage": lambda value: value["runs"][0].update(usage={"duration_ms": 1}),
-            "run rehearsal type": lambda value: value["runs"][0].update(rehearsal=1),
+            "a retired run rehearsal": lambda value: value["runs"][0].update(rehearsal=False),
             "run protection type": lambda value: value["runs"][0].update(protection_lost=0),
             "frozen position past its plan": lambda value: value["runs"][frozen].update(
                 position={"phase": "replay", "step": 2}
@@ -383,7 +373,7 @@ class TamperTests(StoreCase):
             "no call with a boolean count": {"assistant_id": "", "action": "", "position": None, "steps": False},
             "no call with a float count": {"assistant_id": "", "action": "", "position": None, "steps": 0.0},
             "usage": {"usage": {"duration_ms": 1}},
-            "rehearsal type": {"rehearsal": 1},
+            "a retired rehearsal": {"rehearsal": False},
             "protection type": {"protection_lost": "no"},
         }
         for name, change in mutations.items():
@@ -396,7 +386,7 @@ class TamperTests(StoreCase):
         self.write(value)
         self.assertEqual(self.store.load("team_1").incidents[0].action, "")
         value["incidents"][0].update(
-            assistant_id="dns", action="check", position={"phase": "decision", "call": 3}, steps=0, rehearsal=True
+            assistant_id="dns", action="check", position={"phase": "decision", "call": 3}, steps=0
         )
         self.write(value)
         self.assertEqual(self.store.load("team_1").incidents[0].position, {"phase": "decision", "call": 3})

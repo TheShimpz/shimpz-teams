@@ -1,7 +1,7 @@
 """Holding a Routine run and settling its incident, without I/O (ADR-0092 sections 5 and 7, ADR-0101).
 
 A held run's incident is indexed as the run ends, keeps the run's notice, name, held call, remaining active time, usage,
-rehearsal, and lost protection, and outlives a deleted Routine's record only until it is released. It is resumed as a
+and lost protection, and outlives a deleted Routine's record only until it is released. It is resumed as a
 continuation under a fresh internal lease after Team-admitted evidence, or set aside by a person: Rodar, which requests
 one fresh run, or the Routine's deletion. A person's card checks the exact state it was opened on in the same write.
 """
@@ -56,7 +56,6 @@ def settle_hold(
         steps=step[3],
         requests_used=value.requests_used,
         usage=value.usage,
-        rehearsal=value.rehearsal,
         protection_lost=value.protection_lost,
     )
     kept = list(state.incidents)
@@ -114,7 +113,6 @@ def reopen_incident(
         notice_version=value.notice_version,
         requests_used=value.requests_used,
         usage=value.usage,
-        rehearsal=value.rehearsal,
         protection_lost=value.protection_lost,
     )
     return (

@@ -259,7 +259,7 @@ def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
     if isinstance(recorded, routine_recording.Question):
         raise _AskedError(recorded, recording.protection.values)
     if not all(item["read_only"] for item in recorded.permitted):
-        # Routines that change something come with rehearsal, in their own slice.
+        # A Routine that changes something is not admitted yet.
         raise RefusedError("routine-mutation-unavailable")
     try:
         routine_plan.admit(recorded.document, contracts)
@@ -371,7 +371,6 @@ def card(proposal_id: str, candidate: record.Routine, recorded, framing: tuple[s
             for item in candidate.permitted
         ],
         "decision": None,
-        "rehearsal": not all(item["read_only"] for item in candidate.permitted),
     }
 
 
