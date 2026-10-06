@@ -278,7 +278,6 @@ def grace_seconds(routine_value: Routine) -> int:
 
 
 _HEX32_RE = re.compile(r"[0-9a-f]{32}\Z")
-_HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
@@ -290,7 +289,7 @@ def _confirmed(value: object) -> bool:
         and _matches(value["proposal_id"], _HEX32_RE)
         and _matches(value["proposal_digest"], _DIGEST_RE)
         and _matches(value["principal"], _HEX32_RE)
-        and _matches(value["incarnation"], _HEX64_RE)
+        and _matches(value["incarnation"], http_payload.SHA256_RE)
         and type(value["confirmed_at"]) is int
         and value["confirmed_at"] > 0
     )
@@ -350,7 +349,7 @@ def _baseline(value: object) -> bool:
         isinstance(value, dict)
         and set(value) == {"id", "digest"}
         and _matches(value["id"], _HEX32_RE)
-        and _matches(value["digest"], _HEX64_RE)
+        and _matches(value["digest"], http_payload.SHA256_RE)
     )
 
 

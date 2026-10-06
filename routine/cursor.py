@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 from action import journal as action_journal
 from protocol.http.v1 import identifiers as http_identifiers
+from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_notice as http_routine_notice
 from protocol.http.v1 import routine_run as http_routine_run
@@ -46,9 +47,7 @@ MAX_SEGMENTS = 8
 # fault (a secret echo, an invalid frame or result, an undeclared request), or any other refusal. Empty when the
 # attempt has not failed, or its failure could not be classified.
 FAULTS = ("", "handled", "transport", "unquiesced", "policy", "other")
-_HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
 _ID_RE = re.compile(r"[0-9a-f]{32}\Z")
-_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 # A Docker container id or name: the workload an attempt was dispatched to.
 _WORKLOAD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _FIELDS = frozenset(
@@ -229,7 +228,7 @@ def dispatch(
     _same_plan(cursor, plan)
     if cursor.replayed(plan) or not action_journal.valid_operation_id(operation_id):
         raise CursorError("cursor-dispatch-invalid")
-    if not isinstance(commitment, str) or _HEX64_RE.fullmatch(commitment) is None:
+    if not isinstance(commitment, str) or http_payload.SHA256_RE.fullmatch(commitment) is None:
         raise CursorError("cursor-dispatch-invalid")
     if cursor.operation_id is not None and (cursor.operation_id, cursor.commitment) != (operation_id, commitment):
         raise CursorError("cursor-operation-changed")
@@ -448,7 +447,7 @@ def _checked(cursor: Cursor) -> Cursor:
     valid = (
         binding_valid(cursor.binding)
         and isinstance(cursor.plan, str)
-        and _DIGEST_RE.fullmatch(cursor.plan) is not None
+        and http_routine.PLAN_DIGEST_RE.fullmatch(cursor.plan) is not None
         and type(cursor.started_at) is int
         and cursor.started_at >= 0
         and type(cursor.step) is int
@@ -457,7 +456,7 @@ def _checked(cursor: Cursor) -> Cursor:
         and type(cursor.attempts) is int
         and (cursor.attempts >= 1 if dispatched else cursor.attempts == 0)
         and (
-            isinstance(cursor.commitment, str) and _HEX64_RE.fullmatch(cursor.commitment) is not None
+            isinstance(cursor.commitment, str) and http_payload.SHA256_RE.fullmatch(cursor.commitment) is not None
             if dispatched
             else cursor.commitment is None
         )
@@ -556,7 +555,7 @@ def _call_valid(call: object) -> bool:
         and http_identifiers.canonical_action_id(call.action) is not None
         and type(call.read_only) is bool
         and isinstance(call.commitment, str)
-        and _HEX64_RE.fullmatch(call.commitment) is not None
+        and http_payload.SHA256_RE.fullmatch(call.commitment) is not None
         and type(call.attempts) is int
         and 1 <= call.attempts <= http_routine_run.MAX_DIAGNOSTIC_ATTEMPTS
         and call.state in CALL_STATES
@@ -578,7 +577,7 @@ def binding_valid(binding: object) -> bool:
     return (
         isinstance(binding, Binding)
         and isinstance(binding.incarnation, str)
-        and _HEX64_RE.fullmatch(binding.incarnation) is not None
+        and http_payload.SHA256_RE.fullmatch(binding.incarnation) is not None
         and isinstance(binding.routine_id, str)
         and _ID_RE.fullmatch(binding.routine_id) is not None
         and type(binding.revision) is int
@@ -600,7 +599,7 @@ def _shown_valid(shown: object) -> bool:
         and isinstance(shown["step"], str)
         and routine_plan.STEP_ID_RE.fullmatch(shown["step"]) is not None
         and output["state"] in ("shown", "unavailable")
-        and (digest is None or (isinstance(digest, str) and _HEX64_RE.fullmatch(digest) is not None))
+        and (digest is None or (isinstance(digest, str) and http_payload.SHA256_RE.fullmatch(digest) is not None))
         and (digest is None or output["state"] == "shown")
     )
 
