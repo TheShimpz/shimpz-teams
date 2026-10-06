@@ -112,7 +112,10 @@ for no run at all the recording is refused as `routine-step-budget`), which item
 targets `{value, label}`: `value` is the exact compact JSON text of the string or integer the input would take, so
 no client rounds a large integer, and `label` the item's name, or `null`), a value that no earlier result provides (`routine-binding-unsourced`), work split across messages
 (`routine-work-split`), and work to run again for a chosen target (`routine-work-rerun`). Only `routine-binding-ambiguous` has options, and only
-`routine-interval-over-budget` has a value. `routine_proposal` is
+`routine-interval-over-budget` has a value. When the person's next send is Admin's composed answer to that question
+and its latest answer binds it (it states a schedule or an interval, or is exactly one target's JSON text), Team
+records again with the request's stored intent without asking the Brain, and the reply is the fixed
+`routine.answer_reply` text in the interface language (English without one). `routine_proposal` is
 the Routine's confirmation card (`routine.canonical_proposal`), at most 160 KiB, which Team checks against the whole
 terminal line bound before publishing: `{proposal_id, expires_at, replaces, name, schedule, timezone, timezone_source,
 next_runs, daily_cap, output, steps, permitted, decision}`. `replaces` is `null` for a new Routine or the id

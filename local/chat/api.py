@@ -58,12 +58,12 @@ def _pending_chat_continuation(self, team_id: str, locale: str | None = None) ->
     return None
 
 
-def _routine_outcome(self, response: _ResponseRequest, terminal: chat_orchestrator.ChatOutcome, body: dict):
+def _routine_outcome(self, response: _ResponseRequest, routine: object, body: dict):
     """A recording turn's ``record``: the write that keeps its card, and the terminal fields its reply carries.
 
     The card is refused, never cut, when the whole terminal line would outgrow its bound (ADR-0101 section 5.2).
     """
-    write, fields = self._routine_record(response, terminal.routine)
+    write, fields = self._routine_record(response, routine)
     line = {"type": "terminal", "status": 200, "body": {**body, **fields}}
     if "routine_proposal" in fields and _line_bytes(line) > http_progress.MAX_LINE_BYTES:
         return (lambda: self.routine_recordings.finish(response.team_id, response.recording)), {
@@ -124,12 +124,18 @@ def _segment_response(
             ) from exc
 
     def commit(terminal: chat_orchestrator.ChatOutcome, body: dict[str, object]) -> tuple[bool, dict]:
-        if terminal.routine is None:
+        routine = terminal.routine
+        if routine is None:
+            # A send that repeated the work a pending question asked for records the stored intent, even when the
+            # Brain ended in prose without recording (ADR-0101).
+            span = self.routine_recordings.live(team_id, response.recording)
+            routine = local_routine_recorder.settled(span)
+        if routine is None:
             return self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal)), {}
         # A recorded Routine's card is kept with the reply, under the lifecycle lock and the Stop guard: when Stop wins,
         # no card exists (ADR-0101 section 5.1).
         with self._lock(team_id):
-            write, fields = _routine_outcome(self, response, terminal, body)
+            write, fields = _routine_outcome(self, response, routine, body)
             return self._commit_chat_terminal(team_id, token, lambda: (write(), save_knowledge(terminal))), fields
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:

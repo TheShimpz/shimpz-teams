@@ -27,6 +27,7 @@ from local.routine import diagnostics as routine_diagnostics
 from local.routine import recorder as routine_recorder
 from local.validation import brain_thread_id as _brain_thread_id
 from local.validation import routine_thread_id as _routine_thread_id
+from protocol.http.v1 import routine as http_routine
 from routine import pin as routine_pin
 from routine import record as routine_record
 
@@ -200,6 +201,7 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         skills=None if routine is not None else chat_knowledge.turn_skills(skills, runtime_assistants),
         routines=_listed(self, request) if mutable else None,
         routine_capacity=self._routine_capacity(request.team_id) if mutable else None,
+        routine_question=_pending_question(self, request) if mutable else None,
         knowledge_writable=routine is None,
         locale=request.locale,
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),
@@ -212,6 +214,26 @@ def _listed(self, request: SegmentRequest) -> tuple[dict[str, object], ...]:
     revisions = ((item["routine_id"], item["revision"]) for item in routines)
     self.routine_recordings.listed(request.team_id, request.recording, revisions)
     return routines
+
+
+def _pending_question(self, request: SegmentRequest) -> dict[str, object] | None:
+    """The question Team asked in the recording this send continues, which the Brain sees beside the person's words."""
+    span = self.routine_recordings.live(request.team_id, request.recording)
+    return None if span is None or span.asked is None else span.asked.wire
+
+
+def _runtime(self, request: SegmentRequest) -> object:
+    """Who answers this segment: a Routine run's runtime, Team itself, or the Brain.
+
+    Team answers a send itself only when it is Admin's composed answer that binds the pending Routine question.
+    """
+    if request.routine is not None:
+        return request.routine.runtime
+    if request.recording is not None and request.continuation is None:
+        intent = routine_recorder.answered(self.routine_recordings.live(request.team_id, request.recording))
+        if intent is not None:
+            return routine_recorder.AnsweredRuntime(http_routine.answer_reply(request.locale), intent)
+    return self.brain_runtime
 
 
 @contextmanager
@@ -409,7 +431,7 @@ def _run_chat_segment_with_metadata(
 
     team_name, identity, outcome, requirements = chat_turn_engine.run_segment(
         chat_turn_engine.SegmentStrategy(
-            runtime=self.brain_runtime if request.routine is None else request.routine.runtime,
+            runtime=_runtime(self, request),
             prepare=prepare,
             validate_action=lambda assistant_id, action, payload: self._validate_chat_action(
                 bindings,

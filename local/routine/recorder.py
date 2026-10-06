@@ -20,6 +20,7 @@ nothing.
 from __future__ import annotations
 
 import dataclasses
+import json
 import secrets
 import threading
 import time
@@ -27,16 +28,31 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from assistant import effect as action_effect
+from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
+from routine import phrase, trace
 from routine import pin as routine_pin
 from routine import recording as routine_recording
-from routine import trace
 
 SPAN_SECONDS = 15 * 60
 MAX_SENDS = 16
 # The span's retained text: each send's message, its person-authored lines, its window lines, and its context.
 MAX_TEXT_BYTES = 64 * 1024
 _SEND_CONTEXT_BYTES = 128
+
+
+@dataclass(frozen=True, slots=True)
+class Intent:
+    """What the span's latest ``record`` call asked for: the Routine's name, output, and the Routine it replaces.
+
+    The replaced Routine is bound at exactly the revision that call was shown, which admission then requires unchanged.
+    """
+
+    name: str
+    output: dict[str, object]
+    decide_actions: tuple[tuple[str, str], ...]
+    replaces: str | None
+    revision: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +73,8 @@ class Span:
     asked: routine_recording.Asked | None = None
     # The first send whose calls count: the send that settled a rerun question, kept whatever is asked after it.
     frontier: int = 0
+    # What the latest record call asked for, which an answer to the span's question records again.
+    intent: Intent | None = None
 
     @property
     def recording_id(self) -> str:
@@ -197,12 +215,15 @@ class RecordingBook:
 
         self._change(team_id, recording_id, add)
 
-    def asked(self, team_id: str, recording_id: str, question: routine_recording.Question) -> None:
-        """Keep what the span asked, the choice it binds, the work it asks to repeat, and the frontier it settled."""
+    def asked(self, team_id: str, recording_id: str, question: routine_recording.Question, intent: Intent) -> None:
+        """Keep what the span asked, what it binds and settled, and the intent the person's answer records again."""
 
         def keep(found: Span) -> Span:
-            asked = routine_recording.Asked(question.code, len(found.sends), question.pending, question.manifest)
-            return dataclasses.replace(found, asked=asked, frontier=max(found.frontier, question.frontier))
+            asked = routine_recording.Asked(
+                question.code, len(found.sends), question.pending, question.manifest, question.wire()
+            )
+            frontier = max(found.frontier, question.frontier)
+            return dataclasses.replace(found, asked=asked, frontier=frontier, intent=intent)
 
         self._change(team_id, recording_id, keep)
 
@@ -220,6 +241,61 @@ class RecordingBook:
     def clear(self) -> None:
         with self._guard:
             self._spans.clear()
+
+
+def answered(span: Span | None) -> Intent | None:
+    """The intent to record again when the span's latest send is Admin's composed answer that binds its question.
+
+    It binds a schedule question when it states a schedule, an interval question when it states an interval, and a
+    target question when it is exactly one target's JSON text. Anything else, typed freely or not binding, is the
+    Brain's to read.
+    """
+    if span is None or span.intent is None or span.asked is None or span.refused:
+        return None
+    answer = _latest_answer(span.sends[-1].message)
+    if answer is None:
+        return None
+    asked = span.asked
+    stated = phrase.stated(answer)
+    pending = asked.pending
+    bound = {
+        "routine-schedule-unstated": bool(stated),
+        "routine-interval-over-budget": any(item["kind"] in _INTERVAL_KINDS for item in stated),
+        "routine-binding-ambiguous": pending is not None
+        and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets),
+    }
+    return span.intent if bound.get(asked.code, False) else None
+
+
+_INTERVAL_KINDS = frozenset({"continuous", "hourly"})
+
+
+def _latest_answer(message: str) -> str | None:
+    """The answer of the last composed answer line in a message, or None when it composes no answer."""
+    answers = tuple(f"{labels['answer']}: " for labels in http_payload.CLARIFICATION_LABELS.values())
+    found = None
+    for line in message.split("\n"):
+        prefix = next((item for item in answers if line.startswith(item)), None)
+        if prefix is not None:
+            found = line[len(prefix) :].strip()
+    return found
+
+
+def settled(span: Span | None) -> Intent | None:
+    """The intent to record again when the span's latest send repeated the work its pending question asked for."""
+    if span is None or span.intent is None or span.asked is None or span.asked.manifest is None or span.refused:
+        return None
+    return span.intent if routine_recording.settlement(span.sends, span.asked) == len(span.sends) - 1 else None
+
+
+class AnsweredRuntime:
+    """The runtime of a send Team records itself: it never asks the Brain and completes with its fixed reply."""
+
+    def __init__(self, reply: str, intent: Intent) -> None:
+        self._turn = brain_runtime_client.RuntimeTurn("completed", reply, (), routine=intent)
+
+    def start(self, _context: object, _message: str, *, conversation: object = ()) -> object:
+        return self._turn
 
 
 def recorded(book: RecordingBook, recording: tuple[str, str], call: tuple, invoke: Callable[[], object]) -> object:

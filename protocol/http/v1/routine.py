@@ -1426,6 +1426,25 @@ def _question_option(value: object) -> bool:
     return _target(value["value"]) and (label is None or _plain(label, MAX_QUESTION_OPTION_CHARS))
 
 
+# The reply of a send that answers Team's pending question, which Team then records without asking the Brain: one
+# fixed text in each interface language, and the English one for a chat without one (ADR-0101).
+ANSWER_REPLIES = {
+    "ar": "طبّقتُ إجابتك على الروتين.",
+    "de": "Ich habe Ihre Antwort auf die Routine angewendet.",
+    "en": "I applied your answer to the Routine.",
+    "es": "Apliqué tu respuesta a la rutina.",
+    "fr": "J'ai appliqué votre réponse à la routine.",
+    "ja": "回答をルーティンに反映しました。",
+    "pt": "Apliquei sua resposta à rotina.",
+    "zh": "已将你的回答应用到例行任务。",
+}
+
+
+def answer_reply(locale: str | None) -> str:
+    """The fixed reply of an answer Team records itself, in the chat's interface language or English."""
+    return ANSWER_REPLIES[locale or "en"]
+
+
 def canonical_question(value: object) -> dict[str, object] | None:
     """One question Team asks before a card: its code, its targets for an ambiguous binding, and a fitting interval."""
     if not isinstance(value, dict) or set(value) != {"code", "options", "value"} or value["code"] not in QUESTION_CODES:

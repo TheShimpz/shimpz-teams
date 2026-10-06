@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import tempfile
 import time
 import unittest
@@ -18,6 +19,7 @@ from local.chat import api as local_chat_api
 from local.routine import contracts as routine_contracts
 from local.routine import manage as routine_manage
 from local.routine import store as routine_store
+from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import progress as http_progress
 from protocol.http.v1 import routine as http_routine
 from routine import definition as routine_definition
@@ -344,6 +346,97 @@ class RecordedRoutineTests(LocalContractCase):
             self.chat(service, _body("Quais rotinas eu tenho?"))
         ((listed),) = runtime.contexts[1].routines
         self.assertEqual((listed["timezone"], listed["timezone_source"]), ("America/Sao_Paulo", "browser"))
+
+    def test_a_composed_answer_to_the_pending_question_records_without_the_brain(self) -> None:
+        original = "Liste os registros DNS de shimpz.com"
+        runtime = Sends((("list-zones", "list-dns-records"), _record()))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            asked = self.chat(service, _body(original))["routine_question"]
+            answer = http_payload.compose_clarified(original, "Com que frequência?", "A cada 30 segundos", "pt")
+            response = self.chat(service, _body(answer))
+        self.assertEqual(asked["code"], "routine-schedule-unstated")
+        self.assertEqual(len(runtime.contexts), 1)
+        self.assertEqual(response["reply"], http_routine.ANSWER_REPLIES["pt"])
+        self.assertEqual(response["routine_proposal"]["schedule"], CONTINUOUS)
+
+    def test_a_freely_typed_send_reaches_the_brain_with_the_pending_question(self) -> None:
+        original = "Liste os registros DNS de shimpz.com"
+        runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            self.chat(service, _body(original))
+            response = self.chat(service, _body("A cada 30 segundos"))
+        self.assertEqual((len(runtime.contexts), response["reply"]), (2, "Pronto."))
+        self.assertNotIn("routine_proposal", response)
+        question = {"code": "routine-schedule-unstated", "options": [], "value": None}
+        self.assertEqual((runtime.contexts[0].routine_question, runtime.contexts[1].routine_question), (None, question))
+
+    def test_only_a_target_chosen_by_its_exact_json_text_skips_the_brain(self) -> None:
+        original = "Liste os registros DNS a cada 30 segundos"
+        for answer, brain in ((json.dumps(SHIMPZ), False), ("shimpz.com", True)):
+            runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))
+            with self.subTest(answer=answer), tempfile.TemporaryDirectory() as directory:
+                service = self.controller(directory, runtime)
+                asked = self.chat(service, _body(original))["routine_question"]
+                self.assertEqual(asked["code"], "routine-binding-ambiguous")
+                composed = http_payload.compose_clarified(original, "Qual zona?", answer, "pt")
+                response = self.chat(service, _body(composed))
+                self.assertEqual(len(runtime.contexts), 1 + brain)
+                self.assertEqual("routine_proposal" in response, not brain)
+
+    def test_an_answer_replaces_only_the_revision_the_record_call_was_shown(self) -> None:
+        def bump(service) -> None:
+            service.routine_store.update(
+                "team_1",
+                lambda state: (
+                    dataclasses.replace(
+                        state,
+                        routines=tuple(
+                            dataclasses.replace(item, revision=item.revision + 1) for item in state.routines
+                        ),
+                    ),
+                    None,
+                ),
+            )
+
+        def remove(service) -> None:
+            with self.as_person():
+                routine_manage.delete_routine(service, "team_1", service.created)
+
+        # Naming no zone, the replacement asks which one; a replacement keeps its own schedule.
+        original = "Liste os registros DNS"
+        for change, code in ((bump, "routine-revision-changed"), (remove, "routine-not-found")):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
+                runtime = Sends((("list-zones", "list-dns-records"), _record()))
+                service = self.controller(directory, runtime)
+                service.created = self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])[
+                    "routine_id"
+                ]
+                runtime.scripts.append((("list-zones", "list-dns-records"), _record(replaces=service.created)))
+                self.chat(service, _body(original))
+                change(service)
+                answer = http_payload.compose_clarified(original, "Qual zona?", json.dumps(SHIMPZ), "pt")
+                self.assertEqual(self.chat(service, _body(answer))["routine_refusal"]["code"], code)
+
+    def test_a_verified_rerun_that_ends_in_prose_applies_the_stored_intent(self) -> None:
+        runtime = Sends(
+            (("list-dns-records",), _record()),
+            (("list-zones",), None),
+            (("list-zones", "list-dns-records"), None),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            asked = self.chat(service, _body("Liste os registros DNS de shimpz.com a cada 30 segundos"))
+            partial = self.chat(service, _body("Pode buscar a zona"))
+            rerun = self.chat(service, _body("Pode buscar de novo"))
+        self.assertEqual(asked["routine_question"]["code"], "routine-binding-unsourced")
+        self.assertEqual(
+            (partial["reply"], "routine_proposal" in partial, "routine_question" in partial), ("Pronto.", False, False)
+        )
+        self.assertEqual(rerun["reply"], "Pronto.")
+        zone_id = next(item for item in rerun["routine_proposal"]["steps"][1]["inputs"] if item["member"] == "zone_id")
+        self.assertEqual(zone_id["where"]["value_json"], '"shimpz.com"')
 
     def test_cancelling_revokes_the_card_and_it_never_confirms(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

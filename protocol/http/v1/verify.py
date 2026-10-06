@@ -361,3 +361,10 @@ for case in labels["composed"]:
 for case in labels["authored_segments"]:
     if list(payload.authored_segments(case["message"])) != case["segments"]:
         fail("an authored-segments vector differs")
+
+if set(routine.ANSWER_REPLIES) != set(routine.LOCALES) or any(
+    routine.canonical_name(text) != text for text in routine.ANSWER_REPLIES.values()
+):
+    fail("the Routine answer replies do not cover every interface language with one plain line")
+if routine.answer_reply(None) != routine.ANSWER_REPLIES["en"]:
+    fail("a chat without an interface language does not get the English answer reply")

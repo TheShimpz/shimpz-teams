@@ -16,6 +16,7 @@ from local import audit as local_audit
 from local.routine import contracts as routine_contracts
 from local.routine import proposal as routine_proposal
 from local.routine import recorder as routine_recorder
+from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
 from routine import record, trace
 from routine import recording as routine_recording
@@ -125,11 +126,13 @@ class RecordingBookTests(unittest.TestCase):
         first = book.start("team_1", BINDING, _started(), 2)
         manifest = routine_recording.Manifest(())
         question = routine_recording.Question("routine-work-split", manifest=manifest, frontier=1)
-        book.asked("team_1", first, question)
+        intent = routine_recorder.Intent("DNS", {"mode": "show", "when": None}, (), None, None)
+        book.asked("team_1", first, question, intent)
         found = book.get("team_1", first)
-        self.assertEqual((found.asked, found.frontier), (routine_recording.Asked(question.code, 2, None, manifest), 1))
+        asked = routine_recording.Asked(question.code, 2, None, manifest, question.wire())
+        self.assertEqual((found.asked, found.frontier, found.intent), (asked, 1, intent))
         # A later question never moves the frontier back.
-        book.asked("team_1", first, routine_recording.Question("routine-schedule-unstated"))
+        book.asked("team_1", first, routine_recording.Question("routine-schedule-unstated"), intent)
         self.assertEqual(book.get("team_1", first).frontier, 1)
         for index in range(routine_recorder.MAX_SENDS):
             send = book.start("team_1", BINDING, _started(), 3 + index)
@@ -153,6 +156,38 @@ class RecordingBookTests(unittest.TestCase):
             (found.person, found.window, found.timezone),
             (("Faça isso",), ("DNS de shimpz.com", "A cada hora", "shimpz.com"), "Europe/Lisbon"),
         )
+
+    def test_only_a_composed_answer_that_binds_the_pending_question_is_recorded_without_the_brain(self) -> None:
+        intent = routine_recorder.Intent("DNS", {"mode": "show", "when": None}, (), None, None)
+        pending = routine_recording.Pending(("dns", "records"), "zone_id", (("a-zone", None), (123, None)))
+
+        def answered(
+            code: str, answer: str | None, *, composed: bool = True, kept: routine_recorder.Intent | None = intent
+        ):
+            book = routine_recorder.RecordingBook()
+            send = book.start("team_1", BINDING, _started(), 1)
+            book.asked("team_1", send, routine_recording.Question(code, pending=pending), kept)
+            message = http_payload.compose_clarified("Liste", "Qual?", answer, "pt") if composed else answer
+            send = book.start("team_1", BINDING, _started(message), 2)
+            return routine_recorder.answered(book.get("team_1", send))
+
+        cases = [
+            ("routine-schedule-unstated", "a cada 30 segundos", intent),
+            ("routine-schedule-unstated", "ainda não sei", None),
+            ("routine-interval-over-budget", "a cada 31 segundos", intent),
+            ("routine-interval-over-budget", "todo dia às 9h", None),
+            ("routine-binding-ambiguous", '"a-zone"', intent),
+            ("routine-binding-ambiguous", "123", intent),
+            ("routine-binding-ambiguous", "a-zone", None),
+            ("routine-binding-ambiguous", '"123"', None),
+            ("routine-binding-unsourced", "a cada hora", None),
+        ]
+        for code, answer, expected in cases:
+            with self.subTest(code=code, answer=answer):
+                self.assertEqual(answered(code, answer), expected)
+        self.assertIsNone(answered("routine-schedule-unstated", "a cada hora", composed=False))
+        self.assertIsNone(answered("routine-schedule-unstated", "a cada hora", kept=None))
+        self.assertIsNone(routine_recorder.answered(None))
 
     def test_dropping_a_team_or_clearing_forgets_every_span(self) -> None:
         book = routine_recorder.RecordingBook()

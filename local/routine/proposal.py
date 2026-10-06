@@ -28,6 +28,7 @@ from http import HTTPStatus
 from local import audit as local_audit
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import contracts as routine_contracts
+from local.routine import recorder as routine_recorder
 from local.routine import state as routine_state
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
@@ -198,12 +199,31 @@ def _current(self, response: object, recording) -> tuple[object, ...]:
     return setup[2]
 
 
-def _replaced(state: record.TeamRoutines, routine_id: str | None, recording) -> record.Routine | None:
-    """The Routine a recording replaces, only one the turn was shown and only at the revision it was shown."""
-    if routine_id is None:
+def _intent(self, response: object, proposed: object) -> routine_recorder.Intent:
+    """What a record call asks for, with the replaced Routine's revision as that call's turn was shown it.
+
+    An answer Team records itself carries the intent the span stored, so its replaced revision stays the one shown.
+    """
+    if isinstance(proposed, routine_recorder.Intent):
+        return proposed
+    outcome = _outcome(proposed)
+    if outcome["notes"]:
+        # Decisions come with their own slice; nothing here admits one yet.
+        raise RefusedError("routine-recording-invalid")
+    found = self.routine_recordings.get(response.team_id, response.recording)
+    shown = None
+    if outcome["replaces"] is not None and found is not None:
+        shown = dict(found.revisions).get(outcome["replaces"])
+    decide = tuple((item["assistant"], item["action"]) for item in outcome["decide_actions"])
+    return routine_recorder.Intent(outcome["name"], dict(outcome["output"]), decide, outcome["replaces"], shown)
+
+
+def _replaced(state: record.TeamRoutines, intent: routine_recorder.Intent) -> record.Routine | None:
+    """The Routine a recording replaces, only one its record call was shown and only at the revision it was shown."""
+    if intent.replaces is None:
         return None
-    shown = dict(recording.revisions).get(routine_id)
-    found = next((item for item in state.routines if item.routine_id == routine_id and not item.deleting), None)
+    shown = intent.revision
+    found = next((item for item in state.routines if item.routine_id == intent.replaces and not item.deleting), None)
     if found is None or shown is None:
         raise RefusedError("routine-not-found")
     if found.revision != shown:
@@ -211,10 +231,10 @@ def _replaced(state: record.TeamRoutines, routine_id: str | None, recording) -> 
     return found
 
 
-def _recorded(outcome, recording, contracts, existing: record.Routine | None):
+def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: record.Routine | None):
     """The recorded plan with its origins, permitted Actions, schedule, and zone, or the question to ask first."""
-    mode = outcome["output"]["mode"]
-    if mode == "decide" or outcome["notes"] or outcome["decide_actions"]:
+    mode = intent.output["mode"]
+    if mode == "decide" or intent.decide_actions:
         # Decisions come with their own slice; nothing here admits one yet.
         raise RefusedError("routine-recording-invalid")
     choice = routine_recording.Recording(mode, None, ())
@@ -255,13 +275,13 @@ class _AskedError(Exception):
         self.protected = protected
 
 
-def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
+def _candidate(self, response: object, intent: routine_recorder.Intent) -> tuple:
     """The candidate Routine a recording defines, admitted against the Team's current contracts and budgets."""
     recording = _recording(self, response)
     contracts = routine_contracts.contracts(_current(self, response, recording))
     state = routine_state.load(self, response.team_id)
-    existing = _replaced(state, outcome["replaces"], recording)
-    recorded = _recorded(outcome, recording, contracts, existing)
+    existing = _replaced(state, intent)
+    recorded = _recorded(intent, recording, contracts, existing)
     if isinstance(recorded, routine_recording.Question):
         raise _AskedError(recorded, recording.protection.values)
     if not all(item["read_only"] for item in recorded.permitted):
@@ -276,7 +296,7 @@ def _candidate(self, response: object, outcome: dict[str, object]) -> tuple:
     others = tuple(item for item in state.routines if item.routine_id != routine_id)
     candidate = record.Routine(
         routine_id,
-        outcome["name"],
+        intent.name,
         dict(recorded.schedule),
         recorded.timezone,
         tuple(
@@ -401,12 +421,13 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
     """A completed turn's ``record`` as the write that keeps its card, and the terminal field the reply carries.
 
     The caller holds the Team lifecycle lock and runs the write in the reply's commit, under the Stop guard. A card or a
-    refusal ends the recording span; a question keeps it, with what it asked, for the person's answer.
+    refusal ends the recording span; a question keeps it, with what it asked and the record call's intent, for the
+    person's answer.
     """
-    outcome = _outcome(proposed)
     team_id, send_id = response.team_id, response.recording
     try:
-        recording, candidate, recorded, existing = _candidate(self, response, outcome)
+        intent = _intent(self, response, proposed)
+        recording, candidate, recorded, existing = _candidate(self, response, intent)
         proposal_id = record.new_id()
         expires_at = time.time() + PROPOSAL_SECONDS
         replaces = None if existing is None else existing.routine_id
@@ -426,7 +447,7 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
             raise _problem(
                 HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine question is invalid", "internal-error"
             ) from asking
-        return (lambda: self.routine_recordings.asked(team_id, send_id, question)), {
+        return (lambda: self.routine_recordings.asked(team_id, send_id, question, intent)), {
             "routine_question": question.wire()
         }
     except RefusedError as exc:

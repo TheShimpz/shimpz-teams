@@ -134,6 +134,8 @@ class Asked:
     after: int
     pending: Pending | None = None
     manifest: Manifest | None = None
+    # The question as the person was asked it, which the Brain sees beside a freely typed answer.
+    wire: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
