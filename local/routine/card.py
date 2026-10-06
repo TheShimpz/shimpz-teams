@@ -127,16 +127,6 @@ def _current_revision(self, team_id: str, routine_id: str) -> int:
     return 0 if current is None or current.deleting else current.revision
 
 
-def _unresolved(self, team_id: str, incident_id: str) -> record.Incident:
-    try:
-        value = routine_hold.incident(routine_state.load(self, team_id), incident_id)
-    except record.RoutineStateError as exc:
-        raise local_errors.routine_incident_unavailable() from exc
-    if value.status != "unresolved":
-        raise local_errors.routine_incident_not_unresolved()
-    return value
-
-
 def _evidence(self, team_id: str, incarnation: str, incident_id: str, operation_id: str | None) -> dict[str, object]:
     """The held operation's latest recorded diagnostic, never one of an earlier operation of the run."""
     try:
@@ -152,7 +142,7 @@ def _evidence(self, team_id: str, incarnation: str, incident_id: str, operation_
 def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
     """Open the recovery card of one held run for the authenticated person who will answer it."""
     team_id, principal = validate_team_id(team_id), _principal()
-    value = _unresolved(self, team_id, incident_id)
+    value = routine_incident.unresolved(self, team_id, incident_id)
     opened = routine_incident.open_recovery(self, team_id, incident_id)
     assistant_id, action, position, steps = routine_incident.held_call(opened.cursor, opened.recovery.plan["steps"])
     if not assistant_id:
@@ -199,7 +189,7 @@ def _bound(self, team_id: str, card: Card) -> routine_hold.Expected:
     It is checked in the Team's execution slot, where nothing else moves the cursor, and returns what the card's state
     transition checks again in its own write.
     """
-    value = _unresolved(self, team_id, card.incident_id)
+    value = routine_incident.unresolved(self, team_id, card.incident_id)
     opened = routine_incident.open_recovery(self, team_id, card.incident_id)
     if (
         opened.recovery.binding.incarnation != card.incarnation
@@ -257,7 +247,7 @@ def answer_card(self, team_id: str, incident_id: str, body: object) -> dict[str,
     if body is None:
         raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "a card answer is its nonce and Rodar", code="invalid-body")
     choice = body["choice"]
-    routine_id = _unresolved(self, team_id, incident_id).routine_id
+    routine_id = routine_incident.unresolved(self, team_id, incident_id).routine_id
     # Every answer is checked and applied in the Team's execution slot, against the state the card was opened on.
     with self._exclusive_chat_turn(team_id, routine_id):
         card = self.routine_cards.take(team_id, incident_id, body["nonce"], principal)

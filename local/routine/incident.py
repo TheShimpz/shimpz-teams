@@ -366,19 +366,24 @@ def seal_terminal(self, team_id: str, run_id: str, snapshot: Recovery | None) ->
         local_audit.record_request("routine-run-record", result="error", team_id=team_id, detail=run_id)
 
 
+def unresolved(self, team_id: str, incident_id: str) -> record.Incident:
+    """The Team's indexed incident, which must still be unresolved."""
+    try:
+        value = routine_hold.incident(routine_state.load(self, team_id), incident_id)
+    except record.RoutineStateError as exc:
+        raise local_errors.routine_incident_unavailable() from exc
+    if value.status != "unresolved":
+        raise local_errors.routine_incident_not_unresolved()
+    return value
+
+
 def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:
     """Reopen an unresolved incident's cursor under its own sealed binding, for verification or a person's choice.
 
     It needs neither the Routine record, which deletion removes, nor the archived journal rows; a missing snapshot,
     a binding that disagrees with the index, or a cursor of another plan fails closed.
     """
-    state = routine_state.load(self, team_id)
-    try:
-        indexed = routine_hold.incident(state, incident_id)
-    except record.RoutineStateError as exc:
-        raise local_errors.routine_incident_unavailable() from exc
-    if indexed.status != "unresolved":
-        raise local_errors.routine_incident_not_unresolved()
+    indexed = unresolved(self, team_id, incident_id)
     sealed = routine_state.call(lambda: self.routine_store.incident(team_id, incident_id))
     if sealed is None:
         raise routine_state.unavailable()
