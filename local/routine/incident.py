@@ -24,6 +24,7 @@ from http import HTTPStatus
 
 from action import journal as action_journal
 from local import audit as local_audit
+from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import state as routine_state
@@ -39,16 +40,6 @@ from routine import record
 
 VERSION = 1
 _OPERATION_FIELDS = ("interrupt_id", "operation_id", "state", "attempts", "origin")
-
-
-def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
-    return ApiProblem(status, message, code=code)
-
-
-def _journal_unavailable() -> ApiProblem:
-    return _problem(
-        HTTPStatus.SERVICE_UNAVAILABLE, "Team Action execution state is unavailable", "action-state-unavailable"
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,7 +179,7 @@ def hold(self, team_id: str, run_id: str, lease: record.Lease) -> None:
             return state, False
 
     if not routine_state.update(self, team_id, fence):
-        raise _problem(HTTPStatus.CONFLICT, "Routine run lease is not live", "routine-lease-invalid")
+        raise local_errors.routine_lease_invalid()
     reconcile(self, team_id, run_id)
 
 
@@ -218,7 +209,7 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
         if fingerprint is not None:
             self.action_state.archive(value.generation, fingerprint)
     except action_journal.ActionJournalError as exc:
-        raise _journal_unavailable() from exc
+        raise local_errors.action_state_unavailable() from exc
     now = int(time.time())
 
     snapshot = held["recovery"]
@@ -276,10 +267,10 @@ def reconcile_team(self, team_id: str) -> None:
 def _transition_problem(code: str) -> ApiProblem:
     """A refused transition, with what refused it: a stale card, a Team admission limit, or an incident gone."""
     if code in {"incident-changed", "routine-revision-changed"}:
-        return _problem(HTTPStatus.CONFLICT, "the recovery card is stale; open it again", "routine-card-stale")
+        return local_errors.routine_card_stale()
     if code.startswith("routine-") or code == "notices-full":
-        return _problem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine change", code)
-    return _problem(HTTPStatus.CONFLICT, "Routine incident is not unresolved", "routine-incident-unavailable")
+        return ApiProblem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine change", code=code)
+    return local_errors.routine_incident_not_unresolved()
 
 
 def set_aside(
@@ -341,7 +332,7 @@ def _release(self, team_id: str, item: record.Incident) -> None:
             try:
                 self.action_state.release_archive(item.generation, fingerprint)
             except action_journal.ActionJournalError as exc:
-                raise _journal_unavailable() from exc
+                raise local_errors.action_state_unavailable() from exc
     routine_state.call(lambda: self.routine_store.delete_cursor(team_id, item.incident_id))
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, item.incident_id))
     routine_state.update(self, team_id, lambda state: (routine_hold.release_incident(state, item.incident_id), None))
@@ -385,15 +376,17 @@ def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:
     try:
         indexed = routine_hold.incident(state, incident_id)
     except record.RoutineStateError as exc:
-        raise _problem(HTTPStatus.NOT_FOUND, "Routine incident is unavailable", "routine-incident-unavailable") from exc
+        raise local_errors.routine_incident_unavailable() from exc
     if indexed.status != "unresolved":
-        raise _problem(HTTPStatus.CONFLICT, "Routine incident is not unresolved", "routine-incident-unavailable")
+        raise local_errors.routine_incident_not_unresolved()
     sealed = routine_state.call(lambda: self.routine_store.incident(team_id, incident_id))
     if sealed is None:
         raise routine_state.unavailable()
     snapshot = read_evidence(sealed, incident_id)["recovery"]
     if snapshot is None:
-        raise _problem(HTTPStatus.CONFLICT, "Routine incident cannot be verified", "routine-incident-unverifiable")
+        raise ApiProblem(
+            HTTPStatus.CONFLICT, "Routine incident cannot be verified", code="routine-incident-unverifiable"
+        )
     if (snapshot.binding.routine_id, snapshot.binding.revision) != (indexed.routine_id, indexed.revision):
         raise routine_state.unavailable()
     try:
@@ -429,13 +422,13 @@ def set_paused(self, team_id: str, routine_id: str, paused: bool) -> None:
             return state, False
 
     if not routine_state.update(self, team_id, change):
-        raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found")
+        raise local_errors.routine_not_found()
 
 
 def _set_paused_by_person(self, team_id: str, routine_id: object, paused: bool) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     if not isinstance(routine_id, str) or http_routine.ROUTINE_ID_RE.fullmatch(routine_id) is None:
-        raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found")
+        raise local_errors.routine_not_found()
     set_paused(self, team_id, routine_id, paused)
     operation = "routine-pause" if paused else "routine-resume"
     local_audit.record_request(operation, result="ok", team_id=team_id, detail=routine_id)

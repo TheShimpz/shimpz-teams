@@ -7,9 +7,9 @@ settled through its recovery card instead (ADR-0092).
 from __future__ import annotations
 
 import datetime
-from http import HTTPStatus
 
 from local import audit as local_audit
+from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import human as routine_human
 from local.routine import manage as routine_manage
@@ -21,10 +21,6 @@ from protocol.http.v1 import routine_notice as http_routine_notice
 from routine import record
 
 MAX_DELIVERIES = 256
-
-
-def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
-    return ApiProblem(status, message, code=code)
 
 
 def _notice(team_id: str, notice: record.Notice) -> dict[str, object]:
@@ -82,7 +78,7 @@ def routine_notices(self) -> dict[str, object]:
 def _deliveries(body: object) -> dict[str, frozenset[tuple[str, int]]]:
     deliveries = body.get("deliveries") if isinstance(body, dict) and set(body) == {"deliveries"} else None
     if not isinstance(deliveries, list) or not 0 < len(deliveries) <= MAX_DELIVERIES:
-        raise _problem(HTTPStatus.UNPROCESSABLE_ENTITY, "Routine deliveries are invalid", "invalid-body")
+        raise local_errors.routine_deliveries_invalid()
     by_team: dict[str, set[tuple[str, int]]] = {}
     for item in deliveries:
         if (
@@ -91,7 +87,7 @@ def _deliveries(body: object) -> dict[str, frozenset[tuple[str, int]]]:
             or not isinstance(item["notice_id"], str)
             or type(item["version"]) is not int
         ):
-            raise _problem(HTTPStatus.UNPROCESSABLE_ENTITY, "Routine deliveries are invalid", "invalid-body")
+            raise local_errors.routine_deliveries_invalid()
         by_team.setdefault(validate_team_id(item["team_id"]), set()).add((item["notice_id"], item["version"]))
     return {team_id: frozenset(pairs) for team_id, pairs in by_team.items()}
 
@@ -108,7 +104,7 @@ def _run(self, team_id: str, run_id: object) -> record.Run:
     try:
         return record.run(state, run_id if isinstance(run_id, str) else "")
     except record.RoutineStateError as exc:
-        raise _problem(HTTPStatus.NOT_FOUND, "Routine run is unavailable", "routine-run-not-found") from exc
+        raise local_errors.routine_run_not_found() from exc
 
 
 def _stop_recovery(self, team_id: str, run_id: object) -> dict[str, object] | None:

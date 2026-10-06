@@ -19,6 +19,7 @@ from action import human as action_human
 from chat import progress as chat_progress
 from inference import config as inference_config
 from install import bindings
+from local import errors as local_errors
 from local.chat import continuation as local_chat_continuations
 from local.chat import human as local_chat_human
 from local.errors import ApiProblemError as ApiProblem
@@ -46,17 +47,13 @@ class _Frozen:
     requirement: action_challenges.HumanRequirement | None = None
 
 
-def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
-    return ApiProblem(status, message, code=code)
-
-
 def _frozen(self, team_id: str, run_id: object) -> tuple[record.Run, record.Routine]:
     state = routine_state.load(self, team_id)
     try:
         value = record.run(state, run_id if isinstance(run_id, str) else "")
         routine = record.routine(state, value.routine_id)
     except record.RoutineStateError as exc:
-        raise _problem(HTTPStatus.NOT_FOUND, "Routine run is unavailable", "routine-run-not-found") from exc
+        raise local_errors.routine_run_not_found() from exc
     if value.status != "frozen":
         raise _not_frozen()
     return value, routine
@@ -69,22 +66,22 @@ def _decoded(self, team_id: str, run_id: str) -> local_chat_continuations.Decode
             envelope["kind"], base64.b64decode(envelope["payload"], validate=True), tuple(envelope["bindings"])
         )
     except (routine_store.RoutineStoreError, local_chat_continuations.ContinuationCodecError) as exc:
-        raise _problem(
-            HTTPStatus.SERVICE_UNAVAILABLE, "Routine run state is unavailable", "routine-state-unavailable"
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE, "Routine run state is unavailable", code="routine-state-unavailable"
         ) from exc
     except (ValueError, KeyError, TypeError) as exc:
-        raise _problem(
-            HTTPStatus.SERVICE_UNAVAILABLE, "Routine run state is unavailable", "routine-state-unavailable"
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE, "Routine run state is unavailable", code="routine-state-unavailable"
         ) from exc
 
 
 def _not_frozen() -> ApiProblem:
-    return _problem(HTTPStatus.CONFLICT, "Routine run is not waiting for a person", "routine-run-not-frozen")
+    return ApiProblem(HTTPStatus.CONFLICT, "Routine run is not waiting for a person", code="routine-run-not-frozen")
 
 
 def _expired() -> ApiProblem:
     # An expired or dismissed routine challenge leaves the run frozen, ready to be opened again.
-    return _problem(HTTPStatus.CONFLICT, "Action human request expired; open it again", "human-request-expired")
+    return ApiProblem(HTTPStatus.CONFLICT, "Action human request expired; open it again", code="human-request-expired")
 
 
 def _end_changed(self, team_id: str, value: record.Run) -> None:
@@ -145,7 +142,7 @@ def _current_context(
         or (requirement is not None and not local_chat_human.copy_binding_current(requirement, current[2]))
     ):
         _end_changed(self, team_id, value)
-        raise _problem(HTTPStatus.CONFLICT, "Team capabilities changed; the run ended", "team-context-changed")
+        raise ApiProblem(HTTPStatus.CONFLICT, "Team capabilities changed; the run ended", code="team-context-changed")
     return current[2]
 
 
@@ -169,8 +166,8 @@ def open_routine_challenge(self, team_id: str, run_id: str, locale: str) -> dict
         try:
             requirement = action_challenges.relocalize(frozen, self._assistant_language(active), locale)
         except action_challenges.HumanChallengeError as exc:
-            raise _problem(
-                HTTPStatus.CONFLICT, "Action human request changed; the run stays frozen", "human-request-invalid"
+            raise ApiProblem(
+                HTTPStatus.CONFLICT, "Action human request changed; the run stays frozen", code="human-request-invalid"
             ) from exc
         # One routine challenge per Team at a time: opening another returns the earlier run to waiting, still frozen.
         self.routine_human_challenges.cancel_team(team_id)
@@ -181,7 +178,7 @@ def open_routine_challenge(self, team_id: str, run_id: str, locale: str) -> dict
         public = routine_run.public_challenge(self._human_response(challenge), protection)
         if public is None:
             self.routine_human_challenges.cancel_team(team_id)
-            raise _problem(HTTPStatus.CONFLICT, "Action human request cannot be shown", "human-request-invalid")
+            raise ApiProblem(HTTPStatus.CONFLICT, "Action human request cannot be shown", code="human-request-invalid")
     return {**public, "run_id": value.run_id}
 
 
@@ -205,7 +202,7 @@ def _body(body: object) -> tuple[object, str, object | None]:
     decision = body.get("decision") if isinstance(body, dict) else None
     expected = {"challenge_id", "decision", "value"} if decision == "submit" else {"challenge_id", "decision"}
     if decision not in {"submit", "deny"} or set(body) != expected:
-        raise _problem(HTTPStatus.UNPROCESSABLE_ENTITY, "Action human response is invalid", "invalid-body")
+        raise local_errors.human_response_invalid()
     return body["challenge_id"], decision, body.get("value")
 
 
@@ -216,7 +213,9 @@ def _challenge(self, team_id: str, challenge_id: object, run_id: str) -> action_
     except action_challenges.HumanChallengeNotFoundError as exc:
         raise _expired() from exc
     if challenge.payload[0] != run_id:
-        raise _problem(HTTPStatus.CONFLICT, "Action human request belongs to another run", "human-request-expired")
+        raise ApiProblem(
+            HTTPStatus.CONFLICT, "Action human request belongs to another run", code="human-request-expired"
+        )
     return challenge
 
 
@@ -265,7 +264,7 @@ def resume_routine_human(
     # Without a key Admin holds, the replay goes on with the provider the run froze with; only recovery needs a key.
     provider = provider or pending.provider
     if pending.provider != provider:
-        raise _problem(HTTPStatus.CONFLICT, "configured model provider changed; retry", "inference-provider-mismatch")
+        raise local_errors.inference_provider_mismatch()
     try:
         admission = action_human.append_response(
             pending.transcripts,
@@ -275,11 +274,7 @@ def resume_routine_human(
             pending.requests_used,
         )
     except action_human.HumanRequestError as exc:
-        raise _problem(
-            HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Action human response does not match its request",
-            "invalid-human-response",
-        ) from exc
+        raise local_errors.human_response_mismatch() from exc
     frozen = _Frozen(team_id, value, routine, pending, challenge.requirement)
     return _replay(self, frozen, (provider, api_key), progress, (admission, challenge.id))
 
@@ -291,11 +286,11 @@ def resume_routine_integrations(
     team_id = validate_team_id(team_id)
     value, routine = _frozen(self, team_id, run_id)
     if value.request_kind != "integrations":
-        raise _problem(HTTPStatus.CONFLICT, "Routine run is waiting for an answer", "routine-run-not-frozen")
+        raise ApiProblem(HTTPStatus.CONFLICT, "Routine run is waiting for an answer", code="routine-run-not-frozen")
     pending = _decoded(self, team_id, value.run_id).pending
     provider = provider or pending.provider
     if pending.provider != provider:
-        raise _problem(HTTPStatus.CONFLICT, "configured model provider changed; retry", "inference-provider-mismatch")
+        raise local_errors.inference_provider_mismatch()
     return _replay(self, _Frozen(team_id, value, routine, pending), (provider, api_key), progress, None)
 
 

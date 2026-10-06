@@ -16,6 +16,7 @@ from chat import progress as chat_progress
 from core.http import strict as strict_http
 from local import audit as local_audit
 from local import authority as local_authority
+from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.http import stream as local_http_stream
 from local.http.audit import RequestAudit
@@ -50,13 +51,13 @@ BODY_LIMITS = {
 
 def _empty(handler, operation: str) -> None:
     if handler._body(max_bytes=BODY_LIMITS[operation]) != {}:
-        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "request requires an empty object", code="invalid-body")
+        raise local_errors.empty_body_required()
 
 
 def _run_id(route: strict_http.ControllerRouteMatch) -> str:
     run_id = route.params["run_id"]
     if http_routine.ROUTINE_ID_RE.fullmatch(run_id) is None:
-        raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine run is unavailable", code="routine-run-not-found")
+        raise local_errors.routine_run_not_found()
     return run_id
 
 
@@ -82,12 +83,10 @@ def _run(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict
         # The challenge renders its request copy in the Admin interface language (ADR-0091).
         opening = http_routine_run.canonical_challenge_open(body)
         if opening is None:
-            raise ApiProblem(
-                HTTPStatus.UNPROCESSABLE_ENTITY, "opening a challenge requires only locale", code="invalid-body"
-            )
+            raise local_errors.challenge_locale_only()
         return service.open_routine_challenge(team_id, run_id, opening["locale"])
     if body != {}:
-        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "request requires an empty object", code="invalid-body")
+        raise local_errors.empty_body_required()
     return service.stop_routine(team_id, run_id)
 
 
@@ -103,7 +102,7 @@ def _steps(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> di
         or _COUNT_RE.fullmatch(offset) is None
         or not 1 <= int(revision) < 2**31
     ):
-        raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine steps are unavailable", code="routine-steps-not-found")
+        raise local_errors.routine_steps_not_found()
     service = handler.server.controller.chat_turn_service
     return service.routine_steps(team_id, routine_id, int(revision), int(offset))
 
@@ -114,7 +113,7 @@ def _run_steps(handler, route: strict_http.ControllerRouteMatch, team_id: str) -
     if (snapshot != "latest" and http_routine_run.SNAPSHOT_RE.fullmatch(snapshot) is None) or _COUNT_RE.fullmatch(
         offset
     ) is None:
-        raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine run steps are unavailable", code="routine-run-steps-not-found")
+        raise local_errors.routine_run_steps_not_found()
     service = handler.server.controller.chat_turn_service
     return service.routine_run_steps(team_id, run_id, snapshot, int(offset), int(time.time()))
 
@@ -122,7 +121,7 @@ def _run_steps(handler, route: strict_http.ControllerRouteMatch, team_id: str) -
 def _incident_id(route: strict_http.ControllerRouteMatch) -> str:
     incident_id = route.params["incident_id"]
     if http_routine.ROUTINE_ID_RE.fullmatch(incident_id) is None:
-        raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine incident is unavailable", code="routine-incident-unavailable")
+        raise local_errors.routine_incident_unavailable()
     return incident_id
 
 

@@ -11,12 +11,10 @@ from routine import record
 from routine import runs as routine_runs
 
 
-def problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
-    return ApiProblem(status, message, code=code)
-
-
 def unavailable() -> ApiProblem:
-    return problem(HTTPStatus.SERVICE_UNAVAILABLE, "Team Routine state is unavailable", "routine-state-unavailable")
+    return ApiProblem(
+        HTTPStatus.SERVICE_UNAVAILABLE, "Team Routine state is unavailable", code="routine-state-unavailable"
+    )
 
 
 def load(service, team_id: str) -> record.TeamRoutines:

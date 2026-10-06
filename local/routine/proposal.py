@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 
 from local import audit as local_audit
+from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import contracts as routine_contracts
 from local.routine import recorder as routine_recorder
@@ -118,12 +119,8 @@ class RefusedError(Exception):
         self.code = code
 
 
-def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
-    return ApiProblem(status, message, code=code)
-
-
 def _brain_failed() -> ApiProblem:
-    return _problem(HTTPStatus.BAD_GATEWAY, "Brain could not complete the Team turn", "brain-runtime-failed")
+    return local_errors.brain_turn_failed()
 
 
 def _outcome(value: object) -> dict[str, object]:
@@ -176,7 +173,7 @@ def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
         if not item.deleting
     )
     if http_routine_context.canonical_routine_listings(listed) is None:
-        raise _problem(HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine listing is invalid", "internal-error")
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine listing is invalid", code="internal-error")
     return listed
 
 
@@ -461,8 +458,8 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
                 "routine_refusal": {"code": "routine-secret-literal"}
             }
         if http_routine_proposal.canonical_question(question.wire()) is None:
-            raise _problem(
-                HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine question is invalid", "internal-error"
+            raise ApiProblem(
+                HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine question is invalid", code="internal-error"
             ) from asking
         return (lambda: self.routine_recordings.asked(team_id, send_id, question, intent)), {
             "routine_question": question.wire()
@@ -470,7 +467,7 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
     except RefusedError as exc:
         return (lambda: self.routine_recordings.finish(team_id, send_id)), {"routine_refusal": {"code": exc.code}}
     if http_routine_proposal.canonical_proposal(view) != view:
-        raise _problem(HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine card is invalid", "internal-error")
+        raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, "the Routine card is invalid", code="internal-error")
     expected = None if existing is None else existing.revision
     proposal = Proposal(
         proposal_id,
@@ -495,7 +492,9 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
 def _principal() -> str:
     principal = local_audit.human_principal()
     if principal is None:
-        raise _problem(HTTPStatus.FORBIDDEN, "a person must answer a Routine card", "routine-card-person-required")
+        raise ApiProblem(
+            HTTPStatus.FORBIDDEN, "a person must answer a Routine card", code="routine-card-person-required"
+        )
     return principal
 
 
@@ -518,7 +517,7 @@ def _confirmed(state: record.TeamRoutines, proposal_id: str, principal: str, inc
 
 
 def _changed() -> ApiProblem:
-    return _problem(HTTPStatus.CONFLICT, "Team capabilities changed; ask again", "team-context-changed")
+    return ApiProblem(HTTPStatus.CONFLICT, "Team capabilities changed; ask again", code="team-context-changed")
 
 
 def _pinned(self, team_id: str, proposal: Proposal) -> None:
@@ -553,7 +552,7 @@ def _commit(self, proposal: Proposal, principal: str) -> str:
 
     outcome = routine_state.update(self, proposal.team_id, apply)
     if outcome not in ("created", "changed"):
-        raise _problem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine", outcome)
+        raise ApiProblem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine", code=outcome)
     return outcome
 
 
@@ -566,7 +565,9 @@ def confirm(self, team_id: str, proposal_id: str) -> dict[str, object]:
         if proposal is None:
             found = _confirmed(routine_state.load(self, team_id), proposal_id, principal, incarnation)
             if found is None:
-                raise _problem(HTTPStatus.CONFLICT, "this Routine card expired; ask again", "routine-proposal-expired")
+                raise ApiProblem(
+                    HTTPStatus.CONFLICT, "this Routine card expired; ask again", code="routine-proposal-expired"
+                )
             return _answer(team_id, proposal_id, found.routine_id, "created" if found.revision == 1 else "changed")
         if proposal.incarnation != incarnation:
             raise _changed()

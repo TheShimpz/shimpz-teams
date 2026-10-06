@@ -34,6 +34,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from action import execution as action_execution
 from action import failure as action_failure
+from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
@@ -614,16 +615,12 @@ def run_diagnostics(self, team_id: str, run_id: str, now: int) -> dict[str, obje
     try:
         found = self.routine_diagnostics.read(team_id, incarnation, run_id, now)
     except DiagnosticStoreError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE, "Routine diagnostics are unavailable", code="routine-state-unavailable"
-        ) from exc
+        raise local_errors.routine_diagnostics_unavailable() from exc
     view = http_routine_run.canonical_diagnostics(
         {"team_id": team_id, "run_id": run_id, "diagnostics": [item.view() for item in found]}
     )
     if view is None:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE, "Routine diagnostics are unavailable", code="routine-state-unavailable"
-        )
+        raise local_errors.routine_diagnostics_unavailable()
     return view
 
 
@@ -705,12 +702,10 @@ def run_steps(self, team_id: str, run_id: str, snapshot: str, offset: int, now: 
     except RunChangedError as exc:
         raise ApiProblem(HTTPStatus.CONFLICT, "Routine run records changed", code="routine-run-changed") from exc
     except DiagnosticStoreError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE, "Routine diagnostics are unavailable", code="routine-state-unavailable"
-        ) from exc
+        raise local_errors.routine_diagnostics_unavailable() from exc
     total = None if binding is None else binding["total"] + _calls(records, run)
     if total is None or not (offset == 0 or 0 <= offset < total):
-        raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine run steps are unavailable", code="routine-run-steps-not-found")
+        raise local_errors.routine_run_steps_not_found()
     steps = _page_steps(records, run, (binding["total"], total), offset)
     following = offset + len(steps)
     view = http_routine_run.canonical_run_steps(
@@ -729,7 +724,5 @@ def run_steps(self, team_id: str, run_id: str, snapshot: str, offset: int, now: 
         }
     )
     if view is None:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE, "Routine diagnostics are unavailable", code="routine-state-unavailable"
-        )
+        raise local_errors.routine_diagnostics_unavailable()
     return view

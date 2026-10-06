@@ -731,4 +731,3 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
             team_id=None,
             detail="check-failed",
         )
-        self.assertIs(routine_run._problem(409, "x", "y").code, "y")

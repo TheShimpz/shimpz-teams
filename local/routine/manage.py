@@ -7,6 +7,7 @@ import time
 from http import HTTPStatus
 
 from action import journal as action_journal
+from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import incident as routine_incident
@@ -17,10 +18,6 @@ from routine import definition as routine_definition
 from routine import hold as routine_hold
 from routine import record
 from routine import runs as routine_runs
-
-
-def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
-    return ApiProblem(status, message, code=code)
 
 
 def _instant(epoch: int) -> str:
@@ -86,13 +83,13 @@ def routine_steps(self, team_id: str, routine_id: str, revision: int, offset: in
     try:
         value = record.routine(state, routine_id)
     except record.RoutineStateError as exc:
-        raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found") from exc
+        raise local_errors.routine_not_found() from exc
     if value.deleting:
-        raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found")
+        raise local_errors.routine_not_found()
     if value.revision != revision:
-        raise _problem(HTTPStatus.CONFLICT, "Routine revision changed", "routine-revision-changed")
+        raise ApiProblem(HTTPStatus.CONFLICT, "Routine revision changed", code="routine-revision-changed")
     if not 0 <= offset < len(value.plan["steps"]):
-        raise _problem(HTTPStatus.NOT_FOUND, "Routine steps are unavailable", "routine-steps-not-found")
+        raise local_errors.routine_steps_not_found()
     return routine_definition.page(value.routine_id, value.revision, value.plan, value.permitted, offset)
 
 
@@ -129,8 +126,10 @@ def _discard(self, team_id: str, run_id: str, generation: str, *, incident: bool
             else:
                 self.action_state.purge(generation)
         except action_journal.ActionJournalError as exc:
-            raise _problem(
-                HTTPStatus.SERVICE_UNAVAILABLE, "Routine run state could not be removed", "routine-state-unavailable"
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Routine run state could not be removed",
+                code="routine-state-unavailable",
             ) from exc
     if live:
         return
@@ -200,7 +199,7 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
     """
     team_id = validate_team_id(team_id)
     if not isinstance(routine_id, str) or http_routine.ROUTINE_ID_RE.fullmatch(routine_id) is None:
-        raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found")
+        raise local_errors.routine_not_found()
     now = int(time.time())
 
     def begin(state: record.TeamRoutines) -> tuple[record.TeamRoutines, tuple[tuple[record.Run, ...], tuple[str, ...]]]:

@@ -25,6 +25,7 @@ from local.chat.types import required_active_assistant as _required_active_assis
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
     action_state_unavailable,
+    brain_turn_failed,
     chat_stopped,
     integration_contract_unavailable,
     stored_input_unavailable,
@@ -258,11 +259,7 @@ def _raise_chat_problem(reason: str, exc: BaseException | None) -> NoReturn:
     if isinstance(exc, chat_orchestrator.ChatStoppedError):
         raise chat_stopped() from exc
     if isinstance(exc, chat_orchestrator.ChatOrchestrationError):
-        raise ApiProblem(
-            HTTPStatus.BAD_GATEWAY,
-            "Brain could not complete the Team turn",
-            code="brain-runtime-failed",
-        ) from exc
+        raise brain_turn_failed() from exc
     if isinstance(exc, brain_runtime_client.BrainRuntimeError):
         raise ApiProblem(
             HTTPStatus.BAD_GATEWAY,

@@ -5,13 +5,11 @@ from __future__ import annotations
 from http import HTTPStatus
 
 from action import journal as action_journal
+from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import diagnostics as routine_diagnostics
+from local.routine import state as routine_state
 from local.routine import store as routine_store
-
-
-def _unavailable(message: str, code: str) -> ApiProblem:
-    return ApiProblem(HTTPStatus.SERVICE_UNAVAILABLE, message, code=code)
 
 
 def delete_team_routines(self, team_id: str) -> None:
@@ -32,7 +30,7 @@ def _delete_team_routines(self, team_id: str) -> None:
     try:
         state = self.routine_store.load(team_id)
     except routine_store.RoutineStoreError as exc:
-        raise _unavailable("Team Routine state is unavailable", "routine-state-unavailable") from exc
+        raise routine_state.unavailable() from exc
     # Live runs and the ended runs whose removal is still queued; the state that names them goes only after both.
     held = dict.fromkeys(
         (
@@ -47,12 +45,16 @@ def _delete_team_routines(self, team_id: str) -> None:
         try:
             self.action_state.purge(generation)
         except action_journal.ActionJournalError as exc:
-            raise _unavailable("Team Action execution state could not be deleted", "action-state-unavailable") from exc
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Team Action execution state could not be deleted",
+                code="action-state-unavailable",
+            ) from exc
     try:
         self.routine_store.delete(team_id)
         self.routine_diagnostics.delete(team_id)
     except (routine_store.RoutineStoreError, routine_diagnostics.DiagnosticStoreError) as exc:
-        raise _unavailable("Team Routine state could not be deleted", "routine-state-unavailable") from exc
+        raise local_errors.routine_state_delete_failed() from exc
 
 
 def delete_all_routines(self) -> None:
@@ -69,11 +71,11 @@ def delete_all_routines(self) -> None:
         try:
             teams = self.routine_store.teams()
         except routine_store.RoutineStoreError as exc:
-            raise _unavailable("Team Routine state is unavailable", "routine-state-unavailable") from exc
+            raise routine_state.unavailable() from exc
         for team_id in teams:
             _delete_team_routines(self, team_id)
         try:
             self.routine_store.delete_all()
             self.routine_diagnostics.delete_all()
         except (routine_store.RoutineStoreError, routine_diagnostics.DiagnosticStoreError) as exc:
-            raise _unavailable("Team Routine state could not be deleted", "routine-state-unavailable") from exc
+            raise local_errors.routine_state_delete_failed() from exc

@@ -105,3 +105,26 @@ space_resource_ownership_conflict = _problem(
 )
 space_reset_failed = _problem(_UNAVAILABLE, "Docker could not reset the Space", "docker-reset-failed")
 invalid_model_credential = _problem(_INVALID, "private model credential is invalid", "invalid-model-credential")
+brain_turn_failed = _problem(_BAD_GATEWAY, "Brain could not complete the Team turn", "brain-runtime-failed")
+human_response_mismatch = _problem(
+    _INVALID, "Action human response does not match its request", "invalid-human-response"
+)
+challenge_locale_only = _problem(_INVALID, "opening a challenge requires only locale", "invalid-body")
+empty_body_required = _problem(_INVALID, "request requires an empty object", "invalid-body")
+routine_not_found = _problem(_NOT_FOUND, "Routine is unavailable", "routine-not-found")
+routine_steps_not_found = _problem(_NOT_FOUND, "Routine steps are unavailable", "routine-steps-not-found")
+routine_run_not_found = _problem(_NOT_FOUND, "Routine run is unavailable", "routine-run-not-found")
+routine_run_steps_not_found = _problem(_NOT_FOUND, "Routine run steps are unavailable", "routine-run-steps-not-found")
+routine_lease_invalid = _problem(_CONFLICT, "Routine run lease is not live", "routine-lease-invalid")
+routine_incident_unavailable = _problem(_NOT_FOUND, "Routine incident is unavailable", "routine-incident-unavailable")
+routine_incident_not_unresolved = _problem(
+    _CONFLICT, "Routine incident is not unresolved", "routine-incident-unavailable"
+)
+routine_card_stale = _problem(_CONFLICT, "the recovery card is stale; open it again", "routine-card-stale")
+routine_deliveries_invalid = _problem(_INVALID, "Routine deliveries are invalid", "invalid-body")
+routine_diagnostics_unavailable = _problem(
+    _UNAVAILABLE, "Routine diagnostics are unavailable", "routine-state-unavailable"
+)
+routine_state_delete_failed = _problem(
+    _UNAVAILABLE, "Team Routine state could not be deleted", "routine-state-unavailable"
+)

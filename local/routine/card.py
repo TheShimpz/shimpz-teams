@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 
 from local import audit as local_audit
+from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import contracts as routine_contracts
 from local.routine import diagnostics as routine_diagnostics
@@ -111,14 +112,12 @@ class CardBook:
             self._cards.clear()
 
 
-def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
-    return ApiProblem(status, message, code=code)
-
-
 def _principal() -> str:
     principal = local_audit.human_principal()
     if principal is None:
-        raise _problem(HTTPStatus.FORBIDDEN, "a person must answer a recovery card", "routine-card-person-required")
+        raise ApiProblem(
+            HTTPStatus.FORBIDDEN, "a person must answer a recovery card", code="routine-card-person-required"
+        )
     return principal
 
 
@@ -132,9 +131,9 @@ def _unresolved(self, team_id: str, incident_id: str) -> record.Incident:
     try:
         value = routine_hold.incident(routine_state.load(self, team_id), incident_id)
     except record.RoutineStateError as exc:
-        raise _problem(HTTPStatus.NOT_FOUND, "Routine incident is unavailable", "routine-incident-unavailable") from exc
+        raise local_errors.routine_incident_unavailable() from exc
     if value.status != "unresolved":
-        raise _problem(HTTPStatus.CONFLICT, "Routine incident is not unresolved", "routine-incident-unavailable")
+        raise local_errors.routine_incident_not_unresolved()
     return value
 
 
@@ -157,7 +156,7 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
     opened = routine_incident.open_recovery(self, team_id, incident_id)
     assistant_id, action, position, steps = routine_incident.held_call(opened.cursor, opened.recovery.plan["steps"])
     if not assistant_id:
-        raise _problem(HTTPStatus.CONFLICT, "the held run named no call", "routine-incident-unavailable")
+        raise ApiProblem(HTTPStatus.CONFLICT, "the held run named no call", code="routine-incident-unavailable")
     incarnation = opened.recovery.binding.incarnation
     card = Card(
         principal,
@@ -208,7 +207,7 @@ def _bound(self, team_id: str, card: Card) -> routine_hold.Expected:
         or _current_revision(self, team_id, card.routine_id) != card.current
         or opened.cursor.operation_id != card.operation_id
     ):
-        raise _problem(HTTPStatus.CONFLICT, "the recovery card is stale; open it again", "routine-card-stale")
+        raise local_errors.routine_card_stale()
     return routine_hold.Expected(card.revision, card.generation, card.current)
 
 
@@ -217,18 +216,20 @@ def restartable(self, team_id: str, card: Card) -> record.Routine:
     state = routine_state.load(self, team_id)
     current = next((item for item in state.routines if item.routine_id == card.routine_id), None)
     if current is None or current.deleting or card.current == 0:
-        raise _problem(HTTPStatus.CONFLICT, "Routine is unavailable", "routine-not-found")
+        raise ApiProblem(HTTPStatus.CONFLICT, "Routine is unavailable", code="routine-not-found")
     if any(item.routine_id == card.routine_id for item in state.runs):
-        raise _problem(HTTPStatus.CONFLICT, "another run of this Routine is live", "routine-busy")
+        raise ApiProblem(HTTPStatus.CONFLICT, "another run of this Routine is live", code="routine-busy")
     if not routine_recovery.workload_stopped(
         self, team_id, routine_incident.open_recovery(self, team_id, card.incident_id)
     ):
-        raise _problem(HTTPStatus.CONFLICT, "the held attempt may still be running", "routine-workload-unquiesced")
+        raise ApiProblem(
+            HTTPStatus.CONFLICT, "the held attempt may still be running", code="routine-workload-unquiesced"
+        )
     return current
 
 
 def _contracts_changed() -> ApiProblem:
-    return _problem(HTTPStatus.CONFLICT, "the Routine's Assistants changed", "routine-contracts-changed")
+    return ApiProblem(HTTPStatus.CONFLICT, "the Routine's Assistants changed", code="routine-contracts-changed")
 
 
 def _run(self, team_id: str, card: Card, expected: routine_hold.Expected) -> str:
@@ -254,14 +255,16 @@ def answer_card(self, team_id: str, incident_id: str, body: object) -> dict[str,
     team_id, principal = validate_team_id(team_id), _principal()
     body = http_routine_run.canonical_card_answer_request(body)
     if body is None:
-        raise _problem(HTTPStatus.UNPROCESSABLE_ENTITY, "a card answer is its nonce and Rodar", "invalid-body")
+        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "a card answer is its nonce and Rodar", code="invalid-body")
     choice = body["choice"]
     routine_id = _unresolved(self, team_id, incident_id).routine_id
     # Every answer is checked and applied in the Team's execution slot, against the state the card was opened on.
     with self._exclusive_chat_turn(team_id, routine_id):
         card = self.routine_cards.take(team_id, incident_id, body["nonce"], principal)
         if card is None:
-            raise _problem(HTTPStatus.CONFLICT, "the recovery card expired; open it again", "routine-card-expired")
+            raise ApiProblem(
+                HTTPStatus.CONFLICT, "the recovery card expired; open it again", code="routine-card-expired"
+            )
         status = _run(self, team_id, card, _bound(self, team_id, card))
     local_audit.record_request("routine-card", result="ok", team_id=team_id, detail=f"{incident_id}:{choice}")
     return {"team_id": team_id, "incident_id": incident_id, "choice": choice, "status": status}

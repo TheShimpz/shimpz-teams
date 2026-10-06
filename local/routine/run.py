@@ -19,6 +19,7 @@ from chat import orchestrator as chat_orchestrator
 from inference import config as inference_config
 from local import audit as local_audit
 from local import authority as local_authority
+from local import errors as local_errors
 from local.chat import continuation as local_chat_continuations
 from local.chat.types import PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
@@ -57,10 +58,6 @@ class _Registration:
     token: str
     deadline: float
     overdue: bool = False
-
-
-def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
-    return ApiProblem(status, message, code=code)
 
 
 # How long after a Routine frees the slot a person's chat message, refused while that Routine held it, keeps further
@@ -257,7 +254,7 @@ def complete_sealed(self, run: _Run, shown: dict[str, object] | None) -> str:
 
     outcome = routine_state.update(self, run.team_id, change)
     if outcome is None:
-        raise _problem(HTTPStatus.CONFLICT, "Routine run lease is not live", "routine-lease-invalid")
+        raise local_errors.routine_lease_invalid()
     return outcome
 
 
@@ -432,7 +429,7 @@ def _live_run(self, team_id: str, run_id: str, lease: record.Lease) -> tuple[rec
         routine_claim.require_lease(value, lease, int(time.time()))
         return value, record.routine(state, value.routine_id)
     except record.RoutineStateError as exc:
-        raise _problem(HTTPStatus.CONFLICT, "Routine run lease is not live", "routine-lease-invalid") from exc
+        raise local_errors.routine_lease_invalid() from exc
 
 
 @contextmanager
@@ -463,7 +460,7 @@ def _bind(self, team_id: str, run_id: str, lease: record.Lease) -> str:
 
     generation = routine_state.update(self, team_id, bind)
     if generation is None:
-        raise _problem(HTTPStatus.CONFLICT, "Routine run lease is not live", "routine-lease-invalid")
+        raise local_errors.routine_lease_invalid()
     return generation
 
 
@@ -505,7 +502,7 @@ def register_routine_run(self, team_id: str, run_id: str, token: str, active_sec
     """
     with self._active_chat_guard:
         if run_id in self._routine_halting:
-            raise _problem(HTTPStatus.CONFLICT, "Routine run was stopped", "chat-stopped")
+            raise ApiProblem(HTTPStatus.CONFLICT, "Routine run was stopped", code="chat-stopped")
         previous = self._routine_runs.get(run_id)
         overdue = previous is not None and previous.token == token and previous.overdue
         deadline = time.monotonic() + max(active_seconds, 0)
