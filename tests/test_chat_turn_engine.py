@@ -92,6 +92,24 @@ class _Batch:
         raise AssertionError("a suspended batch must not be delivered")
 
 
+def _segment_strategy(
+    batch: object,
+    *,
+    raise_problem: object,
+    pause_for_private_inputs: object = lambda _requests, _requirements: False,
+) -> chat_turn_engine.SegmentStrategy:
+    """A one-Action segment over this batch whose context never drifts and that is never cancelled."""
+    return chat_turn_engine.SegmentStrategy(
+        runtime=_Runtime(),
+        prepare=lambda: chat_turn_engine.PreparedSegment("Team", ("identity",), _context(), [], batch),
+        validate_action=lambda _assistant, _action, payload: payload,
+        pause_for_private_inputs=pause_for_private_inputs,
+        cancelled=lambda: False,
+        validate_context=lambda: None,
+        raise_problem=raise_problem,
+    )
+
+
 def _local_controller(local_active, config, events: list[str], fail):
     controller = object.__new__(local_app.LocalController)
     controller.space_id = "local-space"
@@ -213,10 +231,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         strategy, asked, _problems = self._human_segment(purpose=lambda: sentence)
 
         result = chat_turn_engine.run_segment(
-            strategy,
-            message="Run the Action",
-            continuation=None,
-            expected_identity=("identity",),
+            strategy, message="Run the Action", continuation=None, expected_identity=("identity",)
         )
 
         self.assertIsInstance(result[2], chat_orchestrator.ChatHumanSuspension)
@@ -299,21 +314,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         def raise_problem(reason: str, _exc: BaseException | None) -> None:
             raise AssertionError(reason)
 
-        return chat_turn_engine.SegmentStrategy(
-            runtime=_Runtime(),
-            prepare=lambda: chat_turn_engine.PreparedSegment(
-                "Team",
-                ("identity",),
-                _context(),
-                [],
-                _Batch(),
-            ),
-            validate_action=lambda _assistant, _action, payload: payload,
-            pause_for_private_inputs=private_inputs,
-            cancelled=lambda: False,
-            validate_context=lambda: None,
-            raise_problem=raise_problem,
-        )
+        return _segment_strategy(_Batch(), raise_problem=raise_problem, pause_for_private_inputs=private_inputs)
 
     def test_hosted_and_local_strategies_make_the_same_real_suspension_decision(self) -> None:
         decisions: dict[str, list[str]] = {"hosted": [], "local": []}
@@ -395,22 +396,11 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             def terminate() -> None:
                 decisions.append("abandon")
 
-        strategy = chat_turn_engine.SegmentStrategy(
-            runtime=_Runtime(),
-            prepare=lambda: chat_turn_engine.PreparedSegment("Team", ("identity",), _context(), [], Batch()),
-            validate_action=lambda _assistant, _action, payload: payload,
-            pause_for_private_inputs=lambda _requests, _requirements: False,
-            cancelled=lambda: False,
-            validate_context=lambda: None,
-            raise_problem=lambda reason, _exc: self.fail(reason),
-        )
+        strategy = _segment_strategy(Batch(), raise_problem=lambda reason, _exc: self.fail(reason))
 
         with self.assertRaisesRegex(RuntimeError, "Assistant RPC failed"):
             chat_turn_engine.run_segment(
-                strategy,
-                message="Run the Action",
-                continuation=None,
-                expected_identity=("identity",),
+                strategy, message="Run the Action", continuation=None, expected_identity=("identity",)
             )
 
         self.assertEqual(decisions, ["prepare", "invoke", "abandon"])
@@ -435,22 +425,11 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             def terminate() -> None:
                 raise action_journal.ActionJournalError("journal unavailable")
 
-        strategy = chat_turn_engine.SegmentStrategy(
-            runtime=_Runtime(),
-            prepare=lambda: chat_turn_engine.PreparedSegment("Team", ("identity",), _context(), [], Batch()),
-            validate_action=lambda _assistant, _action, payload: payload,
-            pause_for_private_inputs=lambda _requests, _requirements: False,
-            cancelled=lambda: False,
-            validate_context=lambda: None,
-            raise_problem=lambda reason, _exc: decisions.append(reason),
-        )
+        strategy = _segment_strategy(Batch(), raise_problem=lambda reason, _exc: decisions.append(reason))
 
         with self.assertRaisesRegex(AssertionError, "chat error adapter returned"):
             chat_turn_engine.run_segment(
-                strategy,
-                message="Run the Action",
-                continuation=None,
-                expected_identity=("identity",),
+                strategy, message="Run the Action", continuation=None, expected_identity=("identity",)
             )
 
         self.assertEqual(decisions, ["drive-error"])
