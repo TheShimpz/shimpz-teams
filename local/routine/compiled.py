@@ -567,10 +567,35 @@ def _ended(
                 return routine_run.complete_sealed(self, run, sealed_shown(self, run.team_id, value))
         elif not uncertain:
             return routine_run._end(self, run.team_id, run.run_id, "stopped", {"actions": []})
-    if not uncertain and progress(self, run.team_id, value) == "none":
+    if not uncertain and (
+        progress(self, run.team_id, value) == "none"
+        or (code in UNRESOLVED_INPUTS and _read_only_prefix(self, run.team_id, value))
+    ):
         return routine_run._end(self, run.team_id, run.run_id, "failed", {"code": code, "actions": [], **_at(segment)})
     routine_incident.hold(self, run.team_id, run.run_id, run.lease)
     return "held"
+
+
+# Team's own resolution of a step's input from earlier results, refused before that step can dispatch (ADR-0101).
+UNRESOLVED_INPUTS = frozenset({"plan-reference-missing", "plan-reference-ambiguous", "plan-reference-invalid"})
+
+
+def _read_only_prefix(self, team_id: str, value: record.Run) -> bool:
+    """Whether every step the run's sealed cursor dispatched is one the Routine's revision permits as read-only.
+
+    The caller already knows no dispatch's outcome is uncertain, so such a run has nothing for a person to settle and
+    an input it cannot resolve fails it; anything unreadable or a Routine since changed proves nothing.
+    """
+    try:
+        _batch, snapshot, cursor = _sealed(self, team_id, value)
+        current = record.routine(routine_state.load(self, team_id), value.routine_id)
+    except action_journal.ActionJournalError, routine_store.RoutineStoreError, record.RoutineStateError, ApiProblem:
+        return False
+    if cursor is None or current.revision != snapshot.binding.revision:
+        return False
+    dispatched = snapshot.plan["steps"][: cursor.step + (cursor.operation_id is not None)]
+    read_only = {(item["assistant"], item["action"]) for item in current.permitted if item["read_only"]}
+    return all((step["assistant"], step["action"]) in read_only for step in dispatched)
 
 
 def _at(segment: RoutineSegment | None) -> dict[str, object]:

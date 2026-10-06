@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import dataclasses
 import hashlib
 import json
@@ -161,11 +162,11 @@ class ExecutionTests(CompiledRunCase):
         )
         self.assertIsNotNone(opened.cursor.operation_id)
 
-    def test_a_missing_reference_holds_and_nothing_runs_when_the_plan_no_longer_admits(self) -> None:
+    def test_a_missing_reference_fails_and_nothing_runs_when_the_plan_no_longer_admits(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, brain, _value = self.compiled(directory, lambda *_args: {"result": LOOKUP_RESULT})
             claim = service.claim_routine_run()
-            self.assertEqual(self.run_without_key(service, claim)["status"], "held")
+            self.assertEqual(self.run_without_key(service, claim)["status"], "failed")
             self.assertEqual(brain.calls, [])
         invoked: list[object] = []
         with tempfile.TemporaryDirectory() as directory:
@@ -238,6 +239,50 @@ class ExecutionTests(CompiledRunCase):
         # The completed first step and the dispatched second one stay as evidence, never cleaned up as a failure.
         self.assertEqual(recovered.cursor.step, 1)
         self.assertIsNotNone(recovered.cursor.operation_id)
+
+
+class SelectorFailureTests(CompiledRunCase):
+    def run_with(self, directory: str, pointer: str, read_only: bool):
+        actions: list[str] = []
+
+        def invoke(_team, _assistant, action, _payload, _evidence):
+            actions.append(action)
+            return {"result": ZONES}
+
+        _controller, service, _brain, value = self.compiled(directory, invoke)
+        plan = copy.deepcopy(value.plan)
+        plan["steps"][1]["input"]["zone_id"]["pointer"] = pointer
+        permitted = tuple({**item, "read_only": read_only} for item in value.permitted)
+        service.routine_store.update(
+            "team_1",
+            lambda state: (
+                dataclasses.replace(
+                    state,
+                    routines=tuple(
+                        dataclasses.replace(item, plan=plan, permitted=permitted, rehearsal=not read_only)
+                        for item in state.routines
+                    ),
+                ),
+                None,
+            ),
+        )
+        result = self.run_without_key(service, service.claim_routine_run())
+        return result, self.state(service), actions
+
+    def test_an_input_no_read_only_result_resolves_fails_the_run_before_its_step(self) -> None:
+        # ADR-0101 section 6: a selector that matches nothing fails the run; read-only steps before it settle nothing.
+        with tempfile.TemporaryDirectory() as directory:
+            result, state, actions = self.run_with(directory, "/zones/9/id", True)
+        self.assertEqual((result["status"], actions), ("failed", ["list-zones"]))
+        self.assertEqual((state.runs, state.incidents), ((), ()))
+        (notice,) = state.notices
+        self.assertEqual((notice.outcome, notice.detail["code"]), ("failed", "plan-reference-missing"))
+
+    def test_after_a_step_that_may_change_something_the_run_is_held(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result, state, actions = self.run_with(directory, "/zones/9/id", False)
+        self.assertEqual((result["status"], actions), ("held", ["list-zones"]))
+        self.assertEqual(len(state.incidents), 1)
 
 
 class DiagnosticTests(CompiledRunCase):
