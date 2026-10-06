@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import copy
-import json
 import os
 import tempfile
 import types
@@ -25,6 +23,7 @@ from hosted_assistant_fixture import (
     hosted_resources,
     runtime_state,
 )
+from test_dynamic_assistants import runtime_resolution
 
 from hosted import container as container_spec
 
@@ -675,20 +674,6 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
 
 class HostedDynamicAssistantResolutionTests(unittest.TestCase):
     @staticmethod
-    def _resolution() -> dict[str, object]:
-        vectors = json.loads(
-            (Path(__file__).resolve().parents[1] / "protocol" / "install" / "v1" / "vectors.json").read_bytes()
-        )
-        resolution = copy.deepcopy(vectors["fixtures"]["resolve_response"]["value"])
-        action = resolution["machine_contract"]["actions"][0]
-        action["input_schema"]["additionalProperties"] = False
-        action["output_schema"]["additionalProperties"] = False
-        resolution["stored_inputs"] = []
-        action["stored_inputs"] = []
-        action["human_requests"] = []
-        return resolution
-
-    @staticmethod
     def _dynamic_container(**attrs: object) -> types.SimpleNamespace:
         """Team team_1's labeled dynamic hello-world runtime container with these extra Docker attributes."""
         labels = {
@@ -700,7 +685,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         return types.SimpleNamespace(attrs={"Config": {"Labels": labels}, **attrs})
 
     def test_dynamic_resolution_is_team_scoped_and_digest_bound(self) -> None:
-        resolution = self._resolution()
+        resolution = runtime_resolution()
 
         with tempfile.TemporaryDirectory() as directory:
             store = dynamic_assistants.DynamicAssistantStore(Path(directory) / "bindings.json")
@@ -715,7 +700,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         self.assertEqual(spec.required_image_labels[1][1], resolution["source_digest"])
 
     def test_dynamic_resolution_is_a_trusted_isolation_role(self) -> None:
-        resolution = self._resolution()
+        resolution = runtime_resolution()
         container = self._dynamic_container()
 
         with tempfile.TemporaryDirectory() as directory:
@@ -731,7 +716,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         self.assertEqual(trusted, (resolution["image_reference"], "sha256:image", True))
 
     def test_dynamic_resolution_with_preloaded_spec_keeps_compact_posture(self) -> None:
-        resolution = self._resolution()
+        resolution = runtime_resolution()
         container = self._dynamic_container(State={"Running": True})
 
         with tempfile.TemporaryDirectory() as directory:
@@ -774,7 +759,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         self.assertTrue(posture.call_args.kwargs["compact_assistant_runtime"])
 
     def test_dynamic_install_persists_the_binding_and_returns_immutable_evidence(self) -> None:
-        resolution = self._resolution()
+        resolution = runtime_resolution()
         installed = {
             "team_id": "team_1",
             "assistant": "hello-world",
@@ -797,7 +782,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         self.assertEqual(result["binding_digest"], incoming.binding_digest)
 
     def test_failed_dynamic_install_removes_binding_after_complete_rollback(self) -> None:
-        resolution = self._resolution()
+        resolution = runtime_resolution()
 
         with tempfile.TemporaryDirectory() as directory:
             incoming, retained = _dynamic_stores(Path(directory), resolution)
@@ -818,7 +803,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
             self.assertIsNone(retained.get("team_1", "hello-world"))
 
     def test_failed_dynamic_install_retains_binding_for_incomplete_rollback(self) -> None:
-        resolution = self._resolution()
+        resolution = runtime_resolution()
 
         with tempfile.TemporaryDirectory() as directory:
             incoming, retained = _dynamic_stores(Path(directory), resolution)

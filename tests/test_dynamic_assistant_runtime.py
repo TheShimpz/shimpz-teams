@@ -2,30 +2,20 @@
 
 from __future__ import annotations
 
-import copy
-import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from test_dynamic_assistants import RESOLUTION, runtime_resolution
+
 from hosted import container as container_spec
 from hosted.install.publication import assistant_spec
 from install.bindings import DynamicAssistantStore
-from install.contract import CONTRACT_ROOT
-
-VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())
-RESOLUTION = VECTORS["fixtures"]["resolve_response"]["value"]
 
 
 class DynamicAssistantRuntimeTests(unittest.TestCase):
     def test_direct_runtime_is_digest_only_nonroot_readonly_and_mountless(self) -> None:
-        resolution = copy.deepcopy(RESOLUTION)
-        action = resolution["machine_contract"]["actions"][0]
-        action["input_schema"]["additionalProperties"] = False
-        action["output_schema"]["additionalProperties"] = False
-        resolution["stored_inputs"] = []
-        action["stored_inputs"] = []
-        action["human_requests"] = []
+        resolution = runtime_resolution()
         with tempfile.TemporaryDirectory() as directory:
             store = DynamicAssistantStore(Path(directory) / "bindings.json")
             spec = assistant_spec(store.put("team_1", resolution))
