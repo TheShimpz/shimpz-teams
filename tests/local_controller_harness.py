@@ -35,6 +35,11 @@ TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123
 CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "b" * 64
 OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 64
 TEST_ASSISTANT_VERSION = "0.1.0"
+LOOKUP_INPUT = {"page": 1, "per_page": 25}
+LOOKUP_RESULT = {
+    "zones": [],
+    "pagination": {"page": 1, "per_page": 25, "count": 0, "total_count": 0, "total_pages": 0},
+}
 
 
 def chat_body(

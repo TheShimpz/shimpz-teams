@@ -13,7 +13,15 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase, TestAssistantRegistry, chat_body
+from local_controller_harness import (
+    CURRENT_ASSISTANT_IMAGE,
+    LOOKUP_INPUT,
+    LOOKUP_RESULT,
+    TEST_ACCOUNT_ACCESS_TOKEN,
+    LocalContractCase,
+    TestAssistantRegistry,
+    chat_body,
+)
 
 from assistant import spec as assistant_registry
 from inference import config as inference_config
@@ -29,16 +37,6 @@ from local.http import server as local_http
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import store as local_routine_store
 from local.validation import validate_model_credential_headers
-
-LOOKUP_INPUT = {"page": 1, "per_page": 25}
-LOOKUP_RESULT = {
-    "zones": [],
-    "pagination": {"page": 1, "per_page": 25, "count": 0, "total_count": 0, "total_pages": 0},
-}
-TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
-TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
-CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "b" * 64
-OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 64
 
 
 class LocalContractTests(LocalContractCase):

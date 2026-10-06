@@ -13,7 +13,7 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase, chat_body
+from local_controller_harness import LOOKUP_INPUT, LOOKUP_RESULT, LocalContractCase, chat_body
 
 from action import execution as action_execution
 from action import human as action_human
@@ -23,13 +23,6 @@ from local import app as local_app
 from local import audit as local_audit
 from tests import human_request_fixtures
 
-LOOKUP_INPUT = {"page": 1, "per_page": 25}
-LOOKUP_RESULT = {
-    "zones": [],
-    "pagination": {"page": 1, "per_page": 25, "count": 0, "total_count": 0, "total_pages": 0},
-}
-TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
-TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
 LOCAL_TEAM_RESIDUES = [
     "action_checkpoints",
     "assistant_containers",

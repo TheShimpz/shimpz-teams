@@ -16,7 +16,7 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase, chat_body
+from local_controller_harness import LOOKUP_INPUT, LocalContractCase, chat_body
 
 from action import human as action_human
 from inference import client as brain_runtime_client
@@ -25,7 +25,6 @@ from local import app as local_app
 from tests import human_request_fixtures
 
 GENERATION = "a" * 64
-LOOKUP_INPUT = {"page": 1, "per_page": 25}
 CHAT_BODY = chat_body("List zones", assistant_ids=["shimpz-cloudflare"])
 
 

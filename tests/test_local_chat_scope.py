@@ -13,7 +13,7 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase, chat_body
+from local_controller_harness import LOOKUP_INPUT, LOOKUP_RESULT, LocalContractCase, chat_body
 
 from action import dispatch as action_dispatch
 from action import execution as action_execution
@@ -25,15 +25,25 @@ from local import labels as local_labels
 from local.chat.types import ActiveAssistant
 from local.validation import MAX_CHAT_ASSISTANTS
 
-LOOKUP_INPUT = {"page": 1, "per_page": 25}
-LOOKUP_RESULT = {
-    "zones": [],
-    "pagination": {"page": 1, "per_page": 25, "count": 0, "total_count": 0, "total_pages": 0},
-}
-TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
-TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
-CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "b" * 64
-OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 64
+
+def _chat(controller: local_app.LocalController, body: dict[str, object]) -> dict[str, object]:
+    return controller.chat_turn_service.chat("team_1", body, "openai", "sk-test-0123456789")
+
+
+def _activate_account_helper(controller: local_app.LocalController) -> None:
+    """Run a second Assistant, account-helper, beside Shimpz Cloudflare in Team team_1."""
+    hello = controller.registry["shimpz-cloudflare"]
+    account_helper = replace(
+        hello,
+        assistant_id="account-helper",
+        image=hello.image.replace("a" * 64, "b" * 64),
+        actions={"lookup": hello.actions["list-zones"]},
+    )
+    controller.registry[account_helper.assistant_id] = account_helper
+    controller.chat_turn_service._active_chat_assistants = lambda _team_id, _network: (
+        ActiveAssistant(hello, "hello-container"),
+        ActiveAssistant(account_helper, "account-helper-container"),
+    )
 
 
 class LocalChatScopeTests(LocalContractCase):
@@ -161,12 +171,7 @@ class LocalChatScopeTests(LocalContractCase):
             )
             controller.chat_turn_service.storage = controller.storage
 
-            response = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("Summarize", files=[file_id]),
-                "openai",
-                "sk-test-0123456789",
-            )
+            response = _chat(controller, chat_body("Summarize", files=[file_id]))
 
         self.assertEqual(response["reply"], "Done.")
         # The selected text file reaches the Brain as request-local content of this message (ADR-0093).
@@ -191,24 +196,10 @@ class LocalChatScopeTests(LocalContractCase):
         runtime = Runtime()
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, runtime)
-            hello = controller.registry["shimpz-cloudflare"]
-            account_helper = replace(
-                hello,
-                assistant_id="account-helper",
-                image=hello.image.replace("a" * 64, "b" * 64),
-                actions={"lookup": hello.actions["list-zones"]},
-            )
-            controller.registry[account_helper.assistant_id] = account_helper
-            controller.chat_turn_service._active_chat_assistants = lambda _team_id, _network: (
-                ActiveAssistant(hello, "hello-container"),
-                ActiveAssistant(account_helper, "account-helper-container"),
-            )
+            _activate_account_helper(controller)
 
-            response = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("Check the accounts", assistant_ids=["account-helper", "shimpz-cloudflare"]),
-                "openai",
-                "sk-test-0123456789",
+            response = _chat(
+                controller, chat_body("Check the accounts", assistant_ids=["account-helper", "shimpz-cloudflare"])
             )
 
         self.assertEqual(
@@ -237,12 +228,7 @@ class LocalChatScopeTests(LocalContractCase):
             controller = self._chat_controller(directory, runtime)
             # The creation label stays "Marketing"; the display name is the incarnation's record (ADR-0088).
             controller.team_names.save("team_1", "a" * 64, "Growth")
-            response = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("Hello"),
-                "openai",
-                "sk-test-0123456789",
-            )
+            response = _chat(controller, chat_body("Hello"))
         self.assertEqual((runtime.context.team_name, response["team_name"]), ("Growth", "Growth"))
 
     def test_chat_empty_scope_is_brain_only_and_scans_installed_workloads_once(self) -> None:
@@ -262,12 +248,7 @@ class LocalChatScopeTests(LocalContractCase):
                 calls.append(f"{team_id}:{network}") or scanner(team_id, network)
             )
 
-            response = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("Hello"),
-                "openai",
-                "sk-test-0123456789",
-            )
+            response = _chat(controller, chat_body("Hello"))
 
         self.assertEqual(runtime.context.assistants, ())
         self.assertEqual(len(calls), 1)
@@ -284,32 +265,17 @@ class LocalChatScopeTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
             window = [{"role": "user", "text": "List my DNS zones", "truncated": False}]
-            controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("Hello", conversation=window),
-                "openai",
-                "sk-test-0123456789",
-            )
+            _chat(controller, chat_body("Hello", conversation=window))
             self.assertEqual(
                 Runtime.conversation,
                 (brain_runtime_client.RuntimeConversationEntry("user", "List my DNS zones", False),),
             )
             with self.assertRaises(local_app.ApiProblem) as caught:
-                controller.chat_turn_service.chat(
-                    "team_1",
-                    chat_body("Hello", conversation=[{"role": [], "text": "x", "truncated": False}]),
-                    "openai",
-                    "sk-test-0123456789",
-                )
+                _chat(controller, chat_body("Hello", conversation=[{"role": [], "text": "x", "truncated": False}]))
             self.assertEqual(caught.exception.code, "invalid-conversation")
             for locale in ("pt-BR", "", 1):
                 with self.subTest(locale=locale), self.assertRaises(local_app.ApiProblem) as refused:
-                    controller.chat_turn_service.chat(
-                        "team_1",
-                        chat_body("Hello", locale=locale),
-                        "openai",
-                        "sk-test-0123456789",
-                    )
+                    _chat(controller, chat_body("Hello", locale=locale))
                 self.assertEqual(refused.exception.code, "invalid-locale")
 
     def test_chat_rejects_invalid_or_unavailable_assistant_scope_before_runtime(self) -> None:
@@ -327,21 +293,11 @@ class LocalChatScopeTests(LocalContractCase):
             )
             for assistant_ids in invalid:
                 with self.subTest(assistant_ids=assistant_ids), self.assertRaises(local_app.ApiProblem) as caught:
-                    controller.chat_turn_service.chat(
-                        "team_1",
-                        chat_body("Hello", assistant_ids=assistant_ids),
-                        "openai",
-                        "sk-test-0123456789",
-                    )
+                    _chat(controller, chat_body("Hello", assistant_ids=assistant_ids))
                 self.assertEqual(caught.exception.code, "invalid-assistants")
 
             with self.assertRaises(local_app.ApiProblem) as unavailable:
-                controller.chat_turn_service.chat(
-                    "team_1",
-                    chat_body("Hello", assistant_ids=["account-helper"]),
-                    "openai",
-                    "sk-test-0123456789",
-                )
+                _chat(controller, chat_body("Hello", assistant_ids=["account-helper"]))
 
         self.assertEqual(unavailable.exception.status, HTTPStatus.CONFLICT)
         self.assertEqual(unavailable.exception.code, "assistant-unavailable")
@@ -365,12 +321,7 @@ class LocalChatScopeTests(LocalContractCase):
             controller.chat_turn_service._active_chat_assistants = scan
 
             with self.assertRaises(local_app.ApiProblem) as caught:
-                controller.chat_turn_service.chat(
-                    "team_1",
-                    chat_body("Hello", assistant_ids=["shimpz-cloudflare"]),
-                    "openai",
-                    "sk-test-0123456789",
-                )
+                _chat(controller, chat_body("Hello", assistant_ids=["shimpz-cloudflare"]))
 
         self.assertEqual(caught.exception.code, "team-context-changed")
         self.assertEqual(len(scans), 2)
@@ -492,28 +443,12 @@ class LocalChatScopeTests(LocalContractCase):
         runtime = Runtime()
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, runtime)
-            hello = controller.registry["shimpz-cloudflare"]
-            account_helper = replace(
-                hello,
-                assistant_id="account-helper",
-                image=hello.image.replace("a" * 64, "b" * 64),
-                actions={"lookup": hello.actions["list-zones"]},
-            )
-            controller.registry[account_helper.assistant_id] = account_helper
-            controller.chat_turn_service._active_chat_assistants = lambda _team_id, _network: (
-                ActiveAssistant(hello, "hello-container"),
-                ActiveAssistant(account_helper, "account-helper-container"),
-            )
+            _activate_account_helper(controller)
             controller.invoke = lambda *_args: self.fail("an unselected Assistant Action executed")
             controller.assistant_lifecycle.invoke = controller.invoke
 
             with self.assertRaises(local_app.ApiProblem) as caught:
-                controller.chat_turn_service.chat(
-                    "team_1",
-                    chat_body("Accounts", assistant_ids=["shimpz-cloudflare"]),
-                    "openai",
-                    "sk-test-0123456789",
-                )
+                _chat(controller, chat_body("Accounts", assistant_ids=["shimpz-cloudflare"]))
 
         self.assertEqual([assistant.id for assistant in runtime.context.assistants], ["shimpz-cloudflare"])
         self.assertEqual(caught.exception.code, "brain-runtime-failed")
