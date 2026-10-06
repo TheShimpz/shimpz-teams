@@ -312,6 +312,7 @@ def _decode_run(value: object) -> record.Run:
     )
     unleased = value["lease_sha256"] == "" and value["lease_key"] == "" and value["lease_expires_at"] == 0
     position, steps = value["position"], value["steps"]
+    _require(type(steps) is int)
     no_request = (value["request_kind"], value["assistant_id"], value["action"], position, steps) == (
         "",
         "",
@@ -439,6 +440,7 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
     _require(
         isinstance(value, dict)
         and set(value) == _STATE_FIELDS
+        and type(value["schema"]) is int
         and value["schema"] == SCHEMA
         and value["team_id"] == team_id
         and isinstance(value["routines"], list)

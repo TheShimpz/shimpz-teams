@@ -114,6 +114,7 @@ class PlanAdmissionTests(unittest.TestCase):
             (_document(timezone=None), "plan-timezone-invalid"),
             (_document(steps=[{"id": "x"}]), "plan-step-invalid"),
             ({**_document(), "version": float("nan")}, "plan-invalid"),
+            ({**_document(), "version": 3.0}, "plan-invalid"),
         )
         for document, code in cases:
             with self.subTest(code=code, document=str(document)[:60]):

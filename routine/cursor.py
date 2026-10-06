@@ -394,7 +394,12 @@ def decode(raw: bytes, binding: Binding) -> Cursor:
         value = strict_json.loads(raw)
     except (UnicodeDecodeError, ValueError) as exc:
         raise CursorError("cursor-invalid") from exc
-    if not isinstance(value, dict) or set(value) != _FIELDS or value["version"] != VERSION:
+    if (
+        not isinstance(value, dict)
+        or set(value) != _FIELDS
+        or type(value["version"]) is not int
+        or value["version"] != VERSION
+    ):
         raise CursorError("cursor-invalid")
     selected, budgets, reservation = value["selected"], value["budgets"], value["reservation"]
     if not isinstance(selected, list) or not all(isinstance(item, list) and len(item) == 5 for item in selected):

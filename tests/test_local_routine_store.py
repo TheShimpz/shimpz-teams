@@ -245,6 +245,14 @@ class TamperTests(StoreCase):
         held = next(index for index, item in enumerate(base["runs"]) if item["status"] == "held")
         mutations = {
             "schema": lambda value: value.update(schema=1),
+            "schema type": lambda value: value.update(schema=float(routine_store.SCHEMA)),
+            "rehearsed revision type": lambda value: value["routines"][0].update(
+                rehearsed={"run_id": "4" * 32, "revision": True, "permissions_revision": 0}
+            ),
+            "rehearsed permissions revision type": lambda value: value["routines"][0].update(
+                rehearsed={"run_id": "4" * 32, "revision": 1, "permissions_revision": False}
+            ),
+            "run steps type": lambda value: value["runs"][held].update(steps=False),
             "team": lambda value: value.update(team_id="team_2"),
             "extra field": lambda value: value.update(extra=1),
             "routine shape": lambda value: value["routines"][0].pop("confirmation"),

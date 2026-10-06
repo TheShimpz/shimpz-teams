@@ -231,7 +231,7 @@ def _document(document: object) -> tuple[str, list[object], object, bytes]:
         encoded = canonical(document)
     except (TypeError, ValueError) as exc:
         raise PlanError("plan-invalid") from exc
-    if document["version"] != VERSION or len(encoded) > MAX_PLAN_BYTES:
+    if type(document["version"]) is not int or document["version"] != VERSION or len(encoded) > MAX_PLAN_BYTES:
         raise PlanError("plan-invalid")
     timezone = document["timezone"]
     try:

@@ -360,6 +360,8 @@ def _rehearsed(value: Routine) -> bool:
         isinstance(rehearsed, dict)
         and set(rehearsed) == {"run_id", "revision", "permissions_revision"}
         and _matches(rehearsed["run_id"], _HEX32_RE)
+        and type(rehearsed["revision"]) is int
+        and type(rehearsed["permissions_revision"]) is int
         and rehearsed["revision"] == value.revision
         and rehearsed["permissions_revision"] == value.permissions_revision
     )

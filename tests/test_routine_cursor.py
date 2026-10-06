@@ -117,6 +117,7 @@ class CursorTests(unittest.TestCase):
             b"not json",
             json.dumps(document).encode(),
             routine_plan.canonical({**document, "version": 1}),
+            routine_plan.canonical({**document, "version": 4.0}),
             routine_plan.canonical({key: value for key, value in document.items() if key != "shown"}),
             routine_plan.canonical({**document, "shown": {"step": "publish"}}),
             routine_plan.canonical({**document, "shown": []}),
