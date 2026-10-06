@@ -48,18 +48,23 @@ class Subject:
         )
 
 
+def _labels(subject: Subject, body: dict[str, object] | None = None) -> dict[str, object]:
+    """Ask for the Portuguese labels (or ``body``) of the installed Cloudflare Assistant with the private model key."""
+    return capabilities.action_labels(
+        subject,
+        "team_1",
+        "cloudflare-assistant",
+        {"locale": "pt"} if body is None else body,
+        "openai",
+        "private-model-key",
+    )
+
+
 class LocalActionLabelTests(unittest.TestCase):
     def test_projects_exact_installed_actions_after_binding_revalidation(self) -> None:
         subject = Subject()
 
-        result = capabilities.action_labels(
-            subject,
-            "team_1",
-            "cloudflare-assistant",
-            {"locale": "pt"},
-            "openai",
-            "private-model-key",
-        )
+        result = _labels(subject)
 
         self.assertEqual(
             result,
@@ -101,14 +106,7 @@ class LocalActionLabelTests(unittest.TestCase):
         subject._action_label_snapshot = mock.Mock(side_effect=(before, after))
 
         with self.assertRaises(ApiProblemError) as caught:
-            capabilities.action_labels(
-                subject,
-                "team_1",
-                "cloudflare-assistant",
-                {"locale": "pt"},
-                "openai",
-                "private-model-key",
-            )
+            _labels(subject)
 
         self.assertEqual(caught.exception.code, "team-context-changed")
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
@@ -117,28 +115,14 @@ class LocalActionLabelTests(unittest.TestCase):
         subject = Subject()
         for body in ({}, {"locale": "pt-BR"}, {"locale": None}, {"language_exemplar": "Liste minhas zonas"}):
             with self.subTest(body=body), self.assertRaises(ApiProblemError):
-                capabilities.action_labels(
-                    subject,
-                    "team_1",
-                    "cloudflare-assistant",
-                    body,
-                    "openai",
-                    "private-model-key",
-                )
+                _labels(subject, body)
         subject.brain_runtime.action_labels.assert_not_called()
 
         subject.brain_runtime.action_labels.side_effect = brain_runtime_client.BrainRuntimeError(
             "provider leaked private-model-key"
         )
         with self.assertRaises(ApiProblemError) as caught:
-            capabilities.action_labels(
-                subject,
-                "team_1",
-                "cloudflare-assistant",
-                {"locale": "pt"},
-                "openai",
-                "private-model-key",
-            )
+            _labels(subject)
         self.assertEqual(caught.exception.code, "action-labels-unavailable")
         self.assertEqual(caught.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self.assertNotIn("private-model-key", caught.exception.message)
