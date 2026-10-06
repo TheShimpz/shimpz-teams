@@ -21,25 +21,24 @@ def _candidate(version: str = "0.2.0") -> dict[str, str]:
     }
 
 
-def _published_binding(**values: object) -> SimpleNamespace:
-    return SimpleNamespace(provenance="published", **values)
+def _published_binding(
+    team_id: str = "team_1", binding_digest: str = f"sha256:{'1' * 64}", **resolution: object
+) -> SimpleNamespace:
+    """A published hello-world binding; resolution fields override version 0.1.0 of source digest a."""
+    return SimpleNamespace(
+        provenance="published",
+        team_id=team_id,
+        assistant_id="hello-world",
+        binding_digest=binding_digest,
+        resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'a' * 64}", **resolution},
+    )
 
 
 class AutomaticAssistantUpdaterTests(unittest.TestCase):
     def test_one_candidate_per_installed_digest_updates_every_older_binding_with_its_fence(self) -> None:
         bindings = (
-            _published_binding(
-                team_id="team_1",
-                assistant_id="hello-world",
-                binding_digest=f"sha256:{'1' * 64}",
-                resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'a' * 64}"},
-            ),
-            _published_binding(
-                team_id="team_2",
-                assistant_id="hello-world",
-                binding_digest=f"sha256:{'2' * 64}",
-                resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'a' * 64}"},
-            ),
+            _published_binding(),
+            _published_binding(team_id="team_2", binding_digest=f"sha256:{'2' * 64}"),
         )
         calls: list[tuple[object, ...]] = []
         candidate_calls: list[str] = []
@@ -73,10 +72,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
 
     def test_offline_and_busy_teams_defer_without_stopping_other_updates(self) -> None:
         unavailable_binding = _published_binding(
-            team_id="team_offline",
-            assistant_id="hello-world",
-            binding_digest=f"sha256:{'3' * 64}",
-            resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'c' * 64}"},
+            team_id="team_offline", binding_digest=f"sha256:{'3' * 64}", source_digest=f"sha256:{'c' * 64}"
         )
         unavailable = SimpleNamespace(
             developers=SimpleNamespace(latest=lambda _digest: (_ for _ in ()).throw(DevelopersError("offline"))),
@@ -87,13 +83,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         self.assertTrue(AutomaticAssistantUpdater(unavailable).run_once())
 
         bindings = tuple(
-            _published_binding(
-                team_id=f"team_{index}",
-                assistant_id="hello-world",
-                binding_digest=f"sha256:{index:064x}",
-                resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'a' * 64}"},
-            )
-            for index in (1, 2)
+            _published_binding(team_id=f"team_{index}", binding_digest=f"sha256:{index:064x}") for index in (1, 2)
         )
         updated: list[str] = []
         audits: list[tuple[str, str, str, str]] = []
@@ -122,12 +112,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         )
 
     def test_candidate_absence_protocol_failure_and_unavailability_are_distinct(self) -> None:
-        binding = _published_binding(
-            team_id="team_1",
-            assistant_id="hello-world",
-            binding_digest=f"sha256:{'1' * 64}",
-            resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'a' * 64}"},
-        )
+        binding = _published_binding()
         audits: list[tuple[str, str, str, str]] = []
         errors = iter(
             (
@@ -165,12 +150,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         )
 
     def test_failing_binding_uses_independent_bounded_backoff(self) -> None:
-        binding = _published_binding(
-            team_id="team_1",
-            assistant_id="hello-world",
-            binding_digest=f"sha256:{'1' * 64}",
-            resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'a' * 64}"},
-        )
+        binding = _published_binding()
         attempts: list[str] = []
         now = [0.0]
 
@@ -249,23 +229,13 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         controller.install_publication.assert_not_called()
 
     def test_invalid_binding_identity_and_current_candidate_are_not_installed(self) -> None:
-        invalid = _published_binding(
-            team_id="team_1",
-            assistant_id="hello-world",
-            binding_digest=f"sha256:{'1' * 64}",
-            resolution={"assistant_version": "0.1.0", "source_digest": None},
-        )
-        mismatch = _published_binding(
-            team_id="team_2",
-            assistant_id="hello-world",
-            binding_digest=f"sha256:{'2' * 64}",
-            resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'a' * 64}"},
-        )
+        invalid = _published_binding(source_digest=None)
+        mismatch = _published_binding(team_id="team_2", binding_digest=f"sha256:{'2' * 64}")
         current = _published_binding(
             team_id="team_3",
-            assistant_id="hello-world",
             binding_digest=f"sha256:{'3' * 64}",
-            resolution={"assistant_version": "0.2.0", "source_digest": f"sha256:{'b' * 64}"},
+            assistant_version="0.2.0",
+            source_digest=f"sha256:{'b' * 64}",
         )
 
         def latest(digest: str) -> dict[str, str]:
