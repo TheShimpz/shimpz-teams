@@ -8,12 +8,13 @@ across them, every value Team injected into an attempt before its RPC and every 
 result. A send's id is the only thing a paused turn keeps, so the same send goes on recording across a person's answer
 and an Integration resume in the same process.
 
-When the chat agent calls ``record``, Team builds the plan from the span (``routine/recording.py``). A card or a
-refusal ends the span; a question keeps it, with what it asked, so the person's answer is the span's next send. A send
-with files or not a person's own ends it too. The span is bounded: at most 16 sends, and its texts and kept calls
-within their byte bounds; to fit a new send or call, its oldest sends go whole, and the send in progress never does,
-so a send that alone outgrows a bound refuses the recording. Protection never shrinks and a loss is never undone.
-Nothing here persists: a Team restart drops every span, and a send in progress then records nothing.
+When the chat agent calls ``record`` within 15 minutes of the span's latest send, Team builds the plan from the span
+(``routine/recording.py``). A card or a refusal ends the span; a question keeps it, with what it asked, so the person's
+answer is the span's next send. A send with files or not a person's own ends it too. The span is bounded: at most 16
+sends, and its texts and kept calls within their byte bounds; to fit a new send or call, its oldest sends go whole, and
+the send in progress never does, so a send that alone outgrows a bound refuses the recording. Protection never shrinks
+and a loss is never undone. Nothing here persists: a Team restart drops every span, and a send in progress then records
+nothing.
 """
 
 from __future__ import annotations
@@ -125,7 +126,8 @@ def _send(started: Started, now: int) -> routine_recording.Send:
 class RecordingBook:
     """Every Team's recording span, at most one each, as a Team runs one chat turn at a time."""
 
-    def __init__(self) -> None:
+    def __init__(self, clock: Callable[[], float] = time.time) -> None:
+        self._clock = clock
         self._guard = threading.Lock()
         self._spans: dict[str, Span] = {}
 
@@ -154,6 +156,11 @@ class RecordingBook:
         with self._guard:
             found = self._spans.get(team_id)
         return found if found is not None and recording_id is not None and found.recording_id == recording_id else None
+
+    def live(self, team_id: str, recording_id: str | None) -> Span | None:
+        """The span to record from: its latest send has exactly this id and started at most 15 minutes ago."""
+        found = self.get(team_id, recording_id)
+        return None if found is None or self._clock() - found.started_at > SPAN_SECONDS else found
 
     def _change(self, team_id: str, recording_id: str, change: Callable[[Span], Span]) -> None:
         with self._guard:

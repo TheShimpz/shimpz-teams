@@ -181,8 +181,8 @@ def routine_capacity(self, team_id: str) -> int:
 
 
 def _recording(self, response: object):
-    """The turn's recording span, still the same person's, usable, and still protected."""
-    found = self.routine_recordings.get(response.team_id, response.recording)
+    """The turn's recording span, still live, the same person's, usable, and still protected."""
+    found = self.routine_recordings.live(response.team_id, response.recording)
     if found is None or found.principal != local_audit.human_principal() or found.protection.lost:
         raise RefusedError("routine-recording-unavailable")
     if found.refused:

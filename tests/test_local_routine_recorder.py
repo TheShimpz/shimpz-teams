@@ -82,6 +82,17 @@ class RecordingBookTests(unittest.TestCase):
         self.assertEqual((len(book.get("team_1", fresh).sends), book.get("team_1", fresh).refused), (1, ""))
         self.assertIsNone(book.get("team_1", send))
 
+    def test_a_span_is_live_only_until_fifteen_minutes_after_its_latest_send(self) -> None:
+        clock = [100.0]
+        book = routine_recorder.RecordingBook(clock=lambda: clock[0])
+        send = book.start("team_1", BINDING, _started(), 100)
+        clock[0] = 100 + routine_recorder.SPAN_SECONDS
+        self.assertIsNotNone(book.live("team_1", send))
+        clock[0] += 1
+        self.assertIsNone(book.live("team_1", send))
+        self.assertIsNone(book.live("team_1", "f" * 32))
+        self.assertIsNotNone(book.get("team_1", send))
+
     def test_the_oldest_sends_give_way_and_a_send_that_alone_outgrows_its_bound_refuses(self) -> None:
         book = routine_recorder.RecordingBook()
         large = _occurrence(trace.MAX_KEPT_BYTES - 64)
@@ -184,7 +195,7 @@ class OutcomeTests(unittest.TestCase):
             routine_proposal._outcome([])
 
     def test_a_refused_recording_answers_its_own_code(self) -> None:
-        book = routine_recorder.RecordingBook()
+        book = routine_recorder.RecordingBook(clock=lambda: 1)
         recording_id = book.start("team_1", BINDING, _started(), 1)
         book._spans["team_1"] = dataclasses.replace(book._spans["team_1"], refused="routine-x")
         service = SimpleNamespace(routine_recordings=book)

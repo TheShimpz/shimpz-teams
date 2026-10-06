@@ -281,6 +281,20 @@ class RecordedRoutineTests(LocalContractCase):
         # The card ended the span.
         self.assertIsNone(span)
 
+    def test_a_span_consumed_after_its_fifteen_minutes_is_unavailable(self) -> None:
+        def late(seconds: int):
+            def prepare(service) -> None:
+                started = time.time()
+                service.routine_recordings._clock = lambda: started + seconds
+
+            return prepare
+
+        self.assertEqual(self.refusal(Recording(_record()), prepare=late(901)), "routine-recording-unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, Recording(_record()))
+            late(899)(service)
+            self.assertIn("routine_proposal", self.chat(service))
+
     def test_a_question_holding_a_protected_value_is_refused_never_published(self) -> None:
         leaking = routine_recording.Question(
             "routine-binding-ambiguous", ({"value": "tok-protected-9", "label": None},)
