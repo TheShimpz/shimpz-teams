@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import dataclasses
 import tempfile
 import unittest
 from http import HTTPStatus
 from unittest import mock
 
-from local_assistant_fixture import mutating_spec
 from test_local_routine_automatic import AutomaticCase, Brain
 from test_local_routine_recovery import RECORD, Assistant, failed
-from test_local_routine_service import ASSISTANT
 
 from action import execution as action_execution
 from local import app as local_app
@@ -123,13 +120,7 @@ class PolicyHoldTests(AutomaticCase):
 
     def restarted(self, directory: str, assistant: Assistant, brain: Brain):
         """A fresh controller over the same durable Team state, as after a Team restart."""
-        controller, service = self.service(directory, brain)
-        current = controller.registry[ASSISTANT]
-        controller.registry[ASSISTANT] = dataclasses.replace(
-            mutating_spec(current.image), provenance=current.provenance, platform=current.platform
-        )
-        controller.assistant_lifecycle.invoke = assistant
-        return service
+        return self.mutating(directory, brain, assistant)
 
     def test_a_classification_that_was_never_sealed_holds_as_evidence_even_after_a_restart(self) -> None:
         assistant = ReadOnlyFault(problem("assistant-secret-exposure"))

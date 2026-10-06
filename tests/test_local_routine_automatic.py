@@ -11,7 +11,6 @@ from typing import ClassVar
 from unittest import mock
 
 import routine_fixture
-from local_assistant_fixture import mutating_spec
 from test_local_chat_scope import LOOKUP_INPUT
 from test_local_routine_compiled import ZONE
 from test_local_routine_recovery import RECORD, Assistant, RecoveryCase, failed
@@ -78,20 +77,10 @@ class AutomaticCase(RecoveryCase):
         return service, value, run_id
 
     def held_automatic(self, directory, assistant, brain, key):
-        controller, service = self.service(directory, brain)
-        current = controller.registry[ASSISTANT]
-        controller.registry[ASSISTANT] = dataclasses.replace(
-            mutating_spec(current.image), provenance=current.provenance, platform=current.platform
-        )
-        controller.assistant_lifecycle.invoke = assistant
+        service = self.mutating(directory, brain, assistant)
         # The Assistant may reach the Team's state while its Action runs, as a person changing it meanwhile would.
         assistant.service = service
-        plan = self.plan(
-            service,
-            ("zones", "list-zones", LOOKUP_INPUT),
-            ("create", "create-record", {"zone_id": ZONE, "name": "www"}),
-        )
-        value = self.routine(service, plan=plan)
+        value = self.zone_record_routine(service)
         claim = service.claim_routine_run()
         self.status = self.run_claim(service, claim, key)["status"]
         return service, brain, value, claim["run_id"]

@@ -54,23 +54,32 @@ class Assistant:
 
 
 class RecoveryCase(CompiledRunCase):
-    def held(self, directory: str, assistant: Assistant, brain=None, *, automatic: bool = False):
-        brain = brain or Brain()
+    def mutating(self, directory: str, brain, assistant: Assistant):
+        """A Team whose Assistant is the mutating one, its Actions answered by ``assistant``."""
         controller, service = self.service(directory, brain)
-        if not automatic:
-            # These tests drive verification by hand; the automatic episode has its own tests.
-            service._recover_routine_run = lambda _run, _key, _progress=None: "held"
         current = controller.registry[ASSISTANT]
         controller.registry[ASSISTANT] = dataclasses.replace(
             mutating_spec(current.image), provenance=current.provenance, platform=current.platform
         )
         controller.assistant_lifecycle.invoke = assistant
+        return service
+
+    def zone_record_routine(self, service):
+        """A Routine that lists the zones, then creates a record in the first one."""
         plan = self.plan(
             service,
             ("zones", "list-zones", LOOKUP_INPUT),
             ("create", "create-record", {"zone_id": ZONE, "name": "www"}),
         )
-        value = self.routine(service, plan=plan)
+        return self.routine(service, plan=plan)
+
+    def held(self, directory: str, assistant: Assistant, brain=None, *, automatic: bool = False):
+        brain = brain or Brain()
+        service = self.mutating(directory, brain, assistant)
+        if not automatic:
+            # These tests drive verification by hand; the automatic episode has its own tests.
+            service._recover_routine_run = lambda _run, _key, _progress=None: "held"
+        value = self.zone_record_routine(service)
         claim = service.claim_routine_run()
         self.assertEqual(self.run_without_key(service, claim)["status"], "held")
         return service, brain, value, claim["run_id"]
