@@ -143,6 +143,11 @@ class StatedScheduleTests(unittest.TestCase):
             {"a cada 30 segundos no servidor": continuous(30), "todo mês no dia 5 às 9h": monthly(5, "09:00")}
         )
 
+    def test_a_count_too_long_to_be_a_schedule_states_nothing(self) -> None:
+        for text in ("every " + "9" * 5000 + " seconds", "a cada " + "1" * 7 + " segundos", "9" * 5000 + "秒ごと"):
+            with self.subTest(text=text[:20]):
+                self.assertEqual(phrase.stated(text), ())
+
     def test_the_half_of_the_day_and_impossible_times(self) -> None:
         self.assert_stated({"every day at 12am": daily("00:00"), "every day at 12 pm": daily("12:00")})
         for text in ("every day at 13pm", "todo dia às 25h", "todo dia às 9h75"):

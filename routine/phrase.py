@@ -235,7 +235,13 @@ def _readings(sentence: str) -> dict[str, list[re.Match[str]]]:
     return admitted
 
 
+# The longest count any schedule can hold: a day in seconds has five digits; a longer one states nothing.
+_MAX_COUNT_DIGITS = len(str(http_routine.MAX_CONTINUOUS_GAP_SECONDS))
+
+
 def _interval(count: str, unit: str) -> dict[str, object] | None:
+    if count and len(count) > _MAX_COUNT_DIGITS:
+        return None
     every = int(count) if count else 1
     kind = _FIXED_UNITS.get(unit) or _UNIT[unit]
     if kind == "hour" and 1 <= every <= 24:

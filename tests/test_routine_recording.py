@@ -654,6 +654,10 @@ class ScheduleTests(unittest.TestCase):
         recorded = _recorded(_send(ZONES_CALL, message=composed))
         self.assertEqual(recorded.schedule, {"kind": "continuous", "gap": 30, "cap": 2880})
 
+    def test_an_unreadable_count_is_asked_through_the_schedule_question(self) -> None:
+        asked = _record(_send(ZONES_CALL, message="every " + "9" * 5000 + " seconds"))
+        self.assertEqual(asked, recording.Question("routine-schedule-unstated"))
+
     def test_no_schedule_two_in_one_text_or_one_only_asked_are_asked_again(self) -> None:
         for message in ("Cria uma rotina", "a cada hora e todo dia às 9h", "Todo dia às 9h?"):
             with self.subTest(message=message):
