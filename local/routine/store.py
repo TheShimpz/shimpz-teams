@@ -678,24 +678,6 @@ class RoutineStore:
         except OSError as exc:
             raise RoutineStoreError(f"{label} could not be removed") from exc
 
-    @staticmethod
-    def _durable_unlink(directory: Path, name: str, label: str) -> None:
-        """Remove one file and fsync its directory, so a removal survives a crash; an absent file is already removed."""
-        try:
-            (directory / name).unlink()
-        except FileNotFoundError:
-            return
-        except OSError as exc:
-            raise RoutineStoreError(f"{label} could not be removed") from exc
-        try:
-            descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-        except OSError as exc:
-            raise RoutineStoreError(f"{label} could not be removed") from exc
-
     def continuation(self, team_id: object, run_id: object) -> bytes:
         team, run = _team_id(team_id), _run_id(run_id)
         payload = self._sealed_read(

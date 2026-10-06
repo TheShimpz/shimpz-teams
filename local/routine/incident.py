@@ -292,10 +292,8 @@ def set_aside(
     team_id: str,
     incident_id: str,
     change: Callable[[record.TeamRoutines], record.TeamRoutines],
-    *,
-    release_now: bool = True,
 ) -> record.Incident:
-    """Apply a person's transition that sets the incident aside, then, unless told not to, release what it kept.
+    """Apply a person's transition that sets the incident aside, then release what it kept.
 
     The transition checks the card's state in its own write and never replays or fabricates output; any effect the run
     may have had stays unresolved, which the person was told. Once it committed, a failed release only waits for the
@@ -312,8 +310,7 @@ def set_aside(
     skipped = routine_state.update(self, team_id, mark)
     if isinstance(skipped, str):
         raise _transition_problem(skipped)
-    if release_now:
-        settled(self, team_id, skipped)
+    settled(self, team_id, skipped)
     return skipped
 
 
