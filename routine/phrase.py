@@ -190,7 +190,7 @@ _TIMES = (
 )
 # What each run does with its result, by language: show it every run, only when it changes, nothing, or use it in
 # other Actions. Each interface language's choice labels (``routine.OUTPUT_CHOICES``) are among these phrases. A plain
-# "show the result" reads as showing it every run, unless its own sentence says only when it changes.
+# "show the result" reads as showing it every run, unless its own clause says only when it changes.
 _PT_SHOW = r"\b(?:mostrar|mostre|exibir|exiba)\s+"
 _ES_SHOW = r"\b(?:mostrar|muestra|muéstrame)\s+"
 _FR_SHOW = r"\b(?:afficher|affiche|montre(?:-moi)?)\s+"
@@ -351,12 +351,22 @@ def stated(text: str) -> tuple[dict[str, object], ...]:
     return tuple(found)
 
 
+# What separates two clauses offered as alternatives: a comma or semicolon in any script, or "or" in any language.
+_ALTERNATIVE_RE = re.compile(r"[,;，、،；]|\b(?:ou|or|o|oder)\b|または|或|还是|أو")
+
+
+def _one_clause(sentence: str, first: tuple[int, int], second: tuple[int, int]) -> bool:
+    """Whether two readings sit in one clause: nothing between them separates alternatives."""
+    between = sentence[min(first[1], second[1]) : max(first[0], second[0])]
+    return _ALTERNATIVE_RE.search(between) is None
+
+
 def outputs(text: str) -> tuple[str, ...]:
     """Every distinct output choice one person-authored text states affirmatively, in the order first found.
 
     A "nothing" reading carries its own negation and stands; any other reading a negation reaches, in any language,
-    or that overlaps a "nothing" reading, states nothing. "Show the result" qualified by "only when it changes" in the
-    same sentence is that one choice, while "show it every run, or only when it changes" states both.
+    or that overlaps a "nothing" reading, states nothing. "Show the result" qualified by "only when it changes" in its
+    own clause is that one choice, while "show the result, or only when it changes" states both.
     """
     found: list[str] = []
     for sentence in _sentences(text):
@@ -368,12 +378,13 @@ def outputs(text: str) -> tuple[str, ...]:
             match.span() for kind, language, match in readings if kind != "none" and _negated(language, sentence, match)
         ]
         admitted = [
-            kind
+            (kind, match.span())
             for kind, _language, match in readings
             if kind == "none" or not any(match.start() < end and start < match.end() for start, end in blocked)
         ]
-        for kind in admitted:
-            if kind == "result" and "changes" in admitted:
+        changes = [span for kind, span in admitted if kind == "changes"]
+        for kind, span in admitted:
+            if kind == "result" and any(_one_clause(sentence, span, other) for other in changes):
                 continue
             chosen = "show" if kind == "result" else kind
             if chosen not in found:

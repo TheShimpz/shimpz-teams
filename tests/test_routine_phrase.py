@@ -222,6 +222,20 @@ class StatedOutputTests(unittest.TestCase):
                 self.assertEqual(phrase.outputs(text), ("changes",))
         # Showing the result every run, said twice, is one choice.
         self.assertEqual(phrase.outputs("Mostrar sempre e mostre o resultado"), ("show",))
+        # Showing the result, or only when it changes, offers two choices: a conflict, asked in every language.
+        alternatives = (
+            "Mostrar o resultado, ou só quando mudar",
+            "Show the results, or only when it changes",
+            "Muéstrame el resultado, o solo cuando cambie",
+            "Montre-moi le résultat, ou uniquement en cas de changement",
+            "Zeig mir das Ergebnis, oder nur bei Änderung",
+            "結果を表示、または変更時のみ",
+            "显示结果，或者仅在变化时",
+            "اعرض النتيجة، أو فقط عند التغيير",
+        )
+        for text in alternatives:
+            with self.subTest(text=text):
+                self.assertEqual(set(phrase.outputs(text)), {"show", "changes"})
         # Showing every run or only on change is a real conflict, asked in one sentence as in two.
         for text in ("Mostrar sempre, ou só quando mudar", "Show every run or only when it changes"):
             with self.subTest(text=text):
