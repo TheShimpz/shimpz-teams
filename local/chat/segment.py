@@ -31,6 +31,10 @@ from protocol.http.v1 import routine as http_routine
 from routine import pin as routine_pin
 from routine import record as routine_record
 
+# The model a chat turn about a Routine uses on an OpenAI Team, with the Team's own key and effort; every other turn,
+# and every turn on another provider, uses the Team's configured model.
+ROUTINE_OPENAI_MODEL = "gpt-6.1-sol"
+
 
 @dataclass(frozen=True, slots=True)
 class RoutineSegment:
@@ -194,7 +198,7 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         team_name=scope.team_name,
         assistants=runtime_assistants,
         provider=config.provider,
-        model=config.model,
+        model=_turn_model(self, request, config),
         api_key=request.api_key,
         effort=config.effort,
         memories=None if routine is not None else tuple(memories),
@@ -208,6 +212,21 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         locale=request.locale,
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),
     )
+
+
+def _turn_model(self, request: SegmentRequest, config: inference_config.InferenceConfig) -> str:
+    """The Team's model, except a chat turn about a Routine on OpenAI, at its start and at every resume.
+
+    A resume reads the span its start read, which records only between turns; once that span has expired or a newer
+    send replaced it, the turn continues on the Team's model.
+    """
+    routed = (
+        request.routine is None
+        and request.recording is not None
+        and config.provider == "openai"
+        and routine_recorder.routine_mode(_span(self, request))
+    )
+    return ROUTINE_OPENAI_MODEL if routed else config.model
 
 
 def _listed(self, request: SegmentRequest) -> tuple[dict[str, object], ...]:

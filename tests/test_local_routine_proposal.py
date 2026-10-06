@@ -13,12 +13,15 @@ from unittest import mock
 from local_controller_harness import LocalContractCase
 
 from inference import client as brain_runtime_client
+from inference import config as inference_config
 from local import app as local_app
 from local import audit as local_audit
 from local.chat import api as local_chat_api
+from local.chat import segment as local_segment
 from local.routine import contracts as routine_contracts
 from local.routine import manage as routine_manage
 from local.routine import proposal as routine_proposal
+from local.routine import recorder as local_routine_recorder
 from local.routine import store as routine_store
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import progress as http_progress
@@ -425,6 +428,64 @@ class RecordedRoutineTests(LocalContractCase):
         question = {"code": "routine-schedule-unstated", "options": [], "value": None}
         self.assertEqual((runtime.contexts[0].routine_question, runtime.contexts[1].routine_question), (None, question))
         self.assertEqual([context.routine_mode for context in runtime.contexts], [False, True])
+
+    def test_a_routine_mode_turn_on_openai_reasons_with_the_routine_model(self) -> None:
+        runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            self.chat(service, _body("Liste os registros DNS de shimpz.com"))
+            self.chat(service, _body("A cada 30 segundos"))
+        self.assertEqual(
+            [(context.routine_mode, context.model, context.effort) for context in runtime.contexts],
+            [(False, "gpt-6-luna", "low"), (True, local_segment.ROUTINE_OPENAI_MODEL, "low")],
+        )
+        self.assertEqual({context.api_key for context in runtime.contexts}, {"sk-test-0123456789"})
+
+    def test_the_routine_model_is_one_openai_offers(self) -> None:
+        self.assertEqual(local_segment.ROUTINE_OPENAI_MODEL, "gpt-6.1-sol")
+        self.assertIn(local_segment.ROUTINE_OPENAI_MODEL, inference_config.PROVIDERS["openai"]["models"])
+
+    def test_a_routine_mode_turn_on_anthropic_keeps_the_team_model(self) -> None:
+        runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            service.inference_store.save("team_1", inference_config.normalize("anthropic", "claude-sonnet-5-5"))
+            with self.as_person():
+                for message in ("Liste os registros DNS de shimpz.com", "A cada 30 segundos"):
+                    service.chat("team_1", _body(message), "anthropic", "sk-ant-test-0123456789")
+        self.assertEqual(
+            [(context.routine_mode, context.model) for context in runtime.contexts],
+            [(False, "claude-sonnet-5-5"), (True, "claude-sonnet-5-5")],
+        )
+
+    def test_a_turn_outside_routine_mode_keeps_the_team_model(self) -> None:
+        runtime = Sends((("list-zones",), None), (("list-zones",), None))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            for message in ("Liste as zonas de shimpz.com", "E agora liste de novo"):
+                self.chat(service, _body(message))
+        self.assertEqual(
+            [(context.routine_mode, context.model) for context in runtime.contexts],
+            [(False, "gpt-6-luna"), (False, "gpt-6-luna")],
+        )
+
+    def test_every_segment_of_a_routine_mode_turn_keeps_the_routine_model(self) -> None:
+        book = local_routine_recorder.RecordingBook()
+        started = local_routine_recorder.Started("A cada 30 segundos", (), None)
+        recording = book.start("team_1", (PRINCIPAL, "i"), started, int(time.time()))
+        controller = SimpleNamespace(routine_recordings=book)
+        config = inference_config.normalize("openai", "gpt-6-luna")
+        for continuation, routine, expected in (
+            (None, None, local_segment.ROUTINE_OPENAI_MODEL),
+            (object(), None, local_segment.ROUTINE_OPENAI_MODEL),
+            (None, object(), "gpt-6-luna"),
+        ):
+            request = SimpleNamespace(team_id="team_1", recording=recording, continuation=continuation, routine=routine)
+            with self.subTest(continuation=continuation, routine=routine):
+                self.assertEqual(local_segment._turn_model(controller, request, config), expected)
+        book.drop("team_1")
+        request = SimpleNamespace(team_id="team_1", recording=recording, continuation=object(), routine=None)
+        self.assertEqual(local_segment._turn_model(controller, request, config), "gpt-6-luna")
 
     def test_only_a_target_chosen_by_its_exact_json_text_skips_the_brain(self) -> None:
         original = "Liste os registros DNS a cada 30 segundos e mostre o resultado"
