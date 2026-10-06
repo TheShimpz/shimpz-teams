@@ -10,8 +10,8 @@ from http import HTTPStatus
 from typing import BinaryIO
 from urllib.parse import parse_qsl, quote, unquote_to_bytes, urlsplit
 
-from core import strict_json
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import strict_json
 
 MAX_REQUEST_TARGET_BYTES = 512
 MAX_FILENAME_BYTES = 255

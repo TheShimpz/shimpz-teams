@@ -18,13 +18,13 @@ from pathlib import Path
 
 from docker.errors import APIError
 
-from core import strict_json
 from inference import config as inference_config
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import ownership_conflict
 from local.labels import TEAM_LABEL, TEAM_NAME_LABEL
 from local.validation import validate_team_id
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import strict_json
 from storage import files as team_storage
 
 SCHEMA = 1

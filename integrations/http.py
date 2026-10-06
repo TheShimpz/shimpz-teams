@@ -20,9 +20,9 @@ from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlencode, urlsplit
 
-from core import strict_json
 from integrations import pkce as integration_pkce
 from integrations import providers as integration_providers
+from protocol.http.v1 import strict_json
 
 MAX_RESPONSE_BYTES = 32 * 1024
 MAX_TOKEN_BYTES = 16 * 1024

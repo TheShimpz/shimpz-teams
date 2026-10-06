@@ -16,11 +16,11 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 from action import journal as action_journal
-from core import strict_json
 from inference import abort as brain_abort
 from inference import usage as brain_usage
 from inference.errors import BrainRuntimeError
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import strict_json
 
 RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8080")
 TOKEN_FILE = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))

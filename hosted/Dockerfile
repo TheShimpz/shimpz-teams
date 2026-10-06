@@ -133,13 +133,14 @@ COPY protocol/account/authority/v1/README.md protocol/account/authority/v1/contr
      protocol/account/authority/v1/vectors.json protocol/account/authority/v1/verify.py \
      ./protocol/account/authority/v1/
 COPY protocol/action/v1/schema.py ./protocol/action/v1/
-COPY protocol/http/v1/identifiers.py protocol/http/v1/payload.py protocol/http/v1/purpose.py ./protocol/http/v1/
+COPY protocol/http/v1/identifiers.py protocol/http/v1/payload.py protocol/http/v1/purpose.py protocol/http/v1/strict_json.py \
+    ./protocol/http/v1/
 COPY protocol/account/delivery/v1/aad.py ./protocol/account/delivery/v1/
 COPY protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
     protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
     protocol/assistant/v1/validators/message_catalog.py \
     ./protocol/assistant/v1/validators/
-COPY core/__init__.py core/base64url.py core/strict_json.py ./core/
+COPY core/__init__.py core/base64url.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/

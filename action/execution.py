@@ -23,8 +23,8 @@ from action import human as action_human
 from action import journal as action_journal
 from action import result as action_result
 from action import stored_input as action_stored_input
-from core import strict_json
 from protocol.assistant.v1.validators import input_file as input_file_validator
+from protocol.http.v1 import strict_json
 
 # A missing manifest Action is a missing resource; an unavailable connected integration is an unmet
 # request precondition. Both Controllers use these statuses so their public contracts cannot drift.

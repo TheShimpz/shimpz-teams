@@ -14,7 +14,6 @@ from action import human as action_human
 from action import journal as action_journal
 from assistant import action_schema
 from chat import orchestrator as chat_orchestrator
-from core import strict_json
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import usage as brain_usage
@@ -24,6 +23,7 @@ from local.errors import ApiProblemError
 from local.validation import validate_team_name
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import strict_json
 from routine import plan as routine_plan
 
 SCHEMA_VERSION = 7

@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from core import strict_json
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import strict_json
 from storage import private_state
 
 STATE_PATH = Path("/var/lib/shimpz-local/assistant-stored-inputs/state/stored-inputs.json")

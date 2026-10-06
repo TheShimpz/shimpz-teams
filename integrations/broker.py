@@ -17,10 +17,10 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlencode, urlsplit
 
-from core import strict_json
 from integrations import account_egress
 from integrations import http as integration_http
 from integrations import providers as integration_providers
+from protocol.http.v1 import strict_json
 
 BROKER_ORIGIN = "https://shimpz.com"
 CALLBACK_MODES = frozenset({"loopback", "hosted", "out-of-band"})
