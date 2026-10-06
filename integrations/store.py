@@ -119,10 +119,17 @@ class _TokenGrant:
     generation: int = 0
 
 
-def _component_id(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) > 64 or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
+def _component_id(
+    value: object, label: str, canonical: Callable[[object], str | None] = http_payload.canonical_identifier
+) -> str:
+    identifier = canonical(value)
+    if identifier is None:
         raise OAuthIntegrationValidationError(f"{label} is invalid")
-    return value
+    return identifier
+
+
+def _assistant_id(value: object) -> str:
+    return _component_id(value, "Assistant id", http_payload.canonical_assistant_id)
 
 
 def _team_id(value: object) -> str:
@@ -301,7 +308,7 @@ def _validate_state(value: object) -> dict[str, object]:
             raise OAuthIntegrationStoreError("OAuth integration state is malformed")
         for raw_assistant, raw_integrations in raw_assistants.items():
             try:
-                _component_id(raw_assistant, "Assistant id")
+                _assistant_id(raw_assistant)
             except OAuthIntegrationValidationError as exc:
                 raise OAuthIntegrationStoreError("OAuth integration state is malformed") from exc
             if not isinstance(raw_integrations, dict) or len(raw_integrations) > MAX_INTEGRATIONS_PER_ASSISTANT:
@@ -370,6 +377,7 @@ _POLICY = private_state.RecordPolicy(
     records_per_assistant=MAX_INTEGRATIONS_PER_ASSISTANT,
     validation_error=OAuthIntegrationValidationError,
     team_id=_team_id,
+    assistant_id=_assistant_id,
     component_id=_component_id,
     decode_state=_strict_json,
     validate_state=_validate_state,
@@ -524,7 +532,7 @@ class OAuthIntegrationStore(private_state.RecordStore):
     ) -> OAuthIntegrationMetadata:
         """Encrypt one exchanged token set and atomically advance its generation."""
         team = _team_id(team_id)
-        assistant = _component_id(assistant_id, "Assistant id")
+        assistant = _assistant_id(assistant_id)
         integration = _component_id(integration_id, "integration id")
         canonical_provider, canonical_scopes = _intent(provider, scopes)
         canonical = _token_set(token_set, canonical_scopes, self._now(), identity)
@@ -631,7 +639,7 @@ class OAuthIntegrationStore(private_state.RecordStore):
         before a replacement token is requested.
         """
         team = _team_id(team_id)
-        assistant = _component_id(assistant_id, "Assistant id")
+        assistant = _assistant_id(assistant_id)
         integration = _component_id(integration_id, "integration id")
         canonical_provider, canonical_scopes = _intent(provider, scopes)
         if not isinstance(callbacks, OAuthReplacementCallbacks) or not callable(callbacks.exchange):
@@ -683,7 +691,7 @@ class OAuthIntegrationStore(private_state.RecordStore):
     ) -> str:
         """Return one bounded access token, refreshing once under a single-flight lock."""
         team = _team_id(team_id)
-        assistant = _component_id(assistant_id, "Assistant id")
+        assistant = _assistant_id(assistant_id)
         integration = _component_id(integration_id, "integration id")
         canonical_provider, expected_scopes = _intent(provider, scopes)
         if not callable(refresh_callback):
@@ -732,7 +740,7 @@ class OAuthIntegrationStore(private_state.RecordStore):
     ) -> tuple[OAuthIntegrationMetadata, ...]:
         """Return complete declared inventory, including missing integration rows."""
         team = _team_id(team_id)
-        assistant = _component_id(assistant_id, "Assistant id")
+        assistant = _assistant_id(assistant_id)
         declared = _declarations(declarations)
         with self._lock:
             state = self._read_state()
@@ -794,7 +802,7 @@ class OAuthIntegrationStore(private_state.RecordStore):
     ) -> bool:
         """Delete one grant only after its authenticated tokens are revoked upstream."""
         team = _team_id(team_id)
-        assistant = _component_id(assistant_id, "Assistant id")
+        assistant = _assistant_id(assistant_id)
         integration = _component_id(integration_id, "integration id")
         if not callable(revoke_callback):
             raise OAuthIntegrationValidationError("OAuth revocation callback is invalid")

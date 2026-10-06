@@ -13,6 +13,7 @@ import re
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from core import base64url
@@ -102,10 +103,13 @@ def _team_id(value: object) -> str:
     return value
 
 
-def _component_id(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) > 64 or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
+def _component_id(
+    value: object, label: str, canonical: Callable[[object], str | None] = http_payload.canonical_identifier
+) -> str:
+    identifier = canonical(value)
+    if identifier is None:
         raise OAuthChallengeError(f"OAuth {label} binding is invalid")
-    return value
+    return identifier
 
 
 def _state(value: object) -> str:
@@ -169,7 +173,7 @@ class OAuthPKCEChallengeStore:
         return (
             _session_digest(session_binding),
             _team_id(team_id),
-            _component_id(assistant_id, "Assistant"),
+            _component_id(assistant_id, "Assistant", http_payload.canonical_assistant_id),
             _component_id(integration_id, "integration"),
         )
 

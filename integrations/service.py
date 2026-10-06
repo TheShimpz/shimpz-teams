@@ -68,10 +68,13 @@ class _Selection:
     integration_id: object
 
 
-def _identifier(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) > 64 or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
+def _identifier(
+    value: object, label: str, canonical: Callable[[object], str | None] = http_payload.canonical_identifier
+) -> str:
+    identifier = canonical(value)
+    if identifier is None:
         raise OAuthIntegrationServiceError(f"pending OAuth {label} is unavailable")
-    return value
+    return identifier
 
 
 def _declaration(value: object) -> tuple[str, tuple[str, ...]]:
@@ -117,7 +120,7 @@ def _candidates(
             or not 1 <= len(requirement.integrations) <= MAX_INTEGRATIONS_PER_REQUIREMENT
         ):
             raise OAuthIntegrationServiceError("pending OAuth integration is unavailable")
-        assistant_id = _identifier(requirement.assistant_id, "Assistant")
+        assistant_id = _identifier(requirement.assistant_id, "Assistant", http_payload.canonical_assistant_id)
         for raw_integration in requirement.integrations:
             if not isinstance(raw_integration, tuple) or len(raw_integration) != 3:
                 raise OAuthIntegrationServiceError("pending OAuth integration is unavailable")
@@ -146,7 +149,7 @@ def _missing_candidate(
     selection: _Selection,
 ) -> _Candidate:
     candidates = _candidates(pending)
-    selected_assistant = _identifier(selection.assistant_id, "Assistant")
+    selected_assistant = _identifier(selection.assistant_id, "Assistant", http_payload.canonical_assistant_id)
     selected_integration = _identifier(selection.integration_id, "integration")
     metadata_by_binding: dict[
         tuple[str, str],

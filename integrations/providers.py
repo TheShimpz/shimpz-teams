@@ -60,11 +60,7 @@ def _provider(
         pkce_method="S256",
         client_auth_method=client_auth_method,
     )
-    if (
-        http_payload.ASSISTANT_ID_RE.fullmatch(provider.id) is None
-        or not provider.api_hosts
-        or not provider.allowed_scopes
-    ):
+    if http_payload.canonical_identifier(provider.id) is None or not provider.api_hosts or not provider.allowed_scopes:
         raise RuntimeError("trusted OAuth provider registry is invalid")
     if provider.client_auth_method not in {"client_secret_basic", "none"}:
         raise RuntimeError("trusted OAuth provider registry is invalid")
@@ -108,7 +104,7 @@ PROVIDERS = MappingProxyType({_CLOUDFLARE.id: _CLOUDFLARE})
 
 def resolve(provider_id: object) -> OAuthProvider:
     """Resolve only a controller-reviewed provider identifier."""
-    if not isinstance(provider_id, str) or http_payload.ASSISTANT_ID_RE.fullmatch(provider_id) is None:
+    if http_payload.canonical_identifier(provider_id) is None:
         raise OAuthProviderError("OAuth provider is unavailable")
     provider = PROVIDERS.get(provider_id)
     if provider is None:

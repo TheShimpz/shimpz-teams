@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -72,10 +72,17 @@ def _team_id(value: object) -> str:
     return value
 
 
-def _component_id(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) > 64 or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
+def _component_id(
+    value: object, label: str, canonical: Callable[[object], str | None] = http_payload.canonical_identifier
+) -> str:
+    identifier = canonical(value)
+    if identifier is None:
         raise StoredInputValidationError(f"{label} is invalid")
-    return value
+    return identifier
+
+
+def _assistant_id(value: object) -> str:
+    return _component_id(value, "Assistant id", http_payload.canonical_assistant_id)
 
 
 def _kind(value: object) -> str:
@@ -164,7 +171,7 @@ def _validate_assistants(raw_team: object, raw_assistants: object, last_generati
     count = 0
     for raw_assistant, raw_records in raw_assistants.items():
         try:
-            _component_id(raw_assistant, "Assistant id")
+            _assistant_id(raw_assistant)
         except StoredInputValidationError as exc:
             raise StoredInputStoreError("Stored Input state is malformed") from exc
         if not isinstance(raw_records, dict) or len(raw_records) > MAX_STORED_INPUTS_PER_ASSISTANT:
@@ -229,6 +236,7 @@ _POLICY = private_state.RecordPolicy(
     records_per_assistant=MAX_STORED_INPUTS_PER_ASSISTANT,
     validation_error=StoredInputValidationError,
     team_id=_team_id,
+    assistant_id=_assistant_id,
     component_id=_component_id,
     decode_state=_strict_json,
     validate_state=_validate_state,
@@ -281,7 +289,7 @@ class StoredInputStore(private_state.RecordStore):
     ) -> int:
         """Encrypt a successfully consumed value and atomically advance its generation."""
         team = _team_id(team_id)
-        assistant = _component_id(assistant_id, "Assistant id")
+        assistant = _assistant_id(assistant_id)
         stored_input = _component_id(stored_input_id, "Stored Input id")
         canonical_kind = _kind(kind)
         canonical_value = _secret_value(value)
@@ -313,7 +321,7 @@ class StoredInputStore(private_state.RecordStore):
     ) -> StoredInputValue:
         """Decrypt one exact declared value without exposing any inventory peers."""
         team = _team_id(team_id)
-        assistant = _component_id(assistant_id, "Assistant id")
+        assistant = _assistant_id(assistant_id)
         stored_input = _component_id(stored_input_id, "Stored Input id")
         _kind(kind)  # Validate the caller contract before any state lookup.
         with self._lock:
@@ -362,7 +370,7 @@ class StoredInputStore(private_state.RecordStore):
     ) -> tuple[StoredInputMetadata, ...]:
         """Return declared status without decrypting or returning any value."""
         team = _team_id(team_id)
-        assistant = _component_id(assistant_id, "Assistant id")
+        assistant = _assistant_id(assistant_id)
         declared = _declarations(declarations)
         with self._lock:
             records = _PRIVATE_STATE.records(self._read_state(), team, assistant, create=False)
@@ -383,7 +391,7 @@ class StoredInputStore(private_state.RecordStore):
         inventory: list[dict[str, str]] = []
         seen: set[str] = set()
         for spec in assistants:
-            assistant = _component_id(getattr(spec, "assistant_id", None), "Assistant id")
+            assistant = _assistant_id(getattr(spec, "assistant_id", None))
             if assistant in seen:
                 raise StoredInputValidationError("Stored Input Assistant inventory is ambiguous")
             seen.add(assistant)
@@ -401,7 +409,7 @@ class StoredInputStore(private_state.RecordStore):
 
     def delete(self, team_id: object, assistant_id: object, stored_input_id: object) -> bool:
         team = _team_id(team_id)
-        assistant = _component_id(assistant_id, "Assistant id")
+        assistant = _assistant_id(assistant_id)
         stored_input = _component_id(stored_input_id, "Stored Input id")
         with self._lock:
             state = self._read_state_for_update()

@@ -384,6 +384,7 @@ class RecordPolicy:
     records_per_assistant: int
     validation_error: type[RuntimeError]
     team_id: Callable[[object], str]
+    assistant_id: Callable[[object], str]
     component_id: Callable[[object, str], str]
     decode_state: Callable[[bytes], object]
     validate_state: Callable[[object], dict[str, object]]
@@ -466,7 +467,7 @@ class RecordStore:
         return self._policy.private.key(self.key_path, f"{self._policy.label} keyring", allow_create=allow_create)
 
     def _owner(self, team_id: object, assistant_id: object) -> tuple[str, str]:
-        return self._policy.team_id(team_id), self._policy.component_id(assistant_id, "Assistant id")
+        return self._policy.team_id(team_id), self._policy.assistant_id(assistant_id)
 
     def retain_declared(self, team_id: object, assistant_id: object, declared_ids: object) -> bool:
         """Atomically discard the records an Assistant's current release no longer declares."""

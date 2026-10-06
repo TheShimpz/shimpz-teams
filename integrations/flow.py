@@ -115,10 +115,13 @@ def _team_id(value: object) -> str:
     return value
 
 
-def _component_id(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) > 64 or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
+def _component_id(
+    value: object, label: str, canonical: Callable[[object], str | None] = http_payload.canonical_identifier
+) -> str:
+    identifier = canonical(value)
+    if identifier is None:
         raise IntegrationFlowError(f"{label} is invalid")
-    return value
+    return identifier
 
 
 def _public_text(value: object, label: str, *, optional: bool = False) -> str | None:
@@ -140,7 +143,7 @@ def _assistant(spec: object) -> _AssistantSpec:
         integrations = spec.integrations  # type: ignore[attr-defined]
     except (AttributeError, TypeError) as exc:
         raise IntegrationFlowError("Assistant integration contract is unavailable") from exc
-    _component_id(assistant_id, "Assistant id")
+    _component_id(assistant_id, "Assistant id", http_payload.canonical_assistant_id)
     _public_text(name, "Assistant name")
     if not isinstance(actions, Mapping) or not isinstance(integrations, Mapping):
         raise IntegrationFlowError("Assistant integration contract is unavailable")
@@ -170,7 +173,7 @@ def _provider_metadata(provider_id: str) -> tuple[str, str]:
 
 
 def _action(spec: _AssistantSpec, action_id: object) -> tuple[str, _ActionSpec]:
-    identifier = _component_id(action_id, "Action id")
+    identifier = _component_id(action_id, "Action id", http_payload.canonical_action_id)
     action = spec.actions.get(identifier)
     if action is None:
         raise IntegrationFlowError("Action integration contract is unavailable")
