@@ -88,13 +88,13 @@ class Send:
 
 @dataclass(frozen=True, slots=True)
 class Pending:
-    """The choice a target question binds: the input of one call it asked about, and every target it may take.
+    """The choice a target question binds: the Action input it asked about, and every target that input may take.
 
-    Once the person chose a target other than the one the work used, ``chosen`` holds it, and the work run again
-    must send exactly that target in the same Action's input.
+    The choice is one logical target: an answer binds every occurrence of that input whose value is one of these
+    targets, never an occurrence resolved independently. Once the person chose a target other than one the work used,
+    ``chosen`` holds it, and the work run again must send exactly that target wherever it sent one of them.
     """
 
-    consumer: str
     action: tuple[str, str]
     member: str
     # Each target as (value, label).
@@ -452,17 +452,28 @@ def _twins(left: trace.Occurrence, right: trace.Occurrence) -> bool:
 
 
 def _rerun(context: _Context, work: list[_Call]) -> None:
-    """Ask again until the work, run again for the person's chosen target, sends exactly that target."""
+    """Ask again until the work, run again for the person's chosen target, sends exactly that target.
+
+    Every occurrence of the chosen input that sends one of the choice's targets must send the chosen one, and at least
+    one must; an occurrence that sends another value was resolved on its own and is left as it is.
+    """
     pending = None if context.asked is None else context.asked.pending
     if pending is None or pending.chosen is None:
         return
-    sent = [
+    sent = [_json_text(value) for value in _targeted(work, pending)]
+    if _json_text(pending.chosen) not in sent or any(text != _json_text(pending.chosen) for text in sent):
+        raise _AskError(Question("routine-work-rerun", pending=pending))
+
+
+def _targeted(calls: Sequence[_Call], pending: Pending) -> list[object]:
+    """What each call of the choice's input sent, among the choice's targets."""
+    targets = {_json_text(target) for target, _label in pending.targets}
+    values = [
         call.occurrence.input.value.get(pending.member)
-        for call in work
+        for call in calls
         if call.action == pending.action and isinstance(call.occurrence.input.value, dict)
     ]
-    if not sent or not all(routine_plan.same(value, pending.chosen) for value in sent):
-        raise _AskError(Question("routine-work-rerun", pending=pending))
+    return [value for value in values if _json_text(value) in targets]
 
 
 def _split(context: _Context, work: list[_Call], nodes: dict[int, _Call]) -> None:
@@ -472,7 +483,7 @@ def _split(context: _Context, work: list[_Call], nodes: dict[int, _Call]) -> Non
     for call in context.calls:
         if call.send == latest or context.classes[call.index] in nodes:
             continue
-        if pending is not None and pending.chosen is not None and call.action == pending.action:
+        if pending is not None and pending.chosen is not None and _targeted([call], pending):
             # The work ran again for the person's chosen target: the earlier call it replaces is no split.
             continue
         same = [item for item in work if item.action == call.action]
@@ -551,15 +562,38 @@ def _classify_call(context: _Context, call: _Call) -> None:
 
 def _classified(context: _Context, input_: tuple[_Call, str], value: object) -> tuple[dict[str, object], str]:
     call, _member = input_
-    answered = _answered(context, input_, value)
-    if answered or (answered is None and context.known.names(value)):
+    pending = _pending_for(context, input_)
+    if _person_named(context, pending, value):
         return {"kind": "literal", "value": value}, "request"
     clock = _clock(context, call, value)
     if clock is not None:
         return clock
     if not _referable(value):
         return {"kind": "literal", "value": value}, "assistant"
-    source = _sourced(context, input_, value)
+    return _bound(context, input_, value, pending)
+
+
+def _person_named(context: _Context, pending: Pending | None, value: object) -> bool:
+    """Whether the person named the value: the target they chose, or, never for a target, a value their text holds.
+
+    A target of the pending choice is confirmed only by the person's exact answer, never by a substring.
+    """
+    text = _json_text(value)
+    if pending is not None and any(text == _json_text(target) for target, _label in pending.targets):
+        return pending.chosen is not None and text == _json_text(pending.chosen)
+    return context.known.names(value)
+
+
+def _bound(
+    context: _Context, input_: tuple[_Call, str], value: object, pending: Pending | None
+) -> tuple[dict[str, object], str]:
+    """A referable value's source, the person's answer when it is the pending choice again, or the assistant's own."""
+    try:
+        source = _sourced(context, input_, value)
+    except _AskError as asking:
+        if pending is None or pending.chosen is not None or not _same_choice(asking.question, pending):
+            raise
+        return _answered(context, pending, value)
     if source is None:
         return {"kind": "literal", "value": value}, "assistant"
     _unexposed(source, context.known)
@@ -631,42 +665,47 @@ def _identifier(value: object) -> bool:
     return type(value) is int or (isinstance(value, str) and not any(character.isspace() for character in value))
 
 
-def _answered(context: _Context, input_: tuple[_Call, str], value: object) -> bool | None:
-    """How the person answered the target question about this very input: None when none is pending for it.
-
-    True when they chose exactly this value; False when their answer chose no target exactly, or named the target's
-    item, which the ordinary reading then selects. A substring of an answer never confirms a target, and choosing
-    another target asks for the work again.
-    """
+def _pending_for(context: _Context, input_: tuple[_Call, str]) -> Pending | None:
+    """The pending target choice about this Action input, or None."""
     call, member = input_
-    asked = context.asked
-    pending = None if asked is None else asked.pending
-    if pending is None or member != pending.member:
+    pending = None if context.asked is None else context.asked.pending
+    if pending is None or (call.action, member) != (pending.action, pending.member):
         return None
-    if pending.chosen is not None:
-        return True if call.action == pending.action and routine_plan.same(value, pending.chosen) else None
-    if call.occurrence.operation_id != pending.consumer:
-        return None
-    selection = _selection(context, asked)
-    if selection is None:
-        return False
-    chosen, by_label = selection
-    if not routine_plan.same(chosen, value):
+    return pending
+
+
+def _same_choice(question: Question, pending: Pending) -> bool:
+    """Whether a target question is the pending one again: the same input, offering the same targets."""
+    asked = question.pending
+    return asked is not None and (asked.action, asked.member, asked.targets) == (
+        pending.action,
+        pending.member,
+        pending.targets,
+    )
+
+
+def _answered(context: _Context, pending: Pending, value: object) -> tuple[dict[str, object], str]:
+    """The person's answer to the pending choice for an input it binds: the target they chose exactly, if any.
+
+    The chosen target is a literal they named; choosing another target than the one this input sent asks for the work
+    again, and no exact answer asks the same question again.
+    """
+    chosen = _selection(context, pending)
+    if chosen is None:
+        raise _AskError(Question("routine-binding-ambiguous", _shown(pending), pending=pending))
+    if _json_text(chosen) != _json_text(value):
         raise _AskError(Question("routine-work-rerun", pending=dataclasses.replace(pending, chosen=chosen)))
-    return not by_label
+    return {"kind": "literal", "value": value}, "request"
 
 
-def _selection(context: _Context, asked: Asked) -> tuple[object, bool] | None:
-    """The target the person's latest answer selects exactly, by its value or by a label no other target shares."""
-    targets = asked.pending.targets
-    for segment in reversed([segment for send in context.sends[asked.after :] for segment in send.person]):
+def _selection(context: _Context, pending: Pending) -> object:
+    """The target whose exact JSON text the person's latest answer is, or None; "123" and 123 never match each other."""
+    after = context.asked.after
+    for segment in reversed([segment for send in context.sends[after:] for segment in send.person]):
         answer = segment.strip()
-        by_value = [value for value, _label in targets if answer == (value if isinstance(value, str) else str(value))]
-        by_label = [value for value, label in targets if label is not None and answer == label]
-        if len(by_value) == 1:
-            return by_value[0], False
-        if len(by_label) == 1:
-            return by_label[0], True
+        chosen = [target for target, _label in pending.targets if answer == _json_text(target)]
+        if chosen:
+            return chosen[0]
     return None
 
 
@@ -714,10 +753,15 @@ def _ambiguous(
         if all(option["value"] != item["value"] for item in choices) and _offered(option):
             choices.append(option)
     call, member = input_
-    targets = tuple((item["value"], item["label"]) for item in choices)
-    pending = Pending(call.occurrence.operation_id, call.action, member, targets)
-    shown = tuple(choices) if len(choices) <= http_routine.MAX_QUESTION_OPTIONS else ()
-    return _AskError(Question("routine-binding-ambiguous", shown, pending=pending))
+    pending = Pending(call.action, member, tuple((item["value"], item["label"]) for item in choices))
+    return _AskError(Question("routine-binding-ambiguous", _shown(pending), pending=pending))
+
+
+def _shown(pending: Pending) -> tuple[dict[str, object], ...]:
+    """The targets a question shows: every one, or none when there are more than it may show."""
+    if len(pending.targets) > http_routine.MAX_QUESTION_OPTIONS:
+        return ()
+    return tuple({"value": value, "label": label} for value, label in pending.targets)
 
 
 def _offered(option: dict[str, object]) -> bool:

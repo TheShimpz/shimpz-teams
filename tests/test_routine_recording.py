@@ -8,6 +8,7 @@ occurrence, and anything else is a literal the assistant chose; what cannot be r
 from __future__ import annotations
 
 import datetime
+import json
 import unittest
 from unittest import mock
 
@@ -209,14 +210,14 @@ class OwnerCaseTests(unittest.TestCase):
         targets = ({"value": SHIMPZ_ID, "label": "shimpz.com"}, {"value": TWIN_ID, "label": "shimpz.com"})
         self.assertEqual(asked, recording.Question("routine-binding-ambiguous", targets))
         pending = recording.Asked(asked.code, 1, asked.pending)
-        # Naming the zone the work used makes it a literal the person named.
-        chosen = _recorded(work, _send(message=SHIMPZ_ID), asked=pending)
+        # Choosing the zone the work used, by its exact JSON text, makes it a literal the person named.
+        chosen = _recorded(work, _send(message=json.dumps(SHIMPZ_ID)), asked=pending)
         self.assertEqual(
             (_input(chosen)["zone_id"], chosen.origins["s2"]["zone_id"]),
             ({"kind": "literal", "value": SHIMPZ_ID}, "request"),
         )
         # Naming the other one asks for the work again, with that zone.
-        rerun = _record(work, _send(message=TWIN_ID), asked=pending)
+        rerun = _record(work, _send(message=json.dumps(TWIN_ID)), asked=pending)
         self.assertEqual(rerun, recording.Question("routine-work-rerun"))
 
     def test_only_an_exact_answer_confirms_a_target_and_a_substring_never_does(self) -> None:
@@ -230,34 +231,65 @@ class OwnerCaseTests(unittest.TestCase):
         self.assertEqual(asked.code, "routine-binding-ambiguous")
         pending = recording.Asked(asked.code, 1, asked.pending)
         # Naming the other target asks for the work again, though the work's own target is a substring of the answer.
-        self.assertEqual(_record(work, _send(message="target-b"), asked=pending).code, "routine-work-rerun")
-        # An answer that selects no target exactly confirms none: the question stands.
-        self.assertEqual(
-            _record(work, _send(message="quero o target-b"), asked=pending).code, "routine-binding-ambiguous"
+        self.assertEqual(_record(work, _send(message='"target-b"'), asked=pending).code, "routine-work-rerun")
+        # An answer that is no target's exact JSON text confirms none: the question stands.
+        for answer in ("quero o target-b", "target", "target-b"):
+            with self.subTest(answer=answer):
+                self.assertEqual(_record(work, _send(message=answer), asked=pending).code, "routine-binding-ambiguous")
+        recorded = _recorded(work, _send(message='"target"'), asked=pending)
+        self.assertEqual(_input(recorded)["zone_id"]["value"], "target")
+
+    def test_a_string_and_an_integer_target_with_the_same_digits_stay_distinct(self) -> None:
+        digits = "12345678901234567890"
+        items = {"items": [{"name": "same", "id": digits}, {"name": "same", "id": int(digits)}]}
+        work = _send(
+            ("reports/fetch", {}, items),
+            ("cloudflare/list-dns-records", {"zone_id": digits}, {}),
+            message=_then_hourly("same"),
         )
-        self.assertEqual(_input(_recorded(work, _send(message="target"), asked=pending))["zone_id"]["value"], "target")
-        # The answer binds the call it was asked about; the same work run again in a later send is asked anew.
-        later = _send(("reports/fetch", {}, items), ("cloudflare/list-dns-records", {"zone_id": "target"}, {"n": 1}))
-        again = _record(work, _send(message="ok"), later, asked=pending)
-        self.assertEqual(
-            (again.code, again.pending.consumer), ("routine-binding-ambiguous", later.occurrences[1].operation_id)
+        asked = _record(work)
+        self.assertEqual([item["value"] for item in asked.wire()["options"]], [json.dumps(digits), digits])
+        pending = recording.Asked(asked.code, 1, asked.pending)
+        self.assertEqual(_record(work, _send(message=digits), asked=pending).code, "routine-work-rerun")
+        recorded = _recorded(work, _send(message=json.dumps(digits)), asked=pending)
+        self.assertEqual(_input(recorded)["zone_id"], {"kind": "literal", "value": digits})
+
+    def test_one_answer_binds_every_occurrence_of_its_target_and_never_an_independent_one(self) -> None:
+        twins = ("cloudflare/list-zones", {}, TWINS)
+        other_id = ZONES["result"][1]["id"]
+        other = ("cloudflare/list-dns-records", {"zone_id": other_id}, {"result": []})
+        # Mixed: shimpz.com is ambiguous, other.org resolves by its own name.
+        mixed = _send(twins, RECORDS, other, message="DNS de shimpz.com e other.org a cada hora")
+        asked = _record(mixed)
+        self.assertEqual(asked.code, "routine-binding-ambiguous")
+        answered = _recorded(
+            mixed, _send(message=json.dumps(SHIMPZ_ID)), asked=recording.Asked(asked.code, 1, asked.pending)
         )
+        inputs = [step["input"]["zone_id"] for step in answered.document["steps"][1:]]
+        self.assertEqual(inputs[0], {"kind": "literal", "value": SHIMPZ_ID})
+        self.assertEqual(inputs[1]["where"], {"name": "other.org"})
+        # Twin-only: both twins were used, so one answer binds both and the other twin's call is run again.
+        twin = ("cloudflare/list-dns-records", {"zone_id": TWIN_ID}, {"result": []})
+        both = _send(twins, RECORDS, twin, message="DNS de shimpz.com a cada hora")
+        asked = _record(both)
+        pending = recording.Asked(asked.code, 1, asked.pending)
+        self.assertEqual(_record(both, _send(message=json.dumps(SHIMPZ_ID)), asked=pending).code, "routine-work-rerun")
 
     def test_work_run_again_for_a_chosen_target_must_use_exactly_that_target(self) -> None:
         items = {"items": [{"name": "same", "id": "target"}, {"name": "same", "id": "target-b"}]}
         fetch = ("reports/fetch", {}, items)
         work = _send(fetch, ("cloudflare/list-dns-records", {"zone_id": "target"}, {}), message=_then_hourly("same"))
         asked = _record(work)
-        rerun = _record(work, _send(message="target-b"), asked=recording.Asked(asked.code, 1, asked.pending))
+        rerun = _record(work, _send(message='"target-b"'), asked=recording.Asked(asked.code, 1, asked.pending))
         chosen = recording.Asked(rerun.code, 2, rerun.pending)
         again = _send(fetch, ("cloudflare/list-dns-records", {"zone_id": "target-b"}, {}))
-        recorded = _recorded(work, _send(message="target-b"), again, asked=chosen)
+        recorded = _recorded(work, _send(message='"target-b"'), again, asked=chosen)
         self.assertEqual(
             (_input(recorded)["zone_id"], recorded.origins["s2"]["zone_id"]),
             ({"kind": "literal", "value": "target-b"}, "request"),
         )
         wrong = _send(fetch, ("cloudflare/list-dns-records", {"zone_id": "target"}, {}))
-        self.assertEqual(_record(work, _send(message="target-b"), wrong, asked=chosen).code, "routine-work-rerun")
+        self.assertEqual(_record(work, _send(message='"target-b"'), wrong, asked=chosen).code, "routine-work-rerun")
 
     def test_a_zone_listed_without_a_name_is_never_read_by_its_position(self) -> None:
         # A reordered list would make a position target another zone, so the person is asked which one it is.
@@ -268,7 +300,7 @@ class OwnerCaseTests(unittest.TestCase):
         targets = tuple({"value": item["id"], "label": item["name"]} for item in ZONES["result"])
         self.assertEqual(asked, recording.Question("routine-binding-ambiguous", targets))
         pending = recording.Asked(asked.code, 1, asked.pending)
-        # Naming the zone's name selects its item by that name; naming its id fixes the id the person named.
+        # Naming the zone's name selects its item by that name; choosing its id fixes the id the person chose.
         by_name = _recorded(work, _send(message=first["name"]), asked=pending)
         self.assertEqual(
             _input(by_name)["zone_id"],
@@ -280,11 +312,11 @@ class OwnerCaseTests(unittest.TestCase):
                 "item": "/id",
             },
         )
-        by_id = _recorded(work, _send(message=first["id"]), asked=pending)
+        by_id = _recorded(work, _send(message=json.dumps(first["id"])), asked=pending)
         self.assertEqual(by_id.origins["s2"]["zone_id"], "request")
         other = _record(
             work,
-            _send(message=ZONES["result"][1]["id"]),
+            _send(message=json.dumps(ZONES["result"][1]["id"])),
             asked=pending,
         )
         self.assertEqual(other, recording.Question("routine-work-rerun"))
