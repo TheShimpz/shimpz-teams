@@ -296,6 +296,10 @@ class OwnerCaseTests(unittest.TestCase):
             fetch, *(("cloudflare/list-dns-records", {"zone_id": zone}, {}) for zone in ("target-b", "target"))
         )
         self.assertEqual(_record(work, _send(message='"target-b"'), both, asked=chosen).code, "routine-work-rerun")
+        # Once the rerun settled, later work that sends the other target again contradicts the choice.
+        later = _send(fetch, ("cloudflare/list-dns-records", {"zone_id": "target"}, {"n": 1}))
+        contradicted = _record(work, _send(message='"target-b"'), again, later, asked=chosen)
+        self.assertEqual(contradicted.code, "routine-work-rerun")
 
     def test_a_zone_listed_without_a_name_is_never_read_by_its_position(self) -> None:
         # A reordered list would make a position target another zone, so the person is asked which one it is.
@@ -632,7 +636,7 @@ class RerunTests(unittest.TestCase):
         first = _send(RECORDS, message="DNS de shimpz.com a cada hora")
         asked = _record(first)
         self.assertEqual(asked.code, "routine-binding-unsourced")
-        slot = recording.Slot(("cloudflare", "list-dns-records"), True, (("zone_id", "fresh", None),))
+        slot = recording.Slot(("cloudflare", "list-dns-records"), True, (("zone_id", "fresh", SHIMPZ_ID),))
         self.assertEqual(asked.manifest, recording.Manifest((slot,)))
         pending = _pending(asked, 1)
         # A send with no Action, one that only looks the zone up, or one that remembers it again settles nothing.
@@ -680,7 +684,7 @@ class RerunTests(unittest.TestCase):
         dated = ("reports/fetch", {"day": "2026-10-05", "id": "remembered-1"}, {})
         first = _send(dated, message="relatório a cada hora")
         asked = _record(first)
-        self.assertEqual(asked.manifest.slots[0].inputs, (("day", "clock", None), ("id", "fresh", None)))
+        self.assertEqual(asked.manifest.slots[0].inputs, (("day", "clock", None), ("id", "fresh", "remembered-1")))
         pending = _pending(asked, 1)
         tomorrow = STARTED + 86_400
         next_day = ("reports/fetch", {"day": "2026-10-06", "id": "remembered-1"}, {})
@@ -689,6 +693,41 @@ class RerunTests(unittest.TestCase):
         )
         stale = _send(lookup, dated, started_at=tomorrow)
         self.assertEqual(_record(first, stale, asked=pending).code, "routine-binding-unsourced")
+
+    def test_each_remembered_value_is_its_own_slot_and_a_rerun_must_repeat_each(self) -> None:
+        other_id = ZONES["result"][1]["id"]
+        other = ("cloudflare/list-dns-records", {"zone_id": other_id}, {"result": []})
+        first = _send(RECORDS, other, message="DNS de shimpz.com e other.org a cada hora")
+        asked = _record(first)
+        self.assertEqual(len(asked.manifest.slots), 2)
+        pending = _pending(asked, 1)
+        for later in (_send(ZONES_CALL, RECORDS), _send(ZONES_CALL, RECORDS, RECORDS)):
+            with self.subTest(later=later):
+                self.assertEqual(_record(first, later, asked=pending).code, "routine-binding-unsourced")
+        recorded = _recorded(first, _send(ZONES_CALL, RECORDS, other), asked=pending)
+        self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records", "list-dns-records"])
+
+    def test_read_only_twins_are_one_slot(self) -> None:
+        remembered = ("cloudflare/list-dns-records", {"zone_id": "f" * 32}, {})
+        asked = _record(_send(ZONES_CALL, ZONES_CALL, remembered, message="DNS a cada hora"))
+        self.assertEqual(asked.code, "routine-binding-unsourced")
+        self.assertEqual([slot.action[1] for slot in asked.manifest.slots], ["list-zones", "list-dns-records"])
+
+    def test_a_rerun_admits_extra_calls_only_as_sources_and_keeps_the_frozen_order(self) -> None:
+        first = _send(RECORDS, message="DNS de shimpz.com a cada hora")
+        pending = _pending(_record(first), 1)
+        unrelated = ("reports/fetch", {"q": 1}, {"x": 1})
+        for extra in (unrelated, _post("x")):
+            with self.subTest(extra=extra):
+                later = _send(ZONES_CALL, RECORDS, extra)
+                self.assertEqual(_record(first, later, asked=pending).code, "routine-binding-unsourced")
+        read = ("reports/fetch", {"q": 1}, {})
+        spans = (_send(_post("a"), message="a cada hora"), _send(read, _post("b")))
+        pending = _pending(_record(*spans), 2)
+        for moved in (_send(_post("a"), _post("b"), read), _send(read, _post("a"), _post("b"))):
+            with self.subTest(moved=moved):
+                self.assertEqual(_record(*spans, moved, asked=pending).code, "routine-work-split")
+        self.assertIsInstance(_record(*spans, _send(_post("a"), read, _post("b")), asked=pending), recording.Recorded)
 
     def test_settled_split_evidence_goes_but_an_earlier_source_stays(self) -> None:
         lookup = ("reports/fetch", {"q": "ids"}, {"id": "source-id-1"})
@@ -708,7 +747,9 @@ class RerunTests(unittest.TestCase):
         dated = ("reports/fetch", {"day": "2026-10-05", "id": "remembered-1"}, {})
         first = _send(dated, message="Relatório de 2026-10-05 a cada hora")
         asked = _record(first)
-        self.assertEqual(asked.manifest.slots[0].inputs, (("day", "value", "2026-10-05"), ("id", "fresh", None)))
+        self.assertEqual(
+            asked.manifest.slots[0].inputs, (("day", "value", "2026-10-05"), ("id", "fresh", "remembered-1"))
+        )
         pending = _pending(asked, 1)
         tomorrow = STARTED + 86_400
         next_day = ("reports/fetch", {"day": "2026-10-06", "id": "remembered-1"}, {})

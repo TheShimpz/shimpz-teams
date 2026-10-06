@@ -107,7 +107,8 @@ class Slot:
     """One call a rerun must make: its Action, whether it is read-only, and what each input member must be.
 
     Each input is (member, kind, value): ``value`` must be sent exactly; ``clock`` must be the date its own send
-    started on, in UTC; ``fresh`` must be a value one of the rerun send's own results holds, so its provenance is new.
+    started on, in UTC; ``fresh`` must be a value one of the rerun send's own results holds, so its provenance is new,
+    and ``value`` then keeps the value the work sent, so distinct values stay distinct in the rerun.
     """
 
     action: tuple[str, str]
@@ -117,9 +118,10 @@ class Slot:
 
 @dataclass(frozen=True, slots=True)
 class Manifest:
-    """The work a split, rerun, or unsourced question asks to run again, in dispatch order.
+    """The work a split, rerun, or unsourced question asks to run again, one slot per occurrence, in dispatch order.
 
-    Every changing call keeps its multiplicity and order; read-only calls with the same Action and inputs are one slot.
+    Read-only twins (the same Action, input, and result with no change between) are one occurrence; every other call
+    is its own slot, so its multiplicity and its order relative to every change are kept.
     """
 
     slots: tuple[Slot, ...]
@@ -553,17 +555,22 @@ def _split(context: _Context, work: list[_Call], nodes: dict[int, _Call]) -> Non
 
 def _manifest(context: _Context, calls: Sequence[_Call], pending: Pending | None) -> Manifest:
     """The work these calls did, as a rerun must repeat it, with a chosen target in place of the one they sent."""
+    if not context.classes:
+        _classes(context)
     slots: list[Slot] = []
+    seen: set[int] = set()
     for call in calls:
         given = call.occurrence.input
         if given.withheld or given.oversize or not isinstance(given.value, dict):
             raise RecordingError("routine-secret-literal")
+        representative = context.classes[call.index]
+        if representative in seen:
+            continue
+        seen.add(representative)
         inputs = tuple(
             _slot_input(context, call, (member, value), pending) for member, value in sorted(given.value.items())
         )
-        slot = Slot(call.action, call.read_only, inputs)
-        if not (slot.read_only and slot in slots):
-            slots.append(slot)
+        slots.append(Slot(call.action, call.read_only, inputs))
     return Manifest(tuple(slots))
 
 
@@ -583,7 +590,7 @@ def _slot_input(
     if value == _date_at(context.sends[call.send].started_at, "UTC").isoformat():
         return member, "clock", None
     if _referable(value):
-        return member, "fresh", None
+        return member, "fresh", value
     return member, "value", value
 
 
@@ -596,46 +603,87 @@ def settlement(sends: Sequence[Send], asked: Asked) -> int | None:
 
 
 def _satisfies(send: Send, manifest: Manifest) -> bool:
-    """Whether one send's calls repeat the manifest: every changing slot in order, every read-only slot once."""
-    calls = list(send.occurrences)
-    changing = [item for item in calls if not item.read_only]
-    reads = [item for item in calls if item.read_only]
-    for slot in manifest.slots:
-        pool = reads if slot.read_only else changing
-        place = next((index for index, item in enumerate(pool) if _fills(send, item, slot)), None)
-        if place is None:
-            return False
-        # Each call fills one slot; a changing one also uses up every changing call before it, keeping their order.
-        del pool[place if slot.read_only else 0 : place + 1]
-    return True
+    """Whether one send's calls repeat the manifest exactly.
+
+    Every slot takes its own call, in the frozen order wherever a change is involved: a changing slot comes after every
+    slot before it, and a read-only slot after every changing slot before it. Fresh values map one to one onto the
+    values the work sent. Every call no slot takes must be a read-only source of a fresh value the slots sent.
+    """
+    return _assigned(send, manifest.slots, _Assignment((), -1, -1, {}, {}))
 
 
-def _fills(send: Send, occurrence: trace.Occurrence, slot: Slot) -> bool:
-    """Whether one call fills a slot: the same Action, and every input member as the slot requires."""
+@dataclass(frozen=True, slots=True)
+class _Assignment:
+    """A partial match of slots to one send's calls: the calls taken, the order bounds, and the fresh value mapping."""
+
+    taken: tuple[int, ...]
+    last_change: int
+    last_any: int
+    forward: dict[str, str]
+    backward: dict[str, str]
+
+
+def _assigned(send: Send, slots: Sequence[Slot], state: _Assignment) -> bool:
+    if not slots:
+        return _only_sources(send, state)
+    slot, rest = slots[0], slots[1:]
+    floor = state.last_any if not slot.read_only else state.last_change
+    for place, occurrence in enumerate(send.occurrences):
+        if place <= floor or place in state.taken or occurrence.read_only != slot.read_only:
+            continue
+        mapping = _fills(send, occurrence, slot, (state.forward, state.backward))
+        if mapping is None:
+            continue
+        taken = (*state.taken, place)
+        last_change = place if not slot.read_only else state.last_change
+        following = _Assignment(taken, last_change, max(state.last_any, place), *mapping)
+        if _assigned(send, rest, following):
+            return True
+    return False
+
+
+def _only_sources(send: Send, state: _Assignment) -> bool:
+    """Whether every call the slots did not take is a read-only call returning a fresh value they sent."""
+    sent = [json.loads(text) for text in state.backward]
+    return all(
+        occurrence.read_only and any(_returned(occurrence, value) for value in sent)
+        for place, occurrence in enumerate(send.occurrences)
+        if place not in state.taken
+    )
+
+
+def _fills(
+    send: Send, occurrence: trace.Occurrence, slot: Slot, mapping: tuple[dict[str, str], dict[str, str]]
+) -> tuple[dict[str, str], dict[str, str]] | None:
+    """The fresh value mapping once one call fills a slot, or None when it does not fill it.
+
+    It fills it with the same Action and every input member as the slot requires; a fresh value maps one to one onto
+    the value the work sent there.
+    """
     given = occurrence.input
     if (occurrence.assistant, occurrence.action) != slot.action or given.withheld or not isinstance(given.value, dict):
-        return False
+        return None
     if set(given.value) != {member for member, _kind, _value in slot.inputs}:
-        return False
+        return None
+    forward, backward = dict(mapping[0]), dict(mapping[1])
     today = _date_at(send.started_at, "UTC").isoformat()
     for member, kind, value in slot.inputs:
         sent = given.value[member]
-        if kind == "value" and not routine_plan.same(sent, value):
-            return False
-        if kind == "clock" and sent != today:
-            return False
-        if kind == "fresh" and not _fresh(send, occurrence, sent):
-            return False
-    return True
+        if (kind == "value" and not routine_plan.same(sent, value)) or (kind == "clock" and sent != today):
+            return None
+        if kind == "fresh":
+            before, after = _json_text(value), _json_text(sent)
+            if forward.setdefault(before, after) != after or backward.setdefault(after, before) != before:
+                return None
+            if not any(item is not occurrence and _returned(item, sent) for item in send.occurrences):
+                return None
+    return forward, backward
 
 
-def _fresh(send: Send, consumer: trace.Occurrence, value: object) -> bool:
-    """Whether another call of the same send returned the value at a position it kept."""
-    return any(
-        item is not consumer
-        and any(item.result.available(_pointer(position[0])) for position in _positions(item.result.value, value))
-        for item in send.occurrences
-    )
+def _returned(occurrence: trace.Occurrence, value: object) -> bool:
+    """Whether a call returned the value at a position it kept."""
+    result = occurrence.result
+    return any(result.available(_pointer(position[0])) for position in _positions(result.value, value))
 
 
 def _same_input(left: trace.Occurrence, right: trace.Occurrence) -> bool:
