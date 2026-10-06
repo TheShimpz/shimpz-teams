@@ -346,11 +346,7 @@ def _card_input(member: str, source: dict[str, object], origin: str, positions: 
         return {"member": member, "origin": origin, **empty, "value": _escaped_json(source["value"])}
     if source["kind"] == "run_clock":
         return {"member": member, "origin": "clock", **empty}
-    where = source.get("where")
-    shown = None
-    if where is not None:
-        ((key, constant),) = where.items()
-        shown = {"member": key, "value_json": http_routine.where_text(constant)}
+    shown = routine_definition.shown_where(source)
     return {
         "member": member,
         "origin": origin,
@@ -374,7 +370,7 @@ def card(proposal_id: str, candidate: record.Routine, recorded, framing: tuple[s
     """The confirmation card: every step, every input's complete value or source, the schedule, and the scope."""
     replaces, expires_at = framing
     document = candidate.plan
-    positions = {step["id"]: index for index, step in enumerate(document["steps"], start=1)}
+    positions = routine_definition.step_positions(document)
     entries = {(item["assistant"], item["action"]): item for item in candidate.permitted}
     steps = [
         {

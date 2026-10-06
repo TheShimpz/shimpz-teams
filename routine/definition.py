@@ -37,7 +37,7 @@ def state(value: object) -> str:
     return "paused" if value.paused else "active"
 
 
-def _positions(plan: Mapping[str, object]) -> dict[str, int]:
+def step_positions(plan: Mapping[str, object]) -> dict[str, int]:
     return {step["id"]: index for index, step in enumerate(plan["steps"], start=1)}
 
 
@@ -45,16 +45,21 @@ def permitted_entry(permitted: Sequence[Mapping[str, object]], assistant: str, a
     return next(item for item in permitted if (item["assistant"], item["action"]) == (assistant, action))
 
 
+def shown_where(source: Mapping[str, object]) -> dict[str, str] | None:
+    """A step-output source's item selector as a person reads it, or None when it selects no item."""
+    where = source.get("where")
+    if where is None:
+        return None
+    ((key, constant),) = where.items()
+    return {"member": key, "value_json": http_routine.where_text(constant)}
+
+
 def _input(member: str, source: Mapping[str, object], positions: Mapping[str, int]) -> dict[str, object]:
     if source["kind"] == "literal":
         return {"member": member, "source": "literal", "value": http_routine.literal_preview(source["value"])}
     if source["kind"] == "run_clock":
         return {"member": member, "source": "run_clock", "value": source["format"]}
-    where = source.get("where")
-    shown = None
-    if where is not None:
-        ((key, constant),) = where.items()
-        shown = {"member": key, "value_json": http_routine.where_text(constant)}
+    shown = shown_where(source)
     return {
         "member": member,
         "source": "step_output",
@@ -67,7 +72,7 @@ def _input(member: str, source: Mapping[str, object], positions: Mapping[str, in
 
 def step(plan: Mapping[str, object], permitted: Sequence[Mapping[str, object]], position: int) -> dict[str, object]:
     """The projection of the step at ``position``: its Action, its effect, every input's source, its Stored Inputs."""
-    positions = _positions(plan)
+    positions = step_positions(plan)
     value = plan["steps"][position - 1]
     entry = permitted_entry(permitted, value["assistant"], value["action"])
     return {
@@ -112,7 +117,11 @@ def disposition(plan: Mapping[str, object]) -> dict[str, object]:
     """The plan's output disposition on the wire: its shown step by position, or none, and a decision's condition."""
     output = plan["output"]
     shown = output["step"]
-    return {"mode": output["mode"], "step": None if shown is None else _positions(plan)[shown], "when": output["when"]}
+    return {
+        "mode": output["mode"],
+        "step": None if shown is None else step_positions(plan)[shown],
+        "when": output["when"],
+    }
 
 
 def permitted_summary(permitted: Sequence[Mapping[str, object]]) -> dict[str, int]:
