@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from protocol.http.v1 import routine as http_routine
 from routine import phrase
 
 
@@ -171,6 +172,54 @@ class WrittenZoneTests(unittest.TestCase):
         for text in ("Portugal", "Mars/Olympus", "use utc", "https://example.com/a", "shimpz.com"):
             with self.subTest(text=text):
                 self.assertEqual(phrase.zones(text), ())
+
+
+class StatedOutputTests(unittest.TestCase):
+    def test_every_localized_choice_states_its_own_output(self) -> None:
+        for locale, labels in http_routine.OUTPUT_CHOICES.items():
+            for kind, label in labels.items():
+                with self.subTest(locale=locale, kind=kind):
+                    self.assertEqual(phrase.outputs(label), (kind,))
+
+    def test_free_words_in_each_language(self) -> None:
+        cases = {
+            "Me mostre o resultado": "show",
+            "Só quando mudar, por favor": "changes",
+            "não precisa mostrar nada": "none",
+            "show me the results every run": "show",
+            "only when it changes": "changes",
+            "do not show anything": "none",
+            "muéstrame el resultado": "show",
+            "solo si cambia": "changes",
+            "montre-moi le résultat": "show",
+            "uniquement en cas de changement": "changes",
+            "zeig mir das Ergebnis": "show",
+            "nur wenn es sich ändert": "changes",
+            "結果を表示して": "show",
+            "変わったときだけ": "changes",
+            "显示结果": "show",
+            "只在变化时提醒": "changes",
+            "اعرض النتيجة": "show",
+            "بدون عرض": "none",
+        }
+        for text, kind in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(phrase.outputs(text), (kind,))
+
+    def test_negation_overlap_and_doubt_never_state_a_choice(self) -> None:
+        for text in (
+            "Não quero mostrar sempre.",
+            "I don't want it only when it changes",
+            "Mostrar sempre?",
+            "Liste os registros DNS",
+            "毎回表示しない",
+        ):
+            with self.subTest(text=text):
+                self.assertNotIn("show", phrase.outputs(text))
+                self.assertNotIn("changes", phrase.outputs(text))
+        self.assertEqual(phrase.outputs("Mostrar sempre?"), ())
+        self.assertEqual(phrase.outputs("毎回表示しない"), ("none",))
+        self.assertEqual(set(phrase.outputs("Mostrar sempre. Ou só quando mudar.")), {"show", "changes"})
 
 
 class ZoneTokenTests(unittest.TestCase):

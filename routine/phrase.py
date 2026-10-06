@@ -8,7 +8,8 @@ language rejects every reading it reaches, whichever language reads the same wor
 schedules, which its reader then asks the person to choose between; a phrase this table does not read states nothing,
 so the person is asked again rather than guessed for.
 
-A timezone is stated only as an exact, loadable IANA area zone such as "Europe/Lisbon", or "UTC".
+An output choice is read the same way, from a bounded phrase table in the same languages that holds every localized
+choice label. A timezone is stated only as an exact, loadable IANA area zone such as "Europe/Lisbon", or "UTC".
 """
 
 from __future__ import annotations
@@ -187,6 +188,46 @@ _TIMES = (
     r"(\d{1,2})[点點](?:(\d{1,2})分)?()",
     r"(?:\bàs|\bas|\bat|\ba\s+las|\ba\s+la|\bà|\bum|الساعة)\s+(\d{1,2})(?::(\d{2}))?()(?!\s*\d)",
 )
+# What each run does with its result, by language: show it every run, only when it changes, nothing, or use it in
+# other Actions. Each interface language's choice labels (``routine.OUTPUT_CHOICES``) are among these phrases.
+_OUTPUTS = (
+    ("show", "pt", r"\b(?:mostrar|mostre|exibir|exiba)\s+(?:sempre|em\s+todas\s+as\s+execuções|os?\s+resultados?)\b"),
+    ("changes", "pt", r"\b(?:só|somente|apenas)\s+(?:quando|se)\s+(?:mudar|alterar|houver\s+mudança)"),
+    ("none", "pt", r"\b(?:não|sem)\s+(?:precisa\s+)?(?:mostrar|exibir)\b"),
+    ("chain", "pt", r"\b(?:usar|use)\s+(?:o\s+resultado\s+)?(?:em|para)\s+(?:executar\s+)?outras?\s+ações\b"),
+    ("show", "en", r"\b(?:show|display)\s+(?:me\s+)?(?:it\s+)?(?:every\s+(?:run|time)|the\s+results?|always)\b"),
+    ("changes", "en", r"\bonly\s+(?:(?:when|if)\s+(?:it\s+)?changes|on\s+changes?)\b"),
+    ("none", "en", r"\b(?:don't|do\s+not|no\s+need\s+to)\s+show\b|\bshow\s+nothing\b"),
+    ("chain", "en", r"\buse\s+(?:it|the\s+result)\s+(?:in|to\s+run)\s+other\s+actions\b"),
+    (
+        "show",
+        "es",
+        r"\b(?:mostrar|muestra|muéstrame)\s+(?:siempre|en\s+cada\s+ejecución|el\s+resultado|los\s+resultados)",
+    ),
+    ("changes", "es", r"\bsolo\s+(?:cuando\s+cambie|si\s+cambia)\b"),
+    ("none", "es", r"\b(?:no|sin)\s+mostrar\b"),
+    ("chain", "es", r"\busar(?:lo)?\s+en\s+otras\s+acciones\b"),
+    ("show", "fr", r"\b(?:afficher|affiche|montre(?:-moi)?)\s+(?:toujours|à\s+chaque\s+exécution|les?\s+résultats?)"),
+    ("changes", "fr", r"\b(?:seulement|uniquement)\s+(?:en\s+cas\s+de\s+changement|quand\s+(?:ça|il|elle)\s+change)"),
+    ("none", "fr", r"\bne\s+(?:pas|rien)\s+afficher\b|\bsans\s+afficher\b"),
+    ("chain", "fr", r"\butiliser\s+dans\s+d'autres\s+actions\b"),
+    ("show", "de", r"\b(?:immer|bei\s+jedem\s+lauf)\s+anzeigen\b|\bzeig\s+mir\s+das\s+ergebnis\b"),
+    ("changes", "de", r"\bnur\s+(?:bei\s+änderung|wenn\s+(?:es\s+)?sich\s+(?:etwas\s+)?ändert)"),
+    ("none", "de", r"\b(?:nicht|nichts)\s+anzeigen\b"),
+    ("chain", "de", r"\bin\s+anderen\s+aktionen\s+verwenden\b"),
+    ("show", "ja", r"毎回表示|結果を表示"),
+    ("changes", "ja", r"(?:変更|変化)(?:時|したとき)のみ|変わったときだけ"),
+    ("none", "ja", r"表示しない|表示不要"),
+    ("chain", "ja", r"他のアクションで使"),
+    ("show", "zh", r"每次(?:运行都)?显示|显示结果"),
+    ("changes", "zh", r"(?:仅|只)在变化时"),
+    ("none", "zh", r"不(?:用)?显示"),
+    ("chain", "zh", r"用于其他操作"),
+    ("show", "ar", r"اعرض\s+(?:في\s+كل\s+تشغيل|النتيجة|دائم)"),
+    ("changes", "ar", r"فقط\s+عند\s+التغيير"),
+    ("none", "ar", r"لا\s+تعرض|بدون\s+عرض"),
+    ("chain", "ar", r"استخدمه\s+في\s+إجراءات\s+أخرى"),
+)
 # A whole zone token: never part of a longer word, path, or offset ("UTC+3" names no zone), though it may close a
 # sentence or sit inside brackets or quotes.
 _ZONE_RE = re.compile(
@@ -299,6 +340,28 @@ def stated(text: str) -> tuple[dict[str, object], ...]:
         for value in schedules:
             if value is not None and http_routine.canonical_schedule(value) == value and value not in found:
                 found.append(value)
+    return tuple(found)
+
+
+def outputs(text: str) -> tuple[str, ...]:
+    """Every distinct output choice one person-authored text states affirmatively, in the order first found.
+
+    A "nothing" reading carries its own negation and stands; any other reading a negation reaches, in any language,
+    or that overlaps a "nothing" reading, states nothing.
+    """
+    found: list[str] = []
+    for sentence in _sentences(text):
+        readings = [
+            (kind, language, match) for kind, language, pattern in _OUTPUTS for match in re.finditer(pattern, sentence)
+        ]
+        blocked = [match.span() for kind, _language, match in readings if kind == "none"]
+        blocked += [
+            match.span() for kind, language, match in readings if kind != "none" and _negated(language, sentence, match)
+        ]
+        for kind, _language, match in readings:
+            reached = any(match.start() < end and start < match.end() for start, end in blocked)
+            if (kind == "none" or not reached) and kind not in found:
+                found.append(kind)
     return tuple(found)
 
 
