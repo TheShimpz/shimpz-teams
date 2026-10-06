@@ -13,6 +13,11 @@ ACCOUNT_ID = "a" * 32
 DIGEST = "d" * 64
 
 
+def _accepting(validator: str):
+    """Patch one authority schema validator to report no errors, so a later guard is reached."""
+    return mock.patch.object(authority, validator, SimpleNamespace(iter_errors=mock.Mock(return_value=())))
+
+
 class AccountAuthorityEdgeTests(unittest.TestCase):
     @staticmethod
     def binding(operation: str = "team-list") -> dict[str, object]:
@@ -28,11 +33,7 @@ class AccountAuthorityEdgeTests(unittest.TestCase):
         with self.assertRaises(authority.AuthorityUnavailableError):
             authority.binding_digest({})
         with (
-            mock.patch.object(
-                authority,
-                "_REQUEST_VALIDATOR",
-                SimpleNamespace(iter_errors=mock.Mock(return_value=())),
-            ),
+            _accepting("_REQUEST_VALIDATOR"),
             mock.patch.object(authority.json, "dumps", side_effect=TypeError("invalid")),
             self.assertRaises(authority.AuthorityUnavailableError),
         ):
@@ -80,11 +81,7 @@ class AccountAuthorityEdgeTests(unittest.TestCase):
         with self.assertRaises(authority.AuthorityUnavailableError):
             authority._payload("token", {}, None)
         with (
-            mock.patch.object(
-                authority,
-                "_REQUEST_VALIDATOR",
-                SimpleNamespace(iter_errors=mock.Mock(return_value=())),
-            ),
+            _accepting("_REQUEST_VALIDATOR"),
             mock.patch.object(authority.json, "dumps", side_effect=TypeError("invalid")),
             self.assertRaises(authority.AuthorityUnavailableError),
         ):
@@ -127,38 +124,17 @@ class AccountAuthorityEdgeTests(unittest.TestCase):
             "supervisor": False,
             "binding_digest": DIGEST,
         }
-        with (
-            mock.patch.object(
-                authority,
-                "_RESPONSE_VALIDATOR",
-                SimpleNamespace(iter_errors=mock.Mock(return_value=())),
-            ),
-            self.assertRaises(authority.AuthorityUnavailableError),
-        ):
+        with _accepting("_RESPONSE_VALIDATOR"), self.assertRaises(authority.AuthorityUnavailableError):
             authority._evaluation(response, binding, DIGEST)
 
         response["account_id"] = ACCOUNT_ID
         response["owner_account_id"] = ACCOUNT_ID
-        with (
-            mock.patch.object(
-                authority,
-                "_RESPONSE_VALIDATOR",
-                SimpleNamespace(iter_errors=mock.Mock(return_value=())),
-            ),
-            self.assertRaises(authority.AuthorityUnavailableError),
-        ):
+        with _accepting("_RESPONSE_VALIDATOR"), self.assertRaises(authority.AuthorityUnavailableError):
             authority._evaluation(response, binding, DIGEST)
 
         create = self.binding("team-create")
         response.pop("owner_account_id")
-        with (
-            mock.patch.object(
-                authority,
-                "_RESPONSE_VALIDATOR",
-                SimpleNamespace(iter_errors=mock.Mock(return_value=())),
-            ),
-            self.assertRaises(authority.AuthorityUnavailableError),
-        ):
+        with _accepting("_RESPONSE_VALIDATOR"), self.assertRaises(authority.AuthorityUnavailableError):
             authority._evaluation(response, create, DIGEST)
 
     def test_late_success_is_rejected_after_transport_cleanup(self) -> None:
