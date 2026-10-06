@@ -30,13 +30,8 @@ class GenesisCache:
         self._cache: assistant_cache.ContainerReadCache[str] = assistant_cache.ContainerReadCache(max_entries)
 
     def get(self, container) -> str:
-        container_id = getattr(container, "id", None)
-        if (
-            not isinstance(container_id, str)
-            or not container_id
-            or len(container_id) > 256
-            or any(not character.isalnum() and character not in {"-", "_", "."} for character in container_id)
-        ):
+        container_id = assistant_cache.container_id(container)
+        if container_id is None:
             raise GenesisError("Assistant container identity is invalid")
         return self._cache.get(container_id, lambda: read_container_genesis(container))
 

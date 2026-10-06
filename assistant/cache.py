@@ -10,6 +10,19 @@ from collections.abc import Callable
 MAX_CONCURRENT_READS = 4
 
 
+def container_id(container: object) -> str | None:
+    """The container's Docker id when it is a bounded, safe cache key, otherwise None."""
+    identifier = getattr(container, "id", None)
+    if (
+        not isinstance(identifier, str)
+        or not identifier
+        or len(identifier) > 256
+        or any(not character.isalnum() and character not in {"-", "_", "."} for character in identifier)
+    ):
+        return None
+    return identifier
+
+
 class _Flight[T]:
     """One in-progress read that every concurrent miss for the same container waits on."""
 

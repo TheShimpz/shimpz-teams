@@ -831,13 +831,8 @@ class ManifestContractCache:
 
     def get(self, container, reviewed: object) -> ManifestContract:
         """Return declared intent only when it exactly matches controller review."""
-        container_id = getattr(container, "id", None)
-        if (
-            not isinstance(container_id, str)
-            or not container_id
-            or len(container_id) > 256
-            or any(not character.isalnum() and character not in {"-", "_", "."} for character in container_id)
-        ):
+        container_id = assistant_cache.container_id(container)
+        if container_id is None:
             raise ManifestError("Assistant container identity is invalid")
         if not isinstance(reviewed, ManifestContract):
             raise ManifestError("Assistant reviewed manifest contract is invalid")
@@ -872,13 +867,8 @@ class MachineContractCache:
         allowed_hosts: tuple[str, ...],
     ) -> dict[str, Any]:
         """Return the machine contract only after exact semantic equality."""
-        container_id = getattr(container, "id", None)
-        if (
-            not isinstance(container_id, str)
-            or not container_id
-            or len(container_id) > 256
-            or any(not character.isalnum() and character not in {"-", "_", "."} for character in container_id)
-        ):
+        container_id = assistant_cache.container_id(container)
+        if container_id is None:
             raise ManifestError("Assistant container identity is invalid")
         declared = self._cache.get(
             container_id,
