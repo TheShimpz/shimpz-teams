@@ -29,6 +29,7 @@ from local import authority as local_authority
 from local.routine import compiled as routine_compiled
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import incident as routine_incident
+from local.routine import protection as local_routine_protection
 from local.routine import run as routine_run
 from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
@@ -57,12 +58,13 @@ class Brain:
 
 
 class CompiledRunCase(RoutineServiceCase):
-    def compiled(self, directory: str, invoke):
+    def compiled(self, directory: str, invoke, mode: str = "show"):
         brain = Brain()
         controller, service = self.service(directory, brain)
         controller.assistant_lifecycle.invoke = invoke
         plan = self.plan(service, ("zones", "list-zones", LOOKUP_INPUT), ("records", "list-dns-records", LOOKUP_INPUT))
         plan["steps"][1]["input"]["zone_id"] = {"kind": "step_output", "step": "zones", "pointer": "/zones/0/id"}
+        plan["output"]["mode"] = mode
         value = self.routine(service, plan=plan)
         return controller, service, brain, value
 
@@ -400,18 +402,23 @@ class Crash(BaseException):
 class WatchdogRecoveryTests(CompiledRunCase):
     """After a crash, the watchdog ends a leased run exactly as its sealed cursor, snapshot, and journal show."""
 
-    def crashed(self, directory: str, patch) -> tuple[object, str, list[str]]:
+    def crashed(
+        self, directory: str, patch, *, restarted: bool = False, mode: str = "show"
+    ) -> tuple[object, str, list[str]]:
         actions: list[str] = []
 
         def invoke(_team, _assistant, action, _payload, _evidence):
             actions.append(action)
             return {"result": ZONES if action == "list-zones" else RECORDS}
 
-        _controller, service, brain, _value = self.compiled(directory, invoke)
+        _controller, service, brain, _value = self.compiled(directory, invoke, mode)
         claim = service.claim_routine_run()
         with patch(service), self.assertRaises(Crash):
             self.run_without_key(service, claim)
         self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "leased")
+        if restarted:
+            # A restarted Team process holds no run's protection: it lives in its boot's memory only.
+            service.routine_protections = local_routine_protection.RunProtections()
         routine_watchdog.check(service, startup=True)
         self.assertEqual(brain.calls, [])
         return service, claim["run_id"], actions
@@ -461,6 +468,57 @@ class WatchdogRecoveryTests(CompiledRunCase):
         self.assertEqual((actions, state.runs, state.incidents), (["list-zones", "list-dns-records"], (), ()))
         self.assertEqual([item.outcome for item in state.notices], ["done"])
         self.assertEqual(leftovers, ((), ()))
+        # The same Team process still holds the run's protection, so its result is shown.
+        self.assertFalse(state.notices[0].protection_lost)
+        self.assertEqual(state.notices[0].detail["output"]["state"], "shown")
+
+    def test_a_restart_before_the_terminal_commit_completes_without_the_result_or_a_new_baseline(self) -> None:
+        def patch(_service):
+            return mock.patch.object(routine_run, "finished", side_effect=Crash)
+
+        for mode in ("show", "changes"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                service, _run_id, _actions = self.crashed(directory, patch, restarted=True, mode=mode)
+                state = self.state(service)
+            (notice,) = state.notices
+            self.assertEqual((notice.outcome, notice.protection_lost), ("done", True))
+            self.assertEqual(notice.detail["output"], routine_plan.output_state(2, "unavailable"))
+            self.assertEqual(state.routines[0].output_digest, "")
+
+    def test_a_restart_after_the_cursor_advanced_holds_the_run_as_having_lost_its_protection(self) -> None:
+        def patch(service):
+            put = service.routine_store.put_cursor
+
+            def sealed_then_crash(team_id, cursor):
+                put(team_id, cursor)
+                if cursor.step == 1:
+                    raise Crash
+
+            return mock.patch.object(service.routine_store, "put_cursor", side_effect=sealed_then_crash)
+
+        with tempfile.TemporaryDirectory() as directory:
+            service, run_id, _actions = self.crashed(directory, patch, restarted=True)
+            state = self.state(service)
+            opened = routine_incident.open_recovery(service, "team_1", run_id)
+        (incident,) = state.incidents
+        self.assertTrue(incident.protection_lost)
+        self.assertTrue(opened.cursor.protection_lost)
+        self.assertTrue(all(item.protection_lost for item in state.notices))
+
+    def test_protection_is_kept_only_by_a_readable_cursor_of_this_boot_that_never_lost_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, _brain, value = self.compiled(directory, None)
+            compiled = RuntimeTests.runtime(self, service, value)
+            run_id = compiled.cursor.binding.run_id
+            run = record.Run(run_id, value.routine_id, "leased", 0, generation=f"{'a' * 64}:routine:{run_id}")
+            kept = routine_compiled.protection_lost(service, "team_1", run)
+            with mock.patch.object(service.routine_store, "cursor", side_effect=routine_store.RoutineStoreError("x")):
+                unreadable = routine_compiled.protection_lost(service, "team_1", run)
+            with mock.patch.object(service.routine_store, "cursor", return_value=None):
+                missing = routine_compiled.protection_lost(service, "team_1", run)
+            compiled.seal(routine_cursor.lose_protection(compiled.cursor))
+            sealed = routine_compiled.protection_lost(service, "team_1", run)
+        self.assertEqual((kept, unreadable, missing, sealed), (False, True, True, True))
 
     def test_a_completed_cursor_of_another_plan_is_held_never_finished_done(self) -> None:
         def patch(service):

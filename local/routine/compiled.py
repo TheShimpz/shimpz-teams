@@ -399,6 +399,26 @@ def sealed_shown(self, team_id: str, value: record.Run) -> dict[str, object] | N
     return None if cursor is None else cursor.shown
 
 
+def protection_lost(self, team_id: str, value: record.Run) -> bool:
+    """Whether a run nothing drives any more has lost its protection, sealing the loss in its cursor first.
+
+    Protection lives only in the boot that bound it: a cursor sealed in another boot, one this process no longer holds
+    protection for, or one that cannot be read has lost it, and the loss is never undone.
+    """
+    try:
+        _batch, _snapshot, cursor = _sealed(self, team_id, value)
+    except action_journal.ActionJournalError, routine_store.RoutineStoreError, ApiProblem:
+        return True
+    if cursor is None:
+        return True
+    if cursor.protection_lost:
+        return True
+    if not self.routine_protections.current(value.run_id, cursor.boot).lost:
+        return False
+    self.routine_store.put_cursor(team_id, routine_cursor.lose_protection(cursor))
+    return True
+
+
 def _plan(self, team_id: str, routine: record.Routine) -> routine_plan.Plan:
     """The Routine's plan, admitted again against the exact current contracts, so drift never runs."""
     _name, _network, active_by_id = self._team_assistants(team_id)
