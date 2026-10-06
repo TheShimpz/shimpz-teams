@@ -10,15 +10,17 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase
+from local_controller_harness import (
+    CURRENT_ASSISTANT_IMAGE,
+    OUTDATED_ASSISTANT_IMAGE,
+    TEST_ACCOUNT_ACCESS_TOKEN,
+    TEST_ACCOUNT_REFRESH_TOKEN,
+    LocalContractCase,
+    invalid_listing,
+)
 
 from local import app as local_app
 from local.assistant.egress import ASSISTANT_EGRESS_ALIAS
-
-TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
-TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
-CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "b" * 64
-OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 64
 
 
 class LocalLifecycleTests(LocalContractCase):
@@ -333,16 +335,7 @@ class LocalLifecycleTests(LocalContractCase):
 
         self.assertEqual(
             controller.list_assistants("team_1"),
-            {
-                "assistants": [
-                    {
-                        "assistant": "shimpz-cloudflare",
-                        "assistant_version": "0.1.0",
-                        "status": "invalid",
-                        "provenance": "published",
-                    }
-                ]
-            },
+            invalid_listing(),
         )
         self.assertEqual(events, ["reload"])
         controller.assistant_lifecycle._admit_assistant_allowed_hosts.assert_called_once_with(
@@ -406,16 +399,7 @@ class LocalLifecycleTests(LocalContractCase):
 
         self.assertEqual(
             controller.list_assistants("team_1"),
-            {
-                "assistants": [
-                    {
-                        "assistant": "shimpz-cloudflare",
-                        "assistant_version": "0.1.0",
-                        "status": "invalid",
-                        "provenance": "published",
-                    }
-                ]
-            },
+            invalid_listing(),
         )
         controller.assistant_lifecycle._admit_assistant_allowed_hosts.assert_not_called()
 

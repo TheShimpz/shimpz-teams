@@ -63,6 +63,20 @@ def chat_body(
     }
 
 
+def invalid_listing() -> dict[str, object]:
+    """The inventory listing of the harness's published Cloudflare Assistant once it fails admission."""
+    return {
+        "assistants": [
+            {
+                "assistant": "shimpz-cloudflare",
+                "assistant_version": TEST_ASSISTANT_VERSION,
+                "status": "invalid",
+                "provenance": "published",
+            }
+        ]
+    }
+
+
 class TestAssistantRegistry(dict):
     def get(self, team_id, assistant_id=None):
         return super().get(team_id if assistant_id is None else assistant_id)

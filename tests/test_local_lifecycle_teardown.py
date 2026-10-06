@@ -10,7 +10,14 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase
+from local_controller_harness import (
+    CURRENT_ASSISTANT_IMAGE,
+    OUTDATED_ASSISTANT_IMAGE,
+    TEST_ACCOUNT_ACCESS_TOKEN,
+    TEST_ACCOUNT_REFRESH_TOKEN,
+    LocalContractCase,
+    invalid_listing,
+)
 from test_local_publication_install import ICON, _runtime_resolution
 
 from install.bindings import DynamicAssistantStore
@@ -21,15 +28,12 @@ from local import lifecycle as local_team_lifecycle
 from local.install import runtime as local_runtime
 from local.install.registry import AssistantRegistry
 
-TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
-TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
-CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "b" * 64
-OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 64
-
 
 class LocalLifecycleTeardownTests(LocalContractCase):
-    def test_manifest_mismatch_removes_stopped_container_without_activating_egress(self) -> None:
-        events: list[object] = []
+    IMAGE_ID = "sha256:" + "d" * 64
+
+    def _create_refused_by_manifest(self, events: list[object], container: object) -> local_app.ApiProblem:
+        """Create one Team team_1 Assistant container whose reviewed manifest admission fails; return the refusal."""
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
         controller.cpuset_cpus = "0"
@@ -38,14 +42,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
             image=CURRENT_ASSISTANT_IMAGE,
             allowed_hosts=("api.open-meteo.com",),
         )
-        image = SimpleNamespace(id="sha256:" + "d" * 64)
-        container = SimpleNamespace(
-            id="assistant-generation",
-            attrs={"Image": image.id},
-            reload=lambda: events.append("reload"),
-            start=lambda: events.append("start"),
-            remove=lambda *, force: events.append(("remove", force)),
-        )
+        image = SimpleNamespace(id=self.IMAGE_ID)
         controller.client = SimpleNamespace(containers=SimpleNamespace(create=lambda **_kwargs: container))
         controller._wire_collaborators()
         network = SimpleNamespace(name=controller.assistant_lifecycle._network_name("team_1"))
@@ -63,28 +60,33 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.assistant_lifecycle._create_assistant_container("team_1", spec, network, image)
 
-        self.assertEqual(caught.exception.code, "assistant-manifest-invalid")
+        return caught.exception
+
+    def test_manifest_mismatch_removes_stopped_container_without_activating_egress(self) -> None:
+        events: list[object] = []
+        container = SimpleNamespace(
+            id="assistant-generation",
+            attrs={"Image": self.IMAGE_ID},
+            reload=lambda: events.append("reload"),
+            start=lambda: events.append("start"),
+            remove=lambda *, force: events.append(("remove", force)),
+        )
+
+        refused = self._create_refused_by_manifest(events, container)
+
+        self.assertEqual(refused.code, "assistant-manifest-invalid")
         self.assertNotIn("start", events)
         self.assertNotIn("activate-egress", events)
         self.assertEqual(events, ["reload", ("remove", True), "release-egress"])
 
     def test_failed_install_removal_still_revokes_egress_and_reports_incomplete_rollback(self) -> None:
         events: list[object] = []
-        controller = object.__new__(local_app.LocalController)
-        controller.space_id = "local-space"
-        controller.cpuset_cpus = "0"
-        spec = SimpleNamespace(
-            assistant_id="shimpz-cloudflare",
-            image=CURRENT_ASSISTANT_IMAGE,
-            allowed_hosts=("api.open-meteo.com",),
-        )
-        image = SimpleNamespace(id="sha256:" + "d" * 64)
 
         class Container:
             id = "assistant-generation"
 
             def __init__(self) -> None:
-                self.attrs = {"Image": image.id, "State": {"Running": False}}
+                self.attrs = {"Image": LocalLifecycleTeardownTests.IMAGE_ID, "State": {"Running": False}}
 
             def reload(self) -> None:
                 events.append("reload")
@@ -99,25 +101,9 @@ class LocalLifecycleTeardownTests(LocalContractCase):
             def kill(self) -> None:
                 self.fail("a proved stopped container must not be killed")
 
-        container = Container()
-        controller.client = SimpleNamespace(containers=SimpleNamespace(create=lambda **_kwargs: container))
-        controller._wire_collaborators()
-        network = SimpleNamespace(name=controller.assistant_lifecycle._network_name("team_1"))
-        controller.assistant_lifecycle._egress_token = lambda *_args, **_kwargs: "a" * 32
-        controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda *_args: (_ for _ in ()).throw(
-            local_app.ApiProblem(
-                HTTPStatus.CONFLICT,
-                "installed Assistant manifest failed its reviewed contract",
-                code="assistant-manifest-invalid",
-            )
-        )
-        controller.assistant_lifecycle._activate_assistant_egress = lambda *_args: events.append("activate-egress")
-        controller.assistant_lifecycle._release_assistant_egress = lambda *_args: events.append("release-egress")
+        refused = self._create_refused_by_manifest(events, Container())
 
-        with self.assertRaises(local_app.ApiProblem) as caught:
-            controller.assistant_lifecycle._create_assistant_container("team_1", spec, network, image)
-
-        self.assertEqual(caught.exception.code, "assistant-install-rollback-incomplete")
+        self.assertEqual(refused.code, "assistant-install-rollback-incomplete")
         self.assertNotIn("activate-egress", events)
         self.assertEqual(
             events,
@@ -404,16 +390,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
         self.assertEqual(
             controller.list_assistants("team_1"),
-            {
-                "assistants": [
-                    {
-                        "assistant": "shimpz-cloudflare",
-                        "assistant_version": "0.1.0",
-                        "status": "invalid",
-                        "provenance": "published",
-                    }
-                ]
-            },
+            invalid_listing(),
         )
 
     def test_outdated_release_lineage_is_closed_before_lifecycle_actions(self) -> None:
