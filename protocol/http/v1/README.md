@@ -88,13 +88,35 @@ delivers only bytes with that size and digest; any other challenge carries no `f
 
 A completed Team chat terminal body carries `clarification`, either `null` or one exact Brain
 multiple-choice question (ADR-0081): `question` (at most 240 characters), two to five `options` with a
-`label` (at most 80) and a `description` (at most 160, may be empty), and a `default_index` that points to
-one option, or `null` when no option is recommended or preselected (every Routine question, ADR-0092 amendment
-2026-10-05); a question with a `null` default may offer a single option. Every text is already NFC, trimmed, and free of control and line-separator characters, and
+`label` (at most 80) and a `description` (at most 160, may be empty), and a `default_index` that points to the one
+recommended option. Every text is already NFC, trimmed, and free of control and line-separator characters, and
 labels are distinct ignoring case. `payload.canonical_clarification` validates it. The terminal `reply`
 must equal `payload.render_clarification`: the question, a blank line, then one numbered line per option,
-a recommended default marked with " ✓" (none for `null`) and a non-empty description after " — ". The question is presentation only:
+the recommended default marked with " ✓" and a non-empty description after " — ". The question is presentation only:
 it requests and authorizes nothing, and the user answers with a new chat message.
+
+A Local chat terminal that recorded a Routine (ADR-0101) carries at most one of `routine_proposal` and
+`routine_refusal` beside the agent's own `reply`, which keeps the work the turn already did. `routine_refusal`
+(`routine.canonical_refusal`) is exactly `{code}`, a closed-grammar code that Admin words in the interface language
+(for example `routine-mutation-unavailable` or `routine-secret-literal`); nothing was created. `routine_proposal` is
+the Routine's confirmation card (`routine.canonical_proposal`), at most 160 KiB, which Team checks against the whole
+terminal line bound before publishing: `{proposal_id, expires_at, replaces, name, schedule, timezone, next_runs,
+daily_cap, clamped, output, steps, permitted, decision, rehearsal}`. `replaces` is `null` for a new Routine or the id of
+the Routine it changes; `next_runs` holds one to three instants; `clamped` says Team lowered a continuous cap to fit
+the Team's budgets; `output` is `{mode, when}`, and a shown mode shows the last step. Each step is `{position,
+assistant, action, read_only, inputs}`, and each input `{member, origin, value, step, pointer, where, item}` names
+exactly where its value comes from: `request` (named in the person's request) or `assistant` (chosen by the assistant,
+the same on every run), each with the literal's complete JSON text escaped (never cut); `clock`, the date of each run;
+`step`, an earlier step's position and RFC 6901 pointer; or `selector`, the same through the one array item whose
+`where` member (`{member, value_json}`, the constant's JSON text as `routine.where_text` escapes it) matches, then that
+item's own pointer. `permitted` lists every Action the Routine may call, each once in identity order with whether its
+reviewed effect is read-only; `decision` is `null` unless the mode is `decide`, then `{request, notes, model,
+allowance}`, the frozen base prompt's two parts, the model `{provider, model, effort}`, and 1 to 64 decision calls, and
+`len(steps) + allowance` is at most 256. `rehearsal` is true exactly when a step or permitted Action may change
+something. A Supervisor answers the card once: `POST /v1/teams/:team_id/routines/proposals/:proposal_id` with `{}`
+(Criar rotina) creates or changes the Routine, and `DELETE` on the same path (Cancelar) revokes the card; both answer
+`routine.canonical_proposal_answer`, `{team_id, proposal_id, routine_id, status}` with status `created`, `changed`, or
+`revoked` (whose `routine_id` is `null`). A revoked or already-consumed card is answered as such, never twice applied.
 
 A completed Team chat terminal body may also carry `usage`, what the whole logical turn consumed; Admin relays it on
 the browser `done` frame and keeps it with the reply. It is absent when no model call of the turn reported usage.
@@ -139,110 +161,133 @@ for it, `continuous`: its next run is due `gap` seconds (5 to 86,400) after the 
 with at most `cap` (1 to 1,000) starts in any rolling 24 hours (ADR-0092). `routine.daily_rate` is a schedule's runs per
 day and `routine.daily_cap` its whole rolling 24-hour cap; a Team's Routines' caps may sum to at most
 `routine.MAX_DAILY_RUNS` (1,000), which also bounds the Team's starts in any rolling 24 hours, whatever Routine made
-them. A Routine is created or changed only from the authenticated user's own chat message, without a confirmation card
-(ADR-0092): Team validates the Brain's compiled change against that message and the exact installed contracts, and
-commits the Routine, its notice, and the request's receipt together with the reply. That notice has the Routine outcome
-`created` or `changed`, no run id, and exactly `{name, plan, output, schedule, timezone}` (`routine.canonical_notice`):
-the Routine's name (`routine.canonical_name`, 1 to 80 NFC printable characters on one line), its revision's summary,
-its output disposition (`routine.canonical_disposition`: `{mode, step}`, where `mode` is `show`, `changes`, `chain`, or
-`none`, and `step` is the 1-based position of the shown step for `show` and `changes` and `null` otherwise; ADR-0092
-amendment, 2026-10-05), its schedule, and its zone. A plan holds 1 to 256 steps, one Action as often as the person asks
-(ADR-0092 amendment, 2026-10-05, scale); on the wire a step is always named by its position, never by its internal id.
-The summary (`routine.canonical_summary`) is `{revision, plan_digest, steps, actions, more}`: the step count and the
-Actions as runs of consecutive equal `[assistant, action, count]`, at most 16 runs, with `more` counting the steps after
-them, within `routine.MAX_SUMMARY_BYTES`. The steps themselves are read page by page: `GET
+them. A Routine is recorded from the work the ordinary chat agent did in one turn and exists only once a person
+confirms its card (ADR-0101). Its notice then has the Routine outcome `created` or `changed`, no run id, and exactly
+`{name, plan, output, schedule, timezone, state, permitted, model, allowance}`: the Routine's name
+(`routine.canonical_name`, 1 to 80 NFC printable characters on one line), its revision's summary, its output
+disposition (`routine.canonical_disposition`: `{mode, step, when}`, where `mode` is `show`, `changes`, `none`, or
+`decide`; `step` is the 1-based position of the shown step for `show` and `changes`, and `when` is `always` or
+`changes` for `decide` only), its schedule and zone, and its standing scope: its `state` (`active`, `paused`, or
+`rehearsal`, waiting for a rehearsal before it can run), its permitted Actions as `{total, changes}`
+(`routine.canonical_permitted`, at most `routine.MAX_PERMITTED`), and, only for `decide`, the frozen model and a decision
+allowance of 1 to 64 calls, with the plan's steps and the allowance together at most 256. A plan holds 0 to 256 steps,
+none only when it decides; on the wire a step is always named by its position, never by its internal id. The summary
+(`routine.canonical_summary`) is `{revision, plan_digest, steps, actions, more}`: the step count and the Actions as runs
+of consecutive equal `[assistant, action, count]`, at most 16 runs, with `more` counting the steps after them, within
+`routine.MAX_SUMMARY_BYTES`. The steps themselves are read page by page: `GET
 /v1/teams/:team_id/routines/:routine_id/revisions/:revision/steps/:offset` answers `routine.canonical_page`, `{routine_id,
-revision, plan_digest, total, offset, steps, next}`, at most 64 whole consecutive steps in at most 96 KiB, and refuses a
-revision that is no longer current (`routine-revision-changed`), so a reader never combines two revisions. A projected
-step (`routine.canonical_step`) is exactly `{position, assistant, action, inputs, stored_inputs}`, at most
-`routine.MAX_STEP_VIEW_BYTES` (24 KiB; Team refuses a plan with a larger step, never truncating it): each input, sorted
-by member, is a `literal` whose `value` is `routine.literal_preview` of its JSON (at most 120 characters, every control
-or invisible character escaped), a `run_clock` whose `value` is its format, or a `step_output` or `step_text` (the
-selected value as plain text) naming an earlier step by position and an RFC 6901 pointer; `stored_inputs` names the
-Stored Inputs the step's Action uses by id only, never a value. The Routine view a Supervisor lists
-(`routine.canonical_routine_view`) carries the same name, summary, and output disposition. `GET
-/v1/teams/:team_id/routines` answers the Team's whole list, every Routine, live run, and unresolved incident, within
-`routine.MAX_ROUTINE_LIST_BYTES`; it is the only Team answer above the Local API's 128 KiB response cap. Team also keeps,
-never on the wire, the evidence of the request that granted each revision: its receipt, revision, plan digest, a
-commitment to the message, the quote's span, each input's validated provenance, and any answer a bound Routine question
-selected.
+revision, plan_digest, total, offset, steps, next}`, at most 64 whole consecutive steps in at most 96 KiB (a plan of no
+steps has one empty page), and refuses a revision that is no longer current (`routine-revision-changed`), so a reader
+never combines two revisions. A projected step (`routine.canonical_step`) is exactly `{position, assistant, action,
+read_only, inputs, stored_inputs}`, at most `routine.MAX_STEP_VIEW_BYTES` (24 KiB; Team refuses a plan with a larger
+step, never truncating it): each input, sorted by member, is a `literal` whose `value` is `routine.literal_preview` of
+its JSON (at most 120 characters, every control or invisible character escaped), a `run_clock` whose `value` is `date`,
+or a `step_output` naming an earlier step by position and an RFC 6901 pointer, and, when it selects through an array
+item, its `where` (`{member, value_json}`) and that item's `item` pointer (otherwise both `null`); `stored_inputs` names
+the Stored Inputs the step's Action uses by id only, never a value. The Routine view a Supervisor lists
+(`routine.canonical_routine_view`) carries the same name, summary, disposition, and standing scope with its
+`permissions_revision`. `GET /v1/teams/:team_id/routines` answers the Team's whole list, every Routine, live run, and
+unresolved incident, within `routine.MAX_ROUTINE_LIST_BYTES`; it is the only Team answer above the Local API's 128 KiB
+response cap.
+
+Every notice (`routine.canonical_notice`) names its Routine by the `name` it had when Team wrote that version, so a row
+keeps its title after the Routine is renamed or deleted, and carries `usage` and `protection_lost`. A run notice's
+`usage` (`routine.canonical_run_usage`) has a chat reply's shape, `{duration_ms, models}`, its active time excluding
+frozen time and per provider and model the tokens its decision and recovery calls reported; a replay-only run lists no
+model. A Routine outcome carries `usage` `null`, except `healthy`, which carries its runs' summed usage.
+`protection_lost` is true on a run's notice versions written after the run lost the protection of its secret values
+(ADR-0101 section 6.2), so nothing it produced afterwards was shown anywhere; it is always false on a Routine outcome.
+The Routine outcome `deleted` (detail `{}`) closes a Routine's timeline once its confirmed deletion completes.
 
 A run has one notice, keyed by its run id, whose version grows as the run goes on (`routine.canonical_notice_detail`
-closes each outcome's detail). `done` and `recovered` carry the `plan` summary of the revision they carried out, never
-an input, and their `output`; `recovered` is a run that a continuation completed after a hold. `output` is `null` unless the Routine shows a result (`show` or `changes`): then it is
+closes each outcome's detail). `done` and `recovered` carry `{plan, output, decision}`: the `plan` summary of the
+revision they carried out, never an input; their `output`; and their `decision`; `recovered` is a run that a
+continuation completed after a hold. `output` is `null` unless the run shows a step's result: then it is
 `routine.canonical_output`, `{step, state, value, truncated}`, with `state` `shown` and `value` Team's bounded, redacted
 projection of that step's validated result, or `unchanged` or `unavailable` with `value` `null`. A projection node is
 one closed variant: `{kind: null}`, `{kind: bool, value}`, `{kind: number, value}` (its exact JSON number text, at most 64 characters, so no consumer rounds it; a longer number is shown as text), `{kind: text, value, cut}`
 (at most 300 characters, every control or invisible character escaped), `{kind: redacted}`, `{kind: elided}` (past the
 depth bound), `{kind: list, items, omitted}` (at most 50 items), or `{kind: fields, fields, omitted}` (at most 24 distinct
 `[label, node]` pairs, each label at most 64 characters), with containers nested at most four deep and the whole output
-at most `routine.MAX_OUTPUT_BYTES` (16 KiB); `cut`, `omitted`, `elided`, and `truncated` mark every cut. A `changes`
+at most `routine.MAX_OUTPUT_BYTES` (16 KiB); `cut`, `omitted`, `elided`, and `truncated` mark every cut. `decision` is
+`null` unless the Routine decides, then `{state, code, message}`: `decided` (with the escaped `message`, at most 4,000
+characters, or `null` when the decision chose not to notify and only ends a run that already had a notice), `unchanged`,
+`ceiling`, or `unavailable` with its `code` (`routine-protection-lost` when the run's protection was lost). A `changes`
 Routine publishes a completed run only when its result differs from the last one shown, and `none` publishes no
-completion of its own; a run that already has a notice always gets its terminal version.
-`held` names the step whose effect is unresolved as `{assistant_id, action, step, steps}`, its position among the
-plan's steps, all `null` when the run sealed no plan cursor; a `frozen` run names its step the same way; the same run's notice then goes on as `paused`, the same step plus a `reason` (`decided`, `unavailable`,
-`exhausted`, `policy`, or `evidence`, recovery evidence that could not be read), or `user-skipped` when a person set
-the run aside, the same step plus the `choice` that did it (`run`, `recreate`, or `delete`, a deletion of its Routine).
-A person's `user-skipped` is a run outcome; the Routine outcome `skipped` reports missed firings and
-has no run id. A continuous `chain` Routine's healthy runs, each completed with no earlier notice, share one versioned
+completion of its own; a run that already has a notice always gets its terminal version. `rehearsed` ends a rehearsal
+run (ADR-0101 section 8) with the same `{plan, output, decision}` and how many effects it did not run (`rehearsed`), how
+many steps it could not test because they needed one (`untested`), and how many decision calls were outside the
+permitted set (`not_permitted`).
+
+Every call is placed by a position (`routine.canonical_position`): `{"phase": "replay", "step": n}`, a replay step's
+1-based position among the plan's `steps`, or `{"phase": "decision", "call": n}`, a decision call's 1-based order (at
+most `routine.MAX_DECISION_CALLS`, 64). `held` names the call whose effect is unresolved as `{assistant_id, action,
+position, steps}`, all `null` when the run sealed no plan cursor; a `frozen` run names its call the same way with its
+`request_kind`: `human`, `integrations`, or `permission`, a decision call to an Action outside the permitted set, which
+waits for a person to add it. The same run's notice then goes on as `paused`, the same call plus a `reason` (`decided`,
+`unavailable`, `exhausted`, `policy`, or `evidence`, recovery evidence that could not be read), or `user-skipped` when a
+person set the run aside, the same call plus the `choice` that did it (`run`, or `delete`, a deletion of its Routine). A
+person's `user-skipped` is a run outcome; the Routine outcome `skipped` reports missed firings and has no run id. A
+continuous Routine's healthy runs that show nothing, each completed with no earlier notice, share one versioned
 `healthy` Routine notice per minute bucket instead: its instant is the minute's start and its `runs`, at most
 `routine.MAX_ROLLUP_RUNS`, counts them and is also its version. Every other outcome stays one notice per run. The rollup
 minute only moves forward: a run whose clock fell back into an earlier minute keeps its own notice. A Routine change
-keeps its minute's count, and the `routine_rollup_delivery` vectors pin exact delivery sequences, with the transcript
-rows Admin must end with. `failed` names its code, the Actions that completed, and the `step` it stopped at by position
-of `steps` (both `null` when it failed before any step); a run whose failed step may have acted is held instead.
+keeps its minute's count and usage, and the `routine_rollup_delivery` vectors pin exact delivery sequences, with the
+transcript rows Admin must end with. `failed` names its code, the Actions that completed, and the `position` it stopped
+at of `steps` (both `null` when it failed before any call); a run whose failed call may have acted is held instead.
 
-What a run did step by step is read page by page from `GET
+What a run did call by call is read page by page from `GET
 /v1/teams/:team_id/routines/runs/:run_id/steps/:snapshot/:offset` (`routine.canonical_run_steps`), bound to the run's own
-revision (`routine_id`, `revision`, `plan_digest`, `total`) and to one `snapshot` of its retained records (`latest` asks
-for the current one; a page naming a snapshot whose records changed since is refused `routine-run-changed`). Each step
-(`routine.canonical_run_step`) is `done`, `recovered` (a verified occurrence, with no duration of its own), `failed` (its
-attempt failed; the run's notice says whether it was held), `stopped` (Stop or the run's deadline cut the attempt, which
-says nothing about whether it acted), or `waiting` (frozen for a person), with its Assistant
-Action, attempt, `duration_ms`, instant, and the inputs that attempt was given, each a redacted preview (`null` when its
-source's secrecy cannot be established); a position with no record is `not_run` only when the run's terminal record proves
-it never started (`ended`), and `unavailable` otherwise. Records expire after seven days. Each per-attempt diagnostic
-also names its `step` position. Admin's claim is exactly `{long}`, whether it can take a long run now; a claimed run
-carries its `active_seconds` budget, which grows with its revision's steps (`routine.active_seconds`) and makes it long
-past 600 seconds.
+revision (`routine_id`, `revision`, `plan_digest`, and `replay`, its plan's step count) and to one `snapshot` of its
+retained records (`latest` asks for the current one; a page naming a snapshot whose records changed since is refused
+`routine-run-changed`). `total` counts the replay steps and then the decision calls the records know, and may be zero;
+`decision` is the run's decision record or `null` (`routine.canonical_decision_record`: `{state, code, model, rules,
+rationale, notify, usage}`, at most eight quoted rules of 200 characters and a 500-character rationale). Each entry
+(`routine.canonical_run_step`) has its `position` and is `done`, `recovered` (a verified occurrence, with no duration of
+its own), `failed` (its attempt failed; the run's notice says whether it was held), `stopped` (Stop or the run's
+deadline cut the attempt, which says nothing about whether it acted), `waiting` (frozen for a person), `rehearsed` (an
+effect a rehearsal did not run), `untested` (a replay step that needed one), or `not-permitted` (a rehearsal's decision
+call outside the permitted set), with its Assistant Action, attempt, `duration_ms`, instant, and the inputs that attempt
+was given, each a redacted preview (`null` when its source's secrecy cannot be established; a decision call's are
+`decision`). A replay position with no record is `not_run` only when the run's terminal record proves it never started
+(`ended`), and `unavailable` otherwise; a decision call with no record is always `unavailable`. The page is
+self-contained and never needs the revision's plan, so it renders after any later change. Records expire after seven
+days. Each per-attempt diagnostic also names its `position`. Admin's claim is exactly `{long}`, whether it can take a long
+run now; a claimed run carries its `active_seconds` budget, which grows with its revision's steps and decision allowance
+(`routine.active_seconds`) and makes it long past 600 seconds.
 
-A Supervisor's `GET /v1/teams/:team_id/routines` lists each Routine (`routine.canonical_routine_view`, whose `paused`
-says dispatch is off), its live runs (`routine.canonical_run_view`), and its unresolved `incidents`, at most
-`routine.MAX_UNRESOLVED_INCIDENTS` (`routine.canonical_incident_view`): each held run's id, Routine, quote, creation
-instant, and step, which outlive a deleted Routine. `POST /v1/teams/:team_id/routines/incidents/:incident_id/card` with
-`{}` opens that run's recovery card (`routine.canonical_card`): the step it stopped at and its `step` ordinal of
-`steps` in the plan the run executed, that revision, the `evidence` of its failure (`recorded`, with the held
-operation's latest sanitized `diagnostic`; `absent` when none is kept; or `unavailable` when it could not be read), a
-one-use 32-hex `nonce`, `expires_in` of 300 seconds, and exactly the choices `run`, `recreate`, and `delete` in that
-order, none recommended. The card is bound to the authenticated person, the Team incarnation, the Routine and its
-current revision, the run, its operation, and the Routine's sealed creation source. `POST .../answer` with exactly
-`{nonce, choice}` (`routine.canonical_card_answer_request`) answers it once with `run` or `recreate`; `delete` is never
-a card answer but the Routine's own confirmed deletion. `routine.canonical_card_answer` says what it did. Rodar
-(`run`) sets the held run aside without verifying it and requests one fresh run of the current revision, answering
-`requested`; it carries no model credential. Recriar (`recreate`) carries the private model credential, which the
-assertion binds, compiles the Routine's sealed creation message from scratch, and replaces the Routine in place as its
-next revision, answering `recreated`. Both refuse while the held attempt's workload is not proven stopped
-(`routine-workload-unquiesced`), while another run of the Routine is live (`routine-busy`), or once it is deleted
-(`routine-not-found`); Rodar also refuses when the Routine's Assistant contracts changed
-(`routine-contracts-changed`), and Recriar when its source is gone (`routine-source-unavailable`), when the compile
-asks about a field its source never selected or refuses (`routine-recreate-refused`), or when the compile could not
-run (`routine-recreate-unavailable`). Anything refused changes nothing. An expired, foreign, or reused card is
-`routine-card-expired`, and one whose Routine revision, Team incarnation, held generation, operation, or creation
-source changed since it opened is `routine-card-stale`; every answer is checked and applied in the Team's execution
-slot, and its write checks the same state again. `POST /v1/teams/:team_id/routines/:routine_id/pause` with `{}` turns
-a Routine's dispatch off, answering `paused` true, while a run already going finishes;
-`POST /v1/teams/:team_id/routines/:routine_id/resume` with `{}` turns dispatch back on and starts a fresh failure
-streak; an unresolved incident still holds the Routine until its card settles it. Deleting a Routine sets every one of
-its unresolved incidents aside.
+A Supervisor's `GET /v1/teams/:team_id/routines` lists each Routine (`routine.canonical_routine_view`), its live runs
+(`routine.canonical_run_view`, a frozen one with its call's `position` and `steps`), and its unresolved `incidents`, at
+most `routine.MAX_UNRESOLVED_INCIDENTS` (`routine.canonical_incident_view`): each held run's id, Routine, name, creation
+instant, and call, which outlive a deleted Routine. `POST /v1/teams/:team_id/routines/incidents/:incident_id/card` with
+`{}` opens that run's recovery card (`routine.canonical_card`): the call it stopped at by `position` of `steps` in the
+plan the run executed, that revision, the `evidence` of its failure (`recorded`, with the held operation's latest
+sanitized `diagnostic` of the same call; `absent` when none is kept; or `unavailable` when it could not be read), a
+one-use 32-hex `nonce`, `expires_in` of 300 seconds, and exactly the choices `run` and `delete` in that order, none
+recommended. The card is bound to the authenticated person, the Team incarnation, the Routine and its current revision,
+the run, and its operation. `POST .../answer` with exactly `{nonce, choice}` (`routine.canonical_card_answer_request`)
+answers it once with `run`; `delete` is never a card answer but the Routine's own confirmed deletion.
+`routine.canonical_card_answer` says what it did. Rodar (`run`) sets the held run aside without verifying it and
+requests one fresh run of the current revision, answering `requested`; it carries no model credential. It refuses while
+the held attempt's workload is not proven stopped (`routine-workload-unquiesced`), while another run of the Routine is
+live (`routine-busy`), once it is deleted (`routine-not-found`), or when the Routine's Assistant contracts changed
+(`routine-contracts-changed`). Anything refused changes nothing. An expired, foreign, or reused card is
+`routine-card-expired`, and one whose Routine revision, Team incarnation, held generation, or operation changed since it
+opened is `routine-card-stale`; every answer is checked and applied in the Team's execution slot, and its write checks
+the same state again. `POST /v1/teams/:team_id/routines/:routine_id/pause` with `{}` turns a Routine's dispatch off,
+while a run already going finishes; `POST /v1/teams/:team_id/routines/:routine_id/resume` with `{}` turns dispatch back
+on and starts a fresh failure streak; an unresolved incident still holds the Routine until its card settles it. Deleting
+a Routine sets every one of its unresolved incidents aside.
 
 A Local Supervisor reads one Routine run's execution details (ADR-0092) with `GET
 /v1/teams/:team_id/routines/runs/:run_id/diagnostics`, answered by `routine.canonical_diagnostics`: the Team and run ids
 and at most 32 diagnostics, oldest first, one per attempt of one logical operation (`operation_id`, the version 4 UUID
-Team journaled, and `attempt` from 1 to 64), each naming its Assistant Action and recording instant. Each holds exactly
+Team journaled, and `attempt` from 1 to 64), each naming its Assistant Action, `position`, and recording instant. Each holds exactly
 one of a `failure`, the Team-sanitized handled failure (`error_type`, `message`, `provider`, `http_status`,
 `response_excerpt`, and the `redacted` and `truncated` flags, with the Assistant Spec bounds), or a `condition`, the
 safe transport condition (`exit-status:<code>`, `stderr-output`, `timeout`, `frame-invalid`, `exit-unavailable`, or
-`transport-failed`); raw child output is never reflected. Text is literal evidence that Admin renders escaped, never as
+`transport-failed`); raw child output is never reflected. After a run lost its protection, a failure keeps only its
+`http_status`: `error_type` is `withheld`, `message` empty, `provider` and `response_excerpt` `null`, and `redacted` true. Text is literal evidence that Admin renders escaped, never as
 Markdown or HTML, and a diagnostic is never effect proof or authority. Team keeps these bodies encrypted for at most
 seven days and 10 MiB per Team, readable only by the same Team incarnation; deleting the Routine or the Team removes
 them.
