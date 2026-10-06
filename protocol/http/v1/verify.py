@@ -274,6 +274,70 @@ for kind, admit in admit_view.items():
     if any(admit(value) is not None for value in views[kind]["invalid"]):
         fail(f"an invalid routine {kind} vector was admitted")
 
+positions = vectors.get("routine_position", {})
+if not positions.get("valid") or not positions.get("invalid"):
+    fail("routine position vectors are missing")
+if any(routine.canonical_position(case["value"], case["steps"]) != case["value"] for case in positions["valid"]):
+    fail("a valid routine position vector was not admitted exactly")
+if any(routine.canonical_position(case["value"], case["steps"]) is not None for case in positions["invalid"]):
+    fail("an invalid routine position vector was admitted")
+
+WIDE = "\u754c"
+
+
+def _proposal_case(name: object, cards: list[object]) -> object:
+    """A generated card at its byte bound, one byte past it, or one whose steps leave no room for its allowance."""
+    if name == "over-units":
+        card = json.loads(json.dumps(cards[1]))
+        step = {"assistant": card["steps"][0]["assistant"], "action": "list-zones", "read_only": True, "inputs": []}
+        units = routine.MAX_ROUTINE_STEPS + 1 - routine.MAX_ALLOWANCE
+        card["steps"] = [{"position": index, **step} for index in range(1, units + 1)]
+        card["decision"]["allowance"] = routine.MAX_ALLOWANCE
+        return card
+    card = json.loads(json.dumps(cards[0]))
+    note = {"member": "note", "origin": "assistant", "value": "", "step": None, "pointer": None, "where": None}
+    card["steps"][0]["inputs"] = [{**note, "item": None}]
+    room = routine.MAX_PROPOSAL_BYTES - routine.encoded_bytes(card)
+    card["steps"][0]["inputs"][0]["value"] = WIDE * (room // 3) + "a" * (room % 3 + (name == "one-byte-over"))
+    return card
+
+
+proposals = vectors.get("routine_proposal", {})
+if (
+    not proposals.get("valid")
+    or not proposals.get("invalid")
+    or set(proposals.get("generated", []))
+    != {
+        "largest-unicode",
+        "one-byte-over",
+        "over-units",
+    }
+):
+    fail("routine proposal vectors are missing")
+largest = _proposal_case("largest-unicode", proposals["valid"])
+if (
+    routine.encoded_bytes(largest) != routine.MAX_PROPOSAL_BYTES
+    or routine.canonical_proposal(largest) != largest
+    or any(
+        routine.canonical_proposal(_proposal_case(name, proposals["valid"])) for name in ("one-byte-over", "over-units")
+    )
+):
+    fail("a generated routine proposal vector differs at its bound")
+for name, admit in (
+    ("routine_run_usage", routine.canonical_run_usage),
+    ("routine_decision_record", routine.canonical_decision_record),
+    ("routine_proposal", routine.canonical_proposal),
+    ("routine_refusal", routine.canonical_refusal),
+    ("routine_proposal_answer", routine.canonical_proposal_answer),
+):
+    cases = vectors.get(name, {})
+    if not cases.get("valid") or not cases.get("invalid"):
+        fail(f"{name} vectors are missing")
+    if any(admit(value) != value for value in cases["valid"]):
+        fail(f"a valid {name} vector was not admitted exactly")
+    if any(admit(value) is not None for value in cases["invalid"]):
+        fail(f"an invalid {name} vector was admitted")
+
 diagnostics = vectors.get("routine_diagnostics", {})
 if not diagnostics.get("valid") or not diagnostics.get("invalid"):
     fail("routine diagnostics vectors are missing")

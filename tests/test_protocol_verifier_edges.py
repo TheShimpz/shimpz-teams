@@ -621,6 +621,46 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
                     HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
                 )
 
+    def test_rejects_missing_or_drifted_recorded_routine_vectors(self) -> None:
+        def missing_positions(value: dict[str, object]) -> None:
+            value["routine_position"]["invalid"] = []
+
+        def rejected_position(value: dict[str, object]) -> None:
+            value["routine_position"]["valid"] = [{"value": {"phase": "replay", "step": 2}, "steps": 1}]
+
+        def accepted_position(value: dict[str, object]) -> None:
+            value["routine_position"]["invalid"] = [{"value": {"phase": "decision", "call": 1}, "steps": 0}]
+
+        def missing_generated(value: dict[str, object]) -> None:
+            value["routine_proposal"]["generated"] = ["largest-unicode"]
+
+        def drifted_largest(value: dict[str, object]) -> None:
+            value["routine_proposal"]["valid"][0]["name"] = "x" * 81
+
+        def missing_refusals(value: dict[str, object]) -> None:
+            value.pop("routine_refusal")
+
+        def rejected_record(value: dict[str, object]) -> None:
+            value["routine_decision_record"]["valid"] = [{"state": "decided"}]
+
+        def accepted_answer(value: dict[str, object]) -> None:
+            value["routine_proposal_answer"]["invalid"] = [value["routine_proposal_answer"]["valid"][0]]
+
+        for mutate in (
+            missing_positions,
+            rejected_position,
+            accepted_position,
+            missing_generated,
+            drifted_largest,
+            missing_refusals,
+            rejected_record,
+            accepted_answer,
+        ):
+            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
+                _execute(
+                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
+                )
+
     def test_rejects_missing_or_drifted_routine_diagnostics_vectors(self) -> None:
         def missing_diagnostics(value: dict[str, object]) -> None:
             value.pop("routine_diagnostics")

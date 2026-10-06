@@ -118,8 +118,8 @@ class RoutineDiagnosticsContractTests(unittest.TestCase):
 
 WIDE = "\U0001d538"  # One printable character that encodes to four UTF-8 bytes.
 # The producer bounds a Local Team holds its identifiers to: an installed Assistant's id and a reviewed Action's id.
-ASSISTANT = "a" * 40
-ACTION = "b" * 80
+ASSISTANT = "a" * identifiers.MAX_ASSISTANT_ID_CHARS
+ACTION = "b" * identifiers.MAX_ACTION_ID_CHARS
 
 
 def _filler(index: int, size: int) -> dict[str, object]:
@@ -131,7 +131,14 @@ def _filler(index: int, size: int) -> dict[str, object]:
 def _bounded_step(position: int = 1, size: int = routine.MAX_STEP_VIEW_BYTES) -> dict[str, object]:
     """One projected step of exactly ``size`` encoded bytes, its inputs at their character bounds in four-byte text."""
     stored = sorted(f"s{index:02d}" + "s" * 37 for index in range(routine.MAX_STEP_STORED_INPUTS))
-    step = {"position": position, "assistant": ASSISTANT, "action": ACTION, "inputs": [], "stored_inputs": stored}
+    step = {
+        "position": position,
+        "assistant": ASSISTANT,
+        "action": ACTION,
+        "read_only": True,
+        "inputs": [],
+        "stored_inputs": stored,
+    }
     for index in range(routine.MAX_STEP_INPUTS):
         member = f"m{index:03d}" + WIDE * (routine.MAX_MEMBER_CHARS - 4)
         item = {"member": member, "source": "literal", "value": WIDE * routine.MAX_PREVIEW_CHARS}
@@ -169,7 +176,7 @@ class RoutineListBoundTests(unittest.TestCase):
         filler["value"] = "\u00e9" + filler["value"][1:]
         self.assertEqual(routine.encoded_bytes(step), routine.MAX_STEP_VIEW_BYTES + 1)
         self.assertIsNone(routine.canonical_step(step, 7))
-        lone = {"position": 1, "assistant": "a", "action": "b", "inputs": [], "stored_inputs": []}
+        lone = {"position": 1, "assistant": "a", "action": "b", "read_only": True, "inputs": [], "stored_inputs": []}
         lone["inputs"].append({"member": "m\ud800", "source": "literal", "value": "1"})
         self.assertIsNone(routine.canonical_step(lone, 1))
         # A literal's preview escapes a lone surrogate, so every projection Team makes stays encodable.
@@ -197,31 +204,104 @@ class RoutineListBoundTests(unittest.TestCase):
             "notice_id": "0" * 32,
             "version": 1,
             "routine_id": "1" * 32,
-            "quote": WIDE * routine.MAX_ROUTINE_QUOTE_CHARS,
+            "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
             "run_id": None,
             "outcome": "created",
             "created_at": "2026-10-05T09:00:00Z",
             "detail": {
                 "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
                 "plan": _largest_summary(),
-                "output": {"mode": "changes", "step": routine.MAX_ROUTINE_STEPS},
+                "output": {"mode": "changes", "step": routine.MAX_ROUTINE_STEPS, "when": None},
                 "schedule": {"kind": "weekly", "weekday": 6, "time": "23:59"},
                 "timezone": "/".join(["Z" * 32] * 3),
+                "state": "rehearsal",
+                "permitted": {"total": routine.MAX_PERMITTED, "changes": routine.MAX_PERMITTED},
+                "model": None,
+                "allowance": 0,
             },
+            "usage": None,
+            "protection_lost": False,
         }
         self.assertLessEqual(routine.encoded_bytes(_largest_summary()), routine.MAX_SUMMARY_BYTES)
         notices = [{**notice, "notice_id": f"{index:032x}"} for index in range(20)]
         batch = {"notices": notices, "more": False}
         self.assertEqual(routine.canonical_notice_batch(batch), batch)
 
+    def test_the_largest_run_notice_fits_a_batch_twice(self) -> None:
+        """A completed decision run at every bound: its shown output, decision message, summary, and usage."""
+        output = {
+            "step": 1,
+            "state": "shown",
+            "value": {"kind": "fields", "fields": [], "omitted": 0},
+            "truncated": True,
+        }
+        text = {"kind": "text", "value": "", "cut": True}
+        room = routine.MAX_OUTPUT_BYTES - routine.encoded_bytes({**output, "value": {**output["value"], "fields": []}})
+        fields = []
+        while True:
+            label = f"k{len(fields):02d}"
+            node = {**text, "value": WIDE * routine.MAX_OUTPUT_TEXT_CHARS}
+            if routine.encoded_bytes([label, node]) + 1 > room or len(fields) == routine.MAX_OUTPUT_FIELDS:
+                break
+            fields.append([label, node])
+            room -= routine.encoded_bytes([label, node]) + 1
+        output["value"]["fields"] = fields
+        self.assertIsNotNone(routine.canonical_output(output))
+        models = [
+            {"provider": f"p{index:02d}" + "p" * 61, "model": "m" * 64, "input_tokens": 10**9, "output_tokens": 10**9}
+            for index in range(payload.MAX_TURN_USAGE_MODELS)
+        ]
+        notice = {
+            "team_id": "t" * 40,
+            "notice_id": "0" * 32,
+            "version": 2**31 - 1,
+            "routine_id": "1" * 32,
+            "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
+            "run_id": "0" * 32,
+            "outcome": "done",
+            "created_at": "2026-10-05T09:00:00Z",
+            "detail": {
+                "plan": _largest_summary(),
+                "output": output,
+                "decision": {
+                    "state": "decided",
+                    "code": None,
+                    "message": WIDE * routine.MAX_DECISION_MESSAGE_CHARS,
+                },
+            },
+            "usage": {"duration_ms": payload.MAX_TURN_DURATION_MS, "models": models},
+            "protection_lost": True,
+        }
+        batch = {"notices": [notice], "more": True}
+        self.assertEqual(routine.canonical_notice_batch(batch), batch)
+        self.assertLess(2 * routine.encoded_bytes(notice), routine.MAX_NOTICE_BATCH_BYTES)
+
+    def test_a_run_page_with_the_largest_decision_record_fits_the_api_cap(self) -> None:
+        models = [
+            {"provider": f"p{index:02d}" + "p" * 61, "model": "m" * 64, "input_tokens": 10**9, "output_tokens": 10**9}
+            for index in range(payload.MAX_TURN_USAGE_MODELS)
+        ]
+        record = {
+            "state": "decided",
+            "code": None,
+            "model": {"provider": "anthropic", "model": "m" * 64, "effort": "medium"},
+            "rules": [WIDE * routine.MAX_DECISION_RULE_CHARS] * routine.MAX_DECISION_RULES,
+            "rationale": WIDE * routine.MAX_DECISION_RATIONALE_CHARS,
+            "notify": True,
+            "usage": {"duration_ms": payload.MAX_TURN_DURATION_MS, "models": models},
+        }
+        self.assertEqual(routine.canonical_decision_record(record), record)
+        self.assertLessEqual(routine.encoded_bytes(record), routine.MAX_DECISION_RECORD_BYTES)
+        envelope = 4 * 1024
+        self.assertLess(routine.MAX_PAGE_BYTES + routine.MAX_DECISION_RECORD_BYTES + envelope, 128 * 1024)
+
     def test_a_list_at_every_bound_fits_its_allowance(self) -> None:
-        quote = WIDE * routine.MAX_ROUTINE_QUOTE_CHARS
+        name = WIDE * routine.MAX_ROUTINE_NAME_CHARS
         view = {
             "routine_id": "0" * 32,
-            "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
-            "quote": quote,
+            "name": name,
             "plan": _largest_summary(),
-            "output": {"mode": "changes", "step": routine.MAX_ROUTINE_STEPS},
+            "output": {"mode": "changes", "step": routine.MAX_ROUTINE_STEPS, "when": None},
             "schedule": {
                 "kind": "continuous",
                 "gap": routine.MAX_CONTINUOUS_GAP_SECONDS,
@@ -232,38 +312,59 @@ class RoutineListBoundTests(unittest.TestCase):
             "next_run_at": "2026-10-05T09:00:00Z",
             "needs_reconfirm": False,
             "deleting": False,
-            "paused": False,
+            "state": "rehearsal",
+            "permitted": {"total": routine.MAX_PERMITTED, "changes": routine.MAX_PERMITTED},
+            "permissions_revision": 2**31 - 1,
+            "model": None,
+            "allowance": 0,
+        }
+        decide = {
+            **view,
+            "plan": {**_largest_summary(), "steps": 192, "actions": [[ASSISTANT, ACTION, 192]]},
+            "output": {"mode": "decide", "step": None, "when": "changes"},
+            "model": {"provider": "anthropic", "model": "m" * 64, "effort": "medium"},
+            "allowance": routine.MAX_ALLOWANCE,
         }
         run = {
             "run_id": "1" * 32,
             "routine_id": "0" * 32,
             "status": "frozen",
             "scheduled_at": "2026-10-05T09:00:00Z",
-            "request_kind": "integrations",
+            "request_kind": "permission",
             "assistant_id": ASSISTANT,
             "action": ACTION,
+            "position": {"phase": "decision", "call": routine.MAX_DECISION_CALLS},
+            "steps": routine.MAX_ROUTINE_STEPS,
         }
         incident = {
             "incident_id": "2" * 32,
             "routine_id": "0" * 32,
-            "quote": quote,
+            "name": name,
             "created_at": "2026-10-05T09:00:00Z",
             "assistant_id": ASSISTANT,
             "action": ACTION,
-            "step": routine.MAX_ROUTINE_STEPS,
+            "position": {"phase": "replay", "step": routine.MAX_ROUTINE_STEPS},
             "steps": routine.MAX_ROUTINE_STEPS,
         }
         listed = {
             "team_id": "t" * 40,
-            "routines": [view] * routine.MAX_ROUTINES,
+            "routines": [view, decide] * (routine.MAX_ROUTINES // 2),
             "runs": [run] * routine.MAX_ROUTINES,
             "incidents": [incident] * routine.MAX_UNRESOLVED_INCIDENTS,
             "trace_id": "f" * 32,
         }
         self.assertEqual(routine.canonical_routine_view(view), view)
+        self.assertEqual(routine.canonical_routine_view(decide), decide)
         self.assertEqual(routine.canonical_run_view(run), run)
         self.assertEqual(routine.canonical_incident_view(incident), incident)
         self.assertLessEqual(routine.encoded_bytes(listed), routine.MAX_ROUTINE_LIST_BYTES)
+
+    def test_the_largest_card_fits_the_terminal_line_with_its_reply_and_usage(self) -> None:
+        """A card at its bound beside a 4,000-character reply in four-byte text stays under one NDJSON line."""
+        from protocol.http.v1 import progress
+
+        reply = WIDE * 4000
+        self.assertLess(routine.MAX_PROPOSAL_BYTES + routine.encoded_bytes(reply) + 8 * 1024, progress.MAX_LINE_BYTES)
 
 
 if __name__ == "__main__":
