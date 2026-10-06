@@ -199,6 +199,14 @@ class EncryptedContinuationStore:
         payload = _PRIVATE.read_private_file(self.state_path, MAX_STATE_BYTES, "continuation state")
         return _empty_state() if payload is None else _state(_decode_json(payload))
 
+    def _read_records(self) -> tuple[dict[str, object], dict[str, object]]:
+        """The admitted state and the records it owns; the caller holds the lock and writes the same state back."""
+        state = self._read_state()
+        records = state["records"]
+        if not isinstance(records, dict):
+            raise ContinuationStoreError("continuation state is malformed")
+        return state, records
+
     def _write_state(self, state: Mapping[str, object]) -> None:
         _PRIVATE.write_json(self.state_path, _state(dict(state)), MAX_STATE_BYTES, "continuation state")
 
@@ -227,10 +235,7 @@ class EncryptedContinuationStore:
         ):
             raise ContinuationStoreError("continuation payload is invalid")
         with self._lock:
-            state = self._read_state()
-            records = state["records"]
-            if not isinstance(records, dict):
-                raise ContinuationStoreError("continuation state is malformed")
+            state, records = self._read_records()
             previous = records.get(team)
             if previous is None and len(records) >= self._capacity:
                 raise ContinuationStoreError("continuation capacity reached")
@@ -284,10 +289,7 @@ class EncryptedContinuationStore:
 
     def active(self) -> tuple[StoredContinuation, ...]:
         with self._lock:
-            state = self._read_state()
-            records = state["records"]
-            if not isinstance(records, dict):
-                raise ContinuationStoreError("continuation state is malformed")
+            state, records = self._read_records()
             now = int(self._now())
             expired = [team for team, item in records.items() if int(item["expires_at"]) <= now]
             for team in expired:
@@ -299,10 +301,7 @@ class EncryptedContinuationStore:
     def drain_expired(self) -> tuple[StoredContinuation, ...]:
         """Atomically remove and return expired continuations for dependent cleanup."""
         with self._lock:
-            state = self._read_state()
-            records = state["records"]
-            if not isinstance(records, dict):
-                raise ContinuationStoreError("continuation state is malformed")
+            state, records = self._read_records()
             now = int(self._now())
             teams = tuple(sorted(team for team, item in records.items() if int(item["expires_at"]) <= now))
             expired = tuple(self._resolved(team, records[team]) for team in teams)
@@ -320,10 +319,7 @@ class EncryptedContinuationStore:
         team = _team_id(team_id)
         expected = _challenge_id(challenge_id) if challenge_id is not None else None
         with self._lock:
-            state = self._read_state()
-            records = state["records"]
-            if not isinstance(records, dict):
-                raise ContinuationStoreError("continuation state is malformed")
+            state, records = self._read_records()
             raw = records.get(team)
             if raw is None:
                 return False
@@ -336,10 +332,7 @@ class EncryptedContinuationStore:
 
     def clear(self) -> int:
         with self._lock:
-            state = self._read_state()
-            records = state["records"]
-            if not isinstance(records, dict):
-                raise ContinuationStoreError("continuation state is malformed")
+            state, records = self._read_records()
             removed = len(records)
             if removed:
                 records.clear()
