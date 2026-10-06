@@ -38,7 +38,6 @@ PROVIDERS: dict[str, ProviderDefinition] = {
 }
 DEFAULT_PROVIDER = _MODEL_CATALOG["default_provider"]
 MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
-TEAM_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
 # Every name this store writes: a Team's configuration, its learned knowledge, and their interrupted temp files.
 OWNED_NAME_RE = re.compile(
     r"(?:[0-9a-f]{64}(?:\.knowledge)?\.json|\.[0-9a-f]{64}(?:\.knowledge)?\.json\.[0-9a-f]{16}\.tmp)\Z"
@@ -74,8 +73,8 @@ def normalize(provider: object = None, model: object = None, effort: object = No
 
 
 def _team_id(value: object) -> str:
-    team_id = str(value or "")
-    if TEAM_ID_RE.fullmatch(team_id) is None:
+    team_id = http_payload.canonical_team_id(value)
+    if team_id is None:
         raise InferenceConfigError("invalid Team id")
     return team_id
 

@@ -53,6 +53,19 @@ class InferenceConfigTests(unittest.TestCase):
         self.assertEqual(self.root.stat().st_mode & 0o777, 0o700)
         self.assertNotIn(b"api_key", files[0].read_bytes())
 
+    def test_team_ids_follow_the_team_protocol_grammar(self) -> None:
+        config = inference_config.normalize()
+        for team_id in ("Team_1", "team-1", "t" * 41, "", None, 1):
+            for operation in (
+                lambda value: self.store.save(value, config),
+                self.store.load,
+                self.store.load_knowledge,
+                self.store.delete,
+            ):
+                with self.subTest(team_id=team_id), self.assertRaisesRegex(inference_config.InferenceConfigError, "id"):
+                    operation(team_id)
+        self.assertFalse(self.root.exists())
+
     def test_replace_is_atomic_and_delete_is_idempotent(self):
         self.store.save("team_1", inference_config.normalize("openai", "gpt-6-luna"))
         self.store.save("team_1", inference_config.normalize("anthropic", "claude-sonnet-5-5"))
