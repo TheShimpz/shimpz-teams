@@ -523,20 +523,35 @@ def _twins(left: trace.Occurrence, right: trace.Occurrence) -> bool:
 
 
 def _split(context: _Context, work: list[_Call], nodes: dict[int, _Call]) -> None:
-    """Ask when an earlier send ran a work Action for something the work did not run again."""
+    """Ask when an earlier send ran a work Action for something the work did not run again.
+
+    A call for a target the person did not choose, once they answered that choice, is never split evidence.
+    """
     latest = context.calls[-1].send if context.calls else None
     for call in context.calls:
-        if call.send == latest or call.send < context.frontier or context.classes[call.index] in nodes:
+        if call.send == latest or not _evidence(context, call) or context.classes[call.index] in nodes:
             continue
         same = [item for item in work if item.action == call.action]
         if same and not any(_same_input(item.occurrence, call.occurrence) for item in same):
             split = [
                 item
                 for item in context.calls
-                if item.send != latest and item.send >= context.frontier and item.action == call.action
+                if item.send != latest and _evidence(context, item) and item.action == call.action
             ]
             manifest = _manifest(context, sorted([*split, *work], key=lambda item: item.index), ())
             raise _AskError(Question("routine-work-split", manifest=manifest))
+
+
+def _evidence(context: _Context, call: _Call) -> bool:
+    """Whether an earlier call can count as split work: not before the frontier, nor for an unchosen target."""
+    if call.send < context.frontier:
+        return False
+    given = call.occurrence.input.value
+    for member, value in given.items() if isinstance(given, dict) else ():
+        binding = _binding_for(_bindings(context), (call, member), value)
+        if binding is not None and binding.chosen is not None and _json_text(value) != _json_text(binding.chosen):
+            return False
+    return True
 
 
 def _manifest(context: _Context, calls: Sequence[_Call], chosen: Sequence[Pending]) -> Manifest:

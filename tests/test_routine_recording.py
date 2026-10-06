@@ -7,6 +7,7 @@ occurrence, and anything else is a literal the assistant chose; what cannot be r
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import json
 import unittest
@@ -757,6 +758,24 @@ class RerunTests(unittest.TestCase):
             with self.subTest(moved=moved):
                 self.assertEqual(_record(*spans, moved, asked=pending).code, "routine-work-split")
         self.assertIsInstance(_record(*spans, _send(_post("a"), read, _post("b")), asked=pending), recording.Recorded)
+
+    def test_earlier_calls_for_targets_the_person_did_not_choose_are_no_split_work(self) -> None:
+        # A live trace: records for three zones, the person chose shimpz.com, and the agent reran only that one.
+        chosen, others = ZONES["result"][3], ZONES["result"][:2]
+        calls = [("cloudflare/list-dns-records", {"zone_id": zone["id"]}, {"result": []}) for zone in (*others, chosen)]
+        first = _send(ZONES_CALL, *calls, message="A cada 5 segundos, liste minhas zonas")
+        asked = _record(first)
+        self.assertEqual(asked.code, "routine-binding-ambiguous")
+        answer = _send(message=json.dumps(chosen["id"]))
+        rerun = _record(first, answer, asked=_asked(asked, 1))
+        self.assertEqual(rerun.code, "routine-work-rerun")
+        again = _send(ZONES_CALL, *[calls[2]] * 3)
+        # A record call for renamed work drops the rerun's manifest but keeps the person's choice.
+        superseded = dataclasses.replace(_asked(rerun, 2), manifest=None)
+        recorded = _recorded(first, answer, again, asked=superseded)
+        self.assertEqual({step["input"]["zone_id"]["value"] for step in recorded.document["steps"][1:]}, {chosen["id"]})
+        # Earlier calls for the unchosen targets stay eligible sources; they are only not split evidence.
+        self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
 
     def test_settled_split_evidence_goes_but_an_earlier_source_stays(self) -> None:
         lookup = ("reports/fetch", {"q": "ids"}, {"id": "source-id-1"})

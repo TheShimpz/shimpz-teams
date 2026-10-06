@@ -247,16 +247,18 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
     kept = None
     if existing is not None:
         kept = routine_recording.Existing(existing.plan, existing.schedule)
-    # A record call for other work than the stored intent supersedes its question; one continuing it keeps verifying.
-    stored = recording.intent
-    continuing = stored is None or _work(stored) == _work(intent)
+    # A record call for other work than the stored intent supersedes its question and the work it asked to repeat,
+    # though never the choices the person already answered; one continuing it keeps verifying.
+    stored, asked = recording.intent, recording.asked
+    if stored is not None and asked is not None and _work(stored) != _work(intent):
+        asked = dataclasses.replace(asked, pending=None, manifest=None)
     try:
         return routine_recording.record(
             recording.sends,
             choice,
             recording.protection,
             contracts,
-            asked=recording.asked if continuing else None,
+            asked=asked,
             existing=kept,
             frontier=recording.frontier,
         )
