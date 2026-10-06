@@ -27,6 +27,14 @@ CANDIDATE = snapshots.LocalSnapshotCandidate(
 CURRENT = (CANDIDATE,)
 
 
+def _inventory(
+    client: object, loader: object, *, clock_ns: object, monotonic: object
+) -> inventory.LocalSnapshotInventory:
+    return inventory.LocalSnapshotInventory(
+        client, "linux/amd64", loader=loader, clock_ns=clock_ns, monotonic=monotonic
+    )
+
+
 class LocalSnapshotInventoryTests(unittest.TestCase):
     def test_default_loader_forwards_the_validated_platform(self) -> None:
         client = mock.Mock()
@@ -43,12 +51,10 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         stream.__iter__.return_value = iter(())
         client.events.return_value = stream
         loader = mock.Mock(return_value=CURRENT)
-        values = iter((1_000_000_001, 1_000_000_999))
-        cache = inventory.LocalSnapshotInventory(
+        cache = _inventory(
             client,
-            "linux/amd64",
-            loader=loader,
-            clock_ns=lambda: next(values),
+            loader,
+            clock_ns=iter((1_000_000_001, 1_000_000_999)).__next__,
             monotonic=mock.Mock(side_effect=(0.0, 1.0)),
         )
 
@@ -68,13 +74,8 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         client = mock.Mock()
         client.events.return_value = ({"Type": "image", "Action": "create"},)
         loader = mock.Mock(side_effect=(EMPTY, CURRENT))
-        values = iter((100, 200, 300))
-        cache = inventory.LocalSnapshotInventory(
-            client,
-            "linux/amd64",
-            loader=loader,
-            clock_ns=lambda: next(values),
-            monotonic=mock.Mock(return_value=0.0),
+        cache = _inventory(
+            client, loader, clock_ns=iter((100, 200, 300)).__next__, monotonic=mock.Mock(return_value=0.0)
         )
 
         self.assertEqual(cache.candidates(), EMPTY)
@@ -85,13 +86,8 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         client = mock.Mock()
         client.events.side_effect = DockerException("events unavailable")
         loader = mock.Mock(side_effect=(EMPTY, CURRENT))
-        values = iter((100, 200, 300))
-        cache = inventory.LocalSnapshotInventory(
-            client,
-            "linux/amd64",
-            loader=loader,
-            clock_ns=lambda: next(values),
-            monotonic=mock.Mock(return_value=0.0),
+        cache = _inventory(
+            client, loader, clock_ns=iter((100, 200, 300)).__next__, monotonic=mock.Mock(return_value=0.0)
         )
 
         self.assertEqual(cache.candidates(), EMPTY)
@@ -114,13 +110,8 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         events = BrokenEvents()
         client.events.return_value = events
         loader = mock.Mock(side_effect=(EMPTY, CURRENT))
-        values = iter((100, 200, 300))
-        cache = inventory.LocalSnapshotInventory(
-            client,
-            "linux/amd64",
-            loader=loader,
-            clock_ns=lambda: next(values),
-            monotonic=mock.Mock(return_value=0.0),
+        cache = _inventory(
+            client, loader, clock_ns=iter((100, 200, 300)).__next__, monotonic=mock.Mock(return_value=0.0)
         )
 
         self.assertEqual(cache.candidates(), EMPTY)
@@ -132,13 +123,8 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         client = mock.Mock()
         client.events.return_value = ()
         loader = mock.Mock(side_effect=(EMPTY, CURRENT))
-        values = iter((100, 200))
-        cache = inventory.LocalSnapshotInventory(
-            client,
-            "linux/amd64",
-            loader=loader,
-            clock_ns=lambda: next(values),
-            monotonic=mock.Mock(side_effect=(0.0, 31.0, 32.0)),
+        cache = _inventory(
+            client, loader, clock_ns=iter((100, 200)).__next__, monotonic=mock.Mock(side_effect=(0.0, 31.0, 32.0))
         )
 
         self.assertEqual(cache.candidates(), EMPTY)
@@ -150,10 +136,9 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
     def test_expired_cache_failure_never_serves_stale_candidates(self) -> None:
         client = mock.Mock()
         loader = mock.Mock(side_effect=(EMPTY, snapshots.LocalSnapshotUnavailableError("offline")))
-        cache = inventory.LocalSnapshotInventory(
+        cache = _inventory(
             client,
-            "linux/amd64",
-            loader=loader,
+            loader,
             clock_ns=mock.Mock(side_effect=(100, 200, 300)),
             monotonic=mock.Mock(side_effect=(0.0, 31.0)),
         )
@@ -186,12 +171,8 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             self.assertTrue(release_refresh.wait(timeout=1))
             return CURRENT
 
-        cache = inventory.LocalSnapshotInventory(
-            client,
-            "linux/amd64",
-            loader=load,
-            clock_ns=mock.Mock(side_effect=range(100, 110)),
-            monotonic=mock.Mock(return_value=0.0),
+        cache = _inventory(
+            client, load, clock_ns=mock.Mock(side_effect=range(100, 110)), monotonic=mock.Mock(return_value=0.0)
         )
         self.assertEqual(cache.candidates(), EMPTY)
         cache._monotonic = mock.Mock(return_value=31.0)
@@ -247,13 +228,8 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
     def test_clock_rollback_forces_refresh(self) -> None:
         client = mock.Mock()
         loader = mock.Mock(side_effect=(EMPTY, CURRENT))
-        values = iter((200, 100, 300))
-        cache = inventory.LocalSnapshotInventory(
-            client,
-            "linux/amd64",
-            loader=loader,
-            clock_ns=lambda: next(values),
-            monotonic=mock.Mock(return_value=0.0),
+        cache = _inventory(
+            client, loader, clock_ns=iter((200, 100, 300)).__next__, monotonic=mock.Mock(return_value=0.0)
         )
 
         self.assertEqual(cache.candidates(), EMPTY)
@@ -261,10 +237,9 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         client.events.assert_not_called()
 
     def test_retry_observes_a_refresh_completed_by_another_reader(self) -> None:
-        cache = inventory.LocalSnapshotInventory(
+        cache = _inventory(
             mock.Mock(),
-            "linux/amd64",
-            loader=mock.Mock(return_value=CURRENT),
+            mock.Mock(return_value=CURRENT),
             clock_ns=mock.Mock(return_value=100),
             monotonic=mock.Mock(return_value=0.0),
         )
@@ -276,10 +251,9 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             self.assertEqual(cache.candidates(), CURRENT)
 
     def test_retry_discards_a_snapshot_replaced_before_freshness_check(self) -> None:
-        cache = inventory.LocalSnapshotInventory(
+        cache = _inventory(
             mock.Mock(),
-            "linux/amd64",
-            loader=mock.Mock(return_value=CURRENT),
+            mock.Mock(return_value=CURRENT),
             clock_ns=mock.Mock(return_value=100),
             monotonic=mock.Mock(return_value=0.0),
         )
@@ -296,10 +270,9 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         validate.assert_called_once_with(100)
 
     def test_retry_discards_a_validator_result_for_an_older_cursor(self) -> None:
-        cache = inventory.LocalSnapshotInventory(
+        cache = _inventory(
             mock.Mock(),
-            "linux/amd64",
-            loader=mock.Mock(return_value=CURRENT),
+            mock.Mock(return_value=CURRENT),
             clock_ns=mock.Mock(return_value=100),
             monotonic=mock.Mock(return_value=0.0),
         )
