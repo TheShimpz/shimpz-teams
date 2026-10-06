@@ -167,6 +167,22 @@ class PrivateStateEdgeCoverageTests(unittest.TestCase):
             private_state.replace_durably(link / "record", b"value")
         self.assertEqual(list(target.iterdir()), [])
 
+    def test_directory_commit_failures_propagate_and_close_the_descriptor(self) -> None:
+        with self.assertRaises(FileNotFoundError):
+            private_state.fsync_directory(self.root / "missing")
+        link = self.root / "link"
+        link.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaises(OSError):
+            private_state.fsync_directory(link)
+
+        descriptors = len(list(Path("/proc/self/fd").iterdir()))
+        with (
+            mock.patch.object(private_state.os, "fsync", side_effect=OSError("sync")),
+            self.assertRaisesRegex(OSError, "sync"),
+        ):
+            private_state.fsync_directory(self.root)
+        self.assertEqual(len(list(Path("/proc/self/fd").iterdir())), descriptors)
+
     def test_replace_completes_partial_writes(self) -> None:
         path = self.root / "record"
         real_write = os.write

@@ -90,17 +90,19 @@ class BrainRuntimeTokenStoreTests(unittest.TestCase):
                 brain_runtime_token_store._read_checked(1, "token", self.group_id)
 
     def test_create_and_directory_open_errors_close_partial_resources(self) -> None:
+        self.root.mkdir(mode=0o750)
+        directory = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, directory)
+        descriptors = len(list(Path("/proc/self/fd").iterdir()))
         with (
-            mock.patch.object(os, "open", return_value=9),
-            mock.patch.object(os, "write", side_effect=OSError("full")),
-            mock.patch.object(os, "close") as close,
-            mock.patch.object(os, "unlink"),
+            mock.patch.object(os, "write", side_effect=OSError("full")) as write,
             self.assertRaisesRegex(brain_runtime_token_store.RuntimeTokenError, "could not be created"),
         ):
-            brain_runtime_token_store._create(1, "token", self.group_id)
-        close.assert_called_once_with(9)
+            brain_runtime_token_store._create(directory, "token", self.group_id)
+        write.assert_called_once()
+        self.assertEqual(list(self.root.iterdir()), [])
+        self.assertEqual(len(list(Path("/proc/self/fd").iterdir())), descriptors)
 
-        self.root.mkdir(mode=0o750)
         with (
             mock.patch.object(os, "open", side_effect=OSError("denied")),
             self.assertRaisesRegex(brain_runtime_token_store.RuntimeTokenError, "directory is unavailable"),
