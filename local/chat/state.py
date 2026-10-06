@@ -78,6 +78,17 @@ def _team_assistants(self, team_id: str, *, scan: bool = True) -> tuple[str, str
     return team_name, network_id, {active.spec.assistant_id: active for active in active_assistants}
 
 
+def _turn_inference(self, team_id: str, provider: str) -> inference_config.InferenceConfig:
+    """The Team's model configuration, refused when it is absent or bound to another provider than the turn's."""
+    try:
+        config = self.inference_store.load(team_id)
+    except inference_config.InferenceConfigError as exc:
+        raise inference_not_configured() from exc
+    if config.provider != provider:
+        raise inference_provider_mismatch()
+    return config
+
+
 def _chat_setup(
     self,
     team_id: str,
@@ -107,12 +118,7 @@ def _chat_setup(
                 code="assistant-unavailable",
             ) from None
         files = self._chat_file_metadata(team_id, file_ids, metadata_connection)
-        try:
-            config = self.inference_store.load(team_id)
-        except inference_config.InferenceConfigError as exc:
-            raise inference_not_configured() from exc
-        if config.provider != provider:
-            raise inference_provider_mismatch()
+        config = _turn_inference(self, team_id, provider)
     return team_name, network_id, assistants, files, config
 
 

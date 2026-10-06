@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from http import HTTPStatus
 
 from inference import client as brain_runtime_client
-from inference import config as inference_config
+from local.chat import state as local_chat_state
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import inference_not_configured, inference_provider_mismatch, ownership_conflict, team_context_changed
+from local.errors import team_context_changed
 from local.validation import validate_assistant_id, validate_team_id
 from protocol.http.v1 import payload as http_payload
 
@@ -36,31 +36,15 @@ def _action_label_snapshot(
     provider: str,
 ) -> ActionLabelSnapshot:
     with self._lock(team_id):
-        network = self.assistant_lifecycle._network(team_id)
-        self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
-        network_id = getattr(network, "id", None)
-        if not isinstance(network_id, str) or not network_id:
-            raise ownership_conflict()
-        active = next(
-            (
-                item
-                for item in self._active_chat_assistants(team_id, network.name)
-                if item.spec.assistant_id == assistant_id
-            ),
-            None,
-        )
+        _team_name, network_id, active_by_id = local_chat_state._team_assistants(self, team_id)
+        active = active_by_id.get(assistant_id)
         if active is None:
             raise ApiProblem(
                 HTTPStatus.CONFLICT,
                 "installed Assistant is unavailable",
                 code="assistant-unavailable",
             )
-        try:
-            config = self.inference_store.load(team_id)
-        except inference_config.InferenceConfigError as exc:
-            raise inference_not_configured() from exc
-        if config.provider != provider:
-            raise inference_provider_mismatch()
+        config = local_chat_state._turn_inference(self, team_id, provider)
         return ActionLabelSnapshot(
             network_id=network_id,
             assistant_version=active.spec.version,
@@ -177,17 +161,8 @@ def _capability_plan_input(
 
 def _capability_plan_snapshot(self, team_id: str, provider: str) -> CapabilityPlanSnapshot:
     with self._lock(team_id):
-        network = self.assistant_lifecycle._network(team_id)
-        self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
-        network_id = getattr(network, "id", None)
-        if not isinstance(network_id, str) or not network_id:
-            raise ownership_conflict()
-        try:
-            config = self.inference_store.load(team_id)
-        except inference_config.InferenceConfigError as exc:
-            raise inference_not_configured() from exc
-        if config.provider != provider:
-            raise inference_provider_mismatch()
+        _team_name, network_id, _active = local_chat_state._team_assistants(self, team_id, scan=False)
+        config = local_chat_state._turn_inference(self, team_id, provider)
         return CapabilityPlanSnapshot(network_id, config.provider, config.model)
 
 
