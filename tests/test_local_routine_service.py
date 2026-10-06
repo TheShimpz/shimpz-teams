@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import tempfile
 import threading
 import time
@@ -39,7 +40,6 @@ API_KEY = "sk-test-0123456789"
 # SHA-256 of API_KEY, written out so tests check the fingerprint the boundary binds instead of recomputing it.
 API_KEY_SHA256 = "0d3b560722915d2f931a4c4100a00ecbce063d121e577e6b93bbbe7c05f23ad6"
 ASSISTANT = "shimpz-cloudflare"
-CHANGE = {"schedule": {"kind": "daily", "time": "09:00"}}
 LIST = brain_runtime_client.ActionRequest("action-1", ASSISTANT, "list-zones", LOOKUP_INPUT)
 
 
@@ -141,14 +141,19 @@ class RoutineServiceCase(LocalContractCase):
         )
 
     def routine(self, service, *, next_run_at: int | None = None, plan: dict | None = None) -> record.Routine:
-        """Add one daily confirmed Routine pinned to the Team's current contracts, due now unless told otherwise."""
+        """Add one daily confirmed Routine pinned to the Team's current contracts, due now unless told otherwise.
+
+        It fires daily at the UTC minute that began a minute or two ago and is due at that firing, so no other firing
+        lies between it and the claim and it is well within its grace, whatever the time of day.
+        """
+        fired = (int(time.time()) - 60) // 60 * 60
         contracts = routine_contracts.current_contracts(service, "team_1", (ASSISTANT,))
         document = plan or self.plan(service)
         value = record.Routine(
             routine_id=record.new_id(),
             name="Daily zones",
             plan=document,
-            schedule=dict(CHANGE["schedule"]),
+            schedule={"kind": "daily", "time": time.strftime("%H:%M", time.gmtime(fired))},
             timezone="UTC",
             assistants=tuple(sorted(contracts.items())),
             anchor=int(time.time()) - 3 * 86_400,
@@ -158,7 +163,7 @@ class RoutineServiceCase(LocalContractCase):
         )
         value = dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
         service.routine_store.update("team_1", lambda state: (record.add_routine(state, value), None))
-        due = int(time.time()) - 60 if next_run_at is None else next_run_at
+        due = fired if next_run_at is None else next_run_at
         service.routine_store.update(
             "team_1",
             lambda state: (
@@ -205,6 +210,21 @@ class RoutineServiceCase(LocalContractCase):
 
 
 class RunTests(RoutineServiceCase):
+    def test_a_routine_due_now_misses_no_firing_whatever_the_time_of_day(self) -> None:
+        """The fixture's due Routine is due at a real recent firing, so a claim at any time of day misses nothing."""
+        today = datetime.datetime.now(datetime.UTC).date()
+        for moment in ("00:00:30", "08:59:59", "09:00:00", "09:00:30", "09:00:59", "23:59:59"):
+            instant = datetime.datetime.combine(today, datetime.time.fromisoformat(moment), datetime.UTC).timestamp()
+            with (
+                self.subTest(moment=moment),
+                mock.patch.object(time, "time", return_value=instant),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                _controller, service = self.service(directory, Runtime())
+                self.routine(service)
+                self.assertIsNotNone(service.claim_routine_run())
+                self.assertEqual(self.state(service).notices, ())
+
     def test_a_due_routine_is_claimed_run_and_delivered_as_done(self) -> None:
         runtime = Runtime(acting(), completed())
         with tempfile.TemporaryDirectory() as directory:
