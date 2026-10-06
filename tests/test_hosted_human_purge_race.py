@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import hosted_assistant_fixture as harness
+from test_hosted_human_requests import PUBLISH_ZONE
 
 from tests import human_request_fixtures
 
@@ -76,18 +77,8 @@ class HostedHumanPurgeRaceTests(unittest.TestCase):
         # A human suspension returns its operation to prepared, so the paused batch stays open and settled.
         self.paused_batch = self.journal.prepare_batch(GENERATION, "thread", (operation,))
         self.challenges = action_challenges.HumanChallengeStore(retain_expired=True)
-        descriptor = {"kind": "approval", "ordinal": 0, "title": "Publish zone", "description": "Publish it."}
-        request = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
-        self.requirement = action_challenges.HumanRequirement(
-            "shimpz-cloudflare",
-            "Shimpz Cloudflare",
-            "publish-zone",
-            "Publish zone",
-            "action-1",
-            request,
-            "0.4.1",
-            copy=human_request_fixtures.copy(request),
-        )
+        request = human_request_fixtures.request("approval", title="Publish zone", description="Publish it.")
+        self.requirement = human_request_fixtures.requirement(request, **PUBLISH_ZONE)
         self.pending = harness.hosted_assistants._PendingHostedChat(
             SimpleNamespace(),
             ("shimpz-cloudflare",),

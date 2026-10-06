@@ -21,6 +21,13 @@ chat_orchestrator = hosted_chat_segment.chat_orchestrator
 chat_turn_engine = hosted_chat_segment.chat_turn_engine
 action_challenges = hosted_chat_segment.action_challenges
 action_human = hosted_chat_segment.action_human
+# The publish-zone Action identity that the paused Hosted turns below request a human answer for.
+PUBLISH_ZONE = {
+    "action_id": "publish-zone",
+    "action_summary": "Publish zone",
+    "interrupt_id": "action-1",
+    "assistant_version": "0.4.1",
+}
 
 
 class HostedHumanRequestTests(unittest.TestCase):
@@ -70,18 +77,7 @@ class HostedHumanRequestTests(unittest.TestCase):
             ("container-1", "account_1", "Marketing"),
             chat_orchestrator.ChatHumanSuspension(continuation, action, request),
             (),
-            (
-                action_challenges.HumanRequirement(
-                    "shimpz-cloudflare",
-                    "Shimpz Cloudflare",
-                    "list-zones",
-                    "List zones",
-                    "action-1",
-                    request,
-                    "0.4.1",
-                    copy=human_request_fixtures.copy(request),
-                ),
-            ),
+            (human_request_fixtures.requirement(request, interrupt_id="action-1", assistant_version="0.4.1"),),
         )
         challenges = action_challenges.HumanChallengeStore()
 
@@ -110,16 +106,7 @@ class HostedHumanRequestTests(unittest.TestCase):
         request = self._request("auth:totp")
         continuation = SimpleNamespace()
         pending = self._pending(continuation)
-        requirement = action_challenges.HumanRequirement(
-            "shimpz-cloudflare",
-            "Shimpz Cloudflare",
-            "publish-zone",
-            "Publish zone",
-            "action-1",
-            request,
-            "0.4.1",
-            copy=human_request_fixtures.copy(request),
-        )
+        requirement = human_request_fixtures.requirement(request, **PUBLISH_ZONE)
         challenges = action_challenges.HumanChallengeStore()
         challenge = challenges.create("team_1", requirement, pending)
 
@@ -161,16 +148,7 @@ class HostedHumanRequestTests(unittest.TestCase):
             0,
         )
         pending = replace(self._pending(continuation), locale="es")
-        requirement = action_challenges.HumanRequirement(
-            "shimpz-cloudflare",
-            "Shimpz Cloudflare",
-            "publish-zone",
-            "Publish zone",
-            "action-1",
-            request,
-            "0.4.1",
-            copy=human_request_fixtures.copy(request, "es"),
-        )
+        requirement = human_request_fixtures.requirement(request, locale="es", **PUBLISH_ZONE)
         challenges = action_challenges.HumanChallengeStore()
         challenge = challenges.create("team_1", requirement, pending)
         lease = SimpleNamespace(owner="account_1")
@@ -215,16 +193,7 @@ class HostedHumanRequestTests(unittest.TestCase):
     def test_lifecycle_change_cancels_challenge_and_ends_its_paused_batch(self) -> None:
         request = self._request("approval")
         pending = replace(self._pending(SimpleNamespace()), paused_batch="f" * 64)
-        requirement = action_challenges.HumanRequirement(
-            "shimpz-cloudflare",
-            "Shimpz Cloudflare",
-            "publish-zone",
-            "Publish zone",
-            "action-1",
-            request,
-            "0.4.1",
-            copy=human_request_fixtures.copy(request),
-        )
+        requirement = human_request_fixtures.requirement(request, **PUBLISH_ZONE)
         challenges = action_challenges.HumanChallengeStore()
         challenges.create("team_1", requirement, pending)
         journal = mock.Mock()

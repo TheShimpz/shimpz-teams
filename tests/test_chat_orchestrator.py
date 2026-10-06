@@ -103,13 +103,9 @@ class ChatOrchestratorTests(unittest.TestCase):
     def test_human_request_pauses_without_resuming_the_brain_or_running_later_actions(self):
         first = suspended(interrupt_id="first").actions[0]
         second = suspended(interrupt_id="second").actions[0]
-        descriptor = {
-            "kind": "approval",
-            "ordinal": 0,
-            "title": "Continue",
-            "description": "Continue the reviewed operation.",
-        }
-        admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
+        admitted = human_request_fixtures.request(
+            "approval", title="Continue", description="Continue the reviewed operation."
+        )
         invoked = []
 
         def invoke(request):
@@ -136,13 +132,9 @@ class ChatOrchestratorTests(unittest.TestCase):
     def test_human_pause_drops_transcripts_for_actions_completed_in_the_same_batch(self):
         first = suspended(interrupt_id="first").actions[0]
         second = suspended(interrupt_id="second").actions[0]
-        descriptor = {
-            "kind": "approval",
-            "ordinal": 0,
-            "title": "Continue",
-            "description": "Continue the reviewed operation.",
-        }
-        admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
+        admitted = human_request_fixtures.request(
+            "approval", title="Continue", description="Continue the reviewed operation."
+        )
 
         def invoke(request):
             if request.interrupt_id == "second":

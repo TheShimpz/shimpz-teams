@@ -15,6 +15,7 @@ from unittest import mock
 
 import docker
 import hosted_assistant_fixture as harness
+from test_hosted_human_requests import PUBLISH_ZONE
 
 from action import challenges as action_challenges
 from integrations import challenges as integration_challenges
@@ -59,18 +60,8 @@ class HostedStopCleanupFailureTests(unittest.TestCase):
         pending = assistants._PendingHostedChat(
             SimpleNamespace(), (), (), "account_1", ("generation",), paused_batch="b" * 64
         )
-        descriptor = {"kind": "approval", "ordinal": 0, "title": "Publish zone", "description": "Publish it."}
-        request = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
-        requirement = action_challenges.HumanRequirement(
-            "shimpz-cloudflare",
-            "Shimpz Cloudflare",
-            "publish-zone",
-            "Publish zone",
-            "action-1",
-            request,
-            "0.4.1",
-            copy=human_request_fixtures.copy(request),
-        )
+        request = human_request_fixtures.request("approval", title="Publish zone", description="Publish it.")
+        requirement = human_request_fixtures.requirement(request, **PUBLISH_ZONE)
         return self.humans.create(team_id, requirement, pending)
 
     def _assert_interrupted(self) -> None:

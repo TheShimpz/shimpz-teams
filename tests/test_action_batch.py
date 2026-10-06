@@ -195,14 +195,8 @@ class ActionBatchTests(unittest.TestCase):
     def test_valid_human_suspension_is_the_only_retryable_execution(self) -> None:
         request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "lookup", {"query": "safe"})
         binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
-        descriptor = {
-            "kind": "approval",
-            "ordinal": 0,
-            "title": "Continue",
-            "description": "Continue the reviewed operation.",
-        }
         suspension = action_human.HumanRequestSuspensionError(
-            human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",)),
+            human_request_fixtures.request("approval", title="Continue", description="Continue the reviewed operation.")
         )
 
         with tempfile.TemporaryDirectory() as directory:
