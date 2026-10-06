@@ -422,6 +422,20 @@ def protection_lost(self, team_id: str, value: record.Run) -> bool:
     return True
 
 
+def observe_loss(self, team_id: str, value: record.Run) -> bool:
+    """Whether a run lost its protection; a loss seen now is sealed in its cursor and recorded on the run for good."""
+    if not protection_lost(self, team_id, value):
+        return False
+
+    def lose(state: record.TeamRoutines) -> tuple[record.TeamRoutines, None]:
+        if not any(item.run_id == value.run_id for item in state.runs):
+            return state, None
+        return record.lose_protection(state, value.run_id), None
+
+    routine_state.update(self, team_id, lose)
+    return True
+
+
 def _plan(self, team_id: str, routine: record.Routine) -> routine_plan.Plan:
     """The Routine's plan, admitted again against the exact current contracts, so drift never runs."""
     _name, _network, active_by_id = self._team_assistants(team_id)

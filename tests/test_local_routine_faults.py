@@ -27,7 +27,9 @@ from action import journal as action_journal
 from inference import config as inference_config
 from local import app as local_app
 from local import authority as local_authority
+from local.routine import compiled as routine_compiled
 from local.routine import manage as routine_manage
+from local.routine import protection as local_routine_protection
 from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
@@ -205,6 +207,48 @@ class RunFaultTests(RoutineServiceCase):
             with mock.patch.object(service.routine_protections, "grow", side_effect=lost):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(self.state(service).notices[-1].detail["code"], "request-unavailable")
+
+    def test_a_frozen_choice_request_opened_after_a_restart_is_refused_and_records_the_loss(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim = self.paused(directory, choice())
+            self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
+            self.assertEqual(
+                service.open_routine_challenge("team_1", claim["run_id"], "en")["status"], "human-required"
+            )
+            service.routine_protections = local_routine_protection.RunProtections()
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                service.open_routine_challenge("team_1", claim["run_id"], "en")
+            frozen = record.run(self.state(service), claim["run_id"])
+            cursor = routine_compiled._sealed(service, "team_1", frozen)[2]
+        self.assertEqual((caught.exception.status, caught.exception.code), (409, "human-request-invalid"))
+        self.assertEqual((frozen.status, frozen.protection_lost, cursor.protection_lost), ("frozen", True, True))
+
+    def test_every_frozen_ending_after_a_restart_says_the_run_lost_its_protection(self) -> None:
+        endings = {
+            "deny": lambda service, run_id: service.resume_routine_human(
+                "team_1",
+                run_id,
+                {
+                    "challenge_id": service.open_routine_challenge("team_1", run_id, "en")["challenge_id"],
+                    "decision": "deny",
+                },
+                "openai",
+                API_KEY,
+            ),
+            "stop": lambda service, run_id: service.stop_routine("team_1", run_id),
+            "delete": lambda service, run_id: service.delete_routine(
+                "team_1", record.run(self.state(service), run_id).routine_id
+            ),
+        }
+        for name, ending in endings.items():
+            with self.subTest(ending=name), tempfile.TemporaryDirectory() as directory:
+                _controller, service, claim = self.paused(directory)
+                self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
+                service.routine_protections = local_routine_protection.RunProtections()
+                ending(service, claim["run_id"])
+                (notice,) = (item for item in self.state(service).notices if item.run_id == claim["run_id"])
+                self.assertEqual(notice.outcome, {"deny": "denied"}.get(name, "stopped"))
+                self.assertTrue(notice.protection_lost)
 
     def test_a_request_whose_protected_value_cannot_be_hidden_ends_the_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
