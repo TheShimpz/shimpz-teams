@@ -47,6 +47,53 @@ LOCAL_TEAM_RESIDUES = [
     "team_networks",
     "team_storage",
 ]
+LIST_ZONES = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
+
+
+class PausingRuntime:
+    """A Brain that asks for one list-zones Action and refuses any resume."""
+
+    purpose = staticmethod(lambda *_args: None)
+
+    def __init__(self, refusal: str) -> None:
+        self.refusal = refusal
+
+    @staticmethod
+    def start(_context, _message, *, conversation=()):
+        return brain_runtime_client.RuntimeTurn("action-required", "", (LIST_ZONES,))
+
+    def resume(self, _context, _results):
+        raise AssertionError(self.refusal)
+
+
+def _chat(controller: local_app.LocalController, message: str, **fields: object) -> dict[str, object]:
+    body = chat_body(message, assistant_ids=["shimpz-cloudflare"], **fields)
+    return controller.chat_turn_service.chat("team_1", body, "openai", "sk-test-0123456789")
+
+
+def _resume(controller: local_app.LocalController, body: dict[str, object]) -> dict[str, object]:
+    return controller.chat_turn_service.resume_chat_human("team_1", body, "openai", "sk-test-0123456789")
+
+
+def _suspend(controller: local_app.LocalController, request: action_human.HumanRequest) -> None:
+    controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
+        action_human.HumanRequestSuspensionError(request)
+    )
+
+
+def _batch_count(controller: local_app.LocalController) -> tuple[int]:
+    with closing(sqlite3.connect(controller.action_state.path)) as connection:
+        return connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+
+
+def _identity_request(kind: str) -> action_human.HumanRequest:
+    descriptor = {
+        "kind": kind,
+        "ordinal": 0,
+        "title": "Confirm identity",
+        "description": "Confirm current identity before continuing.",
+    }
+    return human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), (kind,))
 
 
 class LocalTurnLifecycleTests(LocalContractCase):
@@ -61,24 +108,12 @@ class LocalTurnLifecycleTests(LocalContractCase):
         return human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
 
     def test_local_snapshot_persists_an_integration_pause(self) -> None:
-        request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
-
-        class Runtime:
-            def start(self, _context, _message, *, conversation=()):
-                return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
-
-            def resume(self, _context, _results):
-                raise AssertionError("the missing Integration must pause before Brain resume")
-
         with tempfile.TemporaryDirectory() as directory:
-            controller = self._chat_controller(directory, Runtime())
-            controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare")
-            paused = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
-                "openai",
-                "sk-test-0123456789",
+            controller = self._chat_controller(
+                directory, PausingRuntime("the missing Integration must pause before Brain resume")
             )
+            controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare")
+            paused = _chat(controller, "List zones")
             stored = controller.chat_continuations.current("team_1")
             state_exists = controller.chat_continuations.state_path.is_file()
             key_exists = controller.chat_continuations.key_path.is_file()
@@ -89,7 +124,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertTrue(key_exists)
 
     def test_local_human_approval_replays_the_same_action_before_brain_resume(self) -> None:
-        request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
+        request = LIST_ZONES
 
         class Runtime:
             resumes = 0
@@ -129,12 +164,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 return {"result": LOOKUP_RESULT}
 
             controller.assistant_lifecycle.invoke = invoke
-            paused = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("List zones", assistant_ids=["shimpz-cloudflare"], locale="pt"),
-                "openai",
-                "sk-test-0123456789",
-            )
+            paused = _chat(controller, "List zones", locale="pt")
             self.assertEqual(paused["status"], "human-required")
             self.assertEqual(paused["purpose"], "To list your zones, I need to read them in Cloudflare.")
             self.assertNotIn("help_url", paused)
@@ -146,11 +176,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
             self.assertEqual(runtime.purposes, [(request, "Shimpz Cloudflare", runtime.purposes[0][2])])
             self.assertEqual(runtime.resumes, 0)
 
-            completed = controller.chat_turn_service.resume_chat_human(
-                "team_1",
-                {"challenge_id": paused["challenge_id"], "decision": "submit", "value": True},
-                "openai",
-                "sk-test-0123456789",
+            completed = _resume(
+                controller, {"challenge_id": paused["challenge_id"], "decision": "submit", "value": True}
             )
 
         self.assertEqual(completed["reply"], "Approved")
@@ -213,17 +240,10 @@ class LocalTurnLifecycleTests(LocalContractCase):
 
             controller.assistant_lifecycle._rpc = rpc
             with mock.patch.object(local_audit, "record_request", return_value="a" * 32):
-                paused = controller.chat_turn_service.chat(
-                    "team_1",
-                    chat_body("Search", assistant_ids=["shimpz-cloudflare"]),
-                    "openai",
-                    "sk-test-0123456789",
-                )
-                completed = controller.chat_turn_service.resume_chat_human(
-                    "team_1",
+                paused = _chat(controller, "Search")
+                completed = _resume(
+                    controller,
                     {"challenge_id": paused["challenge_id"], "decision": "submit", "value": "exa-key-0123456789"},
-                    "openai",
-                    "sk-test-0123456789",
                 )
 
         self.assertEqual(paused["status"], "human-required")
@@ -231,66 +251,23 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(supplied[-1], ("brazil", ["exa-api-key"]))
 
     def test_denied_human_request_purges_the_action_batch_without_brain_resume(self) -> None:
-        request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
-
-        class Runtime:
-            purpose = staticmethod(lambda *_args: None)
-
-            def start(self, _context, _message, *, conversation=()):
-                return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
-
-            def resume(self, _context, _results):
-                raise AssertionError("a denied Action must not resume the Brain")
-
         with tempfile.TemporaryDirectory() as directory:
-            controller = self._chat_controller(directory, Runtime())
-            controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
-                action_human.HumanRequestSuspensionError(self._approval_request())
-            )
-            paused = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
-                "openai",
-                "sk-test-0123456789",
-            )
-            denied = controller.chat_turn_service.resume_chat_human(
-                "team_1",
-                {"challenge_id": paused["challenge_id"], "decision": "deny"},
-                "openai",
-                "sk-test-0123456789",
-            )
-            with closing(sqlite3.connect(controller.action_state.path)) as connection:
-                batches = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+            controller = self._chat_controller(directory, PausingRuntime("a denied Action must not resume the Brain"))
+            _suspend(controller, self._approval_request())
+            paused = _chat(controller, "List zones")
+            denied = _resume(controller, {"challenge_id": paused["challenge_id"], "decision": "deny"})
+            batches = _batch_count(controller)
 
         self.assertEqual(denied["status"], "human-denied")
         self.assertEqual(batches, (0,))
 
     def test_restart_purges_an_expired_human_continuation_and_unblocks_the_generation(self) -> None:
-        request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
-
-        class Runtime:
-            purpose = staticmethod(lambda *_args: None)
-
-            def start(self, _context, _message, *, conversation=()):
-                return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
-
-            def resume(self, _context, _results):
-                raise AssertionError("an expired Action must not resume the Brain")
-
         with tempfile.TemporaryDirectory() as directory:
-            controller = self._chat_controller(directory, Runtime())
+            controller = self._chat_controller(directory, PausingRuntime("an expired Action must not resume the Brain"))
             admitted = self._approval_request()
-            controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
-                action_human.HumanRequestSuspensionError(admitted)
-            )
-            paused = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
-                "openai",
-                "sk-test-0123456789",
-            )
-            with closing(sqlite3.connect(controller.action_state.path)) as connection:
-                before = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+            _suspend(controller, admitted)
+            paused = _chat(controller, "List zones")
+            before = _batch_count(controller)
 
             reopened = local_app.local_chat_continuation_store.EncryptedContinuationStore(
                 controller.chat_continuations.state_path,
@@ -308,8 +285,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
 
             restarted._restore_all_chat_continuations()
 
-            with closing(sqlite3.connect(controller.action_state.path)) as connection:
-                after = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+            after = _batch_count(controller)
             next_batch = controller.action_state.prepare_batch(
                 "a" * 64,
                 "next-thread",
@@ -323,37 +299,18 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(next_batch.generation, "a" * 64)
 
     def test_running_controller_purges_an_expired_human_challenge(self) -> None:
-        request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
-
-        class Runtime:
-            purpose = staticmethod(lambda *_args: None)
-
-            def start(self, _context, _message, *, conversation=()):
-                return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
-
-            def resume(self, _context, _results):
-                raise AssertionError("an expired Action must not resume the Brain")
-
         with tempfile.TemporaryDirectory() as directory:
-            controller = self._chat_controller(directory, Runtime())
+            controller = self._chat_controller(directory, PausingRuntime("an expired Action must not resume the Brain"))
             admitted = self._approval_request()
-            controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
-                action_human.HumanRequestSuspensionError(admitted)
-            )
-            controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
-                "openai",
-                "sk-test-0123456789",
-            )
+            _suspend(controller, admitted)
+            _chat(controller, "List zones")
             challenge = controller.chat_turn_service.human_challenges.current("team_1")
             self.assertIsNotNone(challenge)
 
             controller.chat_turn_service.human_challenges._clock = lambda: challenge.expires_at
             controller.chat_turn_service._expire_human_challenges()
 
-            with closing(sqlite3.connect(controller.action_state.path)) as connection:
-                batches = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+            batches = _batch_count(controller)
             next_batch = controller.action_state.prepare_batch(
                 "a" * 64,
                 "next-thread",
@@ -365,39 +322,14 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(next_batch.generation, "a" * 64)
 
     def test_unavailable_strong_local_auth_assurance_auto_blocks_without_a_fake_prompt(self) -> None:
-        request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
-
-        class Runtime:
-            purpose = staticmethod(lambda *_args: None)
-
-            def start(self, _context, _message, *, conversation=()):
-                return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
-
-            def resume(self, _context, _results):
-                raise AssertionError("unavailable authentication must stop the turn")
-
         for kind in sorted(action_human.AUTH_KINDS - {"auth:password"}):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
-                descriptor = {
-                    "kind": kind,
-                    "ordinal": 0,
-                    "title": "Confirm identity",
-                    "description": "Confirm current identity before continuing.",
-                }
-                admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), (kind,))
-                controller = self._chat_controller(directory, Runtime())
-                controller.assistant_lifecycle.invoke = lambda *_args, request=admitted: (_ for _ in ()).throw(
-                    action_human.HumanRequestSuspensionError(request)
-                )
+                runtime = PausingRuntime("unavailable authentication must stop the turn")
+                controller = self._chat_controller(directory, runtime)
+                _suspend(controller, _identity_request(kind))
 
-                response = controller.chat_turn_service.chat(
-                    "team_1",
-                    chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
-                    "openai",
-                    "sk-test-0123456789",
-                )
-                with closing(sqlite3.connect(controller.action_state.path)) as connection:
-                    batches = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+                response = _chat(controller, "List zones")
+                batches = _batch_count(controller)
 
                 self.assertEqual(response["status"], "human-denied")
                 self.assertEqual(response["reason"], "authentication-unavailable")
@@ -406,36 +338,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 self.assertIsNone(controller.chat_turn_service.chat_continuations.current("team_1"))
 
     def test_local_reauthentication_pauses_for_supervisor_assurance(self) -> None:
-        request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
-
-        class Runtime:
-            purpose = staticmethod(lambda *_args: None)
-
-            def start(self, _context, _message, *, conversation=()):
-                return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
-
-            def resume(self, _context, _results):
-                raise AssertionError("reauthentication must pause before Action replay")
-
-        descriptor = {
-            "kind": "auth:password",
-            "ordinal": 0,
-            "title": "Confirm identity",
-            "description": "Confirm current identity before continuing.",
-        }
-        admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("auth:password",))
+        admitted = _identity_request("auth:password")
 
         with tempfile.TemporaryDirectory() as directory:
-            controller = self._chat_controller(directory, Runtime())
-            controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
-                action_human.HumanRequestSuspensionError(admitted)
-            )
-            response = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
-                "openai",
-                "sk-test-0123456789",
-            )
+            runtime = PausingRuntime("reauthentication must pause before Action replay")
+            controller = self._chat_controller(directory, runtime)
+            _suspend(controller, admitted)
+            response = _chat(controller, "List zones")
 
             self.assertEqual(response["status"], "human-required")
             self.assertEqual(response["request"]["kind"], "auth:password")
@@ -443,7 +352,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             self.assertIsNotNone(controller.chat_turn_service.chat_continuations.current("team_1"))
 
     def test_failed_reauthentication_resume_requires_a_fresh_request_without_wedging_team(self) -> None:
-        request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
+        request = LIST_ZONES
 
         class Runtime:
             purpose = staticmethod(lambda *_args: None)
@@ -456,13 +365,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                     raise AssertionError("reauthenticated result changed")
                 return brain_runtime_client.RuntimeTurn("completed", "Recovered", ())
 
-        descriptor = {
-            "kind": "auth:password",
-            "ordinal": 0,
-            "title": "Confirm identity",
-            "description": "Confirm current identity before continuing.",
-        }
-        admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("auth:password",))
+        admitted = _identity_request("auth:password")
 
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
@@ -481,30 +384,12 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 return {"result": LOOKUP_RESULT}
 
             controller.assistant_lifecycle.invoke = invoke
-            first_pause = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
-                "openai",
-                "sk-test-0123456789",
-            )
+            first_pause = _chat(controller, "List zones")
             with self.assertRaises(local_app.ApiProblem) as failed:
-                controller.chat_turn_service.resume_chat_human(
-                    "team_1",
-                    {"challenge_id": first_pause["challenge_id"], "decision": "submit", "value": True},
-                    "openai",
-                    "sk-test-0123456789",
-                )
-            second_pause = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("List zones", assistant_ids=["shimpz-cloudflare"]),
-                "openai",
-                "sk-test-0123456789",
-            )
-            completed = controller.chat_turn_service.resume_chat_human(
-                "team_1",
-                {"challenge_id": second_pause["challenge_id"], "decision": "submit", "value": True},
-                "openai",
-                "sk-test-0123456789",
+                _resume(controller, {"challenge_id": first_pause["challenge_id"], "decision": "submit", "value": True})
+            second_pause = _chat(controller, "List zones")
+            completed = _resume(
+                controller, {"challenge_id": second_pause["challenge_id"], "decision": "submit", "value": True}
             )
 
         self.assertEqual(failed.exception.code, "assistant-rpc-failed")
@@ -564,12 +449,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             controller.assistant_lifecycle._validate_network = lambda _network, _team_id, **_kwargs: next(names)
 
             with self.assertRaises(local_app.ApiProblem) as caught:
-                controller.chat_turn_service.chat(
-                    "team_1",
-                    chat_body("Hello", assistant_ids=["shimpz-cloudflare"]),
-                    "openai",
-                    "sk-test-0123456789",
-                )
+                _chat(controller, "Hello")
 
         self.assertEqual(caught.exception.code, "team-context-changed")
 
@@ -602,12 +482,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 or {"assistant": assistant, "action": action, "result": LOOKUP_RESULT}
             )
             controller.assistant_lifecycle.invoke = controller.invoke
-            response = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("Greet me", assistant_ids=["shimpz-cloudflare"]),
-                "openai",
-                "sk-test-0123456789",
-            )
+            response = _chat(controller, "Greet me")
 
         self.assertEqual(invoked, [("team_1", "shimpz-cloudflare", LOOKUP_INPUT)])
         self.assertEqual(
@@ -621,12 +496,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         )
 
     def test_chat_reuses_a_completed_action_after_resume_failure_then_delivers(self) -> None:
-        request = brain_runtime_client.ActionRequest(
-            interrupt_id="action-1",
-            assistant_id="shimpz-cloudflare",
-            action="list-zones",
-            input=LOOKUP_INPUT,
-        )
+        request = LIST_ZONES
 
         class Runtime:
             resumes = 0
@@ -650,21 +520,10 @@ class LocalTurnLifecycleTests(LocalContractCase):
             )
             controller.assistant_lifecycle.invoke = controller.invoke
             with self.assertRaises(local_app.ApiProblem) as first:
-                controller.chat_turn_service.chat(
-                    "team_1",
-                    chat_body("Greet me", assistant_ids=["shimpz-cloudflare"]),
-                    "openai",
-                    "sk-test-0123456789",
-                )
+                _chat(controller, "Greet me")
 
-            response = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("Greet me", assistant_ids=["shimpz-cloudflare"]),
-                "openai",
-                "sk-test-0123456789",
-            )
-            with closing(sqlite3.connect(controller.action_state.path)) as connection:
-                pending = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+            response = _chat(controller, "Greet me")
+            pending = _batch_count(controller)
 
         self.assertEqual(first.exception.code, "brain-runtime-failed")
         self.assertNotIn("private-resume-failure", str(first.exception))
@@ -688,12 +547,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             controller.action_state.begin(orphan, second)
             controller.action_state.suspend(orphan, second)
 
-            response = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("Start a fresh turn", assistant_ids=["shimpz-cloudflare"]),
-                "openai",
-                "sk-test-0123456789",
-            )
+            response = _chat(controller, "Start a fresh turn")
             with closing(sqlite3.connect(controller.action_state.path)) as connection:
                 batches = connection.execute("SELECT state FROM batches").fetchall()
 
@@ -701,12 +555,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(batches, [("ended",)])
 
     def test_terminal_rpc_failure_does_not_wedge_the_next_independent_turn(self) -> None:
-        request = brain_runtime_client.ActionRequest(
-            interrupt_id="action-1",
-            assistant_id="shimpz-cloudflare",
-            action="list-zones",
-            input=LOOKUP_INPUT,
-        )
+        request = LIST_ZONES
 
         class Runtime:
             def start(self, _context, _message, *, conversation=()):
@@ -734,19 +583,9 @@ class LocalTurnLifecycleTests(LocalContractCase):
             controller.invoke = fail_rpc
             controller.assistant_lifecycle.invoke = controller.invoke
             with self.assertRaises(local_app.ApiProblem) as first:
-                controller.chat_turn_service.chat(
-                    "team_1",
-                    chat_body("Greet me", assistant_ids=["shimpz-cloudflare"]),
-                    "openai",
-                    "sk-test-0123456789",
-                )
+                _chat(controller, "Greet me")
             self.assertEqual(invocations, ["rpc"])
-            retry = controller.chat_turn_service.chat(
-                "team_1",
-                chat_body("Greet me", assistant_ids=["shimpz-cloudflare"]),
-                "openai",
-                "sk-test-0123456789",
-            )
+            retry = _chat(controller, "Greet me")
 
         self.assertEqual(first.exception.code, "assistant-rpc-failed")
         self.assertNotIn("private Assistant failure", str(retry))
@@ -754,12 +593,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(invocations, ["rpc", "rpc"])
 
     def test_crash_uncertain_batch_remains_blocked_across_identical_local_retries(self) -> None:
-        request = brain_runtime_client.ActionRequest(
-            interrupt_id="action-1",
-            assistant_id="shimpz-cloudflare",
-            action="list-zones",
-            input=LOOKUP_INPUT,
-        )
+        request = LIST_ZONES
 
         class Runtime:
             @staticmethod
@@ -792,12 +626,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
 
             for attempt in range(2):
                 with self.subTest(attempt=attempt), self.assertRaises(local_app.ApiProblem) as failed:
-                    controller.chat_turn_service.chat(
-                        "team_1",
-                        chat_body("Greet me", assistant_ids=["shimpz-cloudflare"]),
-                        "openai",
-                        "sk-test-0123456789",
-                    )
+                    _chat(controller, "Greet me")
                 self.assertEqual(failed.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
                 self.assertEqual(failed.exception.code, "action-state-unavailable")
 
