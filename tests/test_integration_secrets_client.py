@@ -49,6 +49,27 @@ def _delivery(account_id: str, provider: str, recipient: str, secret: str) -> di
     }
 
 
+def _generation_checks(constructors: mock.Mock, generations: tuple[int, ...]) -> tuple[object, ...]:
+    """Post one generation check per value through one Integration secret session over ``constructors``."""
+    with tempfile.TemporaryDirectory() as directory:
+        token_path = Path(directory) / "token"
+        token_path.write_text("service-token", encoding="utf-8")
+        with (
+            mock.patch.object(integration_secrets_client.http.client, "HTTPConnection", constructors),
+            integration_secrets_client.IntegrationSecretSession() as session,
+        ):
+            return tuple(
+                integration_secrets_client._post(
+                    "http://account:7079",
+                    "/v1/internal/model-providers/generation-check",
+                    {"generation": generation},
+                    token_path,
+                    session,
+                )
+                for generation in generations
+            )
+
+
 class IntegrationSecretsClientTests(unittest.TestCase):
     def setUp(self) -> None:
         integration_secrets_client._token_cache.clear()
@@ -146,27 +167,7 @@ class IntegrationSecretsClientTests(unittest.TestCase):
 
         connection = Connection()
         constructors = mock.Mock(return_value=connection)
-        with tempfile.TemporaryDirectory() as directory:
-            token_path = Path(directory) / "token"
-            token_path.write_text("service-token", encoding="utf-8")
-            with (
-                mock.patch.object(integration_secrets_client.http.client, "HTTPConnection", constructors),
-                integration_secrets_client.IntegrationSecretSession() as session,
-            ):
-                first = integration_secrets_client._post(
-                    "http://account:7079",
-                    "/v1/internal/model-providers/generation-check",
-                    {"generation": 1},
-                    token_path,
-                    session,
-                )
-                second = integration_secrets_client._post(
-                    "http://account:7079",
-                    "/v1/internal/model-providers/generation-check",
-                    {"generation": 1},
-                    token_path,
-                    session,
-                )
+        first, second = _generation_checks(constructors, (1, 1))
 
         self.assertEqual(first, (200, {"valid": True}))
         self.assertEqual(second, first)
@@ -204,27 +205,7 @@ class IntegrationSecretsClientTests(unittest.TestCase):
         stale = Connection(fail_on_request=2)
         replacement = Connection()
         constructors = mock.Mock(side_effect=(stale, replacement))
-        with tempfile.TemporaryDirectory() as directory:
-            token_path = Path(directory) / "token"
-            token_path.write_text("service-token", encoding="utf-8")
-            with (
-                mock.patch.object(integration_secrets_client.http.client, "HTTPConnection", constructors),
-                integration_secrets_client.IntegrationSecretSession() as session,
-            ):
-                first = integration_secrets_client._post(
-                    "http://account:7079",
-                    "/v1/internal/model-providers/generation-check",
-                    {"generation": 1},
-                    token_path,
-                    session,
-                )
-                second = integration_secrets_client._post(
-                    "http://account:7079",
-                    "/v1/internal/model-providers/generation-check",
-                    {"generation": 2},
-                    token_path,
-                    session,
-                )
+        first, second = _generation_checks(constructors, (1, 2))
 
         self.assertEqual(first, (200, {"valid": True}))
         self.assertEqual(second, first)
