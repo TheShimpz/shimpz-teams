@@ -399,6 +399,20 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(asked, {"code": "routine-output-unstated", "options": [], "value": None})
         self.assertEqual((len(runtime.contexts), card["output"]), (1, {"mode": "changes", "when": None}))
 
+    def test_a_chain_answer_reaches_the_brain_which_runs_the_chained_work(self) -> None:
+        original = "Liste as zonas de shimpz.com a cada 30 segundos"
+        runtime = Sends((("list-zones",), _record()), (("list-zones", "list-dns-records"), _record()))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            asked = self.chat(service, _body(original))["routine_question"]
+            choice = http_routine.OUTPUT_CHOICES["pt"]["chain"]
+            answer = http_payload.compose_clarified(original, "O que fazer com o resultado?", choice, "pt")
+            card = self.chat(service, _body(answer))["routine_proposal"]
+        self.assertEqual(asked["code"], "routine-output-unstated")
+        self.assertEqual(len(runtime.contexts), 2)
+        self.assertEqual([step["action"] for step in card["steps"]], ["list-zones", "list-dns-records"])
+        self.assertEqual(card["output"], {"mode": "show", "when": None})
+
     def test_a_freely_typed_send_reaches_the_brain_with_the_pending_question(self) -> None:
         original = "Liste os registros DNS de shimpz.com"
         runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))

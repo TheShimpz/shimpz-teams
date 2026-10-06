@@ -260,7 +260,8 @@ def answered(span: Span | None) -> Intent | None:
     pending = asked.pending
     bound = {
         "routine-schedule-unstated": bool(stated),
-        "routine-output-unstated": bool(phrase.outputs(answer)),
+        # A chain needs more work, which only the Brain can run.
+        "routine-output-unstated": bool(phrase.outputs(answer)) and "chain" not in phrase.outputs(answer),
         "routine-interval-over-budget": any(item["kind"] in _INTERVAL_KINDS for item in stated),
         "routine-binding-ambiguous": pending is not None
         and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets),

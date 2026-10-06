@@ -1032,13 +1032,19 @@ class OutputTests(unittest.TestCase):
             "a cada hora, mostrar sempre": {"mode": "show", "step": "s1", "when": None},
             "a cada hora, só quando mudar": {"mode": "changes", "step": "s1", "when": None},
             "a cada hora, não precisa mostrar": {"mode": "none", "step": None, "when": None},
-            "a cada hora, usar em outras ações": {"mode": "show", "step": "s1", "when": None},
         }
         for message, expected in cases.items():
             with self.subTest(message=message):
                 self.assertEqual(self.output(_send(ZONES_CALL, message=message)), expected)
         later = self.output(_send(ZONES_CALL, message="a cada hora, mostrar sempre"), _send(message="só quando mudar"))
         self.assertEqual(later["mode"], "changes")
+
+    def test_a_chain_records_only_work_that_uses_an_earlier_result(self) -> None:
+        chained = _send(ZONES_CALL, RECORDS, message="DNS de shimpz.com a cada hora, usar em outras ações")
+        self.assertEqual(self.output(chained)["mode"], "show")
+        # A lookup that nothing else consumes is no chain: the output question stands.
+        alone = _send(ZONES_CALL, message="zonas a cada hora, usar em outras ações")
+        self.assertEqual(self.output(alone), recording.Question("routine-output-unstated"))
 
     def test_no_output_or_two_in_one_segment_are_asked_never_guessed(self) -> None:
         for message in ("a cada hora", "a cada hora. Mostrar sempre. Ou só quando mudar."):

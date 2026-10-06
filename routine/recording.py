@@ -271,7 +271,7 @@ def record(
         raise RecordingError("routine-recording-unavailable")
     # The person's output, or show while the work is planned and its own questions come first; unstated, it is asked.
     stated = recording.mode or _output(sends, existing)
-    recording = dataclasses.replace(recording, mode=stated or "show")
+    recording = dataclasses.replace(recording, mode=_OUTPUT_MODES.get(stated or "show", stated))
     if asked is not None and asked.manifest is not None:
         settled = settlement(sends, asked)
         if settled is None:
@@ -292,7 +292,8 @@ def record(
             kept = None
             document, origins = _plan(context, recording, work)
             when = _schedule(sends, existing)
-        if stated is None:
+        steps = (kept.document if kept is not None else document)["steps"]
+        if stated is None or (stated == "chain" and not _chained(steps)):
             raise _AskError(Question("routine-output-unstated"))
     except _AskError as asking:
         return _asked(context, work, asking.question, frontier)
@@ -400,12 +401,18 @@ def _schedule(sends: Sequence[Send], existing: Existing | None) -> dict[str, obj
 
 
 # How each output choice the person states runs: a chain uses the result in other Actions, which the recorded work then
-# runs, and shows it.
+# runs, and shows it. A chain whose work has no step reading an earlier step's result is no chain yet: the output
+# question stands, and the Brain runs the chained work when the person answers it.
 _OUTPUT_MODES = {"show": "show", "changes": "changes", "none": "none", "chain": "show"}
 
 
+def _chained(steps: Sequence[Mapping[str, object]]) -> bool:
+    """Whether a plan's work uses an earlier result: some step reads another step's output."""
+    return any(source["kind"] == "step_output" for step in steps for source in step["input"].values())
+
+
 def _output(sends: Sequence[Send], existing: Existing | None) -> str | None:
-    """The output mode the latest authored segment stating one states; a replacement keeps its own when none is.
+    """The output choice the latest authored segment stating one states; a replacement keeps its mode when none is.
 
     None when no segment states one, or the latest that does states two: the person is then asked.
     """
@@ -416,7 +423,7 @@ def _output(sends: Sequence[Send], existing: Existing | None) -> str | None:
             if found:
                 latest = found
     if len(latest) == 1:
-        return _OUTPUT_MODES[latest[0]]
+        return latest[0]
     if not latest and existing is not None:
         return existing.plan["output"]["mode"]
     return None

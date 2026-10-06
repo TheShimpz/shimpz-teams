@@ -178,6 +178,8 @@ class RecordingBookTests(unittest.TestCase):
             ("routine-schedule-unstated", "ainda não sei", None),
             ("routine-output-unstated", "Mostrar somente quando mudar", intent),
             ("routine-output-unstated", "ainda não sei", None),
+            # A chain needs more work, so the Brain runs it.
+            ("routine-output-unstated", http_routine.OUTPUT_CHOICES["pt"]["chain"], None),
             ("routine-interval-over-budget", "a cada 31 segundos", intent),
             ("routine-interval-over-budget", "todo dia às 9h", None),
             ("routine-binding-ambiguous", '"a-zone"', intent),
