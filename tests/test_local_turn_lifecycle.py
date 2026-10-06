@@ -61,6 +61,18 @@ class PausingRuntime:
         return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
 
+def restarted_chat_service(action_state: object, chat_continuations: object) -> local_app.ChatTurnService:
+    """The chat service a restarted Controller builds: fresh challenge stores over durable journal and continuations."""
+    return local_app.ChatTurnService(
+        local_app.ChatTurnDependencies(
+            action_state=action_state,
+            integration_challenges=local_app.integration_challenges.IntegrationChallengeStore(),
+            human_challenges=local_app.action_challenges.HumanChallengeStore(),
+            chat_continuations=chat_continuations,
+        )
+    )
+
+
 def _chat(controller: local_app.LocalController, message: str, **fields: object) -> dict[str, object]:
     body = chat_body(message, assistant_ids=["shimpz-cloudflare"], **fields)
     return controller.chat_turn_service.chat("team_1", body, "openai", "sk-test-0123456789")
@@ -262,14 +274,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 controller.chat_continuations.key_path,
                 now=lambda: 2_200_000_000,
             )
-            restarted = local_app.ChatTurnService(
-                local_app.ChatTurnDependencies(
-                    action_state=controller.action_state,
-                    integration_challenges=local_app.integration_challenges.IntegrationChallengeStore(),
-                    human_challenges=local_app.action_challenges.HumanChallengeStore(),
-                    chat_continuations=reopened,
-                )
-            )
+            restarted = restarted_chat_service(controller.action_state, reopened)
 
             restarted._restore_all_chat_continuations()
 

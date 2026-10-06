@@ -17,6 +17,7 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LOOKUP_INPUT, LocalContractCase, chat_body
+from test_local_turn_lifecycle import restarted_chat_service
 
 from action import human as action_human
 from inference import client as brain_runtime_client
@@ -377,14 +378,7 @@ class LocalHumanPurgeRaceTests(LocalContractCase):
                 now=lambda: 2_200_000_000,
             )
             race = NewTurnBeforePurge(controller.action_state, lambda: reopened.current("team_1") is None)
-            restarted = local_app.ChatTurnService(
-                local_app.ChatTurnDependencies(
-                    action_state=race,
-                    integration_challenges=local_app.integration_challenges.IntegrationChallengeStore(),
-                    human_challenges=local_app.action_challenges.HumanChallengeStore(),
-                    chat_continuations=reopened,
-                )
-            )
+            restarted = restarted_chat_service(race, reopened)
 
             restarted._restore_all_chat_continuations()
 

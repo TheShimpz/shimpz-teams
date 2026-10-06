@@ -15,7 +15,7 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase, chat_body
-from test_local_turn_lifecycle import PausingRuntime
+from test_local_turn_lifecycle import PausingRuntime, restarted_chat_service
 
 from inference import config as inference_config
 from integrations import broker as integration_broker
@@ -65,16 +65,11 @@ class LocalIntegrationDriftTests(LocalContractCase):
         self.assertIsNone(controller.chat_continuations.current("team_1"), "the drifted continuation stayed durable")
         self.assertEqual(service.oauth_pkce.cancel_team("team_1"), 0, "OAuth state outlived its drifted challenge")
         # Nothing of the ended turn comes back when the Controller restarts.
-        restarted = local_app.ChatTurnService(
-            local_app.ChatTurnDependencies(
-                action_state=controller.action_state,
-                integration_challenges=local_app.integration_challenges.IntegrationChallengeStore(),
-                human_challenges=local_app.action_challenges.HumanChallengeStore(),
-                chat_continuations=local_app.local_chat_continuation_store.EncryptedContinuationStore(
-                    controller.chat_continuations.state_path,
-                    controller.chat_continuations.key_path,
-                ),
-            )
+        restarted = restarted_chat_service(
+            controller.action_state,
+            local_app.local_chat_continuation_store.EncryptedContinuationStore(
+                controller.chat_continuations.state_path, controller.chat_continuations.key_path
+            ),
         )
         restarted._restore_all_chat_continuations()
         self.assertIsNone(restarted.integration_challenges.current("team_1"))
