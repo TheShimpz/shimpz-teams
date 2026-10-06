@@ -35,6 +35,65 @@ def _routine_books(controller: local_app.LocalController) -> None:
     controller.routine_cards = routine_card.CardBook()
 
 
+def _record_routine_state(controller: local_app.LocalController, events: list[object]) -> None:
+    """Routine stores that record every deletion a destroy asks of them."""
+    controller.routine_store = SimpleNamespace(
+        load=lambda _team_id: routine_record.TeamRoutines(),
+        delete=lambda _team_id: events.append("routines-delete"),
+        teams=lambda: (),
+        delete_all=lambda: events.append("routines-delete-all"),
+        lock=lambda _team_id: contextlib.nullcontext(),
+        exclusive=contextlib.nullcontext,
+    )
+    controller.routine_diagnostics = SimpleNamespace(
+        delete=lambda _team_id: events.append("diagnostics-delete"),
+        delete_all=lambda: events.append("diagnostics-delete-all"),
+        delete_routine=lambda _team_id, _routine_id: None,
+    )
+
+
+def _destroy_controller(
+    events: list[object], brain_runtime: object, action_state: object
+) -> tuple[local_app.LocalController, threading.Lock]:
+    """Team team_1 ("Team One") with one Assistant, recording teardown; returns it and its chat lock."""
+    controller = object.__new__(local_app.LocalController)
+    controller.space_id = "local-space"
+    controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
+    controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
+    controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
+    lock = threading.Lock()
+    network = SimpleNamespace(
+        id="a" * 64,
+        name="team-network",
+        remove=lambda: events.append("network-remove"),
+    )
+    container = SimpleNamespace(
+        id="assistant-container",
+        labels={local_app.ASSISTANT_LABEL: "shimpz-cloudflare"},
+        remove=lambda *, force: events.append(("container-remove", force)),
+    )
+    controller._lock = lambda _team_id: threading.RLock()
+    controller._names_lock = threading.RLock()
+    controller.registry = TestAssistantRegistry({"shimpz-cloudflare": SimpleNamespace(allowed_hosts=())})
+    controller.client = SimpleNamespace(containers=SimpleNamespace(list=lambda **_filters: [container]))
+    controller.brain_runtime = brain_runtime
+    controller.action_state = action_state
+    controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
+    controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
+    _routine_books(controller)
+    _record_routine_state(controller, events)
+    controller._wire_collaborators()
+    controller.chat_turn_service._chat_lock = lambda _team_id: lock
+    controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network
+    controller.assistant_lifecycle._assistant_filters = lambda _team_id: {}
+    controller.assistant_lifecycle._validate_network = lambda *_args, **_kwargs: "Team One"
+    controller.team_names = SimpleNamespace(
+        load=lambda _team_id, _network_id: None, delete=lambda _team_id: events.append("names-delete")
+    )
+    controller.assistant_lifecycle._validate_container_profile = lambda *_args: None
+    return controller, lock
+
+
 class LocalTeamDestroyTests(LocalContractCase):
     def test_destroy_drains_chat_and_deletes_generation_before_teardown(self) -> None:
         events: list[object] = []
@@ -107,19 +166,7 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy") or True)
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
         _routine_books(controller)
-        controller.routine_store = SimpleNamespace(
-            load=lambda _team_id: routine_record.TeamRoutines(),
-            delete=lambda _team_id: events.append("routines-delete"),
-            teams=lambda: (),
-            delete_all=lambda: events.append("routines-delete-all"),
-            lock=lambda _team_id: contextlib.nullcontext(),
-            exclusive=contextlib.nullcontext,
-        )
-        controller.routine_diagnostics = SimpleNamespace(
-            delete=lambda _team_id: events.append("diagnostics-delete"),
-            delete_all=lambda: events.append("diagnostics-delete-all"),
-            delete_routine=lambda _team_id, _routine_id: None,
-        )
+        _record_routine_state(controller, events)
         controller._wire_collaborators()
         # Human continuations that already expired, one of this Team's earlier generation and one of another Team.
         humans = controller.chat_turn_service.human_challenges
@@ -191,60 +238,16 @@ class LocalTeamDestroyTests(LocalContractCase):
         self.assertEqual(humans.drain_expired(), (foreign,))
 
     def test_destroy_brain_failure_is_redacted_and_mutates_nothing(self) -> None:
-        events: list[str] = []
-        controller = object.__new__(local_app.LocalController)
-        controller.space_id = "local-space"
-        controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
-        controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
-        controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
-        lock = threading.Lock()
-        network = SimpleNamespace(
-            id="a" * 64,
-            name="team-network",
-            remove=lambda: events.append("network-remove"),
-        )
-        container = SimpleNamespace(
-            id="assistant-container",
-            labels={local_app.ASSISTANT_LABEL: "shimpz-cloudflare"},
-            remove=lambda *, force: events.append("container-remove"),
-        )
-        controller._lock = lambda _team_id: threading.RLock()
-        controller._names_lock = threading.RLock()
-        controller.registry = TestAssistantRegistry({"shimpz-cloudflare": SimpleNamespace(allowed_hosts=())})
-        controller.client = SimpleNamespace(containers=SimpleNamespace(list=lambda **_filters: [container]))
+        events: list[object] = []
 
         def fail_delete(_thread_id: str) -> None:
             raise brain_runtime_client.BrainRuntimeError("private-checkpoint-data")
 
-        controller.brain_runtime = SimpleNamespace(delete_thread=fail_delete)
-        controller.action_state = SimpleNamespace(
-            purge=lambda _generation: self.fail("journal purge ran after Brain deletion failed")
+        controller, lock = _destroy_controller(
+            events,
+            SimpleNamespace(delete_thread=fail_delete),
+            SimpleNamespace(purge=lambda _generation: self.fail("journal purge ran after Brain deletion failed")),
         )
-        controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
-        controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-        _routine_books(controller)
-        controller.routine_store = SimpleNamespace(
-            load=lambda _team_id: routine_record.TeamRoutines(),
-            delete=lambda _team_id: events.append("routines-delete"),
-            teams=lambda: (),
-            delete_all=lambda: events.append("routines-delete-all"),
-            lock=lambda _team_id: contextlib.nullcontext(),
-            exclusive=contextlib.nullcontext,
-        )
-        controller.routine_diagnostics = SimpleNamespace(
-            delete=lambda _team_id: events.append("diagnostics-delete"),
-            delete_all=lambda: events.append("diagnostics-delete-all"),
-            delete_routine=lambda _team_id, _routine_id: None,
-        )
-        controller._wire_collaborators()
-        controller.chat_turn_service._chat_lock = lambda _team_id: lock
-        controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network
-        controller.assistant_lifecycle._assistant_filters = lambda _team_id: {}
-        controller.assistant_lifecycle._validate_network = lambda *_args, **_kwargs: "Team One"
-        controller.team_names = SimpleNamespace(
-            load=lambda _team_id, _network_id: None, delete=lambda _team_id: events.append("names-delete")
-        )
-        controller.assistant_lifecycle._validate_container_profile = lambda *_args: None
 
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.destroy_team("team_1", "Team One")
@@ -257,60 +260,16 @@ class LocalTeamDestroyTests(LocalContractCase):
 
     def test_destroy_journal_failure_is_redacted_before_teardown(self) -> None:
         events: list[object] = []
-        controller = object.__new__(local_app.LocalController)
-        controller.space_id = "local-space"
-        controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
-        controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
-        controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
-        lock = threading.Lock()
-        network = SimpleNamespace(
-            id="a" * 64,
-            name="team-network",
-            remove=lambda: events.append("network-remove"),
-        )
-        container = SimpleNamespace(
-            id="assistant-container",
-            labels={local_app.ASSISTANT_LABEL: "shimpz-cloudflare"},
-            remove=lambda *, force: events.append(("container-remove", force)),
-        )
-        controller._lock = lambda _team_id: threading.RLock()
-        controller._names_lock = threading.RLock()
-        controller.registry = TestAssistantRegistry({"shimpz-cloudflare": SimpleNamespace(allowed_hosts=())})
-        controller.client = SimpleNamespace(containers=SimpleNamespace(list=lambda **_filters: [container]))
-        controller.brain_runtime = SimpleNamespace(
-            delete_thread=lambda thread_id: events.append(("thread-delete", thread_id))
-        )
 
         def fail_purge(generation: str) -> None:
             events.append(("action-purge", generation))
             raise local_app.action_journal.ActionJournalError("private-journal-path")
 
-        controller.action_state = SimpleNamespace(purge=fail_purge)
-        controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
-        controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-        _routine_books(controller)
-        controller.routine_store = SimpleNamespace(
-            load=lambda _team_id: routine_record.TeamRoutines(),
-            delete=lambda _team_id: events.append("routines-delete"),
-            teams=lambda: (),
-            delete_all=lambda: events.append("routines-delete-all"),
-            lock=lambda _team_id: contextlib.nullcontext(),
-            exclusive=contextlib.nullcontext,
+        controller, lock = _destroy_controller(
+            events,
+            SimpleNamespace(delete_thread=lambda thread_id: events.append(("thread-delete", thread_id))),
+            SimpleNamespace(purge=fail_purge),
         )
-        controller.routine_diagnostics = SimpleNamespace(
-            delete=lambda _team_id: events.append("diagnostics-delete"),
-            delete_all=lambda: events.append("diagnostics-delete-all"),
-            delete_routine=lambda _team_id, _routine_id: None,
-        )
-        controller._wire_collaborators()
-        controller.chat_turn_service._chat_lock = lambda _team_id: lock
-        controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network
-        controller.assistant_lifecycle._assistant_filters = lambda _team_id: {}
-        controller.assistant_lifecycle._validate_network = lambda *_args, **_kwargs: "Team One"
-        controller.team_names = SimpleNamespace(
-            load=lambda _team_id, _network_id: None, delete=lambda _team_id: events.append("names-delete")
-        )
-        controller.assistant_lifecycle._validate_container_profile = lambda *_args: None
 
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.destroy_team("team_1", "Team One")
