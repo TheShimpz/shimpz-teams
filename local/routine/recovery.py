@@ -22,6 +22,7 @@ import datetime
 import math
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from docker.errors import DockerException
@@ -84,10 +85,14 @@ class Assessment:
 
 
 class VerifierRuntime:
-    """One fixed read-only verifier call in place of a Brain turn; it never calls a model."""
+    """One fixed read-only verifier call in place of a Brain turn; it never calls a model.
 
-    def __init__(self, request: brain_runtime_client.ActionRequest) -> None:
+    The call belongs to the held run, so every value Team injects into it joins that run's protection before its RPC.
+    """
+
+    def __init__(self, request: brain_runtime_client.ActionRequest, protect: Callable[[object], object]) -> None:
         self._request = request
+        self.protect = protect
         self.result: object = None
 
     def start(self, _context, _message, *, conversation=()) -> brain_runtime_client.RuntimeTurn:
@@ -97,8 +102,9 @@ class VerifierRuntime:
         self.result = results.get(self._request.interrupt_id)
         return brain_runtime_client.RuntimeTurn("completed", "", ())
 
-    def dispatching(self, _request, _operation_id, _workload="", _evidence=None) -> None:
-        return
+    def dispatching(self, _request, _operation_id, _workload="", evidence=None) -> None:
+        if evidence is not None:
+            self.protect(routine_diagnostics.protected(evidence))
 
     def failed(self, _request, _evidence, _exc) -> None:
         return
@@ -299,8 +305,9 @@ def _provider(self, team_id: str) -> str:
 
 def _call_verifier(self, team_id: str, token: str, assessment: Assessment, request) -> object:
     """Run the verifier in its own released generation; None when it failed, paused for a person, or was refused."""
-    runtime = VerifierRuntime(request)
-    generation = record.generation_for(assessment.network_id, assessment.cursor.binding.run_id, VERIFY_SUFFIX)
+    run_id = assessment.cursor.binding.run_id
+    runtime = VerifierRuntime(request, lambda values: self.routine_protections.grow(run_id, values))
+    generation = record.generation_for(assessment.network_id, run_id, VERIFY_SUFFIX)
     segment = SegmentRequest(
         team_id=team_id,
         file_ids=[],
