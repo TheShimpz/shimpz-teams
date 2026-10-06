@@ -11,27 +11,16 @@ from contextlib import nullcontext
 from pathlib import Path
 from unittest import mock
 
+from test_action_files import DATA, OPERATION_ID, UPLOAD
+
 from action import files as action_files
 from action import human as action_human
-from assistant.spec import ActionSpec
 from chat import orchestrator as chat_orchestrator
 from local import app as local_app
 from local.chat import continuation as local_continuation
 from local.chat import segment as local_segment
 from storage import files as team_storage
 from tests import human_request_fixtures
-
-DATA = b"%PDF-1.4 quarterly report"
-OPERATION_ID = "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
-FILE_SCHEMA = {
-    "type": "object",
-    "properties": {"document": {"type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-f]{32}$"}},
-    "required": ["document"],
-    "additionalProperties": False,
-}
-UPLOAD = ActionSpec(
-    "Upload a document.", FILE_SCHEMA, {"type": "object"}, human_requests=("approval",), input_files=("document",)
-)
 
 
 def _approved() -> action_human.ActionTranscript:

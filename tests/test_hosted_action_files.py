@@ -13,8 +13,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hosted_assistant_fixture as harness
+from test_action_files import DATA, OPERATION_ID, UPLOAD
 
-from assistant.spec import ActionSpec
 from tests import human_request_fixtures
 
 assistants = harness.hosted_assistants
@@ -28,18 +28,7 @@ team_storage = assistants.team_storage
 
 TEAM_ID = "team_1"
 ASSISTANT_ID = "shimpz-cloudflare"
-OPERATION_ID = "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
 TURN_TOKEN = "-".join(("turn", "token"))
-DATA = b"%PDF-1.4 quarterly report"
-FILE_SCHEMA = {
-    "type": "object",
-    "properties": {"document": {"type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-f]{32}$"}},
-    "required": ["document"],
-    "additionalProperties": False,
-}
-UPLOAD = ActionSpec(
-    "Upload a document.", FILE_SCHEMA, {"type": "object"}, human_requests=("approval",), input_files=("document",)
-)
 CONTRACT = dataclasses.replace(harness.HOSTED_SPEC.contract, actions={"upload": UPLOAD})
 
 
