@@ -11,9 +11,7 @@ from __future__ import annotations
 import argparse
 import grp
 import json
-import math
 import os
-import statistics
 import tempfile
 import time
 import uuid
@@ -24,6 +22,8 @@ from types import SimpleNamespace
 
 import docker
 from docker.errors import DockerException, NotFound
+
+from perf.percentiles import median_p95
 
 SAMPLES = 20
 WARMUPS = 3
@@ -62,14 +62,6 @@ def _private_environment(root: Path, run_id: str) -> None:
     }
     for name, relative in paths.items():
         os.environ[name] = str(root / relative)
-
-
-def _percentiles(values: list[float]) -> dict[str, float]:
-    ordered = sorted(values)
-    return {
-        "p50_ms": round(statistics.median(ordered), 3),
-        "p95_ms": round(ordered[math.ceil(len(ordered) * 0.95) - 1], 3),
-    }
 
 
 def _timed(operation) -> tuple[float, float]:
@@ -386,14 +378,14 @@ def _measure_case(probe: _Probe) -> dict[str, object]:
         "samples": SAMPLES,
         "warmups": WARMUPS,
         "calls_per_check": _expected_calls(assistants),
-        "raw_total_ms": {name: _percentiles(values) for name, values in raw.items()},
+        "raw_total_ms": {name: median_p95(values) for name, values in raw.items()},
         "docker_api_ms": {
-            name: {metric: _percentiles(values) for metric, values in timings.items()} for name, timings in api.items()
+            name: {metric: median_p95(values) for metric, values in timings.items()} for name, timings in api.items()
         },
         "image_ref_ms": {
             name: {
                 "observations": len(timings["wall"]),
-                **{metric: _percentiles(values) for metric, values in timings.items()},
+                **{metric: median_p95(values) for metric, values in timings.items()},
             }
             for name, timings in image_refs.items()
         },

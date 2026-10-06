@@ -10,9 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
-import math
 import os
-import statistics
 import sys
 import tempfile
 import time
@@ -22,6 +20,7 @@ from unittest import mock
 from install.bindings import DynamicAssistantStore
 from install.contract import CONTRACT_ROOT
 from local.install.registry import AssistantRegistry
+from perf.percentiles import median_p95
 
 SAMPLES = 100
 WARMUPS = 10
@@ -63,14 +62,6 @@ def _snapshot(store: DynamicAssistantStore, assistant_ids: tuple[str, ...]) -> t
     return tuple(digests)
 
 
-def _percentiles(values: list[float]) -> dict[str, float]:
-    ordered = sorted(values)
-    return {
-        "p50_ms": round(statistics.median(ordered), 3),
-        "p95_ms": round(ordered[math.ceil(len(ordered) * 0.95) - 1], 3),
-    }
-
-
 def _measure(store: DynamicAssistantStore, assistant_ids: tuple[str, ...]) -> dict[str, object]:
     operations = {"individual": _individual, "snapshot": _snapshot}
     counts = {}
@@ -93,7 +84,7 @@ def _measure(store: DynamicAssistantStore, assistant_ids: tuple[str, ...]) -> di
                 samples[name].append((time.process_time_ns() - started) / 1_000_000)
     return {
         "reads": counts,
-        "cpu_ms": {name: _percentiles(values) for name, values in samples.items()},
+        "cpu_ms": {name: median_p95(values) for name, values in samples.items()},
     }
 
 

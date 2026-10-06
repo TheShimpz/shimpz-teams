@@ -10,9 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
-import math
 import os
-import statistics
 import sys
 import time
 import types
@@ -24,6 +22,8 @@ sys.path.insert(0, str(TEAM / "tests"))
 
 import hosted_assistant_fixture as fixture
 from test_network_policy import TEAM_ID, _valid_topology
+
+from perf.percentiles import median_p95
 
 policy = fixture.hosted_resources.network_policy
 
@@ -48,14 +48,6 @@ def _topology(assistants: int) -> tuple[dict, dict[str, dict]]:
         containers[container_id] = container
         network["Containers"][container_id] = {}
     return network, containers
-
-
-def _percentiles(values: list[float]) -> dict[str, float]:
-    ordered = sorted(values)
-    return {
-        "p50_ms": round(statistics.median(ordered), 3),
-        "p95_ms": round(ordered[math.ceil(len(ordered) * 0.95) - 1], 3),
-    }
 
 
 def _measure(assistants: int) -> dict[str, object]:
@@ -108,7 +100,7 @@ def _measure(assistants: int) -> dict[str, object]:
         "network_members": len(network_data["Containers"]),
         "policy_scans_per_check": scan_count,
         "samples": SAMPLES,
-        "cpu_ms": {name: _percentiles(values) for name, values in samples.items()},
+        "cpu_ms": {name: median_p95(values) for name, values in samples.items()},
     }
 
 
