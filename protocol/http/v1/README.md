@@ -108,8 +108,8 @@ the recording is kept, and the person's answer is an ordinary chat message. Its 
 `routine.QUESTION_CODES`: how often it runs (`routine-schedule-unstated`), a stated interval the Team's daily budget
 cannot hold (`routine-interval-over-budget`, whose `value` is the shortest interval in seconds that fits) or no room at
 all (`routine-no-room`), which item an input means (`routine-binding-ambiguous`, whose `options` are at most 8
-targets `{value, label}`: the string or integer the input would take and the item member that names it, or `null`), a
-value that no earlier result provides (`routine-binding-unsourced`), work split across messages
+targets `{value, label}`: `value` is the exact compact JSON text of the string or integer the input would take, so
+no client rounds a large integer, and `label` the item's name, or `null`), a value that no earlier result provides (`routine-binding-unsourced`), work split across messages
 (`routine-work-split`), work to run again for a chosen target (`routine-work-rerun`), and which timezone
 (`routine-timezone-ambiguous`, `routine-timezone-unstated`). Only `routine-binding-ambiguous` has options, and only
 `routine-interval-over-budget` has a value. `routine_proposal` is

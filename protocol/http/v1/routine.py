@@ -1433,17 +1433,32 @@ MAX_QUESTION_OPTIONS = 8
 MAX_QUESTION_OPTION_CHARS = 120
 
 
+# A target's exact JSON text: a string within MAX_QUESTION_OPTION_CHARS escapes at most its quotes and backslashes.
+MAX_QUESTION_VALUE_CHARS = 2 * MAX_QUESTION_OPTION_CHARS + 2
+
+
+def _target(text: object) -> bool:
+    """A target's exact JSON text: one string or integer, as compact JSON would write it, so no client rounds it."""
+    if not isinstance(text, str) or not 0 < len(text) <= MAX_QUESTION_VALUE_CHARS:
+        return False
+    try:
+        decoded = json.loads(text)
+    except ValueError:
+        return False
+    scalar = (
+        _plain(decoded, MAX_QUESTION_OPTION_CHARS)
+        if isinstance(decoded, str)
+        else type(decoded) is int and len(text) <= MAX_QUESTION_OPTION_CHARS
+    )
+    return scalar and json.dumps(decoded, ensure_ascii=False) == text
+
+
 def _question_option(value: object) -> bool:
-    """One target a person may choose: the value its input would take, and the item member that names it, if any."""
+    """One target a person may choose: the JSON text of the value its input would take, and its name, if any."""
     if not isinstance(value, dict) or set(value) != {"value", "label"}:
         return False
-    chosen, label = value["value"], value["label"]
-    scalar = (
-        _plain(chosen, MAX_QUESTION_OPTION_CHARS)
-        if isinstance(chosen, str)
-        else type(chosen) is int and len(str(chosen)) <= MAX_QUESTION_OPTION_CHARS
-    )
-    return scalar and (label is None or _plain(label, MAX_QUESTION_OPTION_CHARS))
+    label = value["label"]
+    return _target(value["value"]) and (label is None or _plain(label, MAX_QUESTION_OPTION_CHARS))
 
 
 def canonical_question(value: object) -> dict[str, object] | None:
@@ -1456,7 +1471,7 @@ def canonical_question(value: object) -> dict[str, object] | None:
         and (code == "routine-binding-ambiguous" or not options)
         and len(options) <= MAX_QUESTION_OPTIONS
         and all(_question_option(item) for item in options)
-        and len({json.dumps(item["value"]) for item in options}) == len(options)
+        and len({item["value"] for item in options}) == len(options)
         and (
             _whole(interval, MIN_CONTINUOUS_GAP_SECONDS, MAX_CONTINUOUS_GAP_SECONDS)
             if code == "routine-interval-over-budget"

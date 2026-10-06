@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import datetime
 import heapq
+import json
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -104,7 +105,13 @@ class Question:
     value: int | None = None
 
     def wire(self) -> dict[str, object]:
-        return {"code": self.code, "options": [dict(item) for item in self.options], "value": self.value}
+        """The question as the chat reply carries it: each target as its exact JSON text, which no client rounds."""
+        options = [{"value": _json_text(item["value"]), "label": item["label"]} for item in self.options]
+        return {"code": self.code, "options": options, "value": self.value}
+
+
+def _json_text(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False)
 
 
 class _AskError(Exception):
@@ -620,7 +627,7 @@ def _ambiguous(context: _Context, value: object, options: list[dict[str, object]
 
 def _offered(option: dict[str, object]) -> bool:
     """Whether a target can be shown as one choice of the question."""
-    question = {"code": "routine-binding-ambiguous", "options": [option], "value": None}
+    question = Question("routine-binding-ambiguous", (option,)).wire()
     return http_routine.canonical_question(question) is not None
 
 

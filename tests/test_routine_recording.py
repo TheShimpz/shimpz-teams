@@ -12,6 +12,7 @@ import unittest
 from unittest import mock
 
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
 from routine import recording, trace
 
@@ -839,12 +840,20 @@ class KeptTests(unittest.TestCase):
 
 
 class QuestionTests(unittest.TestCase):
-    def test_a_question_renders_its_closed_wire_form(self) -> None:
-        question = recording.Question("routine-binding-ambiguous", ({"value": "a", "label": None},))
-        self.assertEqual(
-            question.wire(),
-            {"code": "routine-binding-ambiguous", "options": [{"value": "a", "label": None}], "value": None},
+    def test_a_question_carries_each_target_as_its_exact_json_text(self) -> None:
+        question = recording.Question(
+            "routine-binding-ambiguous", ({"value": "a", "label": None}, {"value": 2**53 + 1, "label": "big"})
         )
+        wire = question.wire()
+        self.assertEqual(
+            wire,
+            {
+                "code": "routine-binding-ambiguous",
+                "options": [{"value": '"a"', "label": None}, {"value": "9007199254740993", "label": "big"}],
+                "value": None,
+            },
+        )
+        self.assertEqual(http_routine.canonical_question(wire), wire)
 
     def test_more_targets_than_a_question_shows_offer_none(self) -> None:
         items = {"items": [{"name": "beta", "id": f"id-{index:04d}"} for index in range(9)]}
