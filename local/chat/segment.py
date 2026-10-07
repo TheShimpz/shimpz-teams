@@ -1,6 +1,8 @@
 """Local chat segment orchestration operations."""
 
+import datetime
 import functools
+import zoneinfo
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -30,6 +32,7 @@ from local.validation import routine_thread_id as _routine_thread_id
 from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import claim as routine_claim
 from routine import pin as routine_pin
+from routine import recording as routine_recording
 
 # The model a chat turn about a Routine uses on an OpenAI Team, with the Team's own key and effort; every other turn,
 # and every turn on another provider, uses the Team's configured model.
@@ -212,8 +215,17 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         routine_rerun=routine_recorder.rerun_work(_span(self, request)) if mutable else None,
         knowledge_writable=routine is None,
         locale=request.locale,
+        turn_clock=_turn_clock(_span(self, request)) if mutable else None,
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),
     )
+
+
+def _turn_clock(span: routine_recorder.Span | None) -> tuple[str, str] | None:
+    """The date the person's send started on in the zone a Routine it records would run in, and that zone."""
+    if span is None:
+        return None
+    zone, _source = routine_recording.zone(span.sends)
+    return datetime.datetime.fromtimestamp(span.started_at, zoneinfo.ZoneInfo(zone)).date().isoformat(), zone
 
 
 def _turn_model(self, request: SegmentRequest, config: inference_config.InferenceConfig) -> str:

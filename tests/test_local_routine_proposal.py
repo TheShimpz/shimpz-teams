@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import json
 import tempfile
 import time
 import unittest
+import zoneinfo
 from types import SimpleNamespace
 from unittest import mock
 
@@ -268,6 +270,16 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(reference["where"], {"name": "shimpz.com"})
         (notice,) = state.notices
         self.assertEqual((notice.outcome, notice.name, notice.usage), ("created", "DNS de shimpz.com", None))
+
+    def test_a_recording_turn_reasons_with_the_persons_date_in_the_routines_zone(self) -> None:
+        runtime = Recording(_record())
+        zone = zoneinfo.ZoneInfo("America/Sao_Paulo")
+        before = datetime.datetime.now(zone).date().isoformat()
+        self.turn(runtime, None, lambda service: None)
+        after = datetime.datetime.now(zone).date().isoformat()
+        date, timezone = runtime.contexts[0].turn_clock
+        self.assertEqual(timezone, "America/Sao_Paulo")
+        self.assertIn(date, {before, after})
 
     def test_a_zone_the_person_named_in_an_earlier_send_selects_the_zone_id(self) -> None:
         body = _body("Faça isso a cada 30 segundos e mostre o resultado")

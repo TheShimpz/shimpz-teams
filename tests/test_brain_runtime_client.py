@@ -182,6 +182,20 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         client.resume(context(self.secret), {"interrupt-1": {"status": "ok"}})
         self.assertNotIn("conversation", json.loads(connection.requests[0][2]))
 
+    def test_only_a_start_carries_the_persons_turn_clock(self):
+        clocked = dataclasses.replace(context(self.secret), turn_clock=("2026-10-06", "America/Sao_Paulo"))
+        done = {"status": "completed", "clarification": None, "reply": "Done.", "actions": []}
+        client, connection = self.client(_Response(done))
+        client.start(clocked, "Hello", conversation=())
+        payload = json.loads(connection.requests[0][2])
+        self.assertEqual(payload["turn_clock"], {"date": "2026-10-06", "timezone": "America/Sao_Paulo"})
+        client, connection = self.client(_Response(done))
+        client.start(context(self.secret), "Hello", conversation=())
+        self.assertNotIn("turn_clock", json.loads(connection.requests[0][2]))
+        client, connection = self.client(_Response(done))
+        client.resume(clocked, {"interrupt-1": {"status": "ok"}})
+        self.assertNotIn("turn_clock", json.loads(connection.requests[0][2]))
+
     def test_start_and_resume_both_carry_the_prepared_attachments_and_action_gates(self):
         attachment = {
             "id": "a" * 32,

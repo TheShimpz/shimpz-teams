@@ -124,6 +124,9 @@ class RuntimeContext:
     # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
     # the start, so only a start sends it.
     locale: str | None = None
+    # The date the person's send started on in the Routine's zone, and that zone (ADR-0101), which the Brain reasons
+    # with instead of the UTC date; only a start sends it, and None keeps the Brain's UTC date.
+    turn_clock: tuple[str, str] | None = None
     # The selected files prepared for this message (ADR-0093): request-local model content that Team rehydrates for the
     # start and every resume of the logical turn, never persisted by Brain.
     attachments: tuple[Mapping[str, object], ...] = ()
@@ -793,6 +796,8 @@ class BrainRuntimeClient:
         payload = self._context(context)
         payload["message"] = message
         payload["locale"] = context.locale
+        if context.turn_clock is not None:
+            payload["turn_clock"] = {"date": context.turn_clock[0], "timezone": context.turn_clock[1]}
         payload["conversation"] = [
             {"role": entry.role, "text": entry.text, "truncated": entry.truncated}
             for entry in self.validate_conversation(conversation)
