@@ -189,8 +189,21 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(
             self.asked("id-0002", "beta", shared), recording.Question("routine-binding-ambiguous", targets)
         )
-        # Two named members, each unique: nothing separates them, so the person is asked.
-        self.assertEqual(self.asked("id-0002", "beta rank 70", items).code, "routine-binding-ambiguous")
+        # Two named members, each unique: the name-like one selects the item, in whatever order the person wrote them.
+        for known in ("beta rank 70", "rank 70 beta"):
+            with self.subTest(known=known):
+                source, _origin = self.classify("id-0002", known, items)
+                self.assertEqual(source["where"], {"name": "beta"})
+        # Two unique name-like members, or two unique members of which none is name-like: nothing separates them.
+        titled = {
+            "items": [
+                {"name": "alpha", "title": "First", "id": "id-0001"},
+                {"name": "beta", "title": "Second", "id": "id-0002"},
+            ]
+        }
+        self.assertEqual(self.asked("id-0002", "beta Second", titled).code, "routine-binding-ambiguous")
+        ranked = {"items": [{"rank": 1, "size": 10, "id": "id-0001"}, {"rank": 70, "size": 2000, "id": "id-0002"}]}
+        self.assertEqual(self.asked("id-0002", "rank 70 size 2000", ranked).code, "routine-binding-ambiguous")
 
     def test_the_selected_member_itself_is_never_its_own_key(self) -> None:
         source, _origin = self.classify(

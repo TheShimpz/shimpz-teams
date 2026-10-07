@@ -337,6 +337,10 @@ def _binding(context: routine_recording._Context, node: int, position: _Position
         if (not rest or key != rest[0]) and _selectable(constant, context.known)
     ]
     unique = [pair for pair in named if _unique(result, array_tokens, items, chosen, *pair)]
+    if len(unique) > 1:
+        # Several named members each single out this one item, such as a record's type and name: the one that names
+        # it to a person selects it.
+        unique = [pair for pair in unique if pair[0] in _NAME_MEMBERS] or unique
     if len(unique) == 1:
         return {"node": node, "pointer": _pointer(array_tokens), "where": dict(unique), "item": _pointer(rest)}
     if named:
@@ -356,7 +360,8 @@ def _targets(items: list, named: list[tuple[str, object]], rest: tuple[str, ...]
     return targets
 
 
-# The members whose text names an item to a person, such as a zone's domain: a target's label when it has one only.
+# The members whose text names an item to a person, such as a zone's domain: a target's label when it has one only,
+# and the selector when the person named several members that each single out the item.
 _NAME_MEMBERS = frozenset({"name", "title", "label", "display_name", "hostname", "domain"})
 
 
