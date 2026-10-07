@@ -154,6 +154,17 @@ def _holders(
     return found
 
 
+def _from_work(context: routine_recording._Context, found: dict[int, list[_Position]]) -> dict[int, list[_Position]]:
+    """Of several sources holding a value, the one the work itself ran, wherever in its send: it replays every run.
+
+    A source counts when any call of its class belongs to the latest send; two such sources, or none, keep them all.
+    """
+    latest = context.calls[-1].send
+    ran = {context.classes[call.index] for call in context.calls if call.send == latest}
+    kept = {node: positions for node, positions in found.items() if node in ran}
+    return kept if len(kept) == 1 else found
+
+
 def _identifier(value: object) -> bool:
     """Whether a referable value is shaped like an identifier: one word of text, or a whole number."""
     return type(value) is int or (isinstance(value, str) and not any(character.isspace() for character in value))
@@ -260,6 +271,8 @@ def _sourced(
         if not _identifier(value):
             return None
         raise routine_recording._AskError(routine_recording.Question("routine-binding-unsourced"))
+    if len(found) > 1:
+        found = _from_work(context, found)
     if len(found) > 1:
         raise _ambiguous(context, input_, value, [{"value": value, "label": None}])
     ((node, positions),) = found.items()

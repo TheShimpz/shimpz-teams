@@ -66,6 +66,48 @@ class RerunTests(unittest.TestCase):
         recorded = _recorded(*spans, _send(_post("a"), _post("b"), _post("b")), asked=pending)
         self.assertEqual([step["input"]["t"]["value"] for step in recorded.document["steps"]], ["a", "b", "b"])
 
+    def test_an_earlier_lookup_with_other_page_sizes_is_the_work_the_recording_ran_again(self) -> None:
+        """The owner's list, then "do this every hour", when the agent picked other page sizes the second time."""
+
+        def zones(per_page: int) -> tuple:
+            return ("cloudflare/list-zones", {"page": 1, "per_page": per_page}, ZONES)
+
+        def records(per_page: int) -> tuple:
+            return ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID, "per_page": per_page}, RECORDS[2])
+
+        first = _send(zones(50), records(25), message="Liste os registros DNS de shimpz.com")
+        cases = {
+            "only the zones' page size": (zones(5), records(25)),
+            "both page sizes": (zones(5), records(10)),
+            "the lookup after its use": (records(10), zones(5)),
+        }
+        for case, calls in cases.items():
+            with self.subTest(case=case):
+                recorded = _recorded(first, _send(*calls, message="Faça isso a cada hora"))
+                zones_step, records_step = recorded.document["steps"]
+                self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
+                # The work's own lookup is the source, at the page sizes the work used, and the records are shown.
+                self.assertEqual(zones_step["input"]["per_page"], {"kind": "literal", "value": 5})
+                self.assertEqual(records_step["input"]["zone_id"], SELECTED)
+                sent = next(given for name, given, _result in calls if name == "cloudflare/list-dns-records")
+                self.assertEqual(records_step["input"]["per_page"]["value"], sent["per_page"])
+                self.assertEqual(recorded.document["output"]["step"], records_step["id"])
+
+    def test_an_earlier_read_for_another_target_or_a_named_choice_is_still_split_work(self) -> None:
+        other = "9a7806061c88ada191ed06f989cc3dac"
+        work = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID, "per_page": 10}, RECORDS[2])
+        cases = {
+            # Another zone is a referable target, never the assistant's own choice.
+            "another zone": ({"zone_id": other, "per_page": 25}, "Liste os registros DNS de example.com"),
+            # A page size the person asked for is theirs, never superseded.
+            "a named page size": ({"zone_id": SHIMPZ_ID, "per_page": 25}, "Liste os de shimpz.com com 25 por página"),
+        }
+        for case, (given, message) in cases.items():
+            with self.subTest(case=case):
+                earlier = _send(("cloudflare/list-dns-records", given, RECORDS[2]), message=message)
+                asked = _record(earlier, _send(ZONES_CALL, work, message="Faça isso a cada hora para shimpz.com"))
+                self.assertEqual(asked.code, "routine-work-split")
+
     def test_work_split_with_a_withheld_input_is_never_frozen(self) -> None:
         hidden = ("reports/post", {"t": "x"}, {}, trace.Kept({"t": None}, frozenset({"/t"})))
         code = _code(self, lambda: _record(_send(hidden, message="a cada hora"), _send(_post("b"))))

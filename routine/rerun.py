@@ -24,7 +24,7 @@ def _split(
         if call.send == latest or not _evidence(context, call) or context.classes[call.index] in nodes:
             continue
         same = [item for item in work if item.action == call.action]
-        if same and not any(_same_input(item.occurrence, call.occurrence) for item in same):
+        if same and not any(_same_work(context, item, call) for item in same):
             split = [
                 item
                 for item in context.calls
@@ -201,6 +201,37 @@ def _returned(occurrence: trace.Occurrence, value: object) -> bool:
         result.available(routine_provenance._pointer(position[0]))
         for position in routine_provenance._positions(result.value, value)
     )
+
+
+def _same_work(
+    context: routine_recording._Context, work: routine_recording._Call, earlier: routine_recording._Call
+) -> bool:
+    """Whether an earlier read did the same work as a work call: the same input, apart from the assistant's choices.
+
+    A member whose values on both sides are the assistant's own short choices, such as a page size, does not separate
+    them: the work's latest choices supersede the earlier ones.
+
+    A member the person named, a referable value such as an identifier, or anything withheld always counts.
+    """
+    if _same_input(work.occurrence, earlier.occurrence):
+        return True
+    if not (work.read_only and earlier.read_only):
+        return False
+    left, right = work.occurrence.input, earlier.occurrence.input
+    if left.withheld or right.withheld or not isinstance(left.value, dict) or not isinstance(right.value, dict):
+        return False
+    if set(left.value) != set(right.value):
+        return False
+    return all(
+        routine_plan.same(left.value[member], right.value[member])
+        or (_chosen(context, left.value[member]) and _chosen(context, right.value[member]))
+        for member in left.value
+    )
+
+
+def _chosen(context: routine_recording._Context, value: object) -> bool:
+    """Whether a value is the assistant's own short choice: nothing the person named, and nothing referable."""
+    return not routine_provenance._referable(value) and not context.known.names(value)
 
 
 def _same_input(left: trace.Occurrence, right: trace.Occurrence) -> bool:
