@@ -2,7 +2,7 @@
 
 Admin's scheduler claims runs and delivers notices under the Team bearer; its routine identity runs one leased run
 under a routine assertion; a Supervisor session confirms or cancels a recorded Routine's card (ADR-0101), manages
-Routines, answers or stops their runs, and settles held runs through their recovery cards (ADR-0092).
+Routines, answers their runs, and settles held runs through their recovery cards (ADR-0092).
 """
 
 from __future__ import annotations
@@ -40,7 +40,6 @@ BODY_LIMITS = {
     "routine-challenge-open": MAX_BODY_BYTES,
     "routine-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
     "routine-integration-submit": MAX_BODY_BYTES,
-    "routine-stop": MAX_BODY_BYTES,
     "routine-card-open": MAX_BODY_BYTES,
     "routine-card-answer": MAX_BODY_BYTES,
     "routine-resume": MAX_BODY_BYTES,
@@ -74,20 +73,14 @@ def _machine(handler, operation: str) -> dict[str, object]:
     return service.acknowledge_routine_notices(handler._body(max_bytes=BODY_LIMITS[operation]))
 
 
-def _run(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
-    """A Supervisor's decision on one run: open its challenge, or stop it."""
+def _challenge(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
+    """A Supervisor's opening of one frozen run's challenge, rendered in the Admin interface language (ADR-0091)."""
     service = handler.server.controller.chat_turn_service
     run_id = _run_id(route)
-    body = handler._body(max_bytes=BODY_LIMITS[route.operation])
-    if route.operation == "routine-challenge-open":
-        # The challenge renders its request copy in the Admin interface language (ADR-0091).
-        opening = http_routine_run.canonical_challenge_open(body)
-        if opening is None:
-            raise local_errors.challenge_locale_only()
-        return service.open_routine_challenge(team_id, run_id, opening["locale"])
-    if body != {}:
-        raise local_errors.empty_body_required()
-    return service.stop_routine(team_id, run_id)
+    opening = http_routine_run.canonical_challenge_open(handler._body(max_bytes=BODY_LIMITS[route.operation]))
+    if opening is None:
+        raise local_errors.challenge_locale_only()
+    return service.open_routine_challenge(team_id, run_id, opening["locale"])
 
 
 _COUNT_RE = re.compile(r"(?:0|[1-9][0-9]{0,9})\Z")
@@ -159,7 +152,7 @@ def _proposal(handler, route: strict_http.ControllerRouteMatch, team_id: str) ->
 
 
 def _session(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
-    """A Supervisor's management of the Team's Routines; run decisions go to ``_run``."""
+    """A Supervisor's management of the Team's Routines; opening a run's challenge goes to ``_challenge``."""
     service = handler.server.controller.chat_turn_service
     operations = {
         "routine-list": lambda: service.list_routines(team_id),
@@ -175,7 +168,7 @@ def _session(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> 
         "routine-proposal-revoke": lambda: _proposal(handler, route, team_id),
     }
     operation = operations.get(route.operation)
-    return operation() if operation is not None else _run(handler, route, team_id)
+    return operation() if operation is not None else _challenge(handler, route, team_id)
 
 
 def route(

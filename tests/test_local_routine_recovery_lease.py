@@ -89,7 +89,7 @@ class RecoveryLeaseTests(AutomaticCase):
 
         class Stopping(Brain):
             def routine_recovery(self, payload, provider, model):
-                box[0].stop_routine("team_1", held_incident(box[0]))
+                routine_run.stop_routine_run(box[0], "team_1", held_incident(box[0]))
                 return super().routine_recovery(payload, provider, model)
 
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
@@ -98,18 +98,6 @@ class RecoveryLeaseTests(AutomaticCase):
             self.assert_still_held(service, run_id, assistant)
         # The Brain answered retry, but the Stop came first.
         self.assertEqual(self.status, "held")
-
-    def test_a_stop_with_no_recovery_running_keeps_the_incident(self) -> None:
-        assistant = Assistant([failed()], [])
-        with tempfile.TemporaryDirectory() as directory:
-            service, _brain, _value, run_id = self.held(directory, assistant)
-            stopped = service.stop_routine("team_1", run_id)
-            self.assert_still_held(service, run_id, assistant)
-            # Once set aside, deleting the Routine has no recovery of it left to stop.
-            routine_fixture.set_aside(service, "team_1", run_id)
-            routine_id = self.state(service).routines[0].routine_id
-            self.assertTrue(service.delete_routine("team_1", routine_id)["deleted"])
-        self.assertEqual(stopped, {"team_id": "team_1", "run_id": run_id, "stopped": False})
 
     def test_a_cancelled_recovery_never_reopens_its_run(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
@@ -130,7 +118,7 @@ class RecoveryLeaseTests(AutomaticCase):
         class Aborted(Brain):
             def routine_recovery(self, payload, provider, model):
                 self.asked.append(payload)
-                box[0].stop_routine("team_1", held_incident(box[0]))
+                routine_run.stop_routine_run(box[0], "team_1", held_incident(box[0]))
                 # What the client raises once Stop aborted its request.
                 raise inference_client.BrainRuntimeError("Brain runtime request was stopped")
 
@@ -262,7 +250,7 @@ class StopPrecedenceTests(AutomaticCase):
             def __call__(self, team, assistant, action, payload, evidence):
                 if action == "find-record":
                     # The person stops the verification; its deadline passes right after.
-                    box[0].stop_routine("team_1", box[1])
+                    routine_run.stop_routine_run(box[0], "team_1", box[1])
                     fired[-1]()
                 return super().__call__(team, assistant, action, payload, evidence)
 

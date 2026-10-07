@@ -480,7 +480,7 @@ class FreezeTests(RoutineServiceCase):
             self.assertIsNone(service.current_routine_challenge("team_1"))
             self.assertEqual(self.state(service).runs, ())
 
-    def test_a_denied_or_stopped_frozen_run_ends_and_an_expired_challenge_leaves_it_frozen(self) -> None:
+    def test_a_denied_frozen_run_ends_and_an_expired_challenge_leaves_it_frozen(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim, _frozen = self.paused(directory)
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
@@ -490,12 +490,6 @@ class FreezeTests(RoutineServiceCase):
             self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "frozen")
             denied = self.answer_human(service, claim["run_id"], opened["challenge_id"], "deny")
             self.assertEqual((denied["status"], self.state(service).notices[-1].outcome), ("denied", "denied"))
-        with tempfile.TemporaryDirectory() as directory:
-            _controller, service, claim, _frozen = self.paused(directory)
-            service.open_routine_challenge("team_1", claim["run_id"], "en")
-            self.assertTrue(service.stop_routine("team_1", claim["run_id"])["stopped"])
-            self.assertIsNone(service.current_routine_challenge("team_1"))
-            self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
 
     def test_invalid_answers_and_runs_are_refused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

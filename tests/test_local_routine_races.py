@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import functools
 import tempfile
 import threading
 import time
@@ -228,21 +227,18 @@ class WatchdogRaceTests(RoutineServiceCase):
 
 
 class StopBeforeRegistrationTests(FrozenCase):
-    def test_stop_and_deletion_end_a_claimed_run_before_its_worker_starts(self) -> None:
+    def test_deletion_ends_a_claimed_run_before_its_worker_starts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             runtime = Runtime(acting())
             _controller, service, claim = self.claimed(directory, runtime)
-            self.assertTrue(service.stop_routine("team_1", claim["run_id"])["stopped"])
+            self.assertTrue(service.delete_routine("team_1", claim["routine_id"])["deleted"])
             with self.assertRaises(local_app.ApiProblem) as late:
                 self.run_claim(service, claim)
             self.assertEqual(late.exception.code, "routine-lease-invalid")
-            value = self.routine(service)
-            claim = service.claim_routine_run()
-            self.assertTrue(service.delete_routine("team_1", value.routine_id)["deleted"])
             self.assertEqual(runtime.contexts, [])
             self.assertEqual(self.state(service).discards, ())
 
-    def test_a_worker_registering_while_stop_ends_its_run_is_refused(self) -> None:
+    def test_a_worker_registering_while_a_deletion_ends_its_run_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             runtime = Runtime(acting())
             _controller, service, claim = self.claimed(directory, runtime)
@@ -260,7 +256,7 @@ class StopBeforeRegistrationTests(FrozenCase):
             self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "frozen")
             self.assertEqual(service._routine_halting, set())
 
-    def test_a_stop_while_a_replay_is_admitted_ends_the_frozen_run_before_it_resumes(self) -> None:
+    def test_a_deletion_while_a_replay_is_admitted_ends_the_frozen_run_before_it_resumes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, claim = self.frozen(directory)
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
@@ -268,17 +264,18 @@ class StopBeforeRegistrationTests(FrozenCase):
 
             def stopped_meanwhile(*args):
                 admit(*args)
-                self.assertTrue(service.stop_routine("team_1", claim["run_id"])["stopped"])
+                self.assertTrue(service.delete_routine("team_1", claim["routine_id"])["deleted"])
 
             with (
                 mock.patch.object(routine_human, "_current_context", side_effect=stopped_meanwhile),
                 self.assertRaises(local_app.ApiProblem) as caught,
             ):
                 self.answer_human(service, claim["run_id"], opened["challenge_id"])
-            # Stop withdrew the challenge with the run, so the answer finds nothing to consume and nothing resumes.
+            # The deletion withdrew the challenge with the run: the answer finds nothing to consume and nothing resumes.
             self.assertEqual(caught.exception.code, "human-request-expired")
             self.assertEqual(self.state(service).runs, ())
-            self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
+            ended = next(item for item in self.state(service).notices if item.run_id == claim["run_id"])
+            self.assertEqual(ended.outcome, "stopped")
 
 
 class ChallengeEndingRaceTests(FrozenCase):
@@ -323,24 +320,21 @@ class ChallengeEndingRaceTests(FrozenCase):
         thread.join(10)
 
     def test_a_run_ended_while_its_challenge_opens_never_keeps_a_challenge(self) -> None:
-        endings = {
-            "stop": lambda service, claim: service.stop_routine("team_1", claim["run_id"])["stopped"],
-            "delete": lambda service, claim: service.delete_routine("team_1", claim["routine_id"])["deleted"],
-        }
-        for name, end in endings.items():
-            with self.subTest(ending=name), tempfile.TemporaryDirectory() as directory:
-                service, claim = self.frozen(directory)
-                with (
-                    self.ending_meanwhile(service, functools.partial(end, service, claim)) as results,
-                    contextlib.suppress(local_app.ApiProblem),
-                ):
-                    service.open_routine_challenge("team_1", claim["run_id"], "en")
-                self.assertEqual(results, [True])
-                self.assertIsNone(service.current_routine_challenge("team_1"))
-                # The run's own notice says stopped; a deletion's notice closes the timeline after it.
-                ended = next(item for item in self.state(service).notices if item.run_id == claim["run_id"])
-                self.assertEqual(ended.outcome, "stopped")
-                self.assertEqual(self.state(service).runs, ())
+        with tempfile.TemporaryDirectory() as directory:
+            service, claim = self.frozen(directory)
+            with (
+                self.ending_meanwhile(
+                    service, lambda: service.delete_routine("team_1", claim["routine_id"])["deleted"]
+                ) as results,
+                contextlib.suppress(local_app.ApiProblem),
+            ):
+                service.open_routine_challenge("team_1", claim["run_id"], "en")
+            self.assertEqual(results, [True])
+            self.assertIsNone(service.current_routine_challenge("team_1"))
+            # The run's own notice says stopped; the deletion's notice closes the timeline after it.
+            ended = next(item for item in self.state(service).notices if item.run_id == claim["run_id"])
+            self.assertEqual(ended.outcome, "stopped")
+            self.assertEqual(self.state(service).runs, ())
 
     def test_cancelling_a_run_challenge_never_cancels_its_replacement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -363,7 +357,7 @@ class ChallengeEndingRaceTests(FrozenCase):
 
 
 class FreezeRaceTests(RoutineServiceCase):
-    """A run reaching its pause as a Stop or a deletion reaches it is never left frozen behind either."""
+    """A run reaching its pause as a deletion reaches it is never left frozen behind."""
 
     def committing(self, service, during, after):
         """Run ``during`` inside the freeze's terminal commit, before what it commits, and ``after`` once it returns."""
@@ -380,17 +374,18 @@ class FreezeRaceTests(RoutineServiceCase):
 
         return mock.patch.object(service, "_commit_chat_terminal", committed)
 
-    def test_a_stop_reaching_a_run_as_it_freezes_ends_it(self) -> None:
+    def test_a_deletion_reaching_a_run_as_it_freezes_ends_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim = self.asking(directory)
-            stops: list[dict[str, object]] = []
+            deletions: list[dict[str, object]] = []
             with self.committing(
-                service, lambda: None, lambda: stops.append(service.stop_routine("team_1", claim["run_id"]))
+                service, lambda: None, lambda: deletions.append(service.delete_routine("team_1", claim["routine_id"]))
             ):
                 self.run_claim(service, claim)
-            self.assertTrue(stops[0]["stopped"])
+            self.assertTrue(deletions[0]["deleted"])
             self.assertEqual(self.state(service).runs, ())
-            self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
+            ended = next(item for item in self.state(service).notices if item.run_id == claim["run_id"])
+            self.assertEqual(ended.outcome, "stopped")
             self.assertEqual(service.routine_store.continuations("team_1"), ())
 
     def test_a_routine_deleted_as_its_run_freezes_ends_the_run_and_is_removed(self) -> None:
@@ -403,28 +398,4 @@ class FreezeRaceTests(RoutineServiceCase):
             with self.committing(service, deleting, lambda: None):
                 self.assertEqual(self.run_claim(service, claim)["status"], "stopped")
             self.assertEqual((self.state(service).runs, self.state(service).routines), ((), ()))
-            self.assertEqual(service.routine_store.continuations("team_1"), ())
-
-    def test_a_run_freezing_while_stop_halts_it_is_ended_by_that_stop(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            _controller, service, claim = self.asking(directory)
-            commit, halt = service._commit_chat_terminal, routine_run.halt_routine_run
-            committed: list[bool] = []
-            stops: list[dict[str, object]] = []
-
-            def stopping(team_id, token, before_commit=lambda: None):
-                # Stop reads the run leased; the freeze commits just before Stop's cancellation reaches the segment.
-                def halt_after_freeze(*args):
-                    committed.append(commit(team_id, token, before_commit))
-                    return halt(*args)
-
-                with mock.patch.object(routine_run, "halt_routine_run", side_effect=halt_after_freeze):
-                    stops.append(service.stop_routine("team_1", claim["run_id"]))
-                return committed[0]
-
-            with mock.patch.object(service, "_commit_chat_terminal", stopping):
-                self.run_claim(service, claim)
-            self.assertEqual((committed, stops[0]["stopped"]), ([True], True))
-            self.assertEqual(self.state(service).runs, ())
-            self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
             self.assertEqual(service.routine_store.continuations("team_1"), ())

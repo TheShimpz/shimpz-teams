@@ -233,7 +233,6 @@ class RunFaultTests(RoutineServiceCase):
             "deny": lambda service, run_id: self.answer_human(
                 service, run_id, service.open_routine_challenge("team_1", run_id, "en")["challenge_id"], "deny"
             ),
-            "stop": lambda service, run_id: service.stop_routine("team_1", run_id),
             "delete": lambda service, run_id: service.delete_routine(
                 "team_1", record.run(self.state(service), run_id).routine_id
             ),
@@ -570,22 +569,20 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
             self.assertIsNotNone(service.claim_routine_run())
             self.assertEqual(self.state(service).discards, ())
 
-    def test_notices_and_stops_refuse_unknown_runs_and_stop_a_running_one(self) -> None:
+    def test_an_internal_stop_reaches_only_a_running_run_of_its_own_team(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
-            with self.assertRaises(local_app.ApiProblem) as missing:
-                service.stop_routine("team_1", "0" * 32)
-            self.assertEqual(missing.exception.code, "routine-run-not-found")
+            self.assertFalse(routine_run.stop_routine_run(service, "team_1", "0" * 32))
             self.routine(service)
             claim = service.claim_routine_run()
             routine_run.register_routine_run(service, "team_1", claim["run_id"], "token", 600)
-            self.assertTrue(service.stop_routine("team_1", claim["run_id"])["stopped"])
+            self.assertTrue(routine_run.stop_routine_run(service, "team_1", claim["run_id"]))
             self.assertIn("token", service._cancelled_chat_tokens)
             # A worker registered under another Team is never reached, and the run is left to that worker's own end.
             service._routine_runs[claim["run_id"]] = dataclasses.replace(
                 service._routine_runs[claim["run_id"]], team_id="team_2"
             )
-            self.assertFalse(service.stop_routine("team_1", claim["run_id"])["stopped"])
+            self.assertFalse(routine_run.stop_routine_run(service, "team_1", claim["run_id"]))
 
 
 class WatchdogFaultTests(RoutineServiceCase):

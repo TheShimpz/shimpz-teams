@@ -296,8 +296,6 @@ class SessionRouteTests(RoutineHttpCase):
                     with self.subTest(body=invalid):
                         status, _type, raw = self.request("POST", run + "/challenge", invalid)
                         self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
-                status, _type, raw = self.request("POST", run + "/stop", b'{"x":1}')
-                self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
                 status, _type, raw = self.request("POST", run + "/challenge", b'{"locale":"pt"}')
                 opened = json.loads(raw)
                 self.assertEqual((opened["locale"], opened["rendered"]["title"]), ("pt", f"PT {opened_title}"))
@@ -305,12 +303,16 @@ class SessionRouteTests(RoutineHttpCase):
                 # The retired release of an uncertain run stays absent.
                 status, _type, raw = self.request("POST", run + "/resolve", b'{"batch_fingerprint":"x"}')
                 self.assertEqual((status, json.loads(raw)["code"]), (404, "route-not-found"))
+                # No person stops a run: the retired Stop route stays absent, so the frozen run is still there.
+                status, _type, raw = self.request("POST", run + "/stop", EMPTY)
+                self.assertEqual((status, json.loads(raw)["code"]), (404, "route-not-found"))
+                status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
+                self.assertEqual(json.loads(raw)["runs"][0]["status"], "frozen")
                 answer = json.dumps({"challenge_id": challenge_id, "decision": "deny"}).encode()
                 status, _type, raw = self.request("POST", run + "/human", answer, self.model())
                 self.assertEqual(self.terminal(raw)["body"]["status"], "denied")
-                status, _type, raw = self.request("POST", "/v1/teams/team_1/routines/runs/bad/stop", EMPTY)
-                self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-run-not-found"))
-                status, _type, raw = self.request("POST", run + "/stop", EMPTY)
+                bad = "/v1/teams/team_1/routines/runs/bad/challenge"
+                status, _type, raw = self.request("POST", bad, b'{"locale":"en"}')
                 self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-run-not-found"))
                 status, _type, raw = self.request("POST", run + "/integrations", EMPTY, self.model())
                 self.assertEqual(self.terminal(raw)["body"]["code"], "routine-run-not-found")

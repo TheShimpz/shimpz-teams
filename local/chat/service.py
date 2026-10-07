@@ -269,7 +269,6 @@ class ChatTurnService:
     _routine_lost_runs = local_routine_compiled.lost_runs
     routine_notices = local_routine_notices.routine_notices
     acknowledge_routine_notices = local_routine_notices.acknowledge_notices
-    stop_routine = local_routine_notices.stop_routine
     routine_run_diagnostics = local_routine_diagnostics.run_diagnostics
     routine_run_steps = local_routine_diagnostics.run_steps
 

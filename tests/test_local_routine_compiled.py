@@ -16,6 +16,7 @@ from socket import socketpair
 from types import SimpleNamespace
 from unittest import mock
 
+import routine_fixture
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 from test_local_routine_service import RoutineServiceCase, approval
 
@@ -651,10 +652,10 @@ class RealRpcTests(CompiledRunCase):
 
 
 class StopTests(CompiledRunCase):
-    def test_a_stop_during_an_action_holds_the_run_and_a_stop_between_runs_stops_it(self) -> None:
+    def test_a_stop_during_an_action_holds_the_run(self) -> None:
         def invoke(*_args):
-            # Stop reaches the running segment while its first Action is in flight.
-            service.stop_routine("team_1", claim["run_id"])
+            # An internal stop reaches the running segment while its first Action is in flight.
+            routine_run.stop_routine_run(service, "team_1", claim["run_id"])
             return {"result": ZONES}
 
         with tempfile.TemporaryDirectory() as directory:
@@ -668,13 +669,28 @@ class StopTests(CompiledRunCase):
             (outcome, [item.incident_id for item in state.incidents], brain.calls), ("held", [claim["run_id"]], [])
         )
 
-    def test_a_held_run_is_never_stopped_out_of_its_recovery(self) -> None:
+    def test_pausing_during_a_run_lets_that_run_finish_and_starts_no_next_one_until_resumed(self) -> None:
+        def invoke(_team, _assistant, action, _payload, _evidence):
+            # The person pauses the Routine while its run is already going.
+            if action == "list-zones":
+                self.assertTrue(service.pause_routine("team_1", value.routine_id)["paused"])
+            return {"result": ZONES if action == "list-zones" else RECORDS}
+
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, _brain, value = self.compiled(directory, None)
-            held = record.Run("d" * 32, value.routine_id, "held", 0, generation=f"{'a' * 64}:routine:{'d' * 32}")
-            service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, runs=(held,)), None))
-            self.assertFalse(service.stop_routine("team_1", "d" * 32)["stopped"])
-            self.assertEqual(self.state(service).runs, (held,))
+            _controller, service, _brain, value = self.compiled(directory, invoke)
+            claim = service.claim_routine_run()
+            outcome = self.run_without_key(service, claim)["status"]
+            due = int(time.time()) - 60
+            routine_fixture.update_routine(service, value.routine_id, next_run_at=due)
+            paused = service.claim_routine_run()
+            service.resume_routine("team_1", value.routine_id)
+            routine_fixture.update_routine(service, value.routine_id, next_run_at=due)
+            resumed = service.claim_routine_run()
+            notices = [item.outcome for item in self.state(service).notices if item.run_id == claim["run_id"]]
+        # The run already going finished on its own; only the next run waited for the Routine to be resumed.
+        self.assertEqual((outcome, notices), ("done", ["done"]))
+        self.assertIsNone(paused)
+        self.assertEqual(resumed["routine_id"], value.routine_id)
 
 
 class RuntimeTests(CompiledRunCase):
