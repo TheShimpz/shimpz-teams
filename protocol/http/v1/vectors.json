@@ -2494,7 +2494,7 @@
   },
   "routine_refusal": {
     "valid": [
-      {"code": "routine-mutation-unavailable"},
+      {"code": "routine-step-budget"},
       {"code": "routine-secret-literal"}
     ],
     "invalid": [

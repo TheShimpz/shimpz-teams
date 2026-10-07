@@ -110,7 +110,7 @@ person's later word (ADR-0101).
 A Local chat terminal that recorded a Routine (ADR-0101) carries at most one of `routine_proposal`,
 `routine_question`, and `routine_refusal` beside the agent's own `reply`, which keeps the work the turn already did.
 `routine_refusal` (`routine_proposal.canonical_refusal`) is exactly `{code}`, a closed-grammar code that Admin words in the
-interface language (for example `routine-mutation-unavailable` or `routine-secret-literal`); nothing was created.
+interface language (for example `routine-step-budget` or `routine-secret-literal`); nothing was created.
 `routine_question` (`routine_proposal.canonical_question`) is `{code, options, value}`: Team asks the person before any card,
 the recording is kept, and the person's answer is an ordinary chat message. Its code is one of
 `routine_proposal.QUESTION_CODES`: how often it runs (`routine-schedule-unstated`), what each run does with its result (`routine-output-unstated`:
