@@ -94,7 +94,7 @@ def _slot_input(
         return member, "value", value
     clock = routine_provenance._clock(context, call, value)
     if clock is not None:
-        # The recorder's own decision: the run date, or near local midnight a fixed literal.
+        # The recorder's own decision: the run date, or the UTC date of another local day as a fixed literal.
         return (member, "clock", None) if clock[1] == "clock" else (member, "value", value)
     # A value the recorder copies from a result, or asks about as an unsourced identifier, needs fresh provenance;
     # free text or a container no result holds stays the assistant's own literal, as the recorder keeps it.
@@ -107,20 +107,21 @@ def _slot_input(
 
 def settlement(sends: Sequence[routine_recording.Send], asked: routine_recording.Asked) -> int | None:
     """The latest send after the question whose calls satisfy its manifest, or None while none does."""
+    zone = routine_recording.zone(sends)[0]
     for position in reversed(range(asked.after, len(sends))):
-        if _satisfies(sends[position], asked.manifest):
+        if _satisfies(sends[position], asked.manifest, zone):
             return position
     return None
 
 
-def _satisfies(send: routine_recording.Send, manifest: routine_recording.Manifest) -> bool:
+def _satisfies(send: routine_recording.Send, manifest: routine_recording.Manifest, zone: str) -> bool:
     """Whether one send's calls repeat the manifest exactly.
 
     Every slot takes its own call, in the frozen order wherever a change is involved: a changing slot comes after every
     slot before it, and a read-only slot after every changing slot before it. Fresh values map one to one onto the
     values the work sent. Every call no slot takes must be a read-only source of a fresh value the slots sent.
     """
-    return _assigned(send, manifest.slots, _Assignment((), -1, -1, {}, {}))
+    return _assigned(send, manifest.slots, _Assignment((), -1, -1, {}, {}, zone))
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +133,8 @@ class _Assignment:
     last_any: int
     forward: dict[str, str]
     backward: dict[str, str]
+    # The Routine's zone, in which a date slot is the send's own date.
+    zone: str
 
 
 def _assigned(send: routine_recording.Send, slots: Sequence[routine_recording.Slot], state: _Assignment) -> bool:
@@ -142,12 +145,12 @@ def _assigned(send: routine_recording.Send, slots: Sequence[routine_recording.Sl
     for place, occurrence in enumerate(send.occurrences):
         if place <= floor or place in state.taken or occurrence.read_only != slot.read_only:
             continue
-        mapping = _fills(send, occurrence, slot, (state.forward, state.backward))
+        mapping = _fills(send, occurrence, slot, (state.forward, state.backward), state.zone)
         if mapping is None:
             continue
         taken = (*state.taken, place)
         last_change = place if not slot.read_only else state.last_change
-        following = _Assignment(taken, last_change, max(state.last_any, place), *mapping)
+        following = _Assignment(taken, last_change, max(state.last_any, place), *mapping, state.zone)
         if _assigned(send, rest, following):
             return True
     return False
@@ -168,6 +171,7 @@ def _fills(
     occurrence: trace.Occurrence,
     slot: routine_recording.Slot,
     mapping: tuple[dict[str, str], dict[str, str]],
+    zone: str,
 ) -> tuple[dict[str, str], dict[str, str]] | None:
     """The fresh value mapping once one call fills a slot, or None when it does not fill it.
 
@@ -180,7 +184,7 @@ def _fills(
     if set(given.value) != {member for member, _kind, _value in slot.inputs}:
         return None
     forward, backward = dict(mapping[0]), dict(mapping[1])
-    today = routine_provenance._date_at(send.started_at, "UTC").isoformat()
+    today = routine_provenance._date_at(send.started_at, zone).isoformat()
     for member, kind, value in slot.inputs:
         sent = given.value[member]
         if (kind == "value" and not routine_plan.same(sent, value)) or (kind == "clock" and sent != today):

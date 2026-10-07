@@ -93,13 +93,19 @@ def _bound(
 def _clock(
     context: routine_recording._Context, call: routine_recording._Call, value: object
 ) -> tuple[dict[str, object], str] | None:
-    """The run date, when the value is the UTC date its own send started on; None when it is not that date."""
+    """The run date, when the value is the date its own send started on in the Routine's zone, as each run reads it.
+
+    The UTC date of a send that started on another date in that zone is the assistant's fixed literal; anything else
+    is no date of the send, None.
+    """
     started = context.sends[call.send].started_at
-    if not isinstance(value, str) or value != _date_at(started, "UTC").isoformat():
+    if not isinstance(value, str):
         return None
-    if _date_at(started, context.zone[0]) == _date_at(started, "UTC"):
+    if value == _date_at(started, context.zone[0]).isoformat():
         return {"kind": "run_clock", "format": "date"}, "clock"
-    return {"kind": "literal", "value": value}, "assistant"
+    if value == _date_at(started, "UTC").isoformat():
+        return {"kind": "literal", "value": value}, "assistant"
+    return None
 
 
 def _date_at(instant: int, timezone: str) -> datetime.date:

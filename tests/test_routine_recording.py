@@ -1,8 +1,9 @@
 """Team's deterministic recording of a Routine from a person's recent sends, with no model (ADR-0101).
 
 Each top-level input member of a plan call is classified by the first rule that applies: a secret refuses, a value the
-person named is a literal, the send's UTC date is the run date, a value one result holds is copied from that one
-occurrence, and anything else is a literal the assistant chose; what cannot be read is asked, never guessed.
+person named is a literal, the send's date in the Routine's zone is the run date, a value one result holds is copied
+from that one occurrence, and anything else is a literal the assistant chose; what cannot be read is asked, never
+guessed.
 """
 
 from __future__ import annotations

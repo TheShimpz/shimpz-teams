@@ -257,6 +257,25 @@ class RerunTests(unittest.TestCase):
         recorded = _recorded(first, _send(lookup, dated, started_at=early + 86_400), asked=_pending(asked, 1))
         self.assertEqual(_input(recorded)["day"], {"kind": "literal", "value": "2026-10-05"})
 
+    def test_a_run_date_at_2330_in_sao_paulo_settles_with_the_persons_own_date(self) -> None:
+        evening = int(datetime.datetime(2026, 10, 7, 2, 30, tzinfo=datetime.UTC).timestamp())
+        lookup = ("reports/fetch", {"q": "ids"}, {"id": "remembered-1"})
+        first = _send(
+            ("reports/fetch", {"day": "2026-10-06", "id": "remembered-1"}, {}),
+            message="relatório a cada hora",
+            started_at=evening,
+        )
+        asked = _record(first)
+        self.assertEqual(asked.manifest.slots[0].inputs, (("day", "clock", None), ("id", "fresh", "remembered-1")))
+        utc_day = ("reports/fetch", {"day": "2026-10-07", "id": "remembered-1"}, {})
+        later = evening + 60
+        self.assertEqual(
+            _record(first, _send(lookup, utc_day, started_at=later), asked=_pending(asked, 1)).code, asked.code
+        )
+        own_day = ("reports/fetch", {"day": "2026-10-06", "id": "remembered-1"}, {})
+        recorded = _recorded(first, _send(lookup, own_day, started_at=later), asked=_pending(asked, 1))
+        self.assertEqual(_input(recorded)["day"], {"kind": "run_clock", "format": "date"})
+
     def test_the_settled_frontier_is_kept_while_another_question_is_asked(self) -> None:
         first = _send(RECORDS, message="DNS de shimpz.com")
         pending = _pending(_record(first), 1)

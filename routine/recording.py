@@ -13,8 +13,8 @@ member of a plan call is classified by the first rule that applies:
 1. a secret (withheld, credential-shaped, protected by the span, or bound for a secret destination) refuses;
 2. a non-empty string occurring in one line the person wrote, or a number whose JSON text is a whole token of one, is
    a literal the person named;
-3. the UTC date its own send started on is the run date, when that send did not start near local midnight; otherwise
-   a fixed literal; with no timezone known, the person is asked for one;
+3. the date its own send started on in the Routine's zone is the run date, which each run reads in that zone; the
+   UTC date of a send that started on another date there is a fixed literal;
 4. a long string, a long integer, or a non-empty container is copied from the one call result in the span holding it:
    from its one position outside arrays, or through the array item whose single member the person named and no other
    item shares; never by an index, which a reordered result would point at another item. An identifier no result
@@ -40,6 +40,8 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+from protocol.http.v1 import phrase
+from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
 from routine import trace
 
@@ -51,6 +53,22 @@ MIN_REF_INTEGER_DIGITS = 6
 MIN_SELECTOR_CHARS = 2
 # A complete number as written, its sign and exponent included, never a fragment of a longer number or word.
 _NUMBER_RE = re.compile(r"(?<![\w.,+-])[-+]?\d+(?:[.,]\d+)*(?:[eE][-+]?\d+)?(?!\w|[.,]\d)")
+
+
+def zone(sends: Sequence[Send]) -> tuple[str, str]:
+    """The Routine's zone and where it came from.
+
+    The one zone the latest authored segment naming any names; else the request's browser zone; else UTC by
+    convention, with no source. A segment naming several zones names none of them.
+    """
+    for segment in reversed([segment for send in sends for segment in send.person]):
+        written = phrase.zones(segment)
+        if written:
+            if len(written) == 1:
+                return written[0], "person"
+            break
+    browser = sends[-1].timezone if sends else None
+    return (http_routine.CONVENTIONAL_TIMEZONE, "none") if browser is None else (browser, "browser")
 
 
 class RecordingError(ValueError):

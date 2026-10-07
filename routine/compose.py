@@ -50,7 +50,7 @@ def record(
     texts = [line for send in sends for line in (*routine_recording._lines(send.person), *send.window)]
     latest = [call for call in calls if call.send == calls[-1].send] if calls else []
     context = routine_recording._Context(
-        sends, calls, routine_recording._known(texts, protection), _zone(sends), asked, contracts
+        sends, calls, routine_recording._known(texts, protection), routine_recording.zone(sends), asked, contracts
     )
     context.replays_changes = recording.mode != "decide"
     context.frontier = frontier
@@ -239,22 +239,6 @@ def _output(sends: Sequence[routine_recording.Send], existing: routine_recording
     if not latest and existing is not None:
         return existing.plan["output"]["mode"]
     return None
-
-
-def _zone(sends: Sequence[routine_recording.Send]) -> tuple[str, str]:
-    """The Routine's zone and where it came from.
-
-    The one zone the latest authored segment naming any names; else the request's browser zone; else UTC by
-    convention, with no source. A segment naming several zones names none of them.
-    """
-    for segment in reversed([segment for send in sends for segment in send.person]):
-        written = phrase.zones(segment)
-        if written:
-            if len(written) == 1:
-                return written[0], "person"
-            break
-    browser = sends[-1].timezone if sends else None
-    return (http_routine.CONVENTIONAL_TIMEZONE, "none") if browser is None else (browser, "browser")
 
 
 # --- What it runs ----------------------------------------------------------------------------------------------------

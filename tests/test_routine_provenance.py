@@ -75,10 +75,19 @@ class ClassificationTests(unittest.TestCase):
                 source, origin = self.classify(value, "true false null 1 0", {"x": value})
                 self.assertEqual((source, origin), ({"kind": "literal", "value": value}, "assistant"))
 
-    def test_the_send_date_is_the_run_date_only_when_utc_and_local_dates_agree(self) -> None:
+    def test_the_send_date_in_the_routines_zone_is_the_run_date(self) -> None:
         source, origin = self.classify("2026-10-05", "relatório", {"day": "2026-10-05"})
         self.assertEqual((source, origin), ({"kind": "run_clock", "format": "date"}, "clock"))
-        # Near local midnight on either side, the date is a fixed literal, never copied from an earlier result.
+        # At 23:30 in São Paulo the person's date is the run date, though it is already the next day in UTC.
+        evening = int(datetime.datetime(2026, 10, 7, 2, 30, tzinfo=datetime.UTC).timestamp())
+        source, origin = self.classify("2026-10-06", "relatório", started_at=evening)
+        self.assertEqual((source, origin), ({"kind": "run_clock", "format": "date"}, "clock"))
+        source, origin = self.classify("2026-10-07", "relatório", started_at=evening)
+        self.assertEqual((source, origin), ({"kind": "literal", "value": "2026-10-07"}, "assistant"))
+        # A zone the person wrote is the Routine's zone: there, at that instant, the UTC date is the run date.
+        source, origin = self.classify("2026-10-07", "relatório em UTC", started_at=evening)
+        self.assertEqual((source, origin), ({"kind": "run_clock", "format": "date"}, "clock"))
+        # The UTC date of a send on another local date is a fixed literal, never copied from an earlier result.
         early = int(datetime.datetime(2026, 10, 5, 1, tzinfo=datetime.UTC).timestamp())
         late = int(datetime.datetime(2026, 10, 5, 23, 30, tzinfo=datetime.UTC).timestamp())
         for started, timezone in ((early, "America/Sao_Paulo"), (late, "Asia/Tokyo")):
