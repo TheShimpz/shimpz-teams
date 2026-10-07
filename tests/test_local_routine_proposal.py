@@ -13,10 +13,12 @@ from unittest import mock
 import routine_fixture
 from local_controller_harness import LocalContractCase
 
+from action import human as action_human
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local import app as local_app
 from local import audit as local_audit
+from local import authority as local_authority
 from local.chat import api as local_chat_api
 from local.chat import segment as local_segment
 from local.routine import contracts as routine_contracts
@@ -33,8 +35,11 @@ from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
 from routine import recording as routine_recording
+from tests import human_request_fixtures
 
 PRINCIPAL = "a" * 32
+# The Routine key fingerprint Team admits for a run in these tests.
+KEY = "e" * 64
 OTHER = "b" * 32
 ASSISTANT = "shimpz-cloudflare"
 SHIMPZ = "023e105f4ecef8ad9ca31a8372d0c353"
@@ -102,6 +107,9 @@ def _bump_revisions(service) -> None:
 
 class Recording:
     """A scripted chat agent: it lists the zones, lists shimpz.com's records, then records the Routine."""
+
+    # A paused Action's request carries no model-written purpose.
+    purpose = staticmethod(lambda *_args: None)
 
     def __init__(self, *outcomes: dict[str, object], calls: bool = True, between=lambda: None) -> None:
         self.outcomes = list(outcomes)
@@ -661,13 +669,6 @@ class RecordedRoutineTests(LocalContractCase):
                 self.assertEqual(service.routine_store.load("team_1").routines, ())
 
     def test_a_recording_that_cannot_become_a_routine_keeps_its_reply_and_carries_its_refusal(self) -> None:
-        def mutating(service) -> None:
-            spec = service.registry[ASSISTANT]
-            action = dataclasses.replace(spec.actions["list-dns-records"], effect="mutating")
-            service.registry[ASSISTANT] = dataclasses.replace(
-                spec, actions={**spec.actions, "list-dns-records": action}
-            )
-
         cases = [
             (Recording(_record(), calls=False), "routine-recording-empty", None),
             (Recording(_record(notes="extra")), "routine-recording-invalid", None),
@@ -677,11 +678,84 @@ class RecordedRoutineTests(LocalContractCase):
                 None,
             ),
             (Recording(_record(replaces="d" * 32)), "routine-not-found", None),
-            (Recording(_record()), "routine-mutation-unavailable", mutating),
         ]
         for runtime, code, prepare in cases:
             with self.subTest(code=code):
                 self.assertEqual(self.refusal(runtime, prepare=prepare or (lambda service: None)), code)
+
+    def test_a_changing_recording_becomes_a_routine_whose_every_run_waits_for_its_own_authorization(self) -> None:
+        """A change the person authorized while recording replays, and each run asks for that authorization again."""
+        password = human_request_fixtures.admit(
+            human_request_fixtures.fingerprinted(
+                {"kind": "auth:password", "ordinal": 0, "title": "Sign in", "description": "Enter the password."}
+            ),
+            ("auth:password",),
+        )
+        changed: list[dict[str, object]] = []
+
+        def invoke(_team, _assistant, action, payload, evidence):
+            if action == "list-dns-records":
+                if not any(item.kind == "auth:password" for item in evidence.transcript.responses):
+                    raise action_human.HumanRequestSuspensionError(password)
+                changed.append(dict(payload))
+            return {"result": ZONES if action == "list-zones" else RECORDS}
+
+        def run(service) -> dict[str, object]:
+            now = int(time.time())
+            service.routine_store.update(
+                "team_1",
+                lambda state: (
+                    dataclasses.replace(
+                        state, routines=tuple(dataclasses.replace(item, run_requested=now) for item in state.routines)
+                    ),
+                    None,
+                ),
+            )
+            claim = service.claim_routine_run()
+            evidence = local_authority.RoutineEvidence(KEY, record.lease_sha256(claim["lease_token"]), "a" * 32, 0)
+            claimed = (claim["revision"], claim["plan_digest"], claim["mode"])
+            return claim["run_id"], service.run_routine("team_1", claim["run_id"], evidence, claimed, ("openai", ""))
+
+        def answer(service, run_id: str, decision: str) -> dict[str, object]:
+            opened = service.open_routine_challenge("team_1", run_id, "pt")
+            body = {"challenge_id": opened["challenge_id"], "decision": decision}
+            body.update({"value": True} if decision == "submit" else {})
+            return service.resume_routine_human("team_1", run_id, body, "openai", "")
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(local_authority, "routine_key_fingerprint", return_value=KEY),
+            mock.patch.object(local_audit, "record", return_value="a" * 32),
+        ):
+            service = self.controller(directory, Recording(_record()))
+            spec = service.registry[ASSISTANT]
+            changing = dataclasses.replace(
+                spec.actions["list-dns-records"], effect="mutating", human_requests=("auth:password",)
+            )
+            service.registry[ASSISTANT] = dataclasses.replace(
+                spec, actions={**spec.actions, "list-dns-records": changing}
+            )
+            service.assistant_lifecycle.invoke = invoke
+            paused = self.chat(service)
+            with self.as_person():
+                body = {"challenge_id": paused["challenge_id"], "decision": "submit", "value": True}
+                card = service.resume_chat_human("team_1", body, "openai", "sk-test-0123456789")["routine_proposal"]
+            created = self.confirm(service, card["proposal_id"])
+            recorded = len(changed)
+            first, frozen = run(service)
+            waiting = len(changed)
+            approved = answer(service, first, "submit")
+            second, again = run(service)
+            denied = answer(service, second, "deny")
+        self.assertEqual((paused["status"], paused["request"]["kind"]), ("human-required", "auth:password"))
+        self.assertEqual([step["read_only"] for step in card["steps"]], [True, False])
+        self.assertIn({"assistant": ASSISTANT, "action": "list-dns-records", "read_only": False}, card["permitted"])
+        self.assertEqual(created["status"], "created")
+        # Nothing changes in a run before the person authorizes it again; the authorized change runs exactly once.
+        self.assertEqual((frozen["status"], waiting, recorded), ("frozen", 1, 1))
+        self.assertEqual((approved["status"], len(changed)), ("done", 2))
+        self.assertEqual(changed[1], {"zone_id": SHIMPZ, "page": 1, "per_page": 25})
+        self.assertEqual((again["status"], denied["status"], len(changed)), ("frozen", "denied", 2))
 
     def test_a_recording_lost_mid_turn_is_unavailable(self) -> None:
         runtime = Recording(_record())

@@ -297,9 +297,6 @@ def _candidate(self, response: object, intent: routine_recorder.Intent) -> tuple
     recorded = _recorded(intent, recording, contracts, existing)
     if isinstance(recorded, routine_recording.Question):
         raise _AskedError(recorded, recording.protection.values)
-    if not all(item["read_only"] for item in recorded.permitted):
-        # A Routine that changes something is not admitted yet.
-        raise RefusedError("routine-mutation-unavailable")
     try:
         routine_plan.admit(recorded.document, contracts)
     except routine_plan.PlanError as exc:
