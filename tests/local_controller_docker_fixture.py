@@ -6,6 +6,7 @@ import base64
 import hashlib
 import ipaddress
 import json
+import os
 import secrets
 import threading
 import time
@@ -107,6 +108,9 @@ class DockerFlow:
     assistant_name: str = ""
     original_assistant_id: str = ""
     source_digest: str = ""
+    # Images the caller built and passed in (SHIMPZ_TEAM_LOCAL_TEST_IMAGE, SHIMPZ_ASSISTANT_EGRESS_TEST_IMAGE): this
+    # flow uses them as they are and never removes them; every other image it builds and removes itself.
+    caller_images: frozenset[str] = frozenset()
 
     def volumes(self) -> tuple[str, ...]:
         """Every named volume this flow creates, so creation and cleanup cannot drift apart."""
@@ -115,6 +119,16 @@ class DockerFlow:
 
 def new_flow(run: Callable[..., CompletedProcess[str]]) -> DockerFlow:
     unique = uuid.uuid4().hex[:12]
+    controller_tag = os.environ.get("SHIMPZ_TEAM_LOCAL_TEST_IMAGE") or f"shimpz-team-local-test:{unique}"
+    egress_proxy_tag = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_TEST_IMAGE") or f"shimpz-assistant-egress-test:{unique}"
+    caller_images = frozenset(
+        image
+        for image in (
+            os.environ.get("SHIMPZ_TEAM_LOCAL_TEST_IMAGE"),
+            os.environ.get("SHIMPZ_ASSISTANT_EGRESS_TEST_IMAGE"),
+        )
+        if image
+    )
     daemon_processors = int(run("info", "--format", "{{.NCPU}}").stdout.strip())
     test_cpuset = half_cpu_set(daemon_processors)
     bridge_gateway = ipaddress.IPv4Address(
@@ -139,8 +153,8 @@ def new_flow(run: Callable[..., CompletedProcess[str]]) -> DockerFlow:
         controller=f"shimpz-controller-{unique}",
         egress_proxy=f"shimpz-egress-proxy-{unique}",
         fixture_tag=f"shimpz-cloudflare-test:{unique}",
-        controller_tag=f"shimpz-team-local-test:{unique}",
-        egress_proxy_tag=f"shimpz-assistant-egress-test:{unique}",
+        controller_tag=controller_tag,
+        egress_proxy_tag=egress_proxy_tag,
         token_volume=f"shimpz-local-token-{unique}",
         runtime_token_volume=f"shimpz-local-runtime-token-{unique}",
         audit_volume=f"shimpz-local-audit-{unique}",
@@ -172,6 +186,7 @@ def new_flow(run: Callable[..., CompletedProcess[str]]) -> DockerFlow:
         supervisor_id=secrets.token_hex(16),
         supervisor_session=secrets.token_hex(32),
         source_digest=fixture_source_digest(),
+        caller_images=caller_images,
     )
 
 

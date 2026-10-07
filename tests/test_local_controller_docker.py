@@ -267,6 +267,13 @@ class DockerFlowTests(
         self._run("image", "rm", repository_tag, flow.fixture_tag)
         self.assertNotEqual(self._run("image", "inspect", flow.trusted_ref, check=False).returncode, 0)
 
+        self._build_owned(flow, flow.controller_tag, TEAM / "local" / "Dockerfile", TEAM)
+
+    def _build_owned(self, flow: DockerFlow, tag: str, dockerfile: Path, context: Path) -> None:
+        """Build the image under test, or require the exact image the caller already built from this checkout."""
+        if tag in flow.caller_images:
+            self._run("image", "inspect", tag)
+            return
         self._run(
             "buildx",
             "build",
@@ -274,28 +281,17 @@ class DockerFlowTests(
             flow.builder,
             "--load",
             "--file",
-            str(TEAM / "local" / "Dockerfile"),
+            str(dockerfile),
             "--tag",
-            flow.controller_tag,
-            str(TEAM),
+            tag,
+            str(context),
         )
 
     def _start_controller(self, flow: DockerFlow) -> None:
         for volume in flow.volumes():
             self._run("volume", "create", volume)
         self._run("network", "create", flow.outbound_network)
-        self._run(
-            "buildx",
-            "build",
-            "--builder",
-            flow.builder,
-            "--load",
-            "--file",
-            str(TEAM.parent / ".egress" / "Dockerfile"),
-            "--tag",
-            flow.egress_proxy_tag,
-            str(TEAM.parent),
-        )
+        self._build_owned(flow, flow.egress_proxy_tag, TEAM.parent / ".egress" / "Dockerfile", TEAM.parent)
         public_key = flow.supervisor_private_key.public_key().public_bytes(
             Encoding.PEM,
             PublicFormat.SubjectPublicKeyInfo,
@@ -845,11 +841,16 @@ class DockerFlowTests(
         self._remove("volume", "rm", "--force", *flow.volumes())
         if flow.trusted_ref:
             self._remove("image", "rm", flow.trusted_ref)
-        self._remove("image", "rm", flow.fixture_tag, flow.controller_tag, flow.egress_proxy_tag)
+        owned_images = [
+            image
+            for image in (flow.fixture_tag, flow.controller_tag, flow.egress_proxy_tag)
+            if image not in flow.caller_images
+        ]
+        self._remove("image", "rm", *owned_images)
         self._remove("buildx", "rm", "--force", flow.builder)
         self.assertEqual(owned_containers, [])
         self.assertEqual(owned_networks, [])
-        for reference in (flow.trusted_ref, flow.fixture_tag, flow.controller_tag, flow.egress_proxy_tag):
+        for reference in (flow.trusted_ref, *owned_images):
             if reference:
                 self.assertNotEqual(self._run("image", "inspect", reference, check=False).returncode, 0)
 
