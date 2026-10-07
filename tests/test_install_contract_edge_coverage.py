@@ -47,15 +47,22 @@ class InstallContractEdgeCoverageTests(unittest.TestCase):
                 json.dumps({"$ref": f"{install_contract.DEFINITIONS}#/$defs/entry"}),
                 encoding="utf-8",
             )
-            with (
-                mock.patch.object(
-                    install_contract.Draft202012Validator,
-                    "check_schema",
-                    side_effect=SchemaError("invalid"),
-                ),
-                self.assertRaisesRegex(RuntimeError, "schema is invalid"),
-            ):
+            # A reference to a definition the shared set lacks is refused before any validation can resolve it.
+            with self.assertRaisesRegex(RuntimeError, "entry point"):
                 install_contract._build_validator(root, "entry.json", "entry", {})
+            install_contract._build_validator(root, "entry.json", "entry", {"entry": {"type": "object"}})
+
+        with (
+            mock.patch.object(
+                install_contract.Draft202012Validator,
+                "check_schema",
+                side_effect=SchemaError("invalid"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "schema is invalid"),
+        ):
+            install_contract._check_definitions({})
+        with self.assertRaisesRegex(RuntimeError, "schema is invalid"):
+            install_contract._check_definitions({"entry": {"type": "no-such-type"}})
 
     def test_semantic_lifetimes_ignore_untyped_values_and_reject_invalid_bounds(self) -> None:
         install_contract._validate_semantics("delegation-claims.schema.json", [])

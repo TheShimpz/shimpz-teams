@@ -40,6 +40,7 @@ class ContractValidator:
         shared = definitions.get("$defs")
         if not isinstance(shared, dict):
             raise RuntimeError("Assistant-install definitions are invalid")
+        _check_definitions(shared)
         self._validators = {
             filename: _build_validator(root, filename, definition, shared)
             for filename, definition in ENTRY_POINTS.items()
@@ -66,6 +67,14 @@ def _load_json(path: Path) -> dict[str, object]:
     return value
 
 
+def _check_definitions(shared: dict[str, object]) -> None:
+    """Check the shared definitions against the metaschema once; every entry point only adds a local reference."""
+    try:
+        Draft202012Validator.check_schema({"$schema": "https://json-schema.org/draft/2020-12/schema", "$defs": shared})
+    except SchemaError as exc:
+        raise RuntimeError("Assistant-install schema is invalid") from exc
+
+
 def _build_validator(
     root: Path,
     filename: str,
@@ -73,18 +82,15 @@ def _build_validator(
     shared: dict[str, object],
 ) -> Draft202012Validator:
     entry = _load_json(root / filename)
-    if entry.get("$ref") != f"{DEFINITIONS}#/$defs/{definition}":
+    if entry.get("$ref") != f"{DEFINITIONS}#/$defs/{definition}" or definition not in shared:
         raise RuntimeError("Assistant-install schema entry point is invalid")
-    local = {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$defs": shared,
-        "$ref": f"#/$defs/{definition}",
-    }
-    try:
-        Draft202012Validator.check_schema(local)
-    except SchemaError as exc:
-        raise RuntimeError("Assistant-install schema is invalid") from exc
-    return Draft202012Validator(local)
+    return Draft202012Validator(
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$defs": shared,
+            "$ref": f"#/$defs/{definition}",
+        }
+    )
 
 
 def _validate_semantics(schema_name: str, value: object) -> None:
