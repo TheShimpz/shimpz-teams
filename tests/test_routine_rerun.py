@@ -13,6 +13,7 @@ from test_routine_recording import (
     SELECTED,
     SHIMPZ_ID,
     STARTED,
+    TWIN_ID,
     TWINS,
     ZONES,
     ZONES_CALL,
@@ -93,6 +94,32 @@ class RerunTests(unittest.TestCase):
                 sent = next(given for name, given, _result in calls if name == "cloudflare/list-dns-records")
                 self.assertEqual(records_step["input"]["per_page"]["value"], sent["per_page"])
                 self.assertEqual(recorded.document["output"]["step"], records_step["id"])
+
+    def test_an_unchosen_read_does_not_win_the_work_source_preference(self) -> None:
+        def read(zone_id: str, payload: str) -> tuple:
+            return (RECORDS[0], {"zone_id": zone_id}, {"payload": payload})
+
+        first = _send(
+            ("cloudflare/list-zones", {}, TWINS),
+            read(SHIMPZ_ID, "payload-12345"),
+            read(TWIN_ID, "different-12345"),
+            message="A cada hora, liste os registros DNS de shimpz.com",
+        )
+        question = _record(first)
+        self.assertEqual((question.code, question.pending.member), ("routine-binding-ambiguous", "zone_id"))
+        self.assertEqual({value for value, _label in question.pending.targets}, {SHIMPZ_ID, TWIN_ID})
+        # The answer's send also reads the twin, whose result now holds what the chosen zone's held before.
+        answer = _send(
+            ("reports/fetch", {"q": "ids"}, {"id": TWIN_ID}),
+            read(SHIMPZ_ID, "different-12345"),
+            read(TWIN_ID, "payload-12345"),
+            ("reports/post", {"payload": "payload-12345"}, {}),
+            message=json.dumps(SHIMPZ_ID),
+        )
+        result = _record(first, answer, asked=_asked(question, 1))
+        self.assertIsInstance(result, recording.Question)
+        self.assertEqual((result.code, result.pending.member), ("routine-binding-ambiguous", "payload"))
+        self.assertTrue(any(item.member == "zone_id" and item.chosen == SHIMPZ_ID for item in result.chosen))
 
     def test_an_exact_twin_of_a_consumer_is_never_its_own_source(self) -> None:
         lookup = ("reports/fetch", {"q": "ids"}, {"id": "remembered-1"})
