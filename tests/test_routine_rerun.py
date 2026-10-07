@@ -101,6 +101,8 @@ class RerunTests(unittest.TestCase):
             "another zone": ({"zone_id": other, "per_page": 25}, "Liste os registros DNS de example.com"),
             # A page size the person asked for is theirs, never superseded.
             "a named page size": ({"zone_id": SHIMPZ_ID, "per_page": 25}, "Liste os de shimpz.com com 25 por página"),
+            # Inputs with other members never did the same work.
+            "other members": ({"zone_id": SHIMPZ_ID}, "Liste os registros DNS de shimpz.com"),
         }
         for case, (given, message) in cases.items():
             with self.subTest(case=case):
@@ -109,9 +111,12 @@ class RerunTests(unittest.TestCase):
                 self.assertEqual(asked.code, "routine-work-split")
 
     def test_work_split_with_a_withheld_input_is_never_frozen(self) -> None:
-        hidden = ("reports/post", {"t": "x"}, {}, trace.Kept({"t": None}, frozenset({"/t"})))
-        code = _code(self, lambda: _record(_send(hidden, message="a cada hora"), _send(_post("b"))))
-        self.assertEqual(code, "routine-secret-literal")
+        for action in ("reports/post", "reports/fetch"):
+            with self.subTest(action=action):
+                hidden = (action, {"t": "x"}, {}, trace.Kept({"t": None}, frozenset({"/t"})))
+                work = (action, {"t": "b"}, {})
+                code = _code(self, lambda: _record(_send(hidden, message="a cada hora"), _send(work)))
+                self.assertEqual(code, "routine-secret-literal")
 
     def test_two_identical_changes_rerun_once_settle_nothing(self) -> None:
         first = _send(_post("a"), message="a cada hora")
