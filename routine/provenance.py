@@ -148,7 +148,8 @@ def _holders(
     for call in context.calls:
         representative = context.classes[call.index]
         replayed = call.read_only or context.replays_changes
-        if call.index == consumer.index or not replayed or representative in found:
+        # Neither the consumer nor any exact twin of it is its own source.
+        if representative == context.classes[consumer.index] or not replayed or representative in found:
             continue
         positions = [
             position
@@ -160,13 +161,17 @@ def _holders(
     return found
 
 
-def _from_work(context: routine_recording._Context, found: dict[int, list[_Position]]) -> dict[int, list[_Position]]:
-    """Of several sources holding a value, the one the work itself ran, wherever in its send: it replays every run.
+def _from_work(
+    context: routine_recording._Context, consumer: routine_recording._Call, found: dict[int, list[_Position]]
+) -> dict[int, list[_Position]]:
+    """Of several sources holding a work call's value, the one the work itself ran: it replays every run.
 
-    A source counts when any call of its class belongs to the latest send; two such sources, or none, keep them all.
+    Only a consumer the work stands for prefers it, and only a source whose class holds a call of the narrowed work
+    counts; two such sources, or none, keep them all.
     """
-    latest = context.calls[-1].send
-    ran = {context.classes[call.index] for call in context.calls if call.send == latest}
+    ran = {context.classes[index] for index in context.work}
+    if context.classes[consumer.index] not in ran:
+        return found
     kept = {node: positions for node, positions in found.items() if node in ran}
     return kept if len(kept) == 1 else found
 
@@ -278,7 +283,7 @@ def _sourced(
             return None
         raise routine_recording._AskError(routine_recording.Question("routine-binding-unsourced"))
     if len(found) > 1:
-        found = _from_work(context, found)
+        found = _from_work(context, consumer, found)
     if len(found) > 1:
         raise _ambiguous(context, input_, value, [{"value": value, "label": None}])
     ((node, positions),) = found.items()

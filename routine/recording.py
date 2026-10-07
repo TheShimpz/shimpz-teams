@@ -267,6 +267,8 @@ class _Context:
     replays_changes: bool = True
     # The send that settled a rerun: no call before it counts as split work.
     frontier: int = 0
+    # The dispatch indexes of the work's calls, once the work is narrowed to what the person chose.
+    work: tuple[int, ...] = ()
     # The call each step of the plan stands for, by step id.
     planned: dict[str, trace.Occurrence] = field(default_factory=dict)
     # Every call's source representative, and each plan call's classified inputs and their origins.

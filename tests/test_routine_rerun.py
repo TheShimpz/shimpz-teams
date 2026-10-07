@@ -8,6 +8,7 @@ import json
 import unittest
 
 from test_routine_recording import (
+    EVERY_HOUR,
     RECORDS,
     SELECTED,
     SHIMPZ_ID,
@@ -93,6 +94,21 @@ class RerunTests(unittest.TestCase):
                 self.assertEqual(records_step["input"]["per_page"]["value"], sent["per_page"])
                 self.assertEqual(recorded.document["output"]["step"], records_step["id"])
 
+    def test_an_exact_twin_of_a_consumer_is_never_its_own_source(self) -> None:
+        lookup = ("reports/fetch", {"q": "ids"}, {"id": "remembered-1"})
+        echo = ("reports/fetch", {"id": "remembered-1"}, {"id": "remembered-1", "n": 1})
+        recorded = _recorded(_send(lookup, echo, message="relatório"), _send(echo, message=EVERY_HOUR))
+        self.assertEqual(_input(recorded)["id"]["kind"], "step_output")
+        self.assertEqual(_actions(recorded), ["fetch", "fetch"])
+
+    def test_an_earlier_dependency_of_the_work_keeps_its_own_ambiguity(self) -> None:
+        zone = "zone-identifier-1"
+        lookup = ("reports/fetch", {"q": "zones"}, {"zone": zone})
+        report = ("reports/fetch", {"zone": zone}, {"report": "report-identifier-1"})
+        read = ("reports/fetch", {"report": "report-identifier-1"}, {"meta": {"zone": zone}})
+        asked = _record(_send(lookup, report, message="relatório"), _send(read, message=EVERY_HOUR))
+        self.assertEqual(asked.code, "routine-binding-ambiguous")
+
     def test_an_earlier_read_for_another_target_or_a_named_choice_is_still_split_work(self) -> None:
         other = "9a7806061c88ada191ed06f989cc3dac"
         work = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID, "per_page": 10}, RECORDS[2])
@@ -115,7 +131,9 @@ class RerunTests(unittest.TestCase):
             with self.subTest(action=action):
                 hidden = (action, {"t": "x"}, {}, trace.Kept({"t": None}, frozenset({"/t"})))
                 work = (action, {"t": "b"}, {})
-                code = _code(self, lambda: _record(_send(hidden, message="a cada hora"), _send(work)))
+                code = _code(
+                    self, lambda hidden=hidden, work=work: _record(_send(hidden, message="a cada hora"), _send(work))
+                )
                 self.assertEqual(code, "routine-secret-literal")
 
     def test_two_identical_changes_rerun_once_settle_nothing(self) -> None:

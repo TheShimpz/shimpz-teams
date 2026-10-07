@@ -57,6 +57,7 @@ def record(
     work = routine_provenance._narrowed(
         context, [call for call in latest if call.read_only or recording.mode != "decide"]
     )
+    context.work = tuple(call.index for call in work)
     try:
         if not latest and existing is not None:
             kept = _kept(context, recording, existing)
