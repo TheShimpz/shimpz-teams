@@ -198,31 +198,7 @@ class DockerFlowTests(
         return self._wait_controller(container, probe, interval=0.25)
 
     def _prepare_images(self, flow: DockerFlow) -> None:
-        self._run(
-            "buildx",
-            "create",
-            "--name",
-            flow.builder,
-            "--driver",
-            "docker-container",
-            "--driver-opt",
-            "network=host",
-            "--driver-opt",
-            f"image={BUILDKIT_IMAGE}",
-            "--driver-opt",
-            f"cpuset-cpus={flow.test_cpuset}",
-            "--driver-opt",
-            "memory=4g",
-            "--driver-opt",
-            "memory-swap=4g",
-            "--bootstrap",
-        )
-        self._run(
-            "buildx",
-            "build",
-            "--builder",
-            flow.builder,
-            "--load",
+        fixture = (
             "--tag",
             flow.fixture_tag,
             "--label",
@@ -231,6 +207,31 @@ class DockerFlowTests(
             str(FIXTURE / "Dockerfile"),
             str(TEAM),
         )
+        if {flow.controller_tag, flow.egress_proxy_tag} <= flow.caller_images:
+            # Nothing heavy is built here, so the small fixture builds from the daemon's cache rather than through
+            # a fresh, empty, resource-bounded builder.
+            self._run("build", *fixture)
+        else:
+            self._run(
+                "buildx",
+                "create",
+                "--name",
+                flow.builder,
+                "--driver",
+                "docker-container",
+                "--driver-opt",
+                "network=host",
+                "--driver-opt",
+                f"image={BUILDKIT_IMAGE}",
+                "--driver-opt",
+                f"cpuset-cpus={flow.test_cpuset}",
+                "--driver-opt",
+                "memory=4g",
+                "--driver-opt",
+                "memory-swap=4g",
+                "--bootstrap",
+            )
+            self._run("buildx", "build", "--builder", flow.builder, "--load", *fixture)
         self._run(
             "run",
             "--detach",
