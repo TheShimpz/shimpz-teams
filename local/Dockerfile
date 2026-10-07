@@ -40,79 +40,8 @@ RUN --mount=type=tmpfs,target=/tmp \
 
 FROM dependencies AS runtime
 ARG SOURCE_DATE_EPOCH=0
-WORKDIR /app
-
-COPY local/__init__.py local/activity.py local/app.py local/audit.py local/authority.py local/composition.py local/errors.py local/healthcheck.py \
-    local/inference.py local/labels.py local/lifecycle.py local/names.py local/prepare.py local/token.py \
-    local/validation.py ./local/
-COPY local/install/__init__.py local/install/automatic.py local/install/collector.py local/install/developers.py local/install/inventory.py local/install/preview.py \
-    local/install/registry.py local/install/runtime.py local/install/service.py local/install/snapshots.py \
-    local/install/source_package.py ./local/install/
-COPY assistant/__init__.py assistant/action_schema.py assistant/cache.py assistant/effect.py assistant/genesis.py \
-    assistant/language.py assistant/manifest.py assistant/spec.py \
-    ./assistant/
-COPY chat/__init__.py chat/attachments.py chat/contract.py chat/knowledge.py chat/orchestrator.py chat/progress.py \
-    chat/turn.py ./chat/
-COPY core/__init__.py core/base64url.py core/canonical_json.py ./core/
-COPY core/container/__init__.py core/container/network.py ./core/container/
-COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
-COPY egress/__init__.py egress/policy.py ./egress/
-COPY inference/__init__.py inference/abort.py inference/client.py inference/config.py inference/errors.py \
-    inference/model_catalog.json \
-    inference/recovery.py inference/token.py inference/usage.py ./inference/
-COPY integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
-    integrations/challenges.py integrations/flow.py integrations/http.py \
-    integrations/pkce.py integrations/providers.py \
-    integrations/service.py integrations/store.py ./integrations/
-COPY local/assistant/__init__.py local/assistant/api.py local/assistant/egress.py \
-    local/assistant/isolation.py local/assistant/lifecycle.py local/assistant/resources.py \
-    local/assistant/rpc.py ./local/assistant/
-COPY local/chat/__init__.py local/chat/api.py local/chat/attachments.py local/chat/capabilities.py \
-    local/chat/continuation.py \
-    local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/pause.py \
-    local/chat/private.py local/chat/resume.py local/chat/segment.py local/chat/service.py \
-    local/chat/state.py local/chat/types.py ./local/chat/
-COPY local/routine/__init__.py local/routine/card.py local/routine/compiled.py local/routine/contracts.py \
-    local/routine/diagnostics.py local/routine/human.py local/routine/incident.py local/routine/lifecycle.py \
-    local/routine/manage.py local/routine/notices.py local/routine/proposal.py local/routine/protection.py \
-    local/routine/recorder.py local/routine/recovery.py local/routine/run.py local/routine/state.py \
-    local/routine/store.py local/routine/watchdog.py ./local/routine/
-COPY routine/__init__.py routine/claim.py routine/compose.py routine/cursor.py routine/definition.py \
-    routine/hold.py routine/permission.py routine/pin.py routine/plan.py routine/provenance.py routine/record.py \
-    routine/recording.py routine/rerun.py routine/runs.py routine/schedule.py routine/starts.py routine/trace.py \
-    ./routine/
-COPY local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/inference.py local/http/routine.py \
-    local/http/server.py local/http/stream.py ./local/http/
-COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/lock.py \
-    install/registry_auth.py install/update.py ./install/
-COPY protocol/install/upstream.json ./protocol/install/
-COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
-    protocol/install/v1/install-request.schema.json \
-    protocol/install/v1/install-response.schema.json \
-    protocol/install/v1/definitions.schema.json protocol/install/v1/delegation-claims.schema.json \
-    protocol/install/v1/install-authorization-receipt.schema.json \
-    protocol/install/v1/install-authorization-request.schema.json \
-    protocol/install/v1/resolve-response.schema.json protocol/install/v1/schema_validator.py \
-    protocol/install/v1/team-list-response.schema.json protocol/install/v1/vectors.json \
-    protocol/install/v1/verify.py \
-    ./protocol/install/v1/
-COPY protocol/action/v1/schema.py ./protocol/action/v1/
-COPY protocol/http/v1/identifiers.py protocol/http/v1/payload.py protocol/http/v1/phrase.py \
-    protocol/http/v1/progress.py protocol/http/v1/purpose.py protocol/http/v1/routine.py \
-    protocol/http/v1/routine_context.py protocol/http/v1/routine_notice.py protocol/http/v1/routine_proposal.py \
-    protocol/http/v1/routine_run.py protocol/http/v1/strict_json.py protocol/http/v1/supervisor.py \
-    protocol/http/v1/turn.py ./protocol/http/v1/
-COPY protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
-    protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
-    protocol/assistant/v1/validators/message_catalog.py \
-    ./protocol/assistant/v1/validators/
-COPY action/__init__.py action/challenges.py action/dispatch.py action/execution.py action/failure.py \
-    action/files.py action/human.py action/journal.py action/result.py \
-    action/stored_input.py ./action/
-COPY storage/__init__.py storage/files.py storage/private_state.py ./storage/
-COPY prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/pdf.py \
-    prepare/service.py prepare/worker.py ./prepare/
-
+# Users and runtime directories come first, and every source copy is a linked layer that no other copy depends on,
+# so changing one source file rebuilds only its own layer.
 RUN test -x /usr/bin/timeout && \
     groupadd --gid 10001 shimpzlocal && \
     groupadd --gid 10010 shimpzteam-token && \
@@ -150,8 +79,81 @@ RUN test -x /usr/bin/timeout && \
         /var/lib/shimpz-local/assistant-stored-inputs/state /var/lib/shimpz-local/assistant-stored-inputs/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key \
         /var/lib/shimpz-local/routines/state /var/lib/shimpz-local/routines/key \
-        /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
-    chmod 0555 /app/local/healthcheck.py /app/local/activity.py
+        /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign
+
+WORKDIR /app
+
+COPY --link --chmod=0555 local/activity.py local/healthcheck.py ./local/
+COPY --link local/__init__.py local/app.py local/audit.py local/authority.py local/composition.py local/errors.py \
+    local/inference.py local/labels.py local/lifecycle.py local/names.py local/prepare.py local/token.py \
+    local/validation.py ./local/
+COPY --link local/install/__init__.py local/install/automatic.py local/install/collector.py local/install/developers.py local/install/inventory.py local/install/preview.py \
+    local/install/registry.py local/install/runtime.py local/install/service.py local/install/snapshots.py \
+    local/install/source_package.py ./local/install/
+COPY --link assistant/__init__.py assistant/action_schema.py assistant/cache.py assistant/effect.py assistant/genesis.py \
+    assistant/language.py assistant/manifest.py assistant/spec.py \
+    ./assistant/
+COPY --link chat/__init__.py chat/attachments.py chat/contract.py chat/knowledge.py chat/orchestrator.py chat/progress.py \
+    chat/turn.py ./chat/
+COPY --link core/__init__.py core/base64url.py core/canonical_json.py ./core/
+COPY --link core/container/__init__.py core/container/network.py ./core/container/
+COPY --link core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
+COPY --link egress/__init__.py egress/policy.py ./egress/
+COPY --link inference/__init__.py inference/abort.py inference/client.py inference/config.py inference/errors.py \
+    inference/model_catalog.json \
+    inference/recovery.py inference/token.py inference/usage.py ./inference/
+COPY --link integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
+    integrations/challenges.py integrations/flow.py integrations/http.py \
+    integrations/pkce.py integrations/providers.py \
+    integrations/service.py integrations/store.py ./integrations/
+COPY --link local/assistant/__init__.py local/assistant/api.py local/assistant/egress.py \
+    local/assistant/isolation.py local/assistant/lifecycle.py local/assistant/resources.py \
+    local/assistant/rpc.py ./local/assistant/
+COPY --link local/chat/__init__.py local/chat/api.py local/chat/attachments.py local/chat/capabilities.py \
+    local/chat/continuation.py \
+    local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/pause.py \
+    local/chat/private.py local/chat/resume.py local/chat/segment.py local/chat/service.py \
+    local/chat/state.py local/chat/types.py ./local/chat/
+COPY --link local/routine/__init__.py local/routine/card.py local/routine/compiled.py local/routine/contracts.py \
+    local/routine/diagnostics.py local/routine/human.py local/routine/incident.py local/routine/lifecycle.py \
+    local/routine/manage.py local/routine/notices.py local/routine/proposal.py local/routine/protection.py \
+    local/routine/recorder.py local/routine/recovery.py local/routine/run.py local/routine/state.py \
+    local/routine/store.py local/routine/watchdog.py ./local/routine/
+COPY --link routine/__init__.py routine/claim.py routine/compose.py routine/cursor.py routine/definition.py \
+    routine/hold.py routine/permission.py routine/pin.py routine/plan.py routine/provenance.py routine/record.py \
+    routine/recording.py routine/rerun.py routine/runs.py routine/schedule.py routine/starts.py routine/trace.py \
+    ./routine/
+COPY --link local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/inference.py local/http/routine.py \
+    local/http/server.py local/http/stream.py ./local/http/
+COPY --link install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/lock.py \
+    install/registry_auth.py install/update.py ./install/
+COPY --link protocol/install/upstream.json ./protocol/install/
+COPY --link protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
+    protocol/install/v1/install-request.schema.json \
+    protocol/install/v1/install-response.schema.json \
+    protocol/install/v1/definitions.schema.json protocol/install/v1/delegation-claims.schema.json \
+    protocol/install/v1/install-authorization-receipt.schema.json \
+    protocol/install/v1/install-authorization-request.schema.json \
+    protocol/install/v1/resolve-response.schema.json protocol/install/v1/schema_validator.py \
+    protocol/install/v1/team-list-response.schema.json protocol/install/v1/vectors.json \
+    protocol/install/v1/verify.py \
+    ./protocol/install/v1/
+COPY --link protocol/action/v1/schema.py ./protocol/action/v1/
+COPY --link protocol/http/v1/identifiers.py protocol/http/v1/payload.py protocol/http/v1/phrase.py \
+    protocol/http/v1/progress.py protocol/http/v1/purpose.py protocol/http/v1/routine.py \
+    protocol/http/v1/routine_context.py protocol/http/v1/routine_notice.py protocol/http/v1/routine_proposal.py \
+    protocol/http/v1/routine_run.py protocol/http/v1/strict_json.py protocol/http/v1/supervisor.py \
+    protocol/http/v1/turn.py ./protocol/http/v1/
+COPY --link protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
+    protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
+    protocol/assistant/v1/validators/message_catalog.py \
+    ./protocol/assistant/v1/validators/
+COPY --link action/__init__.py action/challenges.py action/dispatch.py action/execution.py action/failure.py \
+    action/files.py action/human.py action/journal.py action/result.py \
+    action/stored_input.py ./action/
+COPY --link storage/__init__.py storage/files.py storage/private_state.py ./storage/
+COPY --link prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/pdf.py \
+    prepare/service.py prepare/worker.py ./prepare/
 
 LABEL org.opencontainers.image.source="https://github.com/TheShimpz/shimpz-teams" \
       org.shimpz.component="team-local" \
