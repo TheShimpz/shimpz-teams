@@ -488,7 +488,10 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             mock.patch.object(
                 hosted_harness.runtime_state,
                 "_storage",
-                side_effect=lambda: SimpleNamespace(metadata=lambda _team_id, _files, *_args: []),
+                # A completed turn settles its files; the storage fake answers that whichever module graph patched it.
+                side_effect=lambda: SimpleNamespace(
+                    metadata=lambda _team_id, _files, *_args: [], settle=lambda _team_id, _files: None
+                ),
             ),
             mock.patch.object(
                 hosted_harness.hosted_chat_segment,
@@ -625,7 +628,10 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             mock.patch.object(
                 hosted_harness.runtime_state,
                 "_storage",
-                side_effect=lambda: SimpleNamespace(metadata=lambda _team_id, _files, *_args: []),
+                # A completed turn settles its files; the storage fake answers that whichever module graph patched it.
+                side_effect=lambda: SimpleNamespace(
+                    metadata=lambda _team_id, _files, *_args: [], settle=lambda _team_id, _files: None
+                ),
             ),
             mock.patch.object(
                 hosted_harness.hosted_chat_segment.chat_turn_engine,
