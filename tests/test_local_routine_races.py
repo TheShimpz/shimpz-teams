@@ -412,24 +412,46 @@ class RoutineStoredInputAnswerTests(RoutineServiceCase):
 
         service.routine_human_challenges.claim_after = claim_after
         order: list[str] = []
-        with mock.patch.object(
-            routine_human.routine_state,
-            "update",
-            side_effect=lambda *_args: order.append("thaw") or "a" * 32,
+        written: list[object] = []
+
+        def update(_service, _team_id, change):
+            # The store writes the transition only when the change returns without raising.
+            state, token = change("frozen-state")
+            written.append(state)
+            return token
+
+        def thaw(state, _run_id, _now, _requests_used):
+            order.append("thaw")
+            return f"thawed-{state}", "a" * 32
+
+        with (
+            mock.patch.object(routine_human.routine_state, "update", side_effect=update),
+            mock.patch.object(routine_human, "_thaw", side_effect=thaw),
         ):
             routine_human._resume(service, "team_1", "run", ("challenge", lambda: order.append("seal")), 2)
-        self.assertEqual((order, consumed), (["seal", "thaw"], ["challenge"]))
-
-        order.clear()
-        consumed.clear()
+        self.assertEqual((order, consumed, written), (["thaw", "seal"], ["challenge"], ["thawed-frozen-state"]))
 
         def refused() -> None:
             raise local_app.ApiProblem(503, "Assistant Stored Input state is unavailable", code="unavailable")
 
-        with (
-            mock.patch.object(routine_human.routine_state, "update", side_effect=lambda *_args: order.append("thaw")),
-            self.assertRaises(local_app.ApiProblem),
-        ):
-            routine_human._resume(service, "team_1", "run", ("challenge", refused), 2)
-        # A seal that fails leaves the run frozen and its challenge answerable.
-        self.assertEqual((order, consumed), ([], []))
+        for refusal in ("seal-failed", "routine-being-deleted"):
+            order.clear()
+            consumed.clear()
+            written.clear()
+
+            def not_frozen(state, _run_id, _now, _requests_used):
+                order.append("thaw")
+                return state, None
+
+            with (
+                self.subTest(refusal=refusal),
+                mock.patch.object(routine_human.routine_state, "update", side_effect=update),
+                mock.patch.object(routine_human, "_thaw", side_effect=thaw if refusal == "seal-failed" else not_frozen),
+                self.assertRaises(local_app.ApiProblem),
+            ):
+                seal = refused if refusal == "seal-failed" else (lambda: order.append("seal"))
+                routine_human._resume(service, "team_1", "run", ("challenge", seal), 2)
+            # A failed seal writes no thaw; a run its deletion already claimed never seals the answer at all.
+            self.assertEqual(consumed, [])
+            self.assertNotIn("seal", order)
+            self.assertEqual(written, [] if refusal == "seal-failed" else ["frozen-state"])

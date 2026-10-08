@@ -314,15 +314,22 @@ def _resume(
     """Thaw the run; an answered run consumes its challenge in the same step, so a run that stays frozen keeps it.
 
     ``answered`` is the challenge id, or None, and what must commit before it is consumed: an answered Stored Input is
-    sealed there, so a challenge that stays answerable never leaves a value behind it was not consumed for.
+    sealed there, inside the Routine-state transaction and only once the run proved still frozen and its Routine not
+    being deleted, so a refused answer never keeps a value and a failed seal leaves the run frozen and its challenge
+    answerable.
     """
     challenge_id, before = answered
     now = int(time.time())
     thawed: list[str] = []
 
+    def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
+        updated, token = _thaw(state, run_id, now, requests_used)
+        if token is not None:
+            before()
+        return updated, token
+
     def thaw() -> None:
-        before()
-        state_token = routine_state.update(self, team_id, lambda state: _thaw(state, run_id, now, requests_used))
+        state_token = routine_state.update(self, team_id, change)
         if state_token is None:
             raise _not_frozen()
         thawed.append(state_token)
