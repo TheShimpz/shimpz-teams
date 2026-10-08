@@ -595,8 +595,9 @@ class LocalController:
                 assistant=assistant_id,
                 detail=f"started:{action}",
             )
-            if private.stored_inputs:
-                # Each attempt names the Stored Inputs it was delivered, by id only, under its logical operation.
+            if action_spec.stored_inputs:
+                # Every attempt of an Action that declares Stored Inputs names the ids it was delivered, none included,
+                # under its logical operation; with the request's trace id that is exactly one attempt and its outcome.
                 local_audit.record_request(
                     "assistant-action",
                     result="ok",

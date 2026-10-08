@@ -603,14 +603,17 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             stored_inputs={"app-secret": declaration, "whatsapp-token": declaration},
             machine_contract={"messages": []},
         )
+        container = _container()
+        for delivered in ({"whatsapp-token": "private-token", "app-secret": "private-secret"}, {}):
+            with self.subTest(delivered=sorted(delivered)):
+                self._audit_one_attempt(contract, container, delivered)
+
+    def _audit_one_attempt(self, contract, container, delivered) -> None:
         evidence = assistants.action_execution.ActionInvocationEvidence(
-            assistants.action_execution.RpcPrivateInputs(
-                {}, {"whatsapp-token": "private-token", "app-secret": "private-secret"}
-            ),
+            assistants.action_execution.RpcPrivateInputs({}, delivered),
             assistants.action_human.ActionTranscript("interrupt"),
             "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
         )
-        container = _container()
         request = assistants.ActionInvocationRequest(
             TEAM_ID,
             TURN_TOKEN,
@@ -630,9 +633,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             mock.patch.object(assistants.audit, "log") as audit,
         ):
             assistants._invoke_assistant_action(request)
-        self.assertEqual(
-            rpc.call_args.args[-1]["stored_inputs"], {"whatsapp-token": "private-token", "app-secret": "private-secret"}
-        )
+        self.assertEqual(rpc.call_args.args[-1]["stored_inputs"], delivered)
         audit.assert_any_call(
             "assistant_action",
             TEAM_ID,
@@ -641,7 +642,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             assistant=ASSISTANT_ID,
             action=ACTION_ID,
             operation_id="6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
-            stored_inputs=["app-secret", "whatsapp-token"],
+            stored_inputs=sorted(delivered),
         )
         self.assertNotIn("private-", repr(audit.call_args_list))
 

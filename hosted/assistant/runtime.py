@@ -765,9 +765,11 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
         phase="started",
         assistant=assistant_id,
         action=action,
+        operation_id=private.operation_id,
     )
-    if private.stored_inputs:
-        # Each attempt names the Stored Inputs it was delivered, by id only, under its logical operation.
+    if contract.actions[action].stored_inputs:
+        # Every attempt of an Action that declares Stored Inputs names the ids it was delivered, none included, under
+        # the logical operation its started and outcome records also carry.
         audit.log(
             "assistant_action",
             team_id,
@@ -804,6 +806,7 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
             result="error",
             assistant=assistant_id,
             action=action,
+            operation_id=private.operation_id,
             status=int(exc.status),
         )
         if sent is not None:
@@ -838,6 +841,7 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
         phase="completed",
         assistant=assistant_id,
         action=action,
+        operation_id=private.operation_id,
     )
     return {"assistant": assistant_id, "action": action, "result": projected}
 
