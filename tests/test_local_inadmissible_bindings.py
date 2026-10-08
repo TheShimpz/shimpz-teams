@@ -312,6 +312,25 @@ class InadmissibleBindingLifecycleTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "egress-proxy-drift")
         self.assertEqual(events, [])
 
+    def test_a_proved_team_teardown_lifts_only_that_teams_barrier(self) -> None:
+        controller, _container, _events = self._lifecycle_controller()
+        lifecycle = controller.assistant_lifecycle
+        lifecycle._unisolated_refusals.update({("team_1", "shimpz-cloudflare"), ("team_2", "other")})
+
+        controller._clear_team_runtime_state("team_1")
+
+        self.assertEqual(lifecycle._unisolated_refusals, {("team_2", "other")})
+        # The same Team id, recreated after a reset or destruction, may attach its egress proxy again.
+        network = types.SimpleNamespace(name=lifecycle._network_name("team_1"), connect=mock.Mock())
+        proxy = types.SimpleNamespace(
+            attrs={"NetworkSettings": {"Networks": {}}},
+            reload=lambda: proxy.attrs["NetworkSettings"]["Networks"].update(
+                {network.name: {"Aliases": [local_egress.ASSISTANT_EGRESS_ALIAS]}}
+            ),
+        )
+        lifecycle._connect_egress_proxy(network, proxy)
+        network.connect.assert_called_once_with(proxy, aliases=[local_egress.ASSISTANT_EGRESS_ALIAS])
+
     def test_startup_resumes_only_admitted_bindings(self) -> None:
         subject = types.SimpleNamespace(
             registry=types.SimpleNamespace(

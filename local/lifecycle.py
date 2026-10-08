@@ -178,6 +178,9 @@ def _remove_team_network(self, network) -> bool:
 
 
 def _clear_team_runtime_state(self, team_id: str) -> None:
+    # Teardown proved every Assistant runtime of the Team gone, so no refused one can still need its proxy kept away.
+    refusals = self.assistant_lifecycle._unisolated_refusals
+    refusals.difference_update({refusal for refusal in refusals if refusal[0] == team_id})
     with self.chat_turn_service._active_chat_guard:
         token = self.chat_turn_service._active_chat_tokens.pop(team_id, None)
         self.chat_turn_service._active_action_containers.pop(team_id, None)
