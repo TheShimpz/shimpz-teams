@@ -159,6 +159,20 @@ class InadmissibleBindingStoreTests(unittest.TestCase):
         subject._recover_update_target.assert_not_called()
         subject.sweep_residues.assert_called_once_with()
 
+    def test_update_store_refuses_a_transaction_filed_under_another_identity(self) -> None:
+        store = DynamicAssistantStoreFactory.published(self.path)
+        previous = store.get("team_1", "helper")
+        successor = copy.deepcopy(previous.resolution)
+        successor["assistant_version"] = "9.0.0"
+        updates = assistant_update.AssistantUpdateStore(self.path.parent / "updates")
+        updates.begin(previous, successor, "sha256:" + "a" * 64)
+        filed = next((self.path.parent / "updates").glob("*.json"))
+        misfiled = filed.with_name("team_2--helper.json")
+        filed.rename(misfiled)
+        with self.assertRaisesRegex(bindings.DynamicAssistantError, "filename is invalid"):
+            updates.get("team_2", "helper")
+        self.assertTrue(misfiled.exists())
+
     def test_update_store_keeps_a_refused_transaction_readable(self) -> None:
         store = DynamicAssistantStoreFactory.published(self.path)
         previous = store.get("team_1", "helper")
@@ -273,6 +287,31 @@ class InadmissibleBindingLifecycleTests(LocalContractCase):
         with self.assertLogs(assistant_lifecycle.log, logging.ERROR):
             lifecycle.quarantine_inadmissible()
 
+    def test_a_refused_runtime_never_proved_isolated_keeps_its_team_proxy_detached(self) -> None:
+        controller, _container, events = self._lifecycle_controller()
+        lifecycle = controller.assistant_lifecycle
+        lifecycle._remove_egress_policy = mock.Mock(side_effect=ApiProblemError(503, "policy", code="egress-policy"))
+        lifecycle._assistant_container = mock.Mock(side_effect=DockerException("unavailable"))
+        controller.registry.inadmissible = lambda: (_refused(),)
+        with self.assertLogs(assistant_lifecycle.log, logging.ERROR):
+            lifecycle.quarantine_inadmissible()
+        self.assertEqual(lifecycle._unisolated_refusals, {("team_1", "shimpz-cloudflare")})
+
+        # A sibling's validation can never give that Team its egress proxy back.
+        network = types.SimpleNamespace(name=lifecycle._network_name("team_1"), connect=mock.Mock())
+        with self.assertRaises(ApiProblemError) as caught:
+            lifecycle._connect_egress_proxy(network)
+        self.assertEqual(caught.exception.code, "assistant-isolation-drift")
+        network.connect.assert_not_called()
+
+        # Another Team is untouched by the barrier.
+        other = types.SimpleNamespace(name=lifecycle._network_name("team_2"), connect=mock.Mock())
+        proxy = types.SimpleNamespace(attrs={"NetworkSettings": {"Networks": {other.name: {"Aliases": []}}}})
+        with self.assertRaises(ApiProblemError) as caught:
+            lifecycle._connect_egress_proxy(other, proxy)
+        self.assertEqual(caught.exception.code, "egress-proxy-drift")
+        self.assertEqual(events, [])
+
     def test_startup_resumes_only_admitted_bindings(self) -> None:
         subject = types.SimpleNamespace(
             registry=types.SimpleNamespace(
@@ -300,14 +339,34 @@ class InadmissibleBindingLifecycleTests(LocalContractCase):
         lifecycle.updates = types.SimpleNamespace(
             get=mock.Mock(return_value=interrupted), clear=mock.Mock(side_effect=lambda _update: None)
         )
+        lifecycle.residues = types.SimpleNamespace(add=mock.Mock())
+        lifecycle._unisolated_refusals.add(("team_1", "shimpz-cloudflare"))
 
         result = lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
 
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": False})
         self.assertIn(("remove", True), events)
-        self.assertIn(("residue-add", "sha256:" + "d" * 64), events)
+        lifecycle.residues.add.assert_called_once_with("sha256:" + "d" * 64)
         self.assertIn(("residue-add", container.attrs["Image"]), events)
         lifecycle.updates.clear.assert_called_once_with(interrupted)
+        # A proved removal lifts the Team's egress barrier.
+        self.assertEqual(lifecycle._unisolated_refusals, set())
+
+        # The transaction stays the retry anchor until its previous image is durably queued.
+        lifecycle.updates.clear.reset_mock()
+        remaining.append(container)
+        for failure in (OSError("full"), bindings.DynamicAssistantError("unavailable")):
+            lifecycle.residues.add = mock.Mock(side_effect=failure)
+            with self.subTest(failure=failure), self.assertRaises(ApiProblemError) as caught:
+                lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
+            self.assertEqual(caught.exception.code, "assistant-update-unavailable")
+        lifecycle.updates.clear.assert_not_called()
+        remaining.clear()
+        # A local predecessor's staged image is never queued for collection.
+        lifecycle.residues.add = mock.Mock()
+        interrupted.previous = _refused(provenance="local")
+        lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
+        lifecycle.residues.add.assert_not_called()
 
         lifecycle.updates.get = mock.Mock(side_effect=bindings.DynamicAssistantError("unavailable"))
         remaining.append(container)

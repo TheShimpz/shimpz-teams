@@ -610,14 +610,19 @@ def quarantine_inadmissible(self) -> None:
         team_id, assistant_id = binding.team_id, binding.assistant_id
         log.warning("Installed Assistant %s/%s needs replacement under the current contract", team_id, assistant_id)
         with self._lock(team_id):
+            revoked = removed = True
             try:
                 self._remove_egress_policy(team_id, assistant_id)
             except ApiProblem:
+                revoked = False
                 log.exception("Assistant egress revocation deferred for %s/%s", team_id, assistant_id)
             try:
                 _remove_inadmissible_runtime(self, binding)
             except ApiProblem, DockerException:
+                removed = False
                 log.exception("Assistant quarantine deferred for %s/%s", team_id, assistant_id)
+            if not (revoked or removed):
+                self._unisolated_refusals.add((team_id, assistant_id))
 
 
 def _remove_inadmissible_runtime(self, binding: bindings.DynamicAssistantBinding) -> None:
@@ -647,9 +652,11 @@ def _retire_refused_update(self, team_id: str, assistant_id: str) -> None:
         update = self.updates.get(team_id, assistant_id)
         if update is None:
             return
-        self._queue_published_residue(update.previous, update.previous_image_id)
+        # The previous image must be durably queued before the transaction that records it goes.
+        if update.previous.provenance == "published":
+            self.residues.add(update.previous_image_id)
         self.updates.clear(update)
-    except bindings.DynamicAssistantError as exc:
+    except (bindings.DynamicAssistantError, OSError) as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Assistant update state could not be retired",
@@ -767,6 +774,7 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
                     "Docker could not uninstall the Assistant",
                     code="docker-remove-failed",
                 ) from exc
+            self._unisolated_refusals.discard((team_id, assistant_id))
         container = self._assistant_container(team_id, assistant_id, required=False)
         if container is None:
             if self._egress_token(team_id, assistant_id, create=False) is not None:

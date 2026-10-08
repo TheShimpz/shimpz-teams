@@ -68,7 +68,10 @@ class AssistantUpdateStore:
     def get(self, team_id: str, assistant_id: str) -> AssistantUpdate | None:
         path = self._path(team_id, assistant_id)
         with _lock(path.with_suffix(".lock"), fcntl.LOCK_SH):
-            return self._read(path)
+            update = self._read(path)
+        if update is not None and (update.team_id, update.assistant_id) != (team_id, assistant_id):
+            raise bindings.DynamicAssistantError("Assistant update transaction filename is invalid")
+        return update
 
     def list(self) -> tuple[AssistantUpdate, ...]:
         try:

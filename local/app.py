@@ -147,6 +147,9 @@ class AssistantLifecycle:
         self._assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
         self._assistant_language_cache = assistant_language.LanguagePackCache()
         self._blocked_action_workloads: set[str] = set()
+        # Refused Assistants whose startup quarantine proved neither egress revocation nor runtime removal: their
+        # Team's egress proxy stays detached until one of them is proved (ADR-0033's 2026-10-08 amendment).
+        self._unisolated_refusals: set[tuple[str, str]] = set()
 
     _rollback_assistant_install = local_assistant_lifecycle._rollback_assistant_install
     _create_assistant_container = local_assistant_lifecycle._create_assistant_container

@@ -14,6 +14,7 @@ from egress import policy as egress_policy
 from install import bindings
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
+    assistant_isolation_drift,
     assistant_manifest_invalid,
     assistant_registry_drift,
     docker_unavailable,
@@ -296,6 +297,9 @@ def _egress_proxy(self, network_name: str):
 
 
 def _connect_egress_proxy(self, network, proxy=None) -> None:
+    if any(self._network_name(team_id) == network.name for team_id, _assistant_id in self._unisolated_refusals):
+        # A refused Assistant's runtime may still hold an unrevoked policy: never give it the proxy back.
+        raise assistant_isolation_drift()
     proxy = proxy if proxy is not None else self._egress_proxy(network.name)
     attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
     if attached is None:
