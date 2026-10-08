@@ -353,6 +353,8 @@ def _remove_space_resources(
     absent.add("team_names")
     team_ids = {team_id for team_id, _assistant_id in owned_assistants}
     team_ids.update(network.attrs["Labels"][TEAM_LABEL] for network in networks)
+    # A retry may find nothing left of a Team whose refused runtime still holds its egress barrier.
+    team_ids.update(team_id for team_id, _assistant_id in self.assistant_lifecycle._unisolated_refusals)
     for team_id in team_ids:
         self._clear_team_runtime_state(team_id)
     absent.add("runtime_state")

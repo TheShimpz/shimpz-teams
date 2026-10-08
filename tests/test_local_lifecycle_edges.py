@@ -256,12 +256,13 @@ class LocalLifecycleEdgeTests(LocalContractCase):
                 _remove_egress_policy=lambda *_args: events.append("policy-delete"),
                 sweep_residues=lambda: events.append("residue-sweep"),
                 _disconnect_egress_proxy_if_attached=lambda _network: events.append("proxy-disconnect"),
+                _unisolated_refusals=set(),
             ),
             registry=TestAssistantRegistry({"assistant": types.SimpleNamespace(admissible=True, provenance="local")}),
             storage=types.SimpleNamespace(destroy_all=lambda: True),
             inference_store=types.SimpleNamespace(delete_all=lambda: events.append("inference-delete")),
             team_names=types.SimpleNamespace(delete_all=lambda: events.append("names-delete")),
-            _clear_team_runtime_state=lambda _team_id: events.append("runtime-clear"),
+            _clear_team_runtime_state=lambda team_id: events.append(("runtime-clear", team_id)),
         )
 
         subject.registry.binding = lambda _team_id, assistant_id: subject.registry.get(assistant_id)
@@ -277,6 +278,12 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         self.assertTrue(storage_removed)
         self.assertIn("runtime_state", absent)
         subject.assistant_lifecycle._queue_residue.assert_not_called()
+
+        # A retry that finds nothing left of a Team still clears the refused-runtime barrier it holds.
+        events.clear()
+        subject.assistant_lifecycle._unisolated_refusals.add(("team_9", "refused"))
+        local_lifecycle._remove_space_resources(subject, [], [], set())
+        self.assertIn(("runtime-clear", "team_9"), events)
 
     def test_reset_maps_each_failure_and_requires_complete_proof(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
