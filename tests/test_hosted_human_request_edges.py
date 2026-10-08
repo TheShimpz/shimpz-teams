@@ -206,3 +206,84 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HostedStoredInputAnswerTests(unittest.TestCase):
+    def test_a_stored_input_answer_is_sealed_for_its_paused_action_or_refused_without_a_trace(self) -> None:
+        paused = harness.hosted_chat_segment.brain_runtime_client.ActionRequest(
+            "interrupt", "assistant", "action", {"zone": "example.com"}
+        )
+        pending = assistants._PendingHostedChat(
+            SimpleNamespace(turn=SimpleNamespace(actions=(paused,))), (), (), "account_1", ("identity",), ()
+        )
+        requirement = SimpleNamespace(
+            interrupt_id="interrupt",
+            assistant_id="assistant",
+            action_id="action",
+            request=SimpleNamespace(stored_input="app-secret"),
+        )
+        challenge = SimpleNamespace(requirement=requirement)
+        declaration = SimpleNamespace(kind="password")
+        contract = SimpleNamespace(
+            actions={"action": SimpleNamespace(stored_inputs=("app-secret", "token"))},
+            stored_inputs={"app-secret": declaration, "token": declaration},
+        )
+        running = (SimpleNamespace(assistant_id="assistant", contract=contract),)
+        submission = action_human.StoredInputSubmission("app-secret", "private-value")
+        admission = action_human.HumanResponseAdmission((), 1, submission)
+
+        # An answer to an ordinary request has nothing to seal.
+        with mock.patch.object(state._assistant_stored_inputs, "seal") as seal:
+            human._seal_stored_input_answer(
+                "team_1", challenge, pending, running, action_human.HumanResponseAdmission((), 1)
+            )
+        seal.assert_not_called()
+
+        with (
+            mock.patch.object(state._assistant_stored_inputs, "seal") as seal,
+            mock.patch.object(human.audit, "log") as audit,
+        ):
+            human._seal_stored_input_answer("team_1", challenge, pending, running, admission)
+        seal.assert_called_once_with(
+            "team_1",
+            "assistant",
+            "app-secret",
+            "password",
+            "private-value",
+            human.action_execution.stored_input_origin(paused),
+        )
+        audit.assert_called_once_with(
+            "assistant_action",
+            "team_1",
+            result="ok",
+            phase="stored-input-sealed",
+            assistant="assistant",
+            action="action",
+            stored_input="app-secret",
+        )
+        self.assertNotIn("private-value", repr(audit.call_args_list))
+
+        undeclared = (
+            SimpleNamespace(
+                assistant_id="assistant",
+                contract=SimpleNamespace(
+                    actions={"action": SimpleNamespace(stored_inputs=("token",))}, stored_inputs=contract.stored_inputs
+                ),
+            ),
+        )
+        unavailable = mock.Mock(side_effect=human.action_stored_input.StoredInputStoreError("private-value"))
+        for assistants_now, sealer, status in (
+            ((), mock.Mock(), 422),
+            (undeclared, mock.Mock(), 422),
+            (running, unavailable, 503),
+        ):
+            with (
+                self.subTest(status=status, assistants=len(assistants_now)),
+                mock.patch.object(state._assistant_stored_inputs, "seal", sealer),
+                mock.patch.object(human.audit, "log") as audit,
+                self.assertRaises(state.ApiError) as refused,
+            ):
+                human._seal_stored_input_answer("team_1", challenge, pending, assistants_now, admission)
+            self.assertEqual(int(refused.exception.status), status)
+            self.assertNotIn("private-value", refused.exception.message)
+            audit.assert_not_called()

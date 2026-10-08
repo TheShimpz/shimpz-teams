@@ -191,10 +191,8 @@ def append_response(
     current = transcript_for(transcripts, interrupt_id)
     if request.stored_input is not None:
         current.require_next(request)
-        response = admit_response(request, value)
-        if not isinstance(response.value, str):
-            raise HumanRequestError("human response does not match its reviewed request")
-        submission = StoredInputSubmission(request.stored_input, response.value)
+        # A Stored Input request is a reviewed input:password request, so its admitted value is always a string.
+        submission = StoredInputSubmission(request.stored_input, admit_response(request, value).value)
         return HumanResponseAdmission(transcripts, requests_used + 1, submission)
     updated = current.append(request, value)
     if current.responses:

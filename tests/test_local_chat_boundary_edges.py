@@ -277,6 +277,7 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
                 "invalid-human-response",
             ),
         )
+        refusals = (*refusals, (store, None, requirement, "invalid-human-response"))
         for refused_store, refused_spec, refused_requirement, code in refusals:
             consumed.clear()
             subject.assistant_stored_inputs = refused_store
@@ -301,7 +302,7 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
                     refused_challenge,
                     pending,
                     ("submit", "private-value"),
-                    (types.SimpleNamespace(spec=refused_spec),),
+                    () if refused_spec is None else (types.SimpleNamespace(spec=refused_spec),),
                 )
             self.assertEqual(caught.exception.code, code)
             self.assertEqual(consumed, [])
