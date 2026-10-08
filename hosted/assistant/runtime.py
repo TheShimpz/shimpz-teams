@@ -40,7 +40,7 @@ from storage import files as team_storage
 # ── Controller-owned Assistant chat ─────────────────────────────────────────────────────────────
 MAX_INBOX_FILE_BYTES = 25 * 1024 * 1024
 MAX_FILE_BODY_BYTES = MAX_INBOX_FILE_BYTES
-MAX_CHAT_FILES = 8
+MAX_CHAT_FILES = http_payload.MAX_CHAT_FILES
 MAX_CHAT_ASSISTANTS = 16
 CHAT_PAUSED_STATUSES = chat_turn_engine.CHAT_PAUSED_STATUSES
 

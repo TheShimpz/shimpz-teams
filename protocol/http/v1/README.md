@@ -4,8 +4,10 @@ Team owns the closed identifiers, payload projections, and WebSocket frame bound
 and Store. `payload.py` validates Team-facing HTTP values without trusting upstream fields.
 `identifiers.py` owns the closed Team, Assistant, and Action identifier grammars, `purpose.py` the Action purpose
 sentence rule, and `turn.py` the chat-turn bounds (the user message, a clarification question, memory and skill
-changes, and a skill's content key); `payload.py` re-exports all three, and the Brain consumes these three files as a
-pinned mirror.
+changes, a skill's content key, the reply, the Action requests one suspension carries, Action labels, capability
+planning, intent routing, and the attachment content of a turn); `payload.py` re-exports all three, and the Brain
+consumes these three files as a pinned mirror. Team, the Brain, and Admin each bind a shared bound to its one
+definition here or in `payload.py`, never to a copied literal.
 An Assistant id (at most 40 characters) and an Assistant's Integration, provider, or Stored Input identifier
 (`canonical_identifier`, at most 64) use the Developers published-Assistant grammar; an Action id uses Team's wider
 grammar, which also admits `.` and `_` separators, within 128 characters.

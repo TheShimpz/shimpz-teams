@@ -33,7 +33,7 @@ def validate_team_id(name: object) -> str:
     return sanitized
 
 
-MAX_CHAT_MESSAGE = 16000
+MAX_CHAT_MESSAGE = http_payload.MAX_CHAT_MESSAGE_CHARS
 
 
 def validate_hosted_conversation(conversation: object) -> None:

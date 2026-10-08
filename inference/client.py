@@ -21,32 +21,34 @@ from inference import usage as brain_usage
 from inference.errors import BrainRuntimeError
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
+from protocol.http.v1 import turn as http_turn
 
 RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8080")
 TOKEN_FILE = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))
 # A turn's whole response: a Routine outcome Brain bounds at 768 KiB (its change or question, reply, and clarification)
 # beside the turn's reply, usage, and envelope (ADR-0092 amendment, 2026-10-05, scale).
 MAX_RESPONSE_BYTES = 1024 * 1024
-MAX_REPLY_CHARS = 60_000
-MAX_ACTION_REQUESTS = 64
-MAX_ACTION_LABELS = 64
-MAX_ACTION_LABEL_CHARS = 80
-MAX_CAPABILITY_CANDIDATES = 8
-MAX_CAPABILITY_SELECTED = 4
-MAX_CAPABILITY_OBJECTIVE_CHARS = 16_000
-MAX_CAPABILITY_NAME_CHARS = 80
-MAX_CAPABILITY_SUMMARY_CHARS = 160
-MAX_CAPABILITY_ACTIONS = 64
-MAX_CAPABILITY_INTEGRATIONS = 16
-MAX_INTENT_ROUTE_CANDIDATES = 8
-MAX_INTENT_ROUTE_SELECTED = 4
-MAX_INTENT_ROUTE_QUERY_CHARS = 160
-MAX_INTENT_ROUTE_NAME_CHARS = 80
-MAX_INTENT_ROUTE_SUMMARY_CHARS = 160
-MAX_INTENT_ROUTE_REPLY_CHARS = 240
-MAX_CONVERSATION_ENTRIES = 8
-MAX_CONVERSATION_TEXT_CHARS = 512
-MAX_CONVERSATION_CHARS = 4_096
+# The chat-turn bounds this client admits are the Team HTTP protocol's own, which the Brain and Admin read too.
+MAX_REPLY_CHARS = http_turn.MAX_REPLY_CHARS
+MAX_ACTION_REQUESTS = http_turn.MAX_ACTION_REQUESTS
+MAX_ACTION_LABELS = http_turn.MAX_ACTION_LABELS
+MAX_ACTION_LABEL_CHARS = http_payload.MAX_ACTION_LABEL_CHARS
+MAX_CAPABILITY_CANDIDATES = http_turn.MAX_CAPABILITY_CANDIDATES
+MAX_CAPABILITY_SELECTED = http_turn.MAX_CAPABILITY_SELECTED
+MAX_OBJECTIVE_CHARS = http_turn.MAX_OBJECTIVE_CHARS
+MAX_CAPABILITY_NAME_CHARS = http_turn.MAX_CAPABILITY_NAME_CHARS
+MAX_CAPABILITY_SUMMARY_CHARS = http_turn.MAX_CAPABILITY_SUMMARY_CHARS
+MAX_CAPABILITY_ACTIONS = http_turn.MAX_CAPABILITY_ACTIONS
+MAX_CAPABILITY_INTEGRATIONS = http_turn.MAX_CAPABILITY_INTEGRATIONS
+MAX_INTENT_ROUTE_CANDIDATES = http_turn.MAX_INTENT_ROUTE_CANDIDATES
+MAX_INTENT_ROUTE_SELECTED = http_turn.MAX_INTENT_ROUTE_SELECTED
+MAX_INTENT_ROUTE_QUERY_CHARS = http_turn.MAX_INTENT_ROUTE_QUERY_CHARS
+MAX_INTENT_ROUTE_NAME_CHARS = http_turn.MAX_INTENT_ROUTE_NAME_CHARS
+MAX_INTENT_ROUTE_SUMMARY_CHARS = http_turn.MAX_INTENT_ROUTE_SUMMARY_CHARS
+MAX_INTENT_ROUTE_REPLY_CHARS = http_turn.MAX_INTENT_ROUTE_REPLY_CHARS
+MAX_CONVERSATION_ENTRIES = http_payload.MAX_CONVERSATION_ENTRIES
+MAX_CONVERSATION_TEXT_CHARS = http_payload.MAX_CONVERSATION_TEXT_CHARS
+MAX_CONVERSATION_CHARS = http_payload.MAX_CONVERSATION_CHARS
 _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
 REPLY_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
@@ -560,7 +562,7 @@ class BrainRuntimeClient:
         objective: object,
         candidates: tuple[RuntimeCapabilityCandidate, ...],
     ) -> tuple[str, tuple[RuntimeCapabilityCandidate, ...]]:
-        task = cls._capability_text(objective, MAX_CAPABILITY_OBJECTIVE_CHARS, allow_layout=True)
+        task = cls._capability_text(objective, MAX_OBJECTIVE_CHARS, allow_layout=True)
         if not isinstance(candidates, tuple) or not 1 <= len(candidates) <= MAX_CAPABILITY_CANDIDATES:
             raise BrainRuntimeError("Brain runtime capability plan request is invalid")
         admitted: list[RuntimeCapabilityCandidate] = []
@@ -692,7 +694,7 @@ class BrainRuntimeClient:
         tuple[RuntimeDirectoryCandidate, ...],
         RuntimeLifecycleContext,
     ]:
-        task = cls._capability_text(objective, MAX_CAPABILITY_OBJECTIVE_CHARS, allow_layout=True)
+        task = cls._capability_text(objective, MAX_OBJECTIVE_CHARS, allow_layout=True)
         admitted_context = cls._validate_lifecycle_context(context, expected_intent)
         if expected_intent is None:
             if candidates != ():

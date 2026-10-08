@@ -35,10 +35,11 @@ from local.errors import (
 )
 from local.install.runtime import AssistantSpec
 from local.labels import ASSISTANT_LABEL
+from protocol.http.v1 import payload as http_payload
 from storage import files as team_storage
 
 log = logging.getLogger("shimpz-team-local")
-MAX_CHAT_FILES = 8
+MAX_CHAT_FILES = http_payload.MAX_CHAT_FILES
 
 
 def _chat_file_metadata(
