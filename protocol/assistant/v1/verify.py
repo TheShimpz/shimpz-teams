@@ -234,7 +234,7 @@ if (
 invocation = json.loads((HERE / "invocation.schema.json").read_bytes())
 if (
     "stored_inputs" not in invocation.get("required", [])
-    or invocation.get("properties", {}).get("stored_inputs", {}).get("maxProperties") != 1
+    or invocation.get("properties", {}).get("stored_inputs", {}).get("maxProperties") != 8
 ):
     fail("Assistant Stored Input invocation contract is invalid")
 if (
@@ -281,7 +281,7 @@ if (
     or human_requests.get("contains", {}).get("enum") != authorization_capabilities
     or human_requests.get("minContains") != 0
     or human_requests.get("maxContains") != 1
-    or stored_inputs.get("maxItems") != 1
+    or stored_inputs.get("maxItems") != 8
     or "stored_inputs" not in machine["$defs"]["action"].get("required", [])
 ):
     fail("Assistant human-request vectors are invalid")

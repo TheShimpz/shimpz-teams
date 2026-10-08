@@ -92,8 +92,8 @@ token-like third-party credentials rather than OAuth Integrations. The declarati
 `password` kind, label, description, and an optional `help_url`; no value, configured status, or ciphertext crosses
 this boundary. `help_url` is the page where a person creates the value: at most 2,048 characters of one canonical
 `https` URL on a public DNS host, with a path, an optional query, and no port, credentials, fragment, or dot
-segment, written exactly as WHATWG URL serialization would print it. Every Action references at most one declared
-id.
+segment, written exactly as WHATWG URL serialization would print it. Every Action references a sorted, unique list
+of at most eight declared ids, and Team delivers to it only the values of the ids it lists.
 
 ## Golden vectors
 

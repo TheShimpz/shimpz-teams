@@ -26,7 +26,7 @@
     },
     "stored_inputs": {
       "type": "object",
-      "maxProperties": 1,
+      "maxProperties": 8,
       "propertyNames": {
         "$ref": "#/$defs/identifier"
       },

@@ -32,6 +32,67 @@
       "valid": true
     },
     {
+      "name": "invocation with two Stored Inputs",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {
+          "access-token": "token",
+          "app-secret": "secret"
+        },
+        "files": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": true
+    },
+    {
+      "name": "invocation with the manifest maximum of eight Stored Inputs",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {
+          "key-1": "secret",
+          "key-2": "secret",
+          "key-3": "secret",
+          "key-4": "secret",
+          "key-5": "secret",
+          "key-6": "secret",
+          "key-7": "secret",
+          "key-8": "secret"
+        },
+        "files": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": true
+    },
+    {
+      "name": "invocation with nine Stored Inputs",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {
+          "key-1": "secret",
+          "key-2": "secret",
+          "key-3": "secret",
+          "key-4": "secret",
+          "key-5": "secret",
+          "key-6": "secret",
+          "key-7": "secret",
+          "key-8": "secret",
+          "key-9": "secret"
+        },
+        "files": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
       "name": "replay with an admitted response",
       "invocation": {
         "input": {

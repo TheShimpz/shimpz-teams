@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/TheShimpz/shimpz",
-  "commit": "63395b0aef7e36fc638a0af180c29b45bca383ef",
+  "commit": "79d4795b43070d09d02301a500833c994ce2c73d",
   "path": ".standards/assistant-install/v1",
-  "tree": "f23b4356e25077549a60df391026f06d55840459",
-  "contract_files_sha256": "9c00fe0ffc7398f1b3b5decb9ed8b66b383dfcf79c466596485c747a9b98fc95"
+  "tree": "3ff545d38f83fba15e28d29095975ed520394b40",
+  "contract_files_sha256": "7e6009478d5920533380d079a4f2b14aa9151fc059d7a697830f47464995dc58"
 }

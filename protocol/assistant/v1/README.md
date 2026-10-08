@@ -35,7 +35,8 @@ pre-build. `shimpz.contract.json` is build output and does not belong in an Assi
 Generation imports each Action in isolation, derives closed input and output schemas from annotations,
 sorts Actions by id, fixes every route to `POST /v1/actions/<id>`, and records the exact human-request
 capabilities, Stored Input ids, file inputs, effect class, and optional idempotency and verifier declared by that
-Action. An undeclared capability
+Action. An Action may declare any of its manifest's Stored Inputs, at most eight, and receives only those it
+declares; several Actions may share one. An undeclared capability
 never acquires a prompt channel.
 An Action declares at most one authorization capability: plain `approval` or exactly one of
 `auth:password`, `auth:totp`, and `auth:passkey`. Input capabilities remain independent.
@@ -130,7 +131,7 @@ the Action. A `read_only` Action never declares one:
 ```
 
 - `action` names another Action of the same contract whose effect is `read_only`. It declares no human request, or
-  only `input:password` together with its one declared Stored Input, which Team satisfies without a person.
+  only `input:password` together with one or more declared Stored Inputs, which Team satisfies without a person.
 - `input` has 1 to 16 members, each named by a property of the verifier's `input_schema` of 1 to 128 characters, and
   binds every property that schema requires. It must correlate the evidence with the exact operation: either one
   binding is `{"from": "operation_id"}`, or for every member listed in the mutating Action input's top-level
@@ -276,7 +277,8 @@ uses a reference that the request rules below admit for a field with one of the 
 ## Invocation
 
 `invocation.schema.json` contains the validated Action input, invocation-scoped Integration bearer tokens,
-at most one exact Team-custodied Stored Input, the selected `files`, the logical `operation_id`, and, only during
+the Team-custodied values of the Stored Inputs that Action declares and Team already holds (at most eight), the
+selected `files`, the logical `operation_id`, and, only during
 deterministic logical replay, at most eight Team-admitted human responses. The request is
 passed over a private bounded stdin channel; tokens, file bytes, and responses never enter command-line arguments,
 environment variables, logs, generated artifacts, or the Brain. An invocation is at most 524,288 bytes of UTF-8 JSON,
@@ -338,8 +340,8 @@ ordinal, canonical fingerprint, and catalog copy references. Team accepts it onl
 returns the journal operation to `prepared`, and later re-invokes the same operation with its admitted
 response transcript.
 The terminal `{"type":"stored_input_rejected","stored_input":"<id>"}` envelope lets an Action reject only a
-declared Stored Input supplied in that invocation. Team validates the relationship, clears that exact value, and
-terminates the turn with a sanitized retry instruction; generic failure never clears a value.
+declared Stored Input supplied in that invocation. Team validates the relationship, clears that exact value and no
+other, and terminates the turn with a sanitized retry instruction; generic failure never clears a value.
 
 A handled application failure is the terminal `{"type":"failure","failure":{...}}` envelope. The process writes
 exactly one such stdout frame, exits 0, and leaves stderr empty. Its closed `failure` object always has all of
@@ -397,8 +399,13 @@ semantic request and reference constraints, and replay transcript failures that 
 
 Human responses are never answer logs. Non-secret replay values may exist only in Team continuation state. An
 ordinary `password` input is memory-only, protected from result echo, and must be the final request. A reviewed
-password request may name the one Stored Input declared by its Action: Team may satisfy it internally without an
-ordinal, or request it just in time and seal it only after a valid secret-free terminal result. Authentication both
+password request may instead name one Stored Input declared by its Action. Such a request is always answered by
+injection and never by a transcript response: Team supplies a held value in the invocation `stored_inputs` map
+without an ordinal; otherwise the Action suspends with the request at its current ordinal, Team seals the admitted
+value as soon as it admits the response, and the replay receives it injected, so the next request reuses that
+ordinal. An Action resolves all the Stored Inputs it needs as one batch before it observes any of them; after that,
+no further request is valid. Stored Input prompts do not consume the Action's eight replay ordinals; the Team-wide
+budget of sixteen admitted requests per turn bounds them. Authentication both
 proves the named mechanism and authorizes the exact challenge whose copy the human submits. One logical Action may
 resolve at most one authorization request. A request after observing an Integration token is invalid. Denial,
 cancellation, expiry, unsupported authentication, transcript divergence, and undeclared capability all block the

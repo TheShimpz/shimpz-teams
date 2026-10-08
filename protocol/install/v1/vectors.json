@@ -173,6 +173,12 @@
         ],
         "stored_inputs": [
           {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls."
+          },
+          {
             "id": "whatsapp-token",
             "kind": "password",
             "label": "WhatsApp token",
@@ -442,7 +448,7 @@
         "path": [
           "name"
         ],
-        "value": "Hello\u007fWorld"
+        "value": "HelloWorld"
       }
     },
     {
@@ -1541,6 +1547,126 @@
             "human_requests": [
               "approval",
               "input:choice"
+            ],
+            "effect": "mutating"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_action_with_two_stored_inputs",
+      "fixture": "resolve_response",
+      "valid": true,
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-app-secret",
+              "whatsapp-token"
+            ],
+            "input_files": [],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "mutating"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_action_with_nine_stored_inputs",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "key-1",
+              "key-2",
+              "key-3",
+              "key-4",
+              "key-5",
+              "key-6",
+              "key-7",
+              "key-8",
+              "key-9"
+            ],
+            "input_files": [],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "mutating"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_action_with_duplicate_stored_input_reference",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token",
+              "whatsapp-token"
+            ],
+            "input_files": [],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
             ],
             "effect": "mutating"
           }

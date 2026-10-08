@@ -76,7 +76,7 @@
         },
         "stored_inputs": {
           "type": "array",
-          "maxItems": 1,
+          "maxItems": 8,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/identifier"
