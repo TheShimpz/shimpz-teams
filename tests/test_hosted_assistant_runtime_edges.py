@@ -450,7 +450,6 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             "evidence": assistants.action_execution.ActionInvocationEvidence(
                 assistants.action_execution.RpcPrivateInputs({}, {}),
                 assistants.action_human.ActionTranscript("interrupt"),
-                "a" * 64,
                 "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
             ),
         }
@@ -539,7 +538,6 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                             "evidence": assistants.action_execution.ActionInvocationEvidence(
                                 assistants.action_execution.RpcPrivateInputs({}, {}),
                                 transcript,
-                                "a" * 64,
                                 "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
                             )
                         }
@@ -548,28 +546,6 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             )
         self.assertEqual(result["result"], {"ok": True})
         self.assertEqual(rpc.call_args.args[-1]["responses"], (response.payload(),))
-
-        with (
-            mock.patch.object(assistants, "_assistant_rpc", return_value={}),
-            mock.patch.object(assistants.action_execution, "project_rpc_result", return_value={"ok": True}),
-            mock.patch.object(assistants, "_seal_hosted_stored_inputs", side_effect=KeyError("private-token")),
-            self.assertRaises(state.ApiError) as persistence,
-        ):
-            assistants._invoke_assistant_action(assistants.ActionInvocationRequest(**base))
-        self.assertEqual(persistence.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
-        self.assertNotIn("private-token", persistence.exception.message)
-
-        with (
-            mock.patch.object(
-                assistants, "_assistant_rpc", return_value={"type": "result", "result": {"items": [0] * 5_000}}
-            ),
-            mock.patch.object(assistants, "_validate_action_payload", side_effect=lambda _c, _a, value, **_k: value),
-            mock.patch.object(assistants, "_seal_hosted_stored_inputs") as seal,
-            self.assertRaises(state.ApiError) as undurable,
-        ):
-            assistants._invoke_assistant_action(assistants.ActionInvocationRequest(**base))
-        self.assertEqual(undurable.exception.status, HTTPStatus.BAD_GATEWAY)
-        seal.assert_not_called()
 
     def test_stored_input_rejection_and_sealing_preserve_secret_custody(self) -> None:
         action = SimpleNamespace(
@@ -591,16 +567,11 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             ACTION_ID,
             {},
         )
-        response = assistants.action_human.HumanResponse(
-            "input:password",
-            0,
-            "0" * 64,
-            "private-token",
-            "whatsapp-token",
-        )
-        transcript = assistants.action_human.ActionTranscript("interrupt", (response,))
         private = assistants.action_execution.ResolvedInvocationEvidence(
-            {}, {}, transcript, "a" * 64, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+            {},
+            {"whatsapp-token": "private-token"},
+            assistants.action_human.ActionTranscript("interrupt"),
+            "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
         )
 
         with (
@@ -621,33 +592,58 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         self.assertEqual(rejected.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self.assertNotIn("private-token", rejected.exception.message)
 
-        without_origin = assistants.action_execution.ResolvedInvocationEvidence(
-            {}, {}, transcript, None, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+    def test_each_attempt_audits_the_ids_of_the_stored_inputs_it_was_delivered(self) -> None:
+        declaration = SimpleNamespace(kind="password")
+        contract = SimpleNamespace(
+            actions={
+                ACTION_ID: SimpleNamespace(
+                    human_requests=("input:password",), stored_inputs=("app-secret", "whatsapp-token"), input_files=()
+                )
+            },
+            stored_inputs={"app-secret": declaration, "whatsapp-token": declaration},
+            machine_contract={"messages": []},
         )
-        with self.assertRaisesRegex(AssertionError, "lacks Action evidence"):
-            assistants._seal_hosted_stored_inputs(request, without_origin)
-
-        undeclared_action = SimpleNamespace(human_requests=("input:password",), stored_inputs=())
-        undeclared_request = replace(
-            request,
-            contract=SimpleNamespace(
-                actions={ACTION_ID: undeclared_action},
-                stored_inputs={"whatsapp-token": declaration},
+        evidence = assistants.action_execution.ActionInvocationEvidence(
+            assistants.action_execution.RpcPrivateInputs(
+                {}, {"whatsapp-token": "private-token", "app-secret": "private-secret"}
             ),
+            assistants.action_human.ActionTranscript("interrupt"),
+            "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
         )
-        with self.assertRaisesRegex(KeyError, "whatsapp-token"):
-            assistants._seal_hosted_stored_inputs(undeclared_request, private)
-
-        with mock.patch.object(state._assistant_stored_inputs, "seal") as seal:
-            assistants._seal_hosted_stored_inputs(request, private)
-        seal.assert_called_once_with(
+        container = _container()
+        request = assistants.ActionInvocationRequest(
             TEAM_ID,
+            TURN_TOKEN,
             ASSISTANT_ID,
-            "whatsapp-token",
-            "password",
-            "private-token",
-            "a" * 64,
+            contract,
+            container,
+            ACTION_ID,
+            {},
+            validated_assistant=SimpleNamespace(assistant_id=ASSISTANT_ID, contract=contract, container=container),
+            evidence=evidence,
         )
+        with (
+            mock.patch.object(assistants, "_validate_action_payload", side_effect=lambda _c, _a, value, **_k: value),
+            mock.patch.object(assistants, "_action_files", return_value={}),
+            mock.patch.object(assistants, "_assistant_rpc", return_value={"type": "result", "result": {}}) as rpc,
+            mock.patch.object(assistants.action_execution, "project_rpc_result", return_value={}),
+            mock.patch.object(assistants.audit, "log") as audit,
+        ):
+            assistants._invoke_assistant_action(request)
+        self.assertEqual(
+            rpc.call_args.args[-1]["stored_inputs"], {"whatsapp-token": "private-token", "app-secret": "private-secret"}
+        )
+        audit.assert_any_call(
+            "assistant_action",
+            TEAM_ID,
+            result="ok",
+            phase="stored-inputs-delivered",
+            assistant=ASSISTANT_ID,
+            action=ACTION_ID,
+            operation_id="6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+            stored_inputs=["app-secret", "whatsapp-token"],
+        )
+        self.assertNotIn("private-", repr(audit.call_args_list))
 
     def test_action_payload_file_and_storage_errors_are_normalized(self) -> None:
         active = _active()

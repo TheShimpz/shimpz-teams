@@ -63,7 +63,6 @@ from local.errors import (
     action_file_unavailable,
     assistant_action_blocked,
     docker_unavailable,
-    stored_input_unavailable,
     team_context_changed,
 )
 from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
@@ -596,6 +595,15 @@ class LocalController:
                 assistant=assistant_id,
                 detail=f"started:{action}",
             )
+            if private.stored_inputs:
+                # Each attempt names the Stored Inputs it was delivered, by id only, under its logical operation.
+                local_audit.record_request(
+                    "assistant-action",
+                    result="ok",
+                    team_id=team_id,
+                    assistant=assistant_id,
+                    detail=f"stored-inputs-delivered:{action}:{private.operation_id}:{','.join(sorted(private.stored_inputs))}",
+                )
             rpc_payload = {
                 "input": safe_payload,
                 "integrations": action_execution.integration_access_tokens(private.integrations),
@@ -650,17 +658,6 @@ class LocalController:
             private,
             validate_action_payload,
         )
-        try:
-            local_chat_execution.seal_stored_inputs(
-                self.assistant_stored_inputs,
-                team_id,
-                assistant_id,
-                spec,
-                action_spec,
-                private,
-            )
-        except (KeyError, action_stored_input.StoredInputStoreError) as exc:
-            raise stored_input_unavailable() from exc
         local_audit.record_request(
             "assistant-action",
             result="ok",

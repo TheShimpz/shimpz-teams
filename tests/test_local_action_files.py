@@ -64,7 +64,6 @@ class LocalFileDeliveryTests(unittest.TestCase):
         evidence = local_app.action_execution.ActionInvocationEvidence(
             local_app.action_execution.RpcPrivateInputs({}, {}, self.file if file is None else file),
             transcript,
-            "a" * 64,
             OPERATION_ID,
         )
         return self.controller.invoke("team_1", "docs", "upload", {"document": self.file_id}, evidence)

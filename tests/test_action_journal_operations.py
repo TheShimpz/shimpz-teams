@@ -381,7 +381,7 @@ class BatchOperationTests(unittest.TestCase):
         self.assertNotEqual(resolved[0].operation_id, resolved[1].operation_id)
         self.assertTrue(all(action_journal.valid_operation_id(item.operation_id) for item in resolved))
         frozen = action_execution.ActionInvocationEvidence(
-            action_execution.RpcPrivateInputs({}, {}), action_human.ActionTranscript(""), "a" * 64, RETRY_ID
+            action_execution.RpcPrivateInputs({}, {}), action_human.ActionTranscript(""), RETRY_ID
         )
         self.assertEqual(action_execution.resolve_invocation_evidence(frozen, dict, dict).operation_id, RETRY_ID)
 

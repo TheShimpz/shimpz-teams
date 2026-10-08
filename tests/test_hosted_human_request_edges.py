@@ -120,9 +120,9 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
             "_hosted_chat_setup",
             return_value=("t", (current,), *("u",) * 4, ("expected",)),
         ):
-            self.assertIs(
+            self.assertEqual(
                 human._validate_pending_context("team_1", challenge, object(), "account_1"),
-                challenge.payload,
+                (challenge.payload, (current,)),
             )
 
     def test_response_admission_handles_denial_assurance_and_schema_failures(self) -> None:
@@ -133,16 +133,16 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
             requirement=SimpleNamespace(request=request, interrupt_id="interrupt"),
         )
         with self.assertRaises(state.ApiError):
-            human._admit_response("team_1", challenge, pending, "deny", None, {"kind": "auth"})
+            human._admit_response("team_1", challenge, (pending, ()), "deny", None, {"kind": "auth"})
         with mock.patch.object(state._human_challenges, "claim") as claim:
-            self.assertIsNone(human._admit_response("team_1", challenge, pending, "deny", None, None))
+            self.assertIsNone(human._admit_response("team_1", challenge, (pending, ()), "deny", None, None))
         claim.assert_called_once_with("team_1", "challenge")
 
         self.assertIsNone(
             human._admit_response(
                 "team_1",
                 challenge,
-                pending,
+                (pending, ()),
                 "submit",
                 True,
                 {"kind": "unexpected"},
@@ -156,7 +156,7 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(state.ApiError),
         ):
-            human._admit_response("team_1", challenge, pending, "submit", True, None)
+            human._admit_response("team_1", challenge, (pending, ()), "submit", True, None)
 
     def test_resume_failure_and_cancel_paths_are_terminal(self) -> None:
         pending = self.pending()
@@ -171,7 +171,7 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
                 self.subTest(decision=decision),
                 mock.patch.object(human, "_resume_body", return_value=("id", decision, None)),
                 mock.patch.object(human, "_pending_challenge", return_value=object()),
-                mock.patch.object(human, "_validate_pending_context", return_value=pending),
+                mock.patch.object(human, "_validate_pending_context", return_value=(pending, ())),
                 mock.patch.object(human, "_admit_response", return_value=None),
                 mock.patch.object(
                     segment,

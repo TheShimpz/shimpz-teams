@@ -122,7 +122,7 @@ class HostedHumanPurgeRaceTests(unittest.TestCase):
         def exclusive(_team_id, _lease):
             yield "turn-token", SimpleNamespace(id=GENERATION)
 
-        with mock.patch.object(hosted_chat_human, "_validate_pending_context", return_value=self.pending):
+        with mock.patch.object(hosted_chat_human, "_validate_pending_context", return_value=(self.pending, ())):
             denied = hosted_chat_human.resume_chat_human(
                 "team_1",
                 {"challenge_id": self.challenge.id, "decision": "deny"},

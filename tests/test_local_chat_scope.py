@@ -101,7 +101,6 @@ class LocalChatScopeTests(LocalContractCase):
                     local_app.action_execution.ActionInvocationEvidence(
                         local_app.action_execution.RpcPrivateInputs({}, {}),
                         action_human.ActionTranscript(""),
-                        "a" * 64,
                         "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
                     ),
                 )
@@ -350,7 +349,6 @@ class LocalChatScopeTests(LocalContractCase):
                     local_app.action_execution.ActionInvocationEvidence(
                         local_app.action_execution.RpcPrivateInputs({}, {}),
                         action_human.ActionTranscript(""),
-                        "a" * 64,
                         "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
                     ),
                 )
@@ -367,7 +365,6 @@ class LocalChatScopeTests(LocalContractCase):
         evidence = local_app.action_execution.ActionInvocationEvidence(
             local_app.action_execution.RpcPrivateInputs({}, {}),
             action_human.ActionTranscript(""),
-            "a" * 64,
             "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
         )
 

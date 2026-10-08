@@ -399,3 +399,37 @@ class FreezeRaceTests(RoutineServiceCase):
                 self.assertEqual(self.run_claim(service, claim)["status"], "stopped")
             self.assertEqual((self.state(service).runs, self.state(service).routines), ((), ()))
             self.assertEqual(service.routine_store.continuations("team_1"), ())
+
+
+class RoutineStoredInputAnswerTests(RoutineServiceCase):
+    def test_a_stored_input_answer_is_sealed_inside_the_challenge_commit_or_nothing_is_consumed(self) -> None:
+        service = mock.Mock()
+        consumed: list[str] = []
+
+        def claim_after(_team_id, challenge_id, commit):
+            commit(object())
+            consumed.append(challenge_id)
+
+        service.routine_human_challenges.claim_after = claim_after
+        order: list[str] = []
+        with mock.patch.object(
+            routine_human.routine_state,
+            "update",
+            side_effect=lambda *_args: order.append("thaw") or "a" * 32,
+        ):
+            routine_human._resume(service, "team_1", "run", ("challenge", lambda: order.append("seal")), 2)
+        self.assertEqual((order, consumed), (["seal", "thaw"], ["challenge"]))
+
+        order.clear()
+        consumed.clear()
+
+        def refused() -> None:
+            raise local_app.ApiProblem(503, "Assistant Stored Input state is unavailable", code="unavailable")
+
+        with (
+            mock.patch.object(routine_human.routine_state, "update", side_effect=lambda *_args: order.append("thaw")),
+            self.assertRaises(local_app.ApiProblem),
+        ):
+            routine_human._resume(service, "team_1", "run", ("challenge", refused), 2)
+        # A seal that fails leaves the run frozen and its challenge answerable.
+        self.assertEqual((order, consumed), ([], []))

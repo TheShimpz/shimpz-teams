@@ -343,7 +343,6 @@ def _run_chat_segment_with_metadata(
         evidence = action_execution.ActionInvocationEvidence(
             private_inputs,
             transcript,
-            action_execution.stored_input_origin(action_request),
             operation_id,
             protect=_protector(self, request),
         )

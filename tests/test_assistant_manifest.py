@@ -192,6 +192,54 @@ class AssistantManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "request is undeclared"):
             assistant_manifest.canonical_machine_contract(contract, (), declarations, summary=summary, allowed_hosts=())
 
+    def test_an_action_may_use_several_declared_stored_inputs_as_one_sorted_list(self) -> None:
+        declarations = assistant_manifest.canonical_stored_input_declarations(
+            {
+                f"key-{index}": {"kind": "password", "label": "Key", "description": "Provider key."}
+                for index in range(1, assistant_manifest.MAX_STORED_INPUTS + 1)
+            }
+        )
+
+        def contract(stored_inputs: list[str]) -> dict[str, object]:
+            return {
+                "version": 1,
+                "actions": [
+                    {
+                        "id": "send-message",
+                        "input_schema": {"type": "object", "additionalProperties": False},
+                        "output_schema": {"type": "object", "additionalProperties": False},
+                        "integrations": [],
+                        "stored_inputs": stored_inputs,
+                        "input_files": [],
+                        "human_requests": ["input:password"],
+                        "effect": "mutating",
+                    }
+                ],
+                "messages": catalog_fixtures.messages(),
+            }
+
+        def admit(stored_inputs: list[str]) -> dict[str, object]:
+            return assistant_manifest.canonical_machine_contract(
+                contract(stored_inputs), (), declarations, summary=catalog_fixtures.SUMMARY, allowed_hosts=()
+            )
+
+        for admitted in (["key-1", "key-2"], [f"key-{index}" for index in range(1, 9)]):
+            with self.subTest(admitted=admitted):
+                self.assertEqual(admit(admitted)["actions"][0]["stored_inputs"], admitted)
+        refused = (
+            ["key-2", "key-1"],
+            ["key-1", "key-1"],
+            ["key-1", "undeclared-key"],
+            [f"key-{index}" for index in range(1, 9)] + ["key-9"],
+            ["key-1", 2],
+        )
+        for stored_inputs in refused:
+            with (
+                self.subTest(stored_inputs=stored_inputs),
+                self.assertRaisesRegex(assistant_manifest.ManifestError, "Stored Inputs are invalid"),
+            ):
+                admit(stored_inputs)
+
     def test_reads_the_sdk_baked_v1_manifest_path(self) -> None:
         self.assertEqual(assistant_manifest.MANIFEST_PATH, "/opt/shimpz/shimpz.toml")
 

@@ -96,12 +96,22 @@ class HumanResponseTests(unittest.TestCase):
         )
 
         current = human.validate_request(descriptor, ("input:password",), ("whatsapp-token",), catalog=CATALOG)
-        transcript = human.ActionTranscript("interrupt-1").append(current, "private-token")
-
         self.assertEqual(current.stored_input, "whatsapp-token")
-        self.assertNotIn("stored_input", transcript.payloads()[0])
-        self.assertEqual(transcript.submitted_stored_inputs(), {"whatsapp-token": "private-token"})
-        self.assertEqual(transcript.protected_values(), {"stored-input:whatsapp-token": "private-token"})
+        # A Stored Input answer never enters the replay transcript; the admission carries it for Team to seal.
+        with self.assertRaisesRegex(human.HumanRequestError, "answered by injection"):
+            human.ActionTranscript("interrupt-1").append(current, "private-token")
+        admission = human.append_response((), "interrupt-1", current, "private-token", 3)
+        self.assertEqual(admission.transcripts, ())
+        self.assertEqual(admission.requests_used, 4)
+        self.assertEqual(
+            (admission.stored_input.stored_input, admission.stored_input.value), ("whatsapp-token", "private-token")
+        )
+        self.assertNotIn("private-token", repr(admission))
+        for refused_value in ("", 7, "x" * 1025):
+            with self.subTest(value=refused_value), self.assertRaises(human.HumanRequestError):
+                human.append_response((), "interrupt-1", current, refused_value, 0)
+        with self.assertRaisesRegex(human.HumanRequestError, "human request limit"):
+            human.append_response((), "interrupt-1", current, "private-token", human.MAX_REQUESTS_PER_TURN)
         for stored_inputs in ((), ("other-token",)):
             with (
                 self.subTest(stored_inputs=stored_inputs),
@@ -116,15 +126,51 @@ class HumanResponseTests(unittest.TestCase):
         with self.assertRaises(human.HumanRequestError):
             human.validate_request(malformed, ("input:password",), ("whatsapp-token",), catalog=CATALOG)
 
-        ambiguous = human.ActionTranscript(
-            "interrupt-1",
-            (
-                human.HumanResponse("input:password", 0, "a" * 64, "first", "first-token"),
-                human.HumanResponse("input:password", 1, "b" * 64, "second", "second-token"),
+    def test_stored_input_answer_keeps_ordinal_and_secret_last_rules(self) -> None:
+        def stored(ordinal: int, stored_input: str) -> human.HumanRequest:
+            return human.validate_request(
+                human_request_fixtures.fingerprinted(
+                    {
+                        "kind": "input:password",
+                        "ordinal": ordinal,
+                        "title": "Connect WhatsApp",
+                        "description": "Provide the token once to continue this Action.",
+                        "label": "WhatsApp token",
+                        "required": True,
+                        "placeholder": None,
+                        "min_length": 1,
+                        "max_length": 1024,
+                        "stored_input": stored_input,
+                    }
+                ),
+                ("input:password", "approval"),
+                ("app-secret", "whatsapp-token"),
+                catalog=CATALOG,
+            )
+
+        approved = human.ActionTranscript("interrupt-1").append(request("approval"), True)
+        # Two slots answered one after the other reuse the same next ordinal, since neither enters the transcript.
+        first = human.append_response((approved,), "interrupt-1", stored(1, "whatsapp-token"), "token", 1)
+        second = human.append_response(first.transcripts, "interrupt-1", stored(1, "app-secret"), "secret", 2)
+        self.assertEqual(second.transcripts, (approved,))
+        self.assertEqual(second.requests_used, 3)
+        self.assertEqual(second.stored_input.stored_input, "app-secret")
+        with self.assertRaisesRegex(human.HumanRequestError, "sequence is invalid"):
+            human.append_response((approved,), "interrupt-1", stored(2, "app-secret"), "secret", 2)
+        after_secret = human.ActionTranscript("interrupt-1").append(
+            request(
+                "input:password",
+                0,
+                label="Provider secret",
+                required=True,
+                placeholder=None,
+                min_length=1,
+                max_length=64,
             ),
+            "plain",
         )
-        with self.assertRaisesRegex(human.HumanRequestError, "multiple Stored Inputs"):
-            ambiguous.submitted_stored_inputs()
+        with self.assertRaisesRegex(human.HumanRequestError, "after a secret response"):
+            human.append_response((after_secret,), "interrupt-1", stored(1, "app-secret"), "secret", 1)
 
     def test_turn_transcripts_are_interrupt_bound_and_globally_bounded(self) -> None:
         transcripts: tuple[human.ActionTranscript, ...] = ()

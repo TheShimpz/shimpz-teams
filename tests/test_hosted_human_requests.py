@@ -114,7 +114,7 @@ class HostedHumanRequestTests(unittest.TestCase):
             denied = hosted_chat_human._admit_response(
                 "team_1",
                 challenge,
-                pending,
+                (pending, ()),
                 "submit",
                 "opaque-account-handle",
                 None,
@@ -122,7 +122,7 @@ class HostedHumanRequestTests(unittest.TestCase):
             admitted = hosted_chat_human._admit_response(
                 "team_1",
                 challenge,
-                pending,
+                (pending, ()),
                 "submit",
                 "opaque-account-handle",
                 {"kind": "auth:totp", "challenge_id": challenge.id},
@@ -160,7 +160,7 @@ class HostedHumanRequestTests(unittest.TestCase):
         segment = SimpleNamespace()
         with (
             mock.patch.object(runtime_state, "_human_challenges", challenges),
-            mock.patch.object(hosted_chat_human, "_validate_pending_context", return_value=pending),
+            mock.patch.object(hosted_chat_human, "_validate_pending_context", return_value=(pending, ())),
             mock.patch.object(hosted_chat_segment, "_run_hosted_chat_segment", return_value=segment) as run,
             mock.patch.object(
                 hosted_chat_segment,

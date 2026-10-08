@@ -53,8 +53,6 @@ def project_action_result(
             ),
             stored_inputs_by_id=private.stored_inputs,
             declared_stored_inputs=action_spec.stored_inputs,
-            supplied_stored_inputs=frozenset(private.stored_inputs)
-            | frozenset(private.transcript.submitted_stored_inputs()),
             catalog=action_human.catalog_by_id(spec.machine_contract) if action_spec.human_requests else None,
             capabilities=capabilities,
             file_withheld=private.file is not None
@@ -125,33 +123,6 @@ def project_invocation(
         # A secret echo never travels as a cause; a handled failure keeps its sanitized diagnostic as one.
         cause = None if isinstance(exc, action_execution.RpcSecretExposureError) else exc
         raise ApiProblem(HTTPStatus.BAD_GATEWAY, message, code=code) from cause
-
-
-def seal_stored_inputs(
-    store: action_stored_input.StoredInputStore,
-    team_id: str,
-    assistant_id: str,
-    spec: object,
-    action_spec: object,
-    private: action_execution.ResolvedInvocationEvidence,
-) -> None:
-    submitted = private.transcript.submitted_stored_inputs()
-    if not submitted:
-        return
-    if private.origin is None:
-        raise AssertionError("Stored Input submission lacks Action evidence")
-    for stored_input_id, value in submitted.items():
-        if stored_input_id not in action_spec.stored_inputs:
-            raise KeyError(stored_input_id)
-        declaration = spec.stored_inputs[stored_input_id]
-        store.seal(
-            team_id,
-            assistant_id,
-            stored_input_id,
-            declaration.kind,
-            value,
-            private.origin,
-        )
 
 
 def clear_rejected_stored_input(

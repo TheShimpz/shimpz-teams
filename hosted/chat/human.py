@@ -7,7 +7,10 @@ from contextlib import AbstractContextManager
 from http import HTTPStatus
 
 from action import challenges as action_challenges
+from action import execution as action_execution
 from action import human as action_human
+from action import stored_input as action_stored_input
+from hosted import audit
 from hosted import state as runtime_state
 from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import segment as hosted_chat_segment
@@ -69,7 +72,7 @@ def _validate_pending_context(
     challenge: action_challenges.PendingHumanChallenge,
     container: object,
     owner: str,
-) -> hosted_assistants._PendingHostedChat:
+) -> tuple[hosted_assistants._PendingHostedChat, object]:
     pending = challenge.payload
     if not isinstance(pending, hosted_assistants._PendingHostedChat) or pending.owner != owner:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team capabilities changed; retry")
@@ -84,7 +87,7 @@ def _validate_pending_context(
         runtime_state._human_challenges.cancel_team(team_id)
         hosted_chat_segment._purge_hosted_human_pending(pending)
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team capabilities changed; retry")
-    return pending
+    return pending, setup[1]
 
 
 def _copy_binding_current(requirement: action_challenges.HumanRequirement, assistants: object) -> bool:
@@ -98,11 +101,12 @@ def _copy_binding_current(requirement: action_challenges.HumanRequirement, assis
 def _admit_response(
     team_id: str,
     challenge: action_challenges.PendingHumanChallenge,
-    pending: hosted_assistants._PendingHostedChat,
+    context: tuple[hosted_assistants._PendingHostedChat, object],
     decision: str,
     value: object | None,
     assurance: dict[str, str] | None,
 ) -> action_human.HumanResponseAdmission | None:
+    pending, assistants = context
     if decision == "deny":
         if assurance is not None:
             raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Action human response is invalid")
@@ -130,8 +134,58 @@ def _admit_response(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "Action human response does not match its request",
         ) from exc
-    runtime_state._human_challenges.claim(team_id, challenge.id)
+    # The turn's chat slot excludes every Stored Input clear (ADR-0059), and a Stored Input answer is sealed while the
+    # challenge is still held, so the challenge is consumed only once the value is kept.
+    runtime_state._human_challenges.claim_after(
+        team_id,
+        challenge.id,
+        lambda claimed: _seal_stored_input_answer(team_id, claimed, pending, assistants, admission),
+    )
     return admission
+
+
+def _seal_stored_input_answer(
+    team_id: str,
+    challenge: action_challenges.PendingHumanChallenge,
+    pending: hosted_assistants._PendingHostedChat,
+    assistants: object,
+    admission: action_human.HumanResponseAdmission,
+) -> None:
+    submission = admission.stored_input
+    if submission is None:
+        return
+    requirement = challenge.requirement
+    active = next((item for item in assistants if item.assistant_id == requirement.assistant_id), None)
+    try:
+        if active is None:
+            raise action_human.HumanRequestError("Stored Input answer has no running Assistant")
+        action_execution.seal_admitted_stored_input(
+            runtime_state._assistant_stored_inputs,
+            team_id,
+            requirement,
+            pending.continuation.turn.actions,
+            active.contract,
+            submission,
+        )
+    except action_human.HumanRequestError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "Action human response does not match its request",
+        ) from exc
+    except action_stored_input.StoredInputStoreError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant Stored Input could not be saved",
+        ) from exc
+    audit.log(
+        "assistant_action",
+        team_id,
+        result="ok",
+        phase="stored-input-sealed",
+        assistant=requirement.assistant_id,
+        action=requirement.action_id,
+        stored_input=submission.stored_input,
+    )
 
 
 def resume_chat_human(
@@ -145,8 +199,9 @@ def resume_chat_human(
     challenge_id, decision, value = _resume_body(body)
     with exclusive_turn(team_id, lease) as (token, container):
         challenge = _pending_challenge(team_id, challenge_id)
-        pending = _validate_pending_context(team_id, challenge, container, lease.owner)
-        admission = _admit_response(team_id, challenge, pending, decision, value, assurance)
+        context = _validate_pending_context(team_id, challenge, container, lease.owner)
+        pending = context[0]
+        admission = _admit_response(team_id, challenge, context, decision, value, assurance)
         if admission is None:
             reason = "denied" if decision == "deny" else "authentication-failed"
             return hosted_chat_segment._terminal_hosted_human_failure(team_id, token, pending, reason)

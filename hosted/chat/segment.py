@@ -272,7 +272,6 @@ def _execute_hosted_action(
             evidence=action_execution.ActionInvocationEvidence(
                 private_inputs,
                 transcript,
-                action_execution.stored_input_origin(request),
                 operation_id,
             ),
         )

@@ -304,12 +304,24 @@ def _thaw(
         return state, None
 
 
-def _resume(self, team_id: str, run_id: str, challenge_id: str | None, requests_used: int) -> record.Lease:
-    """Thaw the run; an answered run consumes its challenge in the same step, so a run that stays frozen keeps it."""
+def _resume(
+    self,
+    team_id: str,
+    run_id: str,
+    answered: tuple[str | None, Callable[[], None]],
+    requests_used: int,
+) -> record.Lease:
+    """Thaw the run; an answered run consumes its challenge in the same step, so a run that stays frozen keeps it.
+
+    ``answered`` is the challenge id, or None, and what must commit before it is consumed: an answered Stored Input is
+    sealed there, so a challenge that stays answerable never leaves a value behind it was not consumed for.
+    """
+    challenge_id, before = answered
     now = int(time.time())
     thawed: list[str] = []
 
     def thaw() -> None:
+        before()
         state_token = routine_state.update(self, team_id, lambda state: _thaw(state, run_id, now, requests_used))
         if state_token is None:
             raise _not_frozen()
@@ -345,8 +357,15 @@ def _replay(
         routine_run.registered(self, team_id, value.run_id, token, value.active_seconds_left),
     ):
         with self._lock(team_id):
-            _current_context(self, team_id, value, pending, frozen.requirement)
-            lease = _resume(self, team_id, value.run_id, challenge_id, requests_used)
+            assistants = _current_context(self, team_id, value, pending, frozen.requirement)
+
+            def seal() -> None:
+                if admission is not None and frozen.requirement is not None:
+                    local_chat_human.seal_stored_input_answer(
+                        self, team_id, frozen.requirement, pending, assistants, admission
+                    )
+
+            lease = _resume(self, team_id, value.run_id, (challenge_id, seal), requests_used)
         routine_state.call(lambda: self.routine_store.delete_continuation(team_id, value.run_id))
         run = routine_run._Run(team_id, value.run_id, lease, token, provider, routine, transcripts, requests_used)
         outcome = routine_compiled.execute(self, run, value, progress, pending)

@@ -178,7 +178,7 @@ class DeliveryTests(unittest.TestCase):
         request = brain_runtime_client.ActionRequest("interrupt-1", "docs", "upload", self.input)
         private = action_execution.require_rpc_envelope(object(), request, lambda *_: {}, lambda *_: {}, self.file)
         self.assertIs(private.file, self.file)
-        evidence = action_execution.ActionInvocationEvidence(private, _approved(), "a" * 64, OPERATION_ID)
+        evidence = action_execution.ActionInvocationEvidence(private, _approved(), OPERATION_ID)
         resolved = action_execution.resolve_invocation_evidence(evidence, dict, dict)
         self.assertIs(resolved.file, self.file)
 

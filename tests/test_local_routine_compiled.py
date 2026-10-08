@@ -384,7 +384,6 @@ class DiagnosticTests(CompiledRunCase):
                 {"cloudflare": {"access_token": "tok-123", "scopes": ["a"], "expires_in": 3600}}, {"key": "k"}
             ),
             action_human.ActionTranscript("i-1", ()),
-            "",
             "0" * 32,
         )
         self.assertEqual(set(local_routine_diagnostics.protected(evidence)), {"tok-123", "a", "k"})

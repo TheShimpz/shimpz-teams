@@ -247,6 +247,94 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(completed["reply"], "Searched")
         self.assertEqual(supplied[-1], ("brazil", ["exa-api-key"]))
 
+    def test_two_missing_stored_inputs_are_each_asked_once_sealed_and_then_both_delivered(self) -> None:
+        schema = {"type": "object", "additionalProperties": False, "properties": {"query": {"type": "string"}}}
+
+        def slot_request(stored_input: str) -> dict[str, object]:
+            return human_request_fixtures.fingerprinted(
+                {
+                    "kind": "input:password",
+                    "ordinal": 0,
+                    "title": "Exa API key",
+                    "description": "Provide the key once.",
+                    "label": "Exa API key",
+                    "required": True,
+                    "placeholder": None,
+                    "min_length": 8,
+                    "max_length": 256,
+                    "stored_input": stored_input,
+                }
+            )
+
+        batch = (brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "search-web", {"query": "news"}),)
+
+        class Runtime:
+            purpose = staticmethod(lambda *_args: None)
+
+            def start(self, _context, _message, *, conversation=()):
+                return brain_runtime_client.RuntimeTurn("action-required", "", batch)
+
+            def resume(self, _context, results):
+                if results != {"action-1": {"query": "news"}}:
+                    raise AssertionError("the result changed")
+                return brain_runtime_client.RuntimeTurn("completed", "Searched", ())
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, Runtime())
+            spec = controller.registry["shimpz-cloudflare"]
+            declaration = assistant_spec.StoredInputSpec("password", "Exa API key", "Key")
+            controller.registry["shimpz-cloudflare"] = replace(
+                spec,
+                actions={
+                    **spec.actions,
+                    "search-web": assistant_spec.ActionSpec(
+                        "Search the web", schema, schema, (), ("exa-account", "exa-api-key"), ("input:password",)
+                    ),
+                },
+                stored_inputs={"exa-account": declaration, "exa-api-key": declaration},
+            )
+            supplied: list[dict[str, object]] = []
+
+            def rpc(_container, _action, payload):
+                supplied.append(dict(payload))
+                for slot in ("exa-api-key", "exa-account"):
+                    if slot not in payload["stored_inputs"]:
+                        return {"type": "request", "request": slot_request(slot)}
+                return {"type": "result", "result": {"query": payload["input"]["query"]}}
+
+            controller.assistant_lifecycle._rpc = rpc
+            with mock.patch.object(local_audit, "record_request", return_value="a" * 32) as audit:
+                first = _chat(controller, "Search")
+                second = _resume(
+                    controller,
+                    {"challenge_id": first["challenge_id"], "decision": "submit", "value": "test-exa-key"},
+                )
+                completed = _resume(
+                    controller,
+                    {"challenge_id": second["challenge_id"], "decision": "submit", "value": "test-account"},
+                )
+            store = controller.assistant_stored_inputs
+            sealed = {
+                slot: store.resolve("team_1", "shimpz-cloudflare", slot, "password").value
+                for slot in ("exa-account", "exa-api-key")
+            }
+
+        self.assertEqual((first["status"], second["status"]), ("human-required", "human-required"))
+        self.assertEqual(completed["reply"], "Searched")
+        self.assertEqual(sealed, {"exa-account": "test-account", "exa-api-key": "test-exa-key"})
+        self.assertEqual(
+            [sorted(payload["stored_inputs"]) for payload in supplied],
+            [[], ["exa-api-key"], ["exa-account", "exa-api-key"]],
+        )
+        # Neither value ever travels as a replay response; each is injected once sealed.
+        self.assertTrue(all("responses" not in payload for payload in supplied))
+        details = [call.kwargs.get("detail", "") for call in audit.call_args_list]
+        self.assertIn("stored-input-sealed:search-web:exa-api-key", details)
+        self.assertIn("stored-input-sealed:search-web:exa-account", details)
+        self.assertTrue(any(detail.endswith(":exa-account,exa-api-key") for detail in details))
+        for value in sealed.values():
+            self.assertNotIn(value, repr(audit.call_args_list))
+
     def test_denied_human_request_purges_the_action_batch_without_brain_resume(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             runtime = PausingRuntime("a denied Action must not resume the Brain")

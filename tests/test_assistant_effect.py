@@ -227,12 +227,19 @@ class EffectAdmissionTests(unittest.TestCase):
                 self.assertRaisesRegex(assistant_manifest.ManifestError, "verifier_interactive"),
             ):
                 _admit(_contract(create, target))
-        keyed = {**find, "human_requests": ["input:password"], "stored_inputs": ["api-key"]}
-        self.assertEqual(len(_admit(_contract(create, keyed))["actions"]), 2)
+        for stored_inputs in (["api-key"], ["api-key", "api-secret"]):
+            keyed = {**find, "human_requests": ["input:password"], "stored_inputs": stored_inputs}
+            with self.subTest(stored_inputs=stored_inputs):
+                self.assertEqual(len(_admit(_contract(create, keyed))["actions"]), 2)
 
     def test_a_verifier_may_only_ask_for_its_own_declared_stored_input_at_run_time(self) -> None:
         keyed = types.SimpleNamespace(human_requests=("input:password",), stored_inputs=("api-key",))
         self.assertTrue(action_effect.verifier_request_admitted(keyed, "input:password", "api-key"))
+        paired = types.SimpleNamespace(human_requests=("input:password",), stored_inputs=("api-key", "api-secret"))
+        for slot in ("api-key", "api-secret"):
+            with self.subTest(slot=slot):
+                self.assertTrue(action_effect.verifier_request_admitted(paired, "input:password", slot))
+        self.assertFalse(action_effect.verifier_request_admitted(paired, "input:password", "other-key"))
         refused = (
             (keyed, "input:password", None),
             (keyed, "input:password", "other-key"),

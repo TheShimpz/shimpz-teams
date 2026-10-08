@@ -13,7 +13,6 @@ from unittest import mock
 
 from docker.errors import APIError, DockerException, NotFound
 
-from action import human as action_human
 from inference import config as inference_config
 from local import app as local_app
 from local import labels as local_labels
@@ -561,25 +560,18 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             result = controller.invoke("team_1", "assistant", "action", {})
         self.assertEqual(result["result"], {"ok": True})
 
-    def test_stored_input_is_sealed_reused_and_cleared_on_exact_rejection(self) -> None:
+    def test_declared_stored_inputs_are_delivered_audited_and_cleared_only_on_exact_rejection(self) -> None:
         controller, spec, _container = self.controller()
         action_spec = types.SimpleNamespace(
-            human_requests=("input:password",), stored_inputs=("whatsapp-token",), input_files=()
+            human_requests=("input:password",), stored_inputs=("app-secret", "whatsapp-token"), input_files=()
         )
         declaration = types.SimpleNamespace(kind="password")
         spec.assistant_id = "assistant"
         spec.actions = {"action": action_spec}
-        spec.stored_inputs = {"whatsapp-token": declaration}
+        spec.stored_inputs = {"app-secret": declaration, "unused-key": declaration, "whatsapp-token": declaration}
         spec.machine_contract = {"messages": []}
         token = "whatsapp-private-token-123456789"
-        response = action_human.HumanResponse(
-            "input:password",
-            0,
-            "a" * 64,
-            token,
-            "whatsapp-token",
-        )
-        transcript = action_human.ActionTranscript("interrupt", (response,))
+        secret = "test-app-secret"
         captured: list[dict[str, object]] = []
 
         with TemporaryDirectory() as directory:
@@ -588,6 +580,8 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
                 root / "state" / "stored-inputs.json",
                 root / "key" / "aes256.key",
             )
+            for slot, value in (("whatsapp-token", token), ("app-secret", secret), ("unused-key", "undeclared-value")):
+                store.seal("team_1", "assistant", slot, "password", value, "c" * 64)
             controller.assistant_stored_inputs = store
             controller.chat_turn_service._resolve_action_stored_inputs = lambda *_args: (
                 local_app.action_execution.resolve_action_stored_inputs(
@@ -608,17 +602,10 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
                 return {"type": "result", "result": {"ok": True}}
 
             controller.assistant_lifecycle._rpc = rpc
-            evidence = local_app.action_execution.ActionInvocationEvidence(
-                local_app.action_execution.RpcPrivateInputs({}, {}),
-                transcript,
-                "b" * 64,
-                "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
-            )
             with (
                 mock.patch.object(local_app, "validate_action_payload", side_effect=lambda _spec, _side, value: value),
                 mock.patch.object(local_app.local_audit, "record_request") as audit,
             ):
-                controller.invoke("team_1", "assistant", "action", {}, evidence)
                 controller.invoke("team_1", "assistant", "action", {})
                 controller.assistant_lifecycle._rpc = lambda *_args: {
                     "type": "stored_input_rejected",
@@ -627,6 +614,15 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
                 with self.assertRaises(local_app.ApiProblem) as rejected:
                     controller.invoke("team_1", "assistant", "action", {})
 
+            delivered = [
+                call.kwargs["detail"]
+                for call in audit.call_args_list
+                if call.kwargs.get("detail", "").startswith("stored-inputs-delivered:")
+            ]
+            self.assertEqual(len(delivered), 2)
+            self.assertTrue(all(detail.endswith(":app-secret,whatsapp-token") for detail in delivered))
+            self.assertNotIn(token, repr(audit.call_args_list))
+            self.assertNotIn(secret, repr(audit.call_args_list))
             audit.assert_any_call(
                 "assistant-action",
                 result="error",
@@ -634,36 +630,16 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
                 assistant="assistant",
                 detail="stored-input-rejected:action:whatsapp-token",
             )
-
             self.assertEqual(rejected.exception.code, "assistant-stored-input-rejected")
             with self.assertRaises(local_app.action_stored_input.StoredInputMissingError):
                 store.resolve("team_1", "assistant", "whatsapp-token", "password")
+            # Only the rejected slot is cleared; the other delivered slot and an undeclared one stay sealed.
+            self.assertEqual(store.resolve("team_1", "assistant", "app-secret", "password").value, secret)
+            self.assertEqual(store.resolve("team_1", "assistant", "unused-key", "password").value, "undeclared-value")
 
-        self.assertEqual(captured[0]["stored_inputs"], {})
-        self.assertEqual(captured[0]["responses"], (response.payload(),))
-        self.assertEqual(captured[1]["stored_inputs"], {"whatsapp-token": token})
-        self.assertNotIn("responses", captured[1])
-
-    def test_stored_input_persistence_failure_is_redacted(self) -> None:
-        controller, spec, _container = self.controller()
-        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=(), input_files=())
-        spec.assistant_id = "assistant"
-        spec.actions = {"action": action_spec}
-        spec.stored_inputs = {}
-        with (
-            mock.patch.object(local_app, "validate_action_payload", side_effect=lambda _spec, _side, value: value),
-            mock.patch.object(local_app.action_execution, "project_rpc_result", return_value={"ok": True}),
-            mock.patch.object(local_app.local_audit, "record_request"),
-            mock.patch.object(
-                local_app.local_chat_execution,
-                "seal_stored_inputs",
-                side_effect=KeyError("private-token"),
-            ),
-            self.assertRaises(local_app.ApiProblem) as caught,
-        ):
-            controller.invoke("team_1", "assistant", "action", {})
-        self.assertEqual(caught.exception.code, "assistant-stored-input-state-unavailable")
-        self.assertNotIn("private-token", caught.exception.message)
+        # An Action receives exactly the slots it declares, never another slot of its Assistant.
+        self.assertEqual(captured[0]["stored_inputs"], {"app-secret": secret, "whatsapp-token": token})
+        self.assertNotIn("responses", captured[0])
 
 
 class LocalAppMainEdgeTests(unittest.TestCase):

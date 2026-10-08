@@ -639,8 +639,6 @@ def _project_hosted_action_result(
                 ),
                 stored_inputs_by_id=private.stored_inputs,
                 declared_stored_inputs=tuple(action_spec.stored_inputs),
-                supplied_stored_inputs=frozenset(private.stored_inputs)
-                | frozenset(private.transcript.submitted_stored_inputs()),
                 catalog=(
                     action_human.catalog_by_id(request.contract.machine_contract)
                     if action_spec.human_requests
@@ -702,30 +700,6 @@ def _project_hosted_action_result(
             reason="invalid-output",
         )
         raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant Action returned an invalid result") from exc
-
-
-def _seal_hosted_stored_inputs(
-    request: ActionInvocationRequest,
-    private: action_execution.ResolvedInvocationEvidence,
-) -> None:
-    submitted = private.transcript.submitted_stored_inputs()
-    if not submitted:
-        return
-    if private.origin is None:
-        raise AssertionError("Stored Input submission lacks Action evidence")
-    action_spec = request.contract.actions[str(request.action)]
-    for stored_input_id, value in submitted.items():
-        if stored_input_id not in action_spec.stored_inputs:
-            raise KeyError(stored_input_id)
-        declaration = request.contract.stored_inputs[stored_input_id]
-        runtime_state._assistant_stored_inputs.seal(
-            request.team_id,
-            request.assistant_id,
-            stored_input_id,
-            declaration.kind,
-            value,
-            private.origin,
-        )
 
 
 def _action_files(
@@ -792,6 +766,18 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
         assistant=assistant_id,
         action=action,
     )
+    if private.stored_inputs:
+        # Each attempt names the Stored Inputs it was delivered, by id only, under its logical operation.
+        audit.log(
+            "assistant_action",
+            team_id,
+            result="ok",
+            phase="stored-inputs-delivered",
+            assistant=assistant_id,
+            action=action,
+            operation_id=private.operation_id,
+            stored_inputs=sorted(private.stored_inputs),
+        )
     rpc_payload = {
         "input": safe_input,
         "integrations": action_execution.integration_access_tokens(private.integrations),
@@ -845,13 +831,6 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
             size=sent.size,
         )
     projected = _project_hosted_action_result(request, raw_result, private)
-    try:
-        _seal_hosted_stored_inputs(request, private)
-    except (KeyError, action_stored_input.StoredInputStoreError) as exc:
-        raise runtime_state.ApiError(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant Stored Input could not be saved",
-        ) from exc
     audit.log(
         "assistant_action",
         team_id,

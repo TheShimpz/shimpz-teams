@@ -381,7 +381,7 @@ class HostedTurnUsageResumeTests(unittest.TestCase):
         human = harness.hosted_chat_human
         with (
             mock.patch.object(human, "_pending_challenge", return_value=SimpleNamespace()),
-            mock.patch.object(human, "_validate_pending_context", return_value=pending),
+            mock.patch.object(human, "_validate_pending_context", return_value=(pending, ())),
             mock.patch.object(human, "_admit_response", return_value=SimpleNamespace(transcripts=(), requests_used=1)),
         ):
             body = {"challenge_id": "c" * 32, "decision": "submit", "value": True}

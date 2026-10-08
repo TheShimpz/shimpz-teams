@@ -426,12 +426,13 @@ def _canonical_action(
     stored_inputs = raw_action["stored_inputs"]
     if (
         not isinstance(stored_inputs, list)
-        or len(stored_inputs) > 1
-        or len(stored_inputs) != len(set(stored_inputs))
+        or len(stored_inputs) > MAX_STORED_INPUTS
         or any(
             not isinstance(stored_input_id, str) or stored_input_id not in declared_stored_input_ids
             for stored_input_id in stored_inputs
         )
+        # An Action may use any of its manifest's Stored Inputs, as one sorted, unique list (ADR-0059).
+        or stored_inputs != sorted(set(stored_inputs))
     ):
         raise ManifestError("Assistant machine contract Action Stored Inputs are invalid")
     human_requests = raw_action["human_requests"]

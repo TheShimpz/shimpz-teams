@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from action import challenges as action_challenges
+from action import execution as action_execution
 from action import human as action_human
+from action import stored_input as action_stored_input
 from chat import progress as chat_progress
+from local import audit as local_audit
 from local.chat import pause as local_chat_pause
 from local.chat.types import PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
@@ -14,6 +17,7 @@ from local.errors import (
     human_request_invalid,
     human_response_invalid,
     human_response_mismatch,
+    stored_input_unavailable,
 )
 from local.validation import validate_team_id
 from protocol.http.v1 import routine_run as http_routine_run
@@ -137,9 +141,10 @@ def _admit_human_response(
     team_id: str,
     challenge: action_challenges.PendingHumanChallenge,
     pending: PendingLocalChat,
-    decision: str,
-    value: object | None,
+    response: tuple[str, object | None],
+    assistants: tuple[object, ...],
 ) -> action_human.HumanResponseAdmission | None:
+    decision, value = response
     if decision == "deny":
         self.human_challenges.claim(team_id, challenge.id)
         self._delete_chat_continuation(team_id, challenge.id)
@@ -154,9 +159,51 @@ def _admit_human_response(
         )
     except action_human.HumanRequestError as exc:
         raise human_response_mismatch() from exc
-    self.human_challenges.claim(team_id, challenge.id)
+    # A Stored Input answer is sealed while the challenge is still held, so it is consumed only once the value is kept.
+    self.human_challenges.claim_after(
+        team_id,
+        challenge.id,
+        lambda claimed: seal_stored_input_answer(self, team_id, claimed.requirement, pending, assistants, admission),
+    )
     self._delete_chat_continuation(team_id, challenge.id)
     return admission
+
+
+def seal_stored_input_answer(
+    self,
+    team_id: str,
+    requirement: action_challenges.HumanRequirement,
+    pending: PendingLocalChat,
+    assistants: tuple[object, ...],
+    admission: action_human.HumanResponseAdmission,
+) -> None:
+    """Seal an admitted Stored Input answer for the paused Action that asked for it, and audit its id (ADR-0059)."""
+    submission = admission.stored_input
+    if submission is None:
+        return
+    active = next((item for item in assistants if item.spec.assistant_id == requirement.assistant_id), None)
+    if active is None:
+        raise human_response_mismatch()
+    try:
+        action_execution.seal_admitted_stored_input(
+            self.assistant_stored_inputs,
+            team_id,
+            requirement,
+            pending.continuation.turn.actions,
+            active.spec,
+            submission,
+        )
+    except action_human.HumanRequestError as exc:
+        raise human_response_mismatch() from exc
+    except action_stored_input.StoredInputStoreError as exc:
+        raise stored_input_unavailable() from exc
+    local_audit.record_request(
+        "assistant-action",
+        result="ok",
+        team_id=team_id,
+        assistant=requirement.assistant_id,
+        detail=f"stored-input-sealed:{requirement.action_id}:{submission.stored_input}",
+    )
 
 
 def resume_chat_human(
@@ -173,8 +220,8 @@ def resume_chat_human(
     with self._exclusive_chat_turn(team_id) as token:
         with self._lock(team_id):
             challenge = _pending_challenge(self, team_id, challenge_id)
-            pending, _assistants = _validate_pending_context(self, team_id, provider, challenge)
-            admission = _admit_human_response(self, team_id, challenge, pending, decision, value)
+            pending, assistants = _validate_pending_context(self, team_id, provider, challenge)
+            admission = _admit_human_response(self, team_id, challenge, pending, (decision, value), assistants)
             if admission is None:
                 return self._terminal_human_failure(team_id, token, pending, "denied")
         return local_chat_pause._continue_paused(

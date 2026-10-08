@@ -174,7 +174,7 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
         pending = _pending()
         challenge = _challenge(pending)
         subject = types.SimpleNamespace(
-            human_challenges=types.SimpleNamespace(claim=mock.Mock()),
+            human_challenges=types.SimpleNamespace(claim=mock.Mock(), claim_after=mock.Mock()),
             _delete_chat_continuation=mock.Mock(),
         )
         with (
@@ -185,16 +185,126 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_chat_human._admit_human_response(
-                subject,
-                "team_1",
-                challenge,
-                pending,
-                "submit",
-                object(),
-            )
+            local_chat_human._admit_human_response(subject, "team_1", challenge, pending, ("submit", object()), ())
         self.assertEqual(caught.exception.code, "invalid-human-response")
         subject.human_challenges.claim.assert_not_called()
+        subject.human_challenges.claim_after.assert_not_called()
+
+    def test_a_stored_input_answer_is_sealed_for_its_paused_action_before_its_challenge_is_consumed(self) -> None:
+        paused = brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {"zone": "example.com"})
+        sibling = brain_runtime_client.ActionRequest("other", "assistant", "action", {})
+        pending = PendingLocalChat(
+            continuation=types.SimpleNamespace(turn=types.SimpleNamespace(actions=(sibling, paused))),
+            assistant_ids=("assistant",),
+            file_ids=(),
+            provider="openai",
+            identity=("identity",),
+        )
+        request = types.SimpleNamespace(stored_input="app-secret")
+        requirement = types.SimpleNamespace(
+            interrupt_id="interrupt", assistant_id="assistant", action_id="action", request=request
+        )
+        challenge = action_challenges.PendingHumanChallenge("challenge", "team_1", 10, requirement, pending)
+        declaration = types.SimpleNamespace(kind="password")
+        spec = types.SimpleNamespace(
+            assistant_id="assistant",
+            actions={"action": types.SimpleNamespace(stored_inputs=("app-secret", "token"))},
+            stored_inputs={"app-secret": declaration, "token": declaration},
+        )
+        assistants = (types.SimpleNamespace(spec=spec),)
+        submission = action_human.StoredInputSubmission("app-secret", "private-value")
+        admission = action_human.HumanResponseAdmission((), 3, submission)
+        consumed: list[str] = []
+
+        def claim_after(_team_id, _challenge_id, commit):
+            commit(challenge)
+            consumed.append(_challenge_id)
+
+        store = types.SimpleNamespace(seal=mock.Mock())
+        subject = types.SimpleNamespace(
+            human_challenges=types.SimpleNamespace(claim_after=claim_after),
+            _delete_chat_continuation=mock.Mock(),
+            assistant_stored_inputs=store,
+        )
+        with (
+            mock.patch.object(action_human, "append_response", return_value=admission),
+            mock.patch.object(local_chat_human.local_audit, "record_request") as audit,
+        ):
+            admitted = local_chat_human._admit_human_response(
+                subject, "team_1", challenge, pending, ("submit", "private-value"), assistants
+            )
+        self.assertIs(admitted, admission)
+        self.assertEqual(consumed, ["challenge"])
+        store.seal.assert_called_once_with(
+            "team_1",
+            "assistant",
+            "app-secret",
+            "password",
+            "private-value",
+            local_app.action_execution.stored_input_origin(paused),
+        )
+        audit.assert_called_once_with(
+            "assistant-action",
+            result="ok",
+            team_id="team_1",
+            assistant="assistant",
+            detail="stored-input-sealed:action:app-secret",
+        )
+        self.assertNotIn("private-value", repr(audit.call_args_list))
+
+        # A failed seal, a slot the Action does not declare, or an answer for another interrupt consumes nothing.
+        refusals = (
+            (
+                types.SimpleNamespace(seal=mock.Mock(side_effect=action_stored_input.StoredInputStoreError("x"))),
+                spec,
+                requirement,
+                "assistant-stored-input-state-unavailable",
+            ),
+            (
+                store,
+                types.SimpleNamespace(
+                    actions={"action": types.SimpleNamespace(stored_inputs=("token",))},
+                    stored_inputs=spec.stored_inputs,
+                    assistant_id="assistant",
+                ),
+                requirement,
+                "invalid-human-response",
+            ),
+            (
+                store,
+                spec,
+                types.SimpleNamespace(**{**vars(requirement), "interrupt_id": "missing"}),
+                "invalid-human-response",
+            ),
+        )
+        for refused_store, refused_spec, refused_requirement, code in refusals:
+            consumed.clear()
+            subject.assistant_stored_inputs = refused_store
+            refused_challenge = action_challenges.PendingHumanChallenge(
+                "challenge", "team_1", 10, refused_requirement, pending
+            )
+
+            def refusing_claim(_team_id, _challenge_id, commit, current=refused_challenge):
+                commit(current)
+                consumed.append(_challenge_id)
+
+            subject.human_challenges.claim_after = refusing_claim
+            with (
+                self.subTest(code=code),
+                mock.patch.object(action_human, "append_response", return_value=admission),
+                mock.patch.object(local_chat_human.local_audit, "record_request"),
+                self.assertRaises(local_app.ApiProblem) as caught,
+            ):
+                local_chat_human._admit_human_response(
+                    subject,
+                    "team_1",
+                    refused_challenge,
+                    pending,
+                    ("submit", "private-value"),
+                    (types.SimpleNamespace(spec=refused_spec),),
+                )
+            self.assertEqual(caught.exception.code, code)
+            self.assertEqual(consumed, [])
 
 
 class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
@@ -464,7 +574,6 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
         evidence = local_app.action_execution.ActionInvocationEvidence(
             _action_private_inputs(),
             action_human.ActionTranscript(""),
-            "a" * 64,
             "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
         )
         return local_chat_execution._invoke_chat_action(subject, "team_1", "token", request, container_id, evidence)
@@ -573,39 +682,7 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, "assistant-integration-contract-invalid")
 
-    def test_stored_input_sealing_requires_exact_evidence_and_maps_clear_failure(self) -> None:
-        transcript = action_human.ActionTranscript(
-            "interrupt",
-            (action_human.HumanResponse("input:password", 0, "a" * 64, "secret", "token"),),
-        )
-        spec = types.SimpleNamespace(stored_inputs={"token": types.SimpleNamespace(kind="password")})
-        action_spec = types.SimpleNamespace(stored_inputs=("token",))
-        missing_origin = local_app.action_execution.ResolvedInvocationEvidence(
-            {}, {}, transcript, None, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
-        )
-        with self.assertRaisesRegex(AssertionError, "lacks Action evidence"):
-            local_chat_execution.seal_stored_inputs(
-                mock.Mock(),
-                "team_1",
-                "assistant",
-                spec,
-                action_spec,
-                missing_origin,
-            )
-
-        evidence = local_app.action_execution.ResolvedInvocationEvidence(
-            {}, {}, transcript, "b" * 64, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
-        )
-        with self.assertRaises(KeyError):
-            local_chat_execution.seal_stored_inputs(
-                mock.Mock(),
-                "team_1",
-                "assistant",
-                spec,
-                types.SimpleNamespace(stored_inputs=()),
-                evidence,
-            )
-
+    def test_a_rejected_stored_input_clear_failure_is_redacted(self) -> None:
         store = types.SimpleNamespace(
             delete=mock.Mock(side_effect=action_stored_input.StoredInputStoreError("unavailable"))
         )

@@ -33,22 +33,22 @@ def refusal(actions: Sequence[Mapping[str, object]], allowed_hosts: tuple[str, .
 
 
 def unattended(verifier: Mapping[str, object]) -> bool:
-    """A verifier declares no human request, or only a password request with exactly one declared Stored Input."""
+    """A verifier declares no human request, or only a password request with at least one declared Stored Input."""
     requests = list(verifier["human_requests"])
     stored_inputs = list(verifier["stored_inputs"])
-    return requests == [] or (requests == ["input:password"] and len(stored_inputs) == 1)
+    return requests == [] or (requests == ["input:password"] and bool(stored_inputs))
 
 
 def verifier_request_admitted(verifier: object, kind: object, stored_input: object) -> bool:
     """Whether a verifier's runtime request is the one Team may satisfy without a person.
 
-    Only a password request naming the verifier's own declared Stored Input qualifies; any other request, including an
-    ordinary password request that names none, would need a person and is refused as a policy hold.
+    Only a password request naming one of the verifier's own declared Stored Inputs qualifies; any other request,
+    including an ordinary password request that names none, would need a person and is refused as a policy hold.
     """
     stored_inputs = tuple(getattr(verifier, "stored_inputs", ()))
     return (
         tuple(getattr(verifier, "human_requests", ())) == ("input:password",)
-        and len(stored_inputs) == 1
         and kind == "input:password"
-        and stored_input == stored_inputs[0]
+        and isinstance(stored_input, str)
+        and stored_input in stored_inputs
     )

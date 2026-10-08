@@ -82,7 +82,6 @@ class HumanResponse:
     ordinal: int
     fingerprint: str
     value: object
-    stored_input: str | None = None
 
     @property
     def secret(self) -> bool:
@@ -107,11 +106,13 @@ class ActionTranscript:
     responses: tuple[HumanResponse, ...] = ()
 
     def append(self, request: HumanRequest, value: object) -> ActionTranscript:
-        """Admit the next exact response and return an immutable transcript."""
-        if len(self.responses) >= MAX_REQUESTS_PER_ACTION or request.ordinal != len(self.responses):
-            raise HumanRequestError("Assistant Action human request sequence is invalid")
-        if any(response.secret for response in self.responses):
-            raise HumanRequestError("Assistant Action requested input after a secret response")
+        """Admit the next exact response and return an immutable transcript.
+
+        A Stored Input request is answered by injection, never by a replay response (ADR-0059).
+        """
+        if request.stored_input is not None:
+            raise HumanRequestError("Assistant Action Stored Input is answered by injection")
+        self.require_next(request)
         if request.kind in AUTHORIZATION_KINDS and any(
             response.kind in AUTHORIZATION_KINDS for response in self.responses
         ):
@@ -121,6 +122,13 @@ class ActionTranscript:
             responses=(*self.responses, admit_response(request, value)),
         )
 
+    def require_next(self, request: HumanRequest) -> None:
+        """Refuse a request that is not the next ordinal, exceeds the Action budget, or follows a secret response."""
+        if len(self.responses) >= MAX_REQUESTS_PER_ACTION or request.ordinal != len(self.responses):
+            raise HumanRequestError("Assistant Action human request sequence is invalid")
+        if any(response.secret for response in self.responses):
+            raise HumanRequestError("Assistant Action requested input after a secret response")
+
     def payloads(self) -> tuple[Mapping[str, object], ...]:
         """Return independent replay frames in their admitted order."""
         return tuple(response.payload() for response in self.responses)
@@ -128,33 +136,31 @@ class ActionTranscript:
     def protected_values(self) -> dict[str, str]:
         """Return ephemeral arbitrary secrets that a final result must not expose."""
         return {
-            (
-                f"stored-input:{response.stored_input}"
-                if response.stored_input is not None
-                else f"human-response-{response.ordinal}"
-            ): response.value
+            f"human-response-{response.ordinal}": response.value
             for response in self.responses
             if response.secret and isinstance(response.value, str)
         }
 
-    def submitted_stored_inputs(self) -> dict[str, str]:
-        """Return newly supplied persistent values without adding them to replay frames."""
-        submitted = {
-            response.stored_input: response.value
-            for response in self.responses
-            if response.stored_input is not None and isinstance(response.value, str)
-        }
-        if len(submitted) > 1:
-            raise HumanRequestError("Assistant Action submitted multiple Stored Inputs")
-        return submitted
+
+@dataclass(frozen=True, slots=True, repr=False)
+class StoredInputSubmission:
+    """One admitted Stored Input value Team seals before the Action replays; its representation omits the value."""
+
+    stored_input: str
+    value: str
 
 
 @dataclass(frozen=True, slots=True)
 class HumanResponseAdmission:
-    """Updated transcript state and its monotonic Team-turn request budget."""
+    """Updated transcript state and its monotonic Team-turn request budget.
+
+    ``stored_input`` is the value of an answered Stored Input request, which the caller seals instead of appending it
+    to the transcript; the replay then receives it injected (ADR-0059).
+    """
 
     transcripts: tuple[ActionTranscript, ...]
     requests_used: int
+    stored_input: StoredInputSubmission | None = None
 
 
 def transcript_for(
@@ -175,10 +181,21 @@ def append_response(
     value: object,
     requests_used: int,
 ) -> HumanResponseAdmission:
-    """Append one response while enforcing the Team-wide turn budget."""
+    """Admit one response while enforcing the Team-wide turn budget.
+
+    A Stored Input answer counts against that budget but stays out of the transcript: the admission carries it for the
+    caller to seal, and the transcripts are returned unchanged.
+    """
     if type(requests_used) is not int or not 0 <= requests_used < MAX_REQUESTS_PER_TURN:
         raise HumanRequestError("Team turn exceeded its human request limit")
     current = transcript_for(transcripts, interrupt_id)
+    if request.stored_input is not None:
+        current.require_next(request)
+        response = admit_response(request, value)
+        if not isinstance(response.value, str):
+            raise HumanRequestError("human response does not match its reviewed request")
+        submission = StoredInputSubmission(request.stored_input, response.value)
+        return HumanResponseAdmission(transcripts, requests_used + 1, submission)
     updated = current.append(request, value)
     if current.responses:
         admitted = tuple(updated if item is current else item for item in transcripts)
@@ -268,7 +285,7 @@ def admit_response(request: HumanRequest, value: object) -> HumanResponse:
         valid = _text_response(descriptor, value)
     if not valid:
         raise HumanRequestError("human response does not match its reviewed request")
-    return HumanResponse(kind, request.ordinal, request.fingerprint, value, request.stored_input)
+    return HumanResponse(kind, request.ordinal, request.fingerprint, value)
 
 
 def _single_choice_response(request: Mapping[str, object], value: object) -> bool:

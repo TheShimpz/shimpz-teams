@@ -256,7 +256,9 @@ class ActionBatch:
         if self._batch is not None:
             raise action_journal.ActionJournalConflictError("Action batch is already prepared")
         self._origins = frozenset(stored_input_origin(request) for request in requests)
-        operations = tuple(self._operation(request) for request in requests)
+        # A value this batch's own Actions supplied, including one sealed when a person answered its request before the
+        # batch resumed, never changes the batch's fingerprint; a value sealed anywhere else does (ADR-0059).
+        operations = tuple(self._operation(request, self._origins) for request in requests)
         self._prepared_stored_inputs = {
             request.interrupt_id: dict(self._strategy.stored_input_generations(request, frozenset()))
             for request in requests
@@ -395,9 +397,9 @@ class RpcResultPolicy:
     human_requests: tuple[str, ...] = ()
     protected_values: Mapping[str, str] | None = None
     authorization_requested: bool = False
+    # The values of the declared Stored Inputs Team injected; only these can be rejected (ADR-0059).
     stored_inputs_by_id: Mapping[str, str] | None = None
     declared_stored_inputs: tuple[str, ...] = ()
-    supplied_stored_inputs: frozenset[str] = frozenset()
     # The reviewed English message catalog every request copy reference must name (ADR-0091).
     catalog: Mapping[str, Mapping[str, object]] | None = None
     # Capabilities Team injected into the workload, such as its egress token: protected like every injected value.
@@ -455,7 +457,7 @@ def project_rpc_result(
     response_type = raw_result.get("type")
     if response_type == "stored_input_rejected":
         rejected = raw_result.get("stored_input")
-        if rejected not in policy.declared_stored_inputs or rejected not in policy.supplied_stored_inputs:
+        if rejected not in policy.declared_stored_inputs or rejected not in (policy.stored_inputs_by_id or {}):
             raise RpcInvalidResultError
         raise StoredInputRejectedError(str(rejected))
     if response_type == "request" and "request" in raw_result:
@@ -469,6 +471,9 @@ def project_rpc_result(
         except action_human.HumanRequestError as exc:
             raise RpcInvalidResultError from exc
         if policy.authorization_requested and request.kind in action_human.AUTHORIZATION_KINDS:
+            raise RpcInvalidResultError
+        # A held Stored Input is injected, so a request for it is never answerable.
+        if request.stored_input is not None and request.stored_input in (policy.stored_inputs_by_id or {}):
             raise RpcInvalidResultError
         raise action_human.HumanRequestSuspensionError(request)
     if response_type != "result" or "result" not in raw_result or policy.file_withheld:
@@ -672,6 +677,41 @@ def stored_input_origin(request: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def seal_admitted_stored_input(
+    store: action_stored_input.StoredInputStore,
+    team_id: str,
+    requirement: object,
+    paused: tuple[object, ...],
+    contract: object,
+    submission: action_human.StoredInputSubmission,
+) -> None:
+    """Seal one admitted Stored Input answer for exactly the paused Action that requested it (ADR-0059).
+
+    The value is bound to that Action interrupt's origin, so the suspended batch keeps its journal fingerprint and the
+    replay receives the value injected. Only a slot the current reviewed Action declares can be sealed.
+    """
+    matching = tuple(request for request in paused if request.interrupt_id == requirement.interrupt_id)
+    if (
+        len(matching) != 1
+        or matching[0].assistant_id != requirement.assistant_id
+        or matching[0].action != requirement.action_id
+        or requirement.request.stored_input != submission.stored_input
+    ):
+        raise action_human.HumanRequestError("Stored Input answer does not match its paused Action")
+    action = getattr(contract, "actions", {}).get(requirement.action_id)
+    declaration = getattr(contract, "stored_inputs", {}).get(submission.stored_input)
+    if action is None or declaration is None or submission.stored_input not in tuple(action.stored_inputs):
+        raise action_human.HumanRequestError("Stored Input answer is undeclared")
+    store.seal(
+        team_id,
+        requirement.assistant_id,
+        submission.stored_input,
+        declaration.kind,
+        submission.value,
+        stored_input_origin(matching[0]),
+    )
+
+
 def _stored_input_declarations(
     actions: Mapping[str, object],
     stored_inputs: Mapping[str, object],
@@ -749,7 +789,6 @@ class ActionInvocationEvidence:
 
     private_inputs: RpcPrivateInputs
     transcript: action_human.ActionTranscript
-    origin: str
     operation_id: str
     protect: Callable[[tuple[str, ...]], None] | None = dataclasses.field(default=None, compare=False)
 
@@ -761,7 +800,6 @@ class ResolvedInvocationEvidence:
     integrations: Mapping[str, Mapping[str, object]]
     stored_inputs: Mapping[str, str]
     transcript: action_human.ActionTranscript
-    origin: str | None
     operation_id: str
     file: action_files.ActionFile | None = None
 
@@ -780,7 +818,6 @@ def resolve_invocation_evidence(
             evidence.private_inputs.integrations,
             evidence.private_inputs.stored_inputs,
             evidence.transcript,
-            evidence.origin,
             evidence.operation_id,
             evidence.private_inputs.file,
         )
@@ -789,7 +826,6 @@ def resolve_invocation_evidence(
         resolve_integrations(),
         {stored_input_id: value.value for stored_input_id, value in resolved.items()},
         action_human.ActionTranscript(""),
-        None,
         action_journal.new_operation_id(),
     )
 

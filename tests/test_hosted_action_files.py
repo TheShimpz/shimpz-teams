@@ -60,7 +60,6 @@ class HostedFileDeliveryTests(unittest.TestCase):
         evidence = action_execution.ActionInvocationEvidence(
             action_execution.RpcPrivateInputs({}, {}, self.file if file == "selected" else file),
             transcript,
-            "a" * 64,
             OPERATION_ID,
         )
         return assistants.ActionInvocationRequest(

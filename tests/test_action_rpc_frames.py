@@ -357,23 +357,34 @@ class ActionRpcFrameTests(unittest.TestCase):
                 ),
             )
         self.assertEqual(suspended.exception.request.stored_input, "whatsapp-token")
-
-        with self.assertRaises(action_execution.StoredInputRejectedError) as rejected:
-            _project(
-                {"type": "stored_input_rejected", "stored_input": "whatsapp-token"},
-                action_execution.RpcResultPolicy(
-                    declared_stored_inputs=("whatsapp-token",),
-                    supplied_stored_inputs=frozenset({"whatsapp-token"}),
-                ),
-            )
-        self.assertEqual(rejected.exception.stored_input, "whatsapp-token")
+        # A slot Team already injected is never requested again: its value is in the invocation.
         with self.assertRaises(action_execution.RpcInvalidResultError):
             _project(
-                {"type": "stored_input_rejected", "stored_input": "whatsapp-token"},
+                {"type": "request", "request": request},
                 action_execution.RpcResultPolicy(
-                    declared_stored_inputs=("whatsapp-token",),
+                    human_requests=("input:password",),
+                    stored_inputs_by_id={"whatsapp-token": "delivered-token"},
+                    declared_stored_inputs=("app-secret", "whatsapp-token"),
+                    catalog=CATALOG,
                 ),
             )
+
+        two_slots = action_execution.RpcResultPolicy(
+            stored_inputs_by_id={"app-secret": "delivered-secret", "whatsapp-token": "delivered-token"},
+            declared_stored_inputs=("app-secret", "whatsapp-token"),
+        )
+        for slot in ("app-secret", "whatsapp-token"):
+            with self.subTest(slot=slot), self.assertRaises(action_execution.StoredInputRejectedError) as rejected:
+                _project({"type": "stored_input_rejected", "stored_input": slot}, two_slots)
+            self.assertEqual(rejected.exception.stored_input, slot)
+        for policy in (
+            action_execution.RpcResultPolicy(declared_stored_inputs=("whatsapp-token",)),
+            action_execution.RpcResultPolicy(
+                stored_inputs_by_id={"whatsapp-token": "delivered-token"}, declared_stored_inputs=("app-secret",)
+            ),
+        ):
+            with self.subTest(policy=policy), self.assertRaises(action_execution.RpcInvalidResultError):
+                _project({"type": "stored_input_rejected", "stored_input": "whatsapp-token"}, policy)
 
     def test_rpc_invocation_adds_a_transcript_only_during_replay(self) -> None:
         initial = action_execution.encode_rpc_invocation({}, {}, {}, OPERATION_ID)

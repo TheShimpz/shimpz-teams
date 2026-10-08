@@ -71,7 +71,6 @@ def _evidence(integrations: dict[str, object]) -> object:
     return hosted_assistants.action_execution.ActionInvocationEvidence(
         hosted_assistants.action_execution.RpcPrivateInputs(integrations, {}),
         action_human.ActionTranscript("interrupt"),
-        "a" * 64,
         "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
     )
 

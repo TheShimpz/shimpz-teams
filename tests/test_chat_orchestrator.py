@@ -153,7 +153,7 @@ class ChatOrchestratorTests(unittest.TestCase):
         transcripts = (
             action_human.ActionTranscript(
                 "first",
-                (action_human.HumanResponse("input:password", 0, "a" * 64, "secret", "token"),),
+                (action_human.HumanResponse("input:password", 0, "a" * 64, "secret"),),
             ),
             action_human.ActionTranscript("second"),
         )
