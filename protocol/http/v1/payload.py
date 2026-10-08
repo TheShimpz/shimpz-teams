@@ -101,7 +101,7 @@ REQUEST_NONCE_RE = re.compile(r"[0-9a-f]{32}\Z")
 # The closed Admin interface languages a chat turn may name; a turn without one carries null (ADR-0090).
 CHAT_LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
 SNAPSHOT_SUMMARY_FIELDS = frozenset({"locale", "summary"})
-MAX_SNAPSHOT_SUMMARY_CHARS = 160
+MAX_SNAPSHOT_SUMMARY_CHARS = 80
 # What one completed chat turn consumed: its wall-clock duration and the model tokens it was told it used.
 MAX_TURN_DURATION_MS = 86_400_000
 MAX_TURN_USAGE_MODELS = 16

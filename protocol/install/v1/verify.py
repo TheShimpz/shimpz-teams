@@ -208,7 +208,7 @@ def validate_catalog(value: dict[str, object]) -> None:
     ):
         raise ContractViolationError("resolve_catalog_mismatch")
     if not any(
-        message["msgid"] == value["summary"] and not message["params"] and message["max_length"] <= 160
+        message["msgid"] == value["summary"] and not message["params"] and message["max_length"] <= 80
         for message in messages
     ):
         raise ContractViolationError("resolve_summary_mismatch")

@@ -521,7 +521,7 @@ def load_reviewed_catalog(path: Path) -> dict[str, ReviewedAssistant]:
         }:
             raise ManifestError("Assistant reviewed catalog entry is invalid")
         name = _public_text(metadata["name"], kind="name", maximum=80)
-        summary = _public_text(metadata["summary"], kind="summary", maximum=160)
+        summary = _public_text(metadata["summary"], kind="summary", maximum=80)
         raw_integrations = metadata["integrations"]
         if not isinstance(raw_integrations, dict):
             raise ManifestError("Assistant reviewed catalog integrations are invalid")
@@ -632,7 +632,7 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
     if not isinstance(version, str) or VERSION_RE.fullmatch(version) is None:
         raise ManifestError("Assistant version is invalid")
     _public_text(metadata["name"], kind="name", maximum=80)
-    _public_text(metadata["summary"], kind="summary", maximum=160)
+    _public_text(metadata["summary"], kind="summary", maximum=80)
     _genesis(metadata["genesis"])
     canonical_manifest_creators(metadata["creators"])
     github = metadata["github"]
@@ -703,7 +703,7 @@ def canonical_manifest_identity(
         assistant_id=_identifier(assistant_id, kind="id", canonical=http_payload.canonical_assistant_id),
         version=version,
         name=_public_text(name, kind="name", maximum=80),
-        summary=_public_text(summary, kind="summary", maximum=160),
+        summary=_public_text(summary, kind="summary", maximum=80),
     )
 
 

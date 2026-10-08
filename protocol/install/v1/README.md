@@ -49,8 +49,8 @@ runtime setting is admitted.
 
 The machine contract carries the Assistant's English message catalog as a sorted `messages` list of
 `{id, msgid, max_length, params}` (Developers Assistant Spec v1 owns its complete semantics). Every `id` is the
-lowercase SHA-256 of its `msgid` bytes, and the published `summary` is one catalog message with no parameters and a
-`max_length` of at most 160.
+lowercase SHA-256 of its `msgid` bytes, and the published `summary`, a short description of 1 to 80 characters, is one
+catalog message with no parameters and a `max_length` of at most 80.
 
 Every machine-contract Action carries its `effect`, `read_only` or `mutating`, and a `mutating` Action may carry one
 closed `verifier` descriptor naming a `read_only` Action of the same contract, its typed input bindings from the

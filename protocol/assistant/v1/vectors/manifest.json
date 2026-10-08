@@ -107,6 +107,21 @@
       "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \" Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
     },
     {
+      "name": "summary_at_eighty_characters",
+      "valid": true,
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller by name and reports the greeting it sent back to the caller ok\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
+    },
+    {
+      "name": "summary_at_eighty_code_points_outside_the_bmp",
+      "valid": true,
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller by name and reports the greeting it sent back to the caller o👋\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
+    },
+    {
+      "name": "summary_over_eighty_characters",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller by name and reports the greeting it sent back to the caller ok.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
+    },
+    {
       "name": "name_with_control_character",
       "valid": false,
       "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello\\u007fWorld\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"

@@ -249,8 +249,9 @@ a required `messages` list of `{id, msgid, max_length, params}` objects, sorted 
 - `max_length` is the smallest character bound of every field that uses the message, one of 80, 120, 160, or 500.
   The template's literal characters (the template without its placeholders) plus every parameter's `max_length`
   must fit within it, so every rendering and every admitted translation fits its field without truncation.
-- The manifest `summary` joins the catalog: one message has exactly that `msgid`, no parameters, and a `max_length`
-  of at most 160. A summary that is not NFC or that contains a brace therefore cannot be published.
+- The manifest `summary` is a short description of 1 to 80 characters (Unicode code points), and it joins the catalog:
+  one message has exactly that `msgid`, no parameters, and a `max_length` of at most 80, so every translated summary
+  also fits 80 characters. A summary that is not NFC or that contains a brace therefore cannot be published.
 
 The catalog digest is `sha256:` followed by the lowercase SHA-256 of the `messages` list in the canonical JSON
 profile used by request fingerprints.

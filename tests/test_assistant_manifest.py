@@ -118,6 +118,14 @@ class ContractContainer:
 
 
 class AssistantManifestTests(unittest.TestCase):
+    def test_the_summary_is_a_short_description_of_at_most_eighty_characters(self) -> None:
+        for summary in ("s" * 80, "s" * 79 + "\U0001f44b"):
+            with self.subTest(summary=summary):
+                assistant_manifest.parse_manifest_contract(manifest(summary=summary))
+                self.assertEqual(assistant_manifest._public_text(summary, kind="summary", maximum=80), summary)
+        with self.assertRaises(assistant_manifest.ManifestError):
+            assistant_manifest.parse_manifest_contract(manifest(summary="s" * 81))
+
     def test_manifest_admits_only_declarative_stored_input_metadata(self) -> None:
         raw = manifest(
             integrations=(
@@ -365,6 +373,8 @@ class AssistantManifestTests(unittest.TestCase):
             manifest().replace(b'genesis = "Use the available Actions."', b'genesis = ""'),
             manifest(name=" Leading"),
             manifest(summary="line\nbreak"),
+            manifest(summary="s" * 81),
+            manifest(summary="s" * 80 + "\U0001f44b"),
             manifest(creators="[]"),
             manifest(creators='["fixture"]'),
             manifest(github="http://github.com/TheShimpz/fixture"),
@@ -598,7 +608,7 @@ class AssistantManifestTests(unittest.TestCase):
             assistant_manifest._public_text(
                 "api_key=private-material-123456",
                 kind="summary",
-                maximum=160,
+                maximum=80,
             )
         with self.assertRaises(assistant_manifest.ManifestError):
             assistant_manifest.canonical_integration_declarations([])
@@ -710,7 +720,7 @@ class AssistantManifestTests(unittest.TestCase):
                     }
                     for index in range(actions)
                 ],
-                "messages": [catalog_fixtures.message(catalog_fixtures.SUMMARY)],
+                "messages": [catalog_fixtures.message(catalog_fixtures.SUMMARY, 80)],
             }
 
         summary = catalog_fixtures.SUMMARY

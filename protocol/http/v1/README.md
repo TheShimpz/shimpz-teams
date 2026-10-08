@@ -71,7 +71,7 @@ A staged Local snapshot's summary follows the interface language too (ADR-0091).
 `GET /v1/local-assistants/:image_hash/summary/:locale` (Local only), where `locale` is one closed interface language;
 Team answers exactly `{locale, summary}` (`payload.canonical_snapshot_summary`): the snapshot catalog's English summary
 for `en`, otherwise that one message's translation from the snapshot's own pack, admitted complete for its own catalog
-and read from the immutable image without starting it. The summary is at most 160 trimmed, printable, NFC characters;
+and read from the immutable image without starting it. The summary is at most 80 trimmed, printable, NFC characters;
 no request copy, catalog, or pack is ever returned. Admin refuses an answer whose `locale` is not the one it asked for.
 The read shares the bounded icon preview: while extraction capacity is busy Team answers 503
 `local-assistant-preview-busy` with `retry_after_ms`.

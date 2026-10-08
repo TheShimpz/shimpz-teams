@@ -23,7 +23,7 @@
       160,
       500
     ],
-    "summary_bound": 160,
+    "summary_bound": 80,
     "param_bounds": {
       "integer": 15,
       "domain": 253,
@@ -37,7 +37,7 @@
       {
         "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
         "msgid": "Manage DNS records in your Cloudflare zones.",
-        "max_length": 160,
+        "max_length": 80,
         "params": []
       },
       {
@@ -70,12 +70,12 @@
         ]
       }
     ],
-    "digest": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7"
+    "digest": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972"
   },
   "pack": {
     "value": {
       "format": "assistant-language-pack-v1",
-      "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+      "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
       "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
       "locales": {
         "ar": {
@@ -115,7 +115,7 @@
         }
       }
     },
-    "digest": "sha256:5873c82891a89b45085178500d8c9d2eb937902cbec79849b9d03ec3342697fa"
+    "digest": "sha256:220b2d00da7c67a0f1b70bd3531ba622bd39ef79fb8987df470c81561d127671"
   },
   "catalog_cases": [
     {
@@ -126,7 +126,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         }
       ]
@@ -139,7 +139,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -246,7 +246,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -267,7 +267,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -287,7 +287,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -307,7 +307,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -327,7 +327,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -347,7 +347,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -367,7 +367,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -387,7 +387,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -407,7 +407,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -427,7 +427,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -453,7 +453,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -479,7 +479,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -505,7 +505,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -531,7 +531,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -557,7 +557,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -577,7 +577,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -597,7 +597,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -617,7 +617,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -649,7 +649,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         }
       ]
@@ -663,7 +663,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -683,7 +683,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -709,7 +709,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -735,7 +735,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -760,7 +760,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -785,7 +785,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -811,7 +811,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -842,7 +842,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -868,7 +868,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -894,7 +894,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -920,7 +920,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -958,7 +958,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         }
       ]
@@ -971,7 +971,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -997,7 +997,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -1023,7 +1023,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -1049,7 +1049,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
@@ -1104,7 +1104,7 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         }
       ]
@@ -1118,13 +1118,13 @@
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         },
         {
           "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
           "msgid": "Manage DNS records in your Cloudflare zones.",
-          "max_length": 160,
+          "max_length": 80,
           "params": []
         }
       ]
@@ -1169,6 +1169,47 @@
       ]
     },
     {
+      "name": "valid_summary_at_eighty_characters",
+      "valid": true,
+      "summary": "Manage DNS records and review zone changes safely across your Cloudflare domains",
+      "messages": [
+        {
+          "id": "4b40a169e30caa63305fad07f74ad3c1aba6fe1bb1f63c26765dc10236571043",
+          "msgid": "Manage DNS records and review zone changes safely across your Cloudflare domains",
+          "max_length": 80,
+          "params": []
+        }
+      ]
+    },
+    {
+      "name": "reject_summary_message_bound_over_eighty",
+      "valid": false,
+      "error": "catalog_summary",
+      "summary": "Manage DNS records and review zone changes safely across your Cloudflare domains",
+      "messages": [
+        {
+          "id": "4b40a169e30caa63305fad07f74ad3c1aba6fe1bb1f63c26765dc10236571043",
+          "msgid": "Manage DNS records and review zone changes safely across your Cloudflare domains",
+          "max_length": 120,
+          "params": []
+        }
+      ]
+    },
+    {
+      "name": "reject_summary_over_eighty_characters",
+      "valid": false,
+      "error": "catalog_summary",
+      "summary": "Manage DNS records and review zone changes safely across your Cloudflare domains.",
+      "messages": [
+        {
+          "id": "cc9e28624c6a4367500e762e74a22dac1f872df647f7f1e036876e92d25488a6",
+          "msgid": "Manage DNS records and review zone changes safely across your Cloudflare domains.",
+          "max_length": 120,
+          "params": []
+        }
+      ]
+    },
+    {
       "name": "reject_summary_with_params",
       "valid": false,
       "error": "catalog_summary",
@@ -1177,7 +1218,7 @@
         {
           "id": "bf24cefe202ed73ef077cbbbfd311f3fd13d89ae2fb3a1803a53373e71058c4d",
           "msgid": "Zone {zone}",
-          "max_length": 160,
+          "max_length": 80,
           "params": [
             {
               "name": "zone",
@@ -1196,7 +1237,7 @@
         "message": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
         "params": {}
       },
-      "bound": 160,
+      "bound": 80,
       "locale": "en",
       "rendered": "Manage DNS records in your Cloudflare zones."
     },
@@ -1258,7 +1299,7 @@
       "valid": true,
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1303,13 +1344,13 @@
       "name": "reject_non_canonical_spacing",
       "valid": false,
       "error": "pack_encoding",
-      "text": "{\"catalog\": \"sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7\", \"format\": \"assistant-language-pack-v1\", \"locales\": {\"ar\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"إدارة سجلات DNS في مناطق Cloudflare الخاصة بك.\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"تغييرات DNS المطلوب نشرها: {count}. المنطقة: {zone}.\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"حذف السجل {record_id}\"}, \"de\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"DNS-Einträge in Ihren Cloudflare-Zonen verwalten.\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"Zu veröffentlichende DNS-Änderungen: {count}. Zone: {zone}.\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"Eintrag {record_id} löschen\"}, \"es\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"Gestiona los registros DNS de tus zonas de Cloudflare.\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"Cambios de DNS por publicar: {count}. Zona: {zone}.\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"Eliminar el registro {record_id}\"}, \"fr\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"Gérez les enregistrements DNS de vos zones Cloudflare.\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"Modifications DNS à publier : {count}. Zone : {zone}.\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"Supprimer l’enregistrement {record_id}\"}, \"ja\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"Cloudflare ゾーンの DNS レコードを管理します。\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"公開する DNS の変更: {count}。ゾーン: {zone}。\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"レコード {record_id} を削除\"}, \"pt\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"Gerencie os registros DNS das suas zonas da Cloudflare.\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"Alterações de DNS a publicar: {count}. Zona: {zone}.\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"Excluir o registro {record_id}\"}, \"zh\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"管理您的 Cloudflare 区域中的 DNS 记录。\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"待发布的 DNS 更改：{count}。区域：{zone}。\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"删除记录 {record_id}\"}}, \"policy\": \"sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d\"}"
+      "text": "{\"catalog\": \"sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972\", \"format\": \"assistant-language-pack-v1\", \"locales\": {\"ar\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"إدارة سجلات DNS في مناطق Cloudflare الخاصة بك.\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"تغييرات DNS المطلوب نشرها: {count}. المنطقة: {zone}.\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"حذف السجل {record_id}\"}, \"de\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"DNS-Einträge in Ihren Cloudflare-Zonen verwalten.\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"Zu veröffentlichende DNS-Änderungen: {count}. Zone: {zone}.\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"Eintrag {record_id} löschen\"}, \"es\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"Gestiona los registros DNS de tus zonas de Cloudflare.\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"Cambios de DNS por publicar: {count}. Zona: {zone}.\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"Eliminar el registro {record_id}\"}, \"fr\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"Gérez les enregistrements DNS de vos zones Cloudflare.\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"Modifications DNS à publier : {count}. Zone : {zone}.\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"Supprimer l’enregistrement {record_id}\"}, \"ja\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"Cloudflare ゾーンの DNS レコードを管理します。\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"公開する DNS の変更: {count}。ゾーン: {zone}。\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"レコード {record_id} を削除\"}, \"pt\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"Gerencie os registros DNS das suas zonas da Cloudflare.\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"Alterações de DNS a publicar: {count}. Zona: {zone}.\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"Excluir o registro {record_id}\"}, \"zh\": {\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\": \"管理您的 Cloudflare 区域中的 DNS 记录。\", \"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\": \"待发布的 DNS 更改：{count}。区域：{zone}。\", \"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\": \"删除记录 {record_id}\"}}, \"policy\": \"sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d\"}"
     },
     {
       "name": "reject_ascii_escaped",
       "valid": false,
       "error": "pack_encoding",
-      "text": "{\"catalog\":\"sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7\",\"format\":\"assistant-language-pack-v1\",\"locales\":{\"ar\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"\\u0625\\u062f\\u0627\\u0631\\u0629 \\u0633\\u062c\\u0644\\u0627\\u062a DNS \\u0641\\u064a \\u0645\\u0646\\u0627\\u0637\\u0642 Cloudflare \\u0627\\u0644\\u062e\\u0627\\u0635\\u0629 \\u0628\\u0643.\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"\\u062a\\u063a\\u064a\\u064a\\u0631\\u0627\\u062a DNS \\u0627\\u0644\\u0645\\u0637\\u0644\\u0648\\u0628 \\u0646\\u0634\\u0631\\u0647\\u0627: {count}. \\u0627\\u0644\\u0645\\u0646\\u0637\\u0642\\u0629: {zone}.\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"\\u062d\\u0630\\u0641 \\u0627\\u0644\\u0633\\u062c\\u0644 {record_id}\"},\"de\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"DNS-Eintr\\u00e4ge in Ihren Cloudflare-Zonen verwalten.\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"Zu ver\\u00f6ffentlichende DNS-\\u00c4nderungen: {count}. Zone: {zone}.\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"Eintrag {record_id} l\\u00f6schen\"},\"es\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"Gestiona los registros DNS de tus zonas de Cloudflare.\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"Cambios de DNS por publicar: {count}. Zona: {zone}.\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"Eliminar el registro {record_id}\"},\"fr\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"G\\u00e9rez les enregistrements DNS de vos zones Cloudflare.\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"Modifications DNS \\u00e0 publier : {count}. Zone : {zone}.\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"Supprimer l\\u2019enregistrement {record_id}\"},\"ja\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"Cloudflare \\u30be\\u30fc\\u30f3\\u306e DNS \\u30ec\\u30b3\\u30fc\\u30c9\\u3092\\u7ba1\\u7406\\u3057\\u307e\\u3059\\u3002\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"\\u516c\\u958b\\u3059\\u308b DNS \\u306e\\u5909\\u66f4: {count}\\u3002\\u30be\\u30fc\\u30f3: {zone}\\u3002\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"\\u30ec\\u30b3\\u30fc\\u30c9 {record_id} \\u3092\\u524a\\u9664\"},\"pt\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"Gerencie os registros DNS das suas zonas da Cloudflare.\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"Altera\\u00e7\\u00f5es de DNS a publicar: {count}. Zona: {zone}.\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"Excluir o registro {record_id}\"},\"zh\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"\\u7ba1\\u7406\\u60a8\\u7684 Cloudflare \\u533a\\u57df\\u4e2d\\u7684 DNS \\u8bb0\\u5f55\\u3002\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"\\u5f85\\u53d1\\u5e03\\u7684 DNS \\u66f4\\u6539\\uff1a{count}\\u3002\\u533a\\u57df\\uff1a{zone}\\u3002\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"\\u5220\\u9664\\u8bb0\\u5f55 {record_id}\"}},\"policy\":\"sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d\"}"
+      "text": "{\"catalog\":\"sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972\",\"format\":\"assistant-language-pack-v1\",\"locales\":{\"ar\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"\\u0625\\u062f\\u0627\\u0631\\u0629 \\u0633\\u062c\\u0644\\u0627\\u062a DNS \\u0641\\u064a \\u0645\\u0646\\u0627\\u0637\\u0642 Cloudflare \\u0627\\u0644\\u062e\\u0627\\u0635\\u0629 \\u0628\\u0643.\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"\\u062a\\u063a\\u064a\\u064a\\u0631\\u0627\\u062a DNS \\u0627\\u0644\\u0645\\u0637\\u0644\\u0648\\u0628 \\u0646\\u0634\\u0631\\u0647\\u0627: {count}. \\u0627\\u0644\\u0645\\u0646\\u0637\\u0642\\u0629: {zone}.\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"\\u062d\\u0630\\u0641 \\u0627\\u0644\\u0633\\u062c\\u0644 {record_id}\"},\"de\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"DNS-Eintr\\u00e4ge in Ihren Cloudflare-Zonen verwalten.\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"Zu ver\\u00f6ffentlichende DNS-\\u00c4nderungen: {count}. Zone: {zone}.\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"Eintrag {record_id} l\\u00f6schen\"},\"es\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"Gestiona los registros DNS de tus zonas de Cloudflare.\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"Cambios de DNS por publicar: {count}. Zona: {zone}.\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"Eliminar el registro {record_id}\"},\"fr\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"G\\u00e9rez les enregistrements DNS de vos zones Cloudflare.\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"Modifications DNS \\u00e0 publier : {count}. Zone : {zone}.\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"Supprimer l\\u2019enregistrement {record_id}\"},\"ja\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"Cloudflare \\u30be\\u30fc\\u30f3\\u306e DNS \\u30ec\\u30b3\\u30fc\\u30c9\\u3092\\u7ba1\\u7406\\u3057\\u307e\\u3059\\u3002\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"\\u516c\\u958b\\u3059\\u308b DNS \\u306e\\u5909\\u66f4: {count}\\u3002\\u30be\\u30fc\\u30f3: {zone}\\u3002\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"\\u30ec\\u30b3\\u30fc\\u30c9 {record_id} \\u3092\\u524a\\u9664\"},\"pt\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"Gerencie os registros DNS das suas zonas da Cloudflare.\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"Altera\\u00e7\\u00f5es de DNS a publicar: {count}. Zona: {zone}.\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"Excluir o registro {record_id}\"},\"zh\":{\"21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc\":\"\\u7ba1\\u7406\\u60a8\\u7684 Cloudflare \\u533a\\u57df\\u4e2d\\u7684 DNS \\u8bb0\\u5f55\\u3002\",\"4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66\":\"\\u5f85\\u53d1\\u5e03\\u7684 DNS \\u66f4\\u6539\\uff1a{count}\\u3002\\u533a\\u57df\\uff1a{zone}\\u3002\",\"d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b\":\"\\u5220\\u9664\\u8bb0\\u5f55 {record_id}\"}},\"policy\":\"sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d\"}"
     },
     {
       "name": "reject_unknown_format",
@@ -1317,7 +1358,7 @@
       "error": "pack_shape",
       "pack": {
         "format": "assistant-language-pack-v2",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1364,7 +1405,7 @@
       "error": "pack_shape",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "gpt-6-luna",
         "locales": {
           "ar": {
@@ -1411,7 +1452,7 @@
       "error": "pack_shape",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1453,7 +1494,7 @@
       "error": "pack_shape",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1505,7 +1546,7 @@
       "error": "pack_shape",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1600,7 +1641,7 @@
       "error": "pack_incomplete",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1646,7 +1687,7 @@
       "error": "pack_incomplete",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1694,7 +1735,7 @@
       "error": "public_text",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1741,7 +1782,7 @@
       "error": "public_text",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1788,7 +1829,7 @@
       "error": "public_text",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1835,7 +1876,7 @@
       "error": "translation_placeholders",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1882,7 +1923,7 @@
       "error": "translation_placeholders",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1929,7 +1970,7 @@
       "error": "translation_placeholders",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -1976,7 +2017,7 @@
       "error": "translation_placeholders",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -2023,7 +2064,7 @@
       "error": "translation_placeholders",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -2070,7 +2111,7 @@
       "error": "translation_placeholders",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -2116,7 +2157,7 @@
       "valid": true,
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -2163,7 +2204,7 @@
       "error": "translation_budget",
       "pack": {
         "format": "assistant-language-pack-v1",
-        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
         "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
         "locales": {
           "ar": {
@@ -2193,6 +2234,99 @@
           },
           "pt": {
             "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gerencie os registros DNS das suas zonas da Cloudflare.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Alterações de DNS a publicar: {count}. Zona: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Excluir o registro {record_id}"
+          },
+          "zh": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "管理您的 Cloudflare 区域中的 DNS 记录。",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "待发布的 DNS 更改：{count}。区域：{zone}。",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "删除记录 {record_id}"
+          }
+        }
+      }
+    },
+    {
+      "name": "valid_translated_summary_at_eighty_characters",
+      "valid": true,
+      "pack": {
+        "format": "assistant-language-pack-v1",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
+        "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
+        "locales": {
+          "ar": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "إدارة سجلات DNS في مناطق Cloudflare الخاصة بك.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "تغييرات DNS المطلوب نشرها: {count}. المنطقة: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "حذف السجل {record_id}"
+          },
+          "de": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "DNS-Einträge in Ihren Cloudflare-Zonen verwalten.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Zu veröffentlichende DNS-Änderungen: {count}. Zone: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Eintrag {record_id} löschen"
+          },
+          "es": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gestiona los registros DNS de tus zonas de Cloudflare.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Cambios de DNS por publicar: {count}. Zona: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Eliminar el registro {record_id}"
+          },
+          "fr": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gérez les enregistrements DNS de vos zones Cloudflare.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Modifications DNS à publier : {count}. Zone : {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Supprimer l’enregistrement {record_id}"
+          },
+          "ja": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Cloudflare ゾーンの DNS レコードを管理します。",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "公開する DNS の変更: {count}。ゾーン: {zone}。",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "レコード {record_id} を削除"
+          },
+          "pt": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gerencie registros DNS e revise as mudanças de zona com segurança no Cloudflare.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Alterações de DNS a publicar: {count}. Zona: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Excluir o registro {record_id}"
+          },
+          "zh": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "管理您的 Cloudflare 区域中的 DNS 记录。",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "待发布的 DNS 更改：{count}。区域：{zone}。",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "删除记录 {record_id}"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_translated_summary_over_eighty_characters",
+      "valid": false,
+      "error": "translation_budget",
+      "pack": {
+        "format": "assistant-language-pack-v1",
+        "catalog": "sha256:53795a875269cd5aa1313d08d2c5c570e32ca02248101b2658689dc77c8aa972",
+        "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
+        "locales": {
+          "ar": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "إدارة سجلات DNS في مناطق Cloudflare الخاصة بك.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "تغييرات DNS المطلوب نشرها: {count}. المنطقة: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "حذف السجل {record_id}"
+          },
+          "de": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "DNS-Einträge in Ihren Cloudflare-Zonen verwalten.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Zu veröffentlichende DNS-Änderungen: {count}. Zone: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Eintrag {record_id} löschen"
+          },
+          "es": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gestiona los registros DNS de tus zonas de Cloudflare.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Cambios de DNS por publicar: {count}. Zona: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Eliminar el registro {record_id}"
+          },
+          "fr": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gérez les enregistrements DNS de vos zones Cloudflare.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Modifications DNS à publier : {count}. Zone : {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Supprimer l’enregistrement {record_id}"
+          },
+          "ja": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Cloudflare ゾーンの DNS レコードを管理します。",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "公開する DNS の変更: {count}。ゾーン: {zone}。",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "レコード {record_id} を削除"
+          },
+          "pt": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gerencie registros DNS e revise as mudanças de zona com segurança no Cloudflare!.",
             "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Alterações de DNS a publicar: {count}. Zona: {zone}.",
             "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Excluir o registro {record_id}"
           },

@@ -44,7 +44,7 @@ def message(msgid: str, max_length: int = 160, params: list[dict[str, object]] |
 
 def messages(summary: str = SUMMARY, *extra: dict[str, object]) -> list[dict[str, object]]:
     """The summary message, every request template, and any extra messages, sorted by id."""
-    entries = {item["id"]: item for item in (message(summary), *extra)}
+    entries = {item["id"]: item for item in (message(summary, catalog_validator.SUMMARY_BOUND), *extra)}
     for msgid, bound in REQUEST_TEMPLATES.items():
         entries.setdefault(catalog_validator.message_id(msgid), message(msgid, bound))
     zone = message(ZONE_TITLE, 80, ZONE_PARAMS)

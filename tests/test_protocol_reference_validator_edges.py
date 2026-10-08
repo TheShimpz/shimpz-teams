@@ -31,7 +31,7 @@ def _message(text: str, max_length: int = 80, params: tuple[tuple[str, str, int]
 
 MESSAGES = sorted(
     (
-        _message(SUMMARY, 160),
+        _message(SUMMARY, 80),
         _message("Approve"),
         _message("Approve this action", 500),
         _message("Name"),
@@ -389,7 +389,7 @@ class MessageCatalogValidatorEdgeTests(unittest.TestCase):
     def test_combining_mark_after_placeholder_is_refused_because_rendering_would_leave_nfc(self) -> None:
         reference = {"message": "unused", "params": {"x": "e"}}
         self.assertFalse(catalog_module.public_text(catalog_module.render(reference, "{x}́"), 80))
-        summary = _message(SUMMARY, 160)
+        summary = _message(SUMMARY, 80)
         for template, expected in (
             ("Zone {x}́", "message_placeholders"),
             ("Zone {x}ः", "message_placeholders"),
@@ -483,7 +483,7 @@ class MessageCatalogValidatorEdgeTests(unittest.TestCase):
                 catalog_module.verify_vectors({**document, "render_cases": [case]}, human.reference_error)
 
     def test_catalog_errors_cover_shape_bounds_and_summary(self) -> None:
-        summary = _message(SUMMARY, 160)
+        summary = _message(SUMMARY, 80)
         cases = (
             (None, "catalog_shape"),
             ([summary, float("nan")], "catalog_shape"),

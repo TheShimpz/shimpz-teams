@@ -85,7 +85,7 @@
       {
         "id": "39bd5f8bb1467bb43ef57dca99bd27f176553560dc660fd778676cf82d622e20",
         "msgid": "Publish DNS changes for your Cloudflare zones.",
-        "max_length": 160,
+        "max_length": 80,
         "params": []
       },
       {

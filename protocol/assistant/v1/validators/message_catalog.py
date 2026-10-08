@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping
 LOCALES = ("ar", "de", "es", "fr", "ja", "pt", "zh")
 PACK_FORMAT = "assistant-language-pack-v1"
 FIELD_BOUNDS = (80, 120, 160, 500)
-SUMMARY_BOUND = 160
+SUMMARY_BOUND = 80
 MAX_TEMPLATE_CHARS = 500
 MAX_MESSAGES = 256
 MAX_PARAMS = 8
