@@ -52,7 +52,6 @@ class Intent:
     """
 
     name: str
-    decide_actions: tuple[tuple[str, str], ...]
     replaces: str | None
     revision: int | None
 

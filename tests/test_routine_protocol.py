@@ -24,7 +24,6 @@ class RoutineProtocolEdgeTests(unittest.TestCase):
         self.assertIsNone(routine.canonical_output([]))
         self.assertIsNone(routine_notice.canonical_notice_detail(None, {}))
         self.assertIsNone(routine_notice.canonical_notice_detail("deleted", []))
-        self.assertFalse(routine_notice._decision([]))
         self.assertFalse(routine_proposal._card_input([], 1))
         self.assertFalse(routine_proposal._card_input({**CARD["steps"][1]["inputs"][0], "origin": "guess"}, 2))
         self.assertFalse(routine_proposal._card_input({**CARD["steps"][1]["inputs"][0], "member": "a\u2028b"}, 2))

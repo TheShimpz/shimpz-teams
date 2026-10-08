@@ -319,7 +319,7 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             value["routine_position"]["valid"] = [{"value": {"phase": "replay", "step": 2}, "steps": 1}]
 
         def accepted_position(value: dict[str, object]) -> None:
-            value["routine_position"]["invalid"] = [{"value": {"phase": "decision", "call": 1}, "steps": 0}]
+            value["routine_position"]["invalid"] = [{"value": {"phase": "replay", "step": 1}, "steps": 1}]
 
         def missing_generated(value: dict[str, object]) -> None:
             value["routine_proposal"]["generated"] = ["largest-unicode"]
@@ -330,8 +330,8 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def missing_refusals(value: dict[str, object]) -> None:
             value.pop("routine_refusal")
 
-        def rejected_record(value: dict[str, object]) -> None:
-            value["routine_decision_record"]["valid"] = [{"state": "decided"}]
+        def rejected_listing(value: dict[str, object]) -> None:
+            value["routine_listing"]["valid"] = [[{"output": {"mode": "decide"}}]]
 
         def accepted_answer(value: dict[str, object]) -> None:
             value["routine_proposal_answer"]["invalid"] = [value["routine_proposal_answer"]["valid"][0]]
@@ -343,7 +343,7 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             missing_generated,
             drifted_largest,
             missing_refusals,
-            rejected_record,
+            rejected_listing,
             accepted_answer,
         ):
             with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):

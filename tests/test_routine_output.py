@@ -49,10 +49,9 @@ def _shown_number(text: str) -> dict[str, object]:
 class DispositionTests(unittest.TestCase):
     def test_a_plan_names_one_closed_disposition_whose_shown_step_is_its_own(self) -> None:
         for output in (
-            {"mode": "show", "step": "share", "when": None},
-            {"mode": "changes", "step": "publish", "when": None},
-            {"mode": "none", "step": None, "when": None},
-            {"mode": "decide", "step": None, "when": "changes"},
+            {"mode": "show", "step": "share"},
+            {"mode": "changes", "step": "publish"},
+            {"mode": "none", "step": None},
         ):
             with self.subTest(output=output):
                 plan = routine_plan.admit(_document(output=output), CONTRACTS)
@@ -63,13 +62,17 @@ class DispositionTests(unittest.TestCase):
         for output in (
             None,
             {"mode": "show"},
-            {"mode": "show", "step": None, "when": None},
-            {"mode": "show", "step": "missing", "when": None},
-            {"mode": "changes", "step": 1, "when": None},
-            {"mode": "none", "step": "publish", "when": None},
-            {"mode": "loud", "step": None, "when": None},
-            {"mode": "chain", "step": None, "when": None},
-            {"mode": "show", "step": "share", "when": None, "extra": 1},
+            {"mode": "show", "step": None},
+            {"mode": "show", "step": "missing"},
+            {"mode": "changes", "step": 1},
+            {"mode": "none", "step": "publish"},
+            {"mode": "loud", "step": None},
+            {"mode": "chain", "step": None},
+            {"mode": "show", "step": "share", "extra": 1},
+            # The retired decision mode and condition are refused (ADR-0101 amendment, 2026-10-07).
+            {"mode": "decide", "step": None},
+            {"mode": "decide", "step": None, "when": "changes"},
+            {"mode": "show", "step": "share", "when": None},
         ):
             with self.subTest(output=output):
                 candidate = _document(output=output)
@@ -85,23 +88,24 @@ class DispositionTests(unittest.TestCase):
         # On the wire the shown step is its position among the plan's ``steps`` (ADR-0092, 2026-10-05, scale).
         steps = 2
         for value, total in (
-            ({"mode": "show", "step": 2, "when": None}, steps),
-            ({"mode": "none", "step": None, "when": None}, steps),
-            ({"mode": "decide", "step": None, "when": "always"}, 0),
+            ({"mode": "show", "step": 2}, steps),
+            ({"mode": "none", "step": None}, steps),
         ):
             with self.subTest(value=value):
                 self.assertEqual(http_routine.canonical_disposition(value, total), value)
         for value, projected in (
-            ({"mode": "show", "step": 3, "when": None}, steps),
-            ({"mode": "show", "step": 0, "when": None}, steps),
-            ({"mode": "show", "step": "records", "when": None}, steps),
-            ({"mode": "show", "step": True, "when": None}, steps),
-            ({"mode": "show", "step": 1, "when": None}, "steps"),
-            ({"mode": "show", "step": 1, "when": None}, 0),
-            ({"mode": "none", "step": None, "when": None}, 0),
-            ({"mode": "chain", "step": 1, "when": None}, steps),
-            ({"mode": "decide", "step": None, "when": None}, steps),
+            ({"mode": "show", "step": 3}, steps),
+            ({"mode": "show", "step": 0}, steps),
+            ({"mode": "show", "step": "records"}, steps),
+            ({"mode": "show", "step": True}, steps),
+            ({"mode": "show", "step": 1}, "steps"),
+            ({"mode": "show", "step": 1}, 0),
+            ({"mode": "none", "step": None}, 0),
+            ({"mode": "chain", "step": 1}, steps),
+            ({"mode": "decide", "step": None}, steps),
+            ({"mode": "decide", "step": None, "when": "always"}, 0),
             ({"mode": "show", "step": 1, "when": "always"}, steps),
+            ({"mode": "show", "step": 1, "when": None}, steps),
             ({"mode": "show"}, steps),
             ([], steps),
         ):
@@ -329,7 +333,7 @@ class ProjectionTests(unittest.TestCase):
 
 class CursorSlotTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.plan = routine_plan.admit(_document(output={"mode": "show", "step": "publish", "when": None}), CONTRACTS)
+        self.plan = routine_plan.admit(_document(output={"mode": "show", "step": "publish"}), CONTRACTS)
         binding = routine_cursor.Binding("a" * 64, "b" * 32, 1, "c" * 32)
         self.cursor = routine_cursor.dispatch(
             routine_cursor.start(self.plan, binding, 0, "f" * 32),
@@ -384,7 +388,7 @@ class CursorSlotTests(unittest.TestCase):
 
 def _completed(mode: str, *, notice_version: int = 0, digest: str = "", shown: dict | None = None, lost: bool = False):
     """A claimed run of a one-step Routine with this disposition, its Routine's last digest, and its finish."""
-    output = {"mode": mode, "step": "check" if mode in ("show", "changes") else None, "when": None}
+    output = {"mode": mode, "step": "check" if mode in ("show", "changes") else None}
     plan = routine_fixture.plan_document(output=output)
     value = base.routine(plan=plan)
     state = base.at(base.added(value), value.routine_id, base.NINE)
@@ -413,7 +417,7 @@ class CompletionTests(unittest.TestCase):
     def test_show_publishes_the_result_every_run_and_unavailable_when_it_was_not_kept(self) -> None:
         state = _completed("show", shown=self.shown)
         (notice,) = state.notices
-        self.assertEqual(notice.detail, {"plan": _summary(state), "output": self.output, "decision": None})
+        self.assertEqual(notice.detail, {"plan": _summary(state), "output": self.output})
         self.assertEqual((notice.usage, notice.protection_lost), ({"duration_ms": 0, "models": []}, False))
         self.assertEqual(state.routines[0].failures, 0)
         self.assertEqual(state.routines[0].output_digest, "")
@@ -444,7 +448,7 @@ class CompletionTests(unittest.TestCase):
         quiet = _completed("none")
         self.assertEqual((quiet.notices, quiet.routines[0].failures), ((), 0))
         answered = _completed("none", notice_version=1)
-        self.assertEqual(answered.notices[0].detail, {"plan": _summary(answered), "output": None, "decision": None})
+        self.assertEqual(answered.notices[0].detail, {"plan": _summary(answered), "output": None})
 
     def test_a_run_that_lost_its_protection_shows_nothing_and_says_so(self) -> None:
         shown = _completed("show", shown=self.shown, lost=True)

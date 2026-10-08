@@ -29,7 +29,7 @@ class ScaleClaimTests(unittest.TestCase):
     def long_routine(routine_id: str = "b" * 32, steps: int = 40, schedule: dict | None = None) -> record.Routine:
         plan = routine_fixture.plan_document()
         plan["steps"] = [{**plan["steps"][0], "id": f"s{index}"} for index in range(steps)]
-        plan["output"] = {"mode": "none", "step": None, "when": None}
+        plan["output"] = {"mode": "none", "step": None}
         return routine_fixture.confirmed(dataclasses.replace(routine(routine_id, schedule), plan=plan))
 
     def test_a_long_routine_waits_while_admin_holds_a_long_run_and_a_short_one_is_still_served(self):
@@ -61,23 +61,16 @@ class ScaleClaimTests(unittest.TestCase):
             ("human", "dns", "check", {"phase": "replay", "step": 2}),
             ("human", "dns", "check", {"phase": "replay", "step": 0}),
             ("human", "dns", "other", {"phase": "replay", "step": 1}),
-            ("permission", "dns", "other", {"phase": "decision", "call": 0}),
+            # A retired decision call and its permission request are never a freeze (ADR-0101, 2026-10-07).
+            ("permission", "dns", "check", REPLAY),
+            ("human", "dns", "delete-record", {"phase": "decision", "call": 3}),
         ):
             with self.subTest(request=request), self.assertRaisesRegex(record.RoutineStateError, "freeze-invalid"):
                 routine_runs.freeze(state, claim.run.run_id, lease, NINE, request)
         frozen = routine_runs.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", REPLAY))
         self.assertEqual(frozen.notices[-1].detail["position"], REPLAY)
-        # A decision call names its own order, whatever Action the plan's steps hold.
-        call = {"phase": "decision", "call": 3}
-        waiting = routine_runs.freeze(
-            state, claim.run.run_id, lease, NINE, ("permission", "dns", "delete-record", call)
-        )
-        notice = waiting.notices[-1]
-        self.assertEqual(
-            (notice.detail["request_kind"], notice.detail["position"], notice.detail["steps"]), ("permission", call, 1)
-        )
-        self.assertEqual(record.run(waiting, claim.run.run_id).position, call)
-        thawed, _token = routine_runs.thaw(waiting, claim.run.run_id, NINE + 1, 0)
+        self.assertEqual(record.run(frozen, claim.run.run_id).position, REPLAY)
+        thawed, _token = routine_runs.thaw(frozen, claim.run.run_id, NINE + 1, 0)
         self.assertEqual(
             (record.run(thawed, claim.run.run_id).position, record.run(thawed, claim.run.run_id).steps), (None, 0)
         )

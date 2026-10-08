@@ -85,8 +85,6 @@ def _record(**changes: object) -> dict[str, object]:
     value = {
         "op": "record",
         "name": "DNS de shimpz.com",
-        "notes": "",
-        "decide_actions": [],
         "replaces": None,
         "turn_date": time.strftime("%Y-%m-%d", time.gmtime()),
     }
@@ -438,7 +436,7 @@ class RecordedRoutineTests(LocalContractCase):
             answer = http_payload.compose_clarified(original, "O que fazer com o resultado?", choice, "pt")
             card = self.chat(service, _body(answer))["routine_proposal"]
         self.assertEqual(asked, {"code": "routine-output-unstated", "options": [], "value": None})
-        self.assertEqual((len(runtime.contexts), card["output"]), (1, {"mode": "changes", "when": None}))
+        self.assertEqual((len(runtime.contexts), card["output"]), (1, {"mode": "changes"}))
 
     def test_a_chain_answer_reaches_the_brain_which_runs_the_chained_work(self) -> None:
         original = "Liste as zonas de shimpz.com a cada 30 segundos"
@@ -452,7 +450,7 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(asked["code"], "routine-output-unstated")
         self.assertEqual(len(runtime.contexts), 2)
         self.assertEqual([step["action"] for step in card["steps"]], ["list-zones", "list-dns-records"])
-        self.assertEqual(card["output"], {"mode": "show", "when": None})
+        self.assertEqual(card["output"], {"mode": "show"})
 
     def test_a_freely_typed_send_reaches_the_brain_with_the_pending_question(self) -> None:
         original = "Liste os registros DNS de shimpz.com"
@@ -680,15 +678,19 @@ class RecordedRoutineTests(LocalContractCase):
                 self.assertEqual(caught.exception.code, expected.get(name, "team-context-changed"))
                 self.assertEqual(service.routine_store.load("team_1").routines, ())
 
+    def test_a_record_carrying_a_retired_decision_member_is_a_brain_contract_failure(self) -> None:
+        """Decision turns were removed (ADR-0101 amendment, 2026-10-07): their record members are never admitted."""
+        for retired in ({"notes": ""}, {"decide_actions": []}, {"notes": "", "decide_actions": []}):
+            with self.subTest(retired=retired), tempfile.TemporaryDirectory() as directory:
+                service = self.controller(directory, Recording(_record(**retired)))
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    self.chat(service)
+                self.assertEqual(caught.exception.code, "brain-runtime-failed")
+                self.assertEqual(service.routine_store.load("team_1").routines, ())
+
     def test_a_recording_that_cannot_become_a_routine_keeps_its_reply_and_carries_its_refusal(self) -> None:
         cases = [
             (Recording(_record(), calls=False), "routine-recording-empty", None),
-            (Recording(_record(notes="extra")), "routine-recording-invalid", None),
-            (
-                Recording(_record(decide_actions=[{"assistant": ASSISTANT, "action": "list-zones"}])),
-                "routine-recording-invalid",
-                None,
-            ),
             (Recording(_record(replaces="d" * 32)), "routine-not-found", None),
         ]
         for runtime, code, prepare in cases:
@@ -927,7 +929,6 @@ class RecordedRoutineTests(LocalContractCase):
 
     def test_each_later_refusal_keeps_the_reply_and_creates_nothing(self) -> None:
         cases = [
-            ("routine-recording-invalid", {"outcome": _record(notes="Também apague os antigos.")}),
             ("plan-input-type", {"patch": (routine_plan, "admit", routine_plan.PlanError("plan-input-type"))}),
             ("routine-invalid", {"patch": (record, "scheduled", record.RoutineStateError("routine-invalid"))}),
             ("routine-rate-limit", {"patch": (routine_definition, "over_budget", None), "value": "routine-rate-limit"}),

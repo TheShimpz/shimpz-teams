@@ -261,7 +261,6 @@ class RecoveredRunTests(unittest.TestCase):
                 {
                     "plan": routine_definition.summary(routine_fixture.plan_document(), 1),
                     "output": unavailable,
-                    "decision": None,
                 },
             ),
         )

@@ -291,13 +291,11 @@ WIDE = "\u754c"
 
 
 def _proposal_case(name: object, cards: list[object]) -> object:
-    """A generated card at its byte bound, one byte past it, or one whose steps leave no room for its allowance."""
-    if name == "over-units":
-        card = json.loads(json.dumps(cards[1]))
+    """A generated card at its byte bound, one byte past it, or one with a step more than a plan admits."""
+    if name == "over-steps":
+        card = json.loads(json.dumps(cards[0]))
         step = {"assistant": card["steps"][0]["assistant"], "action": "list-zones", "read_only": True, "inputs": []}
-        units = routine.MAX_ROUTINE_STEPS + 1 - routine_notice.MAX_ALLOWANCE
-        card["steps"] = [{"position": index, **step} for index in range(1, units + 1)]
-        card["decision"]["allowance"] = routine_notice.MAX_ALLOWANCE
+        card["steps"] = [{"position": index, **step} for index in range(1, routine.MAX_ROUTINE_STEPS + 2)]
         return card
     card = json.loads(json.dumps(cards[0]))
     note = {"member": "note", "origin": "assistant", "value": "", "step": None, "pointer": None, "where": None}
@@ -315,7 +313,7 @@ if (
     != {
         "largest-unicode",
         "one-byte-over",
-        "over-units",
+        "over-steps",
     }
 ):
     fail("routine proposal vectors are missing")
@@ -325,13 +323,12 @@ if (
     or routine_proposal.canonical_proposal(largest) != largest
     or any(
         routine_proposal.canonical_proposal(_proposal_case(name, proposals["valid"]))
-        for name in ("one-byte-over", "over-units")
+        for name in ("one-byte-over", "over-steps")
     )
 ):
     fail("a generated routine proposal vector differs at its bound")
 for name, admit in (
     ("routine_run_usage", routine.canonical_run_usage),
-    ("routine_decision_record", routine_notice.canonical_decision_record),
     ("routine_proposal", routine_proposal.canonical_proposal),
     ("routine_refusal", routine_proposal.canonical_refusal),
     ("routine_question", routine_proposal.canonical_question),

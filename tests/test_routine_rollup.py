@@ -34,7 +34,7 @@ def defined(gap: int = 5) -> record.Routine:
     # five seconds all day it uses 17,280 of the Team's 20,000 daily steps.
     value = base.routine(
         schedule={"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)},
-        plan=routine_fixture.plan_document(output={"mode": "none", "step": None, "when": None}),
+        plan=routine_fixture.plan_document(output={"mode": "none", "step": None}),
     )
     return dataclasses.replace(value, name=NAME)
 

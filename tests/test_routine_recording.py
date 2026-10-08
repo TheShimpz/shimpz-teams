@@ -114,10 +114,10 @@ def _then_hourly(text: str) -> str:
 
 
 def _record(*sends: recording.Send, mode: str = "show", **options) -> recording.Recorded | recording.Question:
-    """Record a span; options are ``when``, ``decide``, ``protection``, ``contracts``, ``asked``, and the rest."""
+    """Record a span; options are ``protection``, ``contracts``, ``asked``, and the rest."""
     return routine_compose.record(
         sends,
-        recording.Recording(mode, options.get("when"), options.get("decide", ())),
+        recording.Recording(mode),
         options.get("protection") or trace.Protection(),
         options.get("contracts", CONTRACTS),
         asked=options.get("asked"),
@@ -168,7 +168,7 @@ class OwnerCaseTests(unittest.TestCase):
                         "input": {"zone_id": SELECTED},
                     },
                 ],
-                "output": {"mode": "show", "step": "s2", "when": None},
+                "output": {"mode": "show", "step": "s2"},
             },
         )
         self.assertEqual(recorded.origins, {"s1": {}, "s2": {"zone_id": "selector"}})
@@ -493,9 +493,9 @@ class OutputTests(unittest.TestCase):
 
     def test_the_latest_segment_stating_an_output_wins_and_a_chain_shows(self) -> None:
         cases = {
-            "a cada hora, mostrar sempre": {"mode": "show", "step": "s1", "when": None},
-            "a cada hora, só quando mudar": {"mode": "changes", "step": "s1", "when": None},
-            "a cada hora, não precisa mostrar": {"mode": "none", "step": None, "when": None},
+            "a cada hora, mostrar sempre": {"mode": "show", "step": "s1"},
+            "a cada hora, só quando mudar": {"mode": "changes", "step": "s1"},
+            "a cada hora, não precisa mostrar": {"mode": "none", "step": None},
         }
         for message, expected in cases.items():
             with self.subTest(message=message):
@@ -635,49 +635,18 @@ class BoundaryTests(unittest.TestCase):
         )
         self.assertEqual(_actions(recorded), ["fetch", "list-zones", "post", "fetch", "list-dns-records"])
         self.assertEqual(_input(recorded)["zone_id"]["step"], "s2")
-        self.assertEqual(recorded.document["output"], {"mode": "changes", "step": "s5", "when": None})
+        self.assertEqual(recorded.document["output"], {"mode": "changes", "step": "s5"})
 
     def test_none_mode_shows_nothing(self) -> None:
         recorded = _recorded(_send(("reports/fetch", {}, {})), mode="none")
-        self.assertEqual(recorded.document["output"], {"mode": "none", "step": None, "when": None})
+        self.assertEqual(recorded.document["output"], {"mode": "none", "step": None})
 
-    def test_decide_replays_only_reads_and_permits_every_effect(self) -> None:
-        recorded = _recorded(
-            _send(
-                ("reports/fetch", {}, {"unused": 1}),
-                ZONES_CALL,
-                ("cloudflare/delete-dns-record", {"zone_id": SHIMPZ_ID, "record_id": "r1"}, {}),
-                message=f"shimpz.com\n{EVERY_HOUR}",
-            ),
-            mode="decide",
-            when="changes",
-            decide=(("cloudflare", "renew-certificate"), ("cloudflare", "renew-certificate")),
-        )
-        self.assertEqual(_actions(recorded), ["fetch", "list-zones"])
-        self.assertEqual(recorded.document["output"], {"mode": "decide", "step": None, "when": "changes"})
-        self.assertEqual(
-            [(item["action"], item["read_only"]) for item in recorded.permitted],
-            [("delete-dns-record", False), ("list-zones", True), ("renew-certificate", False), ("fetch", True)],
-        )
-
-    def test_a_decide_recording_may_replay_nothing(self) -> None:
-        recorded = _recorded(_send(), mode="decide", when="always")
-        self.assertEqual((recorded.document["steps"], recorded.permitted), ([], ()))
-
-    def test_a_non_decide_recording_needs_a_call(self) -> None:
+    def test_a_recording_needs_a_call(self) -> None:
         self.assertEqual(_code(self, lambda: _record(_send())), "routine-recording-empty")
 
-    def test_decide_actions_and_when_are_closed(self) -> None:
+    def test_the_output_mode_is_closed_and_a_retired_decision_is_refused(self) -> None:
         send = _send(("reports/fetch", {}, {}))
-        many = tuple(("cloudflare", f"action-{index}") for index in range(recording.MAX_DECIDE_ACTIONS + 1))
-        cases = [
-            ({"mode": "show", "decide": (("reports", "post"),)}, "routine-decide-action-invalid"),
-            ({"mode": "decide", "when": "always", "decide": (("reports", "absent"),)}, "routine-decide-action-invalid"),
-            ({"mode": "decide", "when": "always", "decide": many}, "routine-decide-action-invalid"),
-            ({"mode": "decide", "when": None}, "routine-recording-invalid"),
-            ({"mode": "show", "when": "always"}, "routine-recording-invalid"),
-            ({"mode": "chain"}, "routine-recording-invalid"),
-        ]
+        cases = [({"mode": "decide"}, "routine-recording-invalid"), ({"mode": "chain"}, "routine-recording-invalid")]
         for options, code in cases:
             with self.subTest(options=options):
                 self.assertEqual(_code(self, lambda o=options: _record(send, **o)), code)
@@ -688,9 +657,7 @@ class BoundaryTests(unittest.TestCase):
             ("cloudflare", "delete-dns-record"): routine_plan.ActionContract(DRIFTED_PIN, DELETE_IN),
         }
         send = _send(("reports/fetch", {}, {}), ("cloudflare/delete-dns-record", {"zone_id": "z"}, {}))
-        self.assertEqual(
-            _code(self, lambda: _record(send, mode="decide", when="always", contracts=drifted)), "plan-pin-drift"
-        )
+        self.assertEqual(_code(self, lambda: _record(send, contracts=drifted)), "plan-pin-drift")
         missing = {key: value for key, value in CONTRACTS.items() if key != ("reports", "fetch")}
         self.assertEqual(_code(self, lambda: _record(send, contracts=missing)), "plan-pin-drift")
 
@@ -718,7 +685,7 @@ KEPT_PLAN = {
             },
         },
     ],
-    "output": {"mode": "show", "step": "s2", "when": None},
+    "output": {"mode": "show", "step": "s2"},
 }
 
 
@@ -730,7 +697,6 @@ class KeptTests(unittest.TestCase):
         return _record(
             _send(message=options.get("message", "now with 50 per page")),
             mode=mode,
-            when=options.get("when"),
             protection=options.get("protection"),
             existing=existing,
         )
@@ -741,7 +707,7 @@ class KeptTests(unittest.TestCase):
         self.assertEqual(
             (kept.document["timezone"], kept.schedule), ("America/Sao_Paulo", {"kind": "daily", "time": "08:00"})
         )
-        self.assertEqual(kept.document["output"], {"mode": "changes", "step": "s2", "when": None})
+        self.assertEqual(kept.document["output"], {"mode": "changes", "step": "s2"})
         self.assertEqual(
             kept.origins, {"s1": {}, "s2": {"zone_id": "selector", "type": "assistant", "per_page": "request"}}
         )
@@ -760,16 +726,13 @@ class KeptTests(unittest.TestCase):
             ],
         }
         self.assertEqual(self.keep(plan=plain).origins["s2"], {"zone_id": "step", "day": "clock"})
-        decided = self.keep("decide", when="always", plan={**KEPT_PLAN, "steps": []})
-        self.assertEqual((decided.document["steps"], decided.document["output"]["step"]), ([], None))
         self.assertEqual(self.keep(message="a cada hora").schedule, {"kind": "hourly", "every": 1})
 
-    def test_a_lost_protection_a_drifted_pin_or_no_step_to_show_refuses(self) -> None:
+    def test_a_lost_protection_or_a_drifted_pin_refuses(self) -> None:
         drifted = {**KEPT_PLAN, "steps": [{**KEPT_PLAN["steps"][0], "pin": DRIFTED_PIN}]}
         cases = [
             ({"protection": trace.Protection(lost=True)}, "routine-recording-unavailable"),
             ({"plan": drifted}, "plan-pin-drift"),
-            ({"plan": {**KEPT_PLAN, "steps": []}}, "routine-recording-empty"),
         ]
         for options, code in cases:
             with self.subTest(code=code):

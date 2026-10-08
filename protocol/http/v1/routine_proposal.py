@@ -14,14 +14,11 @@ else:  # The protocol verifier runs every module of this directory flat.
 
 
 # The confirmation card of a recorded Routine (ADR-0101 section 5.2): every literal complete and escaped, every source
-# and selector described completely, the schedule, the output, every permitted Action, and for a decision its request,
-# notes, model, and allowance. It is the one thing a person confirms, so nothing in it is paged or cut; a recording
-# whose card does not fit is refused.
+# and selector described completely, the schedule, the output, and every permitted Action. It is the one thing a
+# person confirms, so nothing in it is paged or cut; a recording whose card does not fit is refused.
 MAX_PROPOSAL_BYTES = 160 * 1024
 INPUT_ORIGINS = ("request", "assistant", "clock", "step", "selector")
 MAX_NEXT_RUNS = 3
-MAX_BASE_REQUEST_CHARS = 16_000
-MAX_NOTES_CHARS = 4000
 _PROPOSAL_INPUT_FIELDS = frozenset({"member", "origin", "value", "step", "pointer", "where", "item"})
 
 
@@ -74,24 +71,17 @@ def _card_permitted(value: object) -> bool:
     return identities == sorted(set(identities))
 
 
-def _card_decision(value: object) -> bool:
-    """A decision's standing scope as the card shows it: the request, the assistant's notes, model, and allowance."""
-    if value is None:
-        return True
-    return (
-        isinstance(value, dict)
-        and set(value) == {"request", "notes", "model", "allowance"}
-        and routine._plain_text(value["request"], MAX_BASE_REQUEST_CHARS)
-        and bool(value["request"])
-        and routine._plain_text(value["notes"], MAX_NOTES_CHARS)
-        and routine.canonical_model(value["model"]) is not None
-        and routine._whole(value["allowance"], 1, routine_notice.MAX_ALLOWANCE)
+def _permits_exactly(permitted: list[dict[str, object]], steps: list[dict[str, object]]) -> bool:
+    """The permitted Actions are exactly the steps' Actions, each with the same reviewed effect as its steps."""
+    effects = {(item["assistant"], item["action"]): item["read_only"] for item in permitted}
+    return set(effects) == {(step["assistant"], step["action"]) for step in steps} and all(
+        effects[(step["assistant"], step["action"])] == step["read_only"] for step in steps
     )
 
 
 def _card_output(value: object, total: int) -> bool:
-    """The card's output: its mode and condition; a shown mode shows the last step."""
-    if not isinstance(value, dict) or set(value) != {"mode", "when"}:
+    """The card's output: its mode; a shown mode shows the last step."""
+    if not isinstance(value, dict) or set(value) != {"mode"}:
         return False
     shown = total if value["mode"] in routine.SHOWN_MODES else None
     return routine.canonical_disposition({**value, "step": shown}, total) is not None
@@ -100,7 +90,7 @@ def _card_output(value: object, total: int) -> bool:
 def canonical_proposal(value: object) -> dict[str, object] | None:
     """One recorded Routine's confirmation card, within its byte bound."""
     fields = {"proposal_id", "expires_at", "replaces", "name", "schedule", "timezone", "timezone_source", "next_runs"}
-    rest = {"daily_cap", "output", "steps", "permitted", "decision"}
+    rest = {"daily_cap", "output", "steps", "permitted"}
     if not isinstance(value, dict) or set(value) != fields | rest:
         return None
     steps, runs = value["steps"], value["next_runs"]
@@ -125,10 +115,7 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
         and value["daily_cap"] == routine.daily_cap(value["schedule"])
         and all(_card_step(item, index) for index, item in enumerate(steps, start=1))
         and _card_permitted(value["permitted"])
-        and (value["decision"] is not None) == (value["output"]["mode"] == "decide")
-        and _card_decision(value["decision"])
-        and len(steps) + (0 if value["decision"] is None else value["decision"]["allowance"])
-        <= routine.MAX_ROUTINE_STEPS
+        and _permits_exactly(value["permitted"], steps)
         and routine.encoded_bytes(value) <= MAX_PROPOSAL_BYTES
     )
     return copy.deepcopy(value) if valid else None

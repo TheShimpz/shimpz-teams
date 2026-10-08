@@ -129,7 +129,7 @@ class RecordingBookTests(unittest.TestCase):
         first = book.start("team_1", BINDING, _started(), 2)
         manifest = routine_recording.Manifest(())
         question = routine_recording.Question("routine-work-split", manifest=manifest, frontier=1)
-        intent = routine_recorder.Intent("DNS", (), None, None)
+        intent = routine_recorder.Intent("DNS", None, None)
         book.asked("team_1", first, question, intent)
         found = book.get("team_1", first)
         asked = routine_recording.Asked(question.code, 2, None, manifest, question.wire())
@@ -161,7 +161,7 @@ class RecordingBookTests(unittest.TestCase):
         )
 
     def test_only_a_composed_answer_that_binds_the_pending_question_is_recorded_without_the_brain(self) -> None:
-        intent = routine_recorder.Intent("DNS", (), None, None)
+        intent = routine_recorder.Intent("DNS", None, None)
         pending = routine_recording.Pending(("dns", "records"), "zone_id", (("a-zone", None), (123, None)))
 
         def answered(
@@ -232,7 +232,7 @@ class RecordingBookTests(unittest.TestCase):
                 self.assertIs(routine_recorder.routine_mode(book.get("team_1", send)), expected)
         book = routine_recorder.RecordingBook()
         send = book.start("team_1", BINDING, _started("Liste"), 1)
-        intent = routine_recorder.Intent("DNS", (), None, None)
+        intent = routine_recorder.Intent("DNS", None, None)
         book.asked("team_1", send, routine_recording.Question("routine-binding-unsourced"), intent)
         self.assertIs(routine_recorder.routine_mode(book.get("team_1", send)), True)
         self.assertIs(routine_recorder.routine_mode(None), False)
@@ -384,7 +384,7 @@ class OutcomeTests(unittest.TestCase):
             {"op": "create"},
             {"name": "a\nb"},
             {"schedule": {"kind": "hourly", "every": 1}},
-            {"output": {"mode": "show", "when": None}},
+            {"output": {"mode": "show"}},
             {"turn_date": "2026"},
         ):
             with self.subTest(change=change), self.assertRaises(local_app.ApiProblem) as caught:
@@ -443,10 +443,10 @@ class CardTests(unittest.TestCase):
             },
         ]
         document = {
-            "version": 3,
+            "version": 4,
             "timezone": "UTC",
             "steps": steps,
-            "output": {"mode": "none", "step": None, "when": None},
+            "output": {"mode": "none", "step": None},
         }
         permitted = tuple(
             {"assistant": "dns", "action": action, "pin": pin, "read_only": True, "stored_inputs": []}

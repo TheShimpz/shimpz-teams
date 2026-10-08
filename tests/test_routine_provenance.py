@@ -243,9 +243,6 @@ class ClassificationTests(unittest.TestCase):
         # In an earlier send, the change still replays as the work's source, where it ran.
         earlier = _recorded(_send(calls[0]), _send(calls[1]))
         self.assertEqual(_actions(earlier), ["post", "list-dns-records"])
-        # A decision's changes never replay, so nothing may read one: the person is asked.
-        decided = _record(_send(*calls), mode="decide", when="always")
-        self.assertEqual(decided, recording.Question("routine-binding-unsourced"))
 
 
 class SourceTests(unittest.TestCase):

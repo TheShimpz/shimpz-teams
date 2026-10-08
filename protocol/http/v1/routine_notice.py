@@ -12,86 +12,15 @@ else:  # The protocol verifier runs every module of this directory flat.
     import routine
 
 
-# How a decision turn ended (ADR-0101 section 6.8): it decided (with its escaped message when it notified, none when it
-# only ends a run that already had a waiting notice), found the results unchanged, could not decide (with its code),
-# or hit the Team's decision ceiling.
-DECISION_STATES = ("decided", "unchanged", "unavailable", "ceiling")
-MAX_DECISION_MESSAGE_CHARS = 4000
-MAX_DECISION_RULES = 8
-MAX_DECISION_RULE_CHARS = 200
-MAX_DECISION_RATIONALE_CHARS = 500
-MAX_ALLOWANCE = routine.MAX_DECISION_CALLS
-# The code a decision that could not run because the run lost its protection carries (ADR-0101 section 6.2).
-PROTECTION_LOST = "routine-protection-lost"
-
-
-def _decision(value: object) -> bool:
-    """A notice's decision: its state, its code when it could not decide, and its message when it decided."""
-    if value is None:
-        return True
-    if not isinstance(value, dict) or set(value) != {"state", "code", "message"}:
-        return False
-    state, code, message = value["state"], value["code"], value["message"]
-    if state == "decided":
-        return code is None and (
-            message is None or (routine._plain_text(message, MAX_DECISION_MESSAGE_CHARS) and bool(message))
-        )
-    if state == "unavailable":
-        return routine._identity(code, routine.ERROR_CODE_RE) and message is None
-    return state in DECISION_STATES and code is None and message is None
-
-
-def canonical_decision_record(value: object) -> dict[str, object] | None:
-    """A run's one decision record (ADR-0101 section 7): how its decision turn ended, and what it said and used."""
-    fields = {"state", "code", "model", "rules", "rationale", "notify", "usage"}
-    if not isinstance(value, dict) or set(value) != fields or value["state"] not in DECISION_STATES:
-        return None
-    state, rules = value["state"], value["rules"]
-    usage = value["usage"]
-    quoted = (
-        isinstance(rules, list)
-        and len(rules) <= MAX_DECISION_RULES
-        and all(routine._plain_text(rule, MAX_DECISION_RULE_CHARS) and rule for rule in rules)
-    )
-    if state == "decided":
-        valid = (
-            value["code"] is None
-            and routine.canonical_model(value["model"]) is not None
-            and quoted
-            and (value["rationale"] is None or routine._plain_text(value["rationale"], MAX_DECISION_RATIONALE_CHARS))
-            and type(value["notify"]) is bool
-            and routine.canonical_run_usage(usage) is not None
-        )
-    elif state == "unavailable":
-        valid = (
-            routine._identity(value["code"], routine.ERROR_CODE_RE)
-            and routine._model(value["model"])
-            and rules == []
-            and value["rationale"] is None
-            and value["notify"] is None
-            and (usage is None or routine.canonical_run_usage(usage) is not None)
-        )
-    else:
-        valid = all(value[key] is None for key in fields - {"state", "rules"}) and rules == []
-    return copy.deepcopy(value) if valid else None
-
-
 def _disposed(value: object, steps: int) -> bool:
     """Exactly one admitted disposition of a plan of ``steps`` steps; null is none."""
     admitted = routine.canonical_disposition(value, steps)
     return admitted is not None and admitted == value
 
 
-def _scope(value: dict[str, object], steps: int) -> bool:
-    """A Routine's standing scope: only a decision has a model and an allowance, which its steps leave room for."""
-    decide = value["output"]["mode"] == "decide"
-    return (
-        value["state"] in ROUTINE_STATES
-        and routine.canonical_permitted(value["permitted"]) == value["permitted"]
-        and (routine.canonical_model(value["model"]) is not None if decide else value["model"] is None)
-        and routine._whole(value["allowance"], 1 if decide else 0, MAX_ALLOWANCE if decide else 0)
-        and steps + value["allowance"] <= routine.MAX_ROUTINE_STEPS
-    )
+def _scope(value: dict[str, object]) -> bool:
+    """A Routine's standing scope: whether it runs, and its permitted Actions."""
+    return value["state"] in ROUTINE_STATES and routine.canonical_permitted(value["permitted"]) == value["permitted"]
 
 
 def _defined(detail: dict[str, object]) -> bool:
@@ -103,18 +32,16 @@ def _defined(detail: dict[str, object]) -> bool:
         and _disposed(detail["output"], summary["steps"])
         and routine.canonical_schedule(detail["schedule"]) == detail["schedule"]
         and routine.zoned(detail["timezone"], detail["timezone_source"])
-        and _scope(detail, summary["steps"])
+        and _scope(detail)
     )
 
 
 def _completed(detail: dict[str, object]) -> bool:
-    """A completed run: its plan's summary, its shown result if any, and its decision."""
+    """A completed run: its plan's summary and its shown result if any."""
     summary = routine.canonical_summary(detail["plan"])
     output = detail["output"]
-    return (
-        summary is not None
-        and (output is None or (routine.canonical_output(output) is not None and output["step"] <= summary["steps"]))
-        and _decision(detail["decision"])
+    return summary is not None and (
+        output is None or (routine.canonical_output(output) is not None and output["step"] <= summary["steps"])
     )
 
 
@@ -130,9 +57,8 @@ def _held_step(detail: dict[str, object]) -> bool:
 
 
 _STEP_FIELDS = {"assistant_id", "action", "position", "steps"}
-# What a frozen run waits for: a person's answer to a declared human request, an Integration, or a permission to call
-# an Action outside the Routine's permitted set (ADR-0101 section 6.7).
-REQUEST_KINDS = ("human", "integrations", "permission")
+# What a frozen run waits for: a person's answer to a declared human request, or an Integration.
+REQUEST_KINDS = ("human", "integrations")
 
 
 def _frozen(detail: dict[str, object]) -> bool:
@@ -147,19 +73,8 @@ def _failed_at(detail: dict[str, object]) -> bool:
     return routine.canonical_position(detail["position"], detail["steps"]) is not None
 
 
-_COMPLETED_FIELDS = {"plan", "output", "decision"}
-_DEFINED_FIELDS = {
-    "name",
-    "plan",
-    "output",
-    "schedule",
-    "timezone",
-    "timezone_source",
-    "state",
-    "permitted",
-    "model",
-    "allowance",
-}
+_COMPLETED_FIELDS = {"plan", "output"}
+_DEFINED_FIELDS = {"name", "plan", "output", "schedule", "timezone", "timezone_source", "state", "permitted"}
 # Each outcome's exact detail fields and check: denied and stopped name the Actions that completed; held, paused, and
 # user-skipped name the call whose effects are unresolved, and user-skipped the card choice that set the run aside.
 _DETAILS = {
@@ -208,8 +123,7 @@ def canonical_notice_detail(outcome: object, detail: object) -> dict[str, object
 # Views a Local Team returns to Admin for Routines. Admin admits each only in exactly this closed form.
 MAX_NOTICE_BATCH = 1024
 # The encoded notice list of one batch, under the Local API's 128 KiB response cap with room for its envelope. The
-# largest notice, a completed run's shown output of at most MAX_OUTPUT_BYTES beside its plan summary and a decision
-# message, fits many times.
+# largest notice, a completed run's shown output of at most MAX_OUTPUT_BYTES beside its plan summary, fits many times.
 MAX_NOTICE_BATCH_BYTES = 112 * 1024
 RUN_STATUSES = frozenset({"leased", "frozen", "held"})
 # A Routine's state (ADR-0101 section 5.5): it runs, or a person paused it.
@@ -245,7 +159,7 @@ def _optional(value: object, pattern: re.Pattern[str]) -> bool:
 def canonical_routine_view(value: object) -> dict[str, object] | None:
     """One Routine as a Supervisor sees it: its plan summary (steps are paged), disposition, and standing scope."""
     fields = {"routine_id", "name", "schedule", "timezone", "timezone_source", "assistant_ids", "next_run_at"}
-    scope = {"needs_reconfirm", "state", "permitted", "permissions_revision", "model", "allowance"}
+    scope = {"needs_reconfirm", "state", "permitted"}
     if not isinstance(value, dict) or set(value) != fields | scope | {"deleting", "plan", "output"}:
         return None
     summary = routine.canonical_summary(value["plan"])
@@ -261,8 +175,7 @@ def canonical_routine_view(value: object) -> dict[str, object] | None:
         and _instant(value["next_run_at"])
         and type(value["needs_reconfirm"]) is bool
         and type(value["deleting"]) is bool
-        and routine._whole(value["permissions_revision"], 0, 2**31 - 1)
-        and _scope(value, summary["steps"])
+        and _scope(value)
     )
     return copy.deepcopy(value) if valid else None
 

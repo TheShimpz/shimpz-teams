@@ -44,19 +44,13 @@ from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state")
 KEY_PATH = Path("/var/lib/shimpz-local/routines/key/aes256.key")
-SCHEMA = 9
+SCHEMA = 10
 # Every bound below derives from the plan's admission budget and the encoders' worst cases (ADR-0092 amendment,
 # 2026-10-05, scale), which tests build through the real encoders. The state file holds every definition at the Team's
 # aggregate budget, each Routine's other fields, every undelivered notice, and every start, discard, and incident, each
 # at its own bound.
-# A notice at most: its shown output, its plan summary, a decision's message at four UTF-8 bytes a character, its usage
-# and every other field.
-MAX_NOTICE_BYTES = (
-    http_routine.MAX_OUTPUT_BYTES
-    + http_routine_notice.MAX_SUMMARY_BYTES
-    + 4 * http_routine_notice.MAX_DECISION_MESSAGE_CHARS
-    + 8 * 1024
-)
+# A notice at most: its shown output, its plan summary, its usage, and every other field.
+MAX_NOTICE_BYTES = http_routine.MAX_OUTPUT_BYTES + http_routine_notice.MAX_SUMMARY_BYTES + 8 * 1024
 _NOTICES_BYTES = (record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES) * MAX_NOTICE_BYTES
 _RECORDS_BYTES = routine_starts.MAX_STARTS * 64 + record.MAX_DISCARDS * 256
 _ROUTINES_BYTES = routine_plan.TEAM_DEFINITION_BYTES + record.MAX_ROUTINES * 18 * 1024
@@ -90,11 +84,6 @@ _ROUTINE_FIELDS = frozenset(
         "paused",
         "confirmation",
         "permitted",
-        "permissions_revision",
-        "prompt",
-        "model",
-        "allowance",
-        "baseline",
         "failures",
         "rollup_minute",
         "rollup_runs",

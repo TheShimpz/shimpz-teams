@@ -1,16 +1,15 @@
 """What a Routine definition is on the wire and in its Team's budgets, without I/O (ADR-0092, ADR-0101).
 
-A definition is a recorded plan and its standing scope: the Actions it may call at their pins (every replay step's,
-and for a decision every Action the person permitted), whether each is read-only, the Stored Inputs each uses by name
-only, and for a decision its model and allowance. A Supervisor inspects a Routine through its plan's safe projection,
-its summary, and its pages. On the wire a step is named by its 1-based position in its revision's plan, never by its
-internal id: a projected step shows its Action, whether it only reads, each input's source (a literal as a bounded
-preview, a reference by the earlier step's position, its pointer, and through an array item its selector and the
-item's pointer), and the Stored Inputs its Action uses. Every list view and notice carries a compact summary of the
-revision instead of its steps.
+A definition is a recorded plan and its standing scope: the Actions it may call at their pins (every replay step's),
+whether each is read-only, and the Stored Inputs each uses by name only. A Supervisor inspects a Routine through its
+plan's safe projection, its summary, and its pages. On the wire a step is named by its 1-based position in its
+revision's plan, never by its internal id: a projected step shows its Action, whether it only reads, each input's source
+(a literal as a bounded preview, a reference by the earlier step's position, its pointer, and through an array item its
+selector and the item's pointer), and the Stored Inputs its Action uses. Every list view and notice carries a compact
+summary of the revision instead of its steps.
 
-A definition's share of its Team's budgets is one function of its units: its replay steps and its decision allowance
-(``run_units``), which every start reserves, every rolling 24-hour cap multiplies, and the run's active time grows with.
+A definition's share of its Team's budgets is one function of its units: its replay steps (``run_units``), which every
+start reserves, every rolling 24-hour cap multiplies, and the run's active time grows with.
 Paused Routines count, so resuming one never needs room it lacks; a deleting one keeps its share until it is gone.
 """
 
@@ -28,8 +27,8 @@ def plan_digest(plan: Mapping[str, object]) -> str:
 
 
 def run_units(value: object) -> int:
-    """A run's units: its replay steps and its decision allowance, which every budget derives from (ADR-0101 §6.4)."""
-    return len(value.plan["steps"]) + value.allowance
+    """A run's units: its replay steps, which every budget derives from (ADR-0101 §6.4)."""
+    return len(value.plan["steps"])
 
 
 def state(value: object) -> str:
@@ -114,14 +113,10 @@ def summary(plan: Mapping[str, object], revision: int) -> dict[str, object]:
 
 
 def disposition(plan: Mapping[str, object]) -> dict[str, object]:
-    """The plan's output disposition on the wire: its shown step by position, or none, and a decision's condition."""
+    """The plan's output disposition on the wire: its shown step by position, or none."""
     output = plan["output"]
     shown = output["step"]
-    return {
-        "mode": output["mode"],
-        "step": None if shown is None else step_positions(plan)[shown],
-        "when": output["when"],
-    }
+    return {"mode": output["mode"], "step": None if shown is None else step_positions(plan)[shown]}
 
 
 def permitted_summary(permitted: Sequence[Mapping[str, object]]) -> dict[str, int]:
@@ -157,12 +152,7 @@ def page(
 
 def scope(value: object) -> dict[str, object]:
     """A Routine's standing scope as views and notices carry it."""
-    return {
-        "state": state(value),
-        "permitted": permitted_summary(value.permitted),
-        "model": None if value.model is None else dict(value.model),
-        "allowance": value.allowance,
-    }
+    return {"state": state(value), "permitted": permitted_summary(value.permitted)}
 
 
 def detail(value: object) -> dict[str, object]:
@@ -183,20 +173,9 @@ def fits(value: object) -> bool:
     return steps_fit(value.plan, value.permitted) and definition_bytes(value) <= routine_plan.MAX_DEFINITION_BYTES
 
 
-# A Routine's baseline is counted at its largest form whatever it holds now, so recording one never grows a
-# definition its budgets already admitted.
-_LARGEST_BASELINE = {"id": "0" * 32, "digest": "0" * 64}
-
-
 def definition_bytes(value: object) -> int:
     """The canonical bytes of a Routine's definition: its plan and its standing scope, which its budget bounds."""
-    standing = {
-        "permitted": list(value.permitted),
-        "confirmation": value.confirmation,
-        "prompt": value.prompt,
-        "model": value.model,
-        "baseline": _LARGEST_BASELINE,
-    }
+    standing = {"permitted": list(value.permitted), "confirmation": value.confirmation}
     return len(routine_plan.canonical(value.plan)) + len(routine_plan.canonical(standing))
 
 

@@ -47,7 +47,7 @@ CONTRACTS = {
 
 def _document(**changes: object) -> dict[str, object]:
     document = {
-        "version": 3,
+        "version": 4,
         "timezone": "America/Sao_Paulo",
         "steps": [
             {
@@ -71,7 +71,7 @@ def _document(**changes: object) -> dict[str, object]:
                 },
             },
         ],
-        "output": {"mode": "show", "step": "publish", "when": None},
+        "output": {"mode": "show", "step": "publish"},
     }
     document.update(changes)
     return document
@@ -114,7 +114,7 @@ class PlanAdmissionTests(unittest.TestCase):
             (_document(timezone=None), "plan-timezone-invalid"),
             (_document(steps=[{"id": "x"}]), "plan-step-invalid"),
             ({**_document(), "version": float("nan")}, "plan-invalid"),
-            ({**_document(), "version": 3.0}, "plan-invalid"),
+            ({**_document(), "version": 4.0}, "plan-invalid"),
         )
         for document, code in cases:
             with self.subTest(code=code, document=str(document)[:60]):
@@ -537,7 +537,7 @@ class ScaleTests(unittest.TestCase):
             self._publish("second", title={"kind": "literal", "value": "Two"}, note={"kind": "literal", "value": None}),
             self._publish("third", title={"kind": "step_output", "step": "first", "pointer": "/id"}),
         ]
-        document = {**_document(steps=steps), "output": {"mode": "show", "step": "third", "when": None}}
+        document = {**_document(steps=steps), "output": {"mode": "show", "step": "third"}}
         plan = routine_plan.admit(document, CONTRACTS)
         self.assertEqual([step.action for step in plan.steps], ["publish-post"] * 3)
         # An optional member is present only where the plan sets it; nothing fills one in.
@@ -555,7 +555,7 @@ class ScaleTests(unittest.TestCase):
             self._publish(f"s{index}", title={"kind": "literal", "value": f"Post {index}"})
             for index in range(routine_plan.MAX_STEPS)
         ]
-        document = {**_document(steps=steps), "output": {"mode": "changes", "step": "s255", "when": None}}
+        document = {**_document(steps=steps), "output": {"mode": "changes", "step": "s255"}}
         plan = routine_plan.admit(document, CONTRACTS)
         self.assertEqual((len(plan.steps), plan.position("s255"), plan.shown().step_id), (256, 256, "s255"))
         self.assertTrue(routine_plan.well_formed(document))
@@ -567,7 +567,7 @@ class ScaleTests(unittest.TestCase):
         plan = routine_plan.admit(
             {
                 **_document(steps=[self._publish("earlier", title={"kind": "literal", "value": "x"}), step]),
-                "output": {"mode": "none", "step": None, "when": None},
+                "output": {"mode": "none", "step": None},
             },
             {
                 ("shimpz-blog", "publish-post"): routine_plan.ActionContract(
@@ -616,7 +616,7 @@ class InputPreviewTests(unittest.TestCase):
             },
             {"id": "share", "assistant": "shimpz-blog", "action": "share-post", "pin": OTHER_PIN, "input": inputs},
         ]
-        output = {"mode": "none", "step": None, "when": None}
+        output = {"mode": "none", "step": None}
         return routine_plan.admit({**_document(steps=steps), "output": output}, contracts)
 
     def preview(self, inputs, resolved, selected, protected=(), source=SOURCE, share=SHARE) -> list[dict[str, object]]:
@@ -776,7 +776,7 @@ class SelectorAndDispositionTests(unittest.TestCase):
             },
             {"id": "share", "assistant": "shimpz-blog", "action": "share-post", "pin": OTHER_PIN, "input": source},
         ]
-        output = output or {"mode": "show", "step": "share", "when": None}
+        output = output or {"mode": "show", "step": "share"}
         return routine_plan.admit({**_document(steps=steps), "output": output}, contracts)
 
     def selector(self, **changes: object) -> dict[str, object]:
@@ -834,24 +834,23 @@ class SelectorAndDispositionTests(unittest.TestCase):
         shown = routine_plan.input_preview(withheld, withheld.steps[1], {"post_id": "z2"}, {key: "z2"}, ())
         self.assertEqual(shown, [{"member": "post_id", "source": "step_output", "value": None}])
 
-    def test_only_a_decision_has_a_condition_and_may_run_no_step(self) -> None:
-        decide = {"mode": "decide", "step": None, "when": "changes"}
-        self.assertIsNone(self.plan(self.selector(), decide).shown())
-        empty = {**_document(steps=[]), "output": {"mode": "decide", "step": None, "when": "always"}}
-        self.assertEqual(routine_plan.admit(empty, CONTRACTS).steps, ())
-        self.assertTrue(routine_plan.well_formed(empty))
+    def test_no_disposition_has_a_condition_and_every_plan_runs_a_step(self) -> None:
+        self.assertIsNone(self.plan(self.selector(), {"mode": "none", "step": None}).shown())
+        empty = {**_document(steps=[]), "output": {"mode": "none", "step": None}}
+        with self.assertRaisesRegex(routine_plan.PlanError, "plan-output-invalid"):
+            routine_plan.admit(empty, CONTRACTS)
         for output in (
-            {"mode": "decide", "step": None, "when": None},
+            {"mode": "decide", "step": None},
+            {"mode": "decide", "step": None, "when": "changes"},
             {"mode": "decide", "step": "share", "when": "always"},
             {"mode": "show", "step": "share", "when": "always"},
             {"mode": "none", "step": None, "when": "changes"},
-            {"mode": "chain", "step": None, "when": None},
-            {"mode": "show", "step": "share"},
+            {"mode": "chain", "step": None},
         ):
             with self.subTest(output=output), self.assertRaises(routine_plan.PlanError) as caught:
                 self.plan(self.selector(), output)
             self.assertEqual(caught.exception.code, "plan-output-invalid")
-        self.assertFalse(routine_plan.well_formed({**empty, "output": {"mode": "none", "step": None, "when": None}}))
+        self.assertFalse(routine_plan.well_formed(empty))
 
     def test_a_shown_result_redacts_every_value_and_key_the_run_protects(self) -> None:
         node = routine_plan.output_safe(
@@ -887,7 +886,7 @@ class IndexedPreviewTests(unittest.TestCase):
                 "input": {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/zones/0"}},
             },
         ]
-        output = {"mode": "none", "step": None, "when": None}
+        output = {"mode": "none", "step": None}
         plan = routine_plan.admit({**_document(steps=steps), "output": output}, contracts)
         value = {"id": 7, "flag": True, "note": None}
         key = ("publish", "/zones/0", "", "")

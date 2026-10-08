@@ -1,4 +1,4 @@
-"""The run cursor: binding, durable prefix, stable operations, budgets, bounds, and decision phases (ADR-0101)."""
+"""The run cursor: binding, durable prefix, stable operations, budgets, bounds, and protection (ADR-0101)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ BINDING = routine_cursor.Binding("a" * 64, "b" * 32, 1, "c" * 32)
 OPERATION = "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
 COMMITMENT = "d" * 64
 BOOT = "f" * 32
-NONE = {"mode": "none", "step": None, "when": None}
+NONE = {"mode": "none", "step": None}
 
 
 class CursorTests(unittest.TestCase):
@@ -44,7 +44,7 @@ class CursorTests(unittest.TestCase):
             self.plan,
             {"shared": True},
         )
-        self.assertTrue(last.done(self.plan) and last.replayed(self.plan))
+        self.assertTrue(last.done(self.plan))
         self.assertEqual(last.selections(), advanced.selections())
         with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-dispatch-invalid"):
             routine_cursor.dispatch(last, self.plan, OPERATION, COMMITMENT)
@@ -117,7 +117,8 @@ class CursorTests(unittest.TestCase):
             b"not json",
             json.dumps(document).encode(),
             routine_plan.canonical({**document, "version": 1}),
-            routine_plan.canonical({**document, "version": 4.0}),
+            routine_plan.canonical({**document, "version": 5.0}),
+            routine_plan.canonical({**document, "version": 4}),
             routine_plan.canonical({key: value for key, value in document.items() if key != "shown"}),
             routine_plan.canonical({**document, "shown": {"step": "publish"}}),
             routine_plan.canonical({**document, "shown": []}),
@@ -126,9 +127,13 @@ class CursorTests(unittest.TestCase):
             routine_plan.canonical({**document, "selected": [["publish", "/id"]]}),
             routine_plan.canonical({**document, "selected": [["publish", "/id", "", "/x", 1]]}),
             routine_plan.canonical({**document, "selected": [["publish", "/id", 1, "", 1]]}),
-            routine_plan.canonical({**document, "reservation": [0, 0]}),
-            routine_plan.canonical({**document, "calls": {}}),
-            routine_plan.canonical({**document, "calls": [{"operation_id": OPERATION}]}),
+            # The retired decision members are refused even at what was their replay value (ADR-0101, 2026-10-07).
+            routine_plan.canonical({**document, "phase": "replay"}),
+            routine_plan.canonical({**document, "accumulator": None}),
+            routine_plan.canonical({**document, "candidate": None}),
+            routine_plan.canonical({**document, "reservation": {"allowance": 0, "used": 0}}),
+            routine_plan.canonical({**document, "calls": []}),
+            routine_plan.canonical({**document, "model": None}),
             routine_plan.canonical({**document, "boot": "x"}),
             routine_plan.canonical({**document, "budgets": [4]}),
             routine_plan.canonical({**document, "budgets": {**document["budgets"], "retries": 2}}),
@@ -218,41 +223,12 @@ class FaultTests(unittest.TestCase):
                 routine_cursor.encode(changed)
 
 
-DECIDE = {"mode": "decide", "step": None, "when": "always"}
-MODEL = {"provider": "openai", "model": "gpt-6-luna", "effort": "low"}
-KEPT = {"value": {"id": "post-1"}, "withheld": ["/token"]}
-
-
-class DecisionPhaseTests(unittest.TestCase):
-    """A decide plan's phases, accumulator, candidate, allowance, calls, and model (ADR-0101 section 6.6)."""
+class ProtectionTests(unittest.TestCase):
+    """A run's protection is bound in its Team boot, and its loss is sealed (ADR-0101 section 6.2)."""
 
     def setUp(self) -> None:
-        self.plan = routine_plan.admit(_document(output=DECIDE), CONTRACTS)
+        self.plan = routine_plan.admit(_document(output=NONE), CONTRACTS)
         self.cursor = routine_cursor.start(self.plan, BINDING, 1_800_000_000, BOOT)
-
-    def decided(self, **changes: object) -> routine_cursor.Cursor:
-        call = routine_cursor.Call(OPERATION, "shimpz-blog", "share-post", False, COMMITMENT)
-        values = {
-            "step": 2,
-            "phase": "decision",
-            "accumulator": {"results": [["publish", KEPT]], "over": False},
-            "candidate": "e" * 32,
-            "reservation": (16, 1),
-            "calls": (call,),
-            "model": dict(MODEL),
-        }
-        return dataclasses.replace(self.cursor, **{**values, **changes})
-
-    def test_a_decide_plan_is_done_only_once_its_decision_closes(self) -> None:
-        replayed = dataclasses.replace(self.cursor, step=2)
-        self.assertTrue(replayed.replayed(self.plan))
-        self.assertFalse(replayed.done(self.plan))
-        deciding = self.decided()
-        self.assertFalse(deciding.done(self.plan))
-        self.assertTrue(dataclasses.replace(deciding, phase="closed").done(self.plan))
-        decoded = routine_cursor.decode(routine_cursor.encode(deciding), BINDING)
-        self.assertEqual(decoded, deciding)
-        self.assertEqual(decoded.calls[0].state, "reserved")
 
     def test_losing_protection_is_sealed_with_the_boot_it_was_bound_in(self) -> None:
         lost = routine_cursor.lose_protection(self.cursor)
@@ -263,96 +239,6 @@ class DecisionPhaseTests(unittest.TestCase):
                 routine_cursor.encode(dataclasses.replace(self.cursor, boot=boot))
         with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-invalid"):
             routine_cursor.encode(dataclasses.replace(self.cursor, protection_lost=1))
-
-    def test_each_call_carries_its_classified_outcome(self) -> None:
-        call = routine_cursor.Call(OPERATION, "shimpz-blog", "share-post", False, COMMITMENT)
-        dispatched = dataclasses.replace(call, state="dispatched", workload="assistant-1", dispatched_at=5)
-        failed = dataclasses.replace(dispatched, state="failed", fault="handled", absent=True)
-        for valid in (
-            call,
-            dispatched,
-            dataclasses.replace(dispatched, state="succeeded"),
-            dataclasses.replace(dispatched, state="stopped"),
-            failed,
-        ):
-            with self.subTest(valid=valid):
-                routine_cursor.encode(self.decided(calls=(valid,)))
-        invalid = (
-            dataclasses.replace(call, operation_id="x"),
-            dataclasses.replace(call, assistant="Bad"),
-            dataclasses.replace(call, action="Bad"),
-            dataclasses.replace(call, read_only=1),
-            dataclasses.replace(call, commitment="x"),
-            dataclasses.replace(call, commitment=None),
-            dataclasses.replace(call, attempts=0),
-            dataclasses.replace(call, state="unknown"),
-            dataclasses.replace(call, fault="nope"),
-            dataclasses.replace(call, state="failed"),
-            dataclasses.replace(dispatched, fault="handled"),
-            dataclasses.replace(call, workload="assistant-1"),
-            dataclasses.replace(dispatched, dispatched_at=0, workload=""),
-            dataclasses.replace(dispatched, workload="-bad"),
-            dataclasses.replace(dispatched, workload=None),
-            dataclasses.replace(dispatched, dispatched_at=-1),
-            dataclasses.replace(dispatched, absent=True),
-            dataclasses.replace(failed, fault="policy"),
-            dataclasses.replace(call, absent=1),
-            "not a call",
-        )
-        for value in invalid:
-            with self.subTest(value=value), self.assertRaisesRegex(routine_cursor.CursorError, "cursor-invalid"):
-                routine_cursor.encode(self.decided(calls=(value,)))
-
-    def test_phase_parts_are_consistent(self) -> None:
-        call = self.decided().calls[0]
-        invalid = (
-            self.decided(phase="unknown"),
-            self.decided(accumulator=None),
-            dataclasses.replace(self.cursor, candidate="e" * 32),
-            dataclasses.replace(self.cursor, calls=(call,), reservation=(1, 1)),
-            dataclasses.replace(self.cursor, model=dict(MODEL)),
-            self.decided(candidate="x"),
-            self.decided(reservation=(1, 2)),
-            self.decided(reservation=(65, 1)),
-            self.decided(reservation=(True, 1)),
-            self.decided(reservation=None),
-            self.decided(reservation=(16, 0)),
-            self.decided(calls=(call, call), reservation=(16, 2)),
-            self.decided(calls=[call]),
-            self.decided(model={"provider": "openai"}),
-        )
-        for value in invalid:
-            with self.subTest(value=value), self.assertRaisesRegex(routine_cursor.CursorError, "cursor-invalid"):
-                routine_cursor.encode(value)
-        routine_cursor.encode(self.decided(candidate=None, model=None, calls=(), reservation=(0, 0)))
-
-    def test_the_accumulator_holds_kept_results_within_its_bound(self) -> None:
-        over = {"results": [], "over": True}
-        self.assertEqual(
-            routine_cursor.decode(routine_cursor.encode(self.decided(accumulator=over)), BINDING).accumulator, over
-        )
-        large = {"value": "x" * routine_cursor.MAX_ACCUMULATOR_BYTES, "withheld": []}
-        invalid = (
-            [],
-            {"results": [], "over": 1},
-            {"results": {}, "over": False},
-            {"results": [["publish"]], "over": False},
-            {"results": [["Publish", KEPT]], "over": False},
-            {"results": [[1, KEPT]], "over": False},
-            {"results": [["publish", KEPT], ["publish", KEPT]], "over": False},
-            {"results": [["publish", {"value": 1}]], "over": False},
-            {"results": [["publish", {"value": 1, "withheld": {}}]], "over": False},
-            {"results": [["publish", {"value": 1, "withheld": ["x"]}]], "over": False},
-            {"results": [["publish", {"value": 1, "withheld": ["/b", "/a"]}]], "over": False},
-            {"results": [["publish", large]], "over": False},
-            {"results": [["publish", KEPT]], "over": True},
-        )
-        for value in invalid:
-            with (
-                self.subTest(value=str(value)[:60]),
-                self.assertRaisesRegex(routine_cursor.CursorError, "cursor-invalid"),
-            ):
-                routine_cursor.encode(self.decided(accumulator=value))
 
 
 class ContinuationTests(unittest.TestCase):

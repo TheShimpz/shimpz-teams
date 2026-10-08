@@ -623,7 +623,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                 "timezone": "UTC",
                 "revision": 1,
                 "daily_steps": 1,
-                "output": {"mode": "show", "when": None},
+                "output": {"mode": "show"},
                 "steps": [{"id": "list", "assistant": "dns", "action": "list-zones", "inputs": []}],
             },
         )

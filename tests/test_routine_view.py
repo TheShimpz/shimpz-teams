@@ -23,8 +23,8 @@ def _many(count: int, actions: tuple[str, ...] = ("check",)) -> dict[str, object
         steps.append(
             {"id": f"s{index}", "assistant": "dns", "action": action, "pin": routine_fixture.PIN, "input": inputs}
         )
-    output = {"mode": "show", "step": f"s{count - 1}", "when": None}
-    return {"version": 3, "timezone": "UTC", "steps": steps, "output": output}
+    output = {"mode": "show", "step": f"s{count - 1}"}
+    return {"version": 4, "timezone": "UTC", "steps": steps, "output": output}
 
 
 class ProjectionTests(unittest.TestCase):
@@ -76,7 +76,7 @@ class ProjectionTests(unittest.TestCase):
         for position, step in enumerate(projected, start=1):
             self.assertEqual(http_routine.canonical_step(step, position), step)
         self.assertTrue(routine_definition.steps_fit(PLAN, permitted))
-        self.assertEqual(routine_definition.disposition(PLAN), {"mode": "none", "step": None, "when": None})
+        self.assertEqual(routine_definition.disposition(PLAN), {"mode": "none", "step": None})
 
     def test_a_step_whose_projection_outgrows_its_bound_does_not_fit(self) -> None:
         plan = _many(1)
@@ -96,7 +96,7 @@ class SummaryTests(unittest.TestCase):
             {"revision": 3, "steps": 120, "actions": [["dns", "check", 119], ["dns", "notify", 1]], "more": 0},
         )
         self.assertEqual(http_routine.canonical_summary(summary), summary)
-        self.assertEqual(routine_definition.disposition(plan), {"mode": "show", "step": 120, "when": None})
+        self.assertEqual(routine_definition.disposition(plan), {"mode": "show", "step": 120})
 
     def test_beyond_sixteen_runs_the_rest_is_counted(self) -> None:
         summary = routine_definition.summary(_many(256, ("check", "notify")), 1)

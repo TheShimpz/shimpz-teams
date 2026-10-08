@@ -9,7 +9,7 @@ SCOPE_PIN = "sha256:" + "a" * 64
 
 
 # The output disposition a plan names unless a test chooses another: show the one step's result after every run.
-SHOW = {"mode": "show", "step": "check", "when": None}
+SHOW = {"mode": "show", "step": "check"}
 
 
 def plan_document(
@@ -17,7 +17,7 @@ def plan_document(
 ) -> dict[str, object]:
     """One well-formed one-step plan that runs ``action`` of ``assistant`` with no input and shows its result."""
     step = {"id": "check", "assistant": assistant, "action": action, "pin": PIN, "input": {}}
-    return {"version": 3, "timezone": timezone, "steps": [step], "output": dict(SHOW if output is None else output)}
+    return {"version": 4, "timezone": timezone, "steps": [step], "output": dict(SHOW if output is None else output)}
 
 
 def chain_document(assistant: str = "dns") -> dict[str, object]:
@@ -26,10 +26,10 @@ def chain_document(assistant: str = "dns") -> dict[str, object]:
     handed = {"value": {"kind": "step_output", "step": "check", "pointer": ""}}
     second = {"id": "notify", "assistant": assistant, "action": "notify", "pin": PIN, "input": handed}
     return {
-        "version": 3,
+        "version": 4,
         "timezone": "UTC",
         "steps": [first, second],
-        "output": {"mode": "none", "step": None, "when": None},
+        "output": {"mode": "none", "step": None},
     }
 
 
@@ -132,7 +132,6 @@ DONE = {
         "more": 0,
     },
     "output": None,
-    "decision": None,
 }
 
 
@@ -149,7 +148,6 @@ def large_completion() -> dict[str, object]:
     return {
         "plan": routine_definition.summary(plan, 1),
         "output": routine_plan.output_shown(256, node),
-        "decision": {"state": "decided", "code": None, "message": "é" * 4000},
     }
 
 

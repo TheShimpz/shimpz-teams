@@ -72,14 +72,12 @@ def bound(now: int = NINE) -> tuple[record.TeamRoutines, record.Claim, record.Le
 DEFINED = {
     "name": "Daily DNS summary",
     "plan": routine_definition.summary(routine_fixture.plan_document(), 1),
-    "output": {"mode": "show", "step": 1, "when": None},
+    "output": {"mode": "show", "step": 1},
     "schedule": {"kind": "daily", "time": "09:00"},
     "timezone": "UTC",
     "timezone_source": "browser",
     "state": "active",
     "permitted": {"total": 1, "changes": 0},
-    "model": None,
-    "allowance": 0,
 }
 # The compact summary of a run that carried out a list of zones, then replaced one DNS record.
 SUMMARY = {
@@ -109,8 +107,8 @@ class ContractTests(unittest.TestCase):
 
     def test_notice_details_are_closed_and_never_carry_action_data(self):
         valid = {
-            "done": {"plan": SUMMARY, "output": None, "decision": None},
-            "recovered": {"plan": SUMMARY, "output": None, "decision": None},
+            "done": {"plan": SUMMARY, "output": None},
+            "recovered": {"plan": SUMMARY, "output": None},
             "held": {
                 "assistant_id": "dns",
                 "action": "replace-dns-record",
@@ -153,12 +151,14 @@ class ContractTests(unittest.TestCase):
                 self.assertEqual(http_routine_notice.canonical_notice_detail(outcome, detail), detail)
         invalid = (
             ("done", {"plan": SUMMARY}),
-            ("done", {"plan": SUMMARY, "output": None}),
-            ("done", {"plan": SUMMARY, "output": None, "decision": {"state": "decided", "code": "x", "message": None}}),
+            # A decision and its decision call are retired (ADR-0101 amendment, 2026-10-07): none is admitted.
+            ("done", {"plan": SUMMARY, "output": None, "decision": None}),
+            ("recovered", {"plan": SUMMARY, "output": None, "decision": None}),
+            ("done", {"plan": SUMMARY, "output": None, "decision": {"state": "decided", "code": None, "message": "x"}}),
             ("deleted", {"name": "x"}),
             (
                 "rehearsed",
-                {"plan": SUMMARY, "output": None, "decision": None, "rehearsed": 1, "untested": 0, "not_permitted": 0},
+                {"plan": SUMMARY, "output": None, "rehearsed": 1, "untested": 0, "not_permitted": 0},
             ),
             (
                 "frozen",
@@ -166,23 +166,32 @@ class ContractTests(unittest.TestCase):
                     "request_kind": "permission",
                     "assistant_id": "dns",
                     "action": "x",
-                    "position": {"phase": "decision", "call": 65},
+                    "position": {"phase": "replay", "step": 1},
                     "steps": 1,
                 },
             ),
-            ("done", {"actions": [["dns", "check"]], "output": None, "decision": None}),
-            ("done", {"plan": {**SUMMARY, "steps": 3}, "output": None, "decision": None}),
-            ("done", {"plan": SUMMARY, "output": None, "decision": None, "result": {"ip": "1.2.3.4"}}),
+            (
+                "frozen",
+                {
+                    "request_kind": "human",
+                    "assistant_id": "dns",
+                    "action": "x",
+                    "position": {"phase": "decision", "call": 1},
+                    "steps": 1,
+                },
+            ),
+            ("done", {"actions": [["dns", "check"]], "output": None}),
+            ("done", {"plan": {**SUMMARY, "steps": 3}, "output": None}),
+            ("done", {"plan": SUMMARY, "output": None, "result": {"ip": "1.2.3.4"}}),
             (
                 "done",
                 {
                     "plan": SUMMARY,
                     "output": {"step": 3, "state": "unchanged", "value": None, "truncated": False},
-                    "decision": None,
                 },
             ),
             ("done", {"reply": "Done."}),
-            ("recovered", {"plan": {**SUMMARY, "actions": [["dns"]]}, "output": None, "decision": None}),
+            ("recovered", {"plan": {**SUMMARY, "actions": [["dns"]]}, "output": None}),
             ("held", {"assistant_id": "dns", "action": None, "position": {"phase": "replay", "step": 1}, "steps": 1}),
             ("held", {"assistant_id": "Bad", "action": "x", "position": {"phase": "replay", "step": 1}, "steps": 1}),
             ("held", {"assistant_id": "dns", "action": "x"}),
@@ -296,11 +305,13 @@ class ContractTests(unittest.TestCase):
             ("done", ["reply"]),
             ("created", {**DEFINED, "name": ""}),
             ("created", {**DEFINED, "plan": {**DEFINED["plan"], "steps": 0}}),
-            ("created", {**DEFINED, "allowance": 1}),
-            ("created", {**DEFINED, "output": {"mode": "decide", "step": None, "when": "always"}, "allowance": 1}),
+            ("created", {**DEFINED, "model": None}),
+            ("created", {**DEFINED, "allowance": 0}),
+            ("created", {**DEFINED, "output": {"mode": "show", "step": 1, "when": None}}),
+            ("created", {**DEFINED, "output": {"mode": "decide", "step": None}}),
             ("created", {**DEFINED, "plan": {**DEFINED["plan"], "actions": []}}),
-            ("created", {**DEFINED, "output": {"mode": "show", "step": 2, "when": None}}),
-            ("created", {**DEFINED, "output": {"mode": "show", "step": "check", "when": None}}),
+            ("created", {**DEFINED, "output": {"mode": "show", "step": 2}}),
+            ("created", {**DEFINED, "output": {"mode": "show", "step": "check"}}),
             ("created", {**{key: value for key, value in DEFINED.items() if key != "plan"}, "steps": []}),
             ("created", {key: value for key, value in DEFINED.items() if key != "plan"}),
             ("changed", {**DEFINED, "schedule": {"kind": "daily"}}),
@@ -343,12 +354,11 @@ class AddTests(unittest.TestCase):
             dataclasses.replace(good, permitted=({**good.permitted[0], "pin": "sha256:" + "0" * 64},)),
             dataclasses.replace(good, permitted=({**good.permitted[0], "stored_inputs": ["b", "a"]},)),
             dataclasses.replace(good, permitted=({**good.permitted[0], "read_only": 1},)),
-            dataclasses.replace(good, permissions_revision=-1),
-            dataclasses.replace(good, permissions_revision=2**31),
-            dataclasses.replace(good, allowance=1),
-            dataclasses.replace(good, model={"provider": "openai", "model": "m", "effort": "low"}),
-            dataclasses.replace(good, prompt="sha256:" + "0" * 64),
-            dataclasses.replace(good, baseline={"id": "0" * 32, "digest": "0" * 64}),
+            dataclasses.replace(good, permitted=tuple(good.permitted) * (http_routine.MAX_PERMITTED + 1)),
+            # The permitted set is exactly the plan's Actions: no extra one, as a retired decision once allowed.
+            dataclasses.replace(
+                good, permitted=(*good.permitted, {**good.permitted[0], "action": "zzz-extra", "read_only": False})
+            ),
             dataclasses.replace(good, schedule={"kind": "daily", "time": "25:00"}),
             dataclasses.replace(good, timezone="Mars/Olympus"),
             dataclasses.replace(good, assistants=()),
@@ -394,7 +404,7 @@ class AddTests(unittest.TestCase):
                 }
                 for index in range(steps)
             ]
-            plan["output"] = {"mode": "show", "step": f"s{steps - 1}", "when": None}
+            plan["output"] = {"mode": "show", "step": f"s{steps - 1}"}
             return routine_fixture.confirmed(dataclasses.replace(routine(routine_id), plan=plan))
 
         # 256 steps of one Action with their own inputs fit their definition's budget beside its standing scope.
@@ -418,7 +428,7 @@ class AddTests(unittest.TestCase):
         """A cap of runs a day reserves every step of each run; paused Routines keep their share (scale)."""
         plan = routine_fixture.plan_document()
         plan["steps"] = [{**plan["steps"][0], "id": f"s{index}"} for index in range(100)]
-        plan["output"] = {"mode": "none", "step": None, "when": None}
+        plan["output"] = {"mode": "none", "step": None}
         hundred = routine_fixture.confirmed(
             dataclasses.replace(routine(), plan=plan, schedule={"kind": "continuous", "gap": 432, "cap": 200})
         )
@@ -628,40 +638,7 @@ class ConfirmedChangeTests(unittest.TestCase):
             record.complete_delete(gone, "a" * 32, NINE)
 
 
-MODEL = {"provider": "openai", "model": "gpt-6-luna", "effort": "low"}
-DECIDE = {"mode": "decide", "step": None, "when": "changes"}
-
-
-class DecisionDefinitionTests(unittest.TestCase):
-    """A decide definition's base prompt, model, allowance, and baseline (ADR-0101)."""
-
-    def decided(self, **changes: object) -> record.Routine:
-        plan = {**routine_fixture.plan_document(), "output": dict(DECIDE)}
-        values = {"prompt": "sha256:" + "1" * 64, "model": dict(MODEL), "allowance": 16, **changes}
-        value = dataclasses.replace(routine(plan=plan), **values)
-        return dataclasses.replace(value, next_run_at=record.next_after(value, ANCHOR))
-
-    def test_a_decision_holds_its_scope_and_nothing_else_does(self):
-        baseline = {"id": "b" * 32, "digest": "c" * 64}
-        admitted = record.routine(added(self.decided(baseline=baseline)), "a" * 32)
-        self.assertEqual((admitted.allowance, admitted.model, admitted.baseline), (16, MODEL, baseline))
-        for changes in (
-            {"prompt": None},
-            {"model": None},
-            {"model": {**MODEL, "effort": "max"}},
-            {"allowance": 0},
-            {"allowance": 65},
-            {"baseline": {"id": "b" * 32}},
-            {"baseline": {"id": "B" * 32, "digest": "c" * 64}},
-            {"permitted": list(routine().permitted)},
-            {"permitted": tuple(routine().permitted) * (http_routine.MAX_PERMITTED + 1)},
-        ):
-            with self.subTest(changes=changes):
-                self.assertFalse(record.definition_valid(self.decided(**changes)))
-        many = {**routine_fixture.plan_document(), "output": dict(DECIDE)}
-        many["steps"] = [{**many["steps"][0], "id": f"s{index}"} for index in range(250)]
-        self.assertFalse(record.definition_valid(self.decided(plan=many)))
-
+class DefinitionZoneTests(unittest.TestCase):
     def test_a_definition_out_of_its_zone_or_revision_is_invalid(self):
         self.assertFalse(record.definition_valid(dataclasses.replace(routine(), timezone="Mars/Olympus")))
         # A Routine with no known zone runs on UTC by convention, its run date included; it is never another zone.

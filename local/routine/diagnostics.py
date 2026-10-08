@@ -38,7 +38,6 @@ from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_team_id
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
-from protocol.http.v1 import routine_notice as http_routine_notice
 from protocol.http.v1 import routine_run as http_routine_run
 from protocol.http.v1 import strict_json
 from routine import record
@@ -50,8 +49,8 @@ RETENTION_SECONDS = 7 * 86_400
 MAX_PLAINTEXT_BYTES = 12 * 1024
 # A step record: one run step's wire view and the run binding beside it; a run's terminal record is small.
 MAX_STEP_PLAINTEXT_BYTES = http_routine.MAX_STEP_VIEW_BYTES + 2 * 1024
-# A run's terminal record holds its decision record, whose quoted rules and rationale may be escaped six times over.
-MAX_RUN_PLAINTEXT_BYTES = 20 * 1024
+# A run's terminal record: its binding, how far its replay went, and whether the next step was dispatched.
+MAX_RUN_PLAINTEXT_BYTES = 1024
 MAX_TEAM_BYTES = 24 * 1024 * 1024
 
 
@@ -112,7 +111,7 @@ class Diagnostic:
     attempt: int
     assistant_id: str
     action: str
-    # The attempt's call: a replay step by its position in the plan, or a decision call (ADR-0101).
+    # The attempt's call: a replay step by its position in the plan (ADR-0101).
     position: dict[str, object]
     recorded_at: int
     failure: dict[str, object] | None = None
@@ -196,18 +195,12 @@ class StepRecord:
 
 @dataclass(frozen=True, slots=True)
 class RunRecord:
-    """A run's terminal record: how far its replay went, its decision calls, and its decision record.
-
-    It holds how many steps its sealed cursor completed, whether the next one was dispatched, how many decision calls
-    it started, and how its decision ended (ADR-0101 section 7).
-    """
+    """A run's terminal record: how many steps its sealed cursor completed and whether the next one was dispatched."""
 
     binding: RunBinding
     reached: int
     dispatched: bool
     recorded_at: int
-    calls: int = 0
-    decision: dict[str, object] | None = None
 
 
 class RunChangedError(DiagnosticStoreError):
@@ -270,10 +263,8 @@ class DiagnosticStore:
             **binding.document(),
             "reached": run.reached,
             "dispatched": run.dispatched,
-            "calls": run.calls,
-            "decision": run.decision,
         }
-        if not _run_document(document, binding):
+        if not _run_document(document, binding.run_id):
             raise DiagnosticStoreError("Routine run record is invalid")
         name = f"{run.recorded_at}.{binding.routine_id}.{binding.run_id}.run"
 
@@ -367,12 +358,16 @@ class DiagnosticStore:
             snapshot = _snapshot(directory, retained)
             if page[0] not in ("latest", snapshot):
                 raise RunChangedError("Routine run records changed")
-            steps: dict[tuple[str, int], tuple[int, dict[str, object]]] = {}
+            steps: dict[int, tuple[int, dict[str, object]]] = {}
             run = None
             for name, kind, match, _size in retained:
                 opened = self._open(directory / name, team, incarnation, name, _bound_of(kind))
                 if opened is None:
                     continue
+                # An authentic body outside the current record shape never reads as one: the page fails closed.
+                admit = _run_document if kind == "run" else _step_document
+                if not isinstance(opened, dict) or not admit(opened, run_id):
+                    raise DiagnosticStoreError("Routine run record is invalid")
                 if kind == "run":
                     run = opened
                     continue
@@ -502,11 +497,9 @@ def _snapshot(directory: Path, retained: list[tuple[str, str, re.Match[str], int
     return digest.hexdigest()[:32]
 
 
-def position_key(position: object) -> tuple[str, int]:
-    """A record's position as a sortable key: replay steps before decision calls, each in order."""
-    if not isinstance(position, dict):
-        return ("", 0)
-    return (str(position.get("phase")), position.get("step", position.get("call", 0)))
+def position_key(position: object) -> int:
+    """A record's replay step, which keys it; 0 for anything else, which no admitted record has."""
+    return position.get("step", 0) if isinstance(position, dict) else 0
 
 
 def _bound(document: dict[str, object]) -> bool:
@@ -516,7 +509,7 @@ def _bound(document: dict[str, object]) -> bool:
         and 1 <= document["revision"] < 2**31
         and http_routine.PLAN_DIGEST_RE.fullmatch(str(document.get("plan_digest"))) is not None
         and type(document.get("total")) is int
-        and 0 <= document["total"] <= http_routine.MAX_ROUTINE_STEPS
+        and 1 <= document["total"] <= http_routine.MAX_ROUTINE_STEPS
     )
 
 
@@ -532,21 +525,15 @@ def _step_document(document: dict[str, object], run_id: str) -> bool:
     )
 
 
-def _run_document(document: dict[str, object], binding: RunBinding) -> bool:
-    fields = {"routine_id", "revision", "plan_digest", "total", "reached", "dispatched", "calls", "decision"}
+def _run_document(document: dict[str, object], run_id: str) -> bool:
+    fields = {"routine_id", "revision", "plan_digest", "total", "reached", "dispatched"}
     return (
-        http_routine.ROUTINE_ID_RE.fullmatch(binding.run_id) is not None
+        http_routine.ROUTINE_ID_RE.fullmatch(run_id) is not None
         and _bound(document)
         and set(document) == fields
         and type(document["reached"]) is int
         and 0 <= document["reached"] <= document["total"]
         and type(document["dispatched"]) is bool
-        and type(document["calls"]) is int
-        and 0 <= document["calls"] <= http_routine.MAX_DECISION_CALLS
-        and (
-            document["decision"] is None
-            or http_routine_notice.canonical_decision_record(document["decision"]) is not None
-        )
     )
 
 
@@ -647,36 +634,23 @@ def _binding_of(records: dict, run: dict[str, object] | None) -> dict[str, objec
     return json.loads(bindings.pop()) if bindings else None
 
 
-def _calls(records: dict, run: dict[str, object] | None) -> int:
-    """The decision calls a run made: its terminal record's count, or while it runs the highest call recorded."""
-    if run is not None:
-        return run["calls"]
-    return max((number for phase, number in records if phase == "decision"), default=0)
-
-
 def _entry(records: dict, reached: tuple[int, bool] | None, position: dict[str, object]) -> dict[str, object]:
-    """One position's latest record, or the gap the run's own records prove: only a replay step can be not run."""
-    key = position_key(position)
-    if key in records:
-        return {name: records[key][name] for name in http_routine_run.RUN_STEP_FIELDS}
-    step = position.get("step")
-    if (
-        step is not None
-        and reached is not None
-        and (step > reached[0] + 1 or (step == reached[0] + 1 and not reached[1]))
-    ):
+    """One step's latest record, or the gap the run's own records prove: not run, or unavailable."""
+    step = position_key(position)
+    if step in records:
+        return {name: records[step][name] for name in http_routine_run.RUN_STEP_FIELDS}
+    if reached is not None and (step > reached[0] + 1 or (step == reached[0] + 1 and not reached[1])):
         return _gap(position, "not_run")
     return _gap(position, "unavailable")
 
 
-def _page_steps(records, run, totals: tuple[int, int], offset: int) -> list[dict[str, object]]:
-    """Whole consecutive positions from ``offset``: replay steps first, then decision calls."""
-    replay, total = totals
+def _page_steps(records, run, total: int, offset: int) -> list[dict[str, object]]:
+    """Whole consecutive steps from ``offset``."""
     reached = None if run is None else (run["reached"], run["dispatched"])
     chosen: list[dict[str, object]] = []
     used = 2
     for index in range(offset + 1, total + 1):
-        entry = _entry(records, reached, http_routine_run.run_position(index, replay))
+        entry = _entry(records, reached, http_routine_run.run_position(index))
         cost = http_routine.encoded_bytes(entry) + 1
         if chosen and (len(chosen) == http_routine.MAX_PAGE_STEPS or used + cost > http_routine.MAX_PAGE_BYTES):
             break
@@ -699,24 +673,22 @@ def run_steps(self, team_id: str, run_id: str, snapshot: str, offset: int, now: 
         raise ApiProblem(HTTPStatus.CONFLICT, "Routine run records changed", code="routine-run-changed") from exc
     except DiagnosticStoreError as exc:
         raise local_errors.routine_diagnostics_unavailable() from exc
-    total = None if binding is None else binding["total"] + _calls(records, run)
-    if total is None or not (offset == 0 or 0 <= offset < total):
+    total = None if binding is None else binding["total"]
+    if total is None or not 0 <= offset < total:
         raise local_errors.routine_run_steps_not_found()
-    steps = _page_steps(records, run, (binding["total"], total), offset)
+    steps = _page_steps(records, run, total, offset)
     following = offset + len(steps)
     view = http_routine_run.canonical_run_steps(
         {
             "team_id": team_id,
             "run_id": run_id,
             **{key: binding[key] for key in ("routine_id", "revision", "plan_digest")},
-            "replay": binding["total"],
             "total": total,
             "snapshot": token,
             "ended": run is not None,
             "offset": offset,
             "steps": steps,
             "next": None if following == total else following,
-            "decision": None if run is None else run["decision"],
         }
     )
     if view is None:

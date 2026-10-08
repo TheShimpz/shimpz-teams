@@ -108,7 +108,7 @@ class RoutineServiceCase(LocalContractCase):
         contracts = routine_contracts.contracts(tuple(active.values()))
         steps = steps or (("zones", "list-zones", LOOKUP_INPUT),)
         return {
-            "version": 3,
+            "version": 4,
             "timezone": "UTC",
             "steps": [
                 {
@@ -121,7 +121,7 @@ class RoutineServiceCase(LocalContractCase):
                 for step_id, action, inputs in steps
             ],
             # The last step's result is shown after every run unless a test chooses another disposition.
-            "output": {"mode": "show", "step": steps[-1][0], "when": None},
+            "output": {"mode": "show", "step": steps[-1][0]},
         }
 
     @staticmethod

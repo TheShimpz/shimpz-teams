@@ -123,7 +123,7 @@ class HoldTests(IncidentCase):
             routine_fixture.set_aside(service, "team_1", run_id)
             self.assertIsNone(service.routine_store.incident("team_1", run_id))
             # A cursor a crash left behind, whose run and incident are gone, is removed by the next pass.
-            plan = routine_plan.admit(_document(output={"mode": "none", "step": None, "when": None}), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "none", "step": None}), CONTRACTS)
             orphan = routine_cursor.Binding("a" * 64, "b" * 32, 1, "e" * 32)
             service.routine_store.put_cursor("team_1", routine_cursor.start(plan, orphan, 0, BOOT))
             routine_watchdog.check(service)
@@ -170,7 +170,7 @@ class ResolutionTests(IncidentCase):
     def test_pular_permits_future_cycles_and_then_releases_what_the_incident_kept(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
-            plan = routine_plan.admit(_document(output={"mode": "none", "step": None, "when": None}), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "none", "step": None}), CONTRACTS)
             binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
             service.routine_store.put_cursor("team_1", routine_cursor.start(plan, binding, 0, BOOT))
             routine_incident.hold(service, "team_1", run_id, lease)
@@ -264,7 +264,7 @@ class RecoverySnapshotTests(IncidentCase):
     def compiled(self, service, value: record.Routine, run_id: str, generation: str, revision: int):
         """Seal the run's recovery snapshot and its first cursor, as the executor does before its first dispatch."""
         incarnation = generation.removesuffix(f":routine:{run_id}")
-        document = _document(output={"mode": "none", "step": None, "when": None})
+        document = _document(output={"mode": "none", "step": None})
         plan = routine_plan.admit(document, CONTRACTS)
         binding = routine_cursor.Binding(incarnation, value.routine_id, revision, run_id)
         snapshot = routine_incident.Recovery(binding, value.name, document)
@@ -553,7 +553,7 @@ class SealedStateTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, _lease, _generation, _batch = self.held_run(directory, batch=False)
             store = service.routine_store
-            plan = routine_plan.admit(_document(output={"mode": "none", "step": None, "when": None}), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "none", "step": None}), CONTRACTS)
             binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
             cursor = routine_cursor.start(plan, binding, 0, BOOT)
             store.put_cursor("team_1", cursor)
@@ -601,7 +601,7 @@ class SealedStateTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, _lease, _generation, _batch = self.held_run(directory, batch=False)
             store = service.routine_store
-            plan = routine_plan.admit(_document(output={"mode": "none", "step": None, "when": None}), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "none", "step": None}), CONTRACTS)
             binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
             first = routine_cursor.start(plan, binding, 0, BOOT)
             store.put_cursor("team_1", first)
@@ -622,7 +622,7 @@ class SealedStateTests(IncidentCase):
     def test_the_receipt_handoff_seals_the_cursor_before_receipts_go(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, _lease, generation, _batch = self.held_run(directory, batch=False)
-            plan = routine_plan.admit(_document(output={"mode": "none", "step": None, "when": None}), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "none", "step": None}), CONTRACTS)
             binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
             operation = _operation("publish")
             prepared = service.action_state.prepare_batch(generation, "thread", (operation,), archivable=True)
@@ -650,7 +650,7 @@ class SealedStateTests(IncidentCase):
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertEqual(order, ["crashed"])
 
-    def test_routine_state_version_nine_admits_held_runs_incidents_plans_confirmations_and_output_digests(
+    def test_routine_state_version_ten_admits_held_runs_incidents_plans_confirmations_and_output_digests(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -659,10 +659,10 @@ class SealedStateTests(IncidentCase):
             routine_incident.set_paused(service, "team_1", value.routine_id, True)
             path = service.routine_store._team_dir("team_1") / "state.json"
             document = json.loads(path.read_bytes())
-            self.assertEqual(document["schema"], 9)
+            self.assertEqual(document["schema"], 10)
             self.assertEqual(document["routines"][0]["run_requested"], 0)
             self.assertEqual(document["routines"][0]["output_digest"], "")
-            self.assertEqual(document["routines"][0]["plan"]["version"], 3)
+            self.assertEqual(document["routines"][0]["plan"]["version"], 4)
             self.assertNotIn("receipts", document)
             digest = dict(document, routines=[{**document["routines"][0], "output_digest": "d" * 64}])
             self.assertEqual(
@@ -766,23 +766,11 @@ HELD_STEPS = [{"assistant": "dns", "action": "check"}, {"assistant": "dns", "act
 
 
 class HeldCallTests(unittest.TestCase):
-    """The call a held run's notice names: its last decision call, else its current replay step, else nothing."""
+    """The call a held run's notice names: its current replay step, or the last one once every step completed."""
 
     def cursor(self, **changes: object) -> routine_cursor.Cursor:
         binding = routine_cursor.Binding("a" * 64, "b" * 32, 1, "e" * 32)
         return dataclasses.replace(routine_cursor.Cursor(binding, "sha256:" + "d" * 64, 0, boot=BOOT), **changes)
-
-    def test_a_decision_call_outranks_the_replay_step_it_followed(self) -> None:
-        calls = tuple(
-            routine_cursor.Call(f"{index}" * 32, "dns", action, False, "sha256:" + "c" * 64)
-            for index, action in ((1, "check"), (2, "purge"))
-        )
-        decided = self.cursor(step=2, calls=calls)
-        self.assertEqual(
-            routine_incident.held_call(decided, HELD_STEPS), ("dns", "purge", {"phase": "decision", "call": 2}, 2)
-        )
-        # A decision plan with no replay steps still names its call.
-        self.assertEqual(routine_incident.held_call(decided, [])[2], {"phase": "decision", "call": 2})
 
     def test_a_replay_names_its_current_step_and_a_finished_one_its_last(self) -> None:
         for step, expected in ((0, ("check", 1)), (1, ("notify", 2)), (2, ("notify", 2))):
@@ -792,7 +780,6 @@ class HeldCallTests(unittest.TestCase):
                     routine_incident.held_call(self.cursor(step=step), HELD_STEPS),
                     ("dns", action, {"phase": "replay", "step": position}, 2),
                 )
-        self.assertEqual(routine_incident.held_call(self.cursor(), []), routine_hold.UNKNOWN_STEP)
 
 
 if __name__ == "__main__":

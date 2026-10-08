@@ -39,22 +39,14 @@ USAGE = {
 }
 
 
-def decision_routine(routine_id: str = "d" * 32) -> record.Routine:
-    """A decision Routine at every scope field: no replay step, a prompt, a model, an allowance, and a baseline."""
-    plan = routine_fixture.plan_document(timezone="UTC", output={"mode": "decide", "step": None, "when": "changes"})
-    plan["steps"] = []
+def changes_routine(routine_id: str = "d" * 32) -> record.Routine:
+    """A Routine that shows changes, on its own schedule, with a rolled-up usage."""
+    plan = routine_fixture.plan_document(timezone="UTC", output={"mode": "changes", "step": "check"})
     value = dataclasses.replace(
         routine(routine_id),
         plan=plan,
         timezone="UTC",
         schedule={"kind": "hourly", "every": 1},
-        permitted=(),
-        assistants=(),
-        prompt="sha256:" + "1" * 64,
-        model={"provider": "openai", "model": "gpt-6-luna", "effort": "low"},
-        allowance=16,
-        baseline={"id": "2" * 32, "digest": "3" * 64},
-        permissions_revision=2,
         rollup_usage={"duration_ms": 5, "models": []},
     )
     return dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
@@ -94,7 +86,7 @@ class StoreCase(unittest.TestCase):
 class RoundTripTests(StoreCase):
     def test_a_team_state_round_trips_exactly_and_an_absent_one_is_empty(self):
         self.assertEqual(self.store.load("team_1"), record.TeamRoutines())
-        state = record.add_routine(busy_state(), decision_routine())
+        state = record.add_routine(busy_state(), changes_routine())
         run = dataclasses.replace(state.runs[0], usage=USAGE, protection_lost=True)
         state = dataclasses.replace(state, runs=(run, *state.runs[1:]))
         routine_fixture.put(self.store, "team_1", state)
@@ -152,7 +144,7 @@ class RoundTripTests(StoreCase):
                 }
                 for index in range(routine_store.routine_plan.MAX_STEPS)
             ]
-            plan["output"] = {"mode": "none", "step": None, "when": None}
+            plan["output"] = {"mode": "none", "step": None}
             return routine_fixture.confirmed(
                 dataclasses.replace(routine(routine_id), plan=plan, name="\U0001f600" * 80)
             )
@@ -181,9 +173,9 @@ class RoundTripTests(StoreCase):
             )
             for index in range(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES)
         )
-        self.assertGreater(
-            max(len(json.dumps(item.detail).encode()) for item in notices), routine_store.MAX_NOTICE_BYTES // 2
-        )
+        largest_detail = max(len(json.dumps(item.detail).encode()) for item in notices)
+        self.assertGreater(largest_detail, routine_store.MAX_NOTICE_BYTES // 3)
+        self.assertLessEqual(largest_detail, routine_store.MAX_NOTICE_BYTES)
         incidents = tuple(
             record.Incident(f"{index:032x}", "a" * 32, f"{NETWORK}:routine:{index:032x}", NINE, name=name, usage=USAGE)
             for index in range(record.MAX_INCIDENTS)
@@ -228,6 +220,7 @@ class TamperTests(StoreCase):
         held = next(index for index, item in enumerate(base["runs"]) if item["status"] == "held")
         mutations = {
             "schema": lambda value: value.update(schema=1),
+            "the schema before decisions were retired": lambda value: value.update(schema=9),
             "schema type": lambda value: value.update(schema=float(routine_store.SCHEMA)),
             "a retired rehearsal proof": lambda value: value["routines"][0].update(rehearsed=None),
             "run steps type": lambda value: value["runs"][held].update(steps=False),
@@ -239,17 +232,14 @@ class TamperTests(StoreCase):
             "no permitted Action for the step": lambda value: value["routines"][0].update(permitted=[]),
             "permitted pin drift": lambda value: value["routines"][0]["permitted"][0].update(pin="sha256:" + "0" * 64),
             "permitted read-only type": lambda value: value["routines"][0]["permitted"][0].update(read_only=1),
-            "a model without a decision": lambda value: value["routines"][0].update(
-                model={"provider": "openai", "model": "gpt-6-luna", "effort": "low"}
-            ),
-            "an allowance without a decision": lambda value: value["routines"][0].update(allowance=1),
-            "a prompt without a decision": lambda value: value["routines"][0].update(prompt="sha256:" + "1" * 64),
-            "a baseline without a decision": lambda value: value["routines"][0].update(
-                baseline={"id": "2" * 32, "digest": "3" * 64}
-            ),
+            # A retired decision member is refused even at what was its value without a decision (2026-10-07).
+            "a retired model": lambda value: value["routines"][0].update(model=None),
+            "a retired allowance": lambda value: value["routines"][0].update(allowance=0),
+            "a retired prompt": lambda value: value["routines"][0].update(prompt=None),
+            "a retired baseline": lambda value: value["routines"][0].update(baseline=None),
+            "a retired permissions revision": lambda value: value["routines"][0].update(permissions_revision=0),
             "a retired rehearsal": lambda value: value["routines"][0].update(rehearsal=False),
             "paused type": lambda value: value["routines"][0].update(paused=1),
-            "permissions revision": lambda value: value["routines"][0].update(permissions_revision=-1),
             "rollup usage": lambda value: value["routines"][0].update(rollup_usage={"duration_ms": 1}),
             "assistants beyond the permitted": lambda value: value["routines"][0].update(
                 assistants=[*value["routines"][0]["assistants"], ["web", "sha256:" + "a" * 64]]
@@ -266,6 +256,7 @@ class TamperTests(StoreCase):
             "frozen with lease": lambda value: value["runs"][frozen].update(lease_sha256="d" * 64, lease_key=KEY),
             "held without a generation": lambda value: value["runs"][held].update(generation=""),
             "held with a request": lambda value: value["runs"][held].update(request_kind="human"),
+            "a retired permission request": lambda value: value["runs"][frozen].update(request_kind="permission"),
             "held with a lease": lambda value: value["runs"][held].update(lease_key=KEY),
             "frozen without an action": lambda value: value["runs"][frozen].update(action=""),
             "frozen without an assistant": lambda value: value["runs"][frozen].update(assistant_id=""),
@@ -370,11 +361,11 @@ class TamperTests(StoreCase):
         value["incidents"][0].update(assistant_id="", action="", position=None, steps=0)
         self.write(value)
         self.assertEqual(self.store.load("team_1").incidents[0].action, "")
+        # A retired decision call's position is never admitted (ADR-0101 amendment, 2026-10-07).
         value["incidents"][0].update(
-            assistant_id="dns", action="check", position={"phase": "decision", "call": 3}, steps=0
+            assistant_id="dns", action="check", position={"phase": "decision", "call": 3}, steps=1
         )
-        self.write(value)
-        self.assertEqual(self.store.load("team_1").incidents[0].position, {"phase": "decision", "call": 3})
+        self.assert_refused(value)
 
     def test_a_state_file_that_is_not_private_fails_closed(self):
         routine_fixture.put(self.store, "team_1", busy_state())

@@ -147,9 +147,8 @@ def _holders(
     found: dict[int, list[_Position]] = {}
     for call in context.calls:
         representative = context.classes[call.index]
-        replayed = call.read_only or context.replays_changes
         # Neither the consumer nor any exact twin of it is its own source.
-        if representative == context.classes[consumer.index] or not replayed or representative in found:
+        if representative == context.classes[consumer.index] or representative in found:
             continue
         positions = [
             position

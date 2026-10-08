@@ -250,20 +250,17 @@ def canonical_diagnostics(value: object) -> dict[str, object] | None:
     return {**value, "diagnostics": admitted} if unique and keys == sorted(keys) else None
 
 
-# What one run did, call by call (ADR-0092 amendment, 2026-10-05, scale; ADR-0101 section 7): each replay step and
-# decision call's status, attempt, duration, and inputs as redacted previews (null when a source's secrecy is unknown).
-# A missing replay position is ``not_run``
-# only when the run's terminal record proves it, else ``unavailable``; a missing decision call is always
-# ``unavailable``. Pages bind the run's revision and one records snapshot, and carry the run's decision record.
+# What one run did, step by step (ADR-0092 amendment, 2026-10-05, scale; ADR-0101 section 7): each replay step's
+# status, attempt, duration, and inputs as redacted previews (null when a source's secrecy is unknown). A missing step
+# is ``not_run`` only when the run's terminal record proves it, else ``unavailable``. Pages bind the run's revision and
+# one records snapshot.
 RUN_STEP_STATUSES = ("done", "recovered", "failed", "stopped", "waiting")
 RUN_STEP_GAPS = ("not_run", "unavailable")
-RUN_INPUT_SOURCES = frozenset({"literal", "run_clock", "step_output", "decision"})
+RUN_INPUT_SOURCES = frozenset({"literal", "run_clock", "step_output"})
 SNAPSHOT_RE = re.compile(r"[0-9a-f]{32}\Z")
 RUN_STEP_FIELDS = frozenset(
     {"position", "status", "assistant_id", "action", "attempt", "duration_ms", "recorded_at", "inputs"}
 )
-# The one decision record a run page carries at most, encoded.
-MAX_DECISION_RECORD_BYTES = 16 * 1024
 
 
 def _run_input(value: object) -> bool:
@@ -275,11 +272,6 @@ def _run_input(value: object) -> bool:
         and value["source"] in RUN_INPUT_SOURCES
         and (value["value"] is None or routine._plain(value["value"], routine.MAX_PREVIEW_CHARS))
     )
-
-
-def _status_phase(status: object, phase: str) -> bool:
-    """Which statuses each phase may record: not_run is replay's alone."""
-    return phase == "replay" or status != "not_run"
 
 
 def canonical_run_step(value: object, position: dict[str, object], steps: int) -> dict[str, object] | None:
@@ -304,46 +296,33 @@ def canonical_run_step(value: object, position: dict[str, object], steps: int) -
     valid = (
         valid
         and routine.canonical_position(value["position"], steps) is not None
-        and _status_phase(status, position["phase"])
         and routine.encoded_bytes(value) <= routine.MAX_STEP_VIEW_BYTES
     )
     return copy.deepcopy(value) if valid else None
 
 
-def run_position(index: int, steps: int) -> dict[str, object]:
-    """The position of a run page's ``index``-th entry (1-based): its replay steps first, then its decision calls."""
-    if index <= steps:
-        return {"phase": "replay", "step": index}
-    return {"phase": "decision", "call": index - steps}
+def run_position(index: int) -> dict[str, object]:
+    """The position of a run page's ``index``-th entry (1-based): its replay step."""
+    return {"phase": "replay", "step": index}
 
 
 def canonical_run_steps(value: object) -> dict[str, object] | None:
-    """One page of a run's entries from ``offset``: whole consecutive positions of its own revision's run.
+    """One page of a run's entries from ``offset``: whole consecutive steps of its own revision's run.
 
-    ``replay`` is the revision's step count and ``total`` adds the decision calls the run's records know.
+    ``total`` is the revision's step count.
     """
-    fields = {"team_id", "run_id", "routine_id", "revision", "plan_digest", "replay", "total", "snapshot", "ended"}
-    if not isinstance(value, dict) or set(value) != fields | {"offset", "steps", "next", "decision"}:
+    fields = {"team_id", "run_id", "routine_id", "revision", "plan_digest", "total", "snapshot", "ended"}
+    if not isinstance(value, dict) or set(value) != fields | {"offset", "steps", "next"}:
         return None
-    replay = value["replay"]
-    decision = value["decision"]
+    total = value["total"]
     valid = (
         routine._team(value["team_id"])
         and routine._identity(value["run_id"], routine.ROUTINE_ID_RE)
         and routine._identity(value["routine_id"], routine.ROUTINE_ID_RE)
         and routine._revision(value["revision"])
         and routine._identity(value["plan_digest"], routine.PLAN_DIGEST_RE)
-        and routine._whole(replay, 0, routine.MAX_ROUTINE_STEPS)
-        and routine._whole(value["total"], replay, replay + routine.MAX_DECISION_CALLS)
         and routine._identity(value["snapshot"], SNAPSHOT_RE)
         and type(value["ended"]) is bool
-        and routine._paged(value, lambda item, index: canonical_run_step(item, run_position(index, replay), replay))
-        and (
-            decision is None
-            or (
-                routine_notice.canonical_decision_record(decision) is not None
-                and routine.encoded_bytes(decision) <= MAX_DECISION_RECORD_BYTES
-            )
-        )
+        and routine._paged(value, lambda item, index: canonical_run_step(item, run_position(index), total))
     )
     return copy.deepcopy(value) if valid else None

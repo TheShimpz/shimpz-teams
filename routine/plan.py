@@ -14,8 +14,7 @@ Input. An Action that declares a file input is refused: a Routine holds no file 
 may stand for an attached file (ADR-0093).
 
 A plan also states what a completed run does with its result: ``show`` one step's result to the person after every run,
-show it only when it ``changes``, show ``none`` of it, or ``decide``: a decision turn judges the run's results
-``always``, or only when they ``changes``. A ``decide`` plan may have no steps at all (ADR-0101).
+show it only when it ``changes``, or show ``none`` of it (ADR-0101). A plan has at least one step.
 """
 
 from __future__ import annotations
@@ -39,7 +38,7 @@ from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_run as http_routine_run
 from routine import schedule
 
-VERSION = 3
+VERSION = 4
 
 # The one admission budget (ADR-0092 amendment, 2026-10-05, scale). A plan holds at most 256 steps and one Action may
 # repeat with its own inputs. Every other bound of a Routine's scale is stated here or derives from these, so none is
@@ -88,11 +87,9 @@ _POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
 _INDEX_RE = re.compile(r"(?:0|[1-9][0-9]{0,8})\Z")
 # The one run-clock token a recording infers: the run's date in the plan's timezone (ADR-0101).
 CLOCK_FORMATS = ("date",)
-# What a completed run does with its result; ``show`` and ``changes`` name the step whose result is shown, and
-# ``decide`` hands every result to a decision turn, ``always`` or only when the results ``changes``.
+# What a completed run does with its result; ``show`` and ``changes`` name the step whose result is shown.
 OUTPUT_MODES = http_routine.OUTPUT_MODES
 SHOWN_MODES = http_routine.SHOWN_MODES
-DECISION_WHEN = http_routine.DECISION_WHEN
 # A secret is never a literal: one of these in a destination name, or a destination marked write-only or as a password.
 _SECRET_MARKERS = (
     "secret",
@@ -136,11 +133,8 @@ class Plan:
     timezone: str
     steps: tuple[Step, ...]
     digest: str
-    # What a completed run does with its result: {"mode": one of OUTPUT_MODES, "step": the shown step id or None,
-    # "when": a decision's condition or None}.
-    output: Mapping[str, object] = dataclasses.field(
-        default_factory=lambda: {"mode": "none", "step": None, "when": None}
-    )
+    # What a completed run does with its result: {"mode": one of OUTPUT_MODES, "step": the shown step id or None}.
+    output: Mapping[str, object] = dataclasses.field(default_factory=lambda: {"mode": "none", "step": None})
 
     def position(self, step_id: str) -> int:
         """A step's 1-based position, which names it on the wire (ADR-0092 amendment, 2026-10-05, scale)."""
@@ -243,17 +237,15 @@ def _document(document: object) -> tuple[str, list[object], object, bytes]:
 
 
 def _output(value: object, steps: list[Step]) -> None:
-    """The run's output disposition: a shown step is one of the plan's; only a decision has a condition or no steps."""
-    if not isinstance(value, dict) or set(value) != {"mode", "step", "when"} or value["mode"] not in OUTPUT_MODES:
+    """The run's output disposition: a shown step is one of the plan's, which has at least one step to run."""
+    if not isinstance(value, dict) or set(value) != {"mode", "step"} or value["mode"] not in OUTPUT_MODES:
         raise PlanError("plan-output-invalid")
-    mode, shown, when = value["mode"], value["step"], value["when"]
+    mode, shown = value["mode"], value["step"]
     if mode in SHOWN_MODES:
         valid = isinstance(shown, str) and any(step.step_id == shown for step in steps)
     else:
         valid = shown is None
-    # Only a decision has a condition, and only a decision may have no step to run.
-    decided = when in DECISION_WHEN if mode == "decide" else when is None and bool(steps)
-    if not (valid and decided):
+    if not (valid and steps):
         raise PlanError("plan-output-invalid")
 
 

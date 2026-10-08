@@ -216,14 +216,12 @@ class RoutineListBoundTests(unittest.TestCase):
             "detail": {
                 "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
                 "plan": _largest_summary(),
-                "output": {"mode": "changes", "step": routine.MAX_ROUTINE_STEPS, "when": None},
+                "output": {"mode": "changes", "step": routine.MAX_ROUTINE_STEPS},
                 "schedule": {"kind": "weekly", "weekday": 6, "time": "23:59"},
                 "timezone": "/".join(["Z" * 32] * 3),
                 "timezone_source": "browser",
                 "state": "paused",
                 "permitted": {"total": routine.MAX_PERMITTED, "changes": routine.MAX_PERMITTED},
-                "model": None,
-                "allowance": 0,
             },
             "usage": None,
             "protection_lost": False,
@@ -234,7 +232,7 @@ class RoutineListBoundTests(unittest.TestCase):
         self.assertEqual(routine_notice.canonical_notice_batch(batch), batch)
 
     def test_the_largest_run_notice_fits_a_batch_twice(self) -> None:
-        """A completed decision run at every bound: its shown output, decision message, summary, and usage."""
+        """A completed run at every bound: its shown output, summary, and usage."""
         output = {
             "step": 1,
             "state": "shown",
@@ -269,11 +267,6 @@ class RoutineListBoundTests(unittest.TestCase):
             "detail": {
                 "plan": _largest_summary(),
                 "output": output,
-                "decision": {
-                    "state": "decided",
-                    "code": None,
-                    "message": WIDE * routine_notice.MAX_DECISION_MESSAGE_CHARS,
-                },
             },
             "usage": {"duration_ms": payload.MAX_TURN_DURATION_MS, "models": models},
             "protection_lost": True,
@@ -282,32 +275,13 @@ class RoutineListBoundTests(unittest.TestCase):
         self.assertEqual(routine_notice.canonical_notice_batch(batch), batch)
         self.assertLess(2 * routine.encoded_bytes(notice), routine_notice.MAX_NOTICE_BATCH_BYTES)
 
-    def test_a_run_page_with_the_largest_decision_record_fits_the_api_cap(self) -> None:
-        models = [
-            {"provider": f"p{index:02d}" + "p" * 61, "model": "m" * 64, "input_tokens": 10**9, "output_tokens": 10**9}
-            for index in range(payload.MAX_TURN_USAGE_MODELS)
-        ]
-        record = {
-            "state": "decided",
-            "code": None,
-            "model": {"provider": "anthropic", "model": "m" * 64, "effort": "medium"},
-            "rules": [WIDE * routine_notice.MAX_DECISION_RULE_CHARS] * routine_notice.MAX_DECISION_RULES,
-            "rationale": WIDE * routine_notice.MAX_DECISION_RATIONALE_CHARS,
-            "notify": True,
-            "usage": {"duration_ms": payload.MAX_TURN_DURATION_MS, "models": models},
-        }
-        self.assertEqual(routine_notice.canonical_decision_record(record), record)
-        self.assertLessEqual(routine.encoded_bytes(record), routine_run.MAX_DECISION_RECORD_BYTES)
-        envelope = 4 * 1024
-        self.assertLess(routine.MAX_PAGE_BYTES + routine_run.MAX_DECISION_RECORD_BYTES + envelope, 128 * 1024)
-
     def test_a_list_at_every_bound_fits_its_allowance(self) -> None:
         name = WIDE * routine.MAX_ROUTINE_NAME_CHARS
         view = {
             "routine_id": "0" * 32,
             "name": name,
             "plan": _largest_summary(),
-            "output": {"mode": "changes", "step": routine.MAX_ROUTINE_STEPS, "when": None},
+            "output": {"mode": "changes", "step": routine.MAX_ROUTINE_STEPS},
             # A continuous schedule's gap and cap never both reach five digits: at five seconds the cap is 17,280.
             "schedule": {
                 "kind": "continuous",
@@ -322,26 +296,16 @@ class RoutineListBoundTests(unittest.TestCase):
             "deleting": False,
             "state": "paused",
             "permitted": {"total": routine.MAX_PERMITTED, "changes": routine.MAX_PERMITTED},
-            "permissions_revision": 2**31 - 1,
-            "model": None,
-            "allowance": 0,
-        }
-        decide = {
-            **view,
-            "plan": {**_largest_summary(), "steps": 192, "actions": [[ASSISTANT, ACTION, 192]]},
-            "output": {"mode": "decide", "step": None, "when": "changes"},
-            "model": {"provider": "anthropic", "model": "m" * 64, "effort": "medium"},
-            "allowance": routine_notice.MAX_ALLOWANCE,
         }
         run = {
             "run_id": "1" * 32,
             "routine_id": "0" * 32,
             "status": "frozen",
             "scheduled_at": "2026-10-05T09:00:00Z",
-            "request_kind": "permission",
+            "request_kind": "integrations",
             "assistant_id": ASSISTANT,
             "action": ACTION,
-            "position": {"phase": "decision", "call": routine.MAX_DECISION_CALLS},
+            "position": {"phase": "replay", "step": routine.MAX_ROUTINE_STEPS},
             "steps": routine.MAX_ROUTINE_STEPS,
         }
         incident = {
@@ -356,13 +320,12 @@ class RoutineListBoundTests(unittest.TestCase):
         }
         listed = {
             "team_id": "t" * 40,
-            "routines": [view, decide] * (routine.MAX_ROUTINES // 2),
+            "routines": [view] * routine.MAX_ROUTINES,
             "runs": [run] * routine.MAX_ROUTINES,
             "incidents": [incident] * routine_notice.MAX_UNRESOLVED_INCIDENTS,
             "trace_id": "f" * 32,
         }
         self.assertEqual(routine_notice.canonical_routine_view(view), view)
-        self.assertEqual(routine_notice.canonical_routine_view(decide), decide)
         self.assertEqual(routine_notice.canonical_run_view(run), run)
         self.assertEqual(routine_notice.canonical_incident_view(incident), incident)
         self.assertLessEqual(routine.encoded_bytes(listed), routine_notice.MAX_ROUTINE_LIST_BYTES)

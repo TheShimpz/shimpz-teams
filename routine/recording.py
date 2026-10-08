@@ -45,9 +45,7 @@ from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
 from routine import trace
 
-MODES = ("show", "changes", "none", "decide")
-WHEN = ("always", "changes")
-MAX_DECIDE_ACTIONS = 32
+MODES = ("show", "changes", "none")
 MIN_REF_STRING = 6
 MIN_REF_INTEGER_DIGITS = 6
 MIN_SELECTOR_CHARS = 2
@@ -81,14 +79,12 @@ class RecordingError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Recording:
-    """How each run handles its result: the output mode, when a decision runs, and extra decision Actions.
+    """How each run handles its result: the output mode.
 
     A mode of None is the person's to state: Team reads it from their own words, and asks when they state none.
     """
 
     mode: str | None
-    when: str | None
-    decide_actions: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,8 +259,6 @@ class _Context:
     zone: tuple[str, str]
     asked: Asked | None
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract]
-    # Whether changing calls replay on every run, so their results are sources too: never in a decision.
-    replays_changes: bool = True
     # The send that settled a rerun: no call before it counts as split work.
     frontier: int = 0
     # The dispatch indexes of the work's calls, once the work is narrowed to what the person chose.

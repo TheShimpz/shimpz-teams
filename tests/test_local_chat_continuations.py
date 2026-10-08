@@ -25,7 +25,6 @@ from integrations import challenges as integration_challenges
 from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
 from local.routine import store as routine_store
-from routine import permission as routine_permission
 from routine import plan as routine_plan
 from tests import human_request_fixtures
 
@@ -583,110 +582,17 @@ class RoutineContinuationBoundTests(unittest.TestCase):
         self.assertEqual(_sealed_and_read(blob), blob)
 
 
-def permission_requirement(**changes: object) -> routine_permission.Requirement:
-    """A decision call frozen for a person's Permitir (ADR-0101 section 8), bound to the turn's one pending Action."""
-    return replace(
-        routine_permission.Requirement(
-            run_id="d" * 32,
-            revision=2,
-            permissions_revision=0,
-            interrupt_id="action-1",
-            operation_id="6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
-            assistant="demo-assistant",
-            action="publish",
-            pin="sha256:" + "a" * 64,
-            commitment="e" * 64,
-        ),
-        **changes,
-    )
+class RetiredPermissionContinuationTests(unittest.TestCase):
+    """A decision call's permission pause is retired (ADR-0101 amendment, 2026-10-07): no store keeps one."""
 
-
-class PermissionContinuationTests(unittest.TestCase):
-    """A frozen decision call's permission continuation, which only a frozen Routine run's store keeps."""
-
-    def test_a_permission_pause_round_trips_bound_to_its_pending_action(self) -> None:
-        requirement = (permission_requirement(),)
-        bindings, payload = local_chat_continuations.encode("permission", requirement, pending())
-        self.assertEqual(bindings, (f"demo-assistant/publish/{IMAGE}/{'e' * 64}",))
-        decoded = local_chat_continuations.decode_parts("permission", payload, bindings)
-        self.assertEqual((decoded.kind, decoded.requirements, decoded.pending), ("permission", requirement, pending()))
-        # A chat turn never waits for a Routine permission, so the chat store refuses the kind.
+    def test_a_permission_pause_is_never_encoded_or_decoded(self) -> None:
+        requirements = integration_requirement("dns.read")
+        with self.assertRaises(local_chat_continuations.ContinuationCodecError):
+            local_chat_continuations.encode("permission", requirements, pending())
+        bindings, payload = local_chat_continuations.encode("integrations", requirements, pending())
+        document = json.loads(payload)
+        document["kind"] = "permission"
+        with self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "kind is malformed"):
+            local_chat_continuations.decode_parts("permission", json.dumps(document).encode(), bindings)
         with self.assertRaises(local_chat_continuation_store.ContinuationStoreError):
             local_chat_continuation_store._kind("permission")
-
-    def test_a_permission_pause_holds_one_bound_requirement_and_no_action_batch(self) -> None:
-        requirement = permission_requirement()
-        for requirements, state in (
-            ((requirement, requirement), pending()),
-            ((), pending()),
-            ((object(),), pending()),
-            ((requirement,), human_pending()),
-            ((permission_requirement(interrupt_id="older-action"),), pending()),
-            ((permission_requirement(interrupt_id="action-2"),), pending()),
-            ((permission_requirement(assistant="other-assistant"),), pending()),
-            ((permission_requirement(action="lookup"),), pending()),
-        ):
-            with (
-                self.subTest(requirements=requirements),
-                self.assertRaises(local_chat_continuations.ContinuationCodecError),
-            ):
-                local_chat_continuations.encode("permission", requirements, state)
-
-    def test_every_malformed_permission_field_is_refused_on_decode(self) -> None:
-        bindings, payload = local_chat_continuations.encode("permission", (permission_requirement(),), pending())
-        for field, value in (
-            ("run_id", "D" * 32),
-            ("revision", 0),
-            ("revision", True),
-            ("revision", 2**31),
-            ("permissions_revision", -1),
-            ("permissions_revision", False),
-            ("permissions_revision", 2**31),
-            ("permissions_revision", 1.0),
-            ("interrupt_id", "bad interrupt"),
-            ("operation_id", "not-an-operation"),
-            ("assistant", "Bad Assistant"),
-            ("action", "Bad Action"),
-            ("pin", "a" * 64),
-            ("commitment", "sha256:" + "e" * 64),
-            ("extra", None),
-        ):
-            document = json.loads(payload)
-            document["requirements"][0][field] = value
-            with (
-                self.subTest(field=field, value=value),
-                self.assertRaises(local_chat_continuations.ContinuationCodecError),
-            ):
-                local_chat_continuations.decode_parts("permission", json.dumps(document).encode(), bindings)
-        document = json.loads(payload)
-        document["requirements"].append(document["requirements"][0])
-        with self.assertRaises(local_chat_continuations.ContinuationCodecError):
-            local_chat_continuations.decode_parts("permission", json.dumps(document).encode(), bindings)
-        with self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "release binding changed"):
-            local_chat_continuations.decode_parts("permission", payload, (f"demo-assistant/publish/{IMAGE}/-",))
-
-    def test_the_largest_permission_freeze_of_the_longest_plan_fits_its_codec_record_and_seal(self) -> None:
-        filler = "\x01" * ((routine_plan.MAX_RESOLVED_INPUT_BYTES - 32) // 6)
-        interrupt = "i" * 256
-        turn = brain_runtime_client.RuntimeTurn(
-            "action-required",
-            "",
-            (brain_runtime_client.ActionRequest(interrupt, "demo-assistant", "publish", {"payload": filler}),),
-        )
-        answers = _longest_answers()
-        state = _longest_plan_pending(turn, "routine-step-0", answers)
-        requirement = (
-            permission_requirement(
-                interrupt_id=interrupt, revision=2**31 - 1, permissions_revision=2**31 - 1, run_id="f" * 32
-            ),
-        )
-        with self.assertRaises(local_chat_continuations.ContinuationCodecError):
-            local_chat_continuations.encode("permission", requirement, state)
-        bindings, payload = local_chat_continuations.encode(
-            "permission", requirement, state, limit=local_chat_continuations.MAX_ROUTINE_PLAINTEXT_BYTES
-        )
-        decoded = local_chat_continuations.decode_parts("permission", payload, bindings)
-        self.assertEqual((decoded.requirements, decoded.pending), (requirement, state))
-        blob = _routine_record("permission", bindings, payload)
-        self.assertLessEqual(len(blob), local_chat_continuations.MAX_ROUTINE_BYTES)
-        self.assertEqual(_sealed_and_read(blob), blob)

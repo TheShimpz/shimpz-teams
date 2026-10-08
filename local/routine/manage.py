@@ -36,7 +36,6 @@ def routine_view(value: record.Routine) -> dict[str, object]:
         "next_run_at": record.instant_text(value.next_run_at),
         "needs_reconfirm": value.needs_reconfirm,
         "deleting": value.deleting,
-        "permissions_revision": value.permissions_revision,
         **routine_definition.scope(value),
     }
 

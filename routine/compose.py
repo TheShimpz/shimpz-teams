@@ -52,11 +52,8 @@ def record(
     context = routine_recording._Context(
         sends, calls, routine_recording._known(texts, protection), routine_recording.zone(sends), asked, contracts
     )
-    context.replays_changes = recording.mode != "decide"
     context.frontier = frontier
-    work = routine_provenance._narrowed(
-        context, [call for call in latest if call.read_only or recording.mode != "decide"]
-    )
+    work = routine_provenance._narrowed(context, latest)
     context.work = tuple(call.index for call in work)
     try:
         if not latest and existing is not None:
@@ -77,9 +74,7 @@ def record(
         return kept
     timezone, source = context.zone
     document["timezone"] = timezone
-    actions = [(step["assistant"], step["action"]) for step in document["steps"]]
-    changing = [call.action for call in latest if not call.read_only]
-    permitted = _permitted(actions + changing + list(recording.decide_actions), contracts)
+    permitted = _permitted([(step["assistant"], step["action"]) for step in document["steps"]], contracts)
     return routine_recording.Recorded(document, origins, permitted, when, timezone, source)
 
 
@@ -125,16 +120,8 @@ def _asked(
 def _admit(
     recording: routine_recording.Recording, contracts: Mapping[tuple[str, str], routine_plan.ActionContract]
 ) -> None:
-    decide = recording.mode == "decide"
-    if (
-        recording.mode not in (*routine_recording.MODES, None)
-        or (recording.when in routine_recording.WHEN) != decide
-        or (not decide and recording.when is not None)
-    ):
+    if recording.mode not in (*routine_recording.MODES, None):
         raise routine_recording.RecordingError("routine-recording-invalid")
-    actions = set(recording.decide_actions)
-    if (actions and not decide) or len(actions) > routine_recording.MAX_DECIDE_ACTIONS or not actions <= set(contracts):
-        raise routine_recording.RecordingError("routine-decide-action-invalid")
 
 
 def _permitted(
@@ -254,17 +241,15 @@ def _kept(
         contract = context.contracts.get((step["assistant"], step["action"]))
         if contract is None or contract.pin != step["pin"]:
             raise routine_recording.RecordingError("plan-pin-drift")
-    if not steps and recording.mode != "decide":
-        raise routine_recording.RecordingError("routine-recording-empty")
     origins = {
         step["id"]: {member: _kept_origin(source, context.known) for member, source in step["input"].items()}
         for step in steps
     }
-    document = _document(steps, steps[-1]["id"] if steps else None, recording)
+    document = _document(steps, steps[-1]["id"], recording)
     when = _schedule(context.sends, existing)
     timezone, source = context.zone
     document["timezone"] = timezone
-    actions = [(step["assistant"], step["action"]) for step in steps] + list(recording.decide_actions)
+    actions = [(step["assistant"], step["action"]) for step in steps]
     return routine_recording.Recorded(document, origins, _permitted(actions, context.contracts), when, timezone, source)
 
 
@@ -278,7 +263,6 @@ def _document(
         "output": {
             "mode": recording.mode,
             "step": last if recording.mode in routine_plan.SHOWN_MODES else None,
-            "when": recording.when,
         },
     }
 
@@ -296,7 +280,7 @@ def _plan(
     context: routine_recording._Context, recording: routine_recording.Recording, work: list[routine_recording._Call]
 ) -> tuple[dict[str, object], dict]:
     """The plan document and each step's input origins, from the work and every source it needs."""
-    if not work and recording.mode != "decide":
+    if not work:
         raise routine_recording.RecordingError("routine-recording-empty")
     _classes(context)
     nodes = _closure(context, work)

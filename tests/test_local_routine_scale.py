@@ -72,8 +72,8 @@ def _scaled_plan(service) -> dict[str, object]:
                 "input": {"zone_id": zone, "page": _literal(1), "per_page": _literal(5)},
             }
         )
-    output = {"mode": "show", "step": "again", "when": None}
-    return {"version": 3, "timezone": "UTC", "steps": steps, "output": output}
+    output = {"mode": "show", "step": "again"}
+    return {"version": 4, "timezone": "UTC", "steps": steps, "output": output}
 
 
 class ScaleJourneyTests(RoutineServiceCase):
@@ -123,8 +123,8 @@ class ScaleJourneyTests(RoutineServiceCase):
         done = state.notices[-1]
         summary = done.detail["plan"]
         self.assertEqual(
-            (done.outcome, summary["steps"], done.detail["output"]["step"], done.detail["decision"]),
-            ("done", 120, 120, None),
+            (done.outcome, summary["steps"], done.detail["output"]["step"], set(done.detail)),
+            ("done", 120, 120, {"plan", "output"}),
         )
         self.assertEqual(summary["actions"], [[ASSISTANT, "list-zones", 118], [ASSISTANT, "list-dns-records", 2]])
         self.assertFalse(done.protection_lost)
@@ -232,8 +232,8 @@ class StepRecordEdgeTests(RoutineServiceCase):
             routine_incident.seal_terminal(service, "team_1", "e" * 32, snapshot)
             terminal = recorded[0]
             self.assertEqual(
-                (terminal.reached, terminal.dispatched, terminal.binding.total, terminal.calls, terminal.decision),
-                (0, False, 1, 0, None),
+                (terminal.reached, terminal.dispatched, terminal.binding.total),
+                (0, False, 1),
             )
             service.routine_diagnostics = mock.Mock(
                 record_run=mock.Mock(side_effect=routine_diagnostics.DiagnosticStoreError("down"))

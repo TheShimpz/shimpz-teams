@@ -232,13 +232,7 @@ def _held_step(self, team_id: str, snapshot: Recovery | None) -> routine_hold.He
 
 
 def held_call(cursor: routine_cursor.Cursor, steps: list) -> routine_hold.HeldStep:
-    """The call a sealed cursor stopped at: the last decision call, or the current replay step; none when neither."""
-    if cursor.calls:
-        # A decision call held the run: its last call is the one whose effect is unresolved.
-        call = cursor.calls[-1]
-        return call.assistant, call.action, {"phase": "decision", "call": len(cursor.calls)}, len(steps)
-    if not steps:
-        return routine_hold.UNKNOWN_STEP
+    """The call a sealed cursor stopped at: its current replay step, the last one once every step completed."""
     index = min(cursor.step, len(steps) - 1)
     return steps[index]["assistant"], steps[index]["action"], {"phase": "replay", "step": index + 1}, len(steps)
 
@@ -347,9 +341,7 @@ def seal_terminal(self, team_id: str, run_id: str, snapshot: Recovery | None) ->
     run = routine_diagnostics.RunBinding(
         binding.routine_id, run_id, binding.revision, snapshot.plan_digest, len(snapshot.plan["steps"])
     )
-    terminal = routine_diagnostics.RunRecord(
-        run, cursor.step, cursor.operation_id is not None, int(time.time()), calls=len(cursor.calls)
-    )
+    terminal = routine_diagnostics.RunRecord(run, cursor.step, cursor.operation_id is not None, int(time.time()))
     try:
         self.routine_diagnostics.record_run(team_id, binding.incarnation, terminal)
     except routine_diagnostics.DiagnosticStoreError:

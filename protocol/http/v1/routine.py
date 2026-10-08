@@ -31,12 +31,8 @@ MAX_CONTINUOUS_CAP = -(-DAY_SECONDS // MIN_CONTINUOUS_GAP_SECONDS)
 MAX_ROLLUP_RUNS = 60 // MIN_CONTINUOUS_GAP_SECONDS
 MAX_NOTICE_ACTIONS = 16
 MAX_NOTICE_ASSISTANTS = 16
-# The Actions one decision turn may call at most: its decision allowance, at most 64 (ADR-0101 section 6.4).
-MAX_DECISION_CALLS = 64
-# The extra Actions a recording may permit for a decision, and the lifetime bound of a Routine's permitted Actions:
-# every recorded call and every extra one, which grants never exceed (ADR-0101 section 4.3).
-MAX_DECIDE_ACTIONS = 32
-MAX_PERMITTED = MAX_ROUTINE_STEPS + MAX_DECIDE_ACTIONS
+# A Routine's permitted Actions: every Action its replay steps call, each once (ADR-0101).
+MAX_PERMITTED = MAX_ROUTINE_STEPS
 OUTCOMES = frozenset(
     {
         "done",
@@ -213,8 +209,8 @@ def _scope_changed(detail: dict[str, object]) -> bool:
 
 
 # Where one Action call stands in a run (ADR-0101 section 10): a replay step by its 1-based position among its plan's
-# steps, or a decision turn's call by its 1-based order. Notices, incidents, freezes, cards, and run records use it.
-PHASES = ("replay", "decision")
+# steps. Notices, incidents, freezes, cards, and run records use it.
+PHASES = ("replay",)
 
 
 def _position(value: object, maximum: int = MAX_ROUTINE_STEPS) -> bool:
@@ -222,14 +218,11 @@ def _position(value: object, maximum: int = MAX_ROUTINE_STEPS) -> bool:
 
 
 def canonical_position(value: object, steps: object) -> dict[str, object] | None:
-    """A call's position: a replay step among ``steps``, or a decision call; or None."""
+    """A call's position: a replay step among ``steps``; or None."""
     if not isinstance(value, dict) or not _whole(steps, 0, MAX_ROUTINE_STEPS):
         return None
-    phase = value.get("phase")
-    if phase == "replay" and set(value) == {"phase", "step"} and _position(value["step"], steps):
+    if value.get("phase") == "replay" and set(value) == {"phase", "step"} and _position(value["step"], steps):
         return {"phase": "replay", "step": value["step"]}
-    if phase == "decision" and set(value) == {"phase", "call"} and _position(value["call"], MAX_DECISION_CALLS):
-        return {"phase": "decision", "call": value["call"]}
     return None
 
 
@@ -363,15 +356,10 @@ def canonical_step(value: object, position: int) -> dict[str, object] | None:
 
 
 def _paged(value: dict[str, object], step: Callable[[object, int], object]) -> bool:
-    """Whole consecutive entries of ``total`` from ``offset``, the next offset or null, within the page's bounds.
-
-    A total of zero has exactly one page: offset zero, no entries, and no next one.
-    """
+    """Whole consecutive entries of ``total`` from ``offset``, the next offset or null, within the page's bounds."""
     total, offset, steps = value["total"], value["offset"], value["steps"]
-    if total == 0 and type(total) is int:
-        return offset == 0 and type(offset) is int and steps == [] and value["next"] is None
     return (
-        _whole(total, 1, MAX_ROUTINE_STEPS + MAX_DECISION_CALLS)
+        _whole(total, 1, MAX_ROUTINE_STEPS)
         and type(offset) is int
         and 0 <= offset < total
         and isinstance(steps, list)
@@ -391,14 +379,13 @@ def canonical_page(value: object) -> dict[str, object] | None:
         _identity(value["routine_id"], ROUTINE_ID_RE)
         and _revision(value["revision"])
         and _identity(value["plan_digest"], PLAN_DIGEST_RE)
-        and _whole(value["total"], 0, MAX_ROUTINE_STEPS)
         and _paged(value, canonical_step)
     )
     return copy.deepcopy(value) if valid else None
 
 
 # A revision's summary, which list views and notices carry instead of steps: its digest, step count, and Actions as at
-# most 16 runs of consecutive equal Actions; ``more`` counts the steps after them. A decision plan may have none.
+# most 16 runs of consecutive equal Actions; ``more`` counts the steps after them.
 MAX_SUMMARY_RUNS = 16
 
 
@@ -410,9 +397,9 @@ def canonical_summary(value: object) -> dict[str, object] | None:
     valid = (
         _revision(value["revision"])
         and _identity(value["plan_digest"], PLAN_DIGEST_RE)
-        and _whole(total, 0, MAX_ROUTINE_STEPS)
+        and _whole(total, 1, MAX_ROUTINE_STEPS)
         and isinstance(runs, list)
-        and (0 < len(runs) <= MAX_SUMMARY_RUNS if total else runs == [])
+        and 0 < len(runs) <= MAX_SUMMARY_RUNS
         and all(
             isinstance(run, list) and len(run) == 3 and _assistant(run[0]) and _action(run[1]) and _position(run[2])
             for run in runs
@@ -427,27 +414,21 @@ def canonical_summary(value: object) -> dict[str, object] | None:
 
 
 # What a completed run does with its result (ADR-0092 amendment, 2026-10-05, output; ADR-0101): show one step's result
-# after every run, only when it changed, show none of it, or hand every result to a decision turn, ``always`` or only
-# when the results changed. show and changes name the shown step, on the wire by its position.
-OUTPUT_MODES = ("show", "changes", "none", "decide")
+# after every run, only when it changed, or show none of it. show and changes name the shown step, on the wire by its
+# position.
+OUTPUT_MODES = ("show", "changes", "none")
 SHOWN_MODES = frozenset({"show", "changes"})
-DECISION_WHEN = ("always", "changes")
 
 
 def canonical_disposition(value: object, total: object) -> dict[str, object] | None:
-    """A plan's output disposition, whose shown step is the position of one of its ``total`` steps, or None.
-
-    Only a decision has a condition, and only a decision may have no steps.
-    """
-    if not isinstance(value, dict) or set(value) != {"mode", "step", "when"} or value["mode"] not in OUTPUT_MODES:
+    """A plan's output disposition, whose shown step is the position of one of its ``total`` steps, or None."""
+    if not isinstance(value, dict) or set(value) != {"mode", "step"} or value["mode"] not in OUTPUT_MODES:
         return None
-    mode, shown, when = value["mode"], value["step"], value["when"]
-    if not _whole(total, 0 if mode == "decide" else 1, MAX_ROUTINE_STEPS):
+    mode, shown = value["mode"], value["step"]
+    if not _whole(total, 1, MAX_ROUTINE_STEPS):
         return None
-    valid = (_position(shown, total) if mode in SHOWN_MODES else shown is None) and (
-        when in DECISION_WHEN if mode == "decide" else when is None
-    )
-    return {"mode": mode, "step": shown, "when": when} if valid else None
+    valid = _position(shown, total) if mode in SHOWN_MODES else shown is None
+    return {"mode": mode, "step": shown} if valid else None
 
 
 # A shown result (ADR-0092 amendment, 2026-10-05, output): Team's bounded, redacted, ordered projection of one step's
@@ -544,28 +525,12 @@ def canonical_output(value: object) -> dict[str, object] | None:
 
 
 # A run's model usage, in the shape of a chat reply's (ADR-0082, ADR-0101): its active duration and, per provider and
-# model, the tokens its decision and recovery calls reported; a replay-only run has no model.
+# model, the tokens its recovery calls reported; a run that needed no recovery has no model.
 canonical_run_usage = payload.canonical_run_usage
 
 
-# The model a decision turn uses (ADR-0101 section 6.9), frozen at confirmation.
+# The model providers a claimed run's recovery may use.
 MODEL_PROVIDERS = ("anthropic", "openai")
-MODEL_EFFORTS = ("low", "medium", "high")
-
-
-def canonical_model(value: object) -> dict[str, str] | None:
-    if not isinstance(value, dict) or set(value) != {"provider", "model", "effort"}:
-        return None
-    valid = (
-        value["provider"] in MODEL_PROVIDERS
-        and _identity(value["model"], payload.TURN_USAGE_ID_RE)
-        and value["effort"] in MODEL_EFFORTS
-    )
-    return {key: value[key] for key in ("provider", "model", "effort")} if valid else None
-
-
-def _model(value: object) -> bool:
-    return value is None or canonical_model(value) is not None
 
 
 def canonical_permitted(value: object) -> dict[str, int] | None:
@@ -575,7 +540,7 @@ def canonical_permitted(value: object) -> dict[str, int] | None:
     """
     if not isinstance(value, dict) or set(value) != {"total", "changes"}:
         return None
-    valid = _whole(value["total"], 0, MAX_PERMITTED) and _whole(value["changes"], 0, value["total"])
+    valid = _whole(value["total"], 1, MAX_PERMITTED) and _whole(value["changes"], 0, value["total"])
     return {"total": value["total"], "changes": value["changes"]} if valid else None
 
 

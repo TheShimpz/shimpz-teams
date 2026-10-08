@@ -128,7 +128,6 @@ class ExecutionTests(CompiledRunCase):
                     {
                         "plan": routine_definition.summary(value.plan, value.revision),
                         "output": output,
-                        "decision": None,
                     },
                 )
             ],

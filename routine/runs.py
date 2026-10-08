@@ -80,7 +80,7 @@ def freeze(
     """Park a run for a person; it keeps no lease, and the same Routine never fires while it is frozen.
 
     ``request`` is its kind and the Assistant Action that asked at its call's position: a replay step, which must be
-    that step of the plan, or a decision call. A Routine being deleted never freezes a run: its deletion ends only the
+    that step of the plan. A Routine being deleted never freezes a run: its deletion ends only the
     frozen runs it saw.
     """
     request_kind, assistant_id, action, position = request
@@ -95,10 +95,7 @@ def freeze(
         or http_identifiers.canonical_assistant_id(assistant_id) is None
         or http_identifiers.canonical_action_id(action) is None
         or placed is None
-        or (
-            placed["phase"] == "replay"
-            and (steps[placed["step"] - 1]["assistant"], steps[placed["step"] - 1]["action"]) != (assistant_id, action)
-        )
+        or (steps[placed["step"] - 1]["assistant"], steps[placed["step"] - 1]["action"]) != (assistant_id, action)
     ):
         raise record.RoutineStateError("freeze-invalid")
     if sum(item.status == "frozen" for item in state.runs) >= record.MAX_FROZEN_RUNS:
@@ -176,7 +173,6 @@ def _completion(
     detail: dict[str, object] = {
         "plan": routine_definition.summary(current.plan, current.revision),
         "output": None,
-        "decision": None,
     }
     if mode in routine_plan.SHOWN_MODES:
         # On the wire the shown step is its position (ADR-0092 amendment, 2026-10-05, scale).

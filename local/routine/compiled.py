@@ -362,7 +362,7 @@ def advance(
     result, protection = completed
     shown_step = plan.shown()
     slot = None
-    if not cursor.replayed(plan) and shown_step is not None and plan.steps[cursor.step].step_id == shown_step.step_id:
+    if not cursor.done(plan) and shown_step is not None and plan.steps[cursor.step].step_id == shown_step.step_id:
         slot = _slot(store, team_id, cursor.binding, (shown_step, cursor.step + 1), (result, protection))
     return routine_cursor.complete(cursor, plan, result, slot)
 
@@ -452,8 +452,8 @@ def runtime(
 ) -> CompiledRuntime:
     """The run's runtime: its recovery snapshot sealed, and its cursor reopened or started with its protection.
 
-    A fresh run binds its protection in this Team boot with its first cursor, before anything can dispatch, freeze,
-    or decide; a reopened one keeps it only when it was bound in this boot and is still held here.
+    A fresh run binds its protection in this Team boot with its first cursor, before anything can dispatch or
+    freeze; a reopened one keeps it only when it was bound in this boot and is still held here.
     """
     network_id = routine_claim.network_of(value.generation, value.run_id)
     binding = routine_cursor.Binding(network_id, routine.routine_id, routine.revision, value.run_id)

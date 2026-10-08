@@ -96,14 +96,6 @@ class Routine:
     confirmation: dict[str, object] | None = None
     # Every Action the Routine may call at its pin: {assistant, action, pin, read_only, stored_inputs}, sorted.
     permitted: tuple[dict[str, object], ...] = ()
-    # Grows with every permission a person adds while a run waits (ADR-0101 section 6.7).
-    permissions_revision: int = 0
-    # A decision's sealed base prompt by digest, its frozen model {provider, model, effort}, and its allowance.
-    prompt: str | None = None
-    model: dict[str, str] | None = None
-    allowance: int = 0
-    # The sealed input of the last decided run, {id, digest}, which a ``changes`` decision compares with.
-    baseline: dict[str, str] | None = None
     # Consecutive runs that failed with no effect; a success resets it, and three pause the Routine (ADR-0092).
     failures: int = 0
     # A continuous Routine's healthy runs rolled up into the notice of the minute starting at ``rollup_minute``.
@@ -140,7 +132,7 @@ class Run:
     notice_version: int = 0
     # The human requests the logical run has answered, through every freeze, hold, and continuation; never reset.
     requests_used: int = 0
-    # A frozen run's call by position ({"phase", "step"|"call"}) and its plan's step count; None and 0 otherwise.
+    # A frozen run's call by position ({"phase", "step"}) and its plan's step count; None and 0 otherwise.
     position: dict[str, object] | None = None
     steps: int = 0
     # The run's active time and model usage so far, through every freeze, hold, and continuation (ADR-0101 §10).
@@ -300,7 +292,7 @@ def _matches(value: object, pattern: re.Pattern[str]) -> bool:
 
 
 def _permitted(value: Routine) -> bool:
-    """Every permitted Action once, sorted, at a complete pin, covering every step's Action at the step's own pin."""
+    """Exactly the plan's steps' Actions, each once, sorted, at a complete pin: the step's own pin."""
     entries = value.permitted
     if not isinstance(entries, tuple) or len(entries) > http_routine.MAX_PERMITTED:
         return False
@@ -323,33 +315,8 @@ def _permitted(value: Routine) -> bool:
     return (
         list(pins) == sorted(pins)
         and len(pins) == len(entries)
-        and all(pins.get((step["assistant"], step["action"])) == step["pin"] for step in value.plan["steps"])
-    )
-
-
-def _decision_scope(value: Routine) -> bool:
-    """Only a decision has a base prompt, a model, and an allowance, which its steps leave room for."""
-    decide = value.plan["output"]["mode"] == "decide"
-    return (
-        (_matches(value.prompt, _DIGEST_RE) if decide else value.prompt is None)
-        and (
-            value.model is not None and http_routine.canonical_model(value.model) == value.model
-            if decide
-            else value.model is None
-        )
-        and type(value.allowance) is int
-        and (1 <= value.allowance <= http_routine_notice.MAX_ALLOWANCE if decide else value.allowance == 0)
-        and routine_definition.run_units(value) <= routine_plan.MAX_STEPS
-        and (value.baseline is None or (decide and _baseline(value.baseline)))
-    )
-
-
-def _baseline(value: object) -> bool:
-    return (
-        isinstance(value, dict)
-        and set(value) == {"id", "digest"}
-        and _matches(value["id"], _HEX32_RE)
-        and _matches(value["digest"], http_payload.SHA256_RE)
+        and set(pins) == {(step["assistant"], step["action"]) for step in value.plan["steps"]}
+        and all(pins[(step["assistant"], step["action"])] == step["pin"] for step in value.plan["steps"])
     )
 
 
@@ -386,10 +353,7 @@ def definition_valid(value: Routine) -> bool:
         and _permitted(value)
         and _assistants(value)
         and _confirmed(value.confirmation)
-        and _decision_scope(value)
         and type(value.paused) is bool
-        and type(value.permissions_revision) is int
-        and 0 <= value.permissions_revision < 2**31
         and type(value.revision) is int
         and 1 <= value.revision < 2**31
         and type(value.anchor) is int
