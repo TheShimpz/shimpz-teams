@@ -24,7 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
 # The dependency layer is the runtime's base and a pure function of the pinned base, uv, the lock, and Cosign
 # (Shimpz ADR-0098): no ARG SOURCE_DATE_EPOCH, WORKDIR, COPY, or ADD here; uv, the lock, and Cosign arrive as
 # read-only mounts on a discarded tmpfs, the uv cache is removed, and every /opt timestamp is fixed. An unchanged lock
-# therefore yields the same layer bytes at every commit, with or without a build cache.
+# therefore yields the same layer bytes at every commit, with or without a build cache. The base ships no bytecode and
+# the read-only runtime cannot write any, so the standard library and the environment are compiled here, hash-checked,
+# with fixed timestamps; otherwise every Team start, health probe, and helper recompiles each imported module.
 FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS dependencies
 RUN --mount=type=tmpfs,target=/tmp \
     --mount=type=bind,from=uv,source=/uv,target=/tmp/uv \
@@ -36,6 +38,8 @@ RUN --mount=type=tmpfs,target=/tmp \
         /tmp/uv sync --frozen --no-install-project --no-dev --python 3.14 && \
     rm -rf /opt/uv-cache && \
     install -m 0755 /tmp/cosign /opt/venv/bin/cosign && \
+    PYTHONDONTWRITEBYTECODE=1 /opt/venv/bin/python -m compileall -q -f --invalidation-mode checked-hash /usr/local/lib/python3.14 /opt/venv && \
+    find /usr/local/lib/python3.14 \( -type d -o -name '*.pyc' \) -exec touch -h -d @0 {} + && \
     find /opt -depth -exec touch -h -d @0 {} +
 
 FROM dependencies AS runtime
@@ -154,6 +158,8 @@ COPY --link action/__init__.py action/challenges.py action/dispatch.py action/ex
 COPY --link storage/__init__.py storage/files.py storage/private_state.py ./storage/
 COPY --link prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/pdf.py \
     prepare/service.py prepare/worker.py ./prepare/
+# The application is compiled like its environment, after its last copy.
+RUN PYTHONDONTWRITEBYTECODE=1 /opt/venv/bin/python -m compileall -q -f --invalidation-mode checked-hash /app
 
 LABEL org.opencontainers.image.source="https://github.com/TheShimpz/shimpz-teams" \
       org.shimpz.component="team-local" \
