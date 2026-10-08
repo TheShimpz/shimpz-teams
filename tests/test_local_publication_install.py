@@ -463,7 +463,8 @@ class LocalPublicationInstallTests(unittest.TestCase):
             controller.client.containers.list.return_value = []
             with mock.patch.object(store, "_read", wraps=store._read) as read:
                 self.assertEqual(assistant_api.list_assistants(controller, "team_1"), {"assistants": []})
-            read.assert_not_called()
+            # Without containers the snapshot is still read once: a binding needing replacement has no runtime.
+            read.assert_called_once_with()
 
     def test_catalog_selects_the_latest_bound_publication(self) -> None:
         older = _runtime_resolution()

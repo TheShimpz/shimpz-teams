@@ -5,10 +5,17 @@ from http import HTTPStatus
 from docker.errors import DockerException
 
 from assistant import language as assistant_language
+from assistant import manifest as assistant_manifest
 from install import icons
 from local.chat.types import ActiveAssistant
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import assistant_not_installed, assistant_registry_drift, docker_unavailable, invalid_locale
+from local.errors import (
+    assistant_manifest_invalid,
+    assistant_not_installed,
+    assistant_registry_drift,
+    docker_unavailable,
+    invalid_locale,
+)
 from local.labels import ASSISTANT_LABEL
 from local.validation import validate_assistant_id, validate_team_id
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
@@ -48,6 +55,8 @@ def assistant_summary(self, team_id: str, assistant_id: str, locale: object) -> 
         binding = self.registry.binding(team_id, assistant_id)
         if binding is None:
             raise assistant_not_installed()
+        if not binding.admissible:
+            raise assistant_manifest_invalid()
         spec = self.registry.spec(binding)
         if canonical == assistant_language.ENGLISH:
             return {"locale": canonical, "summary": spec.summary}
@@ -74,13 +83,16 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
             containers = self.client.containers.list(**self.assistant_lifecycle._assistant_filters(team_id))
         except DockerException as exc:
             raise docker_unavailable() from exc
-        bindings_by_id = (
-            {binding.assistant_id: binding for binding in self.registry.team_bindings(team_id)} if containers else {}
-        )
+        # Read even without containers: a binding needing replacement has no runtime but must stay visible.
+        admitted, refused = self.registry.installed(team_id)
+        bindings_by_id = {binding.assistant_id: binding for binding in admitted}
         for container in containers:
             labels = container.labels or {}
             assistant_id = labels.get(ASSISTANT_LABEL)
             binding = bindings_by_id.get(assistant_id)
+            if binding is None and any(item.assistant_id == assistant_id for item in refused):
+                # Listed below as needing replacement; its runtime is never validated against a refused contract.
+                continue
             if binding is None:
                 raise assistant_registry_drift()
             spec, version = self.registry.versioned(binding)
@@ -124,5 +136,24 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
                     "provenance": spec.provenance,
                 }
             )
+        output.extend(_needing_replacement(refused))
         output.sort(key=lambda item: item["assistant"])
         return {"assistants": output}
+
+
+def _needing_replacement(refused) -> list[dict[str, str]]:
+    """Every binding the current contract refuses, shown as invalid so its Supervisor replaces or uninstalls it."""
+    listed: list[dict[str, str]] = []
+    for binding in refused:
+        version = binding.document.get("assistant_version")
+        if not isinstance(version, str) or assistant_manifest.VERSION_RE.fullmatch(version) is None:
+            raise assistant_registry_drift()
+        listed.append(
+            {
+                "assistant": binding.assistant_id,
+                "assistant_version": version,
+                "status": "invalid",
+                "provenance": binding.provenance,
+            }
+        )
+    return listed

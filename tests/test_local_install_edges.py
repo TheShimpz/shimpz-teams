@@ -106,7 +106,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
             assert binding is not None
             self.assertEqual(registry.spec(binding), spec)
             self.assertEqual(spec.summary, resolution["summary"])
-            self.assertEqual(registry.all(), (spec,))
+            self.assertEqual(registry.images(), (spec.image,))
 
             successor = copy.deepcopy(resolution)
             successor["assistant_version"] = "9.0.0"
@@ -115,7 +115,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
             successor["image_reference"] = f"ghcr.io/theshimpz/shimpz-assistant@sha256:{'c' * 64}"
             successor["oci_digest"] = f"sha256:{'c' * 64}"
             current = registry.put("team_2", successor)
-            self.assertEqual(registry.all(), (spec, current))
+            self.assertEqual(registry.images(), tuple(sorted((spec.image, current.image))))
             self.assertEqual(registry.catalog(), (current,))
 
             same_version = copy.deepcopy(successor)

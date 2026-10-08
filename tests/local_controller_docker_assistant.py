@@ -185,3 +185,69 @@ class LocalAssistantLifecycleMixin:
             {},
         )
         self.assertEqual(unknown_action, 404)
+
+    def _exercise_inadmissible_binding(self, flow: DockerFlow) -> None:
+        """A binding the current contract refuses never stops the Team: it starts healthy and refuses that Assistant.
+
+        The stored publication is rewritten as an earlier contract admitted it, a summary longer than today's bound,
+        with Team's integrity digest intact, exactly as an upgrade finds a binding staged before the bound tightened.
+        """
+        self._run("stop", flow.controller)
+        self._run(
+            "run",
+            "--rm",
+            "--user",
+            "10001:10001",
+            "--volume",
+            f"{flow.publication_volume}:/var/lib/shimpz-local/publications",
+            "--entrypoint",
+            "/opt/venv/bin/python",
+            flow.controller_tag,
+            "-c",
+            "import json; from pathlib import Path; from install import bindings; "
+            "p=Path('/var/lib/shimpz-local/publications/bindings.json'); s=json.loads(p.read_text()); "
+            "(v,)=[v for v in s['bindings'] if v['team_id']=='demo_team']; v['resolution']['summary']='s'*81; "
+            "r=v['resolution']; v['binding_digest']=bindings._binding('demo_team','published','resolution',r)"
+            ".binding_digest; "
+            "t=p.with_name('.refused'); t.write_text(json.dumps(s)); t.chmod(0o600); t.replace(p)",
+        )
+        self._run("start", flow.controller)
+        flow.port, flow.token = self._wait_local_controller(flow.controller)
+        self._supervisors_by_port[flow.port] = flow
+
+        # Startup took the refused Assistant's runtime out of service instead of failing.
+        self.assertNotEqual(self._run("inspect", flow.assistant_name, check=False).returncode, 0)
+        _, listed = self._api(flow.port, flow.token, "GET", "/v1/teams/demo_team/assistants")
+        self.assertEqual(
+            listed["assistants"],
+            [
+                {
+                    "assistant": "shimpz-cloudflare",
+                    "assistant_version": "0.1.0",
+                    "provenance": "published",
+                    "status": "invalid",
+                }
+            ],
+        )
+        _, catalog = self._api(flow.port, flow.token, "GET", "/v1/assistants")
+        self.assertEqual(catalog["assistants"], [])
+        refused_status, refused = self._api(
+            flow.port,
+            flow.token,
+            "POST",
+            "/v1/teams/demo_team/assistants/shimpz-cloudflare/actions/list-zones",
+            {"page": 1, "per_page": 25},
+        )
+        self.assertEqual((refused_status, refused["code"]), (409, "assistant-manifest-invalid"))
+
+        # Installing the current publication replaces the refused binding with a fresh, running Assistant.
+        replaced_status, replaced = self._api(
+            flow.port,
+            flow.token,
+            "POST",
+            "/v1/teams/demo_team/assistants",
+            {"assistant_id": "shimpz-cloudflare", "source_digest": flow.source_digest},
+        )
+        self.assertEqual((replaced_status, replaced["installed"]), (200, True), replaced)
+        _, relisted = self._api(flow.port, flow.token, "GET", "/v1/teams/demo_team/assistants")
+        self.assertEqual(relisted["assistants"][0]["status"], "running")

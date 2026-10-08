@@ -66,7 +66,7 @@ class LocalSnapshotCollectionDockerTests(unittest.TestCase):
                 ),
                 images=client.images,
             )
-            registry = SimpleNamespace(all=lambda: (SimpleNamespace(image=second),))
+            registry = SimpleNamespace(images=lambda: (second,))
             subject = collector.SupersededSnapshotCollector(scoped, registry, grace_seconds=0)
             subject.collect()
             subject.collect()

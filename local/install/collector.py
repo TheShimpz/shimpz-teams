@@ -91,9 +91,9 @@ class SupersededSnapshotCollector:
         """Return every image a binding of any Team or any container in any state still references."""
         retained: set[str] = set()
         try:
-            for spec in self._registry.all():
+            for image in self._registry.images():
                 try:
-                    retained.add(self._client.images.get(spec.image).id)
+                    retained.add(self._client.images.get(image).id)
                 except ImageNotFound:
                     continue
             for container in self._client.api.containers(all=True):

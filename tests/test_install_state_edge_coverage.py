@@ -357,7 +357,7 @@ class UpdateStoreEdgeCoverageTests(unittest.TestCase):
             ):
                 update._decode(encoded)
 
-        invalid = SimpleNamespace(provenance="unknown", team_id="team_1")
+        invalid = SimpleNamespace(admissible=True, provenance="unknown", team_id="team_1")
         with self.assertRaisesRegex(bindings.DynamicAssistantConflictError, "provenance is invalid"):
             update._successor_binding(invalid, {}, None)
 

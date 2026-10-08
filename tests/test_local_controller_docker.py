@@ -873,6 +873,7 @@ class DockerFlowTests(
                 assistant_id = "local-retirement-proof"
                 spec = SimpleNamespace(assistant_id=assistant_id, allowed_hosts=())
                 binding = SimpleNamespace(
+                    admissible=True,
                     assistant_id=assistant_id,
                     provenance="local",
                     local_record={"image_id": image_id},
@@ -888,7 +889,7 @@ class DockerFlowTests(
                     get=lambda _team_id, _assistant_id: spec if state["binding"] is not None else None,
                     binding=lambda _team_id, _assistant_id: state["binding"],
                     bindings=lambda: () if state["binding"] is None else (state["binding"],),
-                    all=lambda: () if state["binding"] is None else (spec,),
+                    images=lambda: () if state["binding"] is None else (image_id,),
                     delete=delete,
                 )
                 lifecycle = object.__new__(local_app.AssistantLifecycle)
@@ -935,6 +936,7 @@ class DockerFlowTests(
             self._exercise_assistant(flow)
             self._exercise_assistant_recovery(flow)
             self._exercise_egress_attachment_recovery(flow)
+            self._exercise_inadmissible_binding(flow)
             self._exercise_teardown(flow)
             self._exercise_reset(flow)
         finally:

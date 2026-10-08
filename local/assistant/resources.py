@@ -5,10 +5,16 @@ from http import HTTPStatus
 from docker.errors import DockerException, ImageNotFound, NotFound
 
 from assistant import manifest as assistant_manifest
+from install import bindings
 from local.assistant import isolation as local_container_policy
 from local.assistant.egress import PROFILE
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import assistant_isolation_drift, assistant_registry_drift, docker_unavailable
+from local.errors import (
+    assistant_isolation_drift,
+    assistant_manifest_invalid,
+    assistant_registry_drift,
+    docker_unavailable,
+)
 from local.install import snapshots as local_snapshots
 from local.install.runtime import AssistantSpec
 from local.labels import (
@@ -88,7 +94,11 @@ def _assistant_specs(self, team_id: str, *, running_only: bool = False) -> tuple
 
 
 def _resolve(self, team_id: str, assistant_id: str) -> AssistantSpec:
-    spec = self.registry.get(team_id, assistant_id)
+    try:
+        spec = self.registry.get(team_id, assistant_id)
+    except bindings.InadmissibleAssistantBindingError as exc:
+        # A binding the current contract refuses is never resolved for installation or invocation.
+        raise assistant_manifest_invalid() from exc
     if spec is None:
         # Resolution is intentionally completed before any image lookup/pull.
         raise ApiProblem(HTTPStatus.NOT_FOUND, "Assistant is not allowlisted", code="assistant-not-allowlisted")

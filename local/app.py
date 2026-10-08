@@ -170,6 +170,8 @@ class AssistantLifecycle:
     _recover_update_target = local_assistant_lifecycle._recover_update_target
     recover_updates = local_assistant_lifecycle.recover_updates
     resume_assistants = local_assistant_lifecycle.resume_assistants
+    quarantine_inadmissible = local_assistant_lifecycle.quarantine_inadmissible
+    replace_inadmissible = local_assistant_lifecycle.replace_inadmissible
     uninstall_assistant = local_assistant_lifecycle.uninstall_assistant
     install_fresh_local = local_assistant_lifecycle.install_fresh_local
     replace_published_with_local = local_assistant_lifecycle.replace_published_with_local
@@ -380,6 +382,9 @@ class LocalController:
         self.local_snapshot_previews = local_snapshot_preview.LocalSnapshotPreviewCache(client, local_platform)
         self.local_snapshot_collector = local_snapshot_collector.SupersededSnapshotCollector(client, registry)
         self._wire_collaborators()
+        # Every binding the current contract refuses is taken out of service first, so the startup reconciliation
+        # below, and every later request, sees only admissible Assistants and the Team always starts.
+        self.assistant_lifecycle.quarantine_inadmissible()
         self.assistant_lifecycle._reconcile_egress_proxy_attachments()
         self.assistant_lifecycle.recover_updates()
         self.assistant_lifecycle.resume_assistants()

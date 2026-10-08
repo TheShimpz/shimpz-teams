@@ -17,6 +17,7 @@ from local.errors import ApiProblemError as ApiProblem
 from local.errors import assistant_icon_unavailable, assistant_registry_drift, assistant_replace_failed
 from local.install import snapshots as local_snapshots
 from local.install.runtime import AssistantSpec
+from local.labels import ASSISTANT_LABEL
 from local.validation import validate_team_id
 from protocol.http.v1 import payload as http_payload
 
@@ -283,9 +284,9 @@ def _restore_previous_assistant(self, team_id: str, spec: AssistantSpec, network
 
 def _binding_uses_image(self, image_id: str) -> bool | None:
     try:
-        for spec in self.registry.all():
+        for image in self.registry.images():
             try:
-                if self.client.images.get(spec.image).id == image_id:
+                if self.client.images.get(image).id == image_id:
                     return True
             except ImageNotFound:
                 continue
@@ -581,7 +582,8 @@ def recover_updates(self) -> None:
                     self.chat_turn_service._retain_declared_assistant_stored_input_state(update.team_id, target)
                     self._queue_published_residue(update.previous, update.previous_image_id)
                 self._clear_update(update)
-            except ApiProblem, RuntimeError, DockerException:
+            # A transaction over a binding the current contract refuses stays deferred for that Assistant only.
+            except ApiProblem, RuntimeError, DockerException, bindings.DynamicAssistantError:
                 log.exception(
                     "Assistant update recovery deferred for %s/%s",
                     update.team_id,
@@ -590,13 +592,81 @@ def recover_updates(self) -> None:
     self.sweep_residues()
 
 
+def quarantine_inadmissible(self) -> None:
+    """At startup, take every binding the current contract refuses out of service, one Assistant at a time.
+
+    Its admitted egress policy is revoked first and independently, so a runtime that cannot be removed reaches nothing
+    through the Team's proxy; then its owned runtime container is removed, so nothing runs that current admission
+    cannot validate. The binding, its Team-custodied state, and its image stay until its Supervisor replaces or
+    uninstalls it, and a published image is queued as residue that is collected only once no binding holds it. A
+    failure is logged for that Assistant only and never stops the Team (ADR-0033's 2026-10-08 amendment).
+    """
+    try:
+        refused = self.registry.inadmissible()
+    except bindings.DynamicAssistantError:
+        log.exception("Assistant quarantine deferred: binding store is unavailable")
+        return
+    for binding in refused:
+        team_id, assistant_id = binding.team_id, binding.assistant_id
+        log.warning("Installed Assistant %s/%s needs replacement under the current contract", team_id, assistant_id)
+        with self._lock(team_id):
+            try:
+                self._remove_egress_policy(team_id, assistant_id)
+            except ApiProblem:
+                log.exception("Assistant egress revocation deferred for %s/%s", team_id, assistant_id)
+            try:
+                _remove_inadmissible_runtime(self, binding)
+            except ApiProblem, DockerException:
+                log.exception("Assistant quarantine deferred for %s/%s", team_id, assistant_id)
+
+
+def _remove_inadmissible_runtime(self, binding: bindings.DynamicAssistantBinding) -> None:
+    team_id, assistant_id = binding.team_id, binding.assistant_id
+    container = self._assistant_container(team_id, assistant_id, required=False)
+    if container is not None:
+        expected = self._base_labels(team_id, "assistant")
+        expected[ASSISTANT_LABEL] = assistant_id
+        if not self._labels_include(container.labels, expected):
+            # A container with this name that is not provably this Assistant's is never removed as if it were.
+            raise assistant_registry_drift()
+        retired_image_id = _retired_image_id(container)
+        container.remove(force=True)
+        self._blocked_action_workloads.discard(container.id)
+        _forget_container_review(self, container.id)
+        if retired_image_id is not None:
+            self._queue_published_residue(binding, retired_image_id)
+
+
+def _retire_refused_update(self, team_id: str, assistant_id: str) -> None:
+    """Retire the interrupted update of a refused binding, which recovery can never complete, with its Assistant.
+
+    Its previous published image stays queued as residue; a transaction that cannot be retired keeps the Assistant
+    installed, so it is never left blocking every later update of the same Assistant.
+    """
+    try:
+        update = self.updates.get(team_id, assistant_id)
+        if update is None:
+            return
+        self._queue_published_residue(update.previous, update.previous_image_id)
+        self.updates.clear(update)
+    except bindings.DynamicAssistantError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant update state could not be retired",
+            code="assistant-update-unavailable",
+        ) from exc
+
+
 def resume_assistants(self) -> None:
     try:
         identities = sorted(self.registry.identities())
+        refused = {(binding.team_id, binding.assistant_id) for binding in self.registry.inadmissible()}
     except bindings.DynamicAssistantError:
         log.exception("Assistant startup recovery deferred: binding store is unavailable")
         return
     for team_id, assistant_id in identities:
+        if (team_id, assistant_id) in refused:
+            continue
         try:
             self.install_assistant(team_id, assistant_id)
         except ApiProblem, bindings.DynamicAssistantError, RuntimeError, DockerException:
@@ -685,6 +755,18 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
     self.chat_turn_service._delete_chat_continuation(team_id)
     with self._lock(team_id):
         network = self._network(team_id)
+        if binding is not None and not binding.admissible:
+            # No admitted spec can validate this runtime: retire its unrecoverable update, remove it by its ownership
+            # labels, then release the rest exactly as for an Assistant whose container is already gone.
+            _retire_refused_update(self, team_id, assistant_id)
+            try:
+                _remove_inadmissible_runtime(self, binding)
+            except DockerException as exc:
+                raise ApiProblem(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    "Docker could not uninstall the Assistant",
+                    code="docker-remove-failed",
+                ) from exc
         container = self._assistant_container(team_id, assistant_id, required=False)
         if container is None:
             if self._egress_token(team_id, assistant_id, create=False) is not None:
@@ -764,6 +846,29 @@ def install_fresh_local(
             "Assistant binding changed before Local installation",
             code="assistant-binding-conflict",
         )
+    return install_successor(self._install_assistant_unguarded)
+
+
+@_serialize_against_local_team_chat
+def replace_inadmissible(
+    self,
+    team_id: str,
+    previous_binding: bindings.DynamicAssistantBinding,
+    install_successor: Callable[[Callable[..., dict[str, object]]], dict[str, object]],
+) -> dict[str, object]:
+    """Replace a binding the current contract refuses by uninstalling it and installing its successor fresh.
+
+    Its declarations cannot be admitted, so nothing proves the successor compatible with them: its Team-custodied
+    Integration and Stored Input state is deleted with it, and the person provides it again.
+    """
+    current = self.registry.binding(team_id, previous_binding.assistant_id)
+    if current != previous_binding or current.admissible:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Assistant binding changed before replacement",
+            code="assistant-binding-conflict",
+        )
+    self._uninstall_assistant_unguarded(team_id, previous_binding.assistant_id)
     return install_successor(self._install_assistant_unguarded)
 
 

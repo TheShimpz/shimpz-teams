@@ -80,7 +80,8 @@ class AutomaticAssistantUpdater:
                 source_digest = binding.resolution["source_digest"]
                 if not isinstance(source_digest, str):
                     raise TypeError
-            except KeyError, TypeError, ValueError:
+            except KeyError, TypeError, ValueError, bindings.DynamicAssistantError:
+                # Includes a binding the current contract refuses: only its Supervisor can replace it.
                 log.exception("Automatic Assistant update check found an invalid installed binding")
                 self._record_result(binding.team_id, binding.assistant_id, "error", "binding:invalid")
                 continue

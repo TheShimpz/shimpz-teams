@@ -6,7 +6,7 @@ import fcntl
 import hashlib
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -36,12 +36,20 @@ class DynamicAssistantConflictError(DynamicAssistantError):
     """A Team already binds this Assistant id to a different artifact."""
 
 
+class InadmissibleAssistantBindingError(DynamicAssistantError):
+    """An intact installed binding that the current Assistant contract refuses; it must be replaced or uninstalled."""
+
+
 @dataclass(frozen=True, slots=True)
 class DynamicAssistantBinding:
     team_id: str
     binding_digest: str
     provenance: AssistantProvenance
     document: dict[str, Any]
+    # False for an intact, digest-verified binding admitted under an earlier contract that the current one refuses,
+    # such as one staged with an older SDK: it stays owned so it can be listed, replaced, or uninstalled, and every
+    # runtime use of it is refused (ADR-0033's 2026-10-08 amendment).
+    admissible: bool = True
 
     @property
     def assistant_id(self) -> str:
@@ -51,13 +59,19 @@ class DynamicAssistantBinding:
     def resolution(self) -> dict[str, Any]:
         if self.provenance != _PUBLISHED:
             raise DynamicAssistantError("the Assistant binding is not a publication")
+        self.require_admissible()
         return self.document
 
     @property
     def local_record(self) -> dict[str, Any]:
         if self.provenance != _LOCAL:
             raise DynamicAssistantError("the Assistant binding is not a local snapshot")
+        self.require_admissible()
         return self.document
+
+    def require_admissible(self) -> None:
+        if not self.admissible:
+            raise InadmissibleAssistantBindingError("the installed Assistant must be replaced under the current terms")
 
 
 class DynamicAssistantStore:
@@ -290,17 +304,19 @@ def _decode_binding(
     if set(value) != {"team_id", "binding_digest", "provenance", document_name}:
         raise DynamicAssistantError("the dynamic Assistant registry binding is malformed")
     document = value[document_name]
-    if not isinstance(document, dict):
+    if not isinstance(document, dict) or provenance not in (_PUBLISHED, _LOCAL):
         raise DynamicAssistantError("the dynamic Assistant registry binding is malformed")
-    if provenance == _PUBLISHED:
-        expected = binding_from_resolution(value["team_id"], document)
-    elif provenance == _LOCAL:
-        expected = binding_from_local_record(value["team_id"], document, local_record_validator)
-    else:
-        raise DynamicAssistantError("the dynamic Assistant registry binding is malformed")
-    if value["binding_digest"] != expected.binding_digest:
+    # Integrity is checked first and stays fatal: a binding whose digest does not match was not written by Team.
+    intact = _binding(value["team_id"], provenance, document_name, document)
+    if value["binding_digest"] != intact.binding_digest:
         raise DynamicAssistantError("the dynamic Assistant registry binding digest is invalid")
-    return expected
+    # Admission is the current contract's verdict on one intact binding, so a refusal marks only that binding.
+    try:
+        if provenance == _PUBLISHED:
+            return binding_from_resolution(value["team_id"], document)
+        return binding_from_local_record(value["team_id"], document, local_record_validator)
+    except DynamicAssistantError:
+        return replace(intact, admissible=False)
 
 
 def _encode_binding(binding: DynamicAssistantBinding) -> dict[str, object]:

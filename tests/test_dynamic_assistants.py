@@ -89,8 +89,12 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.assertEqual(local_store.get("team_1", "local-example"), binding)
         with self.assertRaisesRegex(DynamicAssistantError, "not a publication"):
             _ = binding.resolution
-        with self.assertRaisesRegex(DynamicAssistantError, "unavailable in this profile"):
-            DynamicAssistantStore(self.path).snapshot()
+        # A profile that cannot admit a local record keeps the intact binding but refuses every use of it.
+        (unadmitted,) = DynamicAssistantStore(self.path).snapshot()
+        self.assertFalse(unadmitted.admissible)
+        self.assertEqual(unadmitted.binding_digest, binding.binding_digest)
+        with self.assertRaisesRegex(DynamicAssistantError, "must be replaced"):
+            _ = unadmitted.local_record
 
     def test_binding_identity_and_replacement_never_cross_provenance(self) -> None:
         local_store = DynamicAssistantStore(self.path, local_record_validator=validate_local_record)

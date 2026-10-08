@@ -270,7 +270,7 @@ class LocalLifecycleTests(LocalContractCase):
             ),
             remove=lambda **options: events.append(("image-remove", options)),
         )
-        controller.registry = SimpleNamespace(all=lambda: ())
+        controller.registry = SimpleNamespace(images=lambda: ())
         controller.assistant_lifecycle.registry = controller.registry
 
         self.assertTrue(controller.assistant_lifecycle._remove_retired_image(image_id))
@@ -280,7 +280,7 @@ class LocalLifecycleTests(LocalContractCase):
         )
         container_list.assert_called_once_with(all=True, sparse=True, filters={"ancestor": image_id})
 
-        controller.registry = SimpleNamespace(all=lambda: (SimpleNamespace(image=OUTDATED_ASSISTANT_IMAGE),))
+        controller.registry = SimpleNamespace(images=lambda: (OUTDATED_ASSISTANT_IMAGE,))
         controller.assistant_lifecycle.registry = controller.registry
         controller.client.images.get = lambda _reference: SimpleNamespace(
             id=image_id,
@@ -289,7 +289,7 @@ class LocalLifecycleTests(LocalContractCase):
         self.assertFalse(controller.assistant_lifecycle._remove_retired_image(image_id))
         self.assertEqual(len(events), 1)
 
-        controller.registry = SimpleNamespace(all=lambda: ())
+        controller.registry = SimpleNamespace(images=lambda: ())
         controller.assistant_lifecycle.registry = controller.registry
         controller.client.images.get = lambda _reference: SimpleNamespace(
             id="sha256:" + "b" * 64,

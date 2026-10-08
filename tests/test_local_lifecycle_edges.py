@@ -74,7 +74,9 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             local_lifecycle._remove_team_assistants(subject, "team_1", [container])
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
-        subject.registry = TestAssistantRegistry({"assistant": types.SimpleNamespace(provenance="local")})
+        subject.registry = TestAssistantRegistry(
+            {"assistant": types.SimpleNamespace(admissible=True, provenance="local")}
+        )
         lifecycle._retired_image_id = lambda _container: "sha256:" + "a" * 64
         container.remove.side_effect = DockerException("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
@@ -88,7 +90,9 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         )
         lifecycle._queue_residue.assert_not_called()
 
-        subject.registry = TestAssistantRegistry({"assistant": types.SimpleNamespace(provenance="published")})
+        subject.registry = TestAssistantRegistry(
+            {"assistant": types.SimpleNamespace(admissible=True, provenance="published")}
+        )
         self.assertEqual(
             local_lifecycle._remove_team_assistants(subject, "team_1", [container]),
             1,
@@ -253,13 +257,16 @@ class LocalLifecycleEdgeTests(LocalContractCase):
                 sweep_residues=lambda: events.append("residue-sweep"),
                 _disconnect_egress_proxy_if_attached=lambda _network: events.append("proxy-disconnect"),
             ),
-            registry=TestAssistantRegistry({"assistant": types.SimpleNamespace(provenance="local")}),
+            registry=TestAssistantRegistry({"assistant": types.SimpleNamespace(admissible=True, provenance="local")}),
             storage=types.SimpleNamespace(destroy_all=lambda: True),
             inference_store=types.SimpleNamespace(delete_all=lambda: events.append("inference-delete")),
             team_names=types.SimpleNamespace(delete_all=lambda: events.append("names-delete")),
             _clear_team_runtime_state=lambda _team_id: events.append("runtime-clear"),
         )
 
+        subject.registry.binding = lambda _team_id, assistant_id: subject.registry.get(assistant_id)
+        subject.registry.bindings = lambda: ()
+        subject.assistant_icons = types.SimpleNamespace(retire=lambda _binding, _references, delete: delete())
         storage_removed, absent = local_lifecycle._remove_space_resources(
             subject,
             [container],

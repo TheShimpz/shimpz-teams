@@ -36,7 +36,7 @@ def _collector(summaries, *, bound=(), containers=()):
     }
     client.images.get.side_effect = lambda reference: types.SimpleNamespace(id=reference)
     registry = mock.Mock()
-    registry.all.return_value = tuple(types.SimpleNamespace(image=image_id) for image_id in bound)
+    registry.images.return_value = tuple(bound)
     clock = _Clock()
     return collector.SupersededSnapshotCollector(client, registry, clock=clock), client, registry, clock
 
@@ -68,7 +68,7 @@ class SupersededSnapshotCollectorTests(unittest.TestCase):
         client.images.remove.assert_called_once_with(image=SUPERSEDED, force=False, noprune=True)
 
         # A stopped Team keeps its binding without a container; once released, the image waits a full grace.
-        registry.all.return_value = ()
+        registry.images.return_value = ()
         client.api.containers.return_value = []
         subject.collect()
         clock.now += collector.GRACE_SECONDS - 1
@@ -92,7 +92,7 @@ class SupersededSnapshotCollectorTests(unittest.TestCase):
         clock.now += collector.GRACE_SECONDS
         subject.collect()
         client.images.remove.assert_not_called()
-        registry.all.assert_not_called()
+        registry.images.assert_not_called()
 
     def test_accepts_the_untagged_markers_older_daemons_report(self) -> None:
         subject, client, _registry, clock = _collector(
@@ -154,7 +154,7 @@ class SupersededSnapshotCollectorTests(unittest.TestCase):
             subject.collect()
 
             subject, client, registry, _clock = _collector([_summary(SUPERSEDED)])
-            registry.all.side_effect = bindings.DynamicAssistantError("unreadable")
+            registry.images.side_effect = bindings.DynamicAssistantError("unreadable")
             subject.collect()
 
             subject, client, _registry, _clock = _collector([_summary(SUPERSEDED)])

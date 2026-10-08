@@ -14,7 +14,7 @@ from docker.errors import DockerException, ImageNotFound
 
 from assistant import manifest as assistant_manifest
 from install import bindings
-from install.bindings import DynamicAssistantError, DynamicAssistantStore
+from install.bindings import DynamicAssistantStore
 from install.icons import AssistantIconError, AssistantIconStore
 from install.update import AssistantUpdateStore
 from local.errors import ApiProblemError
@@ -397,8 +397,9 @@ class LocalSnapshotTests(unittest.TestCase):
             self.assertEqual(transaction.successor.provenance, "local")
             self.assertEqual(transaction.successor.local_record, replacement)
             self.assertEqual(updates.get("team_1", "fixture-assistant"), transaction)
-            with self.assertRaisesRegex(DynamicAssistantError, "unavailable in this profile"):
-                AssistantUpdateStore(root / "updates").list()
+            (unadmitted,) = AssistantUpdateStore(root / "updates").list()
+            self.assertFalse(unadmitted.previous.admissible)
+            self.assertFalse(unadmitted.successor.admissible)
 
     def test_service_lists_only_public_candidate_fields(self) -> None:
         client, _image_value, _container_value = _client()
@@ -519,6 +520,7 @@ class LocalSnapshotTests(unittest.TestCase):
         admitted = snapshots.admit(client, IMAGE_ID)
         registry = mock.Mock()
         registry.binding.return_value = SimpleNamespace(
+            admissible=True,
             provenance="published",
             assistant_id="fixture-assistant",
         )
@@ -762,7 +764,7 @@ class LocalSnapshotTests(unittest.TestCase):
             with self.assertRaisesRegex(bindings.DynamicAssistantConflictError, "provenance"):
                 registry.local_replacement("team_1", published_binding.binding_digest, record)
 
-        invalid = SimpleNamespace(provenance="unknown", document={}, assistant_id="fixture-assistant")
+        invalid = SimpleNamespace(admissible=True, provenance="unknown", document={}, assistant_id="fixture-assistant")
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "provenance is invalid"):
             assistant_registry._runtime_identity(invalid)
 

@@ -63,7 +63,7 @@ INVENTORY_SPAN_NAMES = (
     "AssistantLifecycle._validate_container_profile",
     "AssistantLifecycle._validate_container_egress",
     "AssistantLifecycle._admit_assistant_allowed_hosts",
-    "AssistantRegistry.team_bindings",
+    "AssistantRegistry.installed",
     "AssistantRegistry.versioned",
     "ManifestContractCache.get",
     "MachineContractCache.get",
@@ -622,7 +622,8 @@ def _inventory_span_summary(records: list[dict[str, object]], installed: bool) -
         "NetworkCollection.get_calls": 1,
         "ContainerCollection.list_calls": 1,
         "AssistantLifecycle._network_calls": 1,
-        "AssistantRegistry.team_bindings_calls": int(installed),
+        # The inventory always reads the Team's bindings: one needing replacement has no container to discover.
+        "AssistantRegistry.installed_calls": 1,
         "AssistantRegistry.versioned_calls": int(installed),
         "AssistantLifecycle._validate_container_profile_calls": int(installed),
         "AssistantLifecycle._validate_container_egress_calls": int(installed),

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from install import bindings
@@ -53,7 +55,8 @@ class AssistantRegistry:
         return None if binding is None else _spec(binding)
 
     def binding(self, team_id: str, assistant_id: str) -> bindings.DynamicAssistantBinding | None:
-        return self._store.get(team_id, assistant_id)
+        binding = self._store.get(team_id, assistant_id)
+        return None if binding is None else _admitted(binding)
 
     @staticmethod
     def versioned(binding: bindings.DynamicAssistantBinding) -> tuple[AssistantSpec, str]:
@@ -111,7 +114,25 @@ class AssistantRegistry:
         return _spec(binding)
 
     def team_bindings(self, team_id: str) -> tuple[bindings.DynamicAssistantBinding, ...]:
-        return self._store.list(team_id)
+        """The Team's bindings that pass current store admission, for callers that convert each to its spec.
+
+        Conversion completes admission: a binding whose runtime contract is refused raises there, never runs.
+        """
+        return tuple(binding for binding in self._store.list(team_id) if binding.admissible)
+
+    def installed(
+        self, team_id: str
+    ) -> tuple[tuple[bindings.DynamicAssistantBinding, ...], tuple[bindings.DynamicAssistantBinding, ...]]:
+        """One snapshot of the Team's bindings, split into admitted ones and those needing replacement.
+
+        A binding the current contract refuses is intact but never backs a running Assistant (ADR-0033's 2026-10-08
+        amendment); its Supervisor sees it so it can be replaced or uninstalled.
+        """
+        snapshot = tuple(map(_admitted, self._store.list(team_id)))
+        return (
+            tuple(binding for binding in snapshot if binding.admissible),
+            tuple(binding for binding in snapshot if not binding.admissible),
+        )
 
     def delete(self, team_id: str, assistant_id: str) -> bool:
         return self._store.delete(team_id, assistant_id)
@@ -123,25 +144,46 @@ class AssistantRegistry:
         return {(binding.team_id, binding.assistant_id) for binding in self._store.snapshot()}
 
     def bindings(self) -> tuple[bindings.DynamicAssistantBinding, ...]:
-        return self._store.snapshot()
+        return tuple(map(_admitted, self._store.snapshot()))
 
-    def all(self) -> tuple[AssistantSpec, ...]:
-        unique: dict[tuple[str, str], AssistantSpec] = {}
-        for binding in self._store.snapshot():
-            spec = _spec(binding)
-            unique[(spec.assistant_id, spec.image)] = spec
-        return tuple(sorted(unique.values(), key=lambda spec: (spec.assistant_id, spec.image)))
+    def inadmissible(self) -> tuple[bindings.DynamicAssistantBinding, ...]:
+        """Every installed binding the current contract refuses; each needs replacement (ADR-0033, 2026-10-08)."""
+        return tuple(binding for binding in self.bindings() if not binding.admissible)
+
+    def images(self) -> tuple[str, ...]:
+        """Every image reference an installed binding holds, so no bound image is ever collected as unused.
+
+        A binding needing replacement still holds its image until its Supervisor replaces or uninstalls it.
+        """
+        return tuple(sorted({_bound_image(binding) for binding in self.bindings()}))
 
     def catalog(self) -> tuple[AssistantSpec, ...]:
         unique: dict[str, bindings.DynamicAssistantBinding] = {}
-        for binding in self._store.snapshot():
+        for binding in self.bindings():
+            if not binding.admissible:
+                continue
             current = unique.get(binding.assistant_id)
             if current is None or _catalog_order(binding) > _catalog_order(current):
                 unique[binding.assistant_id] = binding
         return tuple(_spec(unique[assistant_id]) for assistant_id in sorted(unique))
 
 
+def _admitted(binding: bindings.DynamicAssistantBinding) -> bindings.DynamicAssistantBinding:
+    """One stored binding as current Local admission sees it: the store's verdict, then its runtime contract.
+
+    A binding whose runtime contract the current Team refuses is refused like any other binding needing replacement,
+    so no runtime path ever meets it as admitted (ADR-0033's 2026-10-08 amendment).
+    """
+    if binding.admissible:
+        try:
+            _spec(binding)
+        except bindings.DynamicAssistantError:
+            return replace(binding, admissible=False)
+    return binding
+
+
 def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
+    binding.require_admissible()
     document = binding.document
     try:
         contract = assistant_registry.runtime_contract(document)
@@ -163,7 +205,17 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             platform=str(document["platform"]) if binding.provenance == "local" else None,
         )
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
-        raise bindings.DynamicAssistantError("Assistant binding has no valid runtime contract") from exc
+        raise bindings.InadmissibleAssistantBindingError("Assistant binding has no valid runtime contract") from exc
+
+
+def _bound_image(binding: bindings.DynamicAssistantBinding) -> str:
+    if binding.admissible:
+        return _spec(binding).image
+    # The digest-verified document Team wrote names the image; nothing else in it is interpreted.
+    image = binding.document.get("image_reference" if binding.provenance == "published" else "image_id")
+    if not isinstance(image, str) or not image:
+        raise bindings.DynamicAssistantError("Assistant binding holds no image reference")
+    return image
 
 
 def _runtime_identity(binding: bindings.DynamicAssistantBinding) -> tuple[str, tuple[tuple[str, str], ...]]:

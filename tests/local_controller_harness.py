@@ -93,8 +93,8 @@ class TestAssistantRegistry(dict):
     def get(self, team_id, assistant_id=None):
         return super().get(team_id if assistant_id is None else assistant_id)
 
-    def all(self):
-        return tuple(self.values())
+    def images(self):
+        return tuple(spec.image for spec in self.values())
 
     def identities(self):
         return {("team_1", assistant_id) for assistant_id in self}
@@ -111,6 +111,13 @@ class TestAssistantRegistry(dict):
 
     def team_bindings(self, _team_id):
         return tuple(self.values())
+
+    def installed(self, team_id):
+        return self.team_bindings(team_id), ()
+
+    @staticmethod
+    def inadmissible():
+        return ()
 
     @staticmethod
     def spec(binding):

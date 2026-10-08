@@ -11,8 +11,10 @@ from docker.errors import DockerException, NotFound
 
 from core.container import network as network_policy
 from egress import policy as egress_policy
+from install import bindings
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
+    assistant_manifest_invalid,
     assistant_registry_drift,
     docker_unavailable,
     egress_proxy_drift,
@@ -382,7 +384,11 @@ def _team_requires_egress_proxy(self, team_id: str, network) -> bool:
     requires_proxy = False
     for container in containers:
         assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
-        spec = self.registry.get(team_id, assistant_id)
+        try:
+            spec = self.registry.get(team_id, assistant_id)
+        except bindings.InadmissibleAssistantBindingError as exc:
+            # The Team's proxy is reconciled fail-closed while a refused binding still has a runtime.
+            raise assistant_manifest_invalid() from exc
         if spec is None or assistant_id in seen:
             raise assistant_registry_drift()
         seen.add(assistant_id)
@@ -436,6 +442,10 @@ def _team_has_egress_assistant(self, team_id: str, *, excluding: str | None = No
     for container in containers:
         assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
         if assistant_id == excluding:
+            continue
+        binding = self.registry.binding(team_id, assistant_id)
+        if binding is not None and not binding.admissible:
+            # A refused binding never keeps the Team's proxy attached.
             continue
         spec = self.registry.get(team_id, assistant_id)
         if spec is None:

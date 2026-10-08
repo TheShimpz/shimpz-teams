@@ -121,10 +121,15 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
     for bound_team_id, assistant_id in sorted(self.registry.identities()):
         if bound_team_id != team_id:
             continue
-        spec = self.registry.get(team_id, assistant_id)
-        if spec is None:
-            raise team_resources_ownership_conflict()
-        self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
+        binding = self.registry.binding(team_id, assistant_id)
+        if binding is not None and not binding.admissible:
+            # A binding the current contract refuses has no admitted declarations to consult: remove any policy.
+            self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)
+        else:
+            spec = self.registry.get(team_id, assistant_id)
+            if spec is None:
+                raise team_resources_ownership_conflict()
+            self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
         _retire_team_binding(self, team_id, assistant_id)
     self.assistant_lifecycle.sweep_residues()
     return len(containers)
@@ -319,10 +324,10 @@ def _remove_space_resources(
     absent.add("routines")
     for container in containers:
         labels = container.attrs["Config"]["Labels"]
-        spec = self.registry.get(labels[TEAM_LABEL], labels[ASSISTANT_LABEL])
+        binding = self.registry.binding(labels[TEAM_LABEL], labels[ASSISTANT_LABEL])
         retired_image_id = self.assistant_lifecycle._retired_image_id(container)
         container.remove(force=True)
-        if retired_image_id is not None and (spec is None or spec.provenance == "published"):
+        if retired_image_id is not None and (binding is None or binding.provenance == "published"):
             self.assistant_lifecycle._queue_residue(retired_image_id)
         self.assistant_lifecycle._blocked_action_workloads.discard(container.id)
     absent.add("assistant_containers")
