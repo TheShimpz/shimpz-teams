@@ -157,9 +157,9 @@
       "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ndescription = \"Greets the caller by name in a short, friendly sentence.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.meta-access-token]\nkind = \"password\"\nlabel = \"Access token\"\ndescription = \"System User access token.\"\nhelp_url = \"https://dashboard.example.com/api-keys\"\nhost = \"graph.facebook.com\"\nheader = \"Authorization\"\nscheme = \"Bearer\"\n\n[stored_inputs.meta-app-secret]\nkind = \"password\"\nlabel = \"App secret\"\ndescription = \"App secret of the same Meta app.\"\nhelp_url = \"https://dashboard.example.com/api-keys\"\nhost = \"graph.facebook.com\"\nquery = \"appsecret_proof\"\nhmac = \"meta-access-token\"\n\n[stored_inputs.meta-third]\nkind = \"password\"\nlabel = \"Third\"\ndescription = \"Chained proof.\"\nhelp_url = \"https://dashboard.example.com/api-keys\"\nhost = \"graph.facebook.com\"\nquery = \"third_proof\"\nhmac = \"meta-app-secret\"\n"
     },
     {
-      "name": "legacy_root_fields",
+      "name": "missing_shimpz_table",
       "valid": false,
-      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ndescription = \"Greets the caller by name in a short, friendly sentence.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+      "manifest": "[network]\nallowed_hosts = []\n"
     },
     {
       "name": "missing_network",

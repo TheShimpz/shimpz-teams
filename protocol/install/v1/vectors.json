@@ -322,7 +322,7 @@
       }
     },
     {
-      "name": "resolve_retired_plural_image_package",
+      "name": "resolve_foreign_image_package",
       "fixture": "resolve_response",
       "valid": false,
       "error": "schema_violation",
@@ -331,7 +331,7 @@
         "path": [
           "image_reference"
         ],
-        "value": "ghcr.io/theshimpz/shimpz-assistants@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        "value": "ghcr.io/example/shimpz-assistant@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       }
     },
     {
@@ -358,11 +358,11 @@
           "runtime",
           "kind"
         ],
-        "value": "assistant-http-v1"
+        "value": "unsupported-kind"
       }
     },
     {
-      "name": "resolve_runtime_port",
+      "name": "resolve_runtime_unknown_field",
       "fixture": "resolve_response",
       "valid": false,
       "error": "schema_violation",
@@ -370,9 +370,9 @@
         "op": "set",
         "path": [
           "runtime",
-          "port"
+          "unknown"
         ],
-        "value": 8080
+        "value": true
       }
     },
     {
@@ -514,11 +514,9 @@
         "op": "set",
         "path": [
           "machine_contract",
-          "server"
+          "unknown"
         ],
-        "value": {
-          "port": 8080
-        }
+        "value": true
       }
     },
     {
