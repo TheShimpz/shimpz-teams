@@ -64,7 +64,6 @@ class CardViewTests(CardCase):
             (card["choices"], card["assistant_id"], card["action"], card["revision"], card["position"], card["steps"]),
             (["run", "delete"], ASSISTANT, "create-record", value.revision, {"phase": "replay", "step": 2}, 2),
         )
-        self.assertNotIn("recommended", card)
         failure = card["diagnostic"]["failure"]
         self.assertEqual(
             (card["evidence"], failure["error_type"], failure["http_status"], failure["provider"]),
@@ -104,12 +103,8 @@ class CardViewTests(CardCase):
             cases = (
                 (lambda card: self.answer(service, run_id, {**card, "nonce": "0" * 32}, "run"), "routine-card-expired"),
                 (lambda card: self.answer(service, run_id, card, "run", principal="b" * 32), "routine-card-expired"),
-                # Excluir and the retired choices, Recriar included, are never card answers.
+                # Excluir goes through the confirmed deletion route, never a card answer.
                 (lambda card: self.answer(service, run_id, card, "delete"), "invalid-body"),
-                (lambda card: self.answer(service, run_id, card, "recreate"), "invalid-body"),
-                (lambda card: self.answer(service, run_id, card, "verify"), "invalid-body"),
-                (lambda card: self.answer(service, run_id, card, "skip"), "invalid-body"),
-                (lambda card: self.answer(service, run_id, card, "pause"), "invalid-body"),
             )
             for attempt, code in cases:
                 with self.subTest(code=code), self.assertRaises(local_app.ApiProblem) as caught:

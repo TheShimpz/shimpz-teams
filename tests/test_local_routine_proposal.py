@@ -676,15 +676,13 @@ class RecordedRoutineTests(LocalContractCase):
                 self.assertEqual(caught.exception.code, expected.get(name, "team-context-changed"))
                 self.assertEqual(service.routine_store.load("team_1").routines, ())
 
-    def test_a_record_carrying_a_retired_decision_member_is_a_brain_contract_failure(self) -> None:
-        """Decision turns were removed (ADR-0101 amendment, 2026-10-07): their record members are never admitted."""
-        for retired in ({"notes": ""}, {"decide_actions": []}, {"notes": "", "decide_actions": []}):
-            with self.subTest(retired=retired), tempfile.TemporaryDirectory() as directory:
-                service = self.controller(directory, Recording(_record(**retired)))
-                with self.assertRaises(local_app.ApiProblem) as caught:
-                    self.chat(service)
-                self.assertEqual(caught.exception.code, "brain-runtime-failed")
-                self.assertEqual(service.routine_store.load("team_1").routines, ())
+    def test_a_record_carrying_a_member_outside_its_shape_is_a_brain_contract_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, Recording(_record(unexpected="")))
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                self.chat(service)
+            self.assertEqual(caught.exception.code, "brain-runtime-failed")
+            self.assertEqual(service.routine_store.load("team_1").routines, ())
 
     def test_a_recording_that_cannot_become_a_routine_keeps_its_reply_and_carries_its_refusal(self) -> None:
         cases = [

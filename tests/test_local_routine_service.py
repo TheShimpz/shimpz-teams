@@ -687,7 +687,7 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
             routine_watchdog.check(service, startup=True)
             state = self.state(service)
             archived = controller.action_state.current_batch(generation)
-        # Never the legacy uncertain state: the run's incident keeps the evidence and its batch is archived.
+        # The run's incident keeps the evidence and its batch is archived.
         self.assertEqual(state.runs, ())
         self.assertEqual([item.incident_id for item in state.incidents], [claim["run_id"]])
         self.assertEqual(archived, (batch.fingerprint, "archived"))

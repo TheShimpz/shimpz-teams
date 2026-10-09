@@ -370,7 +370,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
             ],
         )
 
-    def test_list_marks_an_invalid_retired_manifest_for_removal(self) -> None:
+    def test_list_marks_an_invalid_manifest_for_removal(self) -> None:
         controller, container, _events = self._lifecycle_controller()
         container.labels[local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
         container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE

@@ -92,7 +92,6 @@ class RunLifecycleTests(unittest.TestCase):
         for position in (
             {"phase": "replay", "step": 2},
             {"phase": "replay", "step": 0},
-            {"phase": "decision", "call": 65},
             {"phase": "other", "step": 1},
             1,
         ):

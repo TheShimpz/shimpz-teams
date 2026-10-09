@@ -832,22 +832,14 @@ class SelectorAndDispositionTests(unittest.TestCase):
         shown = routine_plan.input_preview(withheld, withheld.steps[1], {"post_id": "z2"}, {key: "z2"}, ())
         self.assertEqual(shown, [{"member": "post_id", "source": "step_output", "value": None}])
 
-    def test_no_disposition_has_a_condition_and_every_plan_runs_a_step(self) -> None:
+    def test_every_plan_runs_a_step_and_chain_is_no_disposition(self) -> None:
         self.assertIsNone(self.plan(self.selector(), {"mode": "none", "step": None}).shown())
         empty = {**_document(steps=[]), "output": {"mode": "none", "step": None}}
         with self.assertRaisesRegex(routine_plan.PlanError, "plan-output-invalid"):
             routine_plan.admit(empty, CONTRACTS)
-        for output in (
-            {"mode": "decide", "step": None},
-            {"mode": "decide", "step": None, "when": "changes"},
-            {"mode": "decide", "step": "share", "when": "always"},
-            {"mode": "show", "step": "share", "when": "always"},
-            {"mode": "none", "step": None, "when": "changes"},
-            {"mode": "chain", "step": None},
-        ):
-            with self.subTest(output=output), self.assertRaises(routine_plan.PlanError) as caught:
-                self.plan(self.selector(), output)
-            self.assertEqual(caught.exception.code, "plan-output-invalid")
+        with self.assertRaises(routine_plan.PlanError) as caught:
+            self.plan(self.selector(), {"mode": "chain", "step": None})
+        self.assertEqual(caught.exception.code, "plan-output-invalid")
         self.assertFalse(routine_plan.well_formed(empty))
 
     def test_a_shown_result_redacts_every_value_and_key_the_run_protects(self) -> None:

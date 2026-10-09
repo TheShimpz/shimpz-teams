@@ -233,19 +233,6 @@ class StrictHttpTest(unittest.TestCase):
             {"team_id": "team_1", "assistant_id": "cloudflare-assistant"},
         )
 
-    def test_retired_hosted_team_routes_are_not_routed(self) -> None:
-        for method, operation in (
-            ("POST", "chat/stream"),
-            ("GET", "status"),
-            ("GET", "logs"),
-            ("POST", "stop"),
-            ("POST", "start"),
-            ("POST", "restart"),
-        ):
-            with self.subTest(operation=operation):
-                parts = ("v1", "teams", "team_1", *operation.split("/"))
-                self.assertIsNone(strict_http.resolve_controller_route(method, parts))
-
 
 if __name__ == "__main__":
     unittest.main()

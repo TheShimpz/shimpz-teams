@@ -125,7 +125,6 @@ class JournalOperationTests(unittest.TestCase):
         journal.prepare_batch("generation", "thread", [self.first])
         for statement in (
             "UPDATE operations SET state = 'completed', result = x'7b7d'",
-            "UPDATE operations SET state = 'no_effect', origin = 'verification'",
             "UPDATE operations SET state = 'prepared', origin = 'execution'",
             "UPDATE operations SET attempts = -1",
             "UPDATE batches SET state = 'archived'",

@@ -67,10 +67,6 @@ class DispositionTests(unittest.TestCase):
             {"mode": "loud", "step": None},
             {"mode": "chain", "step": None},
             {"mode": "show", "step": "share", "extra": 1},
-            # The retired decision mode and condition are refused (ADR-0101 amendment, 2026-10-07).
-            {"mode": "decide", "step": None},
-            {"mode": "decide", "step": None, "when": "changes"},
-            {"mode": "show", "step": "share", "when": None},
         ):
             with self.subTest(output=output):
                 candidate = _document(output=output)
@@ -100,10 +96,7 @@ class DispositionTests(unittest.TestCase):
             ({"mode": "show", "step": 1}, 0),
             ({"mode": "none", "step": None}, 0),
             ({"mode": "chain", "step": 1}, steps),
-            ({"mode": "decide", "step": None}, steps),
-            ({"mode": "decide", "step": None, "when": "always"}, 0),
-            ({"mode": "show", "step": 1, "when": "always"}, steps),
-            ({"mode": "show", "step": 1, "when": None}, steps),
+            ({"mode": "show", "step": 1, "extra": 1}, steps),
             ({"mode": "show"}, steps),
             ([], steps),
         ):

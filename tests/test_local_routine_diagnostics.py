@@ -439,9 +439,6 @@ class StepRecordTests(StepRecordCase):
             _step(1, "not-permitted"),
             _step(1, position={"phase": "replay", "step": True}),
             _step(1, position={"phase": "planning", "step": 1}),
-            # A decision call and its decision-chosen inputs are retired (ADR-0101 amendment, 2026-10-07).
-            _step(1, position={"phase": "decision", "call": 1}),
-            _step(1, inputs=[{"member": "record_id", "source": "decision", "value": '"r1"'}]),
         )
         for item in invalid:
             with self.subTest(item=item), self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "invalid"):
@@ -455,12 +452,10 @@ class StepRecordTests(StepRecordCase):
                 self.store.record_step("team_1", INCARNATION, escaped, (value,))
         with self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "invalid"):
             self.store.record_run("team_1", INCARNATION, diagnostics.RunRecord(BINDING, 5, True, NOW))
-        # A terminal record holding a retired decision count or record never opens as one.
+        # A terminal record holding any member outside its closed shape never opens as one.
         document = {**BINDING.document(), "reached": 1, "dispatched": True}
         self.assertTrue(diagnostics._run_document(document, RUN))
-        for retired in ({"calls": 0}, {"decision": None}, {"calls": 0, "decision": None}):
-            with self.subTest(retired=retired):
-                self.assertFalse(diagnostics._run_document({**document, **retired}, RUN))
+        self.assertFalse(diagnostics._run_document({**document, "unexpected": 0}, RUN))
         with (
             mock.patch.object(diagnostics, "MAX_STEP_PLAINTEXT_BYTES", 64),
             self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "byte limit"),
@@ -518,10 +513,10 @@ class RunPageEdgeTests(StepRecordCase):
         self.store.record_step("team_1", INCARNATION, _step(1, binding=dataclasses.replace(BINDING, revision=1)), ())
         self.assertEqual(self.page()["revision"], 1)
 
-    def test_a_sealed_record_in_a_retired_decision_shape_fails_the_page_closed(self) -> None:
-        """An authentic body holding a decision call or decision record never reads as a run's record (2026-10-07)."""
-        step = {**BINDING.document(), **_step(1).view(), "position": {"phase": "decision", "call": 1}}
-        run = {**BINDING.document(), "reached": 1, "dispatched": False, "calls": 0, "decision": None}
+    def test_a_sealed_record_outside_its_shape_fails_the_page_closed(self) -> None:
+        """An authentic body holding a member outside its record shape never reads as a run's record."""
+        step = {**BINDING.document(), **_step(1).view(), "unexpected": None}
+        run = {**BINDING.document(), "reached": 1, "dispatched": False, "unexpected": None}
         for kind, document in (("step", step), ("run", run)):
             self.store.delete("team_1")
             self.store.record_step("team_1", INCARNATION, _step(1), ())
@@ -536,7 +531,7 @@ class RunPageEdgeTests(StepRecordCase):
     def test_a_record_keys_by_its_replay_step_and_anything_else_by_none(self) -> None:
         self.assertEqual(diagnostics.position_key({"phase": "replay", "step": 3}), 3)
         self.assertEqual(diagnostics.position_key(None), 0)
-        self.assertEqual(diagnostics.position_key({"phase": "decision", "call": 4}), 0)
+        self.assertEqual(diagnostics.position_key({"phase": "replay"}), 0)
 
 
 class FailureEvidenceTests(unittest.TestCase):

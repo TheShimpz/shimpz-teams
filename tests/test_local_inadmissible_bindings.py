@@ -1,8 +1,8 @@
 """An intact binding the current Assistant contract refuses is taken out of service for that Assistant only.
 
-A binding admitted under an earlier contract, such as an Assistant staged with an older SDK, stays owned and listed
-as needing replacement; every runtime use of it is refused, and nothing about it can stop the Team from starting
-(ADR-0033's 2026-10-08 amendment). Only integrity stays fatal: a binding Team did not write is never trusted.
+A binding whose stored document the current contract refuses stays owned and listed as needing replacement; every
+runtime use of it is refused, and nothing about it can stop the Team from starting (ADR-0033's 2026-10-08 amendment).
+Only integrity stays fatal: a binding Team did not write is never trusted.
 """
 
 import copy
@@ -33,12 +33,12 @@ from local.install.registry import AssistantRegistry
 from local.labels import ASSISTANT_LABEL
 
 RESOLUTION = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())["fixtures"]["resolve_response"]["value"]
-# The current contract bounds the Assistant summary to 80 characters; an earlier one admitted 160.
+# The current contract bounds the Assistant summary to 80 characters.
 _REFUSED_SUMMARY = "s" * 81
 
 
 def _refuse(path: Path, team_id: str, assistant_id: str, change) -> None:
-    """Rewrite one stored binding as an earlier contract would have written it, with its integrity intact."""
+    """Rewrite one stored binding so that the current contract refuses it, with its integrity intact."""
     stored = json.loads(path.read_bytes())
     for value in stored["bindings"]:
         name = "resolution" if value["provenance"] == "published" else "local_record"
@@ -52,11 +52,11 @@ def _summary(document: dict[str, object]) -> None:
     document["summary"] = _REFUSED_SUMMARY
 
 
-def _earlier_summary_bound(record: dict[str, object]) -> None:
-    """The Local record an SDK 0.5.2 Assistant was staged with: its summary message admitted 160 characters."""
+def _summary_bound_beyond_the_contract(record: dict[str, object]) -> None:
+    """A Local record whose summary message admits more characters than the current contract bounds."""
     for message in record["machine_contract"]["messages"]:
         if message["msgid"] == record["summary"]:
-            message["max_length"] = 160
+            message["max_length"] = 81
 
 
 class InadmissibleBindingStoreTests(unittest.TestCase):
@@ -78,29 +78,29 @@ class InadmissibleBindingStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "not a local snapshot"):
             _ = refused.local_record
 
-    def test_a_local_record_staged_under_an_earlier_sdk_is_refused_and_never_fatal(self) -> None:
+    def test_a_local_record_with_an_unbounded_summary_is_refused_and_never_fatal(self) -> None:
         client, _image, _container = _client()
         record = snapshots.admit(client, IMAGE_ID).record
         store = bindings.DynamicAssistantStore(self.path, local_record_validator=snapshots.validate_record)
         store.put_local("team_1", record)
-        _refuse(self.path, "team_1", record["assistant_id"], _earlier_summary_bound)
+        _refuse(self.path, "team_1", record["assistant_id"], _summary_bound_beyond_the_contract)
 
         (refused,) = store.snapshot()
         self.assertFalse(refused.admissible)
         with self.assertRaises(bindings.InadmissibleAssistantBindingError):
             _ = refused.local_record
 
-    def test_a_local_record_staged_before_the_page_copy_is_refused_and_still_uninstallable(self) -> None:
+    def test_a_local_record_without_its_page_copy_is_refused_and_still_uninstallable(self) -> None:
         client, _image, _container = _client()
         record = snapshots.admit(client, IMAGE_ID).record
         store = bindings.DynamicAssistantStore(self.path, local_record_validator=snapshots.validate_record)
         store.put_local("team_1", record)
 
-        def earlier(document: dict[str, object]) -> None:
+        def without_page_copy(document: dict[str, object]) -> None:
             for field in ("description", "links", "declared_creators"):
                 del document[field]
 
-        _refuse(self.path, "team_1", record["assistant_id"], earlier)
+        _refuse(self.path, "team_1", record["assistant_id"], without_page_copy)
         (refused,) = store.snapshot()
         self.assertFalse(refused.admissible)
         self.assertNotIn("description", refused.document)

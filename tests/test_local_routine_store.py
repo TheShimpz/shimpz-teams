@@ -220,9 +220,7 @@ class TamperTests(StoreCase):
         held = next(index for index, item in enumerate(base["runs"]) if item["status"] == "held")
         mutations = {
             "schema": lambda value: value.update(schema=1),
-            "the schema before decisions were retired": lambda value: value.update(schema=9),
             "schema type": lambda value: value.update(schema=float(routine_store.SCHEMA)),
-            "a retired rehearsal proof": lambda value: value["routines"][0].update(rehearsed=None),
             "run steps type": lambda value: value["runs"][held].update(steps=False),
             "team": lambda value: value.update(team_id="team_2"),
             "extra field": lambda value: value.update(extra=1),
@@ -232,13 +230,7 @@ class TamperTests(StoreCase):
             "no permitted Action for the step": lambda value: value["routines"][0].update(permitted=[]),
             "permitted pin drift": lambda value: value["routines"][0]["permitted"][0].update(pin="sha256:" + "0" * 64),
             "permitted read-only type": lambda value: value["routines"][0]["permitted"][0].update(read_only=1),
-            # A retired decision member is refused even at what was its value without a decision (2026-10-07).
-            "a retired model": lambda value: value["routines"][0].update(model=None),
-            "a retired allowance": lambda value: value["routines"][0].update(allowance=0),
-            "a retired prompt": lambda value: value["routines"][0].update(prompt=None),
-            "a retired baseline": lambda value: value["routines"][0].update(baseline=None),
-            "a retired permissions revision": lambda value: value["routines"][0].update(permissions_revision=0),
-            "a retired rehearsal": lambda value: value["routines"][0].update(rehearsal=False),
+            "routine member outside its shape": lambda value: value["routines"][0].update(unexpected=None),
             "paused type": lambda value: value["routines"][0].update(paused=1),
             "rollup usage": lambda value: value["routines"][0].update(rollup_usage={"duration_ms": 1}),
             "assistants beyond the permitted": lambda value: value["routines"][0].update(
@@ -256,7 +248,7 @@ class TamperTests(StoreCase):
             "frozen with lease": lambda value: value["runs"][frozen].update(lease_sha256="d" * 64, lease_key=KEY),
             "held without a generation": lambda value: value["runs"][held].update(generation=""),
             "held with a request": lambda value: value["runs"][held].update(request_kind="human"),
-            "a retired permission request": lambda value: value["runs"][frozen].update(request_kind="permission"),
+            "unknown request kind": lambda value: value["runs"][frozen].update(request_kind="unknown"),
             "held with a lease": lambda value: value["runs"][held].update(lease_key=KEY),
             "frozen without an action": lambda value: value["runs"][frozen].update(action=""),
             "frozen without an assistant": lambda value: value["runs"][frozen].update(assistant_id=""),
@@ -275,7 +267,6 @@ class TamperTests(StoreCase):
             "notice usage": lambda value: value["notices"][0].update(usage=None),
             "notice protection type": lambda value: value["notices"][0].update(protection_lost=1),
             "run usage": lambda value: value["runs"][0].update(usage={"duration_ms": 1}),
-            "a retired run rehearsal": lambda value: value["runs"][0].update(rehearsal=False),
             "run protection type": lambda value: value["runs"][0].update(protection_lost=0),
             "frozen position past its plan": lambda value: value["runs"][frozen].update(
                 position={"phase": "replay", "step": 2}
@@ -285,7 +276,7 @@ class TamperTests(StoreCase):
                 position={"phase": "replay", "step": 1}, steps=1
             ),
             "run notice version": lambda value: value["runs"][0].update(notice_version=-1),
-            "retired run field": lambda value: value["runs"][held].update(batch=["", ""]),
+            "run member outside its shape": lambda value: value["runs"][held].update(unexpected=None),
             "discard shape": lambda value: value["discards"][0].append("x"),
             "discard run": lambda value: value["discards"][0].__setitem__(0, "not-a-run"),
             "discard of another generation": lambda value: value["discards"][0].__setitem__(
@@ -344,12 +335,12 @@ class TamperTests(StoreCase):
             "a position past its plan": {"position": {"phase": "replay", "step": 2}, "steps": 1},
             "a plan of too many steps": {"steps": 257},
             "position type": {"position": {"phase": "replay", "step": True}},
-            "a decision call past the allowance": {"position": {"phase": "decision", "call": 65}},
+            "an unknown position phase": {"position": {"phase": "planning", "step": 1}, "steps": 1},
             "no call but a position": {"assistant_id": "", "action": "", "steps": 1},
             "no call with a boolean count": {"assistant_id": "", "action": "", "position": None, "steps": False},
             "no call with a float count": {"assistant_id": "", "action": "", "position": None, "steps": 0.0},
             "usage": {"usage": {"duration_ms": 1}},
-            "a retired rehearsal": {"rehearsal": False},
+            "member outside its shape": {"unexpected": None},
             "protection type": {"protection_lost": "no"},
         }
         for name, change in mutations.items():
@@ -361,11 +352,6 @@ class TamperTests(StoreCase):
         value["incidents"][0].update(assistant_id="", action="", position=None, steps=0)
         self.write(value)
         self.assertEqual(self.store.load("team_1").incidents[0].action, "")
-        # A retired decision call's position is never admitted (ADR-0101 amendment, 2026-10-07).
-        value["incidents"][0].update(
-            assistant_id="dns", action="check", position={"phase": "decision", "call": 3}, steps=1
-        )
-        self.assert_refused(value)
 
     def test_a_state_file_that_is_not_private_fails_closed(self):
         routine_fixture.put(self.store, "team_1", busy_state())

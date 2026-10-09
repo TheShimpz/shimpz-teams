@@ -787,7 +787,6 @@ class DockerFlowTests(
         ).stdout
         self.assertIn('"operation":"space-reset"', audit)
         self.assertIn('"detail":"assistant-integration-unavailable"', audit)
-        self.assertNotIn("Captain", audit)
         self.assertNotIn(flow.token, audit)
 
         token_mode, runtime_token_mode, account_egress_capability_mode = runtime_secret_metadata(self._run, flow)

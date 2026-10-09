@@ -642,12 +642,9 @@ class BoundaryTests(unittest.TestCase):
     def test_a_recording_needs_a_call(self) -> None:
         self.assertEqual(_code(self, lambda: _record(_send())), "routine-recording-empty")
 
-    def test_the_output_mode_is_closed_and_a_retired_decision_is_refused(self) -> None:
+    def test_the_output_mode_is_closed(self) -> None:
         send = _send(("reports/fetch", {}, {}))
-        cases = [({"mode": "decide"}, "routine-recording-invalid"), ({"mode": "chain"}, "routine-recording-invalid")]
-        for options, code in cases:
-            with self.subTest(options=options):
-                self.assertEqual(_code(self, lambda o=options: _record(send, **o)), code)
+        self.assertEqual(_code(self, lambda: _record(send, mode="chain")), "routine-recording-invalid")
 
     def test_a_drifted_or_unknown_contract_fails_closed(self) -> None:
         drifted = {

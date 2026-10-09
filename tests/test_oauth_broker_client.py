@@ -89,16 +89,14 @@ class OAuthBrokerClientTests(unittest.TestCase):
             callback_mode="out-of-band",
         )
         self.assertEqual(parse_qs(urlsplit(out_of_band).query)["callback"], ["out-of-band"])
-        # The retired `hosted` mode is refused like any other unknown value.
-        for refused in ("https://evil.example", "hosted"):
-            with self.subTest(refused=refused), self.assertRaises(integration_broker.OAuthBrokerClientError):
-                self.client.authorization_url(
-                    provider_id="cloudflare",
-                    state=STATE,
-                    code_challenge=CHALLENGE,
-                    scopes=SCOPES,
-                    callback_mode=refused,
-                )
+        with self.assertRaises(integration_broker.OAuthBrokerClientError):
+            self.client.authorization_url(
+                provider_id="cloudflare",
+                state=STATE,
+                code_challenge=CHALLENGE,
+                scopes=SCOPES,
+                callback_mode="https://evil.example",
+            )
 
     def test_fixed_transport_uses_only_the_authenticated_broker_proxy(self) -> None:
         response = Mock(

@@ -172,8 +172,7 @@ class SchedulerRouteTests(RoutineHttpCase):
             self.assertEqual(status, 401)
             status, _type, raw = self.request("POST", "/v1/routines/claim", b'{"any":1}')
             self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
-            # No model key gates a claim any more: the retired providers list is refused like any other body.
-            for invalid in (b'{"providers":["openai"]}', b'{"providers":[]}', b"[]", b"{}", b'{"long":1}'):
+            for invalid in (b"[]", b"{}", b'{"long":1}'):
                 status, _type, raw = self.request("POST", "/v1/routines/claim", invalid)
                 self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
             status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
@@ -294,14 +293,6 @@ class SessionRouteTests(RoutineHttpCase):
                 opened = json.loads(raw)
                 self.assertEqual((opened["locale"], opened["rendered"]["title"]), ("pt", f"PT {opened_title}"))
                 challenge_id = opened["challenge_id"]
-                # The retired release of an uncertain run stays absent.
-                status, _type, raw = self.request("POST", run + "/resolve", b'{"batch_fingerprint":"x"}')
-                self.assertEqual((status, json.loads(raw)["code"]), (404, "route-not-found"))
-                # No person stops a run: the retired Stop route stays absent, so the frozen run is still there.
-                status, _type, raw = self.request("POST", run + "/stop", EMPTY)
-                self.assertEqual((status, json.loads(raw)["code"]), (404, "route-not-found"))
-                status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
-                self.assertEqual(json.loads(raw)["runs"][0]["status"], "frozen")
                 answer = json.dumps({"challenge_id": challenge_id, "decision": "deny"}).encode()
                 status, _type, raw = self.request("POST", run + "/human", answer, self.model())
                 self.assertEqual(self.terminal(raw)["body"]["status"], "denied")
@@ -312,13 +303,6 @@ class SessionRouteTests(RoutineHttpCase):
                 self.assertEqual(self.terminal(raw)["body"]["code"], "routine-run-not-found")
                 status, _type, raw = self.request("DELETE", f"/v1/teams/team_1/routines/{value.routine_id}")
                 self.assertEqual((status, json.loads(raw)["deleted"]), (200, True))
-                # The retired confirmation and preview routes stay absent: a Routine is created only from a chat.
-                preview = "/v1/teams/team_1/routines/proposals/" + "0" * 32 + "/preview"
-                status, _type, raw = self.request("POST", preview, b'{"timezone":"UTC"}')
-                self.assertEqual((status, json.loads(raw)["code"]), (404, "route-not-found"))
-                confirm = json.dumps({"proposal_id": "0" * 32, "timezone": "UTC"}).encode()
-                status, _type, raw = self.request("POST", "/v1/teams/team_1/routines", confirm)
-                self.assertEqual((status, json.loads(raw)["code"]), (404, "route-not-found"))
             with mock.patch.object(local_authority, "verify", side_effect=local_authority.SupervisorDeniedError):
                 status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-supervisor"))
@@ -417,13 +401,10 @@ class RecoveryRouteTests(RoutineHttpCase):
                     (f"{base}/incidents/bad/card", EMPTY, 404, "routine-incident-unavailable"),
                     (incident + "/card", b'{"x":1}', 422, "invalid-body"),
                     (incident + "/card", EMPTY, 404, "routine-incident-unavailable"),
-                    (incident + "/answer", b'{"nonce":"x","choice":"skip"}', 422, "invalid-body"),
+                    (incident + "/answer", b'{"nonce":"x","choice":"run"}', 422, "invalid-body"),
                     (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"other"}', 422, "invalid-body"),
-                    # Excluir is the Routine's confirmed deletion, never a card answer; nor are the retired choices.
+                    # Excluir is the Routine's confirmed deletion, never a card answer.
                     (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"delete"}', 422, "invalid-body"),
-                    (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"skip"}', 422, "invalid-body"),
-                    # Recriar is retired: its choice is no card answer at all.
-                    (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"recreate"}', 422, "invalid-body"),
                     (incident + "/answer", nonce.encode(), 404, "routine-incident-unavailable"),
                     (f"{base}/{'f' * 32}/resume", EMPTY, 404, "routine-not-found"),
                     (f"{base}/bad/resume", EMPTY, 404, "routine-not-found"),

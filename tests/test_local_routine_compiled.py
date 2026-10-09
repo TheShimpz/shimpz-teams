@@ -642,7 +642,7 @@ class RealRpcTests(CompiledRunCase):
         self.assertEqual((second["action"], second["input"]), ("list-dns-records", {**LOOKUP_INPUT, "zone_id": ZONE}))
         # Each step is its own logical operation, and no Integration token reached the Assistant.
         self.assertNotEqual(first["operation_id"], second["operation_id"])
-        self.assertNotIn("integrations", first)
+        self.assertEqual(set(first), {"action", "input", "stored_inputs", "files", "operation_id"})
         self.assertEqual(first["stored_inputs"], [])
         detail = state.notices[-1].detail
         summary = routine_definition.summary(value.plan, value.revision)

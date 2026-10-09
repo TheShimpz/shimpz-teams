@@ -383,7 +383,6 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
 
         body = json.loads(payload)
         variants = {
-            "schema 6": {**body, "schema": 6},
             "no paused batch": {**body, "pending": {k: v for k, v in body["pending"].items() if k != "paused_batch"}},
             "human without a paused batch": {**body, "pending": {**body["pending"], "paused_batch": None}},
             "short paused batch": {**body, "pending": {**body["pending"], "paused_batch": "e" * 63}},
@@ -557,19 +556,3 @@ class RoutineContinuationBoundTests(unittest.TestCase):
         blob = _routine_record("human", bindings, payload)
         self.assertLessEqual(len(blob), local_chat_continuations.MAX_ROUTINE_BYTES)
         self.assertEqual(_sealed_and_read(blob), blob)
-
-
-class RetiredPermissionContinuationTests(unittest.TestCase):
-    """A decision call's permission pause is retired (ADR-0101 amendment, 2026-10-07): no store keeps one."""
-
-    def test_a_permission_pause_is_never_encoded_or_decoded(self) -> None:
-        requirements = integration_requirement("dns.read")
-        with self.assertRaises(local_chat_continuations.ContinuationCodecError):
-            local_chat_continuations.encode("permission", requirements, pending())
-        bindings, payload = local_chat_continuations.encode("integrations", requirements, pending())
-        document = json.loads(payload)
-        document["kind"] = "permission"
-        with self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "kind is malformed"):
-            local_chat_continuations.decode_parts("permission", json.dumps(document).encode(), bindings)
-        with self.assertRaises(local_chat_continuation_store.ContinuationStoreError):
-            local_chat_continuation_store._kind("permission")

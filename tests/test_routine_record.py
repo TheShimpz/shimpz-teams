@@ -149,35 +149,8 @@ class ContractTests(unittest.TestCase):
                 self.assertEqual(http_routine_notice.canonical_notice_detail(outcome, detail), detail)
         invalid = (
             ("done", {"plan": SUMMARY}),
-            # A decision and its decision call are retired (ADR-0101 amendment, 2026-10-07): none is admitted.
-            ("done", {"plan": SUMMARY, "output": None, "decision": None}),
-            ("recovered", {"plan": SUMMARY, "output": None, "decision": None}),
-            ("done", {"plan": SUMMARY, "output": None, "decision": {"state": "decided", "code": None, "message": "x"}}),
             ("deleted", {"name": "x"}),
-            (
-                "rehearsed",
-                {"plan": SUMMARY, "output": None, "rehearsed": 1, "untested": 0, "not_permitted": 0},
-            ),
-            (
-                "frozen",
-                {
-                    "request_kind": "permission",
-                    "assistant_id": "dns",
-                    "action": "x",
-                    "position": {"phase": "replay", "step": 1},
-                    "steps": 1,
-                },
-            ),
-            (
-                "frozen",
-                {
-                    "request_kind": "human",
-                    "assistant_id": "dns",
-                    "action": "x",
-                    "position": {"phase": "decision", "call": 1},
-                    "steps": 1,
-                },
-            ),
+            ("unknown", {"plan": SUMMARY, "output": None}),
             ("done", {"actions": [["dns", "check"]], "output": None}),
             ("done", {"plan": {**SUMMARY, "steps": 3}, "output": None}),
             ("done", {"plan": SUMMARY, "output": None, "result": {"ip": "1.2.3.4"}}),
@@ -222,26 +195,6 @@ class ContractTests(unittest.TestCase):
             (
                 "user-skipped",
                 {"assistant_id": "dns", "action": "x", "position": {"phase": "replay", "step": 1}, "steps": 1},
-            ),
-            (
-                "user-skipped",
-                {
-                    "assistant_id": "dns",
-                    "action": "x",
-                    "position": {"phase": "replay", "step": 1},
-                    "steps": 1,
-                    "choice": "skip",
-                },
-            ),
-            (
-                "paused",
-                {
-                    "assistant_id": "dns",
-                    "action": "x",
-                    "position": {"phase": "replay", "step": 1},
-                    "steps": 1,
-                    "reason": "person",
-                },
             ),
             ("skipped", {"missed": 0}),
             ("skipped", {"missed": True}),
@@ -303,10 +256,7 @@ class ContractTests(unittest.TestCase):
             ("done", ["reply"]),
             ("created", {**DEFINED, "name": ""}),
             ("created", {**DEFINED, "plan": {**DEFINED["plan"], "steps": 0}}),
-            ("created", {**DEFINED, "model": None}),
-            ("created", {**DEFINED, "allowance": 0}),
-            ("created", {**DEFINED, "output": {"mode": "show", "step": 1, "when": None}}),
-            ("created", {**DEFINED, "output": {"mode": "decide", "step": None}}),
+            ("created", {**DEFINED, "unexpected": None}),
             ("created", {**DEFINED, "plan": {**DEFINED["plan"], "actions": []}}),
             ("created", {**DEFINED, "output": {"mode": "show", "step": 2}}),
             ("created", {**DEFINED, "output": {"mode": "show", "step": "check"}}),
@@ -353,7 +303,7 @@ class AddTests(unittest.TestCase):
             dataclasses.replace(good, permitted=({**good.permitted[0], "stored_inputs": ["b", "a"]},)),
             dataclasses.replace(good, permitted=({**good.permitted[0], "read_only": 1},)),
             dataclasses.replace(good, permitted=tuple(good.permitted) * (http_routine.MAX_PERMITTED + 1)),
-            # The permitted set is exactly the plan's Actions: no extra one, as a retired decision once allowed.
+            # The permitted set is exactly the plan's Actions: no extra one.
             dataclasses.replace(
                 good, permitted=(*good.permitted, {**good.permitted[0], "action": "zzz-extra", "read_only": False})
             ),

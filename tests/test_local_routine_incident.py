@@ -431,11 +431,11 @@ class RecoverySnapshotTests(IncidentCase):
                         "binding": [incarnation, value.routine_id, 1, run_id],
                         "name": "Q",
                         "plan": {},
-                        "rehearsal": False,
+                        "unexpected": False,
                     }
                 ),
                 routine_plan.canonical(
-                    {"version": 1, "binding": [incarnation, value.routine_id, 1, run_id], "quote": "Q", "plan": {}}
+                    {"version": 1, "binding": [incarnation, value.routine_id, 1, run_id], "unexpected": "Q", "plan": {}}
                 ),
                 routine_plan.canonical(
                     {
@@ -709,7 +709,6 @@ class SealedStateTests(IncidentCase):
             self.assertEqual(document["routines"][0]["run_requested"], 0)
             self.assertEqual(document["routines"][0]["output_digest"], "")
             self.assertEqual(document["routines"][0]["plan"]["version"], 4)
-            self.assertNotIn("receipts", document)
             digest = dict(document, routines=[{**document["routines"][0], "output_digest": "d" * 64}])
             self.assertEqual(
                 routine_store._decode(json.dumps(digest).encode(), "team_1").routines[0].output_digest, "d" * 64

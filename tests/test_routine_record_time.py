@@ -59,9 +59,6 @@ class ScaleClaimTests(unittest.TestCase):
             ("human", "dns", "check", {"phase": "replay", "step": 2}),
             ("human", "dns", "check", {"phase": "replay", "step": 0}),
             ("human", "dns", "other", {"phase": "replay", "step": 1}),
-            # A retired decision call and its permission request are never a freeze (ADR-0101, 2026-10-07).
-            ("permission", "dns", "check", REPLAY),
-            ("human", "dns", "delete-record", {"phase": "decision", "call": 3}),
         ):
             with self.subTest(request=request), self.assertRaisesRegex(record.RoutineStateError, "freeze-invalid"):
                 routine_runs.freeze(state, claim.run.run_id, lease, NINE, request)

@@ -428,23 +428,18 @@ class AssistantManifestTests(unittest.TestCase):
 
     def test_unsupported_manifest_fields_fail_closed(self) -> None:
         unsupported = (
-            b"schema_version = 2\n",
-            b'[actions.lookup]\nsummary = "Lookup."\n',
-            b'[secrets.token]\nname = "Token"\nsummary = "Old."\n',
-            b'[integrations.cloudflare]\nprovider = "cloudflare"\nscopes = ["zone.read"]\n',
+            b"unexpected = 2\n",
+            b'[unexpected.lookup]\nname = "Lookup"\n',
+            b'[integrations.cloudflare]\nunexpected = "cloudflare"\nscopes = ["zone.read"]\n',
         )
 
         for addition in unsupported:
             with self.subTest(addition=addition), self.assertRaises(assistant_manifest.ManifestError):
                 assistant_manifest.parse_manifest_contract(manifest() + addition)
 
-    def test_retired_root_fields_and_network_inside_shimpz_fail_closed(self) -> None:
-        retired_root = manifest().replace(b"[shimpz]\n", b"").replace(b"\n[network]\n", b"\n")
-        network_inside_shimpz = manifest().replace(b"\n[network]\n", b"\n")
-
-        for content in (retired_root, network_inside_shimpz):
-            with self.subTest(content=content), self.assertRaises(assistant_manifest.ManifestError):
-                assistant_manifest.parse_manifest_contract(content)
+    def test_network_inside_shimpz_fails_closed(self) -> None:
+        with self.assertRaises(assistant_manifest.ManifestError):
+            assistant_manifest.parse_manifest_contract(manifest().replace(b"\n[network]\n", b"\n"))
 
     def test_unknown_provider_and_unreviewed_scopes_fail_closed(self) -> None:
         invalid = (

@@ -329,7 +329,7 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             value.pop("routine_refusal")
 
         def rejected_listing(value: dict[str, object]) -> None:
-            value["routine_listing"]["valid"] = [[{"output": {"mode": "decide"}}]]
+            value["routine_listing"]["valid"] = [[{"output": {"mode": "unknown"}}]]
 
         def accepted_answer(value: dict[str, object]) -> None:
             value["routine_proposal_answer"]["invalid"] = [value["routine_proposal_answer"]["valid"][0]]

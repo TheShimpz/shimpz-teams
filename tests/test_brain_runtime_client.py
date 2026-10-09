@@ -645,8 +645,6 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         self.assertEqual(
             (sent["routine_mode"], sent["routine_question"], sent["routine_rerun"]), (True, question, [dict(rerun[0])])
         )
-        # The retired words of a compiled Routine are never sent.
-        self.assertFalse({"routine_earlier", "routine_draft", "routine_answer"} & set(sent))
         question = {
             "question": "Qual?",
             "options": [{"label": "A", "description": ""}, {"label": "B", "description": ""}],

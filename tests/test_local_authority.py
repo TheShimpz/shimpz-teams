@@ -468,7 +468,7 @@ class LocalRoutineAuthorityTests(unittest.TestCase):
                 audience=contract.ROUTINE_AUDIENCE,
             )
         with self.assertRaisesRegex(contract.SupervisorAssertionError, "unsupported"):
-            contract.canonical_claims(self.claims(), audience="team-hosted")
+            contract.canonical_claims(self.claims(), audience="team-unsupported")
 
     def test_a_missing_routine_key_is_unavailable(self) -> None:
         (Path(self.temporary.name) / "routine.pem").unlink()
