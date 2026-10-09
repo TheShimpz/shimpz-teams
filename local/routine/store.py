@@ -709,15 +709,6 @@ class RoutineStore:
         except routine_cursor.CursorError as exc:
             raise RoutineStoreError("Routine cursor is malformed") from exc
 
-    def handoff(self, team_id: object, cursor: routine_cursor.Cursor, deliver: Callable[[], None]) -> None:
-        """Seal an advanced cursor, and only then let the journal remove the receipts it no longer needs (ADR-0092).
-
-        The cursor holds every value later steps select, so once it is durable the completed step's full receipts may
-        go; a crash in between leaves receipts that the next delivery removes, and the step is never run again.
-        """
-        self.put_cursor(team_id, cursor)
-        deliver()
-
     def output_digest(self, team_id: object, binding: routine_cursor.Binding, step: str, material: bytes) -> str:
         """The keyed digest a ``changes`` Routine compares one run's safe result by (ADR-0092 amendment, 2026-10-05).
 

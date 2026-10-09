@@ -12,7 +12,10 @@ import routine_fixture
 from test_local_routine_service import KEY, RoutineServiceCase, Runtime
 
 from action import journal as action_journal
+from chat import orchestrator as chat_orchestrator
+from inference import client as brain_runtime_client
 from local import app as local_app
+from local.routine import compiled as routine_compiled
 from local.routine import incident as routine_incident
 from local.routine import lifecycle as routine_lifecycle
 from local.routine import manage as routine_manage
@@ -617,36 +620,81 @@ class SealedStateTests(IncidentCase):
             store.lose_cursor("team_1", binding)
             self.assertIsNone(store.cursor("team_1", binding))
 
-    def test_the_receipt_handoff_seals_the_cursor_before_receipts_go(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            _controller, service, value, run_id, _lease, generation, _batch = self.held_run(directory, batch=False)
-            plan = routine_plan.admit(_document(output={"mode": "none", "step": None}), CONTRACTS)
-            binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
-            operation = _operation("publish")
-            prepared = service.action_state.prepare_batch(generation, "thread", (operation,), archivable=True)
+    def _publish_through_the_turn_loop(self, directory: str, *, sealable: bool):
+        """A one-step compiled Routine run through the real turn loop and journal, as a callable, with its state.
+
+        The step's journal batch completes its operation; the turn loop then resumes the compiled runtime, which seals
+        the advanced cursor, and only after that marks the batch delivered, which removes its receipts.
+        """
+        _controller, service, value, run_id, _lease, generation, _batch = self.held_run(directory, batch=False)
+        [publish, _share] = _document()["steps"]
+        plan = routine_plan.admit(_document(steps=[publish], output={"mode": "none", "step": None}), CONTRACTS)
+        binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
+        protections = service.routine_protections
+        protections.bind(run_id)
+        seal = routine_compiled._Seal("team_1", service.routine_store, mock.Mock(), protections, lambda: None)
+        runtime = routine_compiled.CompiledRuntime(
+            seal, plan, routine_cursor.start(plan, binding, 0, protections.boot), "Done."
+        )
+        operation = _operation("publish")
+        prepared = service.action_state.prepare_batch(generation, "thread", (operation,), archivable=True)
+        result = {"id": "post-1", "meta": {"a/b": [["news"]]}}
+
+        def invoke(request):
             started = service.action_state.begin(prepared, operation)
-            result = {"id": "post-1", "meta": {"a/b": [["news"]]}}
+            runtime.dispatching(request, started.operation_id)
             service.action_state.complete(prepared, operation, result)
-            dispatched = routine_cursor.dispatch(
-                routine_cursor.start(plan, binding, 0, BOOT), plan, started.operation_id, "d" * 64
-            )
-            advanced = routine_cursor.complete(dispatched, plan, result)
-            order: list[str] = []
-            with (
-                mock.patch.object(
-                    service.routine_store, "put_cursor", side_effect=routine_store.RoutineStoreError("full")
+            return result
+
+        context = brain_runtime_client.RuntimeContext(
+            thread_id="thread",
+            team_name="Marketing",
+            assistants=(
+                brain_runtime_client.RuntimeAssistant(
+                    id="shimpz-blog",
+                    genesis="Publish the weekly report.",
+                    actions=(brain_runtime_client.RuntimeAction("publish-post", "Publish.", {}),),
                 ),
-                self.assertRaises(routine_store.RoutineStoreError),
-            ):
-                service.routine_store.handoff("team_1", advanced, lambda: order.append("delivered"))
-            self.assertEqual(order, [])
+            ),
+            provider="openai",
+            model="gpt-test",
+            api_key="",
+            effort="low",
+        )
+        strategy = chat_orchestrator.ChatStrategy(
+            validate_action=lambda _assistant, _action, payload: payload,
+            invoke_action=invoke,
+            batch_delivered=lambda _batch: service.action_state.delivered(prepared),
+            max_rounds=1,
+        )
+        sealed = service.routine_store.put_cursor
+
+        def put_cursor(team_id, cursor):
+            if not sealable and cursor.step == 1:
+                raise routine_store.RoutineStoreError("full")
+            sealed(team_id, cursor)
+
+        def run() -> None:
+            with mock.patch.object(service.routine_store, "put_cursor", side_effect=put_cursor):
+                chat_orchestrator.run(runtime, context, "", strategy)
+
+        return service, generation, binding, prepared, run
+
+    def test_a_step_whose_cursor_cannot_be_sealed_keeps_its_receipts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, generation, binding, prepared, run = self._publish_through_the_turn_loop(directory, sealable=False)
+            with self.assertRaises(routine_compiled.CompiledRunError) as caught:
+                run()
+            self.assertEqual(caught.exception.code, "routine-cursor-unavailable")
+            self.assertEqual(service.routine_store.cursor("team_1", binding).step, 0)
             self.assertEqual(service.action_state.current_batch(generation), (prepared.fingerprint, "open"))
-            # A crash right after the cursor is sealed leaves receipts the next delivery removes; the step never reruns.
-            service.routine_store.handoff("team_1", advanced, lambda: order.append("crashed"))
+
+    def test_a_step_frees_its_receipts_only_after_its_cursor_is_sealed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, generation, binding, _prepared, run = self._publish_through_the_turn_loop(directory, sealable=True)
+            run()
             self.assertEqual(service.routine_store.cursor("team_1", binding).step, 1)
-            service.routine_store.handoff("team_1", advanced, lambda: service.action_state.delivered(prepared))
             self.assertIsNone(service.action_state.current_batch(generation))
-            self.assertEqual(order, ["crashed"])
 
     def test_routine_state_version_ten_admits_held_runs_incidents_plans_confirmations_and_output_digests(
         self,
