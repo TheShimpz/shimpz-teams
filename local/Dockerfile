@@ -6,7 +6,7 @@
 FROM ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded AS uv
 
 # Cosign is downloaded and hash-checked in its own stage, so curl and APT never reach an image layer.
-FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS cosign
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS cosign
 ARG COSIGN_VERSION=3.1.2
 ARG COSIGN_AMD64_SHA256=f7622ed3cf22e55e1ae6377c080979ff77a22da9981c11df222a2e444991e7cf
 ARG COSIGN_ARM64_SHA256=90e7ae0b5dfd60f20816b52c012addf7fc055ebcc7bea4ce81c428ca8518c302
@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
 # therefore yields the same layer bytes at every commit, with or without a build cache. The base ships no bytecode and
 # the read-only runtime cannot write any, so the standard library and the environment are compiled here, hash-checked,
 # with fixed timestamps; otherwise every Team start, health probe, and helper recompiles each imported module.
-FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS dependencies
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS dependencies
 RUN --mount=type=tmpfs,target=/tmp \
     --mount=type=bind,from=uv,source=/uv,target=/tmp/uv \
     --mount=type=bind,source=pyproject.toml,target=/tmp/project/pyproject.toml \

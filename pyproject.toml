@@ -7,14 +7,14 @@ dependencies = [
     # silently on the next rebuild. Docker consumes only the committed lock via `uv sync --frozen`.
     "docker==7.1.0",
     # Ed25519 Supervisor and Routine assertions, and the AES-GCM envelope of private Team state.
-    "cryptography==50.0.0",
+    "cryptography==50.0.2",
     # RE2 matches an Action schema `pattern` in time linear in the subject and releases the GIL while it runs.
     "google-re2==1.1.20251105",
     "jsonschema==4.25.1",
     # Attachment preparation parses untrusted images and PDFs only inside the networkless helper container; the
     # controller never imports them (ADR-0093).
     "pillow==12.3.0",
-    "pypdf==6.19.0",
+    "pypdf==6.20.0",
 ]
 
 [tool.uv]
