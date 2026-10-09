@@ -55,22 +55,6 @@ def _account_request(path: dict[str, str] | None = None) -> object:
     )
 
 
-class _RouteHarness:
-    def __init__(self, body: dict | None = None) -> None:
-        self.body = body
-        self.read_count = 0
-        self.sent: list[tuple[HTTPStatus, dict]] = []
-
-    def _read_team_body(self, keys: set[str]) -> dict:
-        self.read_count += 1
-        if self.body is None or set(self.body) != keys:
-            raise AssertionError("unexpected body contract")
-        return self.body
-
-    def _send_json(self, status: HTTPStatus, payload: dict) -> None:
-        self.sent.append((status, payload))
-
-
 class HostedHttpBoundaryTests(unittest.TestCase):
     def test_every_hosted_operation_has_one_dispatch_handler(self) -> None:
         strict_http = hosted_controller.strict_http

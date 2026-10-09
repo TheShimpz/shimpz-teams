@@ -18,19 +18,6 @@ def plan_document(
     return {"version": 4, "timezone": timezone, "steps": [step], "output": dict(SHOW if output is None else output)}
 
 
-def chain_document(assistant: str = "dns") -> dict[str, object]:
-    """A two-step plan whose second step takes the first one's whole result and shows nothing."""
-    first = {"id": "check", "assistant": assistant, "action": "check", "pin": PIN, "input": {}}
-    handed = {"value": {"kind": "step_output", "step": "check", "pointer": ""}}
-    second = {"id": "notify", "assistant": assistant, "action": "notify", "pin": PIN, "input": handed}
-    return {
-        "version": 4,
-        "timezone": "UTC",
-        "steps": [first, second],
-        "output": {"mode": "none", "step": None},
-    }
-
-
 def permitted(plan: dict[str, object], read_only: bool = True) -> tuple[dict[str, object], ...]:
     """Every Action of ``plan`` once, at its step's pin, as a recording permits them."""
     found = {(step["assistant"], step["action"]): step["pin"] for step in plan["steps"]}

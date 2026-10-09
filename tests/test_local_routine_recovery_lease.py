@@ -28,19 +28,6 @@ def held_incident(service) -> str:
     return incident.incident_id
 
 
-class Interrupting(Assistant):
-    """The verifier call is where a person's Stop, or the Routine's deletion, arrives."""
-
-    def __init__(self, verdicts, interrupt) -> None:
-        super().__init__([failed(), RECORD], verdicts)
-        self.interrupt = interrupt
-
-    def __call__(self, team, assistant, action, payload, evidence):
-        if action == "find-record":
-            self.interrupt()
-        return super().__call__(team, assistant, action, payload, evidence)
-
-
 class RecoveryLeaseTests(AutomaticCase):
     def capturing(self, box: list[object]):
         """Keep the service the case builds, so an interruption can reach it."""

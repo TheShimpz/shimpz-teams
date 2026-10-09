@@ -50,11 +50,6 @@ def messages(summary: str = SUMMARY, *extra: dict[str, object]) -> list[dict[str
     return [entries[identifier] for identifier in sorted(entries)]
 
 
-def with_messages(contract: dict[str, object], summary: str = SUMMARY) -> dict[str, object]:
-    """Return a copy of a machine contract that carries the catalog for this summary."""
-    return {**copy.deepcopy(contract), "messages": messages(summary)}
-
-
 def ref(msgid: str, **params: object) -> dict[str, object]:
     """One copy reference to a declared message."""
     return {"message": catalog_validator.message_id(msgid), "params": params}
