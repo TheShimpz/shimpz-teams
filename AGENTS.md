@@ -6,17 +6,18 @@
   Assistant egress proxy merely because it integrates with them.
 - Team owns its outbound policy and bindings under `egress/`; `assistants/egress` owns the separate enforcement
   proxy. Do not merge policy authority and network enforcement into one component.
-- Organize profile-specific source under `hosted/` or `local/`. Keep source at the repository root only while its
-  ownership is genuinely profile-neutral and its final responsibility has been classified.
+- Organize the Local controller under `local/` (the Hosted profile is retired, ADR-0108). Keep source at the
+  repository root only while its ownership is genuinely controller-neutral and its final responsibility has been
+  classified.
 - Name responsibility directories with the shortest clear term. Use `install/`, not `installation/`.
 - Place peer integrations beneath the Team responsibility they serve. A peer may appear in a leaf adapter name such
   as `developers_client.py`; do not create a peer-domain directory that implies Team owns that domain.
 - Use `protocol/` only for versioned wire schemas, vectors, semantic validation, and integrity evidence. It is not
   executable Team core logic.
-- Team owns its HTTP protocol. The neutral Assistant-install protocol is a generated, pinned mirror; Developers
+- Team owns its HTTP protocol. The neutral Assistant-install (resolve) protocol is a generated, pinned mirror; Developers
   owns the published Assistant specification while Team admission remains independently fail-closed.
 - Do not create `core/`, `shared/`, `common/`, `utils/`, or `misc/` as a convenience. `core/` is allowed only for
-  cohesive Team invariants proven to be shared by Hosted and Local.
+  cohesive Team invariants shared by several responsibilities.
 - Prefer a named profile-neutral responsibility such as `chat/`, `egress/`, `inference/`, or `action/` over hiding
   that responsibility in `core/`.
 - Preserve Team isolation, least privilege, fail-closed validation, secret redaction, and exact image-copy closure
