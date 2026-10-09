@@ -33,9 +33,9 @@ every owned Team.
 
 ## Local validation
 
-Use Python 3.14 and the committed dependency lock:
+Use Python 3.14 and the committed dependency lock. Lint with the umbrella's `ruff.toml` from the umbrella root
+(`ruff check --config ruff.toml teams` and `ruff format --config ruff.toml --check teams`), then run the suite here:
 
 ```bash
-ruff check --config ruff.toml .
 uv run --frozen --python 3.14 python -m unittest discover -s tests -p "test_*.py"
 ```

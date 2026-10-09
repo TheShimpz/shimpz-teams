@@ -36,5 +36,6 @@
 
 ## Validation
 
-- Use Python 3.14. Run `ruff check --config ruff.toml .`; run the complete local suite with
+- Use Python 3.14. From the umbrella root, lint with its only config: `ruff check --config ruff.toml teams` and
+  `ruff format --config ruff.toml --check teams`. Run the complete local suite here with
   `uv run --frozen --python 3.14 python -m unittest discover -s tests`.
