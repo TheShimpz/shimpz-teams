@@ -16,6 +16,7 @@ from local_controller_harness import LocalContractCase
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 
 from action import human as action_human
+from assistant import spec as assistant_spec
 from inference import client as brain_runtime_client
 from install.bindings import DynamicAssistantStore
 from local import app as local_app
@@ -32,7 +33,7 @@ from routine import claim as routine_claim
 from routine import definition as routine_definition
 from routine import hold as routine_hold
 from routine import record
-from tests import human_request_fixtures
+from tests import catalog_fixtures, human_request_fixtures
 
 KEY = "e" * 64
 API_KEY = "sk-test-0123456789"
@@ -402,15 +403,34 @@ class RunTests(RoutineServiceCase):
 
 
 class FreezeTests(RoutineServiceCase):
-    def paused(self, directory: str, *turns):
+    def paused(self, directory: str, *turns, request: action_human.HumanRequest | None = None):
         runtime = Runtime(acting(), *turns)
         controller, service = self.service(directory, runtime)
         calls: list[object] = []
+        if request is not None and request.stored_input is not None:
+            # The Routine's one Action asks for a Stored Input its reviewed binding declares, with its help.
+            spec = controller.registry[ASSISTANT]
+            action = dataclasses.replace(
+                spec.actions["list-zones"], stored_inputs=(request.stored_input,), human_requests=("input:password",)
+            )
+            declaration = assistant_spec.StoredInputSpec(
+                "password",
+                "Exa API key",
+                catalog_fixtures.STORED_INPUT_HELP,
+                catalog_fixtures.HELP_URL,
+                host="api.cloudflare.com",
+                header="X-Api-Key",
+            )
+            controller.registry[ASSISTANT] = dataclasses.replace(
+                spec,
+                actions={**spec.actions, "list-zones": action},
+                stored_inputs={request.stored_input: declaration},
+            )
 
         def invoke(*args):
             calls.append(args)
             if len(calls) == 1:
-                raise action_human.HumanRequestSuspensionError(approval())
+                raise action_human.HumanRequestSuspensionError(request or approval())
             return {"result": LOOKUP_RESULT}
 
         controller.assistant_lifecycle.invoke = invoke
@@ -556,6 +576,33 @@ class FreezeTests(RoutineServiceCase):
                 service.open_routine_challenge("team_1", claim["run_id"], "de")
             self.assertEqual(refused.exception.code, "human-request-invalid")
             self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "frozen")
+
+    def test_a_stored_input_opening_restores_its_help_and_renders_it_in_the_admin_language(self) -> None:
+        """Every opening decodes the frozen run and renders the binding's help text in its language (ADR-0090)."""
+        stored = human_request_fixtures.request(
+            "input:password",
+            stored_inputs=("exa-api-key",),
+            title="Exa API key",
+            description="Provide the key once.",
+            label="Exa API key",
+            required=True,
+            placeholder=None,
+            min_length=1,
+            max_length=128,
+            stored_input="exa-api-key",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim, frozen = self.paused(directory, request=stored)
+            self.assertEqual(frozen["status"], "frozen")
+            english = service.open_routine_challenge("team_1", claim["run_id"], "en")
+            portuguese = service.open_routine_challenge("team_1", claim["run_id"], "pt")
+
+        self.assertEqual(english["help"], catalog_fixtures.STORED_INPUT_HELP)
+        self.assertEqual(
+            portuguese["help"], catalog_fixtures.translation("pt", catalog_fixtures.STORED_INPUT_HELP, 500, [])
+        )
+        self.assertNotEqual(portuguese["help"], english["help"])
+        self.assertEqual({english["help_url"], portuguese["help_url"]}, {catalog_fixtures.HELP_URL})
 
     def test_a_binding_with_another_pack_ends_the_frozen_run_on_open_or_answer(self) -> None:
         """The frozen request's copy must still come from the binding's catalog and pack (ADR-0091)."""
