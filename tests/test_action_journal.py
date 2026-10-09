@@ -776,7 +776,7 @@ class ActionJournalTests(unittest.TestCase):
         )
         self.assert_sql_failure(
             journal,
-            "UPDATE operations SET state = ?, origin = ?",
+            "UPDATE operations SET state = ?, origin = 'execution'",
             lambda: journal.complete(batch, self.first, {"ok": True}),
             "committed",
         )

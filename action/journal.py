@@ -6,8 +6,9 @@ commit that prepares it, before any RPC, and keeps it across human-request repla
 durably enters ``executing`` before its side effect starts; finding it there again is intentionally an uncertain
 outcome and fails closed instead of risking a duplicate side effect. Only a successfully decoded human-interaction
 suspension may explicitly return it to ``prepared`` for deterministic replay. An operation ends ``completed`` with a
-result, or ``no_effect`` when its failure is proven to have had no business effect; either records whether the
-execution itself or Team-admitted verifier evidence decided it.
+result, or ``no_effect`` when its failure is proven to have had no business effect; either records that the
+execution itself decided it. A held Routine run's verifier evidence is admitted through its sealed cursor after the
+batch is archived (ADR-0092), never written back here.
 
 A batch whose turn ended without delivery, and with no uncertain operation, becomes ``ended``: it keeps its completed
 receipts and frees its generation. Only the exact same batch may reopen it to replay those receipts; a fresh batch that
@@ -37,7 +38,7 @@ from pathlib import Path
 from action import result as action_result
 from protocol.http.v1 import payload as http_payload
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 APPLICATION_ID = 0x53484A31  # SHJ1
 MAX_GENERATIONS = 1024
 # Archive markers per Local profile (ADR-0092); they never count against the active generations.
@@ -49,7 +50,6 @@ WAL_AUTOCHECKPOINT_PAGES = 32
 SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 _OPERATION_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 _STATES = frozenset({"prepared", "executing", "completed", "no_effect"})
-_ORIGINS = frozenset({"execution", "verification"})
 _OPEN = "open"
 _ENDED = "ended"
 _ARCHIVED = "archived"
@@ -62,7 +62,6 @@ _OPERATION_COLUMNS = (
     "attempts",
     "state",
     "origin",
-    "evidence",
     "result",
 )
 
@@ -300,8 +299,7 @@ class ActionJournal:
                 operation_id TEXT NOT NULL,
                 attempts INTEGER NOT NULL CHECK (attempts >= 0),
                 state TEXT NOT NULL CHECK (state IN ('prepared', 'executing', 'completed', 'no_effect')),
-                origin TEXT CHECK (origin IN ('execution', 'verification')),
-                evidence TEXT,
+                origin TEXT CHECK (origin IN ('execution')),
                 result BLOB,
                 PRIMARY KEY (generation, interrupt_id),
                 UNIQUE (generation, ordinal),
@@ -309,11 +307,10 @@ class ActionJournal:
                 FOREIGN KEY (generation) REFERENCES batches(generation) ON DELETE CASCADE,
                 CHECK ((state IN ('prepared', 'executing') AND origin IS NULL AND result IS NULL) OR
                        (state = 'completed' AND origin IS NOT NULL AND result IS NOT NULL) OR
-                       (state = 'no_effect' AND origin IS NOT NULL AND result IS NULL)),
-                CHECK ((origin IS 'verification') = (evidence IS NOT NULL))
+                       (state = 'no_effect' AND origin IS NOT NULL AND result IS NULL))
             ) WITHOUT ROWID;
             PRAGMA application_id = 1397246513;
-            PRAGMA user_version = 2;
+            PRAGMA user_version = 3;
             COMMIT;
             """
         )
@@ -469,8 +466,7 @@ class ActionJournal:
         try:
             row = self._connection.execute(
                 """SELECT b.fingerprint, b.operation_count, b.state,
-                          o.ordinal, o.interrupt_id, o.fingerprint, o.state, o.result, o.operation_id, o.origin,
-                          o.evidence
+                          o.ordinal, o.interrupt_id, o.fingerprint, o.state, o.result, o.operation_id, o.origin
                    FROM batches AS b
                    JOIN operations AS o ON o.generation = b.generation
                    WHERE b.generation = ? AND o.interrupt_id = ?""",
@@ -578,7 +574,7 @@ class ActionJournal:
             (batch.generation, batch.fingerprint, len(batch.operations), int(archivable)),
         )
         self._connection.executemany(
-            "INSERT INTO operations VALUES (?, ?, ?, ?, ?, 0, 'prepared', NULL, NULL, NULL)",
+            "INSERT INTO operations VALUES (?, ?, ?, ?, ?, 0, 'prepared', NULL, NULL)",
             [
                 (
                     batch.generation,
@@ -651,33 +647,14 @@ class ActionJournal:
 
     def complete(self, batch: Batch, operation: Operation, result: object) -> None:
         """The execution itself returned this result."""
-        self._settle(batch, operation, "completed", "execution", None, result)
+        self._settle(batch, operation, "completed", result)
 
     def fail_without_effect(self, batch: Batch, operation: Operation) -> None:
         """A handled failure of an Action whose pinned reviewed declaration is ``read_only`` had no business effect."""
-        self._settle(batch, operation, "no_effect", "execution", None, None)
+        self._settle(batch, operation, "no_effect", None)
 
-    def resolve_verified(self, batch: Batch, operation: Operation, evidence: str, result: object | None) -> None:
-        """Team-admitted verifier evidence resolved an uncertain operation: occurred with ``result``, else absent.
-
-        ``evidence`` is the digest that binds the verification to this exact operation. Nothing else, including a
-        model's assertion, may move an uncertain operation to an outcome.
-        """
-        if not isinstance(evidence, str) or http_payload.SHA256_RE.fullmatch(evidence) is None:
-            raise ActionJournalConflictError("Action verification evidence is invalid")
-        self._settle(
-            batch, operation, "completed" if result is not None else "no_effect", "verification", evidence, result
-        )
-
-    def _settle(
-        self,
-        batch: Batch,
-        operation: Operation,
-        state: str,
-        origin: str,
-        evidence: str | None,
-        result: object | None,
-    ) -> None:
+    def _settle(self, batch: Batch, operation: Operation, state: str, result: object | None) -> None:
+        """The execution itself settled the operation ``state``, with ``result`` when it completed."""
         batch = self._validate_handle(batch)
         operation = _operation(operation)
         if operation not in batch.operations:
@@ -686,16 +663,16 @@ class ActionJournal:
         with self._writing("Action result could not be committed"):
             persisted = self._load_operation(batch, operation)
             current, existing = persisted[3], persisted[4]
-            if (current, persisted[6]) == (state, origin):
-                if (existing, persisted[7]) != (encoded, evidence):
+            if (current, persisted[6]) == (state, "execution"):
+                if existing != encoded:
                     raise ActionJournalConflictError("Action result changed after completion")
             elif current != "executing" or existing is not None:
                 raise ActionJournalConflictError("Action operation was not executing")
             else:
                 self._connection.execute(
-                    """UPDATE operations SET state = ?, origin = ?, evidence = ?, result = ?
+                    """UPDATE operations SET state = ?, origin = 'execution', result = ?
                        WHERE generation = ? AND interrupt_id = ? AND state = 'executing'""",
-                    (state, origin, evidence, encoded, batch.generation, operation.interrupt_id),
+                    (state, encoded, batch.generation, operation.interrupt_id),
                 )
                 self._require_changed("Action operation changed before completion")
         self._remember(batch, operation.interrupt_id, encoded)

@@ -16,7 +16,6 @@ from action import human as action_human
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 
-EVIDENCE = "e" * 64
 RETRY_ID = "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
 
 
@@ -117,49 +116,16 @@ class JournalOperationTests(unittest.TestCase):
         self.assertIsNone(journal.uncertain_fingerprint("generation"))
         self.assertTrue(journal.end(batch))
         row = journal._connection.execute(
-            "SELECT state, origin, evidence, result FROM operations WHERE interrupt_id = 'interrupt-1'"
+            "SELECT state, origin, result FROM operations WHERE interrupt_id = 'interrupt-1'"
         ).fetchone()
-        self.assertEqual(row, ("no_effect", "execution", None, None))
+        self.assertEqual(row, ("no_effect", "execution", None))
 
-    def test_only_bound_verifier_evidence_resolves_an_uncertain_operation(self) -> None:
-        journal = self.journal()
-        batch = journal.prepare_batch("generation", "thread", [self.first, self.second])
-        for invalid in ("", "E" * 64, "e" * 63, None):
-            with (
-                self.subTest(evidence=invalid),
-                self.assertRaisesRegex(action_journal.ActionJournalConflictError, "evidence"),
-            ):
-                journal.resolve_verified(batch, self.first, invalid, {"id": "1"})
-        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "not executing"):
-            journal.resolve_verified(batch, self.first, EVIDENCE, {"id": "1"})
-        journal.begin(batch, self.first)
-        journal.begin(batch, self.second)
-        journal.resolve_verified(batch, self.first, EVIDENCE, {"id": "1"})
-        journal.resolve_verified(batch, self.first, EVIDENCE, {"id": "1"})
-        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "changed after completion"):
-            journal.resolve_verified(batch, self.first, "f" * 64, {"id": "1"})
-        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "not executing"):
-            journal.complete(batch, self.first, {"id": "1"})
-        journal.resolve_verified(batch, self.second, EVIDENCE, None)
-        self.assertEqual(journal.begin(batch, self.first).result, {"id": "1"})
-        rows = journal._connection.execute(
-            "SELECT interrupt_id, state, origin, evidence FROM operations ORDER BY ordinal"
-        ).fetchall()
-        self.assertEqual(
-            rows,
-            [
-                ("interrupt-1", "completed", "verification", EVIDENCE),
-                ("interrupt-2", "no_effect", "verification", EVIDENCE),
-            ],
-        )
-
-    def test_the_schema_refuses_an_outcome_without_its_origin_or_unbound_evidence(self) -> None:
+    def test_the_schema_refuses_an_outcome_without_the_execution_origin(self) -> None:
         journal = self.journal()
         journal.prepare_batch("generation", "thread", [self.first])
         for statement in (
             "UPDATE operations SET state = 'completed', result = x'7b7d'",
             "UPDATE operations SET state = 'no_effect', origin = 'verification'",
-            "UPDATE operations SET state = 'no_effect', origin = 'execution', evidence = 'e'",
             "UPDATE operations SET state = 'prepared', origin = 'execution'",
             "UPDATE operations SET attempts = -1",
             "UPDATE batches SET state = 'archived'",
