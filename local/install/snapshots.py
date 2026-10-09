@@ -559,6 +559,7 @@ def _integration_declarations(value: object) -> tuple[assistant_manifest.Integra
     return declarations
 
 
+_STORED_INPUT_REQUIRED = frozenset({"id", "kind", "label", "description", "host"})
 _STORED_INPUT_FIELDS = frozenset(
     {"id", "kind", "label", "description", "help_url", "host", "header", "query", "scheme", "hmac"}
 )
@@ -567,15 +568,12 @@ _STORED_INPUT_FIELDS = frozenset(
 def _stored_input_declarations(value: object) -> tuple[assistant_manifest.StoredInputDeclaration, ...]:
     if not isinstance(value, list):
         raise LocalSnapshotError("the local Assistant Stored Inputs are invalid")
-    try:
-        declarations = tuple(
-            assistant_manifest.StoredInputDeclaration(**item)
-            for item in value
-            if isinstance(item, dict)
-            and {"id", "kind", "label", "description", "host"} <= set(item) <= _STORED_INPUT_FIELDS
-        )
-    except (KeyError, TypeError) as exc:
-        raise LocalSnapshotError("the local Assistant Stored Inputs are invalid") from exc
+    # Only the closed field set reaches the dataclass, so construction itself cannot fail.
+    declarations = tuple(
+        assistant_manifest.StoredInputDeclaration(**item)
+        for item in value
+        if isinstance(item, dict) and _STORED_INPUT_REQUIRED <= set(item) <= _STORED_INPUT_FIELDS
+    )
     if len(declarations) != len(value):
         raise LocalSnapshotError("the local Assistant Stored Inputs are invalid")
     return declarations

@@ -208,6 +208,10 @@ def test_network_reuse_rejects_wrong_identity_and_contamination() -> None:
         policy.network_member_managed(containers["postgres-id"], TEAM_ID, policy.CORE_KIND),
         "teardown recognizes the exact configured core dependency",
     )
+    check(
+        not policy.network_member_managed(containers["postgres-id"], TEAM_ID, "unknown"),
+        "teardown claims no member of a network kind it does not manage",
+    )
     assistant_egress = _container(
         "shimpz-assistant-egress",
         "shimpz-assistant-egress",

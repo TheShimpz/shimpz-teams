@@ -3,6 +3,7 @@ import dataclasses
 import json
 import types
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from test_local_chat_continuations import pending
@@ -63,6 +64,9 @@ class ContinuationCodecPrimitiveEdgeTests(unittest.TestCase):
         duplicate = action_human.ActionTranscript("interrupt")
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._transcripts_payload((duplicate, duplicate))
+        lookalike = SimpleNamespace(interrupt_id="interrupt", responses=())
+        with self.assertRaises(continuation.ContinuationCodecError):
+            continuation._transcripts_payload((lookalike,))
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._requests_used(-1)
 

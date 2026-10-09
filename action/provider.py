@@ -354,9 +354,8 @@ def _url(value: object, allowed_hosts: frozenset[str]) -> tuple[str, str]:
         or parts.hostname not in allowed_hosts
     ):
         raise CallRefusedError("refused", "host")
+    # An https URL with a host has an empty or absolute path, so its target always starts with "/".
     path = parts.path or "/"
-    if not path.startswith("/"):
-        raise CallRefusedError("refused", "url")
     return parts.hostname, path if not parts.query else f"{path}?{parts.query}"
 
 

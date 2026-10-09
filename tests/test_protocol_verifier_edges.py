@@ -199,6 +199,11 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
             ),
             lambda root: _rewrite_json(
                 root,
+                "fetch.schema.json",
+                lambda value: value["$defs"]["request"]["required"].remove("headers"),
+            ),
+            lambda root: _rewrite_json(
+                root,
                 "result.schema.json",
                 lambda value: value.update(
                     {

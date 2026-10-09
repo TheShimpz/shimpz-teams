@@ -96,11 +96,29 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             1,
         )
         lifecycle._queue_residue.assert_called_once_with("sha256:" + "a" * 64)
+        lifecycle._remove_egress_policy.assert_not_called()
+
+        # An Assistant with declared egress has its policy removed with its workload (ADR-0106).
+        subject.registry = TestAssistantRegistry(
+            {
+                "assistant": types.SimpleNamespace(
+                    admissible=True, provenance="local", allowed_hosts=("api.example.com",)
+                )
+            }
+        )
+        local_lifecycle._remove_team_assistants(subject, "team_1", [container])
+        lifecycle._remove_egress_policy.assert_called_once_with("team_1", "assistant")
 
     def test_binding_only_assistants_are_removed_for_the_exact_team(self) -> None:
         own_spec = types.SimpleNamespace(allowed_hosts=("api.example.com",))
-        registry = TestAssistantRegistry({"own": own_spec, "other": types.SimpleNamespace(allowed_hosts=())})
-        registry.identities = lambda: {("other_team", "other"), ("team_1", "own")}
+        registry = TestAssistantRegistry(
+            {
+                "own": own_spec,
+                "plain": types.SimpleNamespace(allowed_hosts=()),
+                "other": types.SimpleNamespace(allowed_hosts=()),
+            }
+        )
+        registry.identities = lambda: {("other_team", "other"), ("team_1", "own"), ("team_1", "plain")}
         lifecycle = types.SimpleNamespace(
             _blocked_action_workloads=set(),
             _remove_egress_policy=mock.Mock(),
