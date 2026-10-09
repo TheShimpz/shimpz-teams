@@ -247,6 +247,8 @@ class Broker:
         scope = self._scope
         injected = sorted({credential.id for credential in scope.credentials if credential.host == call.host})
         _acquire(deadline, scope.stopped)
+        # The call holds its capacity, whatever its outcome, until the exchange has written or abandoned its reply.
+        self._held = True
         try:
             scope.audit(
                 {
@@ -264,13 +266,8 @@ class Broker:
             status, headers, body = _transport(call, (self._route or ("", frozenset()))[0], scope.stopped, deadline)
             _require_clean(headers, body, scope.credentials)
         except CallRefusedError as exc:
-            _CAPACITY.release()
             scope.audit({"phase": "outcome", "call": ordinal, "error": exc.code, "reason": exc.reason})
             raise _ReportedError(exc) from None
-        except BaseException:
-            _CAPACITY.release()
-            raise
-        self._held = True
         scope.audit(
             {
                 "phase": "outcome",

@@ -250,6 +250,24 @@ class ProviderCallChannelTests(unittest.TestCase):
         self.assertEqual((broker.calls, broker.released, broker.held), (3, 3, False))
         self.assertEqual(seen[1:], [b'{"error":"refused"}'] * 3)
 
+    def test_a_reply_that_cannot_be_written_ends_the_attempt_before_any_later_call(self) -> None:
+        call = b'{"type":"fetch","method":"GET","url":"https://api.example.com/","headers":[]}\n'
+
+        def workload(connection: socket.socket, _seen: list[bytes]) -> None:
+            _lines(connection, 1)
+            connection.sendall(_frame(1, call + call + b'{"type":"result","result":{}}\n'))
+            connection.close()
+
+        class Slow(_RecordingBroker):
+            def __call__(self, frame: object, deadline: float) -> bytes:
+                time.sleep(0.2)
+                return super().__call__(frame, deadline)
+
+        broker = Slow()
+        with self.assertRaises(OSError):
+            self._exchange(workload, broker)
+        self.assertEqual((broker.calls, broker.held), (1, False))
+
     def test_output_after_the_terminal_or_an_invalid_line_is_refused(self) -> None:
         for output in (b'{"type":"result","result":{}}\n{"type":"fetch"}\n', b"not json\n"):
 

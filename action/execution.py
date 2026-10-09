@@ -954,7 +954,7 @@ def exchange_rpc_frames(
             if not readable and not writable:
                 raise TimeoutError
             if writable:
-                _send_pending(raw_socket, pending)
+                _send_pending(raw_socket, pending, broker is not None)
                 if not pending and broker is None and not closed:
                     closed = True
                     with suppress(OSError):
@@ -976,13 +976,16 @@ def exchange_rpc_frames(
             broker.release()
 
 
-def _send_pending(raw_socket: socket.socket, pending: bytearray) -> None:
+def _send_pending(raw_socket: socket.socket, pending: bytearray, replies: bool) -> None:
     try:
         del pending[: raw_socket.send(pending[:_CHUNK_BYTES])]
     except BlockingIOError:
         pass
     except BrokenPipeError:
-        # The workload stopped reading its input; its output and exit status still decide the outcome.
+        # A provider-call reply that cannot be written ends the attempt as a transport fault, so no later call is
+        # answered; without calls the workload merely stopped reading, and its output still decides the outcome.
+        if replies:
+            raise
         pending.clear()
 
 

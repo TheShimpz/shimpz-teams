@@ -171,6 +171,7 @@ class AdmissionTests(unittest.TestCase):
             with self.subTest(frame=frame):
                 audits = []
                 broker = provider.Broker(provider.CallScope(**{**_fields(scope), "audit": audits.append}))
+                self.addCleanup(broker.release)
                 reply = json.loads(broker(frame, time.monotonic() + 5))
                 self.assertEqual(reply, {"error": code})
                 self.assertEqual([item["phase"] for item in audits], ["refused"])
@@ -183,6 +184,8 @@ class AdmissionTests(unittest.TestCase):
             raise provider.CallRefusedError("unavailable", "egress-policy")
 
         broker = provider.Broker(provider.CallScope(**{**_fields(_scope()), "route": unavailable}))
+
+        self.addCleanup(broker.release)
         self.assertEqual(reads, [])
         self.assertEqual(json.loads(broker(_frame(), time.monotonic() + 5)), {"error": "unavailable"})
         missing = provider.Broker(provider.CallScope(**{**_fields(_scope()), "route": lambda: ("", frozenset())}))
@@ -190,6 +193,7 @@ class AdmissionTests(unittest.TestCase):
 
     def test_refuses_the_seventeenth_call_of_one_attempt(self) -> None:
         broker = provider.Broker(_scope(missing=frozenset({HOST})))
+        self.addCleanup(broker.release)
         replies = [json.loads(broker(_frame(), time.monotonic() + 5)) for _ in range(provider.MAX_CALLS + 1)]
         self.assertEqual(replies[-1], {"error": "refused"})
         self.assertEqual(broker.calls, provider.MAX_CALLS + 1)
@@ -340,6 +344,7 @@ class TransportTests(unittest.TestCase):
 
     def _call(self, frame: dict[str, object], credentials=(), audit=None) -> dict[str, object]:
         broker = provider.Broker(_scope(credentials, audit=audit))
+        self.addCleanup(broker.release)
         try:
             return json.loads(broker(frame, time.monotonic() + 5))
         finally:
@@ -419,9 +424,28 @@ class TransportTests(unittest.TestCase):
     def test_a_delivered_reply_holds_its_call_capacity_until_released(self) -> None:
         free = provider._CAPACITY._value
         broker = provider.Broker(_scope())
+        self.addCleanup(broker.release)
         self.assertEqual(json.loads(broker(_frame(), time.monotonic() + 5))["status"], 200)
         self.assertEqual(provider._CAPACITY._value, free - 1)
         broker.release()
+        broker.release()
+        self.assertEqual(provider._CAPACITY._value, free)
+
+    def test_a_failed_call_holds_its_capacity_through_its_audit_until_released(self) -> None:
+        bearer = provider.Credential("stored-input:t", HOST, "authorization", None, f"Bearer {TOKEN}", (TOKEN,))
+        _Origin.script = (200, [("Content-Type", "application/json")], TOKEN.encode())
+        free = provider._CAPACITY._value
+        held: list[int] = []
+
+        def audit(fields: dict[str, object]) -> None:
+            if fields["phase"] == "outcome":
+                held.append(provider._CAPACITY._value)
+
+        broker = provider.Broker(_scope((bearer,), audit=audit))
+
+        self.addCleanup(broker.release)
+        self.assertEqual(json.loads(broker(_frame(), time.monotonic() + 5)), {"error": "failed"})
+        self.assertEqual((held, provider._CAPACITY._value), ([free - 1], free - 1))
         broker.release()
         self.assertEqual(provider._CAPACITY._value, free)
 
@@ -435,6 +459,7 @@ class TransportTests(unittest.TestCase):
         broker = provider.Broker(
             provider.CallScope(**{**_fields(_scope()), "route": lambda: ("0" * 32, frozenset({HOST}))})
         )
+        self.addCleanup(broker.release)
         self.assertEqual(json.loads(broker(_frame(), time.monotonic() + 5)), {"error": "unavailable"})
         self.assertEqual(_Origin.seen, [])
 
@@ -452,6 +477,7 @@ class TransportTests(unittest.TestCase):
 
         with mock.patch.object(_Origin, "_answer", slow):
             broker = provider.Broker(_scope(stopped=stopped.is_set))
+            self.addCleanup(broker.release)
             started = time.monotonic()
             self.assertEqual(json.loads(broker(_frame(), time.monotonic() + 5)), {"error": "failed"})
             self.assertLess(time.monotonic() - started, 1.5)
@@ -467,6 +493,8 @@ class TransportTests(unittest.TestCase):
                 stopped.set()
 
         broker = provider.Broker(_scope(audit=audit, stopped=stopped.is_set))
+
+        self.addCleanup(broker.release)
         self.assertEqual(json.loads(broker(_frame(), time.monotonic() + 5)), {"error": "refused"})
         self.assertEqual(_Origin.seen, [])
         self.assertEqual(
@@ -478,6 +506,8 @@ class TransportTests(unittest.TestCase):
             raise RuntimeError("the audit journal is unavailable")
 
         broker = provider.Broker(_scope(audit=failing))
+
+        self.addCleanup(broker.release)
         with self.assertRaises(RuntimeError):
             broker(_frame(), time.monotonic() + 5)
         self.assertEqual(_Origin.seen, [])
