@@ -1,7 +1,5 @@
 """An installed Assistant's page in one interface language, on both profiles, from its exact current binding."""
 
-from __future__ import annotations
-
 import copy
 import json
 import sys

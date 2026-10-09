@@ -1,7 +1,5 @@
 """One Assistant page in one interface language, projected from an admitted binding or staged snapshot."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
