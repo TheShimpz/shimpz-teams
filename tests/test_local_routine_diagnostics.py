@@ -436,7 +436,7 @@ class StepRecordTests(StepRecordCase):
         )
         invalid = (
             *invalid,
-            _step(1, "not-permitted"),
+            _step(1, "unknown"),
             _step(1, position={"phase": "replay", "step": True}),
             _step(1, position={"phase": "planning", "step": 1}),
         )
