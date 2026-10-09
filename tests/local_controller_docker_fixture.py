@@ -293,6 +293,17 @@ def supervisor_header(
         "path": path,
         "body": _request_body(encoded, headers),
     }
+    # Like Admin, the assertion binds the digest of every model or decision credential the request carries.
+    if "X-Shimpz-Model-Api-Key" in headers:
+        claims["model"] = {
+            "provider": headers["X-Shimpz-Model-Provider"],
+            "key_sha256": hashlib.sha256(headers["X-Shimpz-Model-Api-Key"].encode("ascii")).hexdigest(),
+        }
+    if "X-Shimpz-Decision-Api-Key" in headers:
+        claims["decision"] = {
+            "provider": "typesafe",
+            "key_sha256": hashlib.sha256(headers["X-Shimpz-Decision-Api-Key"].encode("ascii")).hexdigest(),
+        }
     header = _segment(supervisor_contract.canonical_json(supervisor_contract.JWT_HEADER))
     payload = _segment(supervisor_contract.claims_json(claims))
     signing_input = f"{header}.{payload}".encode("ascii")
