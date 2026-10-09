@@ -6,6 +6,7 @@
       "actions": [
         {
           "id": "list-folders",
+          "description": "Run the list-folders Action.",
           "input_schema": {
             "type": "object",
             "properties": {},
@@ -38,6 +39,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -88,6 +90,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -139,6 +142,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -189,6 +193,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -239,6 +244,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -285,6 +291,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -332,6 +339,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -383,6 +391,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -433,6 +442,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -483,6 +493,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -533,6 +544,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -582,6 +594,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -632,6 +645,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -683,6 +697,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -733,6 +748,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -783,6 +799,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -837,6 +854,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -890,6 +908,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -945,6 +964,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -995,6 +1015,7 @@
       "actions": [
         {
           "id": "upload-document",
+          "description": "Run the upload-document Action.",
           "input_schema": {
             "type": "object",
             "properties": {

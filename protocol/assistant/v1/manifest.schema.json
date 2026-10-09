@@ -46,6 +46,7 @@
         "version",
         "name",
         "summary",
+        "description",
         "creators",
         "github",
         "genesis"
@@ -73,6 +74,12 @@
           "maxLength": 80,
           "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]+$"
         },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400,
+          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]+$"
+        },
         "creators": {
           "type": "array",
           "minItems": 1,
@@ -86,6 +93,9 @@
         "github": {
           "type": "string",
           "pattern": "^https://github\\.com/[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?$"
+        },
+        "links": {
+          "$ref": "#/$defs/links"
         },
         "genesis": {
           "type": "string",
@@ -187,6 +197,82 @@
       "minLength": 1,
       "maxLength": 2048,
       "pattern": "^https://(?=[^/]{1,253}/)(?![^/]*\\.(?:arpa|example|home|internal|invalid|lan|local|localdomain|localhost|onion|test)/)(?:(?!xn--)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+(?!xn--)[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?(?:/(?!\\.\\.?(?:/|\\?|(?![\\s\\S])))(?:[A-Za-z0-9._~!$&()*+,;=:@-]|%(?!2E)[0-9A-F]{2})*)+(?:\\?(?:[A-Za-z0-9._~!$&()*+,;=:@/?-]|%[0-9A-F]{2})+)?(?![\\s\\S])"
+    },
+    "links": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "site": {
+          "type": "string",
+          "maxLength": 256,
+          "allOf": [
+            {
+              "$ref": "#/$defs/helpUrl"
+            }
+          ]
+        },
+        "github": {
+          "type": "string",
+          "maxLength": 256,
+          "allOf": [
+            {
+              "$ref": "#/$defs/helpUrl"
+            },
+            {
+              "pattern": "^https://github\\.com/"
+            }
+          ]
+        },
+        "x": {
+          "type": "string",
+          "maxLength": 256,
+          "allOf": [
+            {
+              "$ref": "#/$defs/helpUrl"
+            },
+            {
+              "pattern": "^https://x\\.com/"
+            }
+          ]
+        },
+        "youtube": {
+          "type": "string",
+          "maxLength": 256,
+          "allOf": [
+            {
+              "$ref": "#/$defs/helpUrl"
+            },
+            {
+              "pattern": "^https://(?:www\\.)?youtube\\.com/"
+            }
+          ]
+        },
+        "linkedin": {
+          "type": "string",
+          "maxLength": 256,
+          "allOf": [
+            {
+              "$ref": "#/$defs/helpUrl"
+            },
+            {
+              "pattern": "^https://(?:www\\.)?linkedin\\.com/"
+            }
+          ]
+        },
+        "instagram": {
+          "type": "string",
+          "maxLength": 256,
+          "allOf": [
+            {
+              "$ref": "#/$defs/helpUrl"
+            },
+            {
+              "pattern": "^https://(?:www\\.)?instagram\\.com/"
+            }
+          ]
+        }
+      }
     }
   }
 }

@@ -5,6 +5,7 @@
       "name": "an ordinary Action receives no file",
       "action": {
         "id": "list-folders",
+        "description": "Run the list-folders Action.",
         "input_schema": {
           "type": "object",
           "properties": {},
@@ -42,6 +43,7 @@
       "name": "the first invocation receives metadata only",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -110,6 +112,7 @@
       "name": "the approved replay receives the bytes",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -187,6 +190,7 @@
       "name": "a name with spaces and Unicode is literal data",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -255,6 +259,7 @@
       "name": "the file must match the input id",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -323,6 +328,7 @@
       "name": "the selected file must be present",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -381,6 +387,7 @@
       "name": "an ordinary Action refuses a file",
       "action": {
         "id": "list-folders",
+        "description": "Run the list-folders Action.",
         "input_schema": {
           "type": "object",
           "properties": {},
@@ -428,6 +435,7 @@
       "name": "a missing files member is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -485,6 +493,7 @@
       "name": "bytes before authorization are refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -554,6 +563,7 @@
       "name": "a denied response is not authorization",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -631,6 +641,7 @@
       "name": "withheld bytes after authorization are refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -707,6 +718,7 @@
       "name": "bytes that differ from the digest are refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -784,6 +796,7 @@
       "name": "bytes that differ from the size are refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -861,6 +874,7 @@
       "name": "unpadded base64 is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -938,6 +952,7 @@
       "name": "URL-safe base64 is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1015,6 +1030,7 @@
       "name": "base64 with whitespace is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1092,6 +1108,7 @@
       "name": "non-canonical trailing bits are refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1169,6 +1186,7 @@
       "name": "an empty file is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1237,6 +1255,7 @@
       "name": "a file over 8 MiB is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1305,6 +1324,7 @@
       "name": "a path in the name is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1373,6 +1393,7 @@
       "name": "a dot name is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1441,6 +1462,7 @@
       "name": "an untrimmed name is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1509,6 +1531,7 @@
       "name": "a control character in the name is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1577,6 +1600,7 @@
       "name": "a name over 255 UTF-8 bytes is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1645,6 +1669,7 @@
       "name": "an uppercase media type is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1713,6 +1738,7 @@
       "name": "a media type with parameters is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1781,6 +1807,7 @@
       "name": "an uppercase digest is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1849,6 +1876,7 @@
       "name": "an unknown content branch is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1918,6 +1946,7 @@
       "name": "withheld content carries no bytes",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1987,6 +2016,7 @@
       "name": "an unknown file member is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2056,6 +2086,7 @@
       "name": "the declared passkey authorizes delivery",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2133,6 +2164,7 @@
       "name": "an input answer before the authorization keeps its place",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2217,6 +2249,7 @@
       "name": "an approval response does not authorize a passkey Action",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2294,6 +2327,7 @@
       "name": "a passkey response does not authorize an approval Action",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2371,6 +2405,7 @@
       "name": "a passkey response without ordinal and fingerprint is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2446,6 +2481,7 @@
       "name": "a passkey response with an invalid fingerprint is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2523,6 +2559,7 @@
       "name": "a passkey response with an extra member is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2601,6 +2638,7 @@
       "name": "a false authorization value is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2678,6 +2716,7 @@
       "name": "duplicate authorization responses are refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2761,6 +2800,7 @@
       "name": "duplicate authorization responses are refused while withheld",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2843,6 +2883,7 @@
       "name": "a response ordinal out of position is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2921,6 +2962,7 @@
       "name": "an undeclared response kind is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -2997,6 +3039,7 @@
       "name": "a response that is not an object is refused",
       "action": {
         "id": "upload-document",
+        "description": "Run the upload-document Action.",
         "input_schema": {
           "type": "object",
           "properties": {

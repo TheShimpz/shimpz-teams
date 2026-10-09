@@ -6,12 +6,19 @@ import hashlib
 import json
 import re
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 
 LOCALES = ("ar", "de", "es", "fr", "ja", "pt", "zh")
 PACK_FORMAT = "assistant-language-pack-v1"
 FIELD_BOUNDS = (80, 120, 160, 500)
 SUMMARY_BOUND = 80
+# Displayed static Creator copy beyond the summary: the authored English bound, then the bound of its catalog message,
+# which every translation must fit. The Assistant description is a paragraph; an Action description and a Stored
+# Input label are one short line each.
+DESCRIPTION_CHARS = 400
+DESCRIPTION_BOUND = 500
+LINE_CHARS = 80
+LINE_BOUND = 120
 MAX_TEMPLATE_CHARS = 500
 MAX_MESSAGES = 256
 MAX_PARAMS = 8
@@ -28,6 +35,8 @@ LIMITS = {
     "pack_bytes": MAX_PACK_BYTES,
     "field_bounds": list(FIELD_BOUNDS),
     "summary_bound": SUMMARY_BOUND,
+    "description_bound": DESCRIPTION_BOUND,
+    "line_bound": LINE_BOUND,
     "param_bounds": PARAM_BOUNDS,
 }
 MESSAGE_KEYS = frozenset({"id", "msgid", "max_length", "params"})
@@ -94,6 +103,26 @@ def catalog_error(messages: object, summary: object) -> str | None:
     if ids != sorted(set(ids)):
         return "catalog_order"
     return _summary_error(messages, summary)
+
+
+def display_uses(description: str, action_descriptions: Iterable[str], labels: Iterable[str]) -> list[tuple[str, int]]:
+    """Return every displayed static text beyond the summary with the bound its catalog message must fit."""
+    lines = [*action_descriptions, *labels]
+    return [(description, DESCRIPTION_BOUND), *((text, LINE_BOUND) for text in lines)]
+
+
+def display_error(messages: list[dict[str, object]], uses: Iterable[tuple[object, int]]) -> str | None:
+    """Return ``catalog_display`` unless each displayed text is one parameterless message within its bound.
+
+    ``messages`` is an already admitted catalog. One template may serve several uses; its ``max_length`` is then the
+    smallest of their bounds, so a use is satisfied by any bound at most its own.
+    """
+    catalog = {message["msgid"]: message for message in messages}
+    for text, bound in uses:
+        target = catalog.get(text) if isinstance(text, str) else None
+        if target is None or target["params"] or target["max_length"] > bound:
+            return "catalog_display"
+    return None
 
 
 def _aggregate_error(messages: object) -> str | None:
@@ -268,6 +297,7 @@ def verify_vectors(document: object, reference_error: ReferenceCheck) -> None:
         "catalog",
         "pack",
         "catalog_cases",
+        "display_cases",
         "render_cases",
         "pack_cases",
     }:
@@ -283,6 +313,9 @@ def verify_vectors(document: object, reference_error: ReferenceCheck) -> None:
     _verify_pack(document["pack"], messages)
     _verify_outcomes(
         document["catalog_cases"], "catalog", lambda case: catalog_error(_case_messages(case), case["summary"])
+    )
+    _verify_outcomes(
+        document["display_cases"], "display", lambda case: display_error(case["messages"], _case_uses(case))
     )
     _verify_renders(document["render_cases"], messages, document["pack"]["value"], reference_error)
     _verify_outcomes(document["pack_cases"], "pack", lambda case: pack_error(_case_bytes(case), messages))
@@ -354,6 +387,10 @@ def _case_messages(case: dict[str, object]) -> object:
     return generated_catalog(case["summary"], case["generated"])
 
 
+def _case_uses(case: dict[str, object]) -> list[tuple[object, int]]:
+    return display_uses(case["description"], case["action_descriptions"], case["labels"])
+
+
 def _case_bytes(case: dict[str, object]) -> bytes:
     return canonical_json(case["pack"]) if "pack" in case else str(case["text"]).encode()
 
@@ -365,6 +402,7 @@ def _verify_outcomes(cases: object, kind: str, evaluate) -> None:
     outcomes: set[bool] = set()
     payloads = {
         "catalog": ({"summary", "messages"}, {"summary", "generated"}, {"summary", "nested"}),
+        "display": ({"messages", "description", "action_descriptions", "labels"},),
         "pack": ({"pack"}, {"text"}),
     }[kind]
     for case in cases:

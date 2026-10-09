@@ -24,6 +24,8 @@
       500
     ],
     "summary_bound": 80,
+    "description_bound": 500,
+    "line_bound": 120,
     "param_bounds": {
       "integer": 15,
       "domain": 253,
@@ -1227,6 +1229,401 @@
             }
           ]
         }
+      ]
+    }
+  ],
+  "display_cases": [
+    {
+      "name": "valid_display_copy",
+      "valid": true,
+      "messages": [
+        {
+          "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
+          "msgid": "List your DNS zones.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
+          "msgid": "Delete one DNS record.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "677521d34853b4c2f638c341bbca71497901fd297bcef9bb37971a6dbb256283",
+          "msgid": "Cloudflare API token",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "d582afdfcaec555293adcb7e7f904a6e063e6cb0b66aa358a1dad7efa36a58b9",
+          "msgid": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+          "max_length": 500,
+          "params": []
+        }
+      ],
+      "description": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+      "action_descriptions": [
+        "List your DNS zones.",
+        "Delete one DNS record."
+      ],
+      "labels": [
+        "Cloudflare API token"
+      ]
+    },
+    {
+      "name": "valid_without_stored_inputs",
+      "valid": true,
+      "messages": [
+        {
+          "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
+          "msgid": "List your DNS zones.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
+          "msgid": "Delete one DNS record.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "d582afdfcaec555293adcb7e7f904a6e063e6cb0b66aa358a1dad7efa36a58b9",
+          "msgid": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+          "max_length": 500,
+          "params": []
+        }
+      ],
+      "description": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+      "action_descriptions": [
+        "List your DNS zones.",
+        "Delete one DNS record."
+      ],
+      "labels": []
+    },
+    {
+      "name": "valid_shared_template_takes_the_tighter_bound",
+      "valid": true,
+      "messages": [
+        {
+          "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
+          "msgid": "List your DNS zones.",
+          "max_length": 80,
+          "params": []
+        },
+        {
+          "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
+          "msgid": "Delete one DNS record.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "d582afdfcaec555293adcb7e7f904a6e063e6cb0b66aa358a1dad7efa36a58b9",
+          "msgid": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+          "max_length": 500,
+          "params": []
+        }
+      ],
+      "description": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+      "action_descriptions": [
+        "List your DNS zones.",
+        "Delete one DNS record."
+      ],
+      "labels": [
+        "List your DNS zones."
+      ]
+    },
+    {
+      "name": "valid_description_message_at_a_tighter_bound",
+      "valid": true,
+      "messages": [
+        {
+          "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
+          "msgid": "List your DNS zones.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
+          "msgid": "Delete one DNS record.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "677521d34853b4c2f638c341bbca71497901fd297bcef9bb37971a6dbb256283",
+          "msgid": "Cloudflare API token",
+          "max_length": 120,
+          "params": []
+        }
+      ],
+      "description": "List your DNS zones.",
+      "action_descriptions": [
+        "List your DNS zones.",
+        "Delete one DNS record."
+      ],
+      "labels": [
+        "Cloudflare API token"
+      ]
+    },
+    {
+      "name": "reject_missing_description",
+      "valid": false,
+      "error": "catalog_display",
+      "messages": [
+        {
+          "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
+          "msgid": "List your DNS zones.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
+          "msgid": "Delete one DNS record.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "677521d34853b4c2f638c341bbca71497901fd297bcef9bb37971a6dbb256283",
+          "msgid": "Cloudflare API token",
+          "max_length": 120,
+          "params": []
+        }
+      ],
+      "description": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+      "action_descriptions": [
+        "List your DNS zones.",
+        "Delete one DNS record."
+      ],
+      "labels": [
+        "Cloudflare API token"
+      ]
+    },
+    {
+      "name": "reject_missing_action_description",
+      "valid": false,
+      "error": "catalog_display",
+      "messages": [
+        {
+          "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
+          "msgid": "Delete one DNS record.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "677521d34853b4c2f638c341bbca71497901fd297bcef9bb37971a6dbb256283",
+          "msgid": "Cloudflare API token",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "d582afdfcaec555293adcb7e7f904a6e063e6cb0b66aa358a1dad7efa36a58b9",
+          "msgid": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+          "max_length": 500,
+          "params": []
+        }
+      ],
+      "description": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+      "action_descriptions": [
+        "List your DNS zones.",
+        "Delete one DNS record."
+      ],
+      "labels": [
+        "Cloudflare API token"
+      ]
+    },
+    {
+      "name": "reject_missing_label",
+      "valid": false,
+      "error": "catalog_display",
+      "messages": [
+        {
+          "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
+          "msgid": "List your DNS zones.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
+          "msgid": "Delete one DNS record.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "d582afdfcaec555293adcb7e7f904a6e063e6cb0b66aa358a1dad7efa36a58b9",
+          "msgid": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+          "max_length": 500,
+          "params": []
+        }
+      ],
+      "description": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+      "action_descriptions": [
+        "List your DNS zones.",
+        "Delete one DNS record."
+      ],
+      "labels": [
+        "Cloudflare API token"
+      ]
+    },
+    {
+      "name": "reject_action_description_message_over_line_bound",
+      "valid": false,
+      "error": "catalog_display",
+      "messages": [
+        {
+          "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
+          "msgid": "List your DNS zones.",
+          "max_length": 160,
+          "params": []
+        },
+        {
+          "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
+          "msgid": "Delete one DNS record.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "677521d34853b4c2f638c341bbca71497901fd297bcef9bb37971a6dbb256283",
+          "msgid": "Cloudflare API token",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "d582afdfcaec555293adcb7e7f904a6e063e6cb0b66aa358a1dad7efa36a58b9",
+          "msgid": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+          "max_length": 500,
+          "params": []
+        }
+      ],
+      "description": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+      "action_descriptions": [
+        "List your DNS zones.",
+        "Delete one DNS record."
+      ],
+      "labels": [
+        "Cloudflare API token"
+      ]
+    },
+    {
+      "name": "reject_label_message_over_line_bound",
+      "valid": false,
+      "error": "catalog_display",
+      "messages": [
+        {
+          "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
+          "msgid": "List your DNS zones.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
+          "msgid": "Delete one DNS record.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "677521d34853b4c2f638c341bbca71497901fd297bcef9bb37971a6dbb256283",
+          "msgid": "Cloudflare API token",
+          "max_length": 500,
+          "params": []
+        },
+        {
+          "id": "d582afdfcaec555293adcb7e7f904a6e063e6cb0b66aa358a1dad7efa36a58b9",
+          "msgid": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+          "max_length": 500,
+          "params": []
+        }
+      ],
+      "description": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+      "action_descriptions": [
+        "List your DNS zones.",
+        "Delete one DNS record."
+      ],
+      "labels": [
+        "Cloudflare API token"
+      ]
+    },
+    {
+      "name": "reject_display_message_with_params",
+      "valid": false,
+      "error": "catalog_display",
+      "messages": [
+        {
+          "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
+          "msgid": "List your DNS zones.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "677521d34853b4c2f638c341bbca71497901fd297bcef9bb37971a6dbb256283",
+          "msgid": "Cloudflare API token",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "d582afdfcaec555293adcb7e7f904a6e063e6cb0b66aa358a1dad7efa36a58b9",
+          "msgid": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+          "max_length": 500,
+          "params": []
+        },
+        {
+          "id": "fba6f36a23331a996e2d1155b7764c993fc4ce2ad63e48bdd54425fca1778a34",
+          "msgid": "Delete the record {record}.",
+          "max_length": 120,
+          "params": [
+            {
+              "name": "record",
+              "kind": "identifier",
+              "max_length": 64
+            }
+          ]
+        }
+      ],
+      "description": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+      "action_descriptions": [
+        "List your DNS zones.",
+        "Delete the record {record}."
+      ],
+      "labels": [
+        "Cloudflare API token"
+      ]
+    },
+    {
+      "name": "reject_non_string_description",
+      "valid": false,
+      "error": "catalog_display",
+      "messages": [
+        {
+          "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
+          "msgid": "List your DNS zones.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
+          "msgid": "Delete one DNS record.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "677521d34853b4c2f638c341bbca71497901fd297bcef9bb37971a6dbb256283",
+          "msgid": "Cloudflare API token",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "d582afdfcaec555293adcb7e7f904a6e063e6cb0b66aa358a1dad7efa36a58b9",
+          "msgid": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+          "max_length": 500,
+          "params": []
+        }
+      ],
+      "description": 42,
+      "action_descriptions": [
+        "List your DNS zones.",
+        "Delete one DNS record."
+      ],
+      "labels": [
+        "Cloudflare API token"
       ]
     }
   ],
