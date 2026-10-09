@@ -685,10 +685,14 @@ class LocalAppMainEdgeTests(unittest.TestCase):
         )
         updater = types.SimpleNamespace(start=mock.Mock(), close=mock.Mock())
         with (
-            mock.patch.dict(local_app.os.environ, {"SHIMPZ_SPACE_ID": "local-space"}),
+            # A Docker environment override never redirects the controller away from its bound socket.
+            mock.patch.dict(
+                local_app.os.environ,
+                {"SHIMPZ_SPACE_ID": "local-space", "DOCKER_HOST": "tcp://docker.invalid:2375"},
+            ),
             mock.patch.object(local_app.local_token_store, "ensure_token", return_value="token"),
             mock.patch.object(local_app.brain_runtime_token_store, "ensure"),
-            mock.patch.object(local_app.docker, "from_env", return_value=client),
+            mock.patch.object(local_app.docker, "DockerClient", return_value=client) as docker_client,
             mock.patch.object(local_app, "AssistantRegistry", return_value=object()),
             mock.patch.object(local_app.bindings, "DynamicAssistantStore", return_value=object()),
             mock.patch.object(local_app.team_storage, "TeamStorage", return_value=object()),
@@ -717,6 +721,9 @@ class LocalAppMainEdgeTests(unittest.TestCase):
             mock.patch.object(local_app.local_audit, "close"),
         ):
             self.assertEqual(local_app.main(), 0)
+        docker_client.assert_called_once_with(
+            base_url="unix:///var/run/docker.sock", timeout=local_app.REQUEST_TIMEOUT_SECONDS
+        )
         self.assertIs(updater_class.call_args.kwargs["activity"], mock.sentinel.activity)
         updater.close.assert_called_once_with()
         watchdog.close.assert_called_once_with()

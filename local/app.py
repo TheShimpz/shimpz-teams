@@ -101,6 +101,8 @@ _brain_thread_id = _local_brain_thread_id
 log = logging.getLogger("shimpz-team-local")
 
 LISTEN_PORT = 7077
+# The Local Compose binds the platform Docker socket here; no environment variable or CLI context selects another.
+DOCKER_SOCKET_URL = "unix:///var/run/docker.sock"
 STORAGE_ROOT = Path("/var/lib/shimpz-local/storage")
 INFERENCE_ROOT = Path("/var/lib/shimpz-local/inference")
 LOCAL_ACTION_JOURNAL_PATH = Path(
@@ -681,7 +683,7 @@ def main() -> int:
         space_id = os.environ["SHIMPZ_SPACE_ID"]
         token = local_token_store.ensure_token()
         brain_runtime_token_store.ensure()
-        client = docker.from_env(timeout=REQUEST_TIMEOUT_SECONDS)
+        client = docker.DockerClient(base_url=DOCKER_SOCKET_URL, timeout=REQUEST_TIMEOUT_SECONDS)
         registry = AssistantRegistry(
             bindings.DynamicAssistantStore(
                 LOCAL_PUBLICATION_BINDINGS_PATH,

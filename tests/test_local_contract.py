@@ -192,7 +192,7 @@ class LocalContractTests(LocalContractCase):
             ),
             mock.patch.object(
                 local_app.docker,
-                "from_env",
+                "DockerClient",
                 side_effect=lambda **_kwargs: events.append("docker") or client,
             ),
             mock.patch.object(
