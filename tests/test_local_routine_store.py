@@ -1,5 +1,6 @@
 """Local Routine state survives restarts exactly, fails closed when altered, and is removed without residue."""
 
+import base64
 import dataclasses
 import datetime
 import json
@@ -10,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 import routine_fixture
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from local.chat import continuation as local_chat_continuation
 from local.routine import store as routine_store
@@ -398,6 +400,20 @@ class ContinuationTests(StoreCase):
         path.replace(self.store._team_dir("team_1") / f"{'b' * 32}.continuation")
         with self.assertRaisesRegex(routine_store.RoutineStoreError, "authentication failed"):
             self.store.continuation("team_1", "b" * 32)
+
+    def test_a_sealed_record_is_the_exact_aes_gcm_envelope_of_its_payload(self):
+        nonce, payload = bytes(range(12)), b'{"turn": "continuation"}'
+        with mock.patch.object(routine_store.private_state.os, "urandom", return_value=nonce):
+            self.store.put_continuation("team_1", "a" * 32, payload)
+        key = routine_store._PRIVATE.key(self.store.key_path, "key")
+        ciphertext = AESGCM(key).encrypt(nonce, payload, routine_store._aad("team_1", "a" * 32))
+        expected = {
+            "algorithm": "AES-256-GCM",
+            "ciphertext": base64.b64encode(ciphertext).decode(),
+            "nonce": base64.b64encode(nonce).decode(),
+        }
+        path = self.store._team_dir("team_1") / f"{'a' * 32}.continuation"
+        self.assertEqual(path.read_bytes(), json.dumps(expected, separators=(",", ":")).encode())
 
     def test_invalid_missing_and_tampered_continuations_fail_closed(self):
         for payload in (b"", "text", b"x" * (local_chat_continuation.MAX_ROUTINE_BYTES + 1)):

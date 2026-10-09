@@ -14,7 +14,6 @@ first whatever its kind: bodies are display records, never the compact safety ev
 holds a password or any other value Team injected.
 """
 
-import base64
 import hashlib
 import json
 import os
@@ -25,9 +24,6 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
-
-from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from action import execution as action_execution
 from action import failure as action_failure
@@ -281,18 +277,10 @@ class DiagnosticStore:
         if any(form in payload for secret in protected if secret for form in _forms(secret)):
             raise DiagnosticStoreError("Routine diagnostic would hold a protected value")
         key = _PRIVATE.key(self.key_path, "Routine diagnostic keyring", allow_create=True)
-        nonce = os.urandom(12)
         envelope = json.dumps(
-            {
-                "algorithm": "AES-256-GCM",
-                # The authenticated origin: the AAD binds it, so a reader can tell another incarnation's body from a
-                # corrupted one.
-                "incarnation": incarnation,
-                "nonce": base64.b64encode(nonce).decode("ascii"),
-                "ciphertext": base64.b64encode(
-                    AESGCM(key).encrypt(nonce, payload, _aad(team, incarnation, name))
-                ).decode("ascii"),
-            },
+            # The authenticated origin: the AAD binds it, so a reader can tell another incarnation's body from a
+            # corrupted one.
+            {**private_state.seal(key, payload, _aad(team, incarnation, name)), "incarnation": incarnation},
             sort_keys=True,
             separators=(",", ":"),
         ).encode("ascii")
@@ -397,14 +385,13 @@ class DiagnosticStore:
             or http_payload.SHA256_RE.fullmatch(envelope["incarnation"]) is None
         ):
             raise DiagnosticStoreError("Routine diagnostic is malformed")
-        try:
-            payload = AESGCM(_PRIVATE.key(self.key_path, "Routine diagnostic keyring")).decrypt(
-                _PRIVATE.decode_part(envelope["nonce"], expected=12),
-                _PRIVATE.decode_part(envelope["ciphertext"], minimum=17, maximum=maximum + 16),
-                _aad(team, envelope["incarnation"], name),
-            )
-        except InvalidTag as exc:
-            raise DiagnosticStoreError("Routine diagnostic authentication failed") from exc
+        payload = _PRIVATE.open_envelope(
+            _PRIVATE.key(self.key_path, "Routine diagnostic keyring"),
+            envelope,
+            _aad(team, envelope["incarnation"], name),
+            maximum,
+            "Routine diagnostic authentication failed",
+        )
         if envelope["incarnation"] != incarnation:
             return None
         try:

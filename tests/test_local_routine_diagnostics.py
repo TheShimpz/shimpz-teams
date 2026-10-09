@@ -1,5 +1,6 @@
 """Encrypted per-execution Routine diagnostics: AAD, incarnation, retention, bounds, and isolation (ADR-0092)."""
 
+import base64
 import dataclasses
 import json
 import os
@@ -10,6 +11,8 @@ from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from local.errors import ApiProblemError
 from local.routine import diagnostics
@@ -79,6 +82,22 @@ class DiagnosticStoreTests(unittest.TestCase):
             self.assertNotIn(b"cloudflare", raw)
         self.assertNotIn(b"routine", self.store.key_path.read_bytes())
 
+    def test_a_sealed_body_is_the_exact_aes_gcm_envelope_of_its_payload(self) -> None:
+        nonce = bytes(range(12))
+        with mock.patch.object(diagnostics.private_state.os, "urandom", return_value=nonce):
+            self.store.record("team_1", INCARNATION, _diagnostic(), ())
+        [sealed] = self.files()
+        aad = diagnostics._aad("team_1", INCARNATION, sealed.name)
+        key = diagnostics._PRIVATE.key(self.store.key_path, "key")
+        payload = AESGCM(key).decrypt(nonce, base64.b64decode(json.loads(sealed.read_bytes())["ciphertext"]), aad)
+        expected = {
+            "algorithm": "AES-256-GCM",
+            "ciphertext": base64.b64encode(AESGCM(key).encrypt(nonce, payload, aad)).decode(),
+            "incarnation": INCARNATION,
+            "nonce": base64.b64encode(nonce).decode(),
+        }
+        self.assertEqual(sealed.read_bytes(), json.dumps(expected, separators=(",", ":")).encode())
+
     def test_aad_binds_team_incarnation_routine_run_operation_attempt_and_instant(self) -> None:
         self.store.record("team_1", INCARNATION, _diagnostic(), ())
         # An authentic body of another incarnation is left out; it is never shown, and never mistaken for corruption.
@@ -109,9 +128,9 @@ class DiagnosticStoreTests(unittest.TestCase):
         self.store.record("team_1", INCARNATION, _diagnostic(), ())
         [sealed] = self.files()
         envelope = json.loads(sealed.read_bytes())
-        ciphertext = bytearray(diagnostics.base64.b64decode(envelope["ciphertext"]))
+        ciphertext = bytearray(base64.b64decode(envelope["ciphertext"]))
         ciphertext[0] ^= 1
-        flipped = {**envelope, "ciphertext": diagnostics.base64.b64encode(bytes(ciphertext)).decode()}
+        flipped = {**envelope, "ciphertext": base64.b64encode(bytes(ciphertext)).decode()}
         relabeled = {**envelope, "incarnation": OTHER_INCARNATION}
         # A bit flip in the current incarnation's body, or a body relabeled to look foreign, fails closed.
         for tampered in (flipped, relabeled):
@@ -140,9 +159,9 @@ class DiagnosticStoreTests(unittest.TestCase):
                         {
                             "algorithm": "AES-256-GCM",
                             "incarnation": INCARNATION,
-                            "nonce": diagnostics.base64.b64encode(nonce).decode(),
-                            "ciphertext": diagnostics.base64.b64encode(
-                                diagnostics.AESGCM(key).encrypt(
+                            "nonce": base64.b64encode(nonce).decode(),
+                            "ciphertext": base64.b64encode(
+                                AESGCM(key).encrypt(
                                     nonce, payload, diagnostics._aad("team_1", INCARNATION, sealed.name)
                                 )
                             ).decode(),

@@ -6,7 +6,6 @@ evidence are each encrypted separately, bound by their AAD to exactly what they 
 state that relies on it, so a crash leaves at worst an unreferenced one, which recovery removes.
 """
 
-import base64
 import dataclasses
 import hashlib
 import hmac
@@ -20,9 +19,7 @@ from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
-from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from action import human as action_human
@@ -615,15 +612,10 @@ class RoutineStore:
                     if sealed != payload:
                         raise RoutineStoreError(f"{label} is immutable")
                     return
-            nonce = os.urandom(12)
             # One keyring for every Team: concurrent first writers must not each create a different key.
             with self._key_lock:
                 key = _PRIVATE.key(self.key_path, "Routine keyring", allow_create=True)
-            envelope = {
-                "algorithm": "AES-256-GCM",
-                "nonce": base64.b64encode(nonce).decode("ascii"),
-                "ciphertext": base64.b64encode(AESGCM(key).encrypt(nonce, payload, aad)).decode("ascii"),
-            }
+            envelope = private_state.seal(key, payload, aad)
             encoded = json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode("ascii")
             _PRIVATE.atomic_write(self._team_dir(team) / name, encoded, label)
 
@@ -647,15 +639,11 @@ class RoutineStore:
         ):
             raise RoutineRecordInvalidError(f"{label} is malformed")
         key = _PRIVATE.key(self.key_path, "Routine keyring")
-        try:
-            nonce = _PRIVATE.decode_part(envelope["nonce"], expected=12)
-            ciphertext = _PRIVATE.decode_part(envelope["ciphertext"], minimum=17, maximum=maximum + 16)
-        except RoutineStoreError as exc:
-            raise RoutineRecordInvalidError(f"{label} is malformed") from exc
-        try:
-            return AESGCM(key).decrypt(nonce, ciphertext, aad)
-        except InvalidTag as exc:
-            raise RoutineRecordInvalidError(f"{label} authentication failed") from exc
+        # Only the record itself is proven unusable here: its parts and its authentication raise the record error.
+        record = private_state.PrivateState(
+            RoutineRecordInvalidError, f"{label} is malformed", f"{label} is malformed", _PRIVATE.maximum_encoded_part
+        )
+        return record.open_envelope(key, envelope, aad, maximum, f"{label} authentication failed")
 
     def _sealed_delete(self, team: str, name: str, label: str) -> None:
         try:
