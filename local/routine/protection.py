@@ -7,8 +7,6 @@ Team never rebuilds it from current stores: a run resumed in another boot, or on
 lost it, and so has a run whose protection would exceed its bound. Loss is never undone.
 """
 
-from __future__ import annotations
-
 import secrets
 import threading
 from collections.abc import Iterable

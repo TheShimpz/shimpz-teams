@@ -1,7 +1,5 @@
 """Determine an attachment's kind and media type from its bytes; names and uploaded types grant nothing."""
 
-from __future__ import annotations
-
 import codecs
 import json
 from dataclasses import dataclass

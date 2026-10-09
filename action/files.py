@@ -5,8 +5,6 @@ the file's metadata with its content withheld; only the replay whose transcript 
 authorization response carries the original bytes, read from Team storage and checked against the turn's digest.
 """
 
-from __future__ import annotations
-
 import base64
 import contextvars
 import hashlib

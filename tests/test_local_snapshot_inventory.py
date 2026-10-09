@@ -1,7 +1,5 @@
 """Freshness and concurrency contracts for cached Local snapshot discovery."""
 
-from __future__ import annotations
-
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor

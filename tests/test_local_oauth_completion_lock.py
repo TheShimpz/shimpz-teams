@@ -5,8 +5,6 @@ the completion checks the declaration, which then fails, or waits for the seal a
 finishes in the middle of the broker exchange so that the completion recreates what it deleted.
 """
 
-from __future__ import annotations
-
 import json
 import tempfile
 import threading

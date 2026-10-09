@@ -17,8 +17,6 @@ and a loss is never undone. Nothing here persists: a Team restart drops every sp
 nothing.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import json
 import secrets

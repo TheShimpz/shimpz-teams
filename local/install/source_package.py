@@ -1,7 +1,5 @@
 """Strict Local admission for Developers-owned source-package v1 bytes."""
 
-from __future__ import annotations
-
 import hashlib
 import re
 import struct

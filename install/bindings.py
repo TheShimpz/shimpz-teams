@@ -1,7 +1,6 @@
 """Durable, fail-closed bindings for dynamically installed Assistants."""
 
-from __future__ import annotations
-
+import builtins
 import fcntl
 import hashlib
 import json
@@ -205,7 +204,7 @@ class DynamicAssistantStore:
     def _shared_lock(self):
         return lock.FileLock(self._lock_path, fcntl.LOCK_SH, DynamicAssistantError, _LOCK_UNAVAILABLE)
 
-    def _read(self) -> list[DynamicAssistantBinding]:
+    def _read(self) -> builtins.list[DynamicAssistantBinding]:
         try:
             raw = self._path.read_bytes()
         except FileNotFoundError:
@@ -232,7 +231,7 @@ class DynamicAssistantStore:
             raise DynamicAssistantError("the dynamic Assistant registry contains duplicate bindings")
         return bindings
 
-    def _write(self, bindings: list[DynamicAssistantBinding]) -> None:
+    def _write(self, bindings: builtins.list[DynamicAssistantBinding]) -> None:
         document = {
             "version": _FORMAT_VERSION,
             "bindings": [_encode_binding(binding) for binding in sorted(bindings, key=_binding_key)],

@@ -1,7 +1,5 @@
 """Hosted Owner responses to Team-owned Action human challenges."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from http import HTTPStatus

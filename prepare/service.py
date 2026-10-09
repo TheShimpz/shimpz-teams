@@ -5,8 +5,6 @@ and PDFs go to the networkless helper, whose answers are untrusted and re-valida
 ceiling is opaque with a closed reason; a message beyond a per-message ceiling is refused before dispatch.
 """
 
-from __future__ import annotations
-
 import base64
 import binascii
 import hashlib

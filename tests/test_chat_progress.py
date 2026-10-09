@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import unittest
 
 from test_chat_orchestrator import FakeRuntime, completed, context, strategy, suspended

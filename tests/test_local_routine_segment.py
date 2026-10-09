@@ -1,7 +1,5 @@
 """A Routine run's segment runs in its own generation through Team's turn loop; a new chat turn records (ADR-0101)."""
 
-from __future__ import annotations
-
 import tempfile
 import time
 from http import HTTPStatus

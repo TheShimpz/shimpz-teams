@@ -1,7 +1,5 @@
 """Edge coverage for the Hosted Controller health probe."""
 
-from __future__ import annotations
-
 import json
 import runpy
 import unittest

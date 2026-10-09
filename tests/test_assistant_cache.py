@@ -1,7 +1,5 @@
 """Immutable container reads are cached without one cold read holding back any other container."""
 
-from __future__ import annotations
-
 import dataclasses
 import threading
 import unittest

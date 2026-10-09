@@ -1,7 +1,5 @@
 """Convert a verified publication binding into a Hosted Assistant contract."""
 
-from __future__ import annotations
-
 import json
 from contextlib import AbstractContextManager
 from copy import deepcopy

@@ -13,8 +13,6 @@ start reserves, every rolling 24-hour cap multiplies, and the run's active time 
 Paused Routines count, so resuming one never needs room it lacks; a deleting one keeps its share until it is gone.
 """
 
-from __future__ import annotations
-
 import hashlib
 from collections.abc import Mapping, Sequence
 

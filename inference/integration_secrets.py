@@ -7,8 +7,6 @@ transiently in this process so it can be sent to the private Brain runtime for o
 written to a Team volume, HTTP response, Docker metadata, argv, labels, or logs.
 """
 
-from __future__ import annotations
-
 import base64
 import http.client
 import json

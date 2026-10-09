@@ -1,7 +1,5 @@
 """Message catalogs, references, and language packs for Team tests (ADR-0091)."""
 
-from __future__ import annotations
-
 import copy
 import hashlib
 

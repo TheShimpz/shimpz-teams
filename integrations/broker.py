@@ -5,8 +5,6 @@ ever receiving the OAuth Client Secret. Hosts, paths, scopes, response shapes, a
 redirect behavior are fixed in reviewed source.
 """
 
-from __future__ import annotations
-
 import http.client
 import json
 import re

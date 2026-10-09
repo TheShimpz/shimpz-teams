@@ -1,7 +1,5 @@
 """Fail-closed reader for the Account egress machine capability."""
 
-from __future__ import annotations
-
 import grp
 import os
 import re

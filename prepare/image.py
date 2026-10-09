@@ -1,7 +1,5 @@
 """Decode one image and re-encode fresh pixels without metadata; runs only inside the preparation helper."""
 
-from __future__ import annotations
-
 import base64
 import io
 import math

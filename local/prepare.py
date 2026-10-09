@@ -5,8 +5,6 @@ time. Each helper is labeled with the Space, Team, and `prepare` kind and is rem
 with its Team, and by Space reset.
 """
 
-from __future__ import annotations
-
 import secrets
 import threading
 from collections.abc import Callable, Iterator

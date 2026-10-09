@@ -1,7 +1,5 @@
 """Reading a staged Local Assistant image's files and preview without starting it, failing closed."""
 
-from __future__ import annotations
-
 import unittest
 from types import MappingProxyType
 from unittest import mock

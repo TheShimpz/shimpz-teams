@@ -4,8 +4,6 @@ Developers resolution and Sigstore evidence are deterministic fixtures; controll
 HTTP, Supervisor authority, registry state, Docker pull, and isolation remain real.
 """
 
-from __future__ import annotations
-
 import base64
 import hashlib
 import json

@@ -1,7 +1,5 @@
 """Independent Assistant signature and provenance verification."""
 
-from __future__ import annotations
-
 import base64
 import copy
 import json

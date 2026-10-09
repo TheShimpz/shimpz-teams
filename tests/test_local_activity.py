@@ -1,7 +1,5 @@
 """Team work activity observed through the real loopback server and its in-container client."""
 
-from __future__ import annotations
-
 import contextlib
 import http.client
 import json

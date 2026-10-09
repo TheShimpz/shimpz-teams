@@ -1,7 +1,5 @@
 """A held run's incident is settled and noticed exactly once (ADR-0092)."""
 
-from __future__ import annotations
-
 import dataclasses
 import unittest
 

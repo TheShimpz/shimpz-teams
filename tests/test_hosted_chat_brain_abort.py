@@ -1,7 +1,5 @@
 """Hosted Stop and Team destruction abort the Brain request the chat turn is blocked on (ADR-0079)."""
 
-from __future__ import annotations
-
 import time
 import unittest
 from contextlib import nullcontext

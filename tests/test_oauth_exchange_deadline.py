@@ -4,8 +4,6 @@ Each scenario points the real broker or provider transport at a loopback peer th
 operation within the per-operation timeout, so only the total deadline can end the exchange.
 """
 
-from __future__ import annotations
-
 import http.client
 import socket
 import threading

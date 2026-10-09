@@ -6,8 +6,6 @@ only Actions that declare an authorization capability are admitted, so file cont
 person authorizes.
 """
 
-from __future__ import annotations
-
 import contextlib
 from collections.abc import Callable, Iterable, Mapping, Sequence
 

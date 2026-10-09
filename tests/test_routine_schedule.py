@@ -1,7 +1,5 @@
 """Routine schedules fire in the user's timezone, strictly after an instant, across daylight-saving changes."""
 
-from __future__ import annotations
-
 import datetime
 import unittest
 from fractions import Fraction

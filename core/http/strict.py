@@ -1,7 +1,5 @@
 """Fail-closed HTTP parsing primitives shared by both Team profiles."""
 
-from __future__ import annotations
-
 import hashlib
 import hmac
 from collections.abc import Mapping

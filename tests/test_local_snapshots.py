@@ -1,7 +1,5 @@
 """Fail-closed admission of unpublished Local Assistant snapshots."""
 
-from __future__ import annotations
-
 import contextlib
 import tempfile
 import unittest

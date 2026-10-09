@@ -1,7 +1,5 @@
 """What a Supervisor sees of a Routine revision's plan: positions, summary, and pages (ADR-0092, 2026-10-05, scale)."""
 
-from __future__ import annotations
-
 import unittest
 
 import routine_fixture

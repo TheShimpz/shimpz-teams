@@ -1,7 +1,5 @@
 """Pin the byte-identical Account Integration-secret delivery v1 producer contract."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 import re

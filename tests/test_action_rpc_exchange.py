@@ -1,7 +1,5 @@
 """The bounded Action RPC exchange: concurrent draining, the invocation bound, and one absolute deadline."""
 
-from __future__ import annotations
-
 import concurrent.futures
 import dataclasses
 import json

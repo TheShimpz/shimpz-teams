@@ -5,8 +5,6 @@ Routine's name and request, the step's Assistant Action, Team's proof, and the s
 is one closed word; Team alone decides whether a retry is permitted and repeats only the same logical operation.
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping, Sequence
 
 from inference.client import BrainRuntimeError, provider_credential

@@ -6,8 +6,6 @@ and journal (ADR-0092): a run that completed every step ends done, one that may 
 one that dispatched nothing ends interrupted. Nothing is replayed automatically.
 """
 
-from __future__ import annotations
-
 import logging
 import threading
 import time

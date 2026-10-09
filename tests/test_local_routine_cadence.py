@@ -1,7 +1,5 @@
 """Continuous Routines under load: caps, fairness, chat priority, backpressure, and concurrency (ADR-0092 section 9)."""
 
-from __future__ import annotations
-
 import dataclasses
 import itertools
 import json

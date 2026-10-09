@@ -5,8 +5,6 @@ under a routine assertion; a Supervisor session confirms or cancels a recorded R
 Routines, answers their runs, and settles held runs through their recovery cards (ADR-0092).
 """
 
-from __future__ import annotations
-
 import re
 import time
 from http import HTTPStatus

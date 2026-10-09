@@ -12,8 +12,6 @@ Rodar, or by deleting its Routine; only then, once nothing executes for it any m
 archive marker released.
 """
 
-from __future__ import annotations
-
 import contextlib
 import json
 import time

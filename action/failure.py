@@ -17,8 +17,6 @@ secrets in Creator prose cannot be detected universally (ADR-0092 section 8), so
 bounded, and shown only to the Team's Supervisor.
 """
 
-from __future__ import annotations
-
 import base64
 import binascii
 import json

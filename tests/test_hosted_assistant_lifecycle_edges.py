@@ -1,7 +1,5 @@
 """Admission, egress, teardown, and inventory edges for Hosted Assistants."""
 
-from __future__ import annotations
-
 import sys
 import unittest
 from http import HTTPStatus

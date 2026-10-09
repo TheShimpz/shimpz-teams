@@ -1,7 +1,5 @@
 """Persistent bearer token for the local Admin-to-controller boundary."""
 
-from __future__ import annotations
-
 import grp
 import os
 import secrets

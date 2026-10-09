@@ -1,8 +1,6 @@
 #!/usr/local/bin/python3
 """Deterministic pre-built Action executable for controller integration tests."""
 
-from __future__ import annotations
-
 import json
 import re
 import sys

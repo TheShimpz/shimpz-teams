@@ -1,7 +1,5 @@
 """A Team file's deletion linearized with its delivery, pending use, and Brain references (ADR-0093)."""
 
-from __future__ import annotations
-
 import sys
 import tempfile
 import threading

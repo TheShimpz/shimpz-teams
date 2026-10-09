@@ -1,7 +1,5 @@
 """Hosted hydration of a chat segment's selected files (ADR-0093)."""
 
-from __future__ import annotations
-
 import sys
 import threading
 import unittest

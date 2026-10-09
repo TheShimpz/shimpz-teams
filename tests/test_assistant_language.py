@@ -1,7 +1,5 @@
 """Language packs travel with the verified artifact and stay with the reviewed binding (ADR-0091)."""
 
-from __future__ import annotations
-
 import hashlib
 import io
 import json

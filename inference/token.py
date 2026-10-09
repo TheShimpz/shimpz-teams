@@ -1,7 +1,5 @@
 """Private bearer token shared only by the Team Controller and Brain runtime."""
 
-from __future__ import annotations
-
 import os
 import secrets
 import stat

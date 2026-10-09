@@ -1,7 +1,5 @@
 """Route and streaming edge coverage for the Hosted HTTP controller."""
 
-from __future__ import annotations
-
 import contextlib
 import io
 import json

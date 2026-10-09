@@ -5,8 +5,6 @@ that turn: its live challenge, its persisted continuation, and the Team's OAuth 
 then runs a new turn instead of returning the stale Integration gate until Stop or expiry.
 """
 
-from __future__ import annotations
-
 import sys
 import tempfile
 from pathlib import Path

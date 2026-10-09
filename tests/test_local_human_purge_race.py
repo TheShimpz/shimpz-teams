@@ -6,8 +6,6 @@ turn exactly at the journal purge, after the removal, and requires the newer bat
 evidence.
 """
 
-from __future__ import annotations
-
 import sys
 import tempfile
 import threading

@@ -1,7 +1,5 @@
 """Human-request copy rendered per interface language from the binding's catalog and pack (ADR-0091)."""
 
-from __future__ import annotations
-
 import time
 import unittest
 from dataclasses import replace

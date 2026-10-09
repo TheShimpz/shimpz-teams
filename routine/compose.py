@@ -1,7 +1,5 @@
 """Composing a confirmable Routine plan from a recording span, without a model (ADR-0101)."""
 
-from __future__ import annotations
-
 import dataclasses
 import datetime
 import heapq

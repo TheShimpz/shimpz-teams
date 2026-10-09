@@ -1,7 +1,5 @@
 """Machine-contract Action schema admission: closed objects, self-contained references, and bounded validation."""
 
-from __future__ import annotations
-
 import json
 import time
 import unittest

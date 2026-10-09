@@ -5,8 +5,6 @@ validated result, never a model's summary; ``changes`` shows it only when its ke
 shown; ``none`` publishes nothing new; and a run that lost its protection shows nothing it produced.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import json
 import unittest

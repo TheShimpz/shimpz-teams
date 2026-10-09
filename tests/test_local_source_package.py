@@ -1,7 +1,5 @@
 """Local admission against the pinned Developers source-package authority."""
 
-from __future__ import annotations
-
 import importlib.util
 import io
 import json

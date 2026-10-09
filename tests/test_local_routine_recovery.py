@@ -1,7 +1,5 @@
 """A held Routine run is verified with no model and continues only on Team-admitted evidence (ADR-0092)."""
 
-from __future__ import annotations
-
 import dataclasses
 import tempfile
 from http import HTTPStatus

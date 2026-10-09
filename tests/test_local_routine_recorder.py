@@ -1,7 +1,5 @@
 """The memory-only recording turn and card books, and the edges of turning a recording into a card (ADR-0101)."""
 
-from __future__ import annotations
-
 import dataclasses
 import json
 import unittest

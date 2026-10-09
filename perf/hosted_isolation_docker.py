@@ -6,8 +6,6 @@ Docker group. The inert workloads use the production security and resource
 envelopes. No model provider, publication, or Assistant RPC is involved.
 """
 
-from __future__ import annotations
-
 import argparse
 import grp
 import json

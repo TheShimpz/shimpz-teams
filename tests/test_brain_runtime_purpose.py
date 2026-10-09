@@ -1,7 +1,5 @@
 """Brain runtime client contracts for the turn locale and the optional human-request purpose (ADR-0090)."""
 
-from __future__ import annotations
-
 import json
 import socket
 import threading

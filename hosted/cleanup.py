@@ -6,8 +6,6 @@ Team/container restart. Records live in a Team-only volume, contain no credentia
 only after every runtime/database artifact has been removed.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import re

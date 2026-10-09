@@ -1,7 +1,5 @@
 """Network lifecycle and authorization edges for Hosted Team resources."""
 
-from __future__ import annotations
-
 import contextlib
 import sys
 import unittest

@@ -5,8 +5,6 @@ the paused batch, prepares its own, and may already be executing an Action. Each
 the journal purge, after the cancellation, and requires the newer batch to survive with its uncertain evidence.
 """
 
-from __future__ import annotations
-
 import tempfile
 import unittest
 from contextlib import contextmanager

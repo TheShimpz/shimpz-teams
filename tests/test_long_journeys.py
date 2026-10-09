@@ -3,8 +3,6 @@
 A multi-round, multi-Assistant task paused for a human and resumed after a restart still learns every step.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import unittest
 

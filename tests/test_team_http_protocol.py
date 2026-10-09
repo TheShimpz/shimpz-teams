@@ -1,7 +1,5 @@
 """Integrity gate for the producer-owned Team HTTP protocol."""
 
-from __future__ import annotations
-
 import contextlib
 import hashlib
 import io

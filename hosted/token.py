@@ -4,8 +4,6 @@ Generated once on first boot, on a volume shared only between the caller (the ad
 sidecar; never stored in .env. The token keeps the same 0440 + shared-group boundary.
 """
 
-from __future__ import annotations
-
 import grp
 import os
 import secrets

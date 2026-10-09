@@ -3,8 +3,6 @@
 The rollup carries the Routine's name as it was when each version was written and the minute's summed usage.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import json
 import tempfile

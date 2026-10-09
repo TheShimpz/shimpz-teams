@@ -3,8 +3,6 @@
 Run with SHIMPZ_RUN_DOCKER_TESTS=1 and SHIMPZ_TEST_TEAM_IMAGE naming a locally built Local or Hosted Team image.
 """
 
-from __future__ import annotations
-
 import os
 import unittest
 from contextlib import suppress

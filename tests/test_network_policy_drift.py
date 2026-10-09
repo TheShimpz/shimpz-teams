@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Fail-closed drift tests for Team network and workload policy."""
 
-from __future__ import annotations
-
 import copy
 import tempfile
 import unittest

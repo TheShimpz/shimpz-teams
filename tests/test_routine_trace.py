@@ -1,7 +1,5 @@
 """A recording turn's memory-only trace: kept values, the turn protection set, and their bounds (ADR-0101)."""
 
-from __future__ import annotations
-
 import unittest
 
 from routine import plan as routine_plan

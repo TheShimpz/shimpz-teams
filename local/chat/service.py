@@ -1,7 +1,5 @@
 """The Local chat-turn service: turns, continuations, challenges, and the Team execution slot."""
 
-from __future__ import annotations
-
 import math
 import secrets
 import threading

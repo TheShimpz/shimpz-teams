@@ -6,8 +6,6 @@ continuation under a fresh internal lease after Team-admitted evidence, or set a
 one fresh run, or the Routine's deletion. A person's card checks the exact state it was opened on in the same write.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import secrets
 from dataclasses import dataclass

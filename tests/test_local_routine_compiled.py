@@ -1,7 +1,5 @@
 """A compiled Routine run executes its plan with no model and no model key (ADR-0092 sections 3, 5, and 6)."""
 
-from __future__ import annotations
-
 import contextlib
 import copy
 import dataclasses

@@ -1,7 +1,5 @@
 """Closed Assistant-install v1 contract validation."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 from pathlib import Path

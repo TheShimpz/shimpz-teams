@@ -1,7 +1,5 @@
 """Closed edge coverage for the generated Team HTTP protocol mirrors."""
 
-from __future__ import annotations
-
 import json
 import unittest
 from pathlib import Path

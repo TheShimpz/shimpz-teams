@@ -5,8 +5,6 @@ HTTP adapter, and the encrypted token store.  It deliberately owns no routes,
 cookies, browser state, Assistant runtime calls, or Brain-visible data.
 """
 
-from __future__ import annotations
-
 import functools
 import re
 import time
@@ -83,8 +81,8 @@ def _declaration(value: object) -> tuple[str, tuple[str, ...]]:
         scopes = value.get("scopes")
     else:
         try:
-            provider = value.provider  # type: ignore[attr-defined]
-            scopes = value.scopes  # type: ignore[attr-defined]
+            provider = value.provider
+            scopes = value.scopes
         except (AttributeError, TypeError) as exc:
             raise OAuthIntegrationServiceError("OAuth integration declaration is unavailable") from exc
     try:

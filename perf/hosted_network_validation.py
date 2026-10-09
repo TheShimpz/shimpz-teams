@@ -6,8 +6,6 @@ The Docker API is an in-process fixture; the production network policy runs on
 Engine-shaped topology from the Team contracts. Only aggregate timings print.
 """
 
-from __future__ import annotations
-
 import copy
 import json
 import os

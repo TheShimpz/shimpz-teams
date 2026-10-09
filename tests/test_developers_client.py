@@ -1,7 +1,5 @@
 """Closed HTTP behavior for Controller-to-Developers decisions."""
 
-from __future__ import annotations
-
 import copy
 import hashlib
 import json

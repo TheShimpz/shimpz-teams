@@ -1,7 +1,5 @@
 """Complete failure coverage for small Team process, token, and HTTP adapters."""
 
-from __future__ import annotations
-
 import importlib
 import io
 import json

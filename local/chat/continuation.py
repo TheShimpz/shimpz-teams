@@ -1,7 +1,5 @@
 """Closed JSON codec for encrypted local Team chat continuations."""
 
-from __future__ import annotations
-
 import math
 import re
 from collections.abc import Callable
@@ -302,7 +300,7 @@ def _requirements_payload(kind: str, requirements: tuple[object, ...]) -> list[d
     if kind == "integrations" and all(
         isinstance(item, integration_challenges.IntegrationRequirement) for item in requirements
     ):
-        return [_json_value(asdict(item)) for item in requirements]  # type: ignore[list-item]
+        return [_json_value(asdict(item)) for item in requirements]
     if kind == "human" and len(requirements) == 1 and isinstance(requirements[0], action_challenges.HumanRequirement):
         requirement = requirements[0]
         return [

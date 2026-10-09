@@ -1,7 +1,5 @@
 """Bounded public Developers client for a locally owned Space."""
 
-from __future__ import annotations
-
 import hashlib
 import http.client
 import json

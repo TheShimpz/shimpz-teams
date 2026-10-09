@@ -1,7 +1,5 @@
 """Hosted rate, capacity, and durable teardown state contracts."""
 
-from __future__ import annotations
-
 import sys
 import tempfile
 import unittest

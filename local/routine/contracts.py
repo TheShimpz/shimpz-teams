@@ -6,8 +6,6 @@ read-only, and the Stored Inputs it uses by name. Pins are computed in one fixed
 language pack.
 """
 
-from __future__ import annotations
-
 from http import HTTPStatus
 
 from assistant import effect as action_effect

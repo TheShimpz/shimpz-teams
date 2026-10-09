@@ -5,8 +5,6 @@ choose authorization endpoints, token endpoints, client authentication, or PKCE
 methods. Adding or changing a provider therefore requires a controller release.
 """
 
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass
 from types import MappingProxyType

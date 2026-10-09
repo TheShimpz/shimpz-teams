@@ -1,7 +1,5 @@
 """Narrow Team Controller client for the isolated LangGraph Brain runtime."""
 
-from __future__ import annotations
-
 import hashlib
 import http.client
 import json

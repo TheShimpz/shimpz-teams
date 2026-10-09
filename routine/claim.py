@@ -1,7 +1,5 @@
 """Claiming a Team's due Routine runs, without I/O (ADR-0086, ADR-0092): sweeps, readiness, leases, and generations."""
 
-from __future__ import annotations
-
 import dataclasses
 import hashlib
 import secrets

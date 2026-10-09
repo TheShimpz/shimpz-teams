@@ -1,7 +1,5 @@
 """Extract the text of one PDF with bounded decoding; runs only inside the preparation helper."""
 
-from __future__ import annotations
-
 import io
 
 import pypdf

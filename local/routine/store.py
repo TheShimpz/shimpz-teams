@@ -6,8 +6,6 @@ evidence are each encrypted separately, bound by their AAD to exactly what they 
 state that relies on it, so a crash leaves at worst an unreferenced one, which recovery removes.
 """
 
-from __future__ import annotations
-
 import base64
 import dataclasses
 import hashlib

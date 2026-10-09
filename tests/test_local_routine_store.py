@@ -1,7 +1,5 @@
 """Local Routine state survives restarts exactly, fails closed when altered, and is removed without residue."""
 
-from __future__ import annotations
-
 import dataclasses
 import datetime
 import json

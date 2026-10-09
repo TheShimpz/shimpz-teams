@@ -5,8 +5,6 @@ one labeled internal network; its only runnable resources are installed,
 digest-pinned published Assistants with declared Action contracts.
 """
 
-from __future__ import annotations
-
 import hashlib
 import logging
 import os
@@ -37,11 +35,13 @@ from inference import config as inference_config
 from inference import token as brain_runtime_token_store
 from install import artifact_trust, bindings, icons, registry_auth
 from install import update as assistant_update
+from install.artifact_trust import ArtifactTrustVerifier
 from integrations import broker as integration_broker
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from integrations import service as integration_service
 from integrations import store as integration_store
+from integrations.challenges import IntegrationChallengeStore
 from local import audit as local_audit
 from local import inference as local_inference
 from local import labels as local_labels
@@ -252,14 +252,14 @@ class LocalControllerDependencies:
     action_state: action_journal.ActionJournal | None = None
     assistant_integrations: integration_store.OAuthIntegrationStore | None = None
     assistant_stored_inputs: action_stored_input.StoredInputStore | None = None
-    integration_challenges: integration_challenges.IntegrationChallengeStore | None = None
+    integration_challenges: IntegrationChallengeStore | None = None
     human_challenges: action_challenges.HumanChallengeStore | None = None
     oauth_pkce: integration_pkce.OAuthPKCEChallengeStore | None = None
     oauth_broker: integration_broker.OAuthBrokerClient | None = None
     oauth_service: integration_service.BrokeredOAuthIntegrationService | None = None
     chat_continuations: local_chat_continuation_store.EncryptedContinuationStore | None = None
     developers: local_developers.DevelopersClient | None = None
-    artifact_trust: artifact_trust.ArtifactTrustVerifier | None = None
+    artifact_trust: ArtifactTrustVerifier | None = None
     assistant_updates: assistant_update.AssistantUpdateStore | None = None
     assistant_residues: assistant_update.AssistantResidueStore | None = None
     assistant_icons: icons.AssistantIconStore | None = None

@@ -1,7 +1,5 @@
 """The controller never imports the image or PDF parsers; only the helper's worker does (ADR-0093)."""
 
-from __future__ import annotations
-
 import ast
 import subprocess
 import sys

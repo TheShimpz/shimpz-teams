@@ -1,7 +1,5 @@
 """Transport, admission, and authorization edge coverage for Hosted HTTP."""
 
-from __future__ import annotations
-
 import io
 import sys
 import unittest

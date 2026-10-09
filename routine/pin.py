@@ -7,8 +7,6 @@ either uses, the English catalog, and the language pack and locale its requests 
 before every dispatch and resume; any difference is drift, which holds the Routine until an authenticated update.
 """
 
-from __future__ import annotations
-
 import hashlib
 import json
 from collections.abc import Iterable, Mapping

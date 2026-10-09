@@ -1,7 +1,5 @@
 """Real-Docker proof that restaging moves the current Local snapshot tag and collection keeps what Teams use."""
 
-from __future__ import annotations
-
 import os
 import sys
 import tempfile

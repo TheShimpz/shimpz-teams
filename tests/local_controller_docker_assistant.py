@@ -1,7 +1,5 @@
 """Real-Docker assertions for Local Assistant install and recovery."""
 
-from __future__ import annotations
-
 import json
 
 from local_controller_docker_fixture import DockerFlow

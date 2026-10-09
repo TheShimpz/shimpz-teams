@@ -1,7 +1,5 @@
 """Closed, metadata-only progress for one Team-owned chat execution."""
 
-from __future__ import annotations
-
 import contextlib
 import time
 from collections.abc import Callable, Iterator

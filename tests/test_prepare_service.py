@@ -1,7 +1,5 @@
 """Per-file and per-message attachment admission around the untrusted helper (ADR-0093)."""
 
-from __future__ import annotations
-
 import base64
 import codecs
 import contextlib

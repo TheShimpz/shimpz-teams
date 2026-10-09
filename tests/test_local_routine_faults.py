@@ -1,7 +1,5 @@
 """Every Routine failure path fails closed and leaves nothing a later run could misuse (ADR-0086)."""
 
-from __future__ import annotations
-
 import dataclasses
 import json
 import tempfile

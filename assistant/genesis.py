@@ -1,7 +1,5 @@
 """Bounded cache for Assistant guidance stored in `shimpz.toml`."""
 
-from __future__ import annotations
-
 from assistant import cache as assistant_cache
 from assistant import manifest as assistant_manifest
 

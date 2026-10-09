@@ -1,7 +1,5 @@
 """A Routine is recorded from the work a Local chat turn did and created only by confirming its card (ADR-0101)."""
 
-from __future__ import annotations
-
 import dataclasses
 import datetime
 import json

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import http.client
 import tempfile
 import unittest

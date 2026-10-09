@@ -5,8 +5,6 @@ Nothing here touches Docker; it only decides yes/no and returns a validated team
 modules — the actual security boundary, not the client that acts on its output.
 """
 
-from __future__ import annotations
-
 import re
 
 from protocol.http.v1 import payload as http_payload

@@ -1,7 +1,5 @@
 """Routine routes over the real Local HTTP server: each is reachable only under its own authority (ADR-0086)."""
 
-from __future__ import annotations
-
 import dataclasses
 import hashlib
 import http.client

@@ -1,7 +1,5 @@
 """Closed validation for one reviewed Action human-request suspension."""
 
-from __future__ import annotations
-
 import hashlib
 import hmac
 import json

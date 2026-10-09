@@ -3,8 +3,6 @@
 ADR-0092 sections 5 and 9, amended 2026-10-05 (scale).
 """
 
-from __future__ import annotations
-
 import dataclasses
 import unittest
 

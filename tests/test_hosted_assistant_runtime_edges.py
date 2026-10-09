@@ -1,7 +1,5 @@
 """Edge coverage for Hosted Assistant runtime contracts."""
 
-from __future__ import annotations
-
 import contextlib
 import sys
 import tempfile

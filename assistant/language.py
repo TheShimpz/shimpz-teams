@@ -1,7 +1,5 @@
 """Verified language packs that travel with one reviewed Assistant artifact (ADR-0091)."""
 
-from __future__ import annotations
-
 import json
 import threading
 from collections import OrderedDict

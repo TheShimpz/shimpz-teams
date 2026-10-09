@@ -1,7 +1,5 @@
 """Near-instant, Docker-validated discovery of staged Local Assistants."""
 
-from __future__ import annotations
-
 import logging
 import threading
 import time

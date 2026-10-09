@@ -7,8 +7,6 @@ and resource envelope, but no model provider runtime, credential, Docker socket,
 filesystem, browser, or application authority. Inference runs in the separate LangGraph service.
 """
 
-from __future__ import annotations
-
 import os
 from pathlib import PurePosixPath
 

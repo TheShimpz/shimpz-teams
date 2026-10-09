@@ -17,8 +17,6 @@ A plan also states what a completed run does with its result: ``show`` one step'
 show it only when it ``changes``, or show ``none`` of it (ADR-0101). A plan has at least one step.
 """
 
-from __future__ import annotations
-
 import copy
 import dataclasses
 import datetime

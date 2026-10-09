@@ -14,8 +14,6 @@ with every result's secret strings before anything outward sees it: a shown resu
 failure's diagnostic are redacted against all of it. A run that loses it shows nothing it produced afterwards.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import time
 from collections.abc import Mapping

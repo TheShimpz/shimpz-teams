@@ -1,7 +1,5 @@
 """Signed Developers-to-Team HTTP boundary for publication installation."""
 
-from __future__ import annotations
-
 import time
 from collections.abc import Callable
 from dataclasses import dataclass

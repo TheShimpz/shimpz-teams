@@ -1,7 +1,5 @@
 """Every way a held run's verification or continuation can fail, fails closed (ADR-0092)."""
 
-from __future__ import annotations
-
 import dataclasses
 import tempfile
 from types import SimpleNamespace

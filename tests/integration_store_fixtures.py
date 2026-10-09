@@ -1,7 +1,5 @@
 """Arrange-only fixtures for the encrypted OAuth Integration store: the demo Cloudflare grant of one Assistant."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from pathlib import Path
 

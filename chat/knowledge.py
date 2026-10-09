@@ -4,8 +4,6 @@ A skill is structure only, the ordered Assistant Actions and their input names b
 fingerprint, so no argument value, Action result, page, or other text ever becomes part of it.
 """
 
-from __future__ import annotations
-
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload

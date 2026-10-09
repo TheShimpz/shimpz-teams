@@ -1,7 +1,5 @@
 """Durability and metadata contracts for the local audit journal."""
 
-from __future__ import annotations
-
 import json
 import multiprocessing
 import os

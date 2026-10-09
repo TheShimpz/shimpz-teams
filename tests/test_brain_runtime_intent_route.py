@@ -1,7 +1,5 @@
 """Brain runtime client contracts for stateless structured Assistant lifecycle routing."""
 
-from __future__ import annotations
-
 import json
 import unittest
 from unittest import mock

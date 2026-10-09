@@ -1,7 +1,5 @@
 """Team-brokered Action file delivery (ADR-0093): selection, withheld metadata, authorized bytes, and bounds."""
 
-from __future__ import annotations
-
 import base64
 import dataclasses
 import hashlib

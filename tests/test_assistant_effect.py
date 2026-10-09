@@ -1,7 +1,5 @@
 """Team admission of Action effect classes, verifiers, and provider idempotency (ADR-0092)."""
 
-from __future__ import annotations
-
 import copy
 import json
 import tempfile

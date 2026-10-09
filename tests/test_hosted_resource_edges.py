@@ -1,7 +1,5 @@
 """Edge coverage for Hosted Team resource and isolation primitives."""
 
-from __future__ import annotations
-
 import sys
 import unittest
 from pathlib import Path

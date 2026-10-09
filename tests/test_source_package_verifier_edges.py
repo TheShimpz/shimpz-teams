@@ -1,7 +1,5 @@
 """Executable conformance coverage for the vendored Developers source-package verifier."""
 
-from __future__ import annotations
-
 import contextlib
 import copy
 import io

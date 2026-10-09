@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import unittest
 from http import HTTPStatus
 from types import SimpleNamespace

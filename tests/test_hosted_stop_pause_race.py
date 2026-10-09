@@ -5,8 +5,6 @@ either committed before Stop (and Stop withdraws the challenge it published) or 
 and, for a human request, its own paused Action batch.
 """
 
-from __future__ import annotations
-
 import unittest
 from contextlib import nullcontext
 from types import SimpleNamespace

@@ -1,7 +1,5 @@
 """Explicit dependency inputs for the Local controller's composed services."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 

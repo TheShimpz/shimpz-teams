@@ -1,7 +1,5 @@
 """Resolve, verify, and apply one immutable Local Assistant publication."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context

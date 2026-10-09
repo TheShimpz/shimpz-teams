@@ -5,8 +5,6 @@ fixture builds current Team and egress images in a disposable Docker graph.
 Only timing and resource counts are printed; no request body or key is logged.
 """
 
-from __future__ import annotations
-
 import http.client
 import json
 import os

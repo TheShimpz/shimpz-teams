@@ -1,7 +1,5 @@
 """Local HTTP enforcement of request-bound Supervisor authority."""
 
-from __future__ import annotations
-
 import contextlib
 import hashlib
 import json

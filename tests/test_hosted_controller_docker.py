@@ -1,7 +1,5 @@
 """Live cross-tenant contract for the hosted Controller and real Docker inventory."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 import os

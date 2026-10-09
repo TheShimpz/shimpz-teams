@@ -1,7 +1,5 @@
 """Verify short-lived Developers service delegations at the hosted Controller boundary."""
 
-from __future__ import annotations
-
 import hmac
 import json
 import threading

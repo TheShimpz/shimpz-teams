@@ -1,7 +1,5 @@
 """Integrity gate for the producer-owned Team Action protocol that the Brain mirrors."""
 
-from __future__ import annotations
-
 import hashlib
 import re
 import unittest

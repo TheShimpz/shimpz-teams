@@ -1,7 +1,5 @@
 """Characterize the shared hosted/local HTTP boundary decisions."""
 
-from __future__ import annotations
-
 import sys
 import unittest
 from email.message import Message

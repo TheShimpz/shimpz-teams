@@ -1,7 +1,5 @@
 """Fast contracts for the deterministic Local controller Docker fixture."""
 
-from __future__ import annotations
-
 import json
 import sys
 import tomllib

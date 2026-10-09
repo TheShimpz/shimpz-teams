@@ -1,7 +1,5 @@
 """Bounded HTTP transport and route dispatch for the hosted Team controller."""
 
-from __future__ import annotations
-
 import contextlib
 import functools
 import json

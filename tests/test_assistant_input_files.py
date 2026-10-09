@@ -1,7 +1,5 @@
 """Team admission of Action file input declarations (ADR-0093)."""
 
-from __future__ import annotations
-
 import json
 import unittest
 from pathlib import Path

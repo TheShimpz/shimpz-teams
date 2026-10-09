@@ -5,8 +5,6 @@ beyond a per-message ceiling is refused before dispatch. Nothing is truncated or
 Brain enforces too are the Team HTTP protocol's own (``protocol/http/v1/turn.py``), never a copy.
 """
 
-from __future__ import annotations
-
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import turn as http_turn
 

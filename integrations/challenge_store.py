@@ -1,7 +1,5 @@
 """Generic bounded, Team-bound, one-use TTL challenge storage."""
 
-from __future__ import annotations
-
 import re
 import secrets
 import threading

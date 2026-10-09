@@ -1,7 +1,5 @@
 """Bounded, process-local continuations for just-in-time OAuth integrations."""
 
-from __future__ import annotations
-
 import time
 from dataclasses import dataclass
 from typing import Any

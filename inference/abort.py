@@ -1,7 +1,5 @@
 """Stop's handle on the Brain request a chat turn is waiting for (ADR-0079)."""
 
-from __future__ import annotations
-
 import contextvars
 import http.client
 import socket

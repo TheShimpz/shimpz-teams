@@ -1,7 +1,5 @@
 """Direct contracts for the hosted Controller authorization chain."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 import sys

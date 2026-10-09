@@ -1,7 +1,5 @@
 """Automatic Local Assistant update selection and race-fencing contracts."""
 
-from __future__ import annotations
-
 import unittest
 from types import SimpleNamespace
 from unittest import mock

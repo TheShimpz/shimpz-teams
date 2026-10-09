@@ -4,8 +4,6 @@ The withdrawn continuation and its paused Action batch are cleaned first; when t
 Brain request is still aborted and its executing Action fail-stopped before the error is reported.
 """
 
-from __future__ import annotations
-
 import sys
 import threading
 import unittest

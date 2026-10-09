@@ -1,7 +1,5 @@
 """A Routine definition is admitted only in its closed contract, changed by revision, and viewed exactly (ADR-0086)."""
 
-from __future__ import annotations
-
 import copy
 import dataclasses
 import datetime

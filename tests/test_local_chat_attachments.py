@@ -1,7 +1,5 @@
 """Local hydration of a chat segment's selected files (ADR-0093)."""
 
-from __future__ import annotations
-
 import threading
 import unittest
 from types import SimpleNamespace

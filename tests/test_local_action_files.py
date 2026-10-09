@@ -1,7 +1,5 @@
 """Local Action file delivery: withheld first, bytes only on the approved replay, and fail-closed refusals."""
 
-from __future__ import annotations
-
 import base64
 import tempfile
 import threading

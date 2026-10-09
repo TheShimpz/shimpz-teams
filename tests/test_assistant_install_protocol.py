@@ -1,7 +1,5 @@
 """Pin the byte-identical Assistant-install v1 authority."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 import re

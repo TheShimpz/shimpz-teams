@@ -10,8 +10,7 @@ idle for the grace period, so a file removed from a message by mistake can be up
 stored copy without charging the quota twice (ADR-0093, amended 2026-10-03).
 """
 
-from __future__ import annotations
-
+import builtins
 import hashlib
 import os
 import secrets
@@ -482,7 +481,7 @@ class TeamStorage:
         )
 
     @staticmethod
-    def _metadata_ids(file_ids: list[object]) -> list[str]:
+    def _metadata_ids(file_ids: builtins.list[object]) -> builtins.list[str]:
         if not isinstance(file_ids, list) or len(file_ids) > 8:
             raise StorageInputError("at most 8 file ids may be selected")
         safe_ids = [_file_id(file_id) for file_id in file_ids]
@@ -494,7 +493,7 @@ class TeamStorage:
     def metadata_connection(
         self,
         team_id: str,
-        file_ids: list[object],
+        file_ids: builtins.list[object],
     ) -> Iterator[_MetadataReader | None]:
         """Keep one selected-file reader open across a chat turn."""
         safe_ids = self._metadata_ids(file_ids)
@@ -509,9 +508,9 @@ class TeamStorage:
     def metadata(
         self,
         team_id: str,
-        file_ids: list[object],
+        file_ids: builtins.list[object],
         reader: _MetadataReader | None = None,
-    ) -> list[dict[str, object]]:
+    ) -> builtins.list[dict[str, object]]:
         safe_ids = self._metadata_ids(file_ids)
         if not safe_ids:
             return []

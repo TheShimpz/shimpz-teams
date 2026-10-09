@@ -1,7 +1,5 @@
 """Immutable Assistant manifest admission for reviewed security intent."""
 
-from __future__ import annotations
-
 import copy
 import io
 import json

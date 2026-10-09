@@ -1,7 +1,5 @@
 """Encrypted per-execution Routine diagnostics: AAD, incarnation, retention, bounds, and isolation (ADR-0092)."""
 
-from __future__ import annotations
-
 import dataclasses
 import json
 import os

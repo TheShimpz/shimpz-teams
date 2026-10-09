@@ -9,8 +9,6 @@ wall time, the longest silent interval on the exec socket, the controller's trac
 RSS), and the workload cgroup's ``memory.peak``.
 """
 
-from __future__ import annotations
-
 import base64
 import contextlib
 import itertools

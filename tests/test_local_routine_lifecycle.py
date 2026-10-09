@@ -1,7 +1,5 @@
 """Destroying a Team or resetting the Space removes every Routine run's journal generation and state."""
 
-from __future__ import annotations
-
 import datetime
 import errno
 import stat

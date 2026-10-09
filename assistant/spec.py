@@ -1,7 +1,5 @@
 """Shared reviewed Assistant contract primitives for both Controllers."""
 
-from __future__ import annotations
-
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field

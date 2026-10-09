@@ -1,7 +1,5 @@
 """Private, canonical egress-policy storage shared by both Team profiles."""
 
-from __future__ import annotations
-
 import hashlib
 import hmac
 import json

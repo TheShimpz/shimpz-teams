@@ -5,8 +5,6 @@ fails, or the Team runtime cannot be inspected or is not running, the cancelled 
 and its executing Action fail-stopped before the error is reported.
 """
 
-from __future__ import annotations
-
 import unittest
 from contextlib import nullcontext
 from http import HTTPStatus

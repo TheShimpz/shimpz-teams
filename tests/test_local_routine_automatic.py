@@ -1,7 +1,5 @@
 """A held run's one automatic recovery episode: verification first, the Brain only on proven absence (ADR-0092)."""
 
-from __future__ import annotations
-
 import dataclasses
 import tempfile
 import threading

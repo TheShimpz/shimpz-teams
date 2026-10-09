@@ -1,7 +1,5 @@
 """Remove a Team's Routines without residue: each run's journal generation, its state, and its diagnostics."""
 
-from __future__ import annotations
-
 from http import HTTPStatus
 
 from action import journal as action_journal

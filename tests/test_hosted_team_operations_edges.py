@@ -1,7 +1,5 @@
 """Create, destroy, status, and runtime operation edges for Hosted Teams."""
 
-from __future__ import annotations
-
 import contextlib
 import sys
 import tempfile

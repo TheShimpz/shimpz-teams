@@ -1,7 +1,5 @@
 """Each recorded input is a literal, the run date, a copied source, or a question, never a guess (ADR-0101)."""
 
-from __future__ import annotations
-
 import datetime
 import unittest
 from unittest import mock

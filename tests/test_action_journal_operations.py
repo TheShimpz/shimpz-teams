@@ -1,7 +1,5 @@
 """Logical operation ids, outcome origins, and archive markers in the Action journal (ADR-0092 sections 4 and 5)."""
 
-from __future__ import annotations
-
 import hashlib
 import multiprocessing
 import os

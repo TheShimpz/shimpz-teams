@@ -1,7 +1,5 @@
 """Verify one-use request-bound Local Supervisor assertions."""
 
-from __future__ import annotations
-
 import grp
 import hashlib
 import hmac

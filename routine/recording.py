@@ -33,8 +33,6 @@ The schedule, output, and timezone are the person's own, read by the protocol's 
 cannot be read is asked, never guessed.
 """
 
-from __future__ import annotations
-
 import json
 import re
 from collections.abc import Mapping, Sequence

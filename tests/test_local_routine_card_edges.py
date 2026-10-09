@@ -1,7 +1,5 @@
 """A held run's card refuses every stale, drifted, or unmatched Rodar and changes nothing (ADR-0092, ADR-0101)."""
 
-from __future__ import annotations
-
 import dataclasses
 import tempfile
 from types import SimpleNamespace

@@ -1,7 +1,5 @@
 """Action batch journal fingerprints, replay, and Stored Input generation binding."""
 
-from __future__ import annotations
-
 import dataclasses
 import sqlite3
 import sys

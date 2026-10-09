@@ -1,7 +1,5 @@
 """Hosted human-request admission derived from captured Team HTTP input."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from http import HTTPStatus
 

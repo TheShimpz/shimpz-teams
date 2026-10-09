@@ -1,7 +1,5 @@
 """Hosted preparation helpers: gVisor, Team accounting, and teardown (ADR-0093)."""
 
-from __future__ import annotations
-
 import sys
 import threading
 import unittest

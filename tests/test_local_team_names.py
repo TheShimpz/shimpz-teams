@@ -1,7 +1,5 @@
 """Local Team display names (ADR-0088): the name store, rename, create, and confirmed deletion."""
 
-from __future__ import annotations
-
 import json
 import tempfile
 import threading

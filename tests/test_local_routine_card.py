@@ -1,7 +1,5 @@
 """A held run's card: its recorded failure, Rodar, and Excluir (ADR-0092 section 7, ADR-0101)."""
 
-from __future__ import annotations
-
 import dataclasses
 import tempfile
 from unittest import mock

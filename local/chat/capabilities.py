@@ -1,7 +1,5 @@
 """Bounded presentation intelligence that never grants Assistant authority."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from http import HTTPStatus
 

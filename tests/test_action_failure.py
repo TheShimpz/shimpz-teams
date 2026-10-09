@@ -1,7 +1,5 @@
 """Sanitized handled Action failures: admission and Team's independent re-redaction (ADR-0092 section 8)."""
 
-from __future__ import annotations
-
 import base64
 import copy
 import json

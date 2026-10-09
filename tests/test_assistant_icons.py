@@ -1,7 +1,5 @@
 """Canonical Assistant icon custody contracts."""
 
-from __future__ import annotations
-
 import hashlib
 import tempfile
 import threading

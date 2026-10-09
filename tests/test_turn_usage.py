@@ -1,7 +1,5 @@
 """What one logical chat turn consumed: the ADR-0082 observation carried across resumes onto the completed terminal."""
 
-from __future__ import annotations
-
 import copy
 import dataclasses
 import json

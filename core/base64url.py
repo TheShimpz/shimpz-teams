@@ -1,7 +1,5 @@
 """Canonical unpadded base64url: the segment encoding of Team bearer assertions and OAuth PKCE challenges."""
 
-from __future__ import annotations
-
 import base64
 
 

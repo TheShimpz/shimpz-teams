@@ -1,7 +1,5 @@
 """Local Stop aborts the Brain request its chat turn is blocked on (ADR-0079)."""
 
-from __future__ import annotations
-
 import http.client
 import socket
 import tempfile

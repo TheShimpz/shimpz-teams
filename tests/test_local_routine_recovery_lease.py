@@ -1,7 +1,5 @@
 """A held run's recovery runs under a registered, cancellable lease that Stop and deletion reach (ADR-0092)."""
 
-from __future__ import annotations
-
 import dataclasses
 import tempfile
 import threading

@@ -5,8 +5,6 @@ as needing replacement; every runtime use of it is refused, and nothing about it
 (ADR-0033's 2026-10-08 amendment). Only integrity stays fatal: a binding Team did not write is never trusted.
 """
 
-from __future__ import annotations
-
 import copy
 import json
 import logging

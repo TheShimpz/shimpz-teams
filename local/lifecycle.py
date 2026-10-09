@@ -1,7 +1,5 @@
 """Local Team destruction and whole-Space reset lifecycle."""
 
-from __future__ import annotations
-
 from contextlib import ExitStack
 from http import HTTPStatus
 

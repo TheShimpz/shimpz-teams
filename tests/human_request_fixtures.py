@@ -4,8 +4,6 @@ Tests write request copy as plain English; ``refs`` turns every copy string into
 with exactly that template, registering the message so ``CATALOG`` admits it.
 """
 
-from __future__ import annotations
-
 import copy as _copy
 
 from action import challenges as action_challenges

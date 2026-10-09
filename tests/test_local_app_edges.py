@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import runpy
 import signal
 import threading

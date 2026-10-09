@@ -11,8 +11,6 @@ It also records the Team boot its run protection was bound in, and whether that 
 undone.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import re
 from dataclasses import dataclass

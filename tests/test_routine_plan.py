@@ -1,7 +1,5 @@
 """The recorded Routine plan: admission, same-run references and selectors, the run date, and bounds (ADR-0101)."""
 
-from __future__ import annotations
-
 import copy
 import datetime
 import json

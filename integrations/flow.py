@@ -5,8 +5,6 @@ OAuth tokens remain Controller-owned and are resolved into the exact Action RPC
 envelope only at the last private boundary before an Assistant invocation.
 """
 
-from __future__ import annotations
-
 import math
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -137,10 +135,10 @@ def _public_text(value: object, label: str, *, optional: bool = False) -> str | 
 
 def _assistant(spec: object) -> _AssistantSpec:
     try:
-        assistant_id = spec.assistant_id  # type: ignore[attr-defined]
-        name = spec.name  # type: ignore[attr-defined]
-        actions = spec.actions  # type: ignore[attr-defined]
-        integrations = spec.integrations  # type: ignore[attr-defined]
+        assistant_id = spec.assistant_id
+        name = spec.name
+        actions = spec.actions
+        integrations = spec.integrations
     except (AttributeError, TypeError) as exc:
         raise IntegrationFlowError("Assistant integration contract is unavailable") from exc
     _component_id(assistant_id, "Assistant id", http_payload.canonical_assistant_id)
@@ -149,14 +147,14 @@ def _assistant(spec: object) -> _AssistantSpec:
         raise IntegrationFlowError("Assistant integration contract is unavailable")
     if len(integrations) > MAX_INTEGRATIONS_PER_ACTION:
         raise IntegrationFlowError("Assistant declares too many integrations")
-    return spec  # type: ignore[return-value]
+    return spec
 
 
 def _intent(integration_id: object, declaration: object) -> tuple[str, str, tuple[str, ...]]:
     identifier = _component_id(integration_id, "integration id")
     try:
-        provider = declaration.provider  # type: ignore[attr-defined]
-        scopes = declaration.scopes  # type: ignore[attr-defined]
+        provider = declaration.provider
+        scopes = declaration.scopes
         resolved = integration_providers.integration_intent(provider, scopes)
     except (AttributeError, TypeError, integration_providers.OAuthProviderError) as exc:
         raise IntegrationFlowError("Assistant integration declaration is invalid") from exc
@@ -382,9 +380,9 @@ def _integration_payload(value: object) -> dict[str, str | None] | None:
     if value is None:
         return None
     try:
-        identifier = _public_text(value.id, "OAuth integration id")  # type: ignore[attr-defined]
-        name = _public_text(value.name, "OAuth integration name", optional=True)  # type: ignore[attr-defined]
-        username = _public_text(value.username, "OAuth integration username", optional=True)  # type: ignore[attr-defined]
+        identifier = _public_text(value.id, "OAuth integration id")
+        name = _public_text(value.name, "OAuth integration name", optional=True)
+        username = _public_text(value.username, "OAuth integration username", optional=True)
     except (AttributeError, TypeError) as exc:
         raise IntegrationFlowError("OAuth integration metadata is invalid") from exc
     return {"id": identifier, "name": name, "username": username}

@@ -1,7 +1,5 @@
 """The Hosted Team HTTP listener: bounded thread-per-request admission with slow-client expiry."""
 
-from __future__ import annotations
-
 import threading
 from http.server import ThreadingHTTPServer
 

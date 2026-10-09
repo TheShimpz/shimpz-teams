@@ -1,7 +1,5 @@
 """Local Routine runs: a fair claim across Teams, the lease and Stop of a run, and how a segment ends (ADR-0086)."""
 
-from __future__ import annotations
-
 import base64
 import copy
 import dataclasses

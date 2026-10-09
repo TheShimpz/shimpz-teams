@@ -5,8 +5,6 @@ imported only here, never by the controller. Standard output carries exactly one
 non-zero exit, or a timeout is a refused file.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import resource

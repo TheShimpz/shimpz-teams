@@ -1,7 +1,5 @@
 """Hostile and ordinary attachment fixtures built in memory for preparation tests (ADR-0093)."""
 
-from __future__ import annotations
-
 import io
 
 from PIL import Image

@@ -1,8 +1,6 @@
 #!/usr/local/bin/python3
 """Authenticated, bounded liveness probe for team-local."""
 
-from __future__ import annotations
-
 import http.client
 import json
 from pathlib import Path

@@ -1,7 +1,5 @@
 """Local custody of a turn's selected files: Brain hydration and deletion linearized with their use (ADR-0093)."""
 
-from __future__ import annotations
-
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from http import HTTPStatus

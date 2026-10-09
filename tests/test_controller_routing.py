@@ -1,7 +1,5 @@
 """Decision-parity contracts for the shared hosted/local Controller router."""
 
-from __future__ import annotations
-
 import sys
 import unittest
 from pathlib import Path

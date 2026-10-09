@@ -1,7 +1,5 @@
 """Hosted ordinary and streamed chat share one fresh-turn admission under the exclusive chat slot."""
 
-from __future__ import annotations
-
 import contextlib
 import hashlib
 import json

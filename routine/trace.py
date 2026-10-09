@@ -12,8 +12,6 @@ span that would exceed its bound loses it, irreversibly, so nothing it wrote may
 ever persisted: a Team restart drops every occurrence and set, and recording is then unavailable.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 

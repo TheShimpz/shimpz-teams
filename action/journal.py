@@ -21,8 +21,6 @@ Markers never count against the active generations a chat needs.
 Every commit is synchronous FULL in WAL mode, so an acknowledged transition survives power loss.
 """
 
-from __future__ import annotations
-
 import hashlib
 import json
 import os

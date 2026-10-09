@@ -1,7 +1,5 @@
 """Named Team resource and namespace posture failures."""
 
-from __future__ import annotations
-
 import sys
 import unittest
 from pathlib import Path

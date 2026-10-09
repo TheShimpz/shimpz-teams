@@ -1,7 +1,5 @@
 """Local Team-controller HTTP dispatch and stable failure projection."""
 
-from __future__ import annotations
-
 from http import HTTPStatus
 
 from core.http import stdlib

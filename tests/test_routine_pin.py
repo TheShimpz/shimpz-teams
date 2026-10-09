@@ -1,7 +1,5 @@
 """The complete Action pin a recorded Routine step holds, and the Assistant scope pin (ADR-0092 section 3)."""
 
-from __future__ import annotations
-
 import copy
 import dataclasses
 import hashlib

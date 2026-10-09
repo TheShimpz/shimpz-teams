@@ -1,7 +1,5 @@
 """Chunked NDJSON responses for Local turns: advisory progress, then one authoritative terminal record."""
 
-from __future__ import annotations
-
 import contextlib
 from collections.abc import Callable
 from http import HTTPStatus

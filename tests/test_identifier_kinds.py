@@ -1,7 +1,5 @@
 """Every Team boundary admits an identifier by its own kind, as the Team protocol defines it."""
 
-from __future__ import annotations
-
 import unittest
 from types import SimpleNamespace
 

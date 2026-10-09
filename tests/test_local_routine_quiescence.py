@@ -1,7 +1,5 @@
 """An attempt Team never classified is verified only after its workload is proven stopped since (ADR-0092)."""
 
-from __future__ import annotations
-
 import dataclasses
 import datetime
 import tempfile

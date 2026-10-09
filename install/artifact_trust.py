@@ -1,7 +1,5 @@
 """Independent Sigstore verification for one published Assistant artifact."""
 
-from __future__ import annotations
-
 import base64
 import binascii
 import json

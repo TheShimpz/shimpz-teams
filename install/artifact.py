@@ -1,7 +1,5 @@
 """Resolve immutable Assistant artifacts without accepting caller-controlled image references."""
 
-from __future__ import annotations
-
 import docker
 
 from assistant import spec as assistant_registry

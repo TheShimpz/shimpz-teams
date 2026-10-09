@@ -1,7 +1,5 @@
 """Shared real-Docker and controller HTTP harness for live controller suites."""
 
-from __future__ import annotations
-
 import json
 import os
 import shlex

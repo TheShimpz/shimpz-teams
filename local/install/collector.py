@@ -1,7 +1,5 @@
 """Eventual removal of superseded Local Assistant snapshots that no Team binds or runs."""
 
-from __future__ import annotations
-
 import logging
 import time
 from collections.abc import Callable

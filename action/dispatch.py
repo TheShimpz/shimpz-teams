@@ -5,8 +5,6 @@ or the client's own timeout ends it, so abandoned calls never accumulate; a wait
 and a dispatch Team refuses before its workload process starts is settled as never run (ADR-0092, ADR-0093).
 """
 
-from __future__ import annotations
-
 import concurrent.futures
 import contextvars
 import threading

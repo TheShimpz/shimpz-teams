@@ -1,7 +1,5 @@
 """Process-wide state and environment configuration for the hosted Team controller."""
 
-from __future__ import annotations
-
 import contextlib
 import ipaddress
 import math

@@ -1,7 +1,5 @@
 """Import-isolated Hosted Team fixture shared by Assistant contract suites."""
 
-from __future__ import annotations
-
 import hashlib
 import importlib.util
 import json

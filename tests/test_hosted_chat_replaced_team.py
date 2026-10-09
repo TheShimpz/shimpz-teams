@@ -1,7 +1,5 @@
 """A request authorized for one Hosted Team generation never reads or ends a replacement's pending gates."""
 
-from __future__ import annotations
-
 import dataclasses
 import io
 import sys

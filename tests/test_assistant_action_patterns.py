@@ -1,7 +1,5 @@
 """Action schema patterns run on the bounded linear-time matcher on every Team validation path."""
 
-from __future__ import annotations
-
 import json
 import sys
 import time

@@ -1,7 +1,5 @@
 """Durable current-contract transactions for Assistant replacement."""
 
-from __future__ import annotations
-
 import fcntl
 import json
 from dataclasses import dataclass

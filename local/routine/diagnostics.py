@@ -14,8 +14,6 @@ first whatever its kind: bodies are display records, never the compact safety ev
 holds a password or any other value Team injected.
 """
 
-from __future__ import annotations
-
 import base64
 import hashlib
 import json

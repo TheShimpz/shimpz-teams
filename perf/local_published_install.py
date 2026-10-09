@@ -6,8 +6,6 @@ The Developers and Sigstore edges are deterministic fixtures. Controller HTTP,
 Docker pull, isolation, start, and uninstall are real. Setup is outside samples.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import math

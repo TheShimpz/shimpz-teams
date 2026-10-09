@@ -1,7 +1,5 @@
 """A recorded Routine plan and confirmed definitions for Routine record, store, and service tests (ADR-0101)."""
 
-from __future__ import annotations
-
 import dataclasses
 
 PIN = "sha256:" + "d" * 64

@@ -1,12 +1,11 @@
 """Team-scoped durable Assistant bindings for the Local profile."""
 
-from __future__ import annotations
-
 from dataclasses import replace
 
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from install import bindings
+from install.bindings import DynamicAssistantBinding, DynamicAssistantStore
 from local.install import snapshots
 from local.install.runtime import AssistantSpec
 
@@ -25,7 +24,7 @@ def is_successor(
 
 
 class AssistantRegistry:
-    def __init__(self, store: bindings.DynamicAssistantStore) -> None:
+    def __init__(self, store: DynamicAssistantStore) -> None:
         self._store = store
 
     def put(self, team_id: str, resolution: dict[str, object]) -> AssistantSpec:
@@ -35,7 +34,7 @@ class AssistantRegistry:
         self,
         team_id: str,
         resolution: dict[str, object],
-    ) -> tuple[AssistantSpec, bindings.DynamicAssistantBinding, bool]:
+    ) -> tuple[AssistantSpec, DynamicAssistantBinding, bool]:
         binding, created = self._store.put_with_status(team_id, resolution)
         return _spec(binding), binding, created
 
@@ -46,7 +45,7 @@ class AssistantRegistry:
         self,
         team_id: str,
         record: dict[str, object],
-    ) -> tuple[AssistantSpec, bindings.DynamicAssistantBinding, bool]:
+    ) -> tuple[AssistantSpec, DynamicAssistantBinding, bool]:
         binding, created = self._store.put_local_with_status(team_id, record)
         return _spec(binding), binding, created
 
@@ -54,12 +53,12 @@ class AssistantRegistry:
         binding = self._store.get(team_id, assistant_id)
         return None if binding is None else _spec(binding)
 
-    def binding(self, team_id: str, assistant_id: str) -> bindings.DynamicAssistantBinding | None:
+    def binding(self, team_id: str, assistant_id: str) -> DynamicAssistantBinding | None:
         binding = self._store.get(team_id, assistant_id)
         return None if binding is None else _admitted(binding)
 
     @staticmethod
-    def versioned(binding: bindings.DynamicAssistantBinding) -> tuple[AssistantSpec, str]:
+    def versioned(binding: DynamicAssistantBinding) -> tuple[AssistantSpec, str]:
         value = binding.document.get("assistant_version")
         if not isinstance(value, str):
             raise bindings.DynamicAssistantError("Assistant binding has no valid version")
@@ -70,7 +69,7 @@ class AssistantRegistry:
         team_id: str,
         expected_binding_digest: str,
         resolution: dict[str, object],
-    ) -> tuple[bindings.DynamicAssistantBinding, AssistantSpec]:
+    ) -> tuple[DynamicAssistantBinding, AssistantSpec]:
         binding = bindings.binding_from_resolution(team_id, resolution)
         current = self._store.get(team_id, binding.assistant_id)
         if current is None or current.binding_digest != expected_binding_digest:
@@ -92,7 +91,7 @@ class AssistantRegistry:
         team_id: str,
         expected_binding_digest: str,
         record: dict[str, object],
-    ) -> tuple[bindings.DynamicAssistantBinding, AssistantSpec]:
+    ) -> tuple[DynamicAssistantBinding, AssistantSpec]:
         binding = bindings.binding_from_local_record(team_id, record, snapshots.validate_record)
         current = self._store.get(team_id, binding.assistant_id)
         if current is None or current.binding_digest != expected_binding_digest:
@@ -110,10 +109,10 @@ class AssistantRegistry:
         return _spec(self._store.replace_local(team_id, expected_binding_digest, record))
 
     @staticmethod
-    def spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
+    def spec(binding: DynamicAssistantBinding) -> AssistantSpec:
         return _spec(binding)
 
-    def team_bindings(self, team_id: str) -> tuple[bindings.DynamicAssistantBinding, ...]:
+    def team_bindings(self, team_id: str) -> tuple[DynamicAssistantBinding, ...]:
         """The Team's bindings that pass current store admission, for callers that convert each to its spec.
 
         Conversion completes admission: a binding whose runtime contract is refused raises there, never runs.
@@ -122,7 +121,7 @@ class AssistantRegistry:
 
     def installed(
         self, team_id: str
-    ) -> tuple[tuple[bindings.DynamicAssistantBinding, ...], tuple[bindings.DynamicAssistantBinding, ...]]:
+    ) -> tuple[tuple[DynamicAssistantBinding, ...], tuple[DynamicAssistantBinding, ...]]:
         """One snapshot of the Team's bindings, split into admitted ones and those needing replacement.
 
         A binding the current contract refuses is intact but never backs a running Assistant (ADR-0033's 2026-10-08
@@ -143,10 +142,10 @@ class AssistantRegistry:
     def identities(self) -> set[tuple[str, str]]:
         return {(binding.team_id, binding.assistant_id) for binding in self._store.snapshot()}
 
-    def bindings(self) -> tuple[bindings.DynamicAssistantBinding, ...]:
+    def bindings(self) -> tuple[DynamicAssistantBinding, ...]:
         return tuple(map(_admitted, self._store.snapshot()))
 
-    def inadmissible(self) -> tuple[bindings.DynamicAssistantBinding, ...]:
+    def inadmissible(self) -> tuple[DynamicAssistantBinding, ...]:
         """Every installed binding the current contract refuses; each needs replacement (ADR-0033, 2026-10-08)."""
         return tuple(binding for binding in self.bindings() if not binding.admissible)
 

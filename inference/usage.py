@@ -4,8 +4,6 @@ Brain reports what each operation's provider responses said; a failed Brain requ
 metadata only: provider, model, operation counts, and token counts, never a prompt, reply, or credential.
 """
 
-from __future__ import annotations
-
 import threading
 import time
 from collections.abc import Iterator, Mapping

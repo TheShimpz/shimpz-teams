@@ -1,7 +1,5 @@
 """Tenant-scoped postgresql-service client: one persistent principal token and provisioning fence per Team."""
 
-from __future__ import annotations
-
 import http.client
 import json
 import os

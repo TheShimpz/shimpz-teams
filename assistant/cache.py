@@ -1,7 +1,5 @@
 """Bounded cache of reads from immutable Assistant containers, coordinated per container."""
 
-from __future__ import annotations
-
 import threading
 from collections import OrderedDict
 from collections.abc import Callable

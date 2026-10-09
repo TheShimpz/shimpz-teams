@@ -1,7 +1,5 @@
 """The schedule and timezone a person states in their own words, read with no model (ADR-0101)."""
 
-from __future__ import annotations
-
 import unittest
 
 from protocol.http.v1 import phrase

@@ -6,8 +6,6 @@ The two lookup shapes use the same durable store and selected Assistant ids.
 Only aggregate timings and operation counts are printed.
 """
 
-from __future__ import annotations
-
 import copy
 import json
 import os

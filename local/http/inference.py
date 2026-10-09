@@ -1,7 +1,5 @@
 """Local Team inference-settings routes: the model selection and its chat reasoning effort."""
 
-from __future__ import annotations
-
 from http import HTTPStatus
 
 from local.validation import validate_team_id

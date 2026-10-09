@@ -3,8 +3,6 @@
 A value is a literal, the run date, a copy of an earlier result, or a question to the person.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import datetime
 from collections.abc import Iterator, Sequence

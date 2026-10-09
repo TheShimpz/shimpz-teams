@@ -1,7 +1,5 @@
 """Request-bound Account authority consumer for Hosted Team."""
 
-from __future__ import annotations
-
 import hashlib
 import hmac
 import http.client

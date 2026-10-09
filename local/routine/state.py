@@ -1,7 +1,5 @@
 """Reading and changing a Team's Routine state, failing closed with one retryable problem (ADR-0086)."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from http import HTTPStatus
 

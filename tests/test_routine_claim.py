@@ -1,7 +1,5 @@
 """Due Routines are claimed fairly and once, and missed firings are swept and reported (ADR-0086, ADR-0092)."""
 
-from __future__ import annotations
-
 import dataclasses
 import unittest
 

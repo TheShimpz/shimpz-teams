@@ -1,7 +1,5 @@
 """The Brain clarification crosses Team only as its exact closed shape (ADR-0081)."""
 
-from __future__ import annotations
-
 import json
 import unittest
 from pathlib import Path

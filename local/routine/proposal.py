@@ -13,8 +13,6 @@ confirmation record in one write; a repeated confirmation answers with the Routi
 newer card, the replaced Routine's deletion, the Team's deletion or reset, and a Team restart drop a card.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import hashlib
 import json

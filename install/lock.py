@@ -1,7 +1,5 @@
 """Advisory file locks over private lock files for Team-owned install state."""
 
-from __future__ import annotations
-
 import fcntl
 import os
 from pathlib import Path

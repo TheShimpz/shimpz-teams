@@ -5,8 +5,6 @@ browser input, and Action input cannot supply URLs, client credentials, or token
 response shapes. Redirects are deliberately not followed.
 """
 
-from __future__ import annotations
-
 import http.client
 import math
 import re

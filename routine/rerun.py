@@ -1,7 +1,5 @@
 """The work a Routine question freezes for a re-run, and whether a later send settles it, without a model (ADR-0101)."""
 
-from __future__ import annotations
-
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass

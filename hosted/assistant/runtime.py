@@ -1,7 +1,5 @@
 """Hosted Assistant contracts, RPC, private state, and Action execution."""
 
-from __future__ import annotations
-
 import contextlib
 from collections.abc import Mapping
 from dataclasses import dataclass

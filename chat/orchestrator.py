@@ -1,7 +1,5 @@
 """Deterministic Team-owned loop between LangGraph suspensions and Assistant Actions."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from functools import partial

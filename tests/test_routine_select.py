@@ -1,7 +1,5 @@
 """Exact equality, the ``where`` item selector, and the whole-input secret check of a recorded plan (ADR-0101)."""
 
-from __future__ import annotations
-
 import unittest
 
 from routine import plan as routine_plan

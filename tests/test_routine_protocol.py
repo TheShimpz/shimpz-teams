@@ -1,7 +1,5 @@
 """The Recorded Routine wire forms Admin admits from Team, at their edges (ADR-0101)."""
 
-from __future__ import annotations
-
 import json
 import unittest
 from pathlib import Path

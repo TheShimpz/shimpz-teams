@@ -1,7 +1,5 @@
 """Hosted hydration of one chat segment's selected files into request-local Brain content (ADR-0093)."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping, Sequence
 from http import HTTPStatus
 

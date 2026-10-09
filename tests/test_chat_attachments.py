@@ -1,7 +1,5 @@
 """Chat attachment rules shared by both profiles (ADR-0093)."""
 
-from __future__ import annotations
-
 import dataclasses
 import tempfile
 import types

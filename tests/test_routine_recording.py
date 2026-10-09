@@ -6,8 +6,6 @@ from that one occurrence, and anything else is a literal the assistant chose; wh
 guessed.
 """
 
-from __future__ import annotations
-
 import datetime
 import json
 import unittest

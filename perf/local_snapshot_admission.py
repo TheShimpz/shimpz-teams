@@ -5,8 +5,6 @@ The production admission creates and removes a never-started offline container.
 This benchmark never builds, tags, installs, starts, or deletes an image.
 """
 
-from __future__ import annotations
-
 import json
 import math
 import time

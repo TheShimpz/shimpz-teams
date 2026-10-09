@@ -5,8 +5,6 @@ whole UTC epoch seconds. A transition validates the current state itself and ret
 persists it atomically before acting on it, so a crash leaves either the old or the new state, never a mix.
 """
 
-from __future__ import annotations
-
 import copy
 import dataclasses
 import datetime

@@ -1,7 +1,5 @@
 """Hosted Team chat API, continuation, OAuth, and cancellation operations."""
 
-from __future__ import annotations
-
 import contextlib
 import secrets
 from collections.abc import Callable

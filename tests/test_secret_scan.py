@@ -1,7 +1,5 @@
 """Characterization tests for the Assistant output secret-echo scan."""
 
-from __future__ import annotations
-
 import sys
 import unittest
 from pathlib import Path

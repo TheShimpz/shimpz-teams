@@ -1,7 +1,5 @@
 """Pure, closed contract between one Assistant and a tool-free inference provider."""
 
-from __future__ import annotations
-
 import json
 
 from inference import client as brain_runtime_client

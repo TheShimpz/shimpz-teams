@@ -4,8 +4,6 @@ Team fingerprints, digests, and sealed-state bindings hash these exact bytes. ``
 TypeError, ValueError, UnicodeError, or RecursionError, so each caller keeps its own refusal.
 """
 
-from __future__ import annotations
-
 import json
 
 

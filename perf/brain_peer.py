@@ -1,7 +1,5 @@
 """Deterministic Brain peer; import as perf.brain_peer to keep one class state."""
 
-from __future__ import annotations
-
 import json
 import queue
 import secrets

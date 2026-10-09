@@ -4,8 +4,6 @@ Its plan pages, Brain listing, claim, execution through the real turn loop, noti
 within the bounds the admission budget derives (ADR-0092 amendment, 2026-10-05, scale; ADR-0101).
 """
 
-from __future__ import annotations
-
 import dataclasses
 import tempfile
 import time

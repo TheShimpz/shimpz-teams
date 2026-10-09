@@ -1,7 +1,5 @@
 """Bounded ephemeral Local Assistant preview reuse."""
 
-from __future__ import annotations
-
 import threading
 import unittest
 from concurrent.futures import Future

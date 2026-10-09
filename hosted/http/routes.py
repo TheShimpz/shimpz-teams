@@ -1,7 +1,5 @@
 """Hosted Team-controller HTTP parsing and error projection."""
 
-from __future__ import annotations
-
 from http import HTTPStatus
 
 from core.http import stdlib, strict

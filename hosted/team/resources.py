@@ -1,7 +1,5 @@
 """Hosted Team isolation, capacity, networks, and authorization."""
 
-from __future__ import annotations
-
 import contextlib
 import secrets
 import time

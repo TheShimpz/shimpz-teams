@@ -1,7 +1,5 @@
 """Team-owned admission for unpublished Assistant images staged in Local Docker."""
 
-from __future__ import annotations
-
 import hashlib
 import re
 from collections.abc import Mapping

@@ -1,7 +1,5 @@
 """Close the fail-closed edges of the shared Assistant and chat contracts."""
 
-from __future__ import annotations
-
 import unittest
 from types import SimpleNamespace
 from unittest import mock

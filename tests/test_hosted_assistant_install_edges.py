@@ -1,7 +1,5 @@
 """Transactional install and uninstall edges for Hosted Assistants."""
 
-from __future__ import annotations
-
 import contextlib
 import sys
 import tempfile

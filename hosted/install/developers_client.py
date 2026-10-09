@@ -1,7 +1,5 @@
 """Fixed internal client for Controller-to-Developers install decisions."""
 
-from __future__ import annotations
-
 import hashlib
 import http.client
 import json

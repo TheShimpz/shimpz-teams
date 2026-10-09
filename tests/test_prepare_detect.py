@@ -1,7 +1,5 @@
 """Attachment type detection from bytes, never from names or uploaded types (ADR-0093)."""
 
-from __future__ import annotations
-
 import unittest
 
 from prepare import detect, limits

@@ -4,8 +4,6 @@ The Action journal stores exactly these bytes, and Team refuses any other result
 result is never accepted that the journal could not persist.
 """
 
-from __future__ import annotations
-
 import math
 
 from core import canonical_json

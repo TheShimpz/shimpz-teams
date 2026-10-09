@@ -1,7 +1,5 @@
 """Local Supervisor responses to Team-owned Action human challenges."""
 
-from __future__ import annotations
-
 from action import challenges as action_challenges
 from action import execution as action_execution
 from action import human as action_human

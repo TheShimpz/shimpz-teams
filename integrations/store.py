@@ -6,8 +6,6 @@ the exact Team, Assistant, integration, provider, scopes, expiry, status, and
 generation through AES-GCM authenticated additional data (AAD).
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import re
@@ -185,7 +183,7 @@ def _integration(value: object) -> OAuthIntegrationIdentity | None:
 def _stored_status(value: object) -> StoredStatus:
     if not isinstance(value, str) or value not in _STORED_STATUSES:
         raise OAuthIntegrationValidationError("OAuth integration status is invalid")
-    return value  # type: ignore[return-value]
+    return value
 
 
 def _intent(provider_id: object, scopes: object) -> tuple[str, tuple[str, ...]]:
@@ -203,11 +201,11 @@ def _token_set(
     integration: object,
 ) -> _TokenGrant:
     try:
-        access_token = value.access_token  # type: ignore[attr-defined]
-        refresh_token = value.refresh_token  # type: ignore[attr-defined]
+        access_token = value.access_token
+        refresh_token = value.refresh_token
         broker_lease = getattr(value, "broker_lease", None)
-        raw_scopes = value.scopes  # type: ignore[attr-defined]
-        expires_in = value.expires_in  # type: ignore[attr-defined]
+        raw_scopes = value.scopes
+        expires_in = value.expires_in
     except (AttributeError, TypeError) as exc:
         raise OAuthIntegrationValidationError("OAuth token set is invalid") from exc
     if (
@@ -361,8 +359,8 @@ def _declarations(value: object) -> dict[str, tuple[str, tuple[str, ...]]]:
             scopes = raw_spec.get("scopes")
         else:
             try:
-                provider = raw_spec.provider  # type: ignore[attr-defined]
-                scopes = raw_spec.scopes  # type: ignore[attr-defined]
+                provider = raw_spec.provider
+                scopes = raw_spec.scopes
             except (AttributeError, TypeError) as exc:
                 raise OAuthIntegrationValidationError("OAuth integration declarations are invalid") from exc
         declared[integration_id] = _intent(provider, scopes)

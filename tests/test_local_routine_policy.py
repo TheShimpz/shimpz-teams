@@ -1,7 +1,5 @@
 """A Team-detected policy fault holds a run: never absence, never a retry, never a model (ADR-0092 section 6)."""
 
-from __future__ import annotations
-
 import tempfile
 import unittest
 from http import HTTPStatus

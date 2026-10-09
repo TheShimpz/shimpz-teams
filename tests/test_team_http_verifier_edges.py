@@ -1,7 +1,5 @@
 """Team's HTTP protocol verifier refuses every drifted manifest, module, and golden vector."""
 
-from __future__ import annotations
-
 import types
 import unittest
 from pathlib import Path

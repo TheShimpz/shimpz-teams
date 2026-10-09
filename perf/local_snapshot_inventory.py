@@ -6,8 +6,6 @@ against nonmatching labels and an unfiltered listing on one stable image set.
 Only timing and counts are printed; no image or Assistant metadata is emitted.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import math

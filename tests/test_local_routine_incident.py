@@ -1,7 +1,5 @@
 """Holding a Routine run as an incident: every crash window, Pular, Pausar, deletion, and sealed state (ADR-0092)."""
 
-from __future__ import annotations
-
 import dataclasses
 import hashlib
 import json

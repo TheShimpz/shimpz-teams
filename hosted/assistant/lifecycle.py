@@ -1,7 +1,5 @@
 """Hosted Team Assistant admission, egress, installation, and inventory."""
 
-from __future__ import annotations
-
 import contextlib
 import time
 from collections.abc import Callable

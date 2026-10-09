@@ -1,7 +1,5 @@
 """Hosted Owner-facing Action human-request suspension boundaries."""
 
-from __future__ import annotations
-
 import unittest
 from contextlib import contextmanager
 from dataclasses import replace

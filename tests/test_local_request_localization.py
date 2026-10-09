@@ -1,7 +1,5 @@
 """A Local turn's human requests render in the language its start pinned, from the binding they bind (ADR-0091)."""
 
-from __future__ import annotations
-
 import sys
 import tempfile
 from dataclasses import replace

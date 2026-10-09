@@ -1,7 +1,5 @@
 """Exercise fail-closed persistence edges for Assistant bindings and updates."""
 
-from __future__ import annotations
-
 import copy
 import fcntl
 import json

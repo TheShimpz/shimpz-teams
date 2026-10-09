@@ -1,7 +1,5 @@
 """Hosted HTTP routes for Assistant Stored Input metadata and deletion."""
 
-from __future__ import annotations
-
 from http import HTTPStatus
 from typing import Protocol
 

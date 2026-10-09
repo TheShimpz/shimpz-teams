@@ -1,7 +1,5 @@
 """The median and nearest-rank p95 the in-process Hosted and registry perf probes report, in milliseconds."""
 
-from __future__ import annotations
-
 import math
 import statistics
 

@@ -1,7 +1,5 @@
 """Hosted Action file delivery: the same withheld-first contract, Owner disclosure, and fail-closed refusals."""
 
-from __future__ import annotations
-
 import base64
 import dataclasses
 import sys

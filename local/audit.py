@@ -5,8 +5,6 @@ the first unsynced event within a 50 ms target window; a sudden action loss may 
 that window, while process crashes retain the already-written kernel state.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import re

@@ -8,8 +8,6 @@ started them, so the window never holds more than that many starts. At a cap, no
 the window; no Brain is asked.
 """
 
-from __future__ import annotations
-
 from routine import plan as routine_plan
 
 WINDOW_SECONDS = 86_400

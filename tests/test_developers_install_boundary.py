@@ -1,7 +1,5 @@
 """Hosted Controller boundary for delegated Developers installation."""
 
-from __future__ import annotations
-
 import contextlib
 import copy
 import json

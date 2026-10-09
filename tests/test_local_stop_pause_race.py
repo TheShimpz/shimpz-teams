@@ -5,8 +5,6 @@ either committed before Stop (and Stop withdraws the challenge it published) or 
 its continuation, and, for a human request, its own paused Action batch.
 """
 
-from __future__ import annotations
-
 import sys
 import tempfile
 import threading

@@ -1,7 +1,5 @@
 """Exercise malformed schema and cross-field Assistant-install contracts."""
 
-from __future__ import annotations
-
 import json
 import tempfile
 import unittest

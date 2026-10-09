@@ -5,8 +5,6 @@ global and Owner budgets for its whole life, it is labeled for capacity inventor
 controller's own share of each preparation is bounded separately, by a controller-wide admission.
 """
 
-from __future__ import annotations
-
 import secrets
 import threading
 from collections.abc import Callable, Iterator

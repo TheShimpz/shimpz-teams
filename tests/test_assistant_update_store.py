@@ -1,7 +1,5 @@
 """Durability and fencing contracts for Assistant update transactions."""
 
-from __future__ import annotations
-
 import copy
 import json
 import tempfile

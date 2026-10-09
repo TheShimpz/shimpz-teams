@@ -1,7 +1,5 @@
 """State-machine contracts for the hosted and local Controller healthchecks."""
 
-from __future__ import annotations
-
 import json
 import sys
 import unittest

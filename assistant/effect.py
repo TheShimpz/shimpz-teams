@@ -5,8 +5,6 @@ admitted manifest and the verifier's own declaration can prove: an idempotency p
 exact outbound hosts, and a verifier runs without a person, asking at most for its own declared Stored Input.
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping, Sequence
 
 from protocol.assistant.v1.validators import action_effect as action_effect_validator

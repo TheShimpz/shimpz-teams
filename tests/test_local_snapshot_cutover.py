@@ -1,7 +1,5 @@
 """Concurrency contracts for Local Assistant snapshot cutovers."""
 
-from __future__ import annotations
-
 import threading
 import unittest
 from types import SimpleNamespace

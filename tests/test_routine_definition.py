@@ -1,7 +1,5 @@
 """A Routine definition on the wire and in its Team's budgets: units, state, scope, and detail (ADR-0101)."""
 
-from __future__ import annotations
-
 import dataclasses
 import unittest
 

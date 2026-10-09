@@ -1,7 +1,5 @@
 """Local Routine runs end to end on the Local controller: claim, run, freeze, resume, stop (ADR-0086)."""
 
-from __future__ import annotations
-
 import dataclasses
 import datetime
 import tempfile

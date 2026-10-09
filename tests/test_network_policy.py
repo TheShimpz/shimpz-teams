@@ -5,8 +5,6 @@ No Docker daemon and no mocks: these tests feed Engine-API-shaped immutable dict
 same stdlib policy used by team admission and its shipping healthcheck.
 """
 
-from __future__ import annotations
-
 import ast
 import copy
 import tempfile

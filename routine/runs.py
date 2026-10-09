@@ -1,7 +1,5 @@
 """A claimed run's transitions, without I/O (ADR-0086, ADR-0092, ADR-0101): spending, freezing, thawing, and ending."""
 
-from __future__ import annotations
-
 import copy
 import dataclasses
 import hashlib

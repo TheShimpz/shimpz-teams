@@ -1,7 +1,5 @@
 """Private registry credentials kept out of process arguments and logs."""
 
-from __future__ import annotations
-
 import base64
 import json
 import os

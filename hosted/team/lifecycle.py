@@ -1,7 +1,5 @@
 """Hosted Team files, provisioning, teardown, status, and lifecycle operations."""
 
-from __future__ import annotations
-
 import http.client
 from http import HTTPStatus
 

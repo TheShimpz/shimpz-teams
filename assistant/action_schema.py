@@ -6,8 +6,6 @@ and byte bounds, local acyclic references within the expansion bound, one dialec
 admits. Validation uses that protocol's bounded RE2 matcher.
 """
 
-from __future__ import annotations
-
 import json
 from collections.abc import Iterator
 from functools import lru_cache

@@ -1,7 +1,5 @@
 """Hosted Team chat segment preparation, execution, and suspension dispatch."""
 
-from __future__ import annotations
-
 import contextlib
 from collections.abc import Iterator
 from dataclasses import dataclass

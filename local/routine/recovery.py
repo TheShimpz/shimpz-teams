@@ -14,8 +14,6 @@ fresh generation under a fresh internal lease, in the Team's execution slot, and
 passed: it is retried only after proven absence, or the run is held again.
 """
 
-from __future__ import annotations
-
 import contextlib
 import dataclasses
 import datetime

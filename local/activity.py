@@ -7,8 +7,6 @@ machine bearer and asks the authenticated loopback route. It prints exactly ``id
 exits nonzero so the caller treats activity as unknown.
 """
 
-from __future__ import annotations
-
 import contextlib
 import http.client
 import json

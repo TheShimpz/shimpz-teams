@@ -4,8 +4,6 @@ Admin's automatic delivery only reads notices and acknowledges exact versions; i
 settled through its recovery card instead (ADR-0092).
 """
 
-from __future__ import annotations
-
 from local import audit as local_audit
 from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem

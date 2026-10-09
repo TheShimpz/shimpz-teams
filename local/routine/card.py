@@ -11,8 +11,6 @@ the Supervisor's password and second factor in Admin. Rodar never starts while t
 be running, while another run of the Routine is live, or once the Routine is deleted.
 """
 
-from __future__ import annotations
-
 import secrets
 import threading
 import time

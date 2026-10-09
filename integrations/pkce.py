@@ -5,8 +5,6 @@ process-local and is released once, after the callback proves the same session,
 Team, Assistant, and integration binding that started the flow.
 """
 
-from __future__ import annotations
-
 import hashlib
 import hmac
 import re

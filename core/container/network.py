@@ -5,8 +5,6 @@ inspect dictionaries and the healthcheck applies it to raw Engine API dictionari
 continuous readiness cannot drift into two different definitions of an isolated Team.
 """
 
-from __future__ import annotations
-
 import os
 import re
 from collections.abc import Callable, Mapping

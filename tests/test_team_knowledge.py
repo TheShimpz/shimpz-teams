@@ -1,7 +1,5 @@
 """Learned Team knowledge: memory (ADR-0084) and structure-only skills (ADR-0085), saved only when a reply commits."""
 
-from __future__ import annotations
-
 import dataclasses
 import json
 import os

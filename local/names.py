@@ -5,8 +5,6 @@ the network incarnation, in the private inference volume; the current name is th
 exists. Names are unique per Space ignoring case, under one Space-wide namespace lock taken before any Team lock.
 """
 
-from __future__ import annotations
-
 import hashlib
 import os
 import re

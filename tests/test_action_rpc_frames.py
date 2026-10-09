@@ -1,7 +1,5 @@
 """Adversarial frame contracts for hosted and local Assistant Action RPC."""
 
-from __future__ import annotations
-
 import json
 import socket
 import struct

@@ -1,7 +1,5 @@
 """Contract tests for durable dynamic Assistant bindings."""
 
-from __future__ import annotations
-
 import copy
 import json
 import stat

@@ -1,7 +1,5 @@
 """Bounded Team-owned challenges for admitted Action human requests."""
 
-from __future__ import annotations
-
 import math
 import time
 from collections.abc import Callable, Mapping

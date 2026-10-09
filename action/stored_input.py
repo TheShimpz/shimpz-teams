@@ -1,7 +1,5 @@
 """Encrypted Team custody for persistent Assistant-declared Action inputs."""
 
-from __future__ import annotations
-
 import json
 import re
 from collections.abc import Callable, Iterable, Mapping
@@ -211,9 +209,9 @@ def _declarations(value: object) -> dict[str, tuple[str, str, str]]:
     for raw_id, raw_spec in value.items():
         stored_input_id = _component_id(raw_id, "Stored Input id")
         try:
-            raw_kind = raw_spec.kind  # type: ignore[attr-defined]
-            raw_label = raw_spec.label  # type: ignore[attr-defined]
-            raw_description = raw_spec.description  # type: ignore[attr-defined]
+            raw_kind = raw_spec.kind
+            raw_label = raw_spec.label
+            raw_description = raw_spec.description
         except AttributeError, TypeError:
             if not isinstance(raw_spec, Mapping) or set(raw_spec) - {"help_url"} != {"kind", "label", "description"}:
                 raise StoredInputValidationError("Stored Input declarations are invalid") from None

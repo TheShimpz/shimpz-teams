@@ -5,8 +5,6 @@ challenges, continuations, and PKCE state under the Team lock, so a relocalizati
 is cleared after. Reset also keeps turn registration closed until it ends.
 """
 
-from __future__ import annotations
-
 import sys
 import tempfile
 import threading

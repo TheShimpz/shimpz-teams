@@ -1,7 +1,5 @@
 """A claimed run spends, freezes, thaws, and ends exactly once, with its notice (ADR-0086, ADR-0092, ADR-0101)."""
 
-from __future__ import annotations
-
 import dataclasses
 import unittest
 

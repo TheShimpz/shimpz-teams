@@ -1,7 +1,5 @@
 """The reviewed Stored Input key page and the Brain's purpose on a Team human request (ADR-0090)."""
 
-from __future__ import annotations
-
 import copy
 import time
 import unittest

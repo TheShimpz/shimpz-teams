@@ -1,7 +1,5 @@
 """Storage and teardown edge coverage for Hosted Team lifecycle."""
 
-from __future__ import annotations
-
 import sys
 import tempfile
 import unittest

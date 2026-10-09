@@ -1,7 +1,5 @@
 """Routine runs stay consistent when their endings, replays, and the watchdog interleave (ADR-0086)."""
 
-from __future__ import annotations
-
 import contextlib
 import tempfile
 import threading

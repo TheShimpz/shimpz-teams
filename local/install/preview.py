@@ -1,7 +1,5 @@
 """Bounded ephemeral reuse of validated Local Assistant previews: the icon and the localized summaries."""
 
-from __future__ import annotations
-
 import threading
 from collections import OrderedDict
 from concurrent.futures import Future

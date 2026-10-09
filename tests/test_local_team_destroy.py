@@ -1,7 +1,5 @@
 """Destroying a Local Team drains its chat and removes its owned state before teardown, failing closed."""
 
-from __future__ import annotations
-
 import contextlib
 import threading
 from http import HTTPStatus

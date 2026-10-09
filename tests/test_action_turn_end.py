@@ -1,7 +1,5 @@
 """A turn that fails after its Actions completed ends its batch, so the next turn's batch runs (Local generation)."""
 
-from __future__ import annotations
-
 import sys
 import tempfile
 import unittest

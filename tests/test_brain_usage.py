@@ -1,7 +1,5 @@
 """Brain model usage: closed parsing, per-request metering, and attachment to the request's audit event (ADR-0082)."""
 
-from __future__ import annotations
-
 import json
 import tempfile
 import unittest

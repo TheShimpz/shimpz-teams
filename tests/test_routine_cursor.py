@@ -1,7 +1,5 @@
 """The run cursor: binding, durable prefix, stable operations, budgets, bounds, and protection (ADR-0101)."""
 
-from __future__ import annotations
-
 import dataclasses
 import json
 import unittest

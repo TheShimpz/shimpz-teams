@@ -1,7 +1,5 @@
 """A Local Supervisor lists and deletes a Team's Routines (ADR-0086, ADR-0092)."""
 
-from __future__ import annotations
-
 import time
 from http import HTTPStatus
 

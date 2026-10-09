@@ -1,7 +1,5 @@
 """When a Routine fires: the next occurrence of its canonical schedule, strictly after an instant (ADR-0086)."""
 
-from __future__ import annotations
-
 import datetime
 import zoneinfo
 

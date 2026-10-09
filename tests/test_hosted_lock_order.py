@@ -5,8 +5,6 @@ Team lock, which destruction holds while it awaits the slot. Repeated creation a
 order and are covered with their own operations.
 """
 
-from __future__ import annotations
-
 import threading
 import types
 import unittest

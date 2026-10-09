@@ -7,8 +7,6 @@ error is refused, and the helper is replaced before the next file. The caller re
 any human wait.
 """
 
-from __future__ import annotations
-
 import socket
 from collections.abc import Callable
 from contextlib import suppress

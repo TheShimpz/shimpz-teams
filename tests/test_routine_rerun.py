@@ -1,7 +1,5 @@
 """A question's frozen work is settled only by a later send that runs it again exactly (ADR-0101)."""
 
-from __future__ import annotations
-
 import dataclasses
 import datetime
 import json
