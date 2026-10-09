@@ -19,6 +19,8 @@ from hosted_assistant_fixture import (
     runtime_state,
 )
 
+from integrations import http as integration_http
+
 integration_challenges = runtime_state.integration_challenges
 assistant_manifest = assistant_lifecycle.assistant_manifest
 brain_runtime_client = runtime_state.brain_runtime_client
@@ -26,7 +28,6 @@ chat_orchestrator = hosted_chat_segment.chat_orchestrator
 assistant_registry = assistant_lifecycle.assistant_registry
 network_policy = hosted_resources.network_policy
 integration_store = runtime_state.integration_store
-integration_http = runtime_state.integration_http
 action_journal = runtime_state.action_journal
 hosted_egress_policy = assistant_lifecycle.egress_policy
 TEARDOWN_RESIDUES = (

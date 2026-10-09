@@ -147,18 +147,13 @@ class HostedHttpSimpleRouteEdgeTests(unittest.TestCase):
             handler._route_team_list(("supervisor", None))
         self.assertEqual(list_teams.call_args_list, [mock.call(owner=ACCOUNT_ID), mock.call(owner=None)])
 
-    def test_oauth_completion_is_audited_and_never_cached(self) -> None:
+    def test_oauth_completion_is_refused_and_sends_nothing(self) -> None:
         handler = _handler()
         handler._read_body = mock.Mock(return_value={"code": "claim"})
-        result = {
-            "team_id": TEAM_ID,
-            "assistant_id": "cloudflare",
-            "provider": "cloudflare",
-        }
-        with mock.patch.object(hosted_chat_api, "_complete_integration_callback", return_value=(result, ACCOUNT_ID)):
+        with self.assertRaises(runtime_state.ApiError) as refused:
             handler._route_assistant_integration_complete()
-        handler._send_json.assert_called_once_with(HTTPStatus.OK, result, no_store=True)
-        handler._audit_security.assert_called_once()
+        self.assertEqual(refused.exception.status, HTTPStatus.UNPROCESSABLE_ENTITY)
+        handler._send_json.assert_not_called()
 
     def test_team_create_requires_owner_and_returns_a_trace(self) -> None:
         handler = _handler()
@@ -225,16 +220,21 @@ class HostedHttpSimpleRouteEdgeTests(unittest.TestCase):
                 "session_binding": "browser",
             }
         )
-        with mock.patch.object(hosted_chat_api, "_start_oauth_integration", return_value={"url": "https://oauth"}):
+        refusal = runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "refused")
+        with (
+            mock.patch.object(hosted_chat_api, "_refuse_oauth_start", side_effect=refusal) as start,
+            self.assertRaises(runtime_state.ApiError),
+        ):
             handler._route_assistant_integration_authorize(request)
+        start.assert_called_once_with(TEAM_ID, "d" * 32, request.lease)
 
-        with mock.patch.object(
-            hosted_chat_api,
-            "_disconnect_oauth_integration",
-            return_value={"disconnected": True},
+        with (
+            mock.patch.object(hosted_chat_api, "_refuse_oauth_disconnect", side_effect=refusal) as disconnect,
+            self.assertRaises(runtime_state.ApiError),
         ):
             handler._route_assistant_integration_disconnect(request)
-        self.assertEqual(handler._send_json.call_count, 3)
+        disconnect.assert_called_once_with(TEAM_ID, "cloudflare", "oauth", request.lease)
+        self.assertEqual(handler._send_json.call_count, 1)
 
     def test_stored_input_routes_expose_metadata_and_clear_one_exact_slot(self) -> None:
         handler = _handler()

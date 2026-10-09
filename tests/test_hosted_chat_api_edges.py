@@ -131,7 +131,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(state.ApiError),
         ):
-            api._start_oauth_integration("team_1", "challenge", "assistant", "cloudflare", "binding", self.lease())
+            api._refuse_oauth_start("team_1", "challenge", self.lease())
 
         challenge = SimpleNamespace(payload=object())
         with (
@@ -139,24 +139,18 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             mock.patch.object(state._integration_challenges, "get", return_value=challenge),
             self.assertRaises(state.ApiError),
         ):
-            api._start_oauth_integration("team_1", "challenge", "assistant", "cloudflare", "binding", self.lease())
+            api._refuse_oauth_start("team_1", "challenge", self.lease())
 
         challenge.payload = self.pending()
-        failures = (
-            api.integration_service.OAuthIntegrationUnavailableError("configured"),
-            api.integration_service.OAuthIntegrationServiceError("failed"),
-        )
-        for failure in failures:
-            with (
-                self.subTest(failure=type(failure).__name__),
-                mock.patch.object(api.hosted_resources, "_require_current_authorization"),
-                mock.patch.object(state._integration_challenges, "get", return_value=challenge),
-                mock.patch.object(state._oauth_integrations, "authorization_url", side_effect=failure),
-                self.assertRaises(state.ApiError),
-            ):
-                api._start_oauth_integration("team_1", "challenge", "assistant", "cloudflare", "binding", self.lease())
+        with (
+            mock.patch.object(api.hosted_resources, "_require_current_authorization"),
+            mock.patch.object(state._integration_challenges, "get", return_value=challenge),
+            self.assertRaises(state.ApiError) as refused,
+        ):
+            api._refuse_oauth_start("team_1", "challenge", self.lease())
+        self.assertEqual(refused.exception.status, api.HTTPStatus.SERVICE_UNAVAILABLE)
 
-    def test_callback_and_compensation_validate_resource_authority(self) -> None:
+    def test_callback_validates_resource_authority(self) -> None:
         body = {"state": "state", "session_binding": "binding"}
         for failure in (
             api.integration_pkce.OAuthChallengeNotFoundError("missing"),
@@ -178,74 +172,17 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             ):
                 api._callback_binding(body)
 
-        completion = SimpleNamespace(team_id="team_1", assistant_id="assistant", integration_id="cloudflare")
-        with (
-            mock.patch.object(state._oauth_integrations, "disconnect"),
-            mock.patch.object(api.audit, "log") as audit,
-        ):
-            api._compensate_oauth_completion(completion, "account_1")
-        self.assertEqual(audit.call_args.kwargs["result"], "ok")
-
-        with (
-            mock.patch.object(
-                state._oauth_integrations,
-                "disconnect",
-                side_effect=api.integration_service.OAuthIntegrationServiceError("failed"),
-            ),
-            mock.patch.object(api.audit, "log") as audit,
-            self.assertRaises(state.ApiError),
-        ):
-            api._compensate_oauth_completion(completion, "account_1")
-        self.assertEqual(audit.call_args.kwargs["result"], "error")
-
-    def test_completion_disconnect_and_resume_failures_are_closed(self) -> None:
-        binding = SimpleNamespace(team_id="team_1", resource_binding=("account_1", "container"))
-        body = {"state": "state", "code": "code", "session_binding": "binding"}
-        with (
-            mock.patch.object(api, "_callback_binding", return_value=(binding, "account_1", "container")),
-            mock.patch.object(state, "_lock_for", return_value=nullcontext()),
-            mock.patch.object(api.hosted_resources, "_cleanup_record", return_value=None),
-            mock.patch.object(api.hosted_resources, "_authorize", return_value=self.lease()),
-            mock.patch.object(
-                state._oauth_integrations,
-                "complete",
-                side_effect=api.integration_service.OAuthIntegrationServiceError("failed"),
-            ),
-            self.assertRaises(state.ApiError),
-        ):
-            api._complete_integration_callback(body)
-
-        completion = SimpleNamespace(
-            team_id="other",
-            assistant_id="assistant",
-            integration_id="cloudflare",
-            resource_binding=("account_1", "container"),
-        )
-        with (
-            mock.patch.object(api, "_callback_binding", return_value=(binding, "account_1", "container")),
-            mock.patch.object(state, "_lock_for", return_value=nullcontext()),
-            mock.patch.object(api.hosted_resources, "_cleanup_record", return_value=None),
-            mock.patch.object(api.hosted_resources, "_authorize", return_value=self.lease()),
-            mock.patch.object(state._oauth_integrations, "complete", return_value=completion),
-            mock.patch.object(api, "_compensate_oauth_completion"),
-            self.assertRaises(state.ApiError),
-        ):
-            api._complete_integration_callback(body)
-
+    def test_disconnect_and_resume_failures_are_closed(self) -> None:
         with (
             mock.patch.object(state, "_lock_for", return_value=nullcontext()),
             mock.patch.object(api.hosted_resources, "_require_current_authorization"),
             mock.patch.object(api, "_current_integration_declaration"),
             mock.patch.object(api.hosted_chat_human, "cancel_pending"),
             mock.patch.object(api.hosted_chat_lifecycle, "cancel_paused_integration"),
-            mock.patch.object(
-                state._oauth_integrations,
-                "disconnect",
-                side_effect=api.integration_service.OAuthIntegrationServiceError("failed"),
-            ),
-            self.assertRaises(state.ApiError),
+            self.assertRaises(state.ApiError) as refused,
         ):
-            api._disconnect_oauth_integration("team_1", "assistant", "cloudflare", self.lease())
+            api._refuse_oauth_disconnect("team_1", "assistant", "cloudflare", self.lease())
+        self.assertEqual(refused.exception.status, api.HTTPStatus.SERVICE_UNAVAILABLE)
 
         @contextmanager
         def exclusive(*_args):

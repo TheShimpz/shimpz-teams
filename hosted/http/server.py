@@ -500,16 +500,7 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def _route_assistant_integration_complete(self) -> None:
-        result, owner = hosted_chat_api._complete_integration_callback(self._read_body())
-        self._audit_security(
-            "assistant_integration_complete",
-            result["team_id"],
-            result="ok",
-            assistant=result["assistant_id"],
-            provider=result["provider"],
-            owner_account_id=owner,
-        )
-        self._send_json(HTTPStatus.OK, result, no_store=True)
+        hosted_chat_api._refuse_integration_callback(self._read_body())
 
     def _route_team_create(
         self,
@@ -555,35 +546,15 @@ class Handler(BaseHTTPRequestHandler):
         body = self._read_body()
         if not isinstance(body, dict) or set(body) != {"assistant_id", "integration_id", "session_binding"}:
             raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "OAuth authorization request is invalid")
-        result = hosted_chat_api._start_oauth_integration(
-            request.team_id,
-            request.params["challenge_id"],
-            body["assistant_id"],
-            body["integration_id"],
-            body["session_binding"],
-            request.lease,
-        )
-        self._audit_security("assistant_integration_start", request.team_id, result="ok")
-        self._send_json(HTTPStatus.OK, result, no_store=True)
+        hosted_chat_api._refuse_oauth_start(request.team_id, request.params["challenge_id"], request.lease)
 
     def _route_assistant_integration_disconnect(self, request: _AuthorizedRequest) -> None:
-        assistant_id = request.params["assistant_id"]
-        integration_id = request.params["integration_id"]
-        result = hosted_chat_api._disconnect_oauth_integration(
+        hosted_chat_api._refuse_oauth_disconnect(
             request.team_id,
-            assistant_id,
-            integration_id,
+            request.params["assistant_id"],
+            request.params["integration_id"],
             request.lease,
         )
-        self._audit_security(
-            "assistant_integration_disconnect",
-            request.team_id,
-            result="ok",
-            assistant=assistant_id,
-            integration=integration_id,
-            disconnected=result["disconnected"],
-        )
-        self._send_json(HTTPStatus.OK, result, no_store=True)
 
     _route_assistant_stored_input_list = hosted_stored_input_http.list_stored_inputs
     _route_assistant_stored_input_clear = hosted_stored_input_http.clear_stored_input

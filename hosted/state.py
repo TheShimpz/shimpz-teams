@@ -29,9 +29,7 @@ from install import artifact_trust, registry_auth
 from install import bindings as dynamic_assistants
 from install import icons as assistant_icons
 from integrations import challenges as integration_challenges
-from integrations import http as integration_http
 from integrations import pkce as integration_pkce
-from integrations import service as integration_service
 from integrations import store as integration_store
 from storage import files as team_storage
 
@@ -179,17 +177,6 @@ _human_challenges = action_challenges.HumanChallengeStore(retain_expired=True)
 _dynamic_assistants = dynamic_assistants.DynamicAssistantStore(DYNAMIC_ASSISTANT_PATH)
 _assistant_icons = assistant_icons.AssistantIconStore(DYNAMIC_ASSISTANT_PATH.parent / "icons")
 _integration_pkce = integration_pkce.OAuthPKCEChallengeStore()
-_oauth_http = integration_http.OAuthHTTPClient()
-_cloudflare_oauth_client_id = os.environ.get("SHIMPZ_CLOUDFLARE_OAUTH_CLIENT_ID")
-_cloudflare_oauth_client_secret = os.environ.get("SHIMPZ_CLOUDFLARE_OAUTH_CLIENT_SECRET")
-_oauth_integrations = integration_service.OAuthIntegrationService(
-    client_id=_cloudflare_oauth_client_id,
-    client_secret=_cloudflare_oauth_client_secret,
-    redirect_uri=integration_http.HOSTED_REDIRECT_URI,
-    challenge=_integration_pkce,
-    store=_assistant_integrations,
-    http=_oauth_http,
-)
 _inference_store = inference_config.InferenceConfigStore()
 _developers_delegation: developers_delegation.DevelopersDelegationVerifier | None = None
 _developers_client: developers_client.DevelopersClient | None = None

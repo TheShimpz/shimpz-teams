@@ -54,9 +54,7 @@ class HostedLockOrderTests(unittest.TestCase):
             ("runtime", lambda: hosted_lifecycle._lifecycle("team_1", "restart", lease)),
             (
                 "disconnect",
-                lambda: hosted_chat_api._disconnect_oauth_integration(
-                    "team_1", "shimpz-cloudflare", "cloudflare", lease
-                ),
+                lambda: hosted_chat_api._refuse_oauth_disconnect("team_1", "shimpz-cloudflare", "cloudflare", lease),
             ),
             (
                 "stored-input",

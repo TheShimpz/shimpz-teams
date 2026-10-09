@@ -4,15 +4,10 @@ from integrations import providers as integration_providers
 
 
 class OAuthProviderTests(unittest.TestCase):
-    def test_cloudflare_provider_is_core_owned_and_uses_confidential_pkce(self) -> None:
+    def test_cloudflare_provider_is_core_owned_and_uses_pkce(self) -> None:
         provider = integration_providers.resolve("cloudflare")
 
-        self.assertEqual(provider.authorization_endpoint, "https://dash.cloudflare.com/oauth2/auth")
-        self.assertEqual(provider.token_endpoint, "https://dash.cloudflare.com/oauth2/token")
-        self.assertEqual(provider.revocation_endpoint, "https://dash.cloudflare.com/oauth2/revoke")
-        self.assertEqual(provider.api_hosts, ("api.cloudflare.com",))
         self.assertEqual(provider.pkce_method, "S256")
-        self.assertEqual(provider.client_auth_method, "client_secret_basic")
         self.assertEqual(
             provider.allowed_scopes,
             {"dns.read", "dns.write", "offline_access", "zone.read"},
@@ -50,21 +45,11 @@ class OAuthProviderTests(unittest.TestCase):
                 integration_providers.integration_intent(provider_id, scopes)
 
     def test_trusted_provider_factory_rejects_invalid_registry_metadata(self) -> None:
-        base = {
-            "provider_id": "provider",
-            "authorization_endpoint": "https://provider.example/authorize",
-            "token_endpoint": "https://provider.example/token",
-            "revocation_endpoint": "https://provider.example/revoke",
-            "api_hosts": ("api.provider.example",),
-            "allowed_scopes": frozenset({"data.read"}),
-            "client_auth_method": "none",
-        }
+        base = {"provider_id": "provider", "allowed_scopes": frozenset({"data.read"})}
+        self.assertEqual(integration_providers._provider(**base).id, "provider")
         invalid = (
             {"provider_id": "Provider"},
-            {"client_auth_method": "private_key_jwt"},
-            {"authorization_endpoint": "http://provider.example/authorize"},
-            {"token_endpoint": "https://user@provider.example/token"},
-            {"revocation_endpoint": "https://provider.example/revoke?all=true"},
+            {"allowed_scopes": frozenset()},
             {"allowed_scopes": frozenset({"bad/scope"})},
         )
         for changed in invalid:

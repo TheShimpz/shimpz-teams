@@ -147,29 +147,10 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             integration_http.OAuthTokenSet(ACCESS_TOKEN, "refresh-token-value-123456789", SCOPES, 3600),
         )
 
-    def test_refresh_uses_the_configured_hosted_oauth_client(self) -> None:
-        token_set = integration_http.OAuthTokenSet(ACCESS_TOKEN, "new-refresh-token", SCOPES, 3600)
-        oauth_http = mock.Mock()
-        oauth_http.refresh.return_value = token_set
-        client_secret = "-".join(("hosted", "client", "secret", "value"))
-        refresh_token = "-".join(("old", "refresh", "token", "value"))
-
-        with mock.patch.multiple(
-            runtime_state,
-            _oauth_http=oauth_http,
-            _cloudflare_oauth_client_id="client-id",
-            _cloudflare_oauth_client_secret=client_secret,
-        ):
-            result = hosted_assistants._refresh_oauth_integration("cloudflare", SCOPES, refresh_token, None)
-
-        self.assertIs(result, token_set)
-        oauth_http.refresh.assert_called_once_with(
-            provider_id="cloudflare",
-            client_id="client-id",
-            client_secret=client_secret,
-            refresh_token=refresh_token,
-            scopes=SCOPES,
-        )
+    def test_refresh_requires_reauthorization_without_an_oauth_client(self) -> None:
+        # Hosted Team holds no OAuth client secret, so an expired grant is never refreshed in place.
+        with self.assertRaises(hosted_assistants.integration_store.OAuthIntegrationReauthorizationError):
+            hosted_assistants._refresh_oauth_integration("cloudflare", SCOPES, "old-refresh-token-value", None)
 
     def test_inventory_is_status_only_and_private_token_reaches_only_declared_action(self) -> None:
         self._connect()
@@ -374,7 +355,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
         self._assert_ended(challenges, pkce)
 
-    def test_disconnect_ends_the_paused_integration_turn_with_its_oauth_state(self) -> None:
+    def test_a_refused_disconnect_still_ends_the_paused_integration_turn_with_its_oauth_state(self) -> None:
         challenges, pkce, _paused = self._paused_with_oauth()
         lease = hosted_resources._AuthorizationLease(TEAM_ID, ANCHOR_ID, "account_1", ("account", "account_1"))
         with (
@@ -382,130 +363,44 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 runtime_state,
                 _integration_challenges=challenges,
                 _integration_pkce=pkce,
-                _oauth_integrations=types.SimpleNamespace(disconnect=lambda *_args: True),
             ),
             mock.patch.object(hosted_resources, "_require_current_authorization"),
             mock.patch.object(hosted_chat_api, "_current_integration_declaration"),
+            self.assertRaises(runtime_state.ApiError) as refused,
         ):
-            disconnected = hosted_chat_api._disconnect_oauth_integration(TEAM_ID, ASSISTANT_ID, "cloudflare", lease)
+            hosted_chat_api._refuse_oauth_disconnect(TEAM_ID, ASSISTANT_ID, "cloudflare", lease)
 
-        self.assertEqual(disconnected, {"disconnected": True})
+        self.assertEqual(refused.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self._assert_ended(challenges, pkce)
 
-    def test_authorize_and_callback_expose_no_oauth_private_material(self) -> None:
+    def test_authorize_and_callback_are_refused_without_issuing_or_exchanging_oauth_state(self) -> None:
         challenge_store = integration_challenges.IntegrationChallengeStore()
-        continuation = chat_orchestrator.ChatContinuation(
-            brain_runtime_client.RuntimeTurn("action-required", "", ()),
-            (),
-            (),
-            0,
-        )
-        pending = hosted_assistants._PendingHostedChat(
-            continuation,
-            (ASSISTANT_ID,),
-            (),
-            "integration_1",
-            ("identity",),
-        )
-        challenge = challenge_store.create(
-            TEAM_ID,
-            (REQUIREMENT,),
-            pending,
-        )
-        fake_service = types.SimpleNamespace(
-            authorization_url=lambda current, session, *, assistant_id, integration_id, resource_binding: (
-                "https://x.com/i/oauth2/authorize?state=opaque"
-                if current is challenge
-                and session == "browser-session-binding-value"
-                and assistant_id == ASSISTANT_ID
-                and integration_id == "cloudflare"
-                and resource_binding == ("integration_1", ANCHOR_ID)
-                else None
-            ),
-            complete=lambda state, code, session, resolver: types.SimpleNamespace(
-                team_id=TEAM_ID,
-                assistant_id=ASSISTANT_ID,
-                integration_id="cloudflare",
-                provider="cloudflare",
-                scopes=SCOPES,
-                generation=9,
-                resource_binding=("integration_1", ANCHOR_ID),
-            ),
-            disconnect=lambda *_args: True,
-        )
-        callback_binding = _callback_binding("integration_1")
-        fake_pkce = types.SimpleNamespace(inspect_callback=lambda **_kwargs: callback_binding)
-        lease = hosted_resources._AuthorizationLease(
-            TEAM_ID,
-            ANCHOR_ID,
-            "integration_1",
-            ("integration", "integration_1"),
-        )
+        challenge = challenge_store.create(TEAM_ID, (REQUIREMENT,), _account_paused_pending())
+        pkce = integration_pkce.OAuthPKCEChallengeStore()
+        lease = hosted_resources._AuthorizationLease(TEAM_ID, ANCHOR_ID, "account_1", ("account", "account_1"))
         with (
-            mock.patch.multiple(
-                runtime_state,
-                _integration_challenges=challenge_store,
-                _integration_pkce=fake_pkce,
-                _oauth_integrations=fake_service,
-            ),
-            mock.patch.multiple(
-                hosted_resources,
-                _cleanup_record=lambda _team_id: None,
-                _require_current_authorization=lambda *_args, **_kwargs: object(),
-                _authorize=lambda *_args, **_kwargs: lease,
-            ),
+            mock.patch.multiple(runtime_state, _integration_challenges=challenge_store, _integration_pkce=pkce),
+            mock.patch.object(hosted_resources, "_require_current_authorization"),
+            self.assertRaises(runtime_state.ApiError) as started,
         ):
-            started = hosted_chat_api._start_oauth_integration(
-                TEAM_ID,
-                challenge.id,
-                ASSISTANT_ID,
-                "cloudflare",
-                "browser-session-binding-value",
-                lease,
-            )
-            completed, callback_owner = hosted_chat_api._complete_integration_callback(
-                {
-                    "state": "provider-state-value",
-                    "code": "provider-code-value",
-                    "session_binding": "browser-session-binding-value",
-                },
-            )
-            with self.assertRaises(runtime_state.ApiError) as extra_field:
-                hosted_chat_api._complete_integration_callback(
-                    {
-                        "state": "provider-state-value",
-                        "code": "provider-code-value",
-                        "session_binding": "browser-session-binding-value",
-                        "redirect": "https://attacker.test",
-                    },
-                )
+            hosted_chat_api._refuse_oauth_start(TEAM_ID, challenge.id, lease)
+        self.assertEqual(started.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+        self.assertEqual(pkce.cancel_all(), 0)
 
-        self.assertEqual(started, {"authorization_url": "https://x.com/i/oauth2/authorize?state=opaque"})
-        self.assertEqual(callback_owner, "integration_1")
-        self.assertEqual(extra_field.exception.status, HTTPStatus.UNPROCESSABLE_ENTITY)
-        self.assertEqual(
-            completed,
-            {
-                "connected": True,
-                "team_id": TEAM_ID,
-                "assistant_id": ASSISTANT_ID,
-                "integration_id": "cloudflare",
-                "provider": "cloudflare",
-                "scopes": list(SCOPES),
-                "challenge_id": challenge.id,
-            },
-        )
-        serialized = json.dumps({"started": started, "completed": completed})
-        for forbidden in (
-            "provider-code-value",
-            "browser-session-binding-value",
-            "access_token",
-            "refresh_token",
-            "code_verifier",
-            "client_id",
-            "generation",
+        # Even a callback that names live OAuth state for its own Team is refused before any authority or exchange.
+        live = types.SimpleNamespace(inspect_callback=lambda **_kwargs: _callback_binding("account_1"))
+        with (
+            mock.patch.object(runtime_state, "_integration_pkce", live),
+            mock.patch.object(hosted_resources, "_authorize") as authorize,
+            self.assertRaises(runtime_state.ApiError) as completed,
         ):
-            self.assertNotIn(forbidden, serialized)
+            hosted_chat_api._refuse_integration_callback(_callback())
+        self.assertEqual(completed.exception.status, HTTPStatus.BAD_GATEWAY)
+        authorize.assert_not_called()
+
+        with self.assertRaises(runtime_state.ApiError) as extra_field:
+            hosted_chat_api._refuse_integration_callback({**_callback(), "redirect": "https://attacker.test"})
+        self.assertEqual(extra_field.exception.status, HTTPStatus.UNPROCESSABLE_ENTITY)
 
     def test_team_teardown_cancels_integration_turn_and_purges_tokens(self) -> None:
         self._connect()
@@ -609,39 +504,18 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
         self._assert_ended(challenges, pkce)
 
-    def test_an_oauth_start_never_issues_state_for_a_pause_whose_commit_fails(self) -> None:
+    def test_an_oauth_start_is_refused_as_a_conflict_while_a_pause_commits(self) -> None:
         challenges = integration_challenges.IntegrationChallengeStore()
         pkce = integration_pkce.OAuthPKCEChallengeStore()
         pending = _account_paused_pending()
         lease = hosted_resources._AuthorizationLease(TEAM_ID, ANCHOR_ID, "account_1", ("account", "account_1"))
-
-        def authorization_url(_challenge, session, *, assistant_id, integration_id, resource_binding):
-            pkce.create(
-                session_binding=session,
-                team_id=TEAM_ID,
-                assistant_id=assistant_id,
-                integration_id=integration_id,
-                provider_id="cloudflare",
-                scopes=SCOPES,
-                resource_binding=resource_binding,
-            )
-            return "https://oauth.example/authorize"
 
         started: list[object] = []
 
         def stopped_commit(_team_id: str, _token: str) -> bool:
             # Stop cancelled the turn; the Owner starts connecting its published challenge before the commit fails.
             try:
-                started.append(
-                    hosted_chat_api._start_oauth_integration(
-                        TEAM_ID,
-                        challenges.current(TEAM_ID).id,
-                        ASSISTANT_ID,
-                        "cloudflare",
-                        "browser-session-binding-value",
-                        lease,
-                    )
-                )
+                started.append(hosted_chat_api._refuse_oauth_start(TEAM_ID, challenges.current(TEAM_ID).id, lease))
             except runtime_state.ApiError as error:
                 started.append(error)
             return False
@@ -655,7 +529,6 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                     runtime_state,
                     _integration_challenges=challenges,
                     _integration_pkce=pkce,
-                    _oauth_integrations=types.SimpleNamespace(authorization_url=authorization_url),
                     _commit_chat_terminal=stopped_commit,
                 ),
                 mock.patch.object(hosted_resources, "_require_current_authorization"),
@@ -683,11 +556,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
         def start() -> None:
             try:
-                outcome.append(
-                    hosted_chat_api._start_oauth_integration(
-                        TEAM_ID, paused.id, ASSISTANT_ID, "cloudflare", "browser-session-binding-value", lease
-                    )
-                )
+                outcome.append(hosted_chat_api._refuse_oauth_start(TEAM_ID, paused.id, lease))
             except runtime_state.ApiError as error:
                 outcome.append(error)
 
@@ -747,31 +616,6 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 self.assertIsNone(challenges.current(TEAM_ID))
         pkce.cancel_team.assert_called_once_with(TEAM_ID)
 
-    def test_callback_revalidates_owner_and_container_before_token_exchange(self) -> None:
-        binding = _callback_binding("a" * 32)
-        complete = mock.Mock()
-        service = types.SimpleNamespace(complete=complete)
-        body = _callback()
-        cases = (
-            hosted_resources._AuthorizationLease(TEAM_ID, "b" * 64, "a" * 32, ("account", "a" * 32)),
-            hosted_resources._AuthorizationLease(TEAM_ID, ANCHOR_ID, "b" * 32, ("account", "a" * 32)),
-        )
-        for lease in cases:
-            with (
-                self.subTest(lease=lease),
-                mock.patch.multiple(
-                    runtime_state,
-                    _integration_pkce=types.SimpleNamespace(inspect_callback=lambda **_kwargs: binding),
-                    _oauth_integrations=service,
-                ),
-                mock.patch.object(hosted_resources, "_authorize", return_value=lease),
-                mock.patch.object(hosted_resources, "_cleanup_record", return_value=None),
-                self.assertRaises(runtime_state.ApiError) as caught,
-            ):
-                hosted_chat_api._complete_integration_callback(body)
-            self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
-        complete.assert_not_called()
-
     def test_expired_callback_is_a_conflict_without_an_authority_or_exchange_oracle(self) -> None:
         pkce = types.SimpleNamespace(
             inspect_callback=mock.Mock(
@@ -782,113 +626,9 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             mock.patch.object(runtime_state, "_integration_pkce", pkce),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
-            hosted_chat_api._complete_integration_callback(_callback())
+            hosted_chat_api._refuse_integration_callback(_callback())
 
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
-
-    def test_callback_rejects_pending_teardown_before_exchange(self) -> None:
-        owner = "a" * 32
-        binding = _callback_binding(owner)
-        complete = mock.Mock()
-        with (
-            mock.patch.multiple(
-                runtime_state,
-                _integration_pkce=types.SimpleNamespace(inspect_callback=lambda **_kwargs: binding),
-                _oauth_integrations=types.SimpleNamespace(complete=complete),
-            ),
-            mock.patch.object(hosted_resources, "_cleanup_record", return_value=object()),
-            self.assertRaises(runtime_state.ApiError) as caught,
-        ):
-            hosted_chat_api._complete_integration_callback(_callback())
-
-        self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
-        complete.assert_not_called()
-
-    def test_callback_holds_the_team_lifecycle_lock_through_exchange_and_store(self) -> None:
-        owner = "a" * 32
-        binding = _callback_binding(owner)
-        entered = threading.Event()
-        release = threading.Event()
-        result: list[object] = []
-
-        def complete(*_args):
-            entered.set()
-            release.wait(timeout=2)
-            return hosted_chat_api.integration_service.OAuthIntegrationCompletion(
-                TEAM_ID,
-                ASSISTANT_ID,
-                "cloudflare",
-                "cloudflare",
-                SCOPES,
-                1,
-                (owner, ANCHOR_ID),
-            )
-
-        lease = hosted_resources._AuthorizationLease(
-            TEAM_ID,
-            ANCHOR_ID,
-            owner,
-            ("account", owner),
-        )
-        with (
-            mock.patch.multiple(
-                runtime_state,
-                _integration_pkce=types.SimpleNamespace(inspect_callback=lambda **_kwargs: binding),
-                _oauth_integrations=types.SimpleNamespace(complete=complete),
-                _integration_challenges=types.SimpleNamespace(current=lambda _team_id: None),
-            ),
-            mock.patch.object(hosted_resources, "_authorize", return_value=lease),
-            mock.patch.object(hosted_resources, "_cleanup_record", return_value=None),
-        ):
-            thread = threading.Thread(
-                target=lambda: result.append(hosted_chat_api._complete_integration_callback(_callback()))
-            )
-            thread.start()
-            self.assertTrue(entered.wait(timeout=1))
-            lifecycle_lock = runtime_state._lock_for(TEAM_ID)
-            self.assertFalse(lifecycle_lock.acquire(blocking=False))
-            release.set()
-            thread.join(timeout=2)
-
-        self.assertFalse(thread.is_alive())
-        self.assertEqual(result[0][1], owner)
-
-    def test_callback_compensation_failure_is_audited_and_fails_explicitly(self) -> None:
-        owner = "a" * 32
-        binding = _callback_binding(owner)
-        mismatched = hosted_chat_api.integration_service.OAuthIntegrationCompletion(
-            TEAM_ID,
-            "other-assistant",
-            "cloudflare",
-            "cloudflare",
-            SCOPES,
-            1,
-            (owner, ANCHOR_ID),
-        )
-        service = types.SimpleNamespace(
-            complete=lambda *_args: mismatched,
-            disconnect=mock.Mock(
-                side_effect=hosted_chat_api.integration_service.OAuthIntegrationServiceError("failed")
-            ),
-        )
-        lease = hosted_resources._AuthorizationLease(TEAM_ID, ANCHOR_ID, owner, ("account", owner))
-        with (
-            mock.patch.multiple(
-                runtime_state,
-                _integration_pkce=types.SimpleNamespace(inspect_callback=lambda **_kwargs: binding),
-                _oauth_integrations=service,
-            ),
-            mock.patch.object(hosted_resources, "_authorize", return_value=lease),
-            mock.patch.object(hosted_resources, "_cleanup_record", return_value=None),
-            mock.patch.object(hosted_chat_api.audit, "log") as audit_log,
-            self.assertRaises(runtime_state.ApiError) as caught,
-        ):
-            hosted_chat_api._complete_integration_callback(_callback())
-
-        self.assertEqual(caught.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
-        service.disconnect.assert_called_once_with(TEAM_ID, "other-assistant", "cloudflare")
-        self.assertEqual(audit_log.call_args.kwargs["result"], "error")
-        self.assertEqual(audit_log.call_args.kwargs["principal_class"], "machine")
 
 
 if __name__ == "__main__":

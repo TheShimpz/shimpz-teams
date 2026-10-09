@@ -134,23 +134,15 @@ class ReplacedHostedTeamTests(unittest.TestCase):
         self.assertIsNone(self.integrations.current(TEAM_ID))
         self.journal.purge_batch.assert_called_once_with(REPLACEMENT_CONTAINER, PAUSED_BATCH)
 
-    def test_oauth_start_creates_its_state_only_under_the_lifecycle_lock(self) -> None:
+    def test_an_oauth_start_on_a_replaced_team_is_refused_by_its_stale_authority(self) -> None:
         challenge = self.integrations.current(TEAM_ID)
-        with mock.patch.object(
-            runtime_state._oauth_integrations,
-            "authorization_url",
-            side_effect=lambda *args, **kwargs: "https://oauth" if self._lifecycle_locked() else "unlocked",
-        ):
-            started = hosted_chat_api._start_oauth_integration(
-                TEAM_ID, challenge.id, "assistant-1", "cloudflare", "binding", _current_lease()
-            )
-            with self.assertRaises(runtime_state.ApiError) as caught:
-                hosted_chat_api._start_oauth_integration(
-                    TEAM_ID, challenge.id, "assistant-1", "cloudflare", "binding", _stale_lease()
-                )
+        with self.assertRaises(runtime_state.ApiError) as current:
+            hosted_chat_api._refuse_oauth_start(TEAM_ID, challenge.id, _current_lease())
+        with self.assertRaises(runtime_state.ApiError) as stale:
+            hosted_chat_api._refuse_oauth_start(TEAM_ID, challenge.id, _stale_lease())
 
-        self.assertEqual(started, {"authorization_url": "https://oauth"})
-        self.assertEqual(caught.exception.status, HTTPStatus.NOT_FOUND)
+        self.assertEqual(current.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+        self.assertEqual(stale.exception.status, HTTPStatus.NOT_FOUND)
 
     def _handler(self) -> hosted_controller.Handler:
         handler = object.__new__(hosted_controller.Handler)

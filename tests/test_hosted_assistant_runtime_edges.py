@@ -320,13 +320,6 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         ):
             assistants._action_integration_generations(TEAM_ID, active, ACTION_ID)
 
-        http_error = assistants.integration_http.OAuthHTTPError("provider", "failed")
-        with (
-            mock.patch.object(state._oauth_http, "refresh", side_effect=http_error),
-            self.assertRaises(assistants.integration_store.OAuthIntegrationReauthorizationError),
-        ):
-            assistants._refresh_oauth_integration("provider", (), "refresh", None)
-
         flow_error = assistants.integration_flow.IntegrationFlowError("contract")
         with (
             mock.patch.object(assistants.integration_flow, "resolve_action_integrations", side_effect=flow_error),

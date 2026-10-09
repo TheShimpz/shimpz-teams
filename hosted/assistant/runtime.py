@@ -30,7 +30,6 @@ from inference import client as brain_runtime_client
 from inference import integration_secrets as integration_secrets_client
 from inference import usage as brain_usage
 from integrations import flow as integration_flow
-from integrations import http as integration_http
 from integrations import store as integration_store
 from protocol.http.v1 import payload as http_payload
 from storage import files as team_storage
@@ -458,23 +457,13 @@ def _action_stored_input_generations(
 
 
 def _refresh_oauth_integration(
-    provider: str,
-    scopes: tuple[str, ...],
-    refresh_token: str,
+    _provider: str,
+    _scopes: tuple[str, ...],
+    _refresh_token: str,
     _broker_lease: str | None,
 ) -> object:
-    try:
-        return runtime_state._oauth_http.refresh(
-            provider_id=provider,
-            client_id=runtime_state._cloudflare_oauth_client_id,
-            client_secret=runtime_state._cloudflare_oauth_client_secret,
-            refresh_token=refresh_token,
-            scopes=scopes,
-        )
-    except integration_http.OAuthHTTPError as exc:
-        raise integration_store.OAuthIntegrationReauthorizationError(
-            "OAuth integration requires reauthorization"
-        ) from exc
+    """Hosted holds no OAuth client: an expired grant can only be authorized again."""
+    raise integration_store.OAuthIntegrationReauthorizationError("OAuth integration requires reauthorization")
 
 
 def _resolve_action_integrations(

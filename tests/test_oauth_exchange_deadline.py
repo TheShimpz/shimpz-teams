@@ -1,6 +1,6 @@
 """One OAuth exchange ends by its total deadline, whatever phase a slow peer stalls it in.
 
-Each scenario points the real broker or provider transport at a loopback peer that keeps every single socket
+Each scenario points the real broker transport at a loopback peer that keeps every single socket
 operation within the per-operation timeout, so only the total deadline can end the exchange.
 """
 
@@ -85,7 +85,7 @@ class OAuthExchangeDeadlineTests(unittest.TestCase):
             transport.request(url="https://shimpz.com/api/oauth/cloudflare/claim", headers={}, body=b"{}")
 
     def _assert_ended_by_the_deadline(self, started: float) -> None:
-        self.assertLess(time.monotonic() - started, integration_http.HTTP_TIMEOUT_SECONDS / 2)
+        self.assertLess(time.monotonic() - started, integration_broker.HTTP_TIMEOUT_SECONDS / 2)
 
     def test_a_stalled_proxy_tunnel_ends_at_the_deadline(self) -> None:
         peer = self._peer(stall)
@@ -101,22 +101,17 @@ class OAuthExchangeDeadlineTests(unittest.TestCase):
             self._broker(peer, proxied=False)
         self._assert_ended_by_the_deadline(started)
 
-    def test_a_trickled_provider_body_is_refused_not_truncated(self) -> None:
+    def test_a_trickled_broker_body_is_refused_not_truncated(self) -> None:
         # A close-delimited body: the read that the deadline cuts short returns the bytes so far, never a response.
         peer = self._peer(trickle(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{"))
         started = time.monotonic()
-        with (
-            mock.patch.object(integration_http.http.client, "HTTPSConnection", side_effect=peer.connection),
-            self.assertRaisesRegex(integration_http.OAuthHTTPError, "unavailable"),
-        ):
-            integration_http.FixedHTTPSTransport().request(
-                method="POST", url="https://provider.test/token", headers={}, body=b"x"
-            )
+        with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "unavailable"):
+            self._broker(peer, proxied=False)
         self._assert_ended_by_the_deadline(started)
 
     def test_a_deadline_that_passed_before_the_socket_existed_still_ends_it(self) -> None:
         peer = self._peer(stall)
-        connection = peer.connection(timeout=integration_http.HTTP_TIMEOUT_SECONDS)
+        connection = peer.connection(timeout=integration_broker.HTTP_TIMEOUT_SECONDS)
         self.addCleanup(connection.close)
         started = time.monotonic()
         with integration_http.ExchangeDeadline(connection, 0) as deadline:
@@ -132,7 +127,7 @@ class OAuthExchangeDeadlineTests(unittest.TestCase):
             connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\n{}")
 
         peer = self._peer(respond)
-        connection = peer.connection(timeout=integration_http.HTTP_TIMEOUT_SECONDS)
+        connection = peer.connection(timeout=integration_broker.HTTP_TIMEOUT_SECONDS)
         self.addCleanup(connection.close)
         deadline = integration_http.ExchangeDeadline(connection, 60)
         with deadline:
@@ -166,12 +161,9 @@ class OAuthExchangeDeadlineTests(unittest.TestCase):
         peer = self._peer(respond_late)
         with (
             mock.patch.object(integration_http.threading, "Timer", LateTimer),
-            mock.patch.object(integration_http.http.client, "HTTPSConnection", side_effect=peer.connection),
-            self.assertRaisesRegex(integration_http.OAuthHTTPError, "unavailable"),
+            self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "unavailable"),
         ):
-            integration_http.FixedHTTPSTransport().request(
-                method="POST", url="https://provider.test/token", headers={}, body=b"x"
-            )
+            self._broker(peer, proxied=False)
 
 
 if __name__ == "__main__":

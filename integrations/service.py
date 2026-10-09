@@ -1,12 +1,12 @@
 """Narrow controller-owned orchestration for Assistant OAuth integrations.
 
-This module composes the one-use PKCE challenge store, the fixed-endpoint OAuth
-HTTP adapter, and the encrypted token store.  It deliberately owns no routes,
-cookies, browser state, Assistant runtime calls, or Brain-visible data.
+This module composes the one-use PKCE challenge store, the Shimpz-hosted OAuth
+broker client, and the encrypted token store. The controller never holds an OAuth
+Client Secret. It deliberately owns no routes, cookies, browser state, Assistant
+runtime calls, or Brain-visible data.
 """
 
 import functools
-import re
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -14,14 +14,11 @@ from dataclasses import dataclass
 from integrations import broker as integration_broker
 from integrations import challenge_store as integration_challenge_store
 from integrations import challenges as integration_challenges
-from integrations import http as integration_http
 from integrations import pkce as integration_pkce
 from integrations import providers as integration_providers
 from integrations import store as integration_store
 from protocol.http.v1 import payload as http_payload
 
-_CLIENT_SECRET = re.compile(r"[!-~]{16,1024}\Z")
-_REDIRECT_URIS = frozenset({integration_http.HOSTED_REDIRECT_URI})
 MAX_REQUIREMENTS = 32
 MAX_INTEGRATIONS_PER_REQUIREMENT = 16
 
@@ -212,7 +209,6 @@ def _authorization_url(
         integration_challenges.IntegrationChallengeError,
         integration_store.OAuthIntegrationStoreError,
         integration_broker.OAuthBrokerClientError,
-        integration_http.OAuthHTTPError,
         integration_pkce.OAuthChallengeError,
         integration_providers.OAuthProviderError,
         OAuthIntegrationServiceError,
@@ -279,35 +275,11 @@ def _complete(
     except (
         integration_store.OAuthIntegrationStoreError,
         integration_broker.OAuthBrokerClientError,
-        integration_http.OAuthHTTPError,
         integration_pkce.OAuthChallengeError,
         integration_providers.OAuthProviderError,
         OAuthIntegrationServiceError,
     ):
         raise OAuthIntegrationServiceError("OAuth integration could not be completed") from None
-
-
-def _exchange_code(
-    http: integration_http.OAuthHTTPClient,
-    client_configuration: tuple[str, str, str],
-    *,
-    provider_id: object,
-    credential: object,
-    state: object,
-    code_verifier: object,
-    scopes: object,
-) -> object:
-    del state
-    client_id, client_secret, redirect_uri = client_configuration
-    return http.exchange_code(
-        provider_id=provider_id,
-        client_id=client_id,
-        client_secret=client_secret,
-        redirect_uri=redirect_uri,
-        code=credential,
-        code_verifier=code_verifier,
-        scopes=scopes,
-    )
 
 
 def _claim_broker(
@@ -334,25 +306,6 @@ class _CompletionOperations:
     revoke: Callable[[str, str, str | None, str | None], None]
 
 
-def _revoke_direct(
-    http: integration_http.OAuthHTTPClient,
-    client_configuration: tuple[str, str, str],
-    provider: str,
-    access_token: str,
-    refresh_token: str | None,
-    _broker_lease: str | None,
-) -> None:
-    client_id, client_secret, _redirect_uri = client_configuration
-    tokens = tuple(dict.fromkeys(token for token in (refresh_token, access_token) if token))
-    for token in tokens:
-        http.revoke(
-            provider_id=provider,
-            client_id=client_id,
-            client_secret=client_secret,
-            token=token,
-        )
-
-
 def _revoke_broker(
     broker: integration_broker.OAuthBrokerClient,
     provider: str,
@@ -367,20 +320,6 @@ def _revoke_broker(
     )
 
 
-def _replace_revoke_direct(
-    http: integration_http.OAuthHTTPClient,
-    client_configuration: tuple[str, str, str],
-    provider: str,
-    access_token: str,
-    refresh_token: str | None,
-    broker_lease: str | None,
-) -> None:
-    try:
-        _revoke_direct(http, client_configuration, provider, access_token, refresh_token, broker_lease)
-    except integration_http.OAuthHTTPError as exc:
-        raise integration_store.OAuthIntegrationRevocationError("OAuth provider revocation failed") from exc
-
-
 def _replace_revoke_broker(
     broker: integration_broker.OAuthBrokerClient,
     provider: str,
@@ -392,117 +331,6 @@ def _replace_revoke_broker(
         _revoke_broker(broker, provider, access_token, refresh_token, broker_lease)
     except integration_broker.OAuthBrokerClientError as exc:
         raise integration_store.OAuthIntegrationRevocationError("OAuth broker revocation failed") from exc
-
-
-class OAuthIntegrationService:
-    """Start and complete only controller-reviewed OAuth Authorization Code flows."""
-
-    def __init__(
-        self,
-        *,
-        client_id: object,
-        client_secret: object,
-        redirect_uri: object,
-        challenge: integration_pkce.OAuthPKCEChallengeStore,
-        store: integration_store.OAuthIntegrationStore,
-        http: integration_http.OAuthHTTPClient,
-    ) -> None:
-        if (
-            not isinstance(challenge, integration_pkce.OAuthPKCEChallengeStore)
-            or not isinstance(store, integration_store.OAuthIntegrationStore)
-            or not isinstance(http, integration_http.OAuthHTTPClient)
-            or redirect_uri not in _REDIRECT_URIS
-        ):
-            raise OAuthIntegrationServiceError("OAuth integration service configuration is invalid")
-        # An Admin may boot before its Cloudflare OAuth client is configured.
-        # Validation is deliberately lazy so only starting/completing OAuth fails.
-        self._client_id = client_id
-        self._client_secret = client_secret
-        self._redirect_uri = str(redirect_uri)
-        self._challenge = challenge
-        self._store = store
-        self._http = http
-
-    def __repr__(self) -> str:
-        return "<OAuthIntegrationService configured>"
-
-    def _client_configuration(self) -> tuple[str, str, str]:
-        if (
-            not isinstance(self._client_id, str)
-            or integration_http.CLIENT_ID_RE.fullmatch(self._client_id) is None
-            or not isinstance(self._client_secret, str)
-            or _CLIENT_SECRET.fullmatch(self._client_secret) is None
-        ):
-            raise OAuthIntegrationServiceError("OAuth integration client is not configured")
-        return self._client_id, self._client_secret, self._redirect_uri
-
-    def authorization_url(
-        self,
-        pending: integration_challenges.PendingIntegrationChallenge,
-        session_binding: object,
-        *,
-        assistant_id: object,
-        integration_id: object,
-        resource_binding: object = None,
-    ) -> str:
-        """Create one trusted URL for the exact pending missing Integration."""
-        client_id, _client_secret, redirect_uri = self._client_configuration()
-        build_url = functools.partial(
-            integration_http.authorization_url,
-            client_id=client_id,
-            redirect_uri=redirect_uri,
-        )
-        return _authorization_url(
-            self._challenge,
-            self._store,
-            build_url,
-            pending,
-            session_binding,
-            resource_binding,
-            _Selection(assistant_id, integration_id),
-        )
-
-    def complete(
-        self,
-        state: object,
-        code: object,
-        session_binding: object,
-        current_declaration_callback: Callable[[str, str, str], object],
-    ) -> OAuthIntegrationCompletion:
-        """Claim once, revalidate the installed declaration, exchange, and seal tokens."""
-        client_configuration = self._client_configuration()
-        exchange_tokens = functools.partial(_exchange_code, self._http, client_configuration)
-        operations = _CompletionOperations(
-            exchange=exchange_tokens,
-            revoke=functools.partial(_replace_revoke_direct, self._http, client_configuration),
-        )
-        return _complete(
-            self._challenge,
-            self._store,
-            operations,
-            state,
-            code,
-            session_binding,
-            current_declaration_callback,
-        )
-
-    def disconnect(self, team_id: object, assistant_id: object, integration_id: object) -> bool:
-        """Revoke each upstream token before atomically deleting local custody."""
-        revoke = functools.partial(_revoke_direct, self._http, self._client_configuration())
-
-        try:
-            return self._store.revoke_then_delete(
-                team_id,
-                assistant_id,
-                integration_id,
-                revoke,
-            )
-        except (
-            integration_store.OAuthIntegrationStoreError,
-            integration_http.OAuthHTTPError,
-            OAuthIntegrationServiceError,
-        ):
-            raise OAuthIntegrationServiceError("OAuth integration could not be disconnected") from None
 
 
 class BrokeredOAuthIntegrationService:
