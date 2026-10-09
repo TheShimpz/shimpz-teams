@@ -85,7 +85,6 @@ MAX_RERUN_CALLS = routine.MAX_ROUTINE_STEPS
 MAX_RERUN_INPUTS = 64
 MAX_RERUN_MEMBER_CHARS = 128
 MAX_RERUN_LITERAL_CHARS = 1024
-RERUN_KINDS = ("value", "clock", "fresh")
 
 
 def _rejected_constant(_text: str) -> object:
