@@ -70,7 +70,13 @@ def _stored(label: str, **placement: str) -> dict[str, str]:
     fields = {"host": "api.example.com", **placement}
     if "query" not in fields:
         fields.setdefault("header", "X-Api-Key")
-    return {"kind": "password", "label": label, "description": f"{label} for the provider.", **fields}
+    return {
+        "kind": "password",
+        "label": label,
+        "description": catalog_fixtures.STORED_INPUT_HELP,
+        "help_url": catalog_fixtures.HELP_URL,
+        **fields,
+    }
 
 
 def archive(
@@ -140,7 +146,8 @@ class AssistantManifestTests(unittest.TestCase):
                 "[stored_inputs.whatsapp-token]\n"
                 'kind = "password"\n'
                 'label = "WhatsApp token"\n'
-                'description = "Token used to call the WhatsApp API."\n'
+                f'description = "{catalog_fixtures.STORED_INPUT_HELP}"\n'
+                f'help_url = "{catalog_fixtures.HELP_URL}"\n'
                 'host = "api.example.com"\n'
                 'header = "Authorization"\n'
                 'scheme = "Bearer"\n'
@@ -156,7 +163,8 @@ class AssistantManifestTests(unittest.TestCase):
                     id="whatsapp-token",
                     kind="password",
                     label="WhatsApp token",
-                    description="Token used to call the WhatsApp API.",
+                    description=catalog_fixtures.STORED_INPUT_HELP,
+                    help_url=catalog_fixtures.HELP_URL,
                     host="api.example.com",
                     header="Authorization",
                     scheme="Bearer",

@@ -218,7 +218,9 @@ class LanguagePackBindingAdmissionTests(unittest.TestCase):
     def test_a_local_request_whose_copy_cannot_render_from_its_binding_ends_the_turn(self) -> None:
         request = human_request_fixtures.request("approval")
         action = types.SimpleNamespace(summary="Approve")
-        spec = types.SimpleNamespace(assistant_id="helper", name="Helper", version="1.0.0", actions={"act": action})
+        spec = types.SimpleNamespace(
+            assistant_id="helper", name="Helper", version="1.0.0", actions={"act": action}, stored_inputs={}
+        )
         bindings = {"helper": types.SimpleNamespace(spec=spec)}
         action_request = types.SimpleNamespace(assistant_id="helper", action="act", interrupt_id="interrupt")
         subject = types.SimpleNamespace(

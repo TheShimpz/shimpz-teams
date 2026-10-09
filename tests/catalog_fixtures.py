@@ -28,12 +28,16 @@ REQUEST_TEMPLATES = {
 # Stored Input labels the suite uses, each cataloged within its display bound.
 ASSISTANT_DESCRIPTION = "Exercise one reviewed Assistant through the Team test suite."
 ACTION_DESCRIPTION = "Run one reviewed test Action."
+# The help text and help link every fixture Stored Input declares (ADR-0090, Assistant Spec v1).
+STORED_INPUT_HELP = "Create a test key in the provider dashboard and copy it."
+HELP_URL = "https://dashboard.exa.ai/api-keys"
 LINKS = {"site": "https://shimpz.com/", "github": "https://github.com/TheShimpz"}
 # The admitted summary and description a fixture machine contract's catalog carries, as admission takes them.
 COPY = {"summary": SUMMARY, "description": ASSISTANT_DESCRIPTION}
 DISPLAY_TEMPLATES = {
     ASSISTANT_DESCRIPTION: catalog_validator.DESCRIPTION_BOUND,
     ACTION_DESCRIPTION: catalog_validator.LINE_BOUND,
+    STORED_INPUT_HELP: catalog_validator.DESCRIPTION_BOUND,
 }
 ZONE_PARAMS = [
     {"name": "record", "kind": "identifier", "max_length": 16},

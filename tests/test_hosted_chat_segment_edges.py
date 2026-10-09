@@ -248,7 +248,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
     def test_segment_callbacks_require_fresh_action_and_human_evidence(self) -> None:
         action = SimpleNamespace(summary="Action", input_schema={}, output_schema={}, human_requests=(), input_files=())
         help_url = "https://keys.example.com/api-keys"
-        stored = SimpleNamespace(help_url=help_url)
+        stored = SimpleNamespace(description="Create a key in the provider dashboard and copy it.", help_url=help_url)
         contract = SimpleNamespace(name="Reviewed Assistant", actions={"action": action}, stored_inputs={"key": stored})
         active = SimpleNamespace(
             assistant_id="assistant",
@@ -295,10 +295,10 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             ):
                 requirement = strategy.human_requirement(requested, stored_request, "de")
             language.assert_called_once_with(contract, active.container)
-            render.assert_called_once_with(stored_request, pack, "de")
+            render.assert_called_once_with(stored_request, pack, "de", stored.description)
             self.assertEqual(requirement.action_id, "action")
             self.assertEqual(requirement.assistant_name, "Reviewed Assistant")
-            self.assertEqual(requirement.help_url, help_url)
+            self.assertEqual((requirement.help_text, requirement.help_url), (stored.description, help_url))
             self.assertIs(requirement.copy, rendered)
             with (
                 mock.patch.object(segment.assistant_lifecycle, "_assistant_language", return_value=pack),

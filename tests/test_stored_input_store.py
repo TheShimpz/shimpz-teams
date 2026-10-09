@@ -158,6 +158,7 @@ class StoredInputStoreTests(unittest.TestCase):
                     "kind": "password",
                     "label": "Other token",
                     "description": "Token for another boundary.",
+                    "help_url": "https://dashboard.exa.ai/api-keys",
                 }
             }
             self.assertEqual(moved.metadata("team_2", "other-assistant", declarations)[0].status, "stored")
@@ -250,7 +251,12 @@ class StoredInputStoreTests(unittest.TestCase):
                 call()
 
         too_many = {
-            f"token-{index}": {"kind": "password", "label": "Token", "description": "Secret"}
+            f"token-{index}": {
+                "kind": "password",
+                "label": "Token",
+                "description": "Secret",
+                "help_url": "https://dashboard.exa.ai/api-keys",
+            }
             for index in range(stored_input.MAX_STORED_INPUTS_PER_ASSISTANT + 1)
         }
         with self.assertRaises(stored_input.StoredInputValidationError):

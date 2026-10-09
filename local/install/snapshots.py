@@ -247,7 +247,7 @@ def _preview_details(
         links=presentation.links,
         machine_contract=machine_contract,
         integrations={declaration.id: declaration.provider for declaration in contract.integrations},
-        labels={declaration.id: declaration.label for declaration in contract.stored_inputs},
+        stored_inputs={declaration.id: declaration for declaration in contract.stored_inputs},
     )
     return MappingProxyType(
         {locale: MappingProxyType(page.localized(locale, pack)) for locale in sorted(http_payload.CHAT_LOCALES)}
@@ -559,7 +559,7 @@ def _integration_declarations(value: object) -> tuple[assistant_manifest.Integra
     return declarations
 
 
-_STORED_INPUT_REQUIRED = frozenset({"id", "kind", "label", "description", "host"})
+_STORED_INPUT_REQUIRED = frozenset({"id", "kind", "label", "description", "help_url", "host"})
 _STORED_INPUT_FIELDS = frozenset(
     {"id", "kind", "label", "description", "help_url", "host", "header", "query", "scheme", "hmac"}
 )

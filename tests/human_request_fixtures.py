@@ -149,9 +149,20 @@ def harness_pack(summary: str) -> assistant_language.LanguagePack:
     return pack_for(harness_messages(summary))
 
 
+def stored_help(request_value: action_human.HumanRequest) -> str | None:
+    """The fixture help text a Stored Input request shows, or None for any other request."""
+    stored = request_value.kind == "input:password" and request_value.stored_input is not None
+    return catalog_fixtures.STORED_INPUT_HELP if stored else None
+
+
 def copy(request_value: action_human.HumanRequest, locale: str = "en") -> action_challenges.RequestCopy:
-    """The request's copy rendered in one interface language from a pack of its own messages."""
-    return action_challenges.render_copy(request_value, pack_for(request_value.messages()), locale)
+    """The request's copy rendered in one interface language from a pack of its own messages and any help text."""
+    help_text = stored_help(request_value)
+    messages = request_value.messages()
+    if help_text is not None:
+        help_message = catalog_fixtures.message(help_text, catalog_validator.DESCRIPTION_BOUND)
+        messages = sorted([*messages, help_message], key=lambda item: str(item["id"]))
+    return action_challenges.render_copy(request_value, pack_for(messages), locale, help_text)
 
 
 IDENTITY = {
@@ -172,6 +183,9 @@ def requirement(
 ) -> action_challenges.HumanRequirement:
     """A requirement rendered in one locale; ``fields`` override the identity or add presentation."""
     identity = {key: fields.pop(key, value) for key, value in IDENTITY.items()}
+    if stored_help(request_value) is not None:
+        fields.setdefault("help_text", stored_help(request_value))
+        fields.setdefault("help_url", catalog_fixtures.HELP_URL)
     return action_challenges.HumanRequirement(
         request=request_value,
         copy=copy(request_value, locale),

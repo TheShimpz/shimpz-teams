@@ -37,7 +37,8 @@ def _stored_inputs(actions: object) -> tuple[assistant_manifest.StoredInputDecla
             name: {
                 "kind": "password",
                 "label": "Key",
-                "description": "The provider key.",
+                "description": catalog_fixtures.STORED_INPUT_HELP,
+                "help_url": catalog_fixtures.HELP_URL,
                 "host": "api.example.com",
                 "header": f"x-{name}",
             }

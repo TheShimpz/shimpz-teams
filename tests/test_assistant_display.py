@@ -8,18 +8,16 @@ from tests import catalog_fixtures
 from tests.test_assistant_manifest import manifest
 
 LABEL = "API key"
-STORED_INPUT = assistant_manifest.canonical_stored_input_declarations(
-    {
-        "api-key": {
-            "kind": "password",
-            "label": LABEL,
-            "description": "The provider key.",
-            "host": "api.example.com",
-            "header": "X-Api-Key",
-        }
-    },
-    ("api.example.com",),
-)
+STORED_INPUT_DECLARATION = {
+    "kind": "password",
+    "label": LABEL,
+    "description": catalog_fixtures.STORED_INPUT_HELP,
+    "help_url": catalog_fixtures.HELP_URL,
+    "host": "api.example.com",
+    "header": "X-Api-Key",
+}
+HOSTS = ("api.example.com",)
+STORED_INPUT = assistant_manifest.canonical_stored_input_declarations({"api-key": STORED_INPUT_DECLARATION}, HOSTS)
 
 
 def _action(description: object = catalog_fixtures.ACTION_DESCRIPTION, **members: object) -> dict[str, object]:
@@ -134,6 +132,44 @@ class DisplayCatalogTests(unittest.TestCase):
         self.assertEqual(len(_admit(labeled)["actions"]), 1)
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "displayed copy"):
             _admit(labeled, labeled=False)
+
+    def test_every_stored_input_help_text_is_cataloged_within_its_paragraph_bound(self) -> None:
+        labeled = _action(stored_inputs=["api-key"], human_requests=["input:password"])
+        help_text = "Open the provider settings, create a key, and copy it."
+        declared = assistant_manifest.canonical_stored_input_declarations(
+            {"api-key": {**STORED_INPUT_DECLARATION, "description": help_text}}, HOSTS
+        )
+
+        def admit(*extra: dict[str, object]) -> dict[str, object]:
+            messages = catalog_fixtures.messages(catalog_fixtures.SUMMARY, catalog_fixtures.message(LABEL, 120), *extra)
+            return assistant_manifest.canonical_machine_contract(
+                {"version": 1, "actions": [labeled], "messages": messages},
+                (),
+                declared,
+                **catalog_fixtures.COPY,
+                allowed_hosts=(),
+            )
+
+        self.assertEqual(len(admit(catalog_fixtures.message(help_text, 500))["actions"]), 1)
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "displayed copy"):
+            admit()
+
+    def test_a_stored_input_declares_its_help_text_and_help_link(self) -> None:
+        for refused in (
+            {key: value for key, value in STORED_INPUT_DECLARATION.items() if key != "help_url"},
+            {**STORED_INPUT_DECLARATION, "help_url": None},
+            {**STORED_INPUT_DECLARATION, "help_url": "http://dashboard.exa.ai/api-keys"},
+            {**STORED_INPUT_DECLARATION, "help_url": "https://dashboard.exa.ai/api-keys#create"},
+            {**STORED_INPUT_DECLARATION, "description": "x" * 401},
+            {**STORED_INPUT_DECLARATION, "description": "Cafe\u0301 key."},
+            {**STORED_INPUT_DECLARATION, "description": "Line one.\nLine two."},
+        ):
+            with self.subTest(refused=refused), self.assertRaises(assistant_manifest.ManifestError):
+                assistant_manifest.canonical_stored_input_declarations({"api-key": refused}, HOSTS)
+        at_bound = assistant_manifest.canonical_stored_input_declarations(
+            {"api-key": {**STORED_INPUT_DECLARATION, "description": "x" * 400}}, HOSTS
+        )
+        self.assertEqual(at_bound[0].metadata(), {**STORED_INPUT_DECLARATION, "description": "x" * 400})
 
     def test_the_assistant_description_is_cataloged_within_its_paragraph_bound(self) -> None:
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "displayed copy"):

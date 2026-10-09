@@ -59,7 +59,7 @@ class StoredInputSpec:
     kind: str
     label: str
     description: str
-    help_url: str | None = None
+    help_url: str
     # Its placement (ADR-0106).
     host: str = ""
     header: str | None = None

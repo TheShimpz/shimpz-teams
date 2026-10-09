@@ -19,7 +19,7 @@ from assistant import spec as assistant_spec
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local import audit as local_audit
-from tests import human_request_fixtures
+from tests import catalog_fixtures, human_request_fixtures
 
 LOCAL_TEAM_RESIDUES = [
     "action_checkpoints",
@@ -163,6 +163,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             self.assertEqual(paused["status"], "human-required")
             self.assertEqual(paused["purpose"], "To list your zones, I need to read them in Cloudflare.")
             self.assertNotIn("help_url", paused)
+            self.assertNotIn("help", paused)
             # The canonical request keeps its references; the copy is rendered in the turn's language (ADR-0091).
             self.assertEqual(paused["request"], admitted.payload())
             self.assertEqual((paused["locale"], paused["rendered"]["title"]), ("pt", "PT List zones"))
@@ -223,7 +224,11 @@ class LocalTurnLifecycleTests(LocalContractCase):
                         "Search the web", schema, schema, (), ("exa-api-key",), ("input:password",)
                     ),
                 },
-                stored_inputs={"exa-api-key": assistant_spec.StoredInputSpec("password", "Exa API key", "Key")},
+                stored_inputs={
+                    "exa-api-key": assistant_spec.StoredInputSpec(
+                        "password", "Exa API key", catalog_fixtures.STORED_INPUT_HELP, catalog_fixtures.HELP_URL
+                    )
+                },
             )
             supplied: list[tuple[str, list[str]]] = []
 
@@ -242,6 +247,10 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 )
 
         self.assertEqual(paused["status"], "human-required")
+        # A Stored Input request shows its binding's help text and help link, never an Action-supplied one.
+        self.assertEqual(
+            (paused["help"], paused["help_url"]), (catalog_fixtures.STORED_INPUT_HELP, catalog_fixtures.HELP_URL)
+        )
         self.assertEqual(completed["reply"], "Searched")
         self.assertEqual(supplied[-1], ("brazil", ["exa-api-key"]))
 
@@ -280,7 +289,9 @@ class LocalTurnLifecycleTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
             spec = controller.registry["shimpz-cloudflare"]
-            declaration = assistant_spec.StoredInputSpec("password", "Exa API key", "Key")
+            declaration = assistant_spec.StoredInputSpec(
+                "password", "Exa API key", catalog_fixtures.STORED_INPUT_HELP, catalog_fixtures.HELP_URL
+            )
             controller.registry["shimpz-cloudflare"] = replace(
                 spec,
                 actions={

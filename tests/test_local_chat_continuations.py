@@ -24,7 +24,7 @@ from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
 from local.routine import store as routine_store
 from routine import plan as routine_plan
-from tests import human_request_fixtures
+from tests import catalog_fixtures, human_request_fixtures
 
 IMAGE = "registry.example/assistant@sha256:" + "b" * 64
 LOCAL_IMAGE = "sha256:" + "c" * 64
@@ -101,6 +101,7 @@ def human_requirement(
 ) -> action_challenges.HumanRequirement:
     """A paused human requirement whose admitted request and localized copy come from the same fixture."""
     admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(request), kinds, declared)
+    help_text = human_request_fixtures.stored_help(admitted)
     return action_challenges.HumanRequirement(
         "demo-assistant",
         "Demo Assistant",
@@ -110,6 +111,8 @@ def human_requirement(
         admitted,
         "0.4.1",
         copy=human_request_fixtures.copy(admitted),
+        help_url=None if help_text is None else catalog_fixtures.HELP_URL,
+        help_text=help_text,
     )
 
 

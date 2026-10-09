@@ -189,6 +189,7 @@ def _validate_catalog(value: dict[str, object]) -> None:
         value["description"],
         (action["description"] for action in contract["actions"]),
         (stored_input["label"] for stored_input in value["stored_inputs"]),
+        (stored_input["description"] for stored_input in value["stored_inputs"]),
     )
     if catalog_validator.display_error(messages, uses) is not None:
         raise ContractValidationError("resolve_display_mismatch")

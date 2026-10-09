@@ -51,8 +51,18 @@ PUBLISHED_PT = {
     "actions": [{"id": "hello", "effect": "mutating", "description": "PT Greet one reviewed zone."}],
     "integrations": [{"id": "cloudflare", "provider": "cloudflare"}],
     "stored_inputs": [
-        {"id": "whatsapp-app-secret", "label": "PT WhatsApp app secret"},
-        {"id": "whatsapp-token", "label": "PT WhatsApp token"},
+        {
+            "id": "whatsapp-app-secret",
+            "label": "PT WhatsApp app secret",
+            "description": "PT App secret used to sign WhatsApp API calls.",
+            "help_url": "https://developers.facebook.com/apps/",
+        },
+        {
+            "id": "whatsapp-token",
+            "label": "PT WhatsApp token",
+            "description": "PT Token used to call the WhatsApp API.",
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens",
+        },
     ],
 }
 
@@ -68,7 +78,7 @@ def _page(**changes: object) -> assistant_details.AssistantPage:
         links=RESOLUTION["links"],
         machine_contract=RESOLUTION["machine_contract"],
         integrations={"cloudflare": "cloudflare"},
-        labels={item["id"]: item["label"] for item in RESOLUTION["stored_inputs"]},
+        stored_inputs={item["id"]: SimpleNamespace(**item) for item in RESOLUTION["stored_inputs"]},
     )
     return replace(page, **changes)
 
@@ -78,7 +88,11 @@ class AssistantPageTests(unittest.TestCase):
         self.assertEqual(_page().localized("pt", PACK), PUBLISHED_PT)
         english = _page().localized("en", None)
         self.assertEqual(english["description"], RESOLUTION["description"])
-        self.assertEqual(english["stored_inputs"][1], {"id": "whatsapp-token", "label": "WhatsApp token"})
+        # Each Stored Input shows its help text in the page language and its declared help link (ADR-0090).
+        self.assertEqual(
+            english["stored_inputs"][1],
+            {key: RESOLUTION["stored_inputs"][1][key] for key in ("id", "label", "description", "help_url")},
+        )
 
     def test_a_projection_outside_the_protocol_or_without_its_pack_fails_closed(self) -> None:
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "language pack"):

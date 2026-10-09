@@ -35,6 +35,8 @@ class RequestCopy:
     catalog_digest: str
     pack_digest: str
     rendered: Mapping[str, object]
+    # The help text of the Stored Input a password request names, rendered in this locale from the same pack.
+    help: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,8 +51,10 @@ class HumanRequirement:
     request: human.HumanRequest
     assistant_version: str
     copy: RequestCopy
-    # The reviewed key page of the Stored Input the request names, copied only from that binding's declaration.
+    # The reviewed help link and English help text of the Stored Input the request names, copied only from that
+    # binding's declaration; the copy carries the help text rendered in its locale.
     help_url: str | None = None
+    help_text: str | None = None
     # The Brain's task-bound sentence for why this Action pauses, in the turn's interface language (ADR-0090).
     purpose: str | None = None
     # The concrete interface language the purpose was written in; it is shown only in a challenge of that locale.
@@ -63,11 +67,13 @@ def render_copy(
     request: human.HumanRequest,
     pack: assistant_language.LanguagePack,
     locale: str,
+    help_text: str | None = None,
 ) -> RequestCopy:
     """Render every copy field of an admitted request in one interface language from its binding's pack.
 
     English is the catalog itself. Each referenced message must be exactly the binding's catalog entry, each parameter
-    is inserted once, and every rendering must still be bounded public text.
+    is inserted once, and every rendering must still be bounded public text. A Stored Input request also renders the
+    English help text its binding declares, which is one parameterless display message of the same catalog.
     """
     if http_payload.canonical_locale(locale) is None:
         raise HumanChallengeError("Action human request locale is invalid")
@@ -90,7 +96,19 @@ def render_copy(
         ]
     if http_payload.canonical_rendered(rendered, payload) is None:
         raise HumanChallengeError("Action human request copy cannot be rendered")
-    return RequestCopy(locale, pack.catalog_digest, pack.pack_digest, rendered)
+    help_copy = None if help_text is None else _render_help(help_text, pack, locale)
+    return RequestCopy(locale, pack.catalog_digest, pack.pack_digest, rendered, help_copy)
+
+
+def _render_help(help_text: str, pack: assistant_language.LanguagePack, locale: str) -> str:
+    identifier = catalog_validator.message_id(help_text)
+    message = pack.messages.get(identifier)
+    if message is None or message["params"]:
+        raise HumanChallengeError("Action Stored Input help text does not match its binding")
+    rendered = http_payload.canonical_stored_input_help(pack.template(identifier, locale))
+    if rendered is None:
+        raise HumanChallengeError("Action Stored Input help text cannot be rendered")
+    return rendered
 
 
 def copy_binding_current(requirement: HumanRequirement, machine_contract: Mapping[str, Any], pack_digest: str) -> bool:
@@ -107,15 +125,22 @@ def relocalize(
     """Render the same request in another interface language, never against a different catalog or pack."""
     if (pack.catalog_digest, pack.pack_digest) != (requirement.copy.catalog_digest, requirement.copy.pack_digest):
         raise HumanChallengeError("Action human request binding changed")
-    return replace(requirement, copy=render_copy(requirement.request, pack, locale))
+    return replace(requirement, copy=render_copy(requirement.request, pack, locale, requirement.help_text))
 
 
-def declared_help_url(request: human.HumanRequest, stored_inputs: object) -> str | None:
-    """The key page the reviewed binding declares for the one Stored Input a password request names, if any."""
+def declared_help(request: human.HumanRequest, stored_inputs: object) -> tuple[str, str] | None:
+    """The English help text and help link the reviewed binding declares for the Stored Input a request names.
+
+    Only a password request that names a Stored Input has them; an Assistant runtime request can never supply them.
+    """
     if request.kind != "input:password" or request.stored_input is None or not isinstance(stored_inputs, Mapping):
         return None
     declaration = stored_inputs.get(request.stored_input)
-    return getattr(declaration, "help_url", None)
+    help_text = getattr(declaration, "description", None)
+    help_url = getattr(declaration, "help_url", None)
+    if not isinstance(help_text, str) or not isinstance(help_url, str):
+        return None
+    return help_text, help_url
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +159,21 @@ def _copy(value: object, request: human.HumanRequest) -> bool:
         and http_payload.canonical_pack_digest(value.catalog_digest) is not None
         and http_payload.canonical_pack_digest(value.pack_digest) is not None
         and http_payload.canonical_rendered(value.rendered, request.payload()) is not None
+        and (value.help is None or http_payload.canonical_stored_input_help(value.help) == value.help)
+    )
+
+
+def _help(value: HumanRequirement) -> bool:
+    """A Stored Input request carries its help text, rendered help, and help link; any other request carries none."""
+    fields = (value.help_text, value.copy.help, value.help_url)
+    if value.request.kind != "input:password" or value.request.stored_input is None:
+        return fields == (None, None, None)
+    return (
+        isinstance(value.help_text, str)
+        and http_payload.canonical_stored_input_help(value.help_text) == value.help_text
+        and value.copy.help is not None
+        and value.help_url is not None
+        and http_payload.canonical_help_url(value.help_url) == value.help_url
     )
 
 
@@ -150,14 +190,7 @@ def _requirement(value: object) -> bool:
         and _copy(value.copy, value.request)
         and isinstance(value.assistant_version, str)
         and 1 <= len(value.assistant_version) <= 40
-        and (
-            value.help_url is None
-            or (
-                value.request.kind == "input:password"
-                and value.request.stored_input is not None
-                and http_payload.canonical_help_url(value.help_url) == value.help_url
-            )
-        )
+        and _help(value)
         and _purpose(value.purpose, value.purpose_locale)
         and (
             value.file is None
@@ -227,6 +260,6 @@ def challenge_payload(challenge: PendingHumanChallenge) -> dict[str, object]:
         "pack_digest": requirement.copy.pack_digest,
         # A purpose is written in its turn's language, so only a challenge in that same locale shows it (ADR-0091).
         **({} if requirement.purpose_locale != requirement.copy.locale else {"purpose": requirement.purpose}),
-        **({} if requirement.help_url is None else {"help_url": requirement.help_url}),
+        **({} if requirement.copy.help is None else {"help": requirement.copy.help, "help_url": requirement.help_url}),
         **({} if requirement.file is None else {"file": dict(requirement.file)}),
     }

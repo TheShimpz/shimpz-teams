@@ -131,9 +131,10 @@ class StoredInputDeclaration:
     id: str
     kind: str
     label: str
+    # The English help text a person reads before entering the value: what it is and how to get it.
     description: str
-    # The page where a person creates the value, when the Assistant declared one.
-    help_url: str | None = None
+    # The official page where a person creates or finds the value, or the documentation that explains how.
+    help_url: str
     # Its placement (ADR-0106): the one host that receives the value and the header or query field Team puts it in,
     # with an optional header scheme and an optional HMAC proof over another Stored Input's value.
     host: str = ""
@@ -144,8 +145,8 @@ class StoredInputDeclaration:
 
     def metadata(self) -> dict[str, str]:
         """The closed declaration fields after its id, as manifests, resolutions, and records carry them."""
-        fields = {"kind": self.kind, "label": self.label, "description": self.description}
-        optional = {"help_url": self.help_url} | {name: getattr(self, name) for name in _PLACEMENT_FIELDS}
+        fields = {"kind": self.kind, "label": self.label, "description": self.description, "help_url": self.help_url}
+        optional = {name: getattr(self, name) for name in _PLACEMENT_FIELDS}
         return fields | {name: value for name, value in optional.items() if value is not None}
 
     def document(self) -> dict[str, str]:
@@ -275,7 +276,9 @@ def canonical_stored_input_declarations(
     declarations: list[StoredInputDeclaration] = []
     for stored_input_id, metadata in value.items():
         identifier = _identifier(stored_input_id, kind="Stored Input")
-        if not isinstance(metadata, Mapping) or not {"kind", "label", "description", "host"} <= set(metadata) <= {
+        if not isinstance(metadata, Mapping) or not {"kind", "label", "description", "help_url", "host"} <= set(
+            metadata
+        ) <= {
             "kind",
             "label",
             "description",
@@ -285,18 +288,17 @@ def canonical_stored_input_declarations(
             raise ManifestError("Assistant Stored Input declaration is invalid")
         if metadata["kind"] != "password":
             raise ManifestError("Assistant Stored Input kind is invalid")
-        help_url = None
-        if "help_url" in metadata and (help_url := http_payload.canonical_help_url(metadata["help_url"])) is None:
+        if (help_url := http_payload.canonical_help_url(metadata["help_url"])) is None:
             raise ManifestError("Assistant Stored Input help_url is invalid")
         declarations.append(
             StoredInputDeclaration(
                 id=identifier,
                 kind="password",
                 label=_public_text(metadata["label"], kind="Stored Input label", maximum=80),
-                description=_public_text(
+                description=_display_text(
                     metadata["description"],
                     kind="Stored Input description",
-                    maximum=500,
+                    maximum=catalog_validator.DESCRIPTION_CHARS,
                 ),
                 help_url=help_url,
                 **_placement(metadata, allowed_hosts),
@@ -477,7 +479,8 @@ def canonical_machine_contract(
     """Validate and canonicalize an untrusted SDK-generated Action contract and its English message catalog.
 
     The published summary must be one catalog message (ADR-0091), and so must every other displayed static text: the
-    Assistant description, each Action description, and each Stored Input label, within its catalog bound. The caller
+    Assistant description, each Action description, and each Stored Input label and help text, within its catalog
+    bound. The caller
     supplies the summary and description it admitted. An idempotency provider must be one of the manifest's exact
     outbound hosts (ADR-0092), so the caller supplies those too.
     """
@@ -507,6 +510,7 @@ def canonical_machine_contract(
         description,
         (action["description"] for action in actions),
         (stored_input.label for stored_input in declared_stored_inputs),
+        (stored_input.description for stored_input in declared_stored_inputs),
     )
     if catalog_validator.display_error(value["messages"], displayed) is not None:
         raise ManifestError("Assistant machine contract message catalog lacks its displayed copy")

@@ -135,8 +135,10 @@ def _human_requirement(
     action = active.spec.actions.get(action_request.action)
     if action is None:
         raise chat_orchestrator.ChatOrchestrationError("Action human request contract changed")
+    stored_help = action_challenges.declared_help(human_request, active.spec.stored_inputs)
+    help_text, help_url = (None, None) if stored_help is None else stored_help
     try:
-        copy = action_challenges.render_copy(human_request, self._assistant_language(active), locale)
+        copy = action_challenges.render_copy(human_request, self._assistant_language(active), locale, help_text)
         file = action_files.disclosure(action.input_files, action_request.input, selected or {}, human_request.kind)
     except action_challenges.HumanChallengeError as exc:
         raise chat_orchestrator.ChatOrchestrationError("Action human request copy is unavailable") from exc
@@ -151,7 +153,8 @@ def _human_requirement(
         human_request,
         active.spec.version,
         copy,
-        help_url=action_challenges.declared_help_url(human_request, active.spec.stored_inputs),
+        help_url=help_url,
+        help_text=help_text,
         file=file,
     )
 

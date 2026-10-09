@@ -2,12 +2,25 @@
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
+
+
+class StoredInputCopy(Protocol):
+    """A declared Stored Input's English label and help text, and its help link."""
+
+    @property
+    def label(self) -> str: ...
+
+    @property
+    def description(self) -> str: ...
+
+    @property
+    def help_url(self) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,9 +36,9 @@ class AssistantPage:
     description: str
     links: Mapping[str, str]
     machine_contract: Mapping[str, Any]
-    # Integration id to its provider, and Stored Input id to its English label.
+    # Integration id to its provider, and Stored Input id to its declared copy.
     integrations: Mapping[str, str]
-    labels: Mapping[str, str]
+    stored_inputs: Mapping[str, StoredInputCopy]
 
     def localized(self, locale: str, pack: assistant_language.LanguagePack | None) -> dict[str, object]:
         """The closed details object in one interface language; English needs no pack, any other its admitted one.
@@ -51,7 +64,13 @@ class AssistantPage:
                 {"id": identifier, "provider": provider} for identifier, provider in sorted(self.integrations.items())
             ],
             "stored_inputs": [
-                {"id": identifier, "label": text(label)} for identifier, label in sorted(self.labels.items())
+                {
+                    "id": identifier,
+                    "label": text(stored_input.label),
+                    "description": text(stored_input.description),
+                    "help_url": stored_input.help_url,
+                }
+                for identifier, stored_input in sorted(self.stored_inputs.items())
             ],
         }
         if http_payload.canonical_assistant_details(details) is None:

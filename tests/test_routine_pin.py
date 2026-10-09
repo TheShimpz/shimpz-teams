@@ -114,7 +114,11 @@ def _spec(**changes: object) -> AssistantSpec:
             ("org.shimpz.source.digest", "sha256:" + "b" * 64),
         ),
         integrations={"cloudflare": assistant_registry.IntegrationSpec("cloudflare", ("dns.edit",))},
-        stored_inputs={"api-key": assistant_registry.StoredInputSpec("password", "API key", "The key.")},
+        stored_inputs={
+            "api-key": assistant_registry.StoredInputSpec(
+                "password", "API key", catalog_fixtures.STORED_INPUT_HELP, catalog_fixtures.HELP_URL
+            )
+        },
         machine_contract=_contract(),
         pack_digest="sha256:" + "c" * 64,
     )
@@ -162,7 +166,11 @@ class RoutinePinTests(unittest.TestCase):
                 integrations={"cloudflare": assistant_registry.IntegrationSpec("cloudflare", ("dns.read",))}
             ),
             "stored input declaration": _spec(
-                stored_inputs={"api-key": assistant_registry.StoredInputSpec("password", "Key", "The key.")}
+                stored_inputs={
+                    "api-key": assistant_registry.StoredInputSpec(
+                        "password", "Key", catalog_fixtures.STORED_INPUT_HELP, catalog_fixtures.HELP_URL
+                    )
+                }
             ),
             "image": _spec(image="registry.example/cloudflare@sha256:" + "d" * 64),
             "source": _spec(required_image_labels=(("org.shimpz.source.digest", "sha256:" + "e" * 64),)),

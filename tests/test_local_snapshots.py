@@ -331,15 +331,10 @@ class LocalSnapshotTests(unittest.TestCase):
             ):
                 snapshots.validate_record({**record, "integrations": value})
 
-        class MissingValue(dict):
-            def __getitem__(self, key):
-                if key == "description":
-                    raise KeyError(key)
-                return super().__getitem__(key)
-
         malformed_stored_inputs = (
             None,
-            [MissingValue(id="token", kind="input:password", label="Token", description="Secret")],
+            # A record whose Stored Input lacks its help link is not a record of the current contract.
+            [{"id": "token", "kind": "password", "label": "Token", "description": "Secret"}],
             [{"id": "token", "kind": "input:password", "label": "Token"}],
         )
         for value in malformed_stored_inputs:

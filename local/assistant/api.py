@@ -101,7 +101,7 @@ def assistant_details(self, team_id: str, assistant_id: str, locale: object) -> 
             links=document["links"],
             machine_contract=spec.machine_contract,
             integrations={identifier: value.provider for identifier, value in spec.integrations.items()},
-            labels={identifier: value.label for identifier, value in spec.stored_inputs.items()},
+            stored_inputs=dict(spec.stored_inputs),
         )
         try:
             return page.localized(canonical, pack)

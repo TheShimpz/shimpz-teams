@@ -313,8 +313,10 @@ def _requirements_payload(kind: str, requirements: tuple[object, ...]) -> list[d
                     "catalog_digest": requirement.copy.catalog_digest,
                     "pack_digest": requirement.copy.pack_digest,
                     "rendered": _json_value(requirement.copy.rendered),
+                    "help": requirement.copy.help,
                 },
                 "help_url": requirement.help_url,
+                "help_text": requirement.help_text,
                 "purpose": requirement.purpose,
                 "purpose_locale": requirement.purpose_locale,
                 "file": None if requirement.file is None else _json_value(dict(requirement.file)),
@@ -720,6 +722,7 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
             "assistant_version",
             "copy",
             "help_url",
+            "help_text",
             "purpose",
             "purpose_locale",
             "file",
@@ -728,9 +731,20 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
     )
     request = _human_request(raw["request"], raw["messages"])
     copy = _request_copy(raw["copy"], request)
-    help_url, purpose, purpose_locale = raw["help_url"], raw["purpose"], raw["purpose_locale"]
-    help_url_valid = help_url is None or (
-        request.stored_input is not None and http_payload.canonical_help_url(help_url) is not None
+    help_url, help_text, purpose, purpose_locale = (
+        raw["help_url"],
+        raw["help_text"],
+        raw["purpose"],
+        raw["purpose_locale"],
+    )
+    # A Stored Input request keeps its help link, English help text, and rendered help; no other request has any.
+    stored = request.kind == "input:password" and request.stored_input is not None
+    help_url_valid = (
+        (help_url, help_text, copy.help) == (None, None, None)
+        if not stored
+        else http_payload.canonical_help_url(help_url) is not None
+        and http_payload.canonical_stored_input_help(help_text) is not None
+        and copy.help is not None
     )
     purpose_valid = (purpose is None and purpose_locale is None) or (
         http_payload.canonical_purpose(purpose) is not None
@@ -752,6 +766,7 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
         str(_text(raw["assistant_version"], 40, "human Assistant version")),
         copy,
         help_url=help_url,
+        help_text=help_text,
         purpose=purpose,
         purpose_locale=purpose_locale,
         file=file,
@@ -787,15 +802,18 @@ def _human_request(value: object, messages: object) -> action_human.HumanRequest
 
 
 def _request_copy(value: object, request: action_human.HumanRequest) -> action_challenges.RequestCopy:
-    raw = _mapping(value, {"locale", "catalog_digest", "pack_digest", "rendered"}, "human request copy")
+    raw = _mapping(value, {"locale", "catalog_digest", "pack_digest", "rendered", "help"}, "human request copy")
     if (
         http_payload.canonical_locale(raw["locale"]) is None
         or http_payload.canonical_pack_digest(raw["catalog_digest"]) is None
         or http_payload.canonical_pack_digest(raw["pack_digest"]) is None
         or http_payload.canonical_rendered(raw["rendered"], request.payload()) is None
+        or (raw["help"] is not None and http_payload.canonical_stored_input_help(raw["help"]) is None)
     ):
         raise ContinuationCodecError("human request copy is malformed")
-    return action_challenges.RequestCopy(raw["locale"], raw["catalog_digest"], raw["pack_digest"], raw["rendered"])
+    return action_challenges.RequestCopy(
+        raw["locale"], raw["catalog_digest"], raw["pack_digest"], raw["rendered"], raw["help"]
+    )
 
 
 def _require_paused_batch(kind: str, value: object) -> None:
