@@ -9,7 +9,6 @@ import tomllib
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -31,8 +30,6 @@ MAX_MANIFEST_BYTES = 256 * 1024
 MAX_CONTRACT_BYTES = 512 * 1024
 # Each Action schema has its own JSON value bound; this one keeps up to 128 Actions from adding up to dense data.
 MAX_CONTRACT_NODES = 32_768
-MAX_CATALOG_ASSISTANTS = 32
-MAX_CATALOG_BYTES = MAX_CATALOG_ASSISTANTS * MAX_CONTRACT_BYTES + 64 * 1024
 MAX_ARCHIVE_BYTES = MAX_MANIFEST_BYTES + (32 * 1024)
 MAX_ALLOWED_HOSTS = 32
 MAX_INTEGRATIONS = 16
@@ -140,21 +137,6 @@ class ManifestIdentity:
     version: str
     name: str
     summary: str
-
-
-@dataclass(frozen=True, slots=True)
-class ReviewedAssistant:
-    """Controller-reviewed metadata and machine Action contract."""
-
-    assistant_id: str
-    name: str
-    summary: str
-    allowed_hosts: tuple[str, ...]
-    integrations: tuple[IntegrationDeclaration, ...]
-    stored_inputs: tuple[StoredInputDeclaration, ...]
-    actions: dict[str, dict[str, Any]]
-    action_validators: dict[str, dict[str, Draft202012Validator]]
-    machine_contract: dict[str, Any]
 
 
 def canonical_allowed_hosts(value: object) -> tuple[str, ...]:
@@ -490,71 +472,6 @@ def validate_schema_payload(validator: Draft202012Validator, payload: object) ->
     except (ValidationError, Unresolvable, RecursionError, action_schema.PatternError) as exc:
         raise ValueError("Action payload does not match its reviewed schema") from exc
     return payload
-
-
-def load_reviewed_catalog(path: Path) -> dict[str, ReviewedAssistant]:
-    """Load an explicit reviewed-catalog test or tooling artifact."""
-    try:
-        raw = path.read_bytes()
-    except OSError as exc:
-        raise ManifestError("Assistant reviewed catalog is unavailable") from exc
-    catalog = _strict_json(raw, maximum=MAX_CATALOG_BYTES, kind="reviewed catalog")
-    if not isinstance(catalog, dict) or set(catalog) != {"version", "assistants"} or catalog["version"] != 1:
-        raise ManifestError("Assistant reviewed catalog has an unsupported shape")
-    assistants = catalog["assistants"]
-    if not isinstance(assistants, dict) or not assistants or len(assistants) > MAX_CATALOG_ASSISTANTS:
-        raise ManifestError("Assistant reviewed catalog is invalid")
-    reviewed: dict[str, ReviewedAssistant] = {}
-    for raw_id, metadata in assistants.items():
-        assistant_id = _identifier(raw_id, kind="id", canonical=http_payload.canonical_assistant_id)
-        if assistant_id in {"postgres", "assistant-egress", "shimpz-assistant-egress"}:
-            raise ManifestError("Assistant id is reserved")
-        if not isinstance(metadata, dict) or set(metadata) != {
-            "name",
-            "summary",
-            "allowed_hosts",
-            "integrations",
-            "stored_inputs",
-            "contract",
-        }:
-            raise ManifestError("Assistant reviewed catalog entry is invalid")
-        name = _public_text(metadata["name"], kind="name", maximum=80)
-        summary = _public_text(metadata["summary"], kind="summary", maximum=80)
-        raw_integrations = metadata["integrations"]
-        if not isinstance(raw_integrations, dict):
-            raise ManifestError("Assistant reviewed catalog integrations are invalid")
-        integration_scopes: dict[str, object] = {}
-        for integration_id, integration in raw_integrations.items():
-            if not isinstance(integration, dict) or set(integration) != {"scopes"}:
-                raise ManifestError("Assistant reviewed catalog integration is invalid")
-            integration_scopes[integration_id] = integration["scopes"]
-        integrations = canonical_integration_declarations(integration_scopes)
-        raw_stored_inputs = metadata["stored_inputs"]
-        if not isinstance(raw_stored_inputs, dict):
-            raise ManifestError("Assistant reviewed catalog Stored Inputs are invalid")
-        stored_inputs = canonical_stored_input_declarations(raw_stored_inputs)
-        allowed_hosts = canonical_allowed_hosts(metadata["allowed_hosts"])
-        machine_contract = canonical_machine_contract(
-            metadata["contract"], integrations, stored_inputs, summary=summary, allowed_hosts=allowed_hosts
-        )
-        reviewed[assistant_id] = ReviewedAssistant(
-            assistant_id=assistant_id,
-            name=name,
-            summary=summary,
-            allowed_hosts=allowed_hosts,
-            integrations=integrations,
-            stored_inputs=stored_inputs,
-            actions={action["id"]: action for action in machine_contract["actions"]},
-            action_validators={
-                action["id"]: {
-                    "input": action_schema_validator(action["input_schema"]),
-                    "output": action_schema_validator(action["output_schema"]),
-                }
-                for action in machine_contract["actions"]
-            },
-            machine_contract=machine_contract,
-        )
-    return reviewed
 
 
 def _reject_credential_material(value: object) -> None:

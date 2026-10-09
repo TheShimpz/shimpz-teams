@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_assistant_manifest import FIXTURE_SUMMARY, _reviewed_catalog
+from test_assistant_manifest import FIXTURE_SUMMARY, _reviewed_contract
 
 from assistant import action_schema
 from assistant import manifest as assistant_manifest
@@ -17,7 +17,7 @@ REFERENCE_CONTRACT = Path(__file__).resolve().parent / "fixtures" / "reference-a
 
 class AssistantActionSchemaTests(unittest.TestCase):
     def test_machine_contract_loader_rejects_open_top_level_and_nested_schemas(self) -> None:
-        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_contract()
         open_contracts = []
         for schema_name in ("input_schema", "output_schema"):
             contract = json.loads(json.dumps(reviewed.machine_contract))
@@ -40,7 +40,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
                 )
 
     def test_machine_schema_closes_typeless_objects_and_rejects_boolean_subschemas(self) -> None:
-        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_contract()
 
         typeless = json.loads(json.dumps(reviewed.machine_contract))
         typeless["actions"][0]["input_schema"]["properties"]["page"] = {"properties": {"value": {"type": "string"}}}
@@ -74,7 +74,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
         )
 
     def test_machine_schema_admits_only_root_or_named_definition_references(self) -> None:
-        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_contract()
         refused = (
             "https://example.test/schema.json",
             "file:///etc/passwd",
@@ -118,7 +118,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
                 self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["page"], {"$ref": reference})
 
     def test_machine_schema_refuses_a_dialect_switch_or_a_nested_identifier(self) -> None:
-        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_contract()
         draft_07 = "http://json-schema.org/draft-07/schema#"
         remote = {"$ref": "https://example.test/schema.json"}
         for place in ("root", "nested"):
@@ -158,7 +158,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
         self.assertEqual(parsed["actions"][0]["input_schema"]["$id"], "https://example.test/action.json")
 
     def test_machine_schema_reads_references_only_at_schema_nodes(self) -> None:
-        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_contract()
         remote = {"$ref": "https://example.test/schema.json"}
         data = json.loads(json.dumps(reviewed.machine_contract))
         schema = data["actions"][0]["input_schema"]
@@ -250,7 +250,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
         self.assertEqual(action_protocol.expanded_subschemas(shared), 7)
 
     def test_every_real_action_schema_expands_to_its_literal_subschemas(self) -> None:
-        contracts = [reviewed.machine_contract for reviewed in _reviewed_catalog().values()]
+        contracts = [_reviewed_contract().machine_contract]
         contracts.append(json.loads(REFERENCE_CONTRACT.read_bytes()))
         schemas = [
             action[position]

@@ -2,7 +2,6 @@
 
 import copy
 import json
-import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -185,29 +184,6 @@ class EffectAdmissionTests(unittest.TestCase):
             ):
                 _admit(_contract(action), hosts)
         self.assertEqual(_admit(_contract(action), ("api.example.com",))["actions"][0]["idempotency"], IDEMPOTENCY)
-        reviewed_catalog = {
-            "version": 1,
-            "assistants": {
-                "keyed": {
-                    "name": "Keyed",
-                    "summary": catalog_fixtures.SUMMARY,
-                    "allowed_hosts": ["api.example.com"],
-                    "integrations": {},
-                    "stored_inputs": {},
-                    "contract": _contract(action),
-                }
-            },
-        }
-        with self.subTest(source="reviewed catalog"):
-            path = Path(self.enterContext(tempfile.TemporaryDirectory())) / "catalog.json"
-            path.write_text(json.dumps(reviewed_catalog))
-            self.assertEqual(
-                assistant_manifest.load_reviewed_catalog(path)["keyed"].actions["run"]["idempotency"], IDEMPOTENCY
-            )
-            reviewed_catalog["assistants"]["keyed"]["allowed_hosts"] = ["other.example.com"]
-            path.write_text(json.dumps(reviewed_catalog))
-            with self.assertRaisesRegex(assistant_manifest.ManifestError, "idempotency_provider_undeclared"):
-                assistant_manifest.load_reviewed_catalog(path)
 
     def test_team_refuses_an_interactive_verifier_even_if_the_shared_validator_admitted_it(self) -> None:
         create, find = _verified_pair()

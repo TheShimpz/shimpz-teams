@@ -1,9 +1,9 @@
 import io
 import json
 import tarfile
-import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from assistant import action_schema
@@ -14,28 +14,22 @@ FIXTURE_MANIFEST = Path(__file__).resolve().parent / "fixtures" / "reference-ass
 FIXTURE_SUMMARY = "List Cloudflare zones and inspect their DNS records through OAuth."
 
 
-def _reviewed_catalog(assistant_id: str = "shimpz-cloudflare"):
-    catalog = {
-        "version": 1,
-        "assistants": {
-            assistant_id: {
-                "name": "Shimpz Cloudflare",
-                "summary": FIXTURE_SUMMARY,
-                "allowed_hosts": ["api.cloudflare.com"],
-                "integrations": {
-                    "cloudflare": {
-                        "scopes": ["zone.read", "dns.read", "offline_access"],
-                    }
-                },
-                "stored_inputs": {},
-                "contract": json.loads((FIXTURE_MANIFEST.parent / "shimpz.contract.json").read_text(encoding="utf-8")),
-            }
-        },
-    }
-    with tempfile.TemporaryDirectory() as directory:
-        path = Path(directory) / "catalog.json"
-        path.write_text(json.dumps(catalog), encoding="utf-8")
-        return assistant_manifest.load_reviewed_catalog(path)
+def _reviewed_contract() -> SimpleNamespace:
+    """The reference Cloudflare Assistant's admitted contract, built only through Team's own admission functions."""
+    integrations = assistant_manifest.canonical_integration_declarations(
+        {"cloudflare": ["zone.read", "dns.read", "offline_access"]}
+    )
+    stored_inputs = assistant_manifest.canonical_stored_input_declarations({})
+    allowed_hosts = assistant_manifest.canonical_allowed_hosts(["api.cloudflare.com"])
+    contract = json.loads((FIXTURE_MANIFEST.parent / "shimpz.contract.json").read_text(encoding="utf-8"))
+    return SimpleNamespace(
+        allowed_hosts=allowed_hosts,
+        integrations=integrations,
+        stored_inputs=stored_inputs,
+        machine_contract=assistant_manifest.canonical_machine_contract(
+            contract, integrations, stored_inputs, summary=FIXTURE_SUMMARY, allowed_hosts=allowed_hosts
+        ),
+    )
 
 
 def manifest(
@@ -251,7 +245,7 @@ class AssistantManifestTests(unittest.TestCase):
 
     def test_reference_fixture_matches_the_reviewed_cloudflare_security_intent(self) -> None:
         declared = assistant_manifest.parse_manifest_contract(FIXTURE_MANIFEST.read_bytes())
-        reviewed_assistant = _reviewed_catalog()["shimpz-cloudflare"]
+        reviewed_assistant = _reviewed_contract()
         reviewed = assistant_manifest.reviewed_manifest_contract(
             allowed_hosts=reviewed_assistant.allowed_hosts,
             integrations={integration.id: integration for integration in reviewed_assistant.integrations},
@@ -292,17 +286,6 @@ class AssistantManifestTests(unittest.TestCase):
         self.assertTrue(assistant_manifest.automatic_update_preserves_egress(narrowing, widened_scope))
         self.assertTrue(assistant_manifest.automatic_update_preserves_egress(no_integration, added_integration))
         self.assertTrue(assistant_manifest.automatic_update_preserves_egress(added_integration, no_integration))
-
-    def test_reviewed_catalog_rejects_reserved_and_oversized_assistant_ids(self) -> None:
-        invalid = (
-            "postgres",
-            "assistant-egress",
-            "shimpz-assistant-egress",
-            "a" * 41,
-        )
-        for assistant_id in invalid:
-            with self.subTest(assistant_id=assistant_id), self.assertRaises(assistant_manifest.ManifestError):
-                _reviewed_catalog(assistant_id)
 
     def test_reads_reduced_manifest_and_derives_provider_from_integration_id(self) -> None:
         content = manifest(
@@ -481,7 +464,7 @@ class AssistantManifestTests(unittest.TestCase):
                 cache.get(container, reviewed)
 
     def test_machine_contract_loader_accepts_reviewed_artifact_and_rejects_foreign_integrations(self) -> None:
-        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_contract()
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
 
         self.assertEqual(
@@ -511,20 +494,10 @@ class AssistantManifestTests(unittest.TestCase):
                 json.dumps(foreign).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
             )
 
-    def test_reviewed_catalog_precompiles_payload_validators(self) -> None:
-        with mock.patch.object(
-            assistant_manifest.action_schema,
-            "payload_validator",
-            wraps=assistant_manifest.action_schema.payload_validator,
-        ) as validator_class:
-            catalog = _reviewed_catalog()
-            reviewed = catalog["shimpz-cloudflare"]
-
-        self.assertEqual(
-            validator_class.call_count,
-            sum(len(assistant.actions) for assistant in catalog.values()) * 2,
-        )
-        validator = reviewed.action_validators["list-zones"]["input"]
+    def test_a_compiled_payload_validator_is_reused_without_recompiling(self) -> None:
+        reviewed = _reviewed_contract()
+        [action] = [action for action in reviewed.machine_contract["actions"] if action["id"] == "list-zones"]
+        validator = assistant_manifest.action_schema_validator(action["input_schema"])
         with (
             mock.patch.object(assistant_manifest, "_machine_schema") as canonicalize,
             mock.patch.object(assistant_manifest.action_schema, "payload_validator") as construct,
@@ -537,7 +510,7 @@ class AssistantManifestTests(unittest.TestCase):
         construct.assert_not_called()
 
     def test_machine_contract_loader_rejects_malformed_schema_and_oversized_artifact(self) -> None:
-        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_contract()
         malformed = json.loads(json.dumps(reviewed.machine_contract))
         malformed["actions"][0]["input_schema"] = {"type": "not-a-json-schema-type"}
 
@@ -552,7 +525,7 @@ class AssistantManifestTests(unittest.TestCase):
                 )
 
     def test_machine_contract_cache_reads_once_and_requires_exact_review(self) -> None:
-        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_contract()
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
         container = ContractContainer("machine-generation", raw)
         cache = assistant_manifest.MachineContractCache()
@@ -628,7 +601,7 @@ class AssistantManifestTests(unittest.TestCase):
             )
 
     def test_machine_contract_shape_schema_and_usage_edges_fail_closed(self) -> None:
-        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_contract()
         valid = json.loads(json.dumps(reviewed.machine_contract))
         variants = []
         variants.append({})
@@ -760,50 +733,6 @@ class AssistantManifestTests(unittest.TestCase):
 
         self.assertTrue(action_schema.json_nodes_within({"a": [1, ("b",)]}, 5))
         self.assertFalse(action_schema.json_nodes_within({"a": [1, ("b",)]}, 4))
-
-    def test_reviewed_catalog_file_and_entry_shapes_fail_closed(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            missing = root / "missing.json"
-            with self.assertRaisesRegex(assistant_manifest.ManifestError, "unavailable"):
-                assistant_manifest.load_reviewed_catalog(missing)
-
-            valid_contract = json.loads((FIXTURE_MANIFEST.parent / "shimpz.contract.json").read_text())
-            valid_entry = {
-                "name": "Assistant",
-                "summary": FIXTURE_SUMMARY,
-                "allowed_hosts": [],
-                "integrations": {},
-                "stored_inputs": {},
-                "contract": valid_contract,
-            }
-            values = (
-                {},
-                {"version": 1, "assistants": {}},
-                {"version": 1, "assistants": {"assistant": {}}},
-                {
-                    "version": 1,
-                    "assistants": {"assistant": {**valid_entry, "integrations": []}},
-                },
-                {
-                    "version": 1,
-                    "assistants": {
-                        "assistant": {
-                            **valid_entry,
-                            "integrations": {"cloudflare": {}},
-                        }
-                    },
-                },
-                {
-                    "version": 1,
-                    "assistants": {"assistant": {**valid_entry, "stored_inputs": []}},
-                },
-            )
-            path = root / "catalog.json"
-            for value in values:
-                path.write_text(json.dumps(value), encoding="utf-8")
-                with self.subTest(value=value), self.assertRaises(assistant_manifest.ManifestError):
-                    assistant_manifest.load_reviewed_catalog(path)
 
     def test_manifest_credential_nesting_and_section_shapes_fail_closed(self) -> None:
         nested: object = "safe"
@@ -943,7 +872,7 @@ class AssistantManifestTests(unittest.TestCase):
         self.assertEqual(tuple(cache._cache._entries), ("second",))
         cache.discard(None)
 
-        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_contract()
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
         machine = assistant_manifest.MachineContractCache(max_entries=1)
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "identity"):
