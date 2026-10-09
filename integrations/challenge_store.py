@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeVar
 
+from core import identifier as team_identifier
 from protocol.http.v1 import payload as http_payload
 
 MAX_PENDING_CHALLENGES = 32
@@ -236,9 +237,9 @@ class ChallengeStore[PendingT]:
                 self._by_team.pop(challenge.team_id, None)
 
     def _team_id(self, value: object) -> str:
-        if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
-            raise self._contract.error_class("Team id is invalid")
-        return value
+        return team_identifier.require(
+            http_payload.canonical_team_id, value, self._contract.error_class, "Team id is invalid"
+        )
 
     def _challenge_id(self, value: object) -> str:
         if not isinstance(value, str) or CHALLENGE_ID_RE.fullmatch(value) is None:

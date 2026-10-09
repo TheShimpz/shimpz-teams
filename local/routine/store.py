@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from action import human as action_human
 from action import journal as action_journal
+from core import identifier
 from local.chat import continuation as local_chat_continuation
 from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import payload as http_payload
@@ -176,9 +177,7 @@ _PRIVATE = private_state.PrivateState(
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
-        raise RoutineStoreError("Routine Team is invalid")
-    return value
+    return identifier.require(http_payload.canonical_team_id, value, RoutineStoreError, "Routine Team is invalid")
 
 
 def _run_id(value: object) -> str:

@@ -14,7 +14,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from core import base64url
+from core import base64url, identifier
 from integrations import providers as integration_providers
 from protocol.http.v1 import payload as http_payload
 
@@ -108,18 +108,15 @@ def _session_digest(value: object) -> bytes:
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
-        raise OAuthChallengeError("OAuth Team binding is invalid")
-    return value
+    return identifier.require(
+        http_payload.canonical_team_id, value, OAuthChallengeError, "OAuth Team binding is invalid"
+    )
 
 
 def _component_id(
     value: object, label: str, canonical: Callable[[object], str | None] = http_payload.canonical_identifier
 ) -> str:
-    identifier = canonical(value)
-    if identifier is None:
-        raise OAuthChallengeError(f"OAuth {label} binding is invalid")
-    return identifier
+    return identifier.require(canonical, value, OAuthChallengeError, f"OAuth {label} binding is invalid")
 
 
 def _state(value: object) -> str:

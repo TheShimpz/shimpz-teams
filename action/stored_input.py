@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from core import identifier
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
 from storage import private_state
@@ -65,18 +66,13 @@ class StoredInputValue:
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
-        raise StoredInputValidationError("Team id is invalid")
-    return value
+    return identifier.require(http_payload.canonical_team_id, value, StoredInputValidationError, "Team id is invalid")
 
 
 def _component_id(
     value: object, label: str, canonical: Callable[[object], str | None] = http_payload.canonical_identifier
 ) -> str:
-    identifier = canonical(value)
-    if identifier is None:
-        raise StoredInputValidationError(f"{label} is invalid")
-    return identifier
+    return identifier.require(canonical, value, StoredInputValidationError, f"{label} is invalid")
 
 
 def _assistant_id(value: object) -> str:

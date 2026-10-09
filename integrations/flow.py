@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from assistant import manifest as assistant_manifest
+from core import identifier
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import providers as integration_providers
@@ -108,18 +109,13 @@ RefreshCallback = Callable[[str, tuple[str, ...], str, str | None], object]
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
-        raise IntegrationFlowError("Team id is invalid")
-    return value
+    return identifier.require(http_payload.canonical_team_id, value, IntegrationFlowError, "Team id is invalid")
 
 
 def _component_id(
     value: object, label: str, canonical: Callable[[object], str | None] = http_payload.canonical_identifier
 ) -> str:
-    identifier = canonical(value)
-    if identifier is None:
-        raise IntegrationFlowError(f"{label} is invalid")
-    return identifier
+    return identifier.require(canonical, value, IntegrationFlowError, f"{label} is invalid")
 
 
 def _public_text(value: object, label: str, *, optional: bool = False) -> str | None:

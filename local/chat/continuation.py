@@ -11,7 +11,7 @@ from action import human as action_human
 from action import journal as action_journal
 from assistant import action_schema
 from chat import orchestrator as chat_orchestrator
-from core import canonical_json
+from core import canonical_json, identifier
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import usage as brain_usage
@@ -121,10 +121,7 @@ def _text(
 
 
 def _component_id(value: object, label: str, canonical: Callable[[object], str | None]) -> str:
-    identifier = canonical(value)
-    if identifier is None:
-        raise ContinuationCodecError(f"{label} is malformed")
-    return identifier
+    return identifier.require(canonical, value, ContinuationCodecError, f"{label} is malformed")
 
 
 def _interrupt_id(value: object) -> str:

@@ -23,6 +23,7 @@ from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from core import identifier
 from protocol.http.v1 import payload as http_payload
 
 DEFAULT_LIMIT_BYTES = 100 * 1024 * 1024
@@ -68,9 +69,7 @@ class _MetadataReader:
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
-        raise StorageError("invalid Team id")
-    return value
+    return identifier.require(http_payload.canonical_team_id, value, StorageError, "invalid Team id")
 
 
 def _file_id(value: object) -> str:

@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from core import identifier
 from integrations import challenge_store as integration_challenge_store
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
@@ -52,9 +53,9 @@ class StoredContinuation:
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
-        raise ContinuationStoreError("continuation Team is invalid")
-    return value
+    return identifier.require(
+        http_payload.canonical_team_id, value, ContinuationStoreError, "continuation Team is invalid"
+    )
 
 
 def _kind(value: object) -> str:
