@@ -32,7 +32,7 @@ class BlockedContainer(Container):
             raise AssertionError("the test never opened the read")
         if self.fail:
             raise OSError("Docker archive read failed")
-        if path != assistant_genesis.GENESIS_PATH:
+        if path != assistant_genesis.assistant_manifest.MANIFEST_PATH:
             raise AssertionError(path)
         return iter((archive(self.content),)), {"name": "shimpz.toml", "size": len(self.content), "mode": 0o444}
 

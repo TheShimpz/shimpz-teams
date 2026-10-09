@@ -37,7 +37,6 @@ from local.validation import space_prefix as _space_prefix
 from local.validation import validate_team_id, validate_team_name
 
 PROFILE = "local-v1"
-MAX_EGRESS_POLICY_BYTES = egress_policy.MAX_POLICY_BYTES
 ASSISTANT_EGRESS_ALIAS = "shimpz-assistant-egress"
 ASSISTANT_EGRESS_PORT = 8889
 ASSISTANT_EGRESS_KIND = "assistant-egress"

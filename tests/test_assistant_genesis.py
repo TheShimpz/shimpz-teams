@@ -42,7 +42,7 @@ class Container:
 
     def get_archive(self, path: str):
         self.reads += 1
-        if path != assistant_genesis.GENESIS_PATH:
+        if path != assistant_genesis.assistant_manifest.MANIFEST_PATH:
             raise AssertionError(path)
         payload = archive(self.content)
         return iter((payload,)), {

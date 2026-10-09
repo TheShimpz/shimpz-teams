@@ -11,7 +11,6 @@ from protocol.assistant.v1.validators import action_effect as action_effect_vali
 
 EFFECTS = action_effect_validator.EFFECTS
 READ_ONLY = "read_only"
-MUTATING = "mutating"
 
 
 def refusal(actions: Sequence[Mapping[str, object]], allowed_hosts: tuple[str, ...]) -> str | None:

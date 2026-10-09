@@ -956,11 +956,6 @@ def exchange_rpc_frames(raw_socket: socket.socket, data: bytes, deadline: float,
         raw_socket.settimeout(previous)
 
 
-def read_rpc_frames(raw_socket: socket.socket, deadline: float, maximum: int) -> tuple[bytes, bytes]:
-    """Read Docker's multiplexed exec frames to end of stream with the same bounded parser."""
-    return exchange_rpc_frames(raw_socket, b"", deadline, maximum)
-
-
 def close_exec_stream(stream: object) -> None:
     """Close docker-py's owning HTTP response before its raw socket."""
     response = getattr(stream, "_response", None)

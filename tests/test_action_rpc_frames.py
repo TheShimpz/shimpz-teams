@@ -76,14 +76,16 @@ class ActionRpcFrameTests(unittest.TestCase):
     def test_split_stdout_and_stderr_frames_are_read_exactly(self) -> None:
         payload = _frame(1, b'{"ok":') + _frame(2, b"warning") + _frame(1, b"true}")
         with _socket_bytes(payload, pieces=(1, 2, 5, 3, 7)) as hosted_socket:
-            stdout, stderr = action_execution.read_rpc_frames(
+            stdout, stderr = action_execution.exchange_rpc_frames(
                 hosted_socket,
+                b"",
                 time.monotonic() + 1,
                 action_execution.MAX_RPC_RESPONSE_BYTES,
             )
         with _socket_bytes(payload, pieces=(4, 1, 6, 2)) as local_socket:
-            local_stdout, local_stderr = action_execution.read_rpc_frames(
+            local_stdout, local_stderr = action_execution.exchange_rpc_frames(
                 local_socket,
+                b"",
                 time.monotonic() + 1,
                 action_execution.MAX_RPC_RESPONSE_BYTES,
             )
@@ -438,14 +440,16 @@ class ActionRpcFrameTests(unittest.TestCase):
         for payload in cases:
             with self.subTest(payload=payload):
                 with _socket_bytes(payload) as hosted_socket, self.assertRaises(ValueError):
-                    action_execution.read_rpc_frames(
+                    action_execution.exchange_rpc_frames(
                         hosted_socket,
+                        b"",
                         time.monotonic() + 1,
                         action_execution.MAX_RPC_RESPONSE_BYTES,
                     )
                 with _socket_bytes(payload) as local_socket, self.assertRaises(ValueError):
-                    action_execution.read_rpc_frames(
+                    action_execution.exchange_rpc_frames(
                         local_socket,
+                        b"",
                         time.monotonic() + 1,
                         action_execution.MAX_RPC_RESPONSE_BYTES,
                     )
@@ -453,8 +457,9 @@ class ActionRpcFrameTests(unittest.TestCase):
     def test_clean_eof_is_the_only_empty_success(self) -> None:
         with _socket_bytes(b"") as hosted_socket:
             self.assertEqual(
-                action_execution.read_rpc_frames(
+                action_execution.exchange_rpc_frames(
                     hosted_socket,
+                    b"",
                     time.monotonic() + 1,
                     action_execution.MAX_RPC_RESPONSE_BYTES,
                 ),
@@ -462,8 +467,9 @@ class ActionRpcFrameTests(unittest.TestCase):
             )
         with _socket_bytes(b"") as local_socket:
             self.assertEqual(
-                action_execution.read_rpc_frames(
+                action_execution.exchange_rpc_frames(
                     local_socket,
+                    b"",
                     time.monotonic() + 1,
                     action_execution.MAX_RPC_RESPONSE_BYTES,
                 ),
@@ -619,12 +625,12 @@ class ActionRpcFrameTests(unittest.TestCase):
                 "oversized",
             ),
         ):
-            action_execution.read_rpc_frames(raw_socket, time.monotonic() + 1, 3)
+            action_execution.exchange_rpc_frames(raw_socket, b"", time.monotonic() + 1, 3)
         reader, writer = socket.socketpair()
         self.addCleanup(reader.close)
         self.addCleanup(writer.close)
         with self.assertRaises(TimeoutError):
-            action_execution.read_rpc_frames(reader, time.monotonic() - 1, 3)
+            action_execution.exchange_rpc_frames(reader, b"", time.monotonic() - 1, 3)
 
         response = mock.Mock()
         action_execution.close_exec_stream(SimpleNamespace(_response=response))

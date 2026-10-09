@@ -25,13 +25,8 @@ class PinError(ValueError):
     """The Assistant does not declare the pinned Action, or the locale is not an interface language."""
 
 
-def action_pin(spec: object, action_id: str, locale: str) -> str:
-    """The ``sha256:`` pin of one Action of one installed Assistant, rendered in ``locale``."""
-    return _action_pin(spec, _actions(spec), _catalog(spec), action_id, locale)
-
-
 def action_pins(spec: object, action_ids: Iterable[str], locale: str) -> dict[str, str]:
-    """Each named Action's pin in ``locale``, byte for byte its ``action_pin``.
+    """Each named Action's ``sha256:`` pin in ``locale``.
 
     One Action index and one catalog digest serve every pin, so pinning all of an Assistant's Actions serializes its
     catalog once instead of once per Action.

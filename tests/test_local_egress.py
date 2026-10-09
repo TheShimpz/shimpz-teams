@@ -450,7 +450,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
                 elif drift == "hardlink":
                     policy.with_name("policy-hardlink.json").hardlink_to(policy)
                 else:
-                    policy.write_bytes(b"x" * (local_egress.MAX_EGRESS_POLICY_BYTES + 1))
+                    policy.write_bytes(b"x" * (local_egress.egress_policy.MAX_POLICY_BYTES + 1))
 
                 with self.assertRaises(local_app.ApiProblem) as caught:
                     self.controller.assistant_lifecycle._validate_egress_policy(

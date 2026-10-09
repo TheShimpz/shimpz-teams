@@ -80,18 +80,14 @@ class SharedStrictHttpTest(unittest.TestCase):
         self.assertEqual(local._file_body(), expected)
 
     def test_file_size_is_rejected_from_content_length_before_body_read(self) -> None:
-        class Unreadable:
-            @staticmethod
-            def read(_length: int) -> bytes:
-                raise AssertionError("oversized body must not be read")
-
         headers = Message()
         headers.add_header("Content-Length", "11")
         headers.add_header("Content-Type", "text/plain")
         headers.add_header("X-Shimpz-Filename", "brief.txt")
 
+        # The metadata admission sees only the headers, so an oversized body is refused before any byte is read.
         with self.assertRaises(strict_http.HttpContractError) as error:
-            strict_http.read_file_upload(headers, Unreadable(), max_bytes=10)
+            strict_http.file_upload_metadata(headers, max_bytes=10)
 
         self.assertEqual(error.exception.status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
 
@@ -126,7 +122,7 @@ class SharedStrictHttpTest(unittest.TestCase):
         headers = Message()
         headers.add_header("Content-Length", "2")
         headers.add_header("Content-Type", "application/json")
-        self.assertEqual(strict_http.read_json_object(headers, BytesIO(b"{}"), max_bytes=10), {})
+        self.assertEqual(strict_http.read_json_document(headers, BytesIO(b"{}"), max_bytes=10), (b"{}", {}))
 
     def test_every_body_entrypoint_admits_only_a_decimal_content_length(self) -> None:
         def headers(length: str) -> Message:
@@ -185,8 +181,9 @@ class SharedStrictHttpTest(unittest.TestCase):
         headers.add_header("Content-Length", "1")
         headers.add_header("Content-Type", "text/plain")
         headers.add_header("X-Shimpz-Filename", "file.txt")
+        metadata = strict_http.file_upload_metadata(headers, max_bytes=1)
         self.assertEqual(
-            strict_http.read_file_upload(headers, BytesIO(b"x"), max_bytes=1),
+            (metadata.filename, strict_http.read_file_content(BytesIO(b"x"), metadata), metadata.media_type),
             ("file.txt", b"x", "text/plain"),
         )
 

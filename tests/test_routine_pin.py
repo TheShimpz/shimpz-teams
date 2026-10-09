@@ -129,19 +129,19 @@ def _edited(edit) -> AssistantSpec:
 
 class RoutinePinTests(unittest.TestCase):
     def test_the_pin_is_stable_and_names_one_rendered_action(self) -> None:
-        pin = routine_pin.action_pin(_spec(), "create-record", "pt")
+        pin = routine_pin.action_pins(_spec(), ("create-record",), "pt")["create-record"]
         self.assertRegex(pin, r"\Asha256:[0-9a-f]{64}\Z")
-        self.assertEqual(routine_pin.action_pin(_spec(), "create-record", "pt"), pin)
-        self.assertNotEqual(routine_pin.action_pin(_spec(), "create-record", "en"), pin)
-        self.assertNotEqual(routine_pin.action_pin(_spec(), "find-record", "pt"), pin)
+        self.assertEqual(routine_pin.action_pins(_spec(), ("create-record",), "pt")["create-record"], pin)
+        self.assertNotEqual(routine_pin.action_pins(_spec(), ("create-record",), "en")["create-record"], pin)
+        self.assertNotEqual(routine_pin.action_pins(_spec(), ("find-record",), "pt")["find-record"], pin)
         with self.assertRaisesRegex(routine_pin.PinError, "not declared"):
-            routine_pin.action_pin(_spec(), "delete-record", "pt")
+            routine_pin.action_pins(_spec(), ("delete-record",), "pt")["delete-record"]
         for locale in ("pt-BR", "", "xx"):
             with self.subTest(locale=locale), self.assertRaisesRegex(routine_pin.PinError, "locale"):
-                routine_pin.action_pin(_spec(), "create-record", locale)
+                routine_pin.action_pins(_spec(), ("create-record",), locale)["create-record"]
 
     def test_every_member_that_decides_the_action_is_drift(self) -> None:
-        baseline = routine_pin.action_pin(_spec(), "create-record", "pt")
+        baseline = routine_pin.action_pins(_spec(), ("create-record",), "pt")["create-record"]
         drifted = {
             "output schema": _edited(lambda spec: _action(spec, "create-record")["output_schema"].update(title="x")),
             "input schema": _edited(lambda spec: _action(spec, "create-record")["input_schema"].update(title="x")),
@@ -168,13 +168,13 @@ class RoutinePinTests(unittest.TestCase):
         }
         for member, spec in drifted.items():
             with self.subTest(member=member):
-                self.assertNotEqual(routine_pin.action_pin(spec, "create-record", "pt"), baseline)
+                self.assertNotEqual(routine_pin.action_pins(spec, ("create-record",), "pt")["create-record"], baseline)
 
     def test_an_unrelated_action_leaves_the_pin_but_not_the_assistant_scope(self) -> None:
         unrelated = _edited(lambda spec: _action(spec, "list-zones").update(effect="mutating"))
         self.assertEqual(
-            routine_pin.action_pin(unrelated, "create-record", "pt"),
-            routine_pin.action_pin(_spec(), "create-record", "pt"),
+            routine_pin.action_pins(unrelated, ("create-record",), "pt")["create-record"],
+            routine_pin.action_pins(_spec(), ("create-record",), "pt")["create-record"],
         )
         scope = routine_pin.assistant_pin(_spec(), "sha256:" + "0" * 64)
         self.assertRegex(scope, r"\Asha256:[0-9a-f]{64}\Z")
@@ -183,8 +183,8 @@ class RoutinePinTests(unittest.TestCase):
         self.assertNotEqual(routine_pin.assistant_pin(_spec(), "sha256:" + "1" * 64), scope)
         unverified = _edited(lambda spec: _action(spec, "create-record").pop("verifier"))
         self.assertNotEqual(
-            routine_pin.action_pin(unverified, "create-record", "pt"),
-            routine_pin.action_pin(_spec(), "create-record", "pt"),
+            routine_pin.action_pins(unverified, ("create-record",), "pt")["create-record"],
+            routine_pin.action_pins(_spec(), ("create-record",), "pt")["create-record"],
         )
 
     def test_the_scope_pin_digests_the_catalog_once_and_holds_every_action_pin(self) -> None:
@@ -198,7 +198,7 @@ class RoutinePinTests(unittest.TestCase):
             "format": routine_pin.SCOPE_FORMAT,
             "brain": brain,
             "actions": {
-                action_id: routine_pin.action_pin(_spec(), action_id, routine_pin.SCOPE_LOCALE)
+                action_id: routine_pin.action_pins(_spec(), (action_id,), routine_pin.SCOPE_LOCALE)[action_id]
                 for action_id in ("create-record", "find-record", "list-zones")
             },
         }
@@ -215,8 +215,9 @@ class RoutinePinTests(unittest.TestCase):
         self.assertEqual(
             {key: value.pin for key, value in contracts.items()},
             {
-                (spec.assistant_id, action_id): routine_pin.action_pin(spec, action_id, routine_pin.SCOPE_LOCALE)
+                (spec.assistant_id, action_id): pin
                 for action_id in ("create-record", "find-record", "list-zones")
+                for pin in routine_pin.action_pins(spec, (action_id,), routine_pin.SCOPE_LOCALE).values()
             },
         )
         # Each contract says whether its reviewed effect proves it read-only, and names its Stored Inputs.

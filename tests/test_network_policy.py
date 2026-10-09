@@ -181,7 +181,7 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
         host_config={
             **common_security,
             "CapDrop": ["ALL"],
-            "CapAdd": sorted(policy.EXPECTED_RUNTIME_CAP_ADD),
+            "CapAdd": [],
             "ReadonlyRootfs": True,
             "Memory": policy.RUNTIME_MEMORY_BYTES,
             "MemorySwap": policy.RUNTIME_MEMORY_BYTES,
@@ -289,9 +289,9 @@ def _workload_valid(metadata: dict) -> bool:
 
 def test_network_names_are_injective_and_bounded() -> None:
     longest = policy.network_name("x" * 40, policy.CORE_KIND)
-    check(len(longest.encode()) <= policy.DOCKER_NETWORK_NAME_MAX, "maximum Team ID stays inside Docker's limit")
+    check(len(longest.encode()) <= policy.DOCKER_RESOURCE_NAME_MAX, "maximum Team ID stays inside Docker's limit")
     try:
-        policy.network_name("x" * policy.DOCKER_NETWORK_NAME_MAX, policy.CORE_KIND)
+        policy.network_name("x" * policy.DOCKER_RESOURCE_NAME_MAX, policy.CORE_KIND)
         check(False, "an oversized derived Docker network name must be refused")
     except ValueError:
         check(True, "an oversized derived Docker network name is refused")
@@ -435,7 +435,7 @@ def test_engine_29_capability_prefix_is_normalized() -> None:
     _core, containers = _valid_topology()
     runtime = containers["runtime-id"]
     runtime["HostConfig"]["CapDrop"] = ["CAP_ALL"]
-    runtime["HostConfig"]["CapAdd"] = [f"CAP_{capability}" for capability in sorted(policy.EXPECTED_RUNTIME_CAP_ADD)]
+    runtime["HostConfig"]["CapAdd"] = []
     check(
         _workload_valid(runtime),
         "Engine 29 CAP_-prefixed inspect values preserve the exact capability contract",

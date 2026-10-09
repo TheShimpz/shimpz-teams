@@ -3,7 +3,6 @@
 from assistant import cache as assistant_cache
 from assistant import manifest as assistant_manifest
 
-GENESIS_PATH = assistant_manifest.MANIFEST_PATH
 DEFAULT_CACHE_ENTRIES = 256
 
 

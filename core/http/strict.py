@@ -131,17 +131,6 @@ def read_json_document(
     return raw, body
 
 
-def read_json_object(
-    headers: object,
-    stream: BinaryIO,
-    *,
-    max_bytes: int,
-) -> dict[str, object]:
-    """Read one JSON object when the caller does not need its exact byte binding."""
-    _raw, body = read_json_document(headers, stream, max_bytes=max_bytes)
-    return body
-
-
 def file_upload_metadata(
     headers: object,
     *,
@@ -216,17 +205,6 @@ def read_file_content(stream: BinaryIO, metadata: FileUploadMetadata) -> bytes:
             code="invalid-file",
         )
     return body
-
-
-def read_file_upload(
-    headers: object,
-    stream: BinaryIO,
-    *,
-    max_bytes: int,
-) -> tuple[str, bytes, str]:
-    """Read one file when the caller does not need pre-content authorization."""
-    metadata = file_upload_metadata(headers, max_bytes=max_bytes)
-    return metadata.filename, read_file_content(stream, metadata), metadata.media_type
 
 
 def reject_body(headers: object) -> None:
