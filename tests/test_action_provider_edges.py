@@ -40,8 +40,9 @@ class EgressRouteTests(unittest.TestCase):
         request = types.SimpleNamespace(team_id="team_1", assistant_id="example", action="run", contract=contract)
         for admitted, expected in ((None, ("", frozenset())), (("token", [HOST]), ("token", frozenset({HOST})))):
             store = types.SimpleNamespace(admitted=mock.Mock(return_value=admitted))
-            with self.subTest(admitted=admitted), mock.patch.object(
-                hosted_runtime.assistant_lifecycle, "_egress_store", return_value=store
+            with (
+                self.subTest(admitted=admitted),
+                mock.patch.object(hosted_runtime.assistant_lifecycle, "_egress_store", return_value=store),
             ):
                 self.assertEqual(hosted_runtime._provider_broker(request, _private())._scope.route(), expected)
         drift = hosted_runtime.egress_policy.EgressPolicyError("drift")
@@ -120,9 +121,10 @@ class TransportEdgeTests(unittest.TestCase):
         while provider._CAPACITY.acquire(blocking=False):
             held += 1
         try:
-            with mock.patch.object(provider, "_STOP_POLL_SECONDS", 0.01), self.assertRaises(
-                provider.CallRefusedError
-            ) as refused:
+            with (
+                mock.patch.object(provider, "_STOP_POLL_SECONDS", 0.01),
+                self.assertRaises(provider.CallRefusedError) as refused,
+            ):
                 provider._acquire(time.monotonic() + 0.05, lambda: False)
         finally:
             for _ in range(held):

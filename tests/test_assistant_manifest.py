@@ -286,14 +286,10 @@ class AssistantManifestTests(unittest.TestCase):
         for slots in (["secret"], ["token"]):
             contract["actions"] = [{**action, "stored_inputs": slots}]
             if slots == ["token"]:
-                assistant_manifest.canonical_machine_contract(
-                    contract, (), declarations, **copy, allowed_hosts=()
-                )
+                assistant_manifest.canonical_machine_contract(contract, (), declarations, **copy, allowed_hosts=())
                 continue
             with self.subTest(slots=slots), self.assertRaisesRegex(assistant_manifest.ManifestError, "proof"):
-                assistant_manifest.canonical_machine_contract(
-                    contract, (), declarations, **copy, allowed_hosts=()
-                )
+                assistant_manifest.canonical_machine_contract(contract, (), declarations, **copy, allowed_hosts=())
 
     def test_an_action_may_use_several_declared_stored_inputs_as_one_sorted_list(self) -> None:
         declarations = assistant_manifest.canonical_stored_input_declarations(
