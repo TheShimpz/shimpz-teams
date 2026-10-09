@@ -1,41 +1,13 @@
 # Shimpz Assistant-install contract v1
 
 This directory is the language-neutral authority for the narrow boundary
-between Developers and the Team.
-
-It covers:
-
-- EdDSA JWS delegation claims for Team listing and Assistant installation;
-- the authorized Team list;
-- immutable dynamic Assistant resolution;
-- the hosted Controller install request and result; and
-- the final, context-bound install authorization request and receipt.
+between Developers and the Local Team: the immutable resolution of one
+published Assistant by its exact source digest.
 
 Every authoritative object is closed. Unknown fields fail validation. The
-schemas use JSON Schema draft 2020-12 and share definitions through
-`definitions.schema.json`; each operation has a small standalone entry-point
-schema.
-
-## Security boundary
-
-The JWT wire fields `iss` and `aud` retain their standard interoperable names.
-Product code should expose them as `issuer` and `audience` and construct claims
-through operation-specific helpers. Their values are fixed:
-
-```text
-issuer:   https://developers.shimpz.com
-audience: https://developers.shimpz.com/assistant-install
-```
-
-A delegation is valid for at most 60 seconds. An install authorization is valid
-for at most 120 seconds. JSON Schema validates their shape; the reference
-verifier and every consumer also enforce these lifetime relationships.
-
-The install JSON is never authority by itself. The internal request
-must also carry the named Developers service credential and the compact
-delegation JWS. The claims and body must bind the same account, Team, source
-digest, request ID, and idempotency key before Team invokes its
-existing ownership authorization.
+schema uses JSON Schema draft 2020-12; `resolve-response.schema.json` is the
+standalone entry point and shares its definitions through
+`definitions.schema.json`.
 
 Resolve returns only an unblocked, installable publication. It contains a full
 digest image reference, the published Assistant name, summary, and description, the Creator's declared `links`
@@ -109,8 +81,8 @@ lists; the Assistant never receives a value.
 
 ## Golden vectors
 
-`vectors.json` contains reusable fixtures and positive and negative cases for
-every entry point. A case may apply one deterministic mutation:
+`vectors.json` contains a reusable resolve fixture and positive and negative
+cases for it. A case may apply one deterministic mutation:
 
 - `set` creates or replaces an object property;
 - `remove` removes an existing object property; and

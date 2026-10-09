@@ -15,16 +15,7 @@ from schema_validator import SchemaViolationError, check_schema, validate
 
 HERE = Path(__file__).resolve().parent
 MANIFEST = "contract-files.sha256"
-SCHEMAS = (
-    "install-request.schema.json",
-    "install-response.schema.json",
-    "definitions.schema.json",
-    "delegation-claims.schema.json",
-    "install-authorization-receipt.schema.json",
-    "install-authorization-request.schema.json",
-    "resolve-response.schema.json",
-    "team-list-response.schema.json",
-)
+SCHEMAS = ("definitions.schema.json", "resolve-response.schema.json")
 AUTHORITY_FILES = (*SCHEMAS, "README.md", "schema_validator.py", "vectors.json", "verify.py")
 SCHEMA_ORIGIN = "https://schemas.shimpz.com/assistant-install/v1/"
 AUTHORIZATION_REQUESTS = frozenset({"approval", "auth:password", "auth:totp", "auth:passkey"})
@@ -110,13 +101,7 @@ def mutation_parent(value: object, path: list[object], label: str) -> object:
 
 
 def semantic_validation(schema: str, value: object) -> None:
-    if not isinstance(value, dict):
-        return
-    if schema == "delegation-claims.schema.json":
-        validate_lifetime(value, "iat", "exp", 60, "delegation_lifetime")
-    elif schema == "install-authorization-receipt.schema.json":
-        validate_lifetime(value, "issued_at", "expires_at", 120, "authorization_lifetime")
-    elif schema == "resolve-response.schema.json":
+    if isinstance(value, dict) and schema == "resolve-response.schema.json":
         validate_resolve(value)
 
 
@@ -288,23 +273,6 @@ def cataloged(messages: list[dict[str, object]], text: object, bound: int) -> bo
     return any(
         message["msgid"] == text and not message["params"] and message["max_length"] <= bound for message in messages
     )
-
-
-def validate_lifetime(
-    value: dict[str, object],
-    issued_key: str,
-    expires_key: str,
-    maximum: int,
-    code: str,
-) -> None:
-    issued = value.get(issued_key)
-    expires = value.get(expires_key)
-    if not isinstance(issued, int) or isinstance(issued, bool):
-        return
-    if not isinstance(expires, int) or isinstance(expires, bool):
-        return
-    if expires <= issued or expires - issued > maximum:
-        raise ContractViolationError(code)
 
 
 def validate_case(
