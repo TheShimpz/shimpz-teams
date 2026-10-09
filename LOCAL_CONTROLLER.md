@@ -162,7 +162,7 @@ stores only encrypted Integration credentials, returns redacted metadata, binds 
 Team and Admin session, and deletes local and broker state on disconnect or Team teardown.
 The authorization request body contains exactly `assistant_id`, `integration_id`, `callback_mode`, and
 `session_binding`; the Assistant and Integration pair must be an exact currently missing requirement in the pending
-challenge, and callback mode is one of `loopback`, `hosted`, or `out-of-band`. Cancellation contains exactly
+challenge, and callback mode is one of `loopback`, `local-domain`, or `out-of-band`. Cancellation contains exactly
 `session_binding`. Broker claim redemption contains exactly `state`, `claim`, and `session_binding`. All three
 bodies reject additional fields.
 

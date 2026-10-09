@@ -93,7 +93,7 @@ class LocalOAuthCompletionLockTests(unittest.TestCase):
         )
         pending = integration_challenges.IntegrationChallengeStore().create(TEAM, (requirement,), {"private": 1})
         url = self.service.authorization_url(
-            pending, SESSION, assistant_id=ASSISTANT, integration_id="cloudflare", callback_mode="hosted"
+            pending, SESSION, assistant_id=ASSISTANT, integration_id="cloudflare", callback_mode="local-domain"
         )
         return parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
 

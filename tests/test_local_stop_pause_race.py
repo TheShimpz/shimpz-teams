@@ -229,7 +229,7 @@ class LocalStopPauseRaceTests(LocalContractCase):
                 "shimpz-cloudflare",
                 "cloudflare",
                 "browser-session-private-123456789",
-                "hosted",
+                "local-domain",
             )
 
         [started] = self._a_losing_commit_meets(human=False, consumer=start)
@@ -275,7 +275,7 @@ class LocalStopPauseRaceTests(LocalContractCase):
                         "shimpz-cloudflare",
                         "cloudflare",
                         "browser-session-private-123456789",
-                        "hosted",
+                        "local-domain",
                     )
                 ),
                 daemon=True,

@@ -43,7 +43,7 @@ def _provider(*, provider_id: str, api_hosts: tuple[str, ...], allowed_scopes: f
     return provider
 
 
-# The Shimpz-hosted broker holds the Cloudflare client and its secret; the controller binds each grant with PKCE S256.
+# The platform broker holds the Cloudflare client and its secret; the controller binds each grant with PKCE S256.
 # The closed set admits zone discovery plus reconciliable DNS-record reads and writes; no zone or account write scope
 # is admitted.
 _CLOUDFLARE = _provider(

@@ -1,6 +1,6 @@
 """Narrow controller-owned orchestration for Assistant OAuth integrations.
 
-This module composes the one-use PKCE challenge store, the Shimpz-hosted OAuth
+This module composes the one-use PKCE challenge store, the platform OAuth
 broker client, and the encrypted token store. The controller never holds an OAuth
 Client Secret. It deliberately owns no routes, cookies, browser state, Assistant
 runtime calls, or Brain-visible data.

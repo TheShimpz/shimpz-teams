@@ -46,7 +46,7 @@ class LocalIntegrationDriftTests(LocalContractCase):
             "shimpz-cloudflare",
             "cloudflare",
             "browser-session-private-123456789",
-            "hosted",
+            "local-domain",
         )
         self.assertEqual(set(started), {"authorization_url"})
         return controller, paused

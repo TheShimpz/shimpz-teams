@@ -67,8 +67,8 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_full_flow_uses_broker_and_never_requires_client_credentials(self) -> None:
-        url = authorization(self.service, pending(), SESSION, callback_mode="hosted")
-        self.assertEqual(parse_qs(urlsplit(url).query, strict_parsing=True)["callback"], ["hosted"])
+        url = authorization(self.service, pending(), SESSION, callback_mode="local-domain")
+        self.assertEqual(parse_qs(urlsplit(url).query, strict_parsing=True)["callback"], ["local-domain"])
         state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
 
         completion = self.service.complete(
@@ -138,7 +138,7 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
             integration_http.OAuthTokenSet(ACCESS, REFRESH, SCOPES, 3600, LEASE),
         )
         self.store._demote_for_reauthorization("team_1", "shimpz-cloudflare", "cloudflare")
-        url = authorization(self.service, pending(), SESSION, callback_mode="hosted")
+        url = authorization(self.service, pending(), SESSION, callback_mode="local-domain")
         state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
 
         completed = self.service.complete(
@@ -237,7 +237,7 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
             integration_service.OAuthIntegrationUnavailableError,
             "already configured",
         ):
-            authorization(service, pending(), SESSION, callback_mode="hosted")
+            authorization(service, pending(), SESSION, callback_mode="local-domain")
 
         self.assertEqual(self.transport.requests, [])
 
@@ -291,7 +291,7 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
             )
 
         def claim_then_resolve(advance: int) -> str:
-            url = authorization(service, pending(), SESSION, callback_mode="hosted")
+            url = authorization(service, pending(), SESSION, callback_mode="local-domain")
             state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
             service.complete(state, CLAIM, SESSION, lambda _team, _assistant, _integration: DECLARATION)
             now[0] += advance

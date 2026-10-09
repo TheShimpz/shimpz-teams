@@ -72,15 +72,15 @@ class OAuthBrokerClientTests(unittest.TestCase):
         self.assertNotIn("client", url)
         self.assertEqual(self.transport.requests, [])
 
-    def test_hosted_callback_mode_is_named_and_closed(self) -> None:
+    def test_local_domain_callback_mode_is_named_and_closed(self) -> None:
         url = self.client.authorization_url(
             provider_id="cloudflare",
             state=STATE,
             code_challenge=CHALLENGE,
             scopes=SCOPES,
-            callback_mode="hosted",
+            callback_mode="local-domain",
         )
-        self.assertEqual(parse_qs(urlsplit(url).query)["callback"], ["hosted"])
+        self.assertEqual(parse_qs(urlsplit(url).query)["callback"], ["local-domain"])
         out_of_band = self.client.authorization_url(
             provider_id="cloudflare",
             state=STATE,
@@ -89,14 +89,16 @@ class OAuthBrokerClientTests(unittest.TestCase):
             callback_mode="out-of-band",
         )
         self.assertEqual(parse_qs(urlsplit(out_of_band).query)["callback"], ["out-of-band"])
-        with self.assertRaises(integration_broker.OAuthBrokerClientError):
-            self.client.authorization_url(
-                provider_id="cloudflare",
-                state=STATE,
-                code_challenge=CHALLENGE,
-                scopes=SCOPES,
-                callback_mode="https://evil.example",
-            )
+        # The retired `hosted` mode is refused like any other unknown value.
+        for refused in ("https://evil.example", "hosted"):
+            with self.subTest(refused=refused), self.assertRaises(integration_broker.OAuthBrokerClientError):
+                self.client.authorization_url(
+                    provider_id="cloudflare",
+                    state=STATE,
+                    code_challenge=CHALLENGE,
+                    scopes=SCOPES,
+                    callback_mode=refused,
+                )
 
     def test_fixed_transport_uses_only_the_authenticated_broker_proxy(self) -> None:
         response = Mock(

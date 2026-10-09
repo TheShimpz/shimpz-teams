@@ -78,7 +78,7 @@ def authorization(
         session,
         assistant_id=assistant_id,
         integration_id=integration_id,
-        callback_mode="hosted",
+        callback_mode="local-domain",
     )
 
 

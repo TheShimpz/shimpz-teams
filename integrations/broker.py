@@ -1,4 +1,4 @@
-"""Closed HTTPS client for the Shimpz-hosted OAuth broker.
+"""Closed HTTPS client for the platform OAuth broker.
 
 The local Controller can start, claim, refresh, and revoke Cloudflare grants without
 ever receiving the OAuth Client Secret. Hosts, paths, scopes, response shapes, and
@@ -21,7 +21,7 @@ from integrations import providers as integration_providers
 from protocol.http.v1 import strict_json
 
 BROKER_ORIGIN = "https://shimpz.com"
-CALLBACK_MODES = frozenset({"loopback", "hosted", "out-of-band"})
+CALLBACK_MODES = frozenset({"loopback", "local-domain", "out-of-band"})
 MAX_RESPONSE_BYTES = 32 * 1024
 MAX_TOKEN_BYTES = 16 * 1024
 HTTP_TIMEOUT_SECONDS = 10

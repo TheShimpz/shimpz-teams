@@ -236,7 +236,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             (HTTPStatus.OK, expected, "assistant-integration-list", "team_1", None),
         )
 
-    def test_local_controller_builds_only_the_hosted_broker_boundary(self) -> None:
+    def test_local_controller_builds_only_the_platform_broker_boundary(self) -> None:
         transport = SimpleNamespace()
         broker = SimpleNamespace()
         service = SimpleNamespace()
@@ -382,7 +382,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             "shimpz-cloudflare",
             "cloudflare",
             "browser-session-private-123456789",
-            "hosted",
+            "local-domain",
         )
         completed = controller.chat_turn_service.complete_cloudflare_oauth_callback(
             state="s" * 43,
