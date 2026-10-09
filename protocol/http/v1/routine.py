@@ -248,7 +248,7 @@ CLOCK_FORMATS = frozenset({"date"})
 PLAN_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
 # A lone surrogate is unsafe too: it has no UTF-8 encoding, so it is escaped in a preview and refused elsewhere.
-_PLAN_UNSAFE_RE = re.compile(r"[\u0000-\u001f\u007f-\u009f​-‏ -‮⁠-⁯\ud800-\udfff﻿]")
+_PLAN_UNSAFE_RE = re.compile(r"[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ud800-\udfff\ufeff]")
 _INPUT_FIELDS = {
     "literal": frozenset({"member", "source", "value"}),
     "run_clock": frozenset({"member", "source", "value"}),

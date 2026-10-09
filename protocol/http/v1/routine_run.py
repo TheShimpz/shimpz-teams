@@ -175,7 +175,7 @@ CONDITION_RE = re.compile(
     r"(?:exit-status:-?[0-9]{1,10}|stderr-output|timeout|frame-invalid|exit-unavailable|transport-failed)\Z"
 )
 # Tab and line feed only; every other control, bidi override or isolate, and zero-width formatting character is refused.
-_UNSAFE_TEXT_RE = re.compile(r"[\u0000-\u0008\u000b-\u001f\u007f-\u009f​-‏‪-‮⁠-⁯﻿]")
+_UNSAFE_TEXT_RE = re.compile(r"[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]")
 _FAILURE_FIELDS = frozenset(
     {"error_type", "message", "provider", "http_status", "response_excerpt", "redacted", "truncated"}
 )
