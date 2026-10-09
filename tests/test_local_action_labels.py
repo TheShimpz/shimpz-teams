@@ -111,7 +111,7 @@ class LocalActionLabelTests(unittest.TestCase):
 
     def test_invalid_input_and_brain_failure_are_bounded(self) -> None:
         subject = Subject()
-        for body in ({}, {"locale": "pt-BR"}, {"locale": None}, {"language_exemplar": "Liste minhas zonas"}):
+        for body in ({}, {"locale": "pt-BR"}, {"locale": None}):
             with self.subTest(body=body), self.assertRaises(ApiProblemError):
                 _labels(subject, body)
         subject.brain_runtime.action_labels.assert_not_called()

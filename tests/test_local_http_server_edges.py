@@ -476,7 +476,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         )
         self.assertEqual(result[2], "local-assistant-install")
 
-        exact_body = {"language_exemplar": "Quero listar minhas zonas DNS"}
+        exact_body = {"locale": "pt"}
         handler._body.return_value = exact_body
         result = handler._route(
             [],

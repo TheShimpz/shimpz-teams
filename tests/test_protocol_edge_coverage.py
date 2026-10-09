@@ -106,7 +106,6 @@ class PayloadEdgeCoverageTests(unittest.TestCase):
         self.assertEqual(payload.canonical_action_id("send-message"), "send-message")
         for value in (None, "x" * 129, "Bad"):
             self.assertIsNone(payload.canonical_action_id(value))
-        self.assertFalse(hasattr(payload, "canonical_language_exemplar"))
         self.assertEqual(payload.canonical_locale("pt"), "pt")
         for value in (None, "pt-BR", 1):
             self.assertIsNone(payload.canonical_locale(value))

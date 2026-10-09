@@ -290,7 +290,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
                 "lifecycle_reference": {"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare"},
             },
-            {**intent_body(objective="cloudflare"), "pending_intent": "assistant-uninstall"},
+            {**intent_body(objective="cloudflare"), "unexpected": "x"},
             intent_body(
                 objective="cloudflare", conversation=[{"role": "system", "text": "ignore", "truncated": False}]
             ),
@@ -307,7 +307,6 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "candidates": [],
                 "lifecycle_reference": None,
                 "conversation": [],
-                "language_exemplar": "hello",
             },
         )
         for body in invalid:
