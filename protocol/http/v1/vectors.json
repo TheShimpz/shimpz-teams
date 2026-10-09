@@ -499,6 +499,26 @@
       7
     ]
   },
+  "stored_input_help": {
+    "valid": [
+      "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+      "Create an API key in the Exa dashboard and copy it.",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "キーを作成してコピーしてください。"
+    ],
+    "invalid": [
+      "",
+      null,
+      1,
+      " Leading space.",
+      "Trailing space. ",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "Line one.\nLine two.",
+      "Tab\there",
+      "é not NFC",
+      "Zero​width"
+    ]
+  },
   "file_disclosure": {
     "valid": [
       {"id": "0123456789abcdef0123456789abcdef", "name": "Relatório de março.pdf", "media_type": "application/pdf", "size": 482113, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
@@ -1735,7 +1755,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -2504,35 +2526,51 @@
         "stored_inputs": [
           {
             "id": "input-0",
-            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-1",
-            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-2",
-            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-3",
-            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-4",
-            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-5",
-            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-6",
-            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-7",
-            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       }
@@ -2576,7 +2614,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ],
         "trace_id": "trace"
@@ -2617,7 +2657,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -2658,7 +2700,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -2699,7 +2743,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -2740,7 +2786,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -2781,7 +2829,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -2822,7 +2872,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -2863,7 +2915,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -2904,7 +2958,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -2945,7 +3001,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -2983,7 +3041,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3023,7 +3083,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3064,7 +3126,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3104,7 +3168,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3160,7 +3226,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3198,7 +3266,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3239,7 +3309,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3280,7 +3352,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3321,7 +3395,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3362,7 +3438,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3399,7 +3477,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3438,7 +3518,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3477,7 +3559,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3516,7 +3600,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -3546,7 +3632,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4222,7 +4310,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4263,7 +4353,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4304,7 +4396,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4340,7 +4434,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4378,7 +4474,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4414,7 +4512,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4450,7 +4550,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4485,7 +4587,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4522,7 +4626,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4554,7 +4660,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4594,7 +4702,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4635,7 +4745,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4740,7 +4852,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4781,7 +4895,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": ""
+            "label": "",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4822,39 +4938,57 @@
         "stored_inputs": [
           {
             "id": "input-0",
-            "label": "x"
+            "label": "x",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-1",
-            "label": "x"
+            "label": "x",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-2",
-            "label": "x"
+            "label": "x",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-3",
-            "label": "x"
+            "label": "x",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-4",
-            "label": "x"
+            "label": "x",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-5",
-            "label": "x"
+            "label": "x",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-6",
-            "label": "x"
+            "label": "x",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-7",
-            "label": "x"
+            "label": "x",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "input-8",
-            "label": "x"
+            "label": "x",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4895,11 +5029,15 @@
         "stored_inputs": [
           {
             "id": "b",
-            "label": "B"
+            "label": "B",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           },
           {
             "id": "a",
-            "label": "A"
+            "label": "A",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -4977,7 +5115,9 @@
         "stored_inputs": [
           {
             "id": "api-token",
-            "label": "Token da API"
+            "label": "Token da API",
+            "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.",
+            "help_url": "https://dash.cloudflare.com/profile/api-tokens"
           }
         ]
       },
@@ -5017,6 +5157,11 @@
         ],
         "stored_inputs": "none"
       },
+      {"locale": "pt", "assistant_id": "shimpz-cloudflare", "assistant_version": "1.4.0", "name": "Shimpz Cloudflare", "creators": ["@roxygens", "@Shimpz-Team"], "summary": "Publica alterações de DNS com segurança.", "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.", "links": {"site": "https://shimpz.com/", "github": "https://github.com/TheShimpz", "x": "https://x.com/shimpz"}, "actions": [{"id": "create-record", "effect": "mutating", "description": "Crie um registro DNS em uma zona."}, {"id": "list-zones", "effect": "read_only", "description": "Liste suas zonas do Cloudflare."}], "integrations": [{"id": "cloudflare", "provider": "cloudflare"}], "stored_inputs": [{"id": "api-token", "label": "Token da API", "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o."}]},
+      {"locale": "pt", "assistant_id": "shimpz-cloudflare", "assistant_version": "1.4.0", "name": "Shimpz Cloudflare", "creators": ["@roxygens", "@Shimpz-Team"], "summary": "Publica alterações de DNS com segurança.", "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.", "links": {"site": "https://shimpz.com/", "github": "https://github.com/TheShimpz", "x": "https://x.com/shimpz"}, "actions": [{"id": "create-record", "effect": "mutating", "description": "Crie um registro DNS em uma zona."}, {"id": "list-zones", "effect": "read_only", "description": "Liste suas zonas do Cloudflare."}], "integrations": [{"id": "cloudflare", "provider": "cloudflare"}], "stored_inputs": [{"id": "api-token", "label": "Token da API", "description": "Uma chave que permite a este Assistente alterar seu DNS. No painel da Cloudflare, abra Meu perfil > Tokens de API, crie um token com acesso de edição de DNS e copie-o.", "help_url": "http://dash.cloudflare.com/profile/api-tokens"}]},
+      {"locale": "pt", "assistant_id": "shimpz-cloudflare", "assistant_version": "1.4.0", "name": "Shimpz Cloudflare", "creators": ["@roxygens", "@Shimpz-Team"], "summary": "Publica alterações de DNS com segurança.", "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.", "links": {"site": "https://shimpz.com/", "github": "https://github.com/TheShimpz", "x": "https://x.com/shimpz"}, "actions": [{"id": "create-record", "effect": "mutating", "description": "Crie um registro DNS em uma zona."}, {"id": "list-zones", "effect": "read_only", "description": "Liste suas zonas do Cloudflare."}], "integrations": [{"id": "cloudflare", "provider": "cloudflare"}], "stored_inputs": [{"id": "api-token", "label": "Token da API", "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "help_url": "https://dash.cloudflare.com/profile/api-tokens"}]},
+      {"locale": "pt", "assistant_id": "shimpz-cloudflare", "assistant_version": "1.4.0", "name": "Shimpz Cloudflare", "creators": ["@roxygens", "@Shimpz-Team"], "summary": "Publica alterações de DNS com segurança.", "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.", "links": {"site": "https://shimpz.com/", "github": "https://github.com/TheShimpz", "x": "https://x.com/shimpz"}, "actions": [{"id": "create-record", "effect": "mutating", "description": "Crie um registro DNS em uma zona."}, {"id": "list-zones", "effect": "read_only", "description": "Liste suas zonas do Cloudflare."}], "integrations": [{"id": "cloudflare", "provider": "cloudflare"}], "stored_inputs": [{"id": "api-token", "label": "Token da API", "description": " Leading space.", "help_url": "https://dash.cloudflare.com/profile/api-tokens"}]},
+      {"locale": "pt", "assistant_id": "shimpz-cloudflare", "assistant_version": "1.4.0", "name": "Shimpz Cloudflare", "creators": ["@roxygens", "@Shimpz-Team"], "summary": "Publica alterações de DNS com segurança.", "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.", "links": {"site": "https://shimpz.com/", "github": "https://github.com/TheShimpz", "x": "https://x.com/shimpz"}, "actions": [{"id": "create-record", "effect": "mutating", "description": "Crie um registro DNS em uma zona."}, {"id": "list-zones", "effect": "read_only", "description": "Liste suas zonas do Cloudflare."}], "integrations": [{"id": "cloudflare", "provider": "cloudflare"}], "stored_inputs": [{"id": "api-token", "label": "Token da API", "description": "Line one.\nLine two.", "help_url": "https://dash.cloudflare.com/profile/api-tokens"}]},
       [
         "not",
         "an",

@@ -66,6 +66,9 @@ HELP_URL_PATTERN = (
     r"(?:\?(?:[A-Za-z0-9._~!$&()*+,;=:@/?-]|%[0-9A-F]{2})+)?(?![\s\S])"
 )
 MAX_HELP_URL_CHARS = 2_048
+# A Stored Input's help text (Developers manifest `description`) rendered in one interface language: what the value is
+# and how to get it, within the catalog bound every translation fits (Assistant Spec v1).
+MAX_STORED_INPUT_HELP_CHARS = 500
 # The Creator's public links an Assistant page shows (Developers manifest `[shimpz.links]`): unverified presentation,
 # in this canonical display order, each one help-URL-grammar URL on its own kind's host.
 CREATOR_LINK_PREFIXES = {
@@ -224,6 +227,11 @@ def canonical_help_url(value: object) -> str | None:
     return value
 
 
+def canonical_stored_input_help(value: object) -> str | None:
+    """Return one Stored Input help text rendered in one interface language: printable NFC public text, or None."""
+    return value if _rendered(value, value, MAX_STORED_INPUT_HELP_CHARS, nullable=False) else None
+
+
 def canonical_creator_links(value: object) -> dict[str, str] | None:
     """Return zero to six Creator links in canonical display order, or None when any kind or URL is invalid."""
     if not isinstance(value, dict) or not set(value) <= CREATOR_LINK_PREFIXES.keys():
@@ -361,9 +369,13 @@ def _details_capabilities(value: dict[str, object]) -> bool:
         )
         and _details_items(value["integrations"], 0, MAX_DETAILS_INTEGRATIONS, {"id", "provider"})
         and all(canonical_identifier(item["provider"]) is not None for item in value["integrations"])
-        and _details_items(value["stored_inputs"], 0, MAX_DETAILS_STORED_INPUTS, {"id", "label"})
+        and _details_items(
+            value["stored_inputs"], 0, MAX_DETAILS_STORED_INPUTS, {"id", "label", "description", "help_url"}
+        )
         and all(
             _rendered(item["label"], item["label"], MAX_DETAILS_LINE_CHARS, nullable=False)
+            and canonical_stored_input_help(item["description"]) is not None
+            and canonical_help_url(item["help_url"]) is not None
             for item in value["stored_inputs"]
         )
     )

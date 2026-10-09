@@ -88,31 +88,37 @@ busy answer and errors. Team answers the closed Assistant details object (`paylo
  "links": {"site": "https://shimpz.com/", "github": "https://github.com/TheShimpz"},
  "actions": [{"id": "list-zones", "effect": "read_only", "description": "Liste suas zonas do Cloudflare."}],
  "integrations": [{"id": "cloudflare", "provider": "cloudflare"}],
- "stored_inputs": [{"id": "api-token", "label": "Token da API"}]}
+ "stored_inputs": [{"id": "api-token", "label": "Token da API",
+   "description": "Crie um token de API no painel da Cloudflare, com acesso de edição de DNS, e copie-o.",
+   "help_url": "https://dash.cloudflare.com/profile/api-tokens"}]}
 ```
 
 `locale` is the closed interface language asked for; `assistant_id` and `assistant_version` follow the Developers
 grammars; `name` is 1 to 80 characters; `creators` are 1 to 16 unique self-declared `@handle`s (a staged snapshot's
 first four), never identity authority; `summary` (80), `description` (500), each Action `description` (120), and each
-Stored Input `label` (120) are rendered text: the English catalog text for `en`, otherwise that message's translation
+Stored Input `label` (120) and help-text `description` (500, `payload.canonical_stored_input_help`) are rendered text: the English catalog text for `en`, otherwise that message's translation
 from the snapshot's or binding's own pack, trimmed, printable, and NFC within the bound. `links` holds zero to six
 unverified Creator links (`payload.canonical_creator_links`): kinds `site`, `github`, `x`, `youtube`, `linkedin`, and
 `instagram`, each a `help_url`-grammar URL of at most 256 characters on its kind's host (`site` any public host,
 `github` `https://github.com/`, `x` `https://x.com/`, and `youtube`, `linkedin`, and `instagram` on their `.com` host
 with or without `www.`). `actions` (1 to 128, `effect` `read_only` or `mutating`), `integrations` (0 to 16, each its
-provider identifier), and `stored_inputs` (0 to 8) are each sorted by unique identifier `id`. No catalog, pack, schema,
-request copy, Stored Input description, or key page is returned. Admin refuses an answer whose `locale` is not the one
+provider identifier), and `stored_inputs` (0 to 8) are each sorted by unique identifier `id`. Each Stored Input also carries its declared
+`help_url` (`payload.canonical_help_url`), the official page where a person gets the value; Admin shows it as the one
+link beside the help text. No catalog, pack, schema, or request copy is returned. Admin refuses an answer whose `locale` is not the one
 it asked for.
 
-The challenge may also carry two optional presentation fields (ADR-0090). `purpose` is the Brain's own sentence for
+The challenge may also carry presentation fields beside the fingerprinted `request` (ADR-0090). `purpose` is the Brain's own sentence for
 why the user's task needs this Action, projected only when its recorded origin locale equals the challenge `locale`,
 so a Routine challenge shows its localized scope without a purpose. It is written in the turn's interface language
 from only the turn's message and the reviewed Action identity:
 1 to 280 NFC characters with no control, format, or line-separator character, no dash punctuation other than a
-hyphen inside a word, and nothing that reads as a link (`payload.canonical_purpose`). `help_url` appears only when
-`request.kind` is `input:password` with a `stored_input`, and is that Stored Input's reviewed key page copied from
-the exact binding's declaration (`payload.canonical_help_url`, one pattern shared with the Developers manifest and
-the Assistant-install standard). Both are inert presentation: they request and authorize nothing.
+hyphen inside a word, and nothing that reads as a link (`payload.canonical_purpose`). `help` and `help_url` appear
+exactly when `request.kind` is `input:password` with a `stored_input`, and then both are required: `help` is that
+Stored Input's help text rendered in the challenge `locale` from the exact binding's pack
+(`payload.canonical_stored_input_help`), and `help_url` is its reviewed help link copied from the exact binding's
+declaration (`payload.canonical_help_url`, one pattern shared with the Developers manifest and the Assistant-install
+standard). A Stored Input challenge without both is refused. All three are inert presentation: they request and
+authorize nothing, and an Assistant runtime request can never supply or override them.
 
 An authorization challenge (`approval`, `auth:password`, `auth:totp`, or `auth:passkey`) of an Action that declares a
 file input also carries `file`, the platform-controlled disclosure of the one selected file whose original bytes, with
@@ -485,7 +491,7 @@ whose `locale` is not the one it asked for.
 An installed Assistant's page reads the same way at `GET /v1/teams/:team_id/assistants/:assistant_id/details/:locale`
 on both profiles. Team answers the same closed Assistant details object plus `trace_id`, from the exact current
 binding: its admitted name, declared Creators (a published resolution's creators, a Local record's declared ones),
-description, links, Actions, Integrations, and Stored Input labels, localized from the pack verified against the
+description, links, Actions, Integrations, and Stored Input labels, help texts, and help links, localized from the pack verified against the
 binding's `pack_digest`. A missing binding fails as absent, a binding needing replacement or a missing or mismatched
 pack fails closed, and Team validates its own answer before sending it.
 
