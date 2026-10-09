@@ -3,22 +3,17 @@
 `shimpz-teams` owns the Team domain: Team and Assistant authority, isolation, authorization, lifecycle, and the
 Docker-mediated workload boundary.
 
-The repository is consumed by the Shimpz umbrella at the root `teams/` checkout. It is not a Service repository and
-does not own Brain, Account, Assistant-release, or egress-proxy responsibilities.
+The repository is consumed by the Shimpz umbrella at the root `teams/` checkout. It does not own Brain, Account, Assistant-release, or egress-proxy responsibilities.
 
 ## Source organization
 
 - `assistant/`, `chat/`, `egress/`, `inference/`, `install/`, `integrations/`, `action/`, and `storage/` are
-  profile-neutral Team responsibilities.
-- `core/` contains only cohesive invariants shared by both profiles: strict JSON, HTTP parsing, container identity,
-  isolation, and network policy.
-- `hosted/` owns the Hosted entrypoint, state, authority, audit, validation, token, and container construction.
-  Its `assistant/`, `chat/`, `http/`, `install/`, and `team/` children separate runtime responsibilities.
-- `local/` owns the Local entrypoint, state, audit, validation, token, labels, and lifecycle used by the Local Space
-  applied by the release-bound CLI. Its `assistant/`, `chat/`, `http/`, and `install/` children express the same profile
-  ownership without sharing materially different controller code with Hosted.
-- `install/` owns profile-neutral publication verification and binding; `hosted/install/` owns Hosted-only
-  authorization and materialization adapters.
+  named Team responsibilities.
+- `core/` contains only cohesive Team invariants: canonical JSON, identifiers, and strict HTTP parsing and routing.
+- `local/` owns the controller entrypoint, state, audit, validation, token, labels, and lifecycle used by the Local
+  Space applied by the release-bound CLI. Its `assistant/`, `chat/`, `http/`, and `install/` children separate runtime
+  responsibilities.
+- `install/` owns publication verification and binding.
 - `protocol/http/` is Team's HTTP authority; `protocol/assistant/` and `protocol/install/` are exact pinned mirrors
   used for independent admission and installation conformance.
 - `egress/` owns Team policy and bindings; the enforcement proxy remains in the Assistant domain.
@@ -30,12 +25,11 @@ adapter name but never as a child domain owned by Team.
 
 ## Deletion contract
 
-Team deletion is idempotent and fail-closed. A successful response includes `residue_absent`, naming every
-profile-owned state class proved absent. Hosted covers Brain and Action checkpoints, Assistant containers,
-publication bindings, egress policies, Team files and inference state, integration credentials, networks, the Brain
-container, volumes, database, database role, and the temporary cleanup authority. Local covers the applicable
-subset and also names encrypted chat continuations. A Local Space reset applies the same contract to every owned
-Team. An incomplete Hosted teardown retains only its bounded owner-bound cleanup authority and requires a retry.
+Team deletion is idempotent and fail-closed. A successful response includes `residue_absent`, naming every owned
+state class proved absent: encrypted chat continuations, Brain and Action checkpoints, preparation helpers, Routines,
+Assistant containers, egress policies, publication bindings, inference configuration, Team storage, the Team network
+and name, integration credentials, Stored Inputs, and runtime state. A Local Space reset applies the same contract to
+every owned Team.
 
 ## Local validation
 

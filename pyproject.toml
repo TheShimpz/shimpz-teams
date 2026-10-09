@@ -6,7 +6,7 @@ dependencies = [
     # Pinned EXACT: an open range lets any future release install
     # silently on the next rebuild. Docker consumes only the committed lock via `uv sync --frozen`.
     "docker==7.1.0",
-    # One-use X25519 + AES-GCM delivery means the credential endpoint never returns plaintext.
+    # Ed25519 Supervisor and Routine assertions, and the AES-GCM envelope of private Team state.
     "cryptography==50.0.0",
     # RE2 matches an Action schema `pattern` in time linear in the subject and releases the GIL while it runs.
     "google-re2==1.1.20251105",
