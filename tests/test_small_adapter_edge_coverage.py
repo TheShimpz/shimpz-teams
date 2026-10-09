@@ -1,6 +1,9 @@
 """Complete failure coverage for small Team process, token, and HTTP adapters."""
 
+import io
+import json
 import os
+import re
 import tempfile
 import types
 import unittest
@@ -12,6 +15,18 @@ from local import token as local_token
 from local.http import dispatch as local_dispatch
 
 
+class _Headers:
+    def __init__(self, *, authorization: list[str] | None = None, length: str | None = None) -> None:
+        self.authorization = list(authorization or [])
+        self.length = length
+
+    def get_all(self, _name: str, *, failobj):
+        return self.authorization or failobj
+
+    def get(self, _name: str, default=None):
+        return self.length if self.length is not None else default
+
+
 class _ProblemError(Exception):
     def __init__(self, status, message: str, code: str) -> None:
         self.status = status
@@ -20,6 +35,42 @@ class _ProblemError(Exception):
 
 
 class SmallHttpAdapterCoverageTests(unittest.TestCase):
+    def test_stdlib_bearer_json_and_route_contracts(self) -> None:
+        self.assertEqual(stdlib.bearer_token(object()), "")
+        self.assertEqual(stdlib.bearer_token(_Headers(authorization=["one", "two"])), "")
+        self.assertEqual(stdlib.bearer_token(_Headers(authorization=["Basic token"])), "")
+        self.assertEqual(stdlib.bearer_token(_Headers(authorization=["Bearer token"])), "token")
+        self.assertTrue(stdlib.bearer_authorized(_Headers(authorization=["Bearer token"]), "token"))
+        self.assertFalse(stdlib.bearer_authorized(_Headers(), "token"))
+
+        handler = mock.Mock()
+        handler.wfile = io.BytesIO()
+        stdlib.send_json(handler, 200, {"ok": True})
+        self.assertEqual(json.loads(handler.wfile.getvalue()), {"ok": True})
+
+        self.assertEqual(stdlib.read_json_body(_Headers(), io.BytesIO(), max_bytes=10), {})
+        self.assertEqual(
+            stdlib.read_json_body(_Headers(length="2"), io.BytesIO(b"{}"), max_bytes=10),
+            {},
+        )
+        for headers, stream, status in (
+            (_Headers(length="bad"), io.BytesIO(), 400),
+            (_Headers(length="11"), io.BytesIO(), 413),
+            (_Headers(length="1"), io.BytesIO(b"{"), 400),
+            (_Headers(length="2"), io.BytesIO(b"[]"), 400),
+        ):
+            with self.subTest(status=status), self.assertRaises(stdlib.HttpError) as raised:
+                stdlib.read_json_body(headers, stream, max_bytes=10)
+            self.assertEqual(raised.exception.status, status)
+
+        route = stdlib.Route("GET", re.compile(r"/teams/(?P<team_id>[a-z0-9_]+)"), "team-get")
+        matched = stdlib.resolve_route([route], "GET", "/teams/team_1?view=full")
+        self.assertEqual(matched.params, {"team_id": "team_1"})
+        self.assertEqual(matched.query, {"view": ["full"]})
+        with self.assertRaises(stdlib.HttpError) as missing:
+            stdlib.resolve_route([route], "POST", "/teams/team_1")
+        self.assertEqual(missing.exception.status, 404)
+
     def test_stdlib_dispatch_redacts_unclassified_errors(self) -> None:
         emitted = mock.Mock()
         stdlib.dispatch(lambda: None, classify=mock.Mock(), emit=emitted, unexpected_message="internal")
