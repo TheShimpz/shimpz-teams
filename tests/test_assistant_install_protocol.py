@@ -11,7 +11,7 @@ AUTHORITY = ROOT / "v1"
 MANIFEST = AUTHORITY / "contract-files.sha256"
 EXPECTED_UPSTREAM = {
     "repository": "https://github.com/TheShimpz/shimpz",
-    "commit": "3aaac07b11d9364362e35f6fd31b4185be628fc1",
+    "commit": "7e1b6bc9bb73e252b1dbcf1de7ff0504534fe201",
     "path": ".standards/assistant-install/v1",
     "tree": "88bb366eac556bb5831a93b8d4f1209d468bd183",
     "contract_files_sha256": "be5acf0c4f56a8e9310e2f032770304e21ccfd3e298bf8e0a4f68c8122289aab",
