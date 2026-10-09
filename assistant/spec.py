@@ -1,19 +1,12 @@
-"""Shared reviewed Assistant contract primitives for both Controllers."""
+"""Shared reviewed Assistant contract primitives."""
 
-import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from assistant import manifest as assistant_manifest
-from protocol.http.v1 import payload as http_payload
 
 ALL_ZERO_SHA256 = "0" * 64
-DIGEST_IMAGE_RE = re.compile(r"^[a-z0-9.-]+(?::[0-9]{1,5})?/[a-z0-9]+(?:[._/-][a-z0-9]+)*@sha256:[0-9a-f]{64}$")
-
-
-class AssistantSpecError(RuntimeError):
-    """A published Assistant contract is malformed or unavailable."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,32 +59,6 @@ class StoredInputSpec:
     query: str | None = None
     scheme: str | None = None
     hmac: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class AssistantContract:
-    name: str
-    actions: dict[str, ActionSpec]
-    integrations: dict[str, IntegrationSpec] = field(default_factory=dict)
-    stored_inputs: dict[str, StoredInputSpec] = field(default_factory=dict)
-    machine_contract: dict[str, Any] = field(default_factory=dict)
-    # The reviewed binding's language-pack digest; the pack itself is admitted from the verified image (ADR-0091).
-    pack_digest: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class AssistantSpec:
-    version: str
-    summary: str
-    description: str
-    image: str
-    allowed_hosts: tuple[str, ...]
-    archs: tuple[str, ...]
-    required_image_labels: tuple[tuple[str, str], ...]
-    contract: AssistantContract
-    # The published resolution's self-declared Creators and unverified Creator links, shown on its Assistant page.
-    creators: tuple[str, ...] = ()
-    links: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,13 +125,6 @@ def runtime_contract(document: Mapping[str, Any]) -> RuntimeContract:
     )
 
 
-def validate_assistant_id(value: object) -> str:
-    assistant_id = http_payload.canonical_assistant_id(value)
-    if assistant_id is None:
-        raise AssistantSpecError("the Assistant id is invalid")
-    return assistant_id
-
-
 def action_summary(action_id: str) -> str:
     return action_id.replace("-", " ").capitalize()
 
@@ -188,8 +148,3 @@ def validate_action_payload(
 
 def digest_is_bound(ref: object) -> bool:
     return isinstance(ref, str) and not ref.endswith(f"sha256:{ALL_ZERO_SHA256}")
-
-
-def is_digest_image(image: object) -> bool:
-    """Accept only a complete, non-placeholder registry digest reference."""
-    return isinstance(image, str) and DIGEST_IMAGE_RE.fullmatch(image) is not None and digest_is_bound(image)

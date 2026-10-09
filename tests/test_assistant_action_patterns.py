@@ -7,15 +7,12 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import hosted_assistant_fixture as harness
 
 from assistant import action_schema
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_spec
 from protocol.action.v1 import schema as action_protocol
 
-assistants = harness.hosted_assistants
-assistant_registry = assistants.assistant_registry
 PATTERN_VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "vectors" / "pattern.json"
 # Python's backtracking `re` needs seconds for 30 characters of this pattern and doubles with each one more.
 CATASTROPHIC = "^(a+)+b$"
@@ -197,25 +194,6 @@ class LinearTimeValidationPathTests(unittest.TestCase):
         self.assertEqual(
             assistant_spec.validate_action_payload(action, "output", {"items": ["aab"]}), {"items": ["aab"]}
         )
-
-    def test_hosted_input_and_output_validation_stay_linear(self) -> None:
-        contract = assistant_registry.AssistantContract(
-            name="Assistant",
-            actions={"run": assistant_registry.ActionSpec("Run", self.INPUT, self.OUTPUT)},
-            integrations={},
-        )
-        for output, payload in (
-            (False, {"value": "a" * 30}),
-            (False, {"a" * 30: 1}),
-            (True, {"items": [self.NEAR_MISS]}),
-        ):
-            with self.subTest(output=output):
-                self.assert_fast_refusal(
-                    lambda value, output=output: assistants._validate_action_payload(
-                        contract, "run", value, output=output
-                    ),
-                    payload,
-                )
 
 
 if __name__ == "__main__":

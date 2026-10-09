@@ -1,16 +1,14 @@
-"""State-machine contracts for the hosted and local Controller healthchecks."""
+"""State-machine contracts for the Local Controller healthcheck."""
 
 import json
 import sys
 import unittest
-from contextlib import ExitStack
 from pathlib import Path
 from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
-from hosted import healthcheck
 from local import healthcheck as local_healthcheck
 
 
@@ -51,44 +49,6 @@ class _Connection:
 
     def close(self) -> None:
         self.closed = True
-
-
-class HostedHealthcheckTests(unittest.TestCase):
-    def test_main_runs_each_gate_in_order_and_short_circuits_on_failure(self) -> None:
-        stages = (
-            "daemon_isolation_ready",
-            "images_ready",
-            "network_topology_ready",
-            "auth_gate_ready",
-        )
-        for failed_index in range(len(stages)):
-            calls: list[str] = []
-            with self.subTest(stage=stages[failed_index]), ExitStack() as stack:
-                for index, stage in enumerate(stages):
-                    stack.enter_context(
-                        mock.patch.object(
-                            healthcheck,
-                            stage,
-                            side_effect=lambda index=index, stage=stage, calls=calls, failed_index=failed_index: (
-                                calls.append(stage) or index != failed_index
-                            ),
-                        )
-                    )
-                self.assertEqual(healthcheck.main(), 1)
-            self.assertEqual(calls, list(stages[: failed_index + 1]))
-
-        calls = []
-        with ExitStack() as stack:
-            for stage in stages:
-                stack.enter_context(
-                    mock.patch.object(
-                        healthcheck,
-                        stage,
-                        side_effect=lambda stage=stage: calls.append(stage) or True,
-                    )
-                )
-            self.assertEqual(healthcheck.main(), 0)
-        self.assertEqual(calls, list(stages))
 
 
 class LocalHealthcheckTests(unittest.TestCase):

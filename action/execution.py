@@ -1,4 +1,4 @@
-"""Shared fail-closed Action execution primitives for Hosted and Local."""
+"""Shared fail-closed Action execution primitives."""
 
 import concurrent.futures
 import dataclasses

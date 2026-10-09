@@ -83,9 +83,7 @@ class BoundedServerEdgeTests(unittest.TestCase):
 class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
     def test_json_body_limits_cover_every_local_body_route(self) -> None:
         body_operations = {
-            route.operation
-            for route in strict_http.CONTROLLER_ROUTES
-            if strict_http.LOCAL_CONTROLLER in route.profiles and route.method in {"POST", "PUT", "PATCH"}
+            route.operation for route in strict_http.CONTROLLER_ROUTES if route.method in {"POST", "PUT", "PATCH"}
         }
         body_operations.remove("file-upload")
         # A Local deletion carries the Team name it confirms (ADR-0088).

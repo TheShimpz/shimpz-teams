@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Literal
 
 from core import canonical_json
-from core.container import network as network_policy
 from install import lock
 from install.contract import ContractValidationError, ContractValidator
 from protocol.http.v1 import payload as http_payload
@@ -23,6 +22,8 @@ _CONTRACTS = ContractValidator()
 _PUBLISHED = "published"
 _LOCAL = "local"
 _LOCK_UNAVAILABLE = "the dynamic Assistant registry lock is unavailable"
+# Team infrastructure names an Assistant id may never take.
+RESERVED_SERVICE_ALIASES = frozenset({"postgres", "assistant-egress", "shimpz-assistant-egress"})
 type AssistantProvenance = Literal["published", "local"]
 type LocalRecordValidator = Callable[[dict[str, Any]], None]
 
@@ -280,7 +281,7 @@ def _binding(
 ) -> DynamicAssistantBinding:
     assistant_id = document.get("assistant_id")
     _validate_identity(team_id, assistant_id)
-    if assistant_id in network_policy.RESERVED_SERVICE_ALIASES:
+    if assistant_id in RESERVED_SERVICE_ALIASES:
         raise DynamicAssistantError("the Assistant id is reserved for Team infrastructure")
     digest_value = {
         "version": _FORMAT_VERSION,

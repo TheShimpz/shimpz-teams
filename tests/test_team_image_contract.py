@@ -6,7 +6,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded"
 # The preparation helper's fixed worker runs from the same image as the controller (ADR-0093).
-HOSTED_ENTRYPOINTS = ("hosted.app", "hosted.healthcheck", "prepare.worker")
 LOCAL_ENTRYPOINTS = ("local.app", "local.healthcheck", "prepare.worker")
 ROOT_RUNTIME_DATA: set[str] = set()
 PRODUCTION_PACKAGES = {
@@ -14,7 +13,6 @@ PRODUCTION_PACKAGES = {
     "chat",
     "core",
     "egress",
-    "hosted",
     "inference",
     "install",
     "integrations",
@@ -24,13 +22,9 @@ PRODUCTION_PACKAGES = {
     "routine",
     "storage",
 }
-# Package data has no import graph; these per-image maps are its reviewed necessity authority.
-HOSTED_PACKAGE_DATA = {
-    "inference": {"inference/model_catalog.json"},
-    "install": set(),
-}
+# Package data has no import graph; this map is its reviewed necessity authority.
 LOCAL_PACKAGE_DATA = {
-    "inference": HOSTED_PACKAGE_DATA["inference"],
+    "inference": {"inference/model_catalog.json"},
     "install": set(),
 }
 PACKAGE_TOOLS: dict[str, set[str]] = {}
@@ -41,37 +35,6 @@ ASSISTANT_PROTOCOL_RUNTIME = {
     "protocol/assistant/v1/validators/human_request.py",
     "protocol/assistant/v1/validators/input_file.py",
     "protocol/assistant/v1/validators/message_catalog.py",
-}
-HOSTED_PROTOCOL_DATA = {
-    *ASSISTANT_PROTOCOL_RUNTIME,
-    "protocol/account/authority/upstream.json",
-    "protocol/account/authority/v1/README.md",
-    "protocol/account/authority/v1/contract-files.sha256",
-    "protocol/account/authority/v1/evaluation-request.schema.json",
-    "protocol/account/authority/v1/evaluation-response.schema.json",
-    "protocol/account/authority/v1/vectors.json",
-    "protocol/account/authority/v1/verify.py",
-    "protocol/account/delivery/v1/aad.py",
-    "protocol/action/v1/schema.py",
-    "protocol/http/v1/identifiers.py",
-    "protocol/http/v1/payload.py",
-    "protocol/http/v1/purpose.py",
-    "protocol/http/v1/strict_json.py",
-    "protocol/http/v1/turn.py",
-    "protocol/install/upstream.json",
-    "protocol/install/v1/README.md",
-    "protocol/install/v1/contract-files.sha256",
-    "protocol/install/v1/install-request.schema.json",
-    "protocol/install/v1/install-response.schema.json",
-    "protocol/install/v1/definitions.schema.json",
-    "protocol/install/v1/delegation-claims.schema.json",
-    "protocol/install/v1/install-authorization-receipt.schema.json",
-    "protocol/install/v1/install-authorization-request.schema.json",
-    "protocol/install/v1/resolve-response.schema.json",
-    "protocol/install/v1/schema_validator.py",
-    "protocol/install/v1/team-list-response.schema.json",
-    "protocol/install/v1/vectors.json",
-    "protocol/install/v1/verify.py",
 }
 LOCAL_PROTOCOL_DATA = {
     *ASSISTANT_PROTOCOL_RUNTIME,
@@ -89,7 +52,14 @@ LOCAL_PROTOCOL_DATA = {
     "protocol/http/v1/strict_json.py",
     "protocol/http/v1/supervisor.py",
     "protocol/http/v1/turn.py",
-    *(path for path in HOSTED_PROTOCOL_DATA if path.startswith("protocol/install/")),
+    "protocol/install/upstream.json",
+    "protocol/install/v1/README.md",
+    "protocol/install/v1/contract-files.sha256",
+    "protocol/install/v1/definitions.schema.json",
+    "protocol/install/v1/resolve-response.schema.json",
+    "protocol/install/v1/schema_validator.py",
+    "protocol/install/v1/vectors.json",
+    "protocol/install/v1/verify.py",
 }
 DYNAMIC_IMPORT_MODULES = {"importlib", "pkgutil", "runpy"}
 
@@ -232,9 +202,6 @@ class StaticTeamImageContractTests(unittest.TestCase):
             "./",
             "/opt/venv",
             "/usr/local/bin/cosign",
-            "./protocol/account/authority/",
-            "./protocol/account/authority/v1/",
-            "./protocol/account/delivery/v1/",
             "./protocol/action/v1/",
             "./protocol/assistant/v1/validators/",
             "./protocol/http/v1/",
@@ -287,71 +254,6 @@ class StaticTeamImageContractTests(unittest.TestCase):
                 "**/*.pyc",
             },
             set(dockerignore),
-        )
-
-    def test_static_image_packages_the_exact_runtime_import_closure(self) -> None:
-        dockerfile = (ROOT / "hosted" / "Dockerfile").read_text(encoding="utf-8")
-        for line in re.sub(r"\\\n\s*", " ", dockerfile).splitlines():
-            _copy_parts(line)
-        runtime = dockerfile.rsplit("\nFROM ", 1)[-1]
-        logical_lines = re.sub(r"\\\n\s*", " ", runtime).splitlines()
-
-        self.assertIn(
-            f'ENTRYPOINT ["/opt/venv/bin/python", "-m", "{HOSTED_ENTRYPOINTS[0]}"]',
-            logical_lines,
-        )
-        self.assertNotIn("HEALTHCHECK", runtime)
-        self._assert_image_closure(
-            logical_lines,
-            HOSTED_ENTRYPOINTS,
-            HOSTED_PACKAGE_DATA,
-            HOSTED_PROTOCOL_DATA,
-        )
-        dependencies = dockerfile.split(" AS dependencies\n", 1)[1].split(" AS runtime\n", 1)[0]
-        self.assertIn(f"FROM {UV_IMAGE} AS uv", dockerfile)
-        self.assertIn("COPY --from=uv /uv /usr/local/bin/uv", dependencies)
-        self.assertIn("source=pyproject.toml,target=/app/pyproject.toml,ro", dependencies)
-        self.assertIn("source=uv.lock,target=/app/uv.lock,ro", dependencies)
-        self.assertIn('echo "${cosign_sha256}  /tmp/cosign" | sha256sum -c -', dependencies)
-        self.assertIn("COPY --from=dependencies /opt/venv /opt/venv", runtime)
-        self.assertIn("COPY --from=dependencies /usr/local/bin/cosign /usr/local/bin/cosign", runtime)
-        for retired in ("uv-install.sh", "apt-get", "curl", "/usr/local/bin/uv", "--from=uv"):
-            with self.subTest(retired=retired):
-                self.assertNotIn(retired, runtime)
-        protocol = ROOT / "protocol" / "install"
-        self.assertEqual({"upstream.json", "v1"}, {path.name for path in protocol.iterdir()})
-        authority_protocol = ROOT / "protocol" / "account" / "authority"
-        self.assertEqual({"upstream.json", "v1"}, {path.name for path in authority_protocol.iterdir()})
-        for package in PRODUCTION_PACKAGES:
-            package_tree = ast.parse((ROOT / package / "__init__.py").read_text(encoding="utf-8"))
-            self.assertFalse(
-                [node for node in ast.walk(package_tree) if isinstance(node, (ast.Import, ast.ImportFrom))]
-            )
-
-    def test_static_image_keeps_brain_access_and_private_state_narrow(self) -> None:
-        dockerfile = (ROOT / "hosted" / "Dockerfile").read_text(encoding="utf-8")
-
-        self.assertIn("ARG SHIMPZ_BRAIN_RUNTIME_TOKEN_GID=10016", dockerfile)
-        self.assertIn(
-            'groupadd -g "${SHIMPZ_BRAIN_RUNTIME_TOKEN_GID}" shimpzbrain-runtime-token',
-            dockerfile,
-        )
-        self.assertNotIn("r2", dockerfile.lower())
-        self.assertIn(
-            "chown shimpzteam:shimpzbrain-runtime-token /run/shimpz-brain-runtime",
-            dockerfile,
-        )
-        self.assertIn("chmod 0750 /run/shimpz-brain-runtime", dockerfile)
-        self.assertIn("/var/lib/team/inference", dockerfile)
-        self.assertIn("/var/lib/team/action-journal", dockerfile)
-        self.assertNotIn("/var/lib/team/assistant-secrets", dockerfile)
-        self.assertIn("/var/lib/team/assistant-integrations/state", dockerfile)
-        self.assertIn("/var/lib/team/assistant-integrations/key", dockerfile)
-        self.assertIn("/var/lib/team/assistant-stored-inputs/state", dockerfile)
-        self.assertIn("/var/lib/team/assistant-stored-inputs/key", dockerfile)
-        self.assertIn(
-            "/var/lib/team/cleanup \\\n        /var/lib/team/inference \\\n        /var/lib/team/action-journal \\",
-            dockerfile,
         )
 
     def _assert_epoch_free_dependency_base(self, dockerfile: str) -> None:
@@ -415,26 +317,31 @@ class StaticTeamImageContractTests(unittest.TestCase):
         self.assertNotIn("apt-get", runtime)
         self.assertNotIn("curl", runtime)
         self.assertNotIn("/usr/local/bin/uv", runtime)
+        protocol = ROOT / "protocol" / "install"
+        self.assertEqual({"upstream.json", "v1"}, {path.name for path in protocol.iterdir()})
+        for package in PRODUCTION_PACKAGES:
+            package_tree = ast.parse((ROOT / package / "__init__.py").read_text(encoding="utf-8"))
+            self.assertFalse(
+                [node for node in ast.walk(package_tree) if isinstance(node, (ast.Import, ast.ImportFrom))]
+            )
 
     def test_every_package_module_is_reachable_from_an_image_entrypoint(self) -> None:
-        hosted_modules, hosted_packages, hosted_paths = _runtime_import_closure(*HOSTED_ENTRYPOINTS)
         local_modules, local_packages, local_paths = _runtime_import_closure(*LOCAL_ENTRYPOINTS)
-        imported_paths = hosted_paths | local_paths
 
-        self.assertEqual({path.name for path in ROOT.glob("*.py")}, hosted_modules | local_modules)
+        self.assertEqual({path.name for path in ROOT.glob("*.py")}, local_modules)
         self.assertEqual({path.name for path in ROOT.glob("*.json")}, ROOT_RUNTIME_DATA)
         filesystem_packages = {
             path.name for path in ROOT.iterdir() if path.is_dir() and (path / "__init__.py").is_file()
         }
         self.assertEqual(PRODUCTION_PACKAGES, filesystem_packages)
-        self.assertEqual(PRODUCTION_PACKAGES, hosted_packages | local_packages)
+        self.assertEqual(PRODUCTION_PACKAGES, local_packages)
         for package in PRODUCTION_PACKAGES:
             package_files = {
                 path.relative_to(ROOT).as_posix() for path in (ROOT / package).rglob("*.py")
             } - PACKAGE_TOOLS.get(package, set())
             self.assertEqual(
                 package_files,
-                {path for path in imported_paths if path.startswith(f"{package}/")},
+                {path for path in local_paths if path.startswith(f"{package}/")},
             )
         source_package_data = {
             path.relative_to(ROOT).as_posix()
@@ -445,37 +352,13 @@ class StaticTeamImageContractTests(unittest.TestCase):
             and path.suffix not in {".py", ".pyc"}
             and not any(part.startswith(".") or part == "__pycache__" for part in path.relative_to(ROOT).parts)
         }
-        declared_package_data = {
-            path
-            for image_data in (HOSTED_PACKAGE_DATA, LOCAL_PACKAGE_DATA)
-            for paths in image_data.values()
-            for path in paths
-        }
+        declared_package_data = {path for paths in LOCAL_PACKAGE_DATA.values() for path in paths}
         self.assertEqual(source_package_data, declared_package_data)
         protocol_install_data = {
             path.relative_to(ROOT).as_posix()
             for path in (ROOT / "protocol" / "install").rglob("*")
             if path.is_file() and not any(part == "__pycache__" for part in path.relative_to(ROOT).parts)
         }
-        protocol_authority_data = {
-            path.relative_to(ROOT).as_posix()
-            for path in (ROOT / "protocol" / "account" / "authority").rglob("*")
-            if path.is_file() and not any(part == "__pycache__" for part in path.relative_to(ROOT).parts)
-        }
-        protocol_runtime_data = {path for path in hosted_paths if path.startswith("protocol/")}
-        self.assertEqual(
-            protocol_runtime_data,
-            {
-                "protocol/action/v1/schema.py",
-                "protocol/http/v1/identifiers.py",
-                "protocol/http/v1/payload.py",
-                "protocol/http/v1/purpose.py",
-                "protocol/http/v1/strict_json.py",
-                "protocol/http/v1/turn.py",
-                "protocol/account/delivery/v1/aad.py",
-                *ASSISTANT_PROTOCOL_RUNTIME,
-            },
-        )
         local_protocol_runtime_data = {path for path in local_paths if path.startswith("protocol/")}
         self.assertEqual(
             local_protocol_runtime_data,
@@ -485,10 +368,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
                 if path.startswith(("protocol/action/", "protocol/http/", "protocol/assistant/"))
             },
         )
-        self.assertEqual(
-            protocol_install_data | protocol_authority_data | protocol_runtime_data,
-            HOSTED_PROTOCOL_DATA,
-        )
+        self.assertEqual(protocol_install_data | local_protocol_runtime_data, LOCAL_PROTOCOL_DATA)
         production_sources = [*ROOT.glob("*.py")]
         production_sources.extend(path for package in PRODUCTION_PACKAGES for path in (ROOT / package).rglob("*.py"))
         for path in production_sources:

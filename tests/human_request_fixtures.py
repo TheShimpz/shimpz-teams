@@ -20,8 +20,8 @@ DESCRIPTION = "Provide the reviewed value before the Action continues."
 CATALOG: dict[str, dict[str, object]] = catalog_fixtures.by_id(catalog_fixtures.messages())
 
 
-# Copy that Controller-driven tests use through the Local and Hosted harnesses, whose reviewed binding carries a fixed
-# catalog and pack: a harness request may reference only these messages and the default templates.
+# Copy that Controller-driven tests use through the Local harness, whose reviewed binding carries a fixed catalog and
+# pack: a harness request may reference only these messages and the default templates.
 HARNESS_COPY = (
     "Allow listing the zones.",
     "Allow this Action to list the reviewed Cloudflare zones.",

@@ -1,4 +1,4 @@
-"""Edges of Team-made provider calls: each profile's egress route, admission refusals, and transport bounds."""
+"""Edges of Team-made provider calls: the egress route, admission refusals, and transport bounds."""
 
 import base64
 import struct
@@ -8,13 +8,9 @@ import types
 import unittest
 from unittest import mock
 
-import hosted_assistant_fixture as harness
-
 from action import frames as action_frames
 from action import provider
 from local import app as local_app
-
-hosted_runtime = harness.hosted_assistants
 
 HOST = "api.example.com"
 
@@ -33,31 +29,7 @@ def _private() -> types.SimpleNamespace:
 
 
 class EgressRouteTests(unittest.TestCase):
-    """Each profile reads the Assistant's own egress policy only when the attempt makes its first call."""
-
-    def test_the_hosted_route_reads_the_admitted_policy_and_refuses_an_unavailable_one(self) -> None:
-        contract = types.SimpleNamespace(stored_inputs={}, integrations={}, actions={"run": _action()})
-        request = types.SimpleNamespace(team_id="team_1", assistant_id="example", action="run", contract=contract)
-        for admitted, expected in ((None, ("", frozenset())), (("token", [HOST]), ("token", frozenset({HOST})))):
-            store = types.SimpleNamespace(admitted=mock.Mock(return_value=admitted))
-            with (
-                self.subTest(admitted=admitted),
-                mock.patch.object(hosted_runtime.assistant_lifecycle, "_egress_store", return_value=store),
-            ):
-                self.assertEqual(hosted_runtime._provider_broker(request, _private())._scope.route(), expected)
-        drift = hosted_runtime.egress_policy.EgressPolicyError("drift")
-        failing = types.SimpleNamespace(admitted=mock.Mock(side_effect=drift))
-        with (
-            mock.patch.object(hosted_runtime.assistant_lifecycle, "_egress_store", return_value=failing),
-            self.assertRaises(hosted_runtime.action_provider.CallRefusedError) as refused,
-        ):
-            hosted_runtime._provider_broker(request, _private())._scope.route()
-        self.assertEqual((refused.exception.code, refused.exception.reason), ("unavailable", "egress-policy"))
-        with mock.patch.object(hosted_runtime.audit, "log") as log:
-            hosted_runtime._provider_broker(request, _private())._scope.audit(
-                {"phase": "refused", "call": 1, "error": "refused", "reason": "host"}
-            )
-        self.assertEqual((log.call_args.args[0], log.call_args.kwargs["result"]), ("assistant_provider_call", "denied"))
+    """Local reads the Assistant's own egress policy only when the attempt makes its first call."""
 
     def test_the_local_route_reads_the_assistant_token_and_refuses_an_unavailable_one(self) -> None:
         spec = types.SimpleNamespace(assistant_id="example", stored_inputs={}, integrations={}, allowed_hosts=(HOST,))

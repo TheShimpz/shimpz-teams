@@ -1,4 +1,4 @@
-"""Adversarial frame contracts for hosted and local Assistant Action RPC."""
+"""Adversarial frame contracts for Local Assistant Action RPC."""
 
 import json
 import socket
@@ -17,7 +17,6 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from hosted_assistant_fixture import hosted_assistants, runtime_state
 from test_action_rpc_exchange import rpc_strategy
 
 from action import execution as action_execution
@@ -25,7 +24,6 @@ from action import human as action_human
 from action import journal as action_journal
 from action import result as action_result
 from action import stored_input as action_stored_input
-from hosted import container as container_spec
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local.assistant import isolation as local_container_policy
@@ -75,9 +73,9 @@ class ActionRpcFrameTests(unittest.TestCase):
 
     def test_split_stdout_and_stderr_frames_are_read_exactly(self) -> None:
         payload = _frame(1, b'{"ok":') + _frame(2, b"warning") + _frame(1, b"true}")
-        with _socket_bytes(payload, pieces=(1, 2, 5, 3, 7)) as hosted_socket:
+        with _socket_bytes(payload, pieces=(1, 2, 5, 3, 7)) as raw_socket:
             stdout, stderr = action_execution.exchange_rpc_frames(
-                hosted_socket,
+                raw_socket,
                 b"",
                 time.monotonic() + 1,
                 action_execution.MAX_RPC_RESPONSE_BYTES,
@@ -429,9 +427,9 @@ class ActionRpcFrameTests(unittest.TestCase):
 
         for payload in cases:
             with self.subTest(payload=payload):
-                with _socket_bytes(payload) as hosted_socket, self.assertRaises(ValueError):
+                with _socket_bytes(payload) as raw_socket, self.assertRaises(ValueError):
                     action_execution.exchange_rpc_frames(
-                        hosted_socket,
+                        raw_socket,
                         b"",
                         time.monotonic() + 1,
                         action_execution.MAX_RPC_RESPONSE_BYTES,
@@ -445,10 +443,10 @@ class ActionRpcFrameTests(unittest.TestCase):
                     )
 
     def test_clean_eof_is_the_only_empty_success(self) -> None:
-        with _socket_bytes(b"") as hosted_socket:
+        with _socket_bytes(b"") as raw_socket:
             self.assertEqual(
                 action_execution.exchange_rpc_frames(
-                    hosted_socket,
+                    raw_socket,
                     b"",
                     time.monotonic() + 1,
                     action_execution.MAX_RPC_RESPONSE_BYTES,
@@ -626,60 +624,12 @@ class ActionRpcFrameTests(unittest.TestCase):
         action_execution.close_exec_stream(SimpleNamespace(_response=response))
         response.close.assert_called_once_with()
 
-    def test_action_resolution_failures_have_identical_statuses(self) -> None:
+    def test_an_action_resolution_failure_has_the_integration_precondition_status(self) -> None:
         local_spec = SimpleNamespace(assistant_id="assistant", name="Assistant", actions={}, integrations={})
-
-        hosted_active = SimpleNamespace(
-            assistant_id="assistant",
-            version="1.0.0",
-            summary="Assistant test fixture.",
-            contract=SimpleNamespace(name="Assistant", actions={}, integrations={}),
-        )
         self.local.assistant_integrations = object()
-        with self.assertRaises(runtime_state.ApiError) as hosted_integration:
-            hosted_assistants._resolve_action_integrations("team_1", hosted_active, "missing")
         with self.assertRaises(local_app.ApiProblem) as local_integration:
             self.local.chat_turn_service._resolve_action_integrations("team_1", local_spec, "missing")
-        self.assertEqual(
-            hosted_integration.exception.status,
-            local_integration.exception.status,
-            action_execution.INTEGRATION_PRECONDITION_STATUS,
-        )
-
-    def test_hosted_exchange_fail_stops_on_malformed_frame(self) -> None:
-        with _socket_bytes(b"truncated") as raw_socket:
-            stream = SimpleNamespace(_sock=raw_socket, close=lambda: None)
-            create = mock.Mock(return_value={"Id": "exec-1"})
-            api = SimpleNamespace(
-                exec_create=create,
-                exec_start=lambda *_args, **_kwargs: stream,
-            )
-            fail_stop = mock.Mock()
-            container = SimpleNamespace(id="assistant-container")
-            with (
-                mock.patch.object(runtime_state, "_docker", SimpleNamespace(api=api)),
-                mock.patch.object(hosted_assistants, "_fail_stop_action", fail_stop),
-                mock.patch.object(
-                    hosted_assistants.action_execution,
-                    "encode_rpc_invocation",
-                    return_value=b"request",
-                ),
-                self.assertRaises(runtime_state.ApiError) as caught,
-            ):
-                hosted_assistants._assistant_rpc_exchange(
-                    hosted_assistants.AssistantRpcRequest(
-                        team_id="team_1",
-                        container=container,
-                        action_id="test",
-                        payload={"input": {}, "stored_inputs": (), "operation_id": OPERATION_ID},
-                        token=None,
-                    )
-                )
-
-        self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
-        fail_stop.assert_called_once_with("team_1", container)
-        self.assertEqual(create.call_args.args[1], [action_execution.ACTION_COMMAND, "test"])
-        self.assertEqual(create.call_args.kwargs["workdir"], container_spec.CONTAINER_TMP)
+        self.assertEqual(local_integration.exception.status, action_execution.INTEGRATION_PRECONDITION_STATUS)
 
     def test_local_exchange_fail_stops_on_malformed_frame(self) -> None:
         with _socket_bytes(b"truncated") as raw_socket:
@@ -746,60 +696,8 @@ class ActionRpcFrameTests(unittest.TestCase):
 
         encode.assert_called_once_with({}, (), OPERATION_ID, (response,), {})
 
-    def test_hosted_exchange_carries_replay_responses_only_when_present(self) -> None:
-        response = {
-            "kind": "approval",
-            "ordinal": 0,
-            "fingerprint": "a" * 64,
-            "value": True,
-        }
-        request = hosted_assistants.AssistantRpcRequest(
-            team_id="team_1",
-            container=SimpleNamespace(id="assistant-container"),
-            action_id="test",
-            payload={
-                "input": {},
-                "stored_inputs": (),
-                "operation_id": OPERATION_ID,
-                "responses": (response,),
-            },
-            token=None,
-        )
-        with (
-            mock.patch.object(runtime_state, "_docker", SimpleNamespace(api=object())),
-            mock.patch.object(hosted_assistants.action_execution, "rpc_exchange", return_value={"ok": True}),
-            mock.patch.object(
-                hosted_assistants.action_execution,
-                "encode_rpc_invocation",
-                return_value=b"request",
-            ) as encode,
-        ):
-            hosted_assistants._assistant_rpc_exchange(request)
 
-        encode.assert_called_once_with({}, (), OPERATION_ID, (response,), {})
-
-
-class RpcMessageParity(unittest.TestCase):
-    def _hosted(self, kind):
-        request = hosted_assistants.AssistantRpcRequest(
-            team_id="t",
-            container=SimpleNamespace(id="c"),
-            action_id="p",
-            payload={"input": {}, "stored_inputs": (), "operation_id": OPERATION_ID},
-            token=None,
-        )
-        with (
-            mock.patch.object(runtime_state, "_docker", SimpleNamespace(api=object())),
-            mock.patch.object(
-                hosted_assistants.action_execution,
-                "rpc_exchange",
-                side_effect=hosted_assistants.action_execution.RpcExchangeError(kind),
-            ),
-            self.assertRaises(runtime_state.ApiError) as caught,
-        ):
-            hosted_assistants._assistant_rpc_exchange(request)
-        return caught.exception.message
-
+class RpcMessageTests(unittest.TestCase):
     def _local(self, kind):
         fake = SimpleNamespace(
             client=SimpleNamespace(api=object()),
@@ -834,7 +732,6 @@ class RpcMessageParity(unittest.TestCase):
         )
         for kind in ("timeout", "ambiguous", "invalid-result", "failed"):
             canonical = action_execution.rpc_failure_message(kind)[0]
-            self.assertEqual(self._hosted(kind), canonical)
             self.assertEqual(self._local(kind), canonical)
 
 

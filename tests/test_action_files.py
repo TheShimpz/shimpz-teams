@@ -11,14 +11,11 @@ import tempfile
 import threading
 import time
 import unittest
-from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hosted_assistant_fixture import hosted_assistants
-from hosted_assistant_fixture import runtime_state as hosted_state
 
 from action import challenges as action_challenges
 from action import execution as action_execution
@@ -427,15 +424,6 @@ class TransportEdgeTests(unittest.TestCase):
             local_assistant_rpc._rpc(subject, SimpleNamespace(id="container"), "upload", payload)
         self.assertEqual(caught.exception.code, "action-file-unavailable")
         subject.client.api.exec_create.assert_not_called()
-        request = hosted_assistants.AssistantRpcRequest("team_1", SimpleNamespace(id="c"), "upload", payload, None)
-        with (
-            mock.patch.object(hosted_assistants.action_execution, "encode_rpc_invocation", return_value=b"{}"),
-            mock.patch.object(hosted_assistants, "_exchange_registered") as exchange,
-            self.assertRaises(hosted_state.ApiError) as hosted,
-        ):
-            hosted_assistants._assistant_rpc_exchange(request)
-        self.assertEqual(hosted.exception.status, HTTPStatus.CONFLICT)
-        exchange.assert_not_called()
 
 
 class DisclosureVectorTests(unittest.TestCase):

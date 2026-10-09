@@ -1,28 +1,18 @@
-"""Hosted and Local Assistant writable-temp contracts."""
+"""Local Assistant writable-temp contract."""
 
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from local_assistant_fixture import hosted_spec
 from local_controller_harness import LocalContractCase
-
-from hosted import container as container_spec
 
 
 class AssistantTmpfsContracts(LocalContractCase):
-    def test_each_profile_applies_its_current_bounded_tmpfs(self):
-        hosted = container_spec.build_assistant_kwargs(
-            "team_1",
-            "shimpz-cloudflare",
-            hosted_spec("ghcr.io/example/example-assistant@sha256:" + ("a" * 64)),
-            owner="account_1",
-            source_digest="sha256:" + ("c" * 64),
-        )["tmpfs"]
+    def test_an_assistant_applies_its_current_bounded_tmpfs(self):
         controller, _existing, _events = self._lifecycle_controller()
         captured = {}
         created = SimpleNamespace(
@@ -46,5 +36,4 @@ class AssistantTmpfsContracts(LocalContractCase):
             SimpleNamespace(id="img-id"),
         )
 
-        self.assertEqual(hosted, {container_spec.CONTAINER_TMP: "size=64m,mode=1777"})
-        self.assertEqual(captured["tmpfs"], {container_spec.CONTAINER_TMP: "size=256m"})
+        self.assertEqual(captured["tmpfs"], {str(PurePosixPath("/") / "tmp"): "size=256m"})

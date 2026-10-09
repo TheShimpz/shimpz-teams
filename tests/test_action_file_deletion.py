@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import hosted_assistant_fixture as harness
 
 from assistant.spec import ActionSpec
 from inference import client as brain_runtime_client
@@ -18,9 +17,6 @@ from local.chat import attachments as local_attachments
 from local.chat import segment as local_segment
 from storage import files as team_storage
 
-hosted_chat_lifecycle = harness.hosted_lifecycle.hosted_chat_lifecycle
-hosted_lifecycle = harness.hosted_lifecycle
-state = harness.runtime_state
 FILE_ID = "0123456789abcdef0123456789abcdef"
 TURN_TOKEN = "-".join(("turn", "token"))
 OTHER_ID = "fedcba9876543210fedcba9876543210"
@@ -220,143 +216,8 @@ class LocalDeletionTests(unittest.TestCase):
             self.assertEqual(len(storage.list("team_1")["files"]), 1)
 
 
-class HostedDeletionTests(unittest.TestCase):
-    def setUp(self) -> None:
-        state._human_challenges.cancel_team("team_1")
-        self.storage = _storage()
-        patcher = mock.patch.object(state, "_storage", side_effect=lambda: self.storage)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def test_a_repeated_deletion_is_absent_after_the_same_cleanup(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            storage = harness.hosted_lifecycle.team_storage.TeamStorage(Path(directory) / "teams")
-            stored = storage.put("team_1", "a.pdf", b"%PDF", "application/pdf")
-            forgotten: list[str] = []
-            with (
-                mock.patch.object(state, "_storage", return_value=storage),
-                mock.patch.object(
-                    harness.hosted_resources,
-                    "_require_current_authorization",
-                    return_value=types.SimpleNamespace(id="c" * 64),
-                ),
-                mock.patch.object(
-                    hosted_chat_lifecycle, "forget_file", side_effect=lambda _t, file_id, _c: forgotten.append(file_id)
-                ),
-            ):
-                self.assertTrue(hosted_lifecycle._delete_team_file("team_1", stored["id"], object())["deleted"])
-                self.assertFalse(hosted_lifecycle._delete_team_file("team_1", stored["id"], object())["deleted"])
-                with self.assertRaises(state.ApiError) as invalid:
-                    hosted_lifecycle._delete_team_file("team_1", "not-a-file-id", object())
-            self.assertEqual((invalid.exception.status, forgotten), (400, [stored["id"], stored["id"]]))
-
-    def test_a_turn_holding_the_slot_refuses_the_deletion(self) -> None:
-        lock = state._chat_lock_for("team_1")
-        lock.acquire()
-        try:
-            with self.assertRaises(state.ApiError) as caught:
-                hosted_lifecycle._delete_team_file("team_1", FILE_ID, object())
-            self.assertEqual(caught.exception.status, 409)
-        finally:
-            lock.release()
-
-    def test_a_referenced_pause_is_cancelled_and_the_referencing_thread_purged(self) -> None:
-        self.storage.referenced.return_value = frozenset({FILE_ID})
-        journal = mock.Mock()
-        pending = types.SimpleNamespace(payload=types.SimpleNamespace(file_ids=(FILE_ID,)))
-        with (
-            mock.patch.object(state._human_challenges, "current", return_value=pending),
-            mock.patch.object(state._human_challenges, "cancel_team") as cancel,
-            mock.patch.object(state, "_action_execution_journal", return_value=journal),
-            mock.patch.object(state._brain_runtime, "delete_thread") as delete_thread,
-        ):
-            hosted_chat_lifecycle.forget_file("team_1", FILE_ID, "c" * 64)
-        cancel.assert_called_once_with("team_1")
-        journal.end_settled.assert_called_once_with("c" * 64)
-        journal.purge.assert_not_called()
-        delete_thread.assert_called_once()
-        self.storage.settle.assert_called_once_with("team_1", ())
-
-    def test_an_unrelated_file_is_deleted_without_touching_a_referencing_thread(self) -> None:
-        self.storage.referenced.return_value = frozenset({OTHER_ID})
-        with mock.patch.object(state._brain_runtime, "delete_thread") as delete_thread:
-            hosted_chat_lifecycle.forget_file("team_1", FILE_ID, "c" * 64)
-        delete_thread.assert_not_called()
-        hosted_chat_lifecycle.turn_started("team_1", [FILE_ID])
-        self.storage.reference.assert_called_once_with("team_1", [FILE_ID])
-        hosted_chat_lifecycle.turn_completed("team_1", [])
-        self.storage.settle.assert_called_once_with("team_1", [])
-
-    def test_turn_reference_failures_fail_the_turn_and_a_failed_release_keeps_it(self) -> None:
-        hosted_storage = hosted_chat_lifecycle.team_storage
-        for error, status in (
-            (hosted_storage.StorageNotFoundError("file not found"), 404),
-            (hosted_storage.StorageError("unsafe"), 503),
-        ):
-            with self.subTest(status=status):
-                self.storage.reference.side_effect = error
-                with self.assertRaises(state.ApiError) as caught:
-                    hosted_chat_lifecycle.turn_started("team_1", [FILE_ID])
-                self.assertEqual(caught.exception.status, status)
-        self.storage.settle.side_effect = hosted_storage.StorageError("unavailable")
-        hosted_chat_lifecycle.turn_completed("team_1", [FILE_ID])
-
-    def test_unavailable_action_state_refuses_the_deletion(self) -> None:
-        journal = mock.Mock()
-        journal.end_settled.side_effect = hosted_chat_lifecycle.action_journal.ActionJournalError("down")
-        pending = types.SimpleNamespace(payload=types.SimpleNamespace(file_ids=(FILE_ID,)))
-        with (
-            mock.patch.object(state._human_challenges, "current", return_value=pending),
-            mock.patch.object(state, "_action_execution_journal", return_value=journal),
-            self.assertRaises(state.ApiError) as caught,
-        ):
-            hosted_chat_lifecycle.forget_file("team_1", FILE_ID, "c" * 64)
-        self.assertEqual(caught.exception.status, 503)
-
-    def test_a_failed_turn_releases_only_what_it_added(self) -> None:
-        segment = harness.hosted_chat_segment
-        self.storage.reference.return_value = (FILE_ID,)
-        request = types.SimpleNamespace(team_id="team_1", file_ids=[FILE_ID, OTHER_ID], continuation=None)
-        with (
-            mock.patch.object(segment, "_run_metadata_segment", side_effect=RuntimeError("down")),
-            self.assertRaisesRegex(RuntimeError, "down"),
-        ):
-            segment._run_hosted_chat_segment(request)
-        self.storage.release.assert_called_once_with("team_1", (FILE_ID,))
-        self.storage.release.side_effect = hosted_chat_lifecycle.team_storage.StorageError("unavailable")
-        hosted_chat_lifecycle.turn_failed("team_1", (FILE_ID,))
-        hosted_chat_lifecycle.turn_failed("team_1", ())
-        self.assertEqual(self.storage.release.call_count, 2)
-
-    def test_only_a_completed_segment_resets_what_the_brain_may_reference(self) -> None:
-        segment = harness.hosted_chat_segment
-        request = types.SimpleNamespace(team_id="team_1", file_ids=[FILE_ID], continuation=None)
-        paused = types.SimpleNamespace(outcome=object())
-        with mock.patch.object(segment, "_run_metadata_segment", return_value=paused):
-            self.assertIs(segment._run_hosted_chat_segment(request), paused)
-            self.storage.reference.assert_called_once_with("team_1", [FILE_ID])
-            # A resumed segment adds nothing: its turn's files were recorded when that turn started.
-            resumed = types.SimpleNamespace(team_id="team_1", file_ids=[OTHER_ID], continuation=object())
-            segment._run_hosted_chat_segment(resumed)
-        self.storage.reference.assert_called_once_with("team_1", [FILE_ID])
-        self.storage.settle.assert_not_called()
-
-    def test_a_brain_failure_refuses_the_deletion(self) -> None:
-        self.storage.referenced.return_value = frozenset({FILE_ID})
-        with (
-            mock.patch.object(
-                state._brain_runtime,
-                "delete_thread",
-                side_effect=hosted_chat_lifecycle.brain_runtime_client.BrainRuntimeError("down"),
-            ),
-            self.assertRaises(state.ApiError) as caught,
-        ):
-            hosted_chat_lifecycle.forget_file("team_1", FILE_ID, "c" * 64)
-        self.assertEqual(caught.exception.status, 503)
-
-
 class DeliveryAdmissionMappingTests(unittest.TestCase):
-    """A refused or stopped slot wait reaches each profile as its own public outcome, before anything is journaled."""
+    """A refused or stopped slot wait reaches Local as its own public outcome, before anything is journaled."""
 
     def _admit(self, admit, error: BaseException) -> None:
         refused = mock.MagicMock()
@@ -378,26 +239,6 @@ class DeliveryAdmissionMappingTests(unittest.TestCase):
         with self.assertRaises(local_app.ApiProblem) as caught:
             self._admit(admit, local_segment.action_files.FileRpcBusyError("busy"))
         self.assertEqual(caught.exception.code, "assistant-file-busy")
-
-    def test_hosted_maps_a_stop_and_a_busy_slot(self) -> None:
-        segment = harness.hosted_chat_segment
-        active = types.SimpleNamespace(contract=types.SimpleNamespace(actions={"upload": UPLOAD}))
-        request = types.SimpleNamespace(transcripts=(), token=TURN_TOKEN)
-        action = brain_runtime_client.ActionRequest("i", "docs", "upload", {"document": FILE_ID})
-        files = segment.action_files
-        for error, expected in (
-            (files.FileRpcCancelledError("stopped"), segment.chat_orchestrator.ChatStoppedError),
-            (files.FileRpcBusyError("busy"), state.ApiError),
-        ):
-            refused = mock.MagicMock()
-            refused.__enter__.side_effect = error
-            with (
-                self.subTest(error=type(error).__name__),
-                mock.patch.object(files, "admitted", return_value=refused),
-                self.assertRaises(expected),
-                segment._admitted_delivery(request, active, action, object()),
-            ):
-                pass
 
 
 if __name__ == "__main__":

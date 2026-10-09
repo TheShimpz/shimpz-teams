@@ -73,7 +73,7 @@ class ChatTurnService:
         self._lock = dependencies.lock_for
         self._raise_storage_problem = dependencies.raise_storage_problem
         self._active_chat_guard = threading.Lock()
-        # Held weakly, as in Hosted: a lock lives only while a holder or waiter references it, so looking up any
+        # Held weakly: a lock lives only while a holder or waiter references it, so looking up any
         # Team id never grows this map, and everyone contending on a Team shares the same lock.
         self._chat_locks: weakref.WeakValueDictionary[str, threading.Lock] = weakref.WeakValueDictionary()
         self._active_chat_tokens: dict[str, str] = {}

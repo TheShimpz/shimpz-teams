@@ -22,7 +22,7 @@ from install.contract import CONTRACT_ROOT
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())
 RESOLUTION = VECTORS["fixtures"]["resolve_response"]["value"]
 AUTH = types.SimpleNamespace(
-    docker_auth_config=lambda: {"username": "registry-reader", "password": "x" * 20},
+    docker_auth_config=lambda: None,
     docker_config=lambda: nullcontext("/run/shimpz-test-registry"),
 )
 

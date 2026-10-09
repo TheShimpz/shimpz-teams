@@ -162,10 +162,7 @@ class LanguagePackCacheTests(unittest.TestCase):
 
 
 class LanguagePackBindingAdmissionTests(unittest.TestCase):
-    """Local admits the pack beside the manifest and contract of the exact container.
-
-    Hosted admission is covered in its import-isolated harness suite.
-    """
+    """Local admits the pack beside the manifest and contract of the exact container."""
 
     def test_local_admission_maps_a_refused_pack_to_conflict_and_a_missing_one_to_unavailable(self) -> None:
         subject = types.SimpleNamespace(

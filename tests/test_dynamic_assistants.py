@@ -10,16 +10,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
-from hosted.install import publication
 from install.bindings import (
-    DynamicAssistantBinding,
     DynamicAssistantConflictError,
     DynamicAssistantError,
     DynamicAssistantStore,
+    binding_from_resolution,
 )
 from install.contract import CONTRACT_ROOT
-
-assistant_spec = publication.assistant_spec
 
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())
 RESOLUTION = VECTORS["fixtures"]["resolve_response"]["value"]
@@ -50,7 +47,6 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.path = Path(self.directory.name) / "bindings.json"
         self.store = DynamicAssistantStore(self.path)
-        publication._cached_assistant_spec.cache_clear()
 
     def tearDown(self) -> None:
         self.directory.cleanup()
@@ -188,82 +184,8 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         with self.assertRaises(DynamicAssistantError):
             self.store.put("team_1", resolution)
         self.assertFalse(self.path.exists())
-
-        forged = DynamicAssistantBinding(
-            team_id="team_1",
-            binding_digest=f"sha256:{'a' * 64}",
-            provenance="published",
-            document=resolution,
-        )
         with self.assertRaises(DynamicAssistantError):
-            assistant_spec(forged)
-
-    def test_resolution_builds_a_digest_bound_assistant_spec(self) -> None:
-        binding = self.store.put("team_1", runtime_resolution())
-
-        spec = assistant_spec(binding)
-
-        self.assertEqual(spec.image, RESOLUTION["image_reference"])
-        self.assertEqual(spec.archs, ("amd64", "arm64"))
-        self.assertEqual(spec.allowed_hosts, ("api.cloudflare.com", "graph.facebook.com"))
-        self.assertEqual(tuple(spec.contract.actions), ("hello",))
-        self.assertEqual(spec.contract.actions["hello"].human_requests, ())
-        self.assertEqual(
-            spec.required_image_labels,
-            (
-                ("org.shimpz.assistant.id", "hello-world"),
-                ("org.shimpz.source.digest", RESOLUTION["source_digest"]),
-            ),
-        )
-
-    def test_hosted_resolution_preserves_reviewed_human_requests(self) -> None:
-        resolution = runtime_resolution()
-        resolution["machine_contract"]["actions"][0]["human_requests"] = ["approval"]
-        binding = self.store.put("team_1", resolution)
-
-        spec = assistant_spec(binding)
-
-        self.assertEqual(spec.contract.actions["hello"].human_requests, ("approval",))
-
-    def test_unchanged_digest_reuses_validation_without_aliasing_results(self) -> None:
-        binding = self.store.put("team_1", runtime_resolution())
-        validator = publication.assistant_manifest.canonical_machine_contract
-
-        with mock.patch.object(
-            publication.assistant_manifest,
-            "canonical_machine_contract",
-            wraps=validator,
-        ) as canonical:
-            first = assistant_spec(binding)
-            second = assistant_spec(binding)
-
-        self.assertEqual(canonical.call_count, 1)
-        self.assertEqual(first, second)
-        self.assertIsNot(first, second)
-        first.contract.actions.pop("hello")
-        self.assertIn("hello", assistant_spec(binding).contract.actions)
-
-    def test_teams_on_the_same_release_share_one_spec_while_each_binding_is_verified(self) -> None:
-        bindings = [self.store.put(f"team_{index}", runtime_resolution()) for index in range(1, 33)]
-        verify = publication.bindings.binding_from_resolution
-
-        with mock.patch.object(publication.bindings, "binding_from_resolution", wraps=verify) as verified:
-            specs = [assistant_spec(binding) for binding in bindings]
-
-        self.assertEqual(verified.call_count, 32)
-        self.assertEqual({call.args[0] for call in verified.call_args_list}, {f"team_{i}" for i in range(1, 33)})
-        info = publication._cached_assistant_spec.cache_info()
-        self.assertEqual((info.misses, info.hits, info.currsize), (1, 31, 1))
-        self.assertEqual(info.maxsize, publication._SPEC_CACHE_ENTRIES)
-        self.assertTrue(all(spec == specs[0] and spec is not specs[0] for spec in specs[1:]))
-        forged = DynamicAssistantBinding(
-            team_id="team_2",
-            binding_digest=bindings[0].binding_digest,
-            provenance="published",
-            document=bindings[0].document,
-        )
-        with self.assertRaisesRegex(DynamicAssistantError, "binding digest is invalid"):
-            assistant_spec(forged)
+            binding_from_resolution("team_1", resolution)
 
     def test_registry_readers_share_the_file_lock(self) -> None:
         expected = self.store.put("team_1", runtime_resolution())
@@ -307,12 +229,6 @@ class DynamicAssistantStoreTests(unittest.TestCase):
                 release_reader.set()
                 reader.result(timeout=1)
                 self.assertTrue(writer.result(timeout=1))
-
-    def test_noncanonical_machine_contract_fails_closed(self) -> None:
-        binding = self.store.put("team_1", copy.deepcopy(RESOLUTION))
-
-        with self.assertRaises(DynamicAssistantError):
-            assistant_spec(binding)
 
 
 if __name__ == "__main__":

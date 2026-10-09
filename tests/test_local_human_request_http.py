@@ -61,30 +61,12 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
         handler.command = "GET"
         self.assertIsNone(handler._chat_route(path))
         self.assertEqual(server._JSON_BODY_LIMITS["chat-human-open"], server.MAX_BODY_BYTES)
-        local = strict_http.resolve_controller_route(strict_http.LOCAL_CONTROLLER, "POST", tuple(path))
-        self.assertEqual(local.operation, "chat-human-open")
-        self.assertIsNone(strict_http.resolve_controller_route(strict_http.HOSTED_CONTROLLER, "POST", tuple(path)))
+        self.assertEqual(strict_http.resolve_controller_route("POST", tuple(path)).operation, "chat-human-open")
 
-    def test_human_routes_are_shared_with_profile_specific_authority(self) -> None:
-        local_get = strict_http.resolve_controller_route(
-            strict_http.LOCAL_CONTROLLER,
-            "GET",
-            ("v1", "teams", "team_1", "chat", "human"),
-        )
-        local_post = strict_http.resolve_controller_route(
-            strict_http.LOCAL_CONTROLLER,
-            "POST",
-            ("v1", "teams", "team_1", "chat", "human"),
-        )
-        hosted = strict_http.resolve_controller_route(
-            strict_http.HOSTED_CONTROLLER,
-            "POST",
-            ("v1", "teams", "team_1", "chat", "human"),
-        )
-
-        self.assertEqual(local_get.operation, "chat-human-pending")
-        self.assertEqual(local_post.operation, "chat-human-submit")
-        self.assertEqual(hosted.operation, "chat-human-submit")
+    def test_human_routes_resolve_to_their_operations(self) -> None:
+        path = ("v1", "teams", "team_1", "chat", "human")
+        self.assertEqual(strict_http.resolve_controller_route("GET", path).operation, "chat-human-pending")
+        self.assertEqual(strict_http.resolve_controller_route("POST", path).operation, "chat-human-submit")
 
     def test_human_response_body_accepts_the_maximum_unicode_textarea(self) -> None:
         value = "\U0001f9e0" * 16_000

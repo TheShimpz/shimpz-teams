@@ -67,7 +67,7 @@ class SegmentResult:
 
 @dataclass(frozen=True, slots=True)
 class SegmentStrategy:
-    """Hosted/local adapters for state and errors that intentionally differ."""
+    """The controller adapters for state and errors the segment engine does not own."""
 
     runtime: object
     prepare: Callable[[], PreparedSegment]

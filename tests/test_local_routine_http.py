@@ -196,10 +196,6 @@ class SchedulerRouteTests(RoutineHttpCase):
             self.assertEqual((status, json.loads(raw)["notices"]), (200, []))
             status, _type, raw = self.request("POST", "/v1/routines/notices/ack", b'{"deliveries":[]}')
             self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
-            # Hosted never serves a Local Routine route.
-            self.assertIsNone(
-                server.strict_http.resolve_controller_route("hosted", "POST", ("v1", "routines", "claim"))
-            )
 
 
 class RunRouteTests(RoutineHttpCase):

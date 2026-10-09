@@ -250,11 +250,7 @@ class Handler(BaseHTTPRequestHandler):
                 "request path must be canonical",
                 code="invalid-path",
             )
-        route = strict_http.resolve_controller_route(
-            strict_http.LOCAL_CONTROLLER,
-            self.command,
-            tuple(parts),
-        )
+        route = strict_http.resolve_controller_route(self.command, tuple(parts))
         if route is None:
             raise ApiProblem(
                 HTTPStatus.NOT_FOUND,

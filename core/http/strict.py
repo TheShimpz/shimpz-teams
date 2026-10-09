@@ -266,35 +266,13 @@ def parse_request_target(
     )
 
 
-def parse_routed_request(
-    headers: object,
-    raw_target: str,
-    method: str,
-    *,
-    body_methods: frozenset[str],
-    allow_query: bool,
-    max_bytes: int = MAX_REQUEST_TARGET_BYTES,
-) -> RequestTarget:
-    """Parse a request target and enforce the route table's body-capable methods."""
-    target = parse_request_target(raw_target, allow_query=allow_query, max_bytes=max_bytes)
-    if method not in body_methods:
-        reject_body(headers)
-    return target
-
-
-# Canonical route matching lives beside strict target parsing so adding a Team endpoint cannot make
-# the hosted and local Controllers disagree about method/path semantics.
-HOSTED_CONTROLLER = "hosted"
-LOCAL_CONTROLLER = "local"
-_BOTH_CONTROLLERS = frozenset({HOSTED_CONTROLLER, LOCAL_CONTROLLER})
-
-
+# Canonical route matching lives beside strict target parsing, so every Team endpoint shares one exact
+# method/path table.
 @dataclass(frozen=True, slots=True)
 class ControllerRoute:
     method: str
     pattern: tuple[str, ...]
     operation: str
-    profiles: frozenset[str] = _BOTH_CONTROLLERS
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,23 +310,16 @@ class ControllerRouteMatch:
         return "chat" if self.operation == "chat" else None
 
 
-def _controller_route(
-    method: str,
-    path: str,
-    operation: str,
-    profiles: frozenset[str] = _BOTH_CONTROLLERS,
-) -> ControllerRoute:
-    return ControllerRoute(method, tuple(part for part in path.split("/") if part), operation, profiles)
+def _controller_route(method: str, path: str, operation: str) -> ControllerRoute:
+    return ControllerRoute(method, tuple(part for part in path.split("/") if part), operation)
 
 
-_HOSTED_CONTROLLER_ONLY = frozenset({HOSTED_CONTROLLER})
-_LOCAL_CONTROLLER_ONLY = frozenset({LOCAL_CONTROLLER})
 CONTROLLER_ROUTES = (
     _controller_route("GET", "/v1/teams", "team-list"),
     _controller_route("POST", "/v1/oauth/cloudflare/callback", "assistant-integration-complete"),
     _controller_route("POST", "/v1/teams/:team_id/create", "team-create"),
     _controller_route("DELETE", "/v1/teams/:team_id", "team-destroy"),
-    _controller_route("PATCH", "/v1/teams/:team_id", "team-rename", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("PATCH", "/v1/teams/:team_id", "team-rename"),
     _controller_route("GET", "/v1/teams/:team_id/files", "file-list"),
     _controller_route("POST", "/v1/teams/:team_id/files", "file-upload"),
     _controller_route("DELETE", "/v1/teams/:team_id/files/:file_id", "file-delete"),
@@ -359,13 +330,11 @@ CONTROLLER_ROUTES = (
         "POST",
         "/v1/teams/:team_id/chat/capability-plan",
         "chat-capability-plan",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route(
         "POST",
         "/v1/teams/:team_id/chat/intent-route",
         "chat-intent-route",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route("GET", "/v1/teams/:team_id/chat/integrations", "chat-integration-pending"),
     _controller_route("POST", "/v1/teams/:team_id/chat/integrations", "chat-integration-submit"),
@@ -375,7 +344,6 @@ CONTROLLER_ROUTES = (
         "POST",
         "/v1/teams/:team_id/chat/human/challenge",
         "chat-human-open",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route("POST", "/v1/teams/:team_id/chat/stop", "chat-stop"),
     _controller_route("GET", "/v1/teams/:team_id/assistant-integrations", "assistant-integration-list"),
@@ -388,7 +356,6 @@ CONTROLLER_ROUTES = (
         "DELETE",
         "/v1/teams/:team_id/assistant-integrations/challenges/:challenge_id/authorize",
         "assistant-integration-cancel",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route(
         "DELETE",
@@ -401,111 +368,87 @@ CONTROLLER_ROUTES = (
         "/v1/teams/:team_id/assistant-stored-inputs/:assistant_id/:stored_input_id",
         "assistant-stored-input-clear",
     ),
-    _controller_route("POST", "/v1/teams/:team_id/chat/stream", "chat-stream", _HOSTED_CONTROLLER_ONLY),
-    _controller_route("GET", "/v1/teams/:team_id/status", "team-status", _HOSTED_CONTROLLER_ONLY),
-    _controller_route("GET", "/v1/teams/:team_id/logs", "team-logs", _HOSTED_CONTROLLER_ONLY),
-    _controller_route("POST", "/v1/teams/:team_id/stop", "team-stop", _HOSTED_CONTROLLER_ONLY),
-    _controller_route("POST", "/v1/teams/:team_id/start", "team-start", _HOSTED_CONTROLLER_ONLY),
-    _controller_route("POST", "/v1/teams/:team_id/restart", "team-restart", _HOSTED_CONTROLLER_ONLY),
     # Team Routines (ADR-0086): Admin's scheduler claims and delivers under the Team bearer, its routine identity runs
     # one leased run, and a Supervisor session manages Routines and answers or ends their runs.
-    _controller_route("POST", "/v1/routines/claim", "routine-claim", _LOCAL_CONTROLLER_ONLY),
-    _controller_route("GET", "/v1/routines/notices", "routine-notices", _LOCAL_CONTROLLER_ONLY),
-    _controller_route("POST", "/v1/routines/notices/ack", "routine-notice-ack", _LOCAL_CONTROLLER_ONLY),
-    _controller_route("GET", "/v1/teams/:team_id/routines", "routine-list", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("POST", "/v1/routines/claim", "routine-claim"),
+    _controller_route("GET", "/v1/routines/notices", "routine-notices"),
+    _controller_route("POST", "/v1/routines/notices/ack", "routine-notice-ack"),
+    _controller_route("GET", "/v1/teams/:team_id/routines", "routine-list"),
     # One page of a Routine revision's steps (ADR-0092 amendment, 2026-10-05, scale).
     _controller_route(
         "GET",
         "/v1/teams/:team_id/routines/:routine_id/revisions/:revision/steps/:offset",
         "routine-steps",
-        _LOCAL_CONTROLLER_ONLY,
     ),
-    _controller_route("DELETE", "/v1/teams/:team_id/routines/:routine_id", "routine-delete", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("DELETE", "/v1/teams/:team_id/routines/:routine_id", "routine-delete"),
     # A recorded Routine's card (ADR-0101): Criar rotina confirms it, Cancelar revokes it.
     _controller_route(
         "POST",
         "/v1/teams/:team_id/routines/proposals/:proposal_id",
         "routine-proposal-confirm",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route(
         "DELETE",
         "/v1/teams/:team_id/routines/proposals/:proposal_id",
         "routine-proposal-revoke",
-        _LOCAL_CONTROLLER_ONLY,
     ),
-    _controller_route(
-        "POST", "/v1/teams/:team_id/routines/runs/:run_id/segment", "routine-run", _LOCAL_CONTROLLER_ONLY
-    ),
+    _controller_route("POST", "/v1/teams/:team_id/routines/runs/:run_id/segment", "routine-run"),
     _controller_route(
         "POST",
         "/v1/teams/:team_id/routines/runs/:run_id/challenge",
         "routine-challenge-open",
-        _LOCAL_CONTROLLER_ONLY,
     ),
-    _controller_route(
-        "POST", "/v1/teams/:team_id/routines/runs/:run_id/human", "routine-human-submit", _LOCAL_CONTROLLER_ONLY
-    ),
+    _controller_route("POST", "/v1/teams/:team_id/routines/runs/:run_id/human", "routine-human-submit"),
     _controller_route(
         "POST",
         "/v1/teams/:team_id/routines/runs/:run_id/integrations",
         "routine-integration-submit",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     # A held run's recovery card (ADR-0092, ADR-0101): open it, then answer it once with Rodar.
     _controller_route(
         "POST",
         "/v1/teams/:team_id/routines/incidents/:incident_id/card",
         "routine-card-open",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route(
         "POST",
         "/v1/teams/:team_id/routines/incidents/:incident_id/answer",
         "routine-card-answer",
-        _LOCAL_CONTROLLER_ONLY,
     ),
-    _controller_route(
-        "POST", "/v1/teams/:team_id/routines/:routine_id/resume", "routine-resume", _LOCAL_CONTROLLER_ONLY
-    ),
-    _controller_route("POST", "/v1/teams/:team_id/routines/:routine_id/pause", "routine-pause", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("POST", "/v1/teams/:team_id/routines/:routine_id/resume", "routine-resume"),
+    _controller_route("POST", "/v1/teams/:team_id/routines/:routine_id/pause", "routine-pause"),
     _controller_route(
         "GET",
         "/v1/teams/:team_id/routines/runs/:run_id/diagnostics",
         "routine-diagnostics",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     # What one run did step by step, a page of one snapshot of its records (ADR-0092 amendment, 2026-10-05, scale).
     _controller_route(
         "GET",
         "/v1/teams/:team_id/routines/runs/:run_id/steps/:snapshot/:offset",
         "routine-run-steps",
-        _LOCAL_CONTROLLER_ONLY,
     ),
-    _controller_route("GET", "/healthz", "health", _LOCAL_CONTROLLER_ONLY),
-    _controller_route("GET", "/v1/activity", "activity", _LOCAL_CONTROLLER_ONLY),
-    _controller_route("GET", "/v1/local-assistants", "local-assistant-list", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("GET", "/healthz", "health"),
+    _controller_route("GET", "/v1/activity", "activity"),
+    _controller_route("GET", "/v1/local-assistants", "local-assistant-list"),
     _controller_route(
         "GET",
         "/v1/local-assistants/:image_hash/icon",
         "local-assistant-icon",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route(
         "GET",
         "/v1/local-assistants/:image_hash/summary/:locale",
         "local-assistant-summary",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route(
         "GET",
         "/v1/local-assistants/:image_hash/details/:locale",
         "local-assistant-details",
-        _LOCAL_CONTROLLER_ONLY,
     ),
-    _controller_route("GET", "/v1/assistants", "registry-list", _LOCAL_CONTROLLER_ONLY),
-    _controller_route("DELETE", "/v1/space/bootstrap", "space-bootstrap-reset", _LOCAL_CONTROLLER_ONLY),
-    _controller_route("DELETE", "/v1/space", "space-reset", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("GET", "/v1/assistants", "registry-list"),
+    _controller_route("DELETE", "/v1/space/bootstrap", "space-bootstrap-reset"),
+    _controller_route("DELETE", "/v1/space", "space-reset"),
     _controller_route("GET", "/v1/teams/:team_id/assistants", "assistant-list"),
     _controller_route(
         "GET",
@@ -526,20 +469,17 @@ CONTROLLER_ROUTES = (
         "POST",
         "/v1/teams/:team_id/assistants/local/fresh",
         "local-assistant-fresh-install",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route(
         "POST",
         "/v1/teams/:team_id/assistants/:assistant_id/action-labels",
         "assistant-action-labels",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route("POST", "/v1/teams/:team_id/assistants", "assistant-install"),
     _controller_route(
         "POST",
         "/v1/teams/:team_id/assistants/local",
         "local-assistant-install",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route(
         "DELETE",
@@ -550,17 +490,14 @@ CONTROLLER_ROUTES = (
         "POST",
         "/v1/teams/:team_id/assistants/:assistant_id/actions/:action_id",
         "assistant-invoke",
-        _LOCAL_CONTROLLER_ONLY,
     ),
 )
 
 
-def resolve_controller_route(profile: str, method: str, parts: tuple[str, ...]) -> ControllerRouteMatch | None:
+def resolve_controller_route(method: str, parts: tuple[str, ...]) -> ControllerRouteMatch | None:
     """Resolve one exact origin-form path without wildcard suffixes or method fallthrough."""
-    if profile not in {HOSTED_CONTROLLER, LOCAL_CONTROLLER}:
-        raise ValueError("unknown Controller routing profile")
     for route in CONTROLLER_ROUTES:
-        if profile not in route.profiles or method != route.method or len(parts) != len(route.pattern):
+        if method != route.method or len(parts) != len(route.pattern):
             continue
         params: dict[str, str] = {}
         for expected, actual in zip(route.pattern, parts, strict=True):

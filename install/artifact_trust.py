@@ -44,7 +44,7 @@ class ArtifactTrustVerifier:
         binary: str = "/usr/local/bin/cosign",
         *,
         container_id: str | None = None,
-        credentials: registry_auth.RegistryAuth | registry_auth.AnonymousRegistryAccess,
+        credentials: registry_auth.AnonymousRegistryAccess,
         trust_root: Path,
     ) -> None:
         self._docker = docker_client

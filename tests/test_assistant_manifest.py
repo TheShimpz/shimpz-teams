@@ -623,6 +623,8 @@ class AssistantManifestTests(unittest.TestCase):
             )
         canonicalize.assert_not_called()
         construct.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "must be an object"):
+            assistant_manifest.validate_schema_payload(validator, [])
 
     def test_machine_contract_loader_rejects_malformed_schema_and_oversized_artifact(self) -> None:
         reviewed = _reviewed_contract()

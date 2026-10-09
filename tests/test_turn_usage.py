@@ -7,14 +7,12 @@ import sys
 import tempfile
 import time
 import unittest
-from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-import hosted_assistant_fixture as harness
 from local_controller_harness import LocalContractCase, chat_body
 from test_local_chat_continuations import pending
 from test_local_turn_lifecycle import LOOKUP_INPUT, LOOKUP_RESULT
@@ -290,140 +288,6 @@ class LocalTurnUsageTests(LocalContractCase):
                 )
         expected = {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 150, "output_tokens": 15}
         self.assertEqual(result["usage"], {"duration_ms": 3_000, "models": [expected]})
-
-
-class HostedTurnUsageTests(unittest.TestCase):
-    segment = harness.hosted_chat_segment
-    orchestrator = harness.hosted_chat_segment.chat_orchestrator
-
-    def _respond(self, outcome: object, usage: brain_usage.TurnUsage | None, requirements=((), ())) -> dict:
-        identity = ("anchor", "account_1", "Marketing")
-        result = self.segment.chat_turn_engine.SegmentResult("Marketing", identity, outcome, *requirements)
-        with mock.patch.object(harness.runtime_state, "_commit_chat_terminal", return_value=True):
-            return self.segment._hosted_segment_response(
-                self.segment.HostedSegmentResponseRequest("team_1", "token", result, (), (), "account_1", usage=usage)
-            )
-
-    def test_a_completed_hosted_turn_carries_its_usage_only_when_a_call_reported_it(self) -> None:
-        outcome = self.orchestrator.ChatOutcome("Done.", ())
-        with brain_usage.metered(), _clock(3_000):
-            brain_usage.record("turn", "openai", "gpt-6-luna", REPORTED)
-            completed = self._respond(outcome, brain_usage.TurnUsage(1_000))
-        self.assertEqual(completed["usage"], {"duration_ms": 2_000, "models": [LUNA]})
-        with brain_usage.metered():
-            self.assertNotIn("usage", self._respond(outcome, brain_usage.TurnUsage(1_000)))
-            self.assertNotIn("usage", self._respond(outcome, None))
-
-    def test_a_paused_hosted_turn_keeps_its_joined_usage_for_the_resume(self) -> None:
-        captured: list[object] = []
-        outcome = self.orchestrator.ChatHumanSuspension(SimpleNamespace(), SimpleNamespace(), SimpleNamespace())
-
-        def dispatch(_outcome, _groups, pending, _pauses, _complete):
-            captured.append(pending(outcome))
-            return {"status": "human-required"}
-
-        with (
-            mock.patch.object(self.segment.chat_turn_engine, "dispatch", side_effect=dispatch),
-            mock.patch.object(self.orchestrator, "retain_suspension_transcripts", return_value=()),
-            brain_usage.metered(),
-        ):
-            brain_usage.record("turn", "openai", "gpt-6-luna", REPORTED)
-            self._respond(outcome, brain_usage.TurnUsage(1_000))
-            self._respond(outcome, None)
-        self.assertEqual(captured[0].usage, brain_usage.TurnUsage(1_000, (("openai", "gpt-6-luna", 1331, 36),)))
-        self.assertIsNone(captured[1].usage)
-
-    def test_a_fresh_hosted_turn_starts_its_clock_at_admission(self) -> None:
-        usage = self.segment.brain_usage
-        with (
-            mock.patch.object(usage, "_now_ms", return_value=42),
-            mock.patch.object(self.segment, "_run_hosted_chat_segment", return_value="segment"),
-            mock.patch.object(self.segment, "_hosted_segment_response", return_value={}) as respond,
-        ):
-            turn = "turn-1"
-            request = SimpleNamespace(team_id="team_1", token=turn, file_ids=[], assistant_ids=(), owner="account_1")
-            self.segment._chat_in_turn(request)
-        self.assertEqual(respond.call_args.args[0].usage, usage.TurnUsage(42))
-
-
-class HostedTurnUsageResumeTests(unittest.TestCase):
-    """The Hosted human and Integration resume entrypoints add each segment once to the carried turn."""
-
-    segment = harness.hosted_chat_segment
-    usage = harness.hosted_chat_segment.brain_usage
-    orchestrator = harness.hosted_chat_segment.chat_orchestrator
-
-    def _pending(self, usage: object) -> object:
-        return harness.hosted_assistants._PendingHostedChat(
-            SimpleNamespace(), (), (), "account_1", ("anchor",), (), 0, usage=usage
-        )
-
-    def _segment(self, inputs: int, *, paused: bool) -> object:
-        def run(_request):
-            self.usage.record("turn-resume", "openai", "gpt-6-luna", _reported(inputs, 1))
-            if paused:
-                outcome = self.orchestrator.ChatHumanSuspension(SimpleNamespace(), SimpleNamespace(), SimpleNamespace())
-                return self.segment.chat_turn_engine.SegmentResult("Marketing", (), outcome, (), (object(),))
-            return self.segment.chat_turn_engine.SegmentResult(
-                "Marketing", (), self.orchestrator.ChatOutcome("Done.", ()), ()
-            )
-
-        return mock.patch.object(self.segment, "_run_hosted_chat_segment", side_effect=run)
-
-    @staticmethod
-    @contextmanager
-    def _exclusive(_team_id, _lease):
-        yield "turn-1", SimpleNamespace(id="anchor")
-
-    def _resume_human(self, pending: object) -> dict[str, object]:
-        human = harness.hosted_chat_human
-        with (
-            mock.patch.object(human, "_pending_challenge", return_value=SimpleNamespace()),
-            mock.patch.object(human, "_validate_pending_context", return_value=(pending, ())),
-            mock.patch.object(human, "_admit_response", return_value=SimpleNamespace(transcripts=(), requests_used=1)),
-        ):
-            body = {"challenge_id": "c" * 32, "decision": "submit", "value": True}
-            return human.resume_chat_human("team_1", body, None, SimpleNamespace(owner="account_1"), self._exclusive)
-
-    def test_repeated_human_resumes_keep_the_start_and_add_each_segment_once(self) -> None:
-        paused: list[object] = []
-
-        def pause(_team_id, _token, _outcome, _requirements, pending):
-            paused.append(pending)
-            return {"status": "human-required"}
-
-        carried = self.usage.TurnUsage(1_000, (("openai", "gpt-6-luna", 100, 10),))
-        with (
-            mock.patch.object(self.segment, "_pause_hosted_human", side_effect=pause),
-            mock.patch.object(self.orchestrator, "retain_suspension_transcripts", return_value=()),
-            mock.patch.object(harness.runtime_state, "_commit_chat_terminal", return_value=True),
-            mock.patch.object(self.usage, "_now_ms", return_value=7_000),
-        ):
-            with self.usage.metered(), self._segment(20, paused=True):
-                self.assertEqual(self._resume_human(self._pending(carried)), {"status": "human-required"})
-            with self.usage.metered(), self._segment(30, paused=False):
-                completed = self._resume_human(paused[0])
-
-        self.assertEqual(paused[0].usage, self.usage.TurnUsage(1_000, (("openai", "gpt-6-luna", 120, 11),)))
-        expected = {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 150, "output_tokens": 12}
-        self.assertEqual(completed["usage"], {"duration_ms": 6_000, "models": [expected]})
-
-    def test_an_integration_resume_adds_its_calls_to_the_carried_turn(self) -> None:
-        api = harness.hosted_chat_api
-        carried = self.usage.TurnUsage(2_000, (("openai", "gpt-6-luna", 100, 10),))
-        admission = SimpleNamespace(response=None, pending=self._pending(carried))
-        with (
-            mock.patch.object(api, "_exclusive_chat_turn", self._exclusive),
-            mock.patch.object(api.chat_turn_engine, "admit_integration_resume", return_value=admission),
-            mock.patch.object(harness.runtime_state, "_commit_chat_terminal", return_value=True),
-            mock.patch.object(self.usage, "_now_ms", return_value=2_500),
-            self.usage.metered(),
-            self._segment(5, paused=False),
-        ):
-            completed = api._resume_chat_integrations("team_1", "c" * 32, SimpleNamespace(owner="account_1"))
-
-        expected = {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 105, "output_tokens": 11}
-        self.assertEqual(completed["usage"], {"duration_ms": 500, "models": [expected]})
 
 
 if __name__ == "__main__":

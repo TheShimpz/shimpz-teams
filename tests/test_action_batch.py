@@ -398,12 +398,12 @@ class NeverDispatchedTests(unittest.TestCase):
         saturated = mock.Mock(acquire=mock.Mock(side_effect=lambda timeout: time.sleep(timeout) or False))
         stop = threading.Event()
 
-        def hosted_cancelled(exc):
-            # The hosted profile raises its stopped problem from the refusal it observed.
+        def stopped(exc):
+            # The caller raises its stopped problem from the refusal it observed.
             raise RuntimeError("brain turn stopped") from exc
 
         def execute(_request, _evidence, _operation_id):
-            strategy = dataclasses.replace(_rpc_strategy(api), timeout=30, cancelled=hosted_cancelled)
+            strategy = dataclasses.replace(_rpc_strategy(api), timeout=30, cancelled=stopped)
             threading.Timer(0.2, stop.set).start()
             return action_execution.rpc_exchange("container", ["command"], b"request", strategy)
 

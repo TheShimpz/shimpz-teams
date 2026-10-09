@@ -7,13 +7,11 @@ import tempfile
 import unittest
 from contextlib import nullcontext
 from dataclasses import replace
-from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import hosted_assistant_fixture as harness
 
 from assistant import details as assistant_details
 from assistant import language as assistant_language
@@ -37,7 +35,6 @@ MESSAGES = RESOLUTION["machine_contract"]["messages"]
 PACK = assistant_language.admit_pack(
     catalog_fixtures.pack_bytes(MESSAGES), MESSAGES, catalog_fixtures.pack_digest(MESSAGES)
 )
-LEASE = object()
 # The resolve fixture's page in Portuguese: each displayed text is its message's fixture translation.
 PUBLISHED_PT = {
     "locale": "pt",
@@ -177,67 +174,6 @@ class LocalInstalledDetailsTests(unittest.TestCase):
         with self.assertRaises(ApiProblemError) as caught:
             assistant_api.assistant_details(controller, "team_1", "hello-world", "pt")
         self.assertEqual(caught.exception.code, "assistant-manifest-invalid")
-
-
-lifecycle = harness.assistant_lifecycle
-resources = harness.hosted_resources
-state = harness.runtime_state
-
-
-class HostedInstalledDetailsTests(unittest.TestCase):
-    def setUp(self) -> None:
-        binding = bindings.binding_from_resolution("team_1", copy.deepcopy(RESOLUTION))
-        self.spec = lifecycle.publication.assistant_spec(binding)
-
-    def test_the_binding_page_is_read_under_the_team_lock_from_its_pack(self) -> None:
-        container = object()
-        with (
-            mock.patch.object(resources, "_require_current_authorization") as authorized,
-            mock.patch.object(lifecycle, "_resolve_team_assistant", return_value=("hello-world", self.spec)) as resolve,
-            mock.patch.object(resources, "_get_container", return_value=container) as get_container,
-            mock.patch.object(lifecycle, "_assistant_language", return_value=PACK) as read_pack,
-        ):
-            self.assertEqual(lifecycle._assistant_details("team_1", "hello-world", "pt", LEASE), PUBLISHED_PT)
-            authorized.assert_called_once_with("team_1", LEASE, require_isolation=False)
-            resolve.assert_called_once_with("team_1", "hello-world")
-            read_pack.assert_called_once_with(self.spec.contract, container)
-
-            get_container.reset_mock()
-            english = lifecycle._assistant_details("team_1", "hello-world", "en", LEASE)
-            self.assertEqual(english["name"], "Hello World")
-            get_container.assert_not_called()
-
-            get_container.return_value = None
-            with self.assertRaises(state.ApiError) as stopped:
-                lifecycle._assistant_details("team_1", "hello-world", "ja", LEASE)
-            self.assertEqual(stopped.exception.status, HTTPStatus.CONFLICT)
-
-            get_container.return_value = container
-            read_pack.return_value = SimpleNamespace(template=lambda _identifier, _locale: "")
-            with self.assertRaises(state.ApiError) as invalid:
-                lifecycle._assistant_details("team_1", "hello-world", "de", LEASE)
-            self.assertEqual(invalid.exception.status, HTTPStatus.CONFLICT)
-
-            resolve.side_effect = lifecycle.assistant_registry.AssistantSpecError("absent")
-            with self.assertRaises(state.ApiError) as absent:
-                lifecycle._assistant_details("team_1", "hello-world", "pt", LEASE)
-            self.assertEqual(absent.exception.status, HTTPStatus.NOT_FOUND)
-
-            with self.assertRaises(state.ApiError) as locale:
-                lifecycle._assistant_details("team_1", "hello-world", "pt-BR", LEASE)
-            self.assertEqual(locale.exception.status, HTTPStatus.UNPROCESSABLE_ENTITY)
-
-    def test_the_route_answers_the_page_with_its_request_trace(self) -> None:
-        request = harness.hosted_controller._AuthorizedRequest(
-            {"assistant_id": "hello-world", "locale": "pt"}, "team_1", ("account", "account_1"), LEASE, {}
-        )
-        handler = object.__new__(harness.app.Handler)
-        handler._send_json = mock.Mock()
-        handler._audit_trace_id = "a" * 32
-        with mock.patch.object(lifecycle, "_assistant_details", return_value=PUBLISHED_PT) as read:
-            handler._route_assistant_details(request)
-        read.assert_called_once_with("team_1", "hello-world", "pt", LEASE)
-        handler._send_json.assert_called_once_with(HTTPStatus.OK, {**PUBLISHED_PT, "trace_id": "a" * 32}, no_store=True)
 
 
 if __name__ == "__main__":

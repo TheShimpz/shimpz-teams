@@ -1,4 +1,4 @@
-"""The median and nearest-rank p95 the in-process Hosted and registry perf probes report, in milliseconds."""
+"""The median and nearest-rank p95 the in-process perf probes report, in milliseconds."""
 
 import math
 import statistics

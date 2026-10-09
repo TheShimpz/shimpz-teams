@@ -1,7 +1,6 @@
 """Minimal Docker controller for one locally owned Shimpz Space.
 
-This is intentionally separate from the hosted Team controller.  An empty Team is
-one labeled internal network; its only runnable resources are installed,
+An empty Team is one labeled internal network; its only runnable resources are installed,
 digest-pinned published Assistants with declared Action contracts.
 """
 

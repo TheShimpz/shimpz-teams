@@ -112,30 +112,6 @@ def assistant_spec(image: str) -> AssistantSpec:
     )
 
 
-def hosted_spec(image: str) -> assistant_registry.AssistantSpec:
-    local = assistant_spec(image)
-    return assistant_registry.AssistantSpec(
-        version=local.version,
-        summary=local.summary,
-        description=catalog_fixtures.ASSISTANT_DESCRIPTION,
-        image=image,
-        allowed_hosts=local.allowed_hosts,
-        archs=("amd64", "arm64"),
-        required_image_labels=(
-            ("org.shimpz.assistant.id", local.assistant_id),
-            ("org.shimpz.source.digest", "sha256:" + ("c" * 64)),
-        ),
-        contract=assistant_registry.AssistantContract(
-            name=local.name,
-            actions=local.actions,
-            integrations=local.integrations,
-            stored_inputs=local.stored_inputs,
-            machine_contract=local.machine_contract,
-            pack_digest=local.pack_digest,
-        ),
-    )
-
-
 _CREATE_OUTPUT = {
     "type": "object",
     "additionalProperties": False,

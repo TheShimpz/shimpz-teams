@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1@sha256:87999aa3d42bdc6bea60565083ee17e86d1f3339802f543c0d03998580f9cb89
 # check=skip=SecretsUsedInArgOrEnv ; the Cloudflare Assistant image is a public OCI digest, not a credential
 #
-# Separate local-only Team controller. It does not copy the hosted app.py/runsc/PG control
-# plane; only the narrow LangGraph runtime protocol and Controller-owned Action loop are shared.
+# The Team controller. Only the narrow LangGraph runtime protocol and Controller-owned Action loop are shared with the
+# Brain.
 FROM ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded AS uv
 
 # Cosign is downloaded and hash-checked in its own stage, so curl and APT never reach an image layer.
@@ -100,7 +100,6 @@ COPY --link assistant/__init__.py assistant/action_schema.py assistant/cache.py 
 COPY --link chat/__init__.py chat/attachments.py chat/contract.py chat/knowledge.py chat/orchestrator.py chat/progress.py \
     chat/turn.py ./chat/
 COPY --link core/__init__.py core/base64url.py core/canonical_json.py core/identifier.py ./core/
-COPY --link core/container/__init__.py core/container/network.py ./core/container/
 COPY --link core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY --link egress/__init__.py egress/policy.py ./egress/
 COPY --link inference/__init__.py inference/abort.py inference/client.py inference/config.py inference/errors.py \
@@ -133,14 +132,9 @@ COPY --link install/__init__.py install/artifact_trust.py install/bindings.py in
     install/registry_auth.py install/update.py ./install/
 COPY --link protocol/install/upstream.json ./protocol/install/
 COPY --link protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
-    protocol/install/v1/install-request.schema.json \
-    protocol/install/v1/install-response.schema.json \
-    protocol/install/v1/definitions.schema.json protocol/install/v1/delegation-claims.schema.json \
-    protocol/install/v1/install-authorization-receipt.schema.json \
-    protocol/install/v1/install-authorization-request.schema.json \
+    protocol/install/v1/definitions.schema.json \
     protocol/install/v1/resolve-response.schema.json protocol/install/v1/schema_validator.py \
-    protocol/install/v1/team-list-response.schema.json protocol/install/v1/vectors.json \
-    protocol/install/v1/verify.py \
+    protocol/install/v1/vectors.json protocol/install/v1/verify.py \
     ./protocol/install/v1/
 COPY --link protocol/action/v1/schema.py ./protocol/action/v1/
 COPY --link protocol/http/v1/identifiers.py protocol/http/v1/payload.py protocol/http/v1/phrase.py \

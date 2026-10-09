@@ -1,4 +1,4 @@
-"""Decision-parity contracts for the shared hosted/local Controller router."""
+"""Exact method and path contracts for the Controller router."""
 
 import sys
 import unittest
@@ -15,7 +15,7 @@ def _parts(path: str) -> tuple[str, ...]:
 
 
 class ControllerRoutingTests(unittest.TestCase):
-    def test_common_routes_resolve_to_the_same_operation_and_parameters(self) -> None:
+    def test_routes_resolve_to_their_operation_and_parameters(self) -> None:
         common = (
             ("GET", "/v1/teams", "team-list", {}),
             ("POST", "/v1/teams/team_1/chat", "chat", {"team_id": "team_1"}),
@@ -62,91 +62,71 @@ class ControllerRoutingTests(unittest.TestCase):
         )
         for method, path, operation, params in common:
             with self.subTest(method=method, path=path):
-                hosted = strict_http.resolve_controller_route(strict_http.HOSTED_CONTROLLER, method, _parts(path))
-                local = strict_http.resolve_controller_route(strict_http.LOCAL_CONTROLLER, method, _parts(path))
-                self.assertEqual(hosted, local)
-                self.assertEqual(hosted, strict_http.ControllerRouteMatch(operation, params))
+                self.assertEqual(
+                    strict_http.resolve_controller_route(method, _parts(path)),
+                    strict_http.ControllerRouteMatch(operation, params),
+                )
 
     def test_removed_assistant_help_routes_do_not_resolve(self) -> None:
         paths = (
             "/v1/teams/team_1/assistants/helper/help",
             "/v1/teams/team_1/assistants/helper/help/pt-BR",
         )
-        for profile in (strict_http.HOSTED_CONTROLLER, strict_http.LOCAL_CONTROLLER):
-            for path in paths:
-                with self.subTest(profile=profile, path=path):
-                    self.assertIsNone(strict_http.resolve_controller_route(profile, "GET", _parts(path)))
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertIsNone(strict_http.resolve_controller_route("GET", _parts(path)))
 
-    def test_profile_only_routes_fail_closed_on_the_other_controller(self) -> None:
+    def test_local_routes_resolve_to_their_operation(self) -> None:
         cases = (
-            (strict_http.HOSTED_CONTROLLER, "POST", "/v1/teams/team_1/chat/stream", "chat-stream"),
             (
-                strict_http.LOCAL_CONTROLLER,
                 "DELETE",
                 "/v1/teams/team_1/assistant-integrations/challenges/challenge-1/authorize",
                 "assistant-integration-cancel",
             ),
             (
-                strict_http.LOCAL_CONTROLLER,
                 "DELETE",
                 "/v1/space/bootstrap",
                 "space-bootstrap-reset",
             ),
             (
-                strict_http.LOCAL_CONTROLLER,
                 "GET",
                 "/v1/local-assistants",
                 "local-assistant-list",
             ),
             (
-                strict_http.LOCAL_CONTROLLER,
                 "GET",
                 "/v1/local-assistants/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/icon",
                 "local-assistant-icon",
             ),
             (
-                strict_http.LOCAL_CONTROLLER,
                 "GET",
                 "/v1/local-assistants/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/summary/pt",
                 "local-assistant-summary",
             ),
             (
-                strict_http.LOCAL_CONTROLLER,
                 "GET",
                 "/v1/local-assistants/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/details/pt",
                 "local-assistant-details",
             ),
             (
-                strict_http.LOCAL_CONTROLLER,
                 "POST",
                 "/v1/teams/team_1/assistants/local",
                 "local-assistant-install",
             ),
             (
-                strict_http.LOCAL_CONTROLLER,
                 "POST",
                 "/v1/teams/team_1/assistants/local/fresh",
                 "local-assistant-fresh-install",
             ),
         )
-        for profile, method, path, operation in cases:
-            with self.subTest(profile=profile, path=path):
-                match = strict_http.resolve_controller_route(profile, method, _parts(path))
-                other = (
-                    strict_http.LOCAL_CONTROLLER
-                    if profile == strict_http.HOSTED_CONTROLLER
-                    else strict_http.HOSTED_CONTROLLER
-                )
-                self.assertEqual(match.operation, operation)
-                self.assertIsNone(strict_http.resolve_controller_route(other, method, _parts(path)))
+        for method, path, operation in cases:
+            with self.subTest(path=path):
+                self.assertEqual(strict_http.resolve_controller_route(method, _parts(path)).operation, operation)
 
-    def test_wrong_methods_suffixes_and_profiles_do_not_fall_through(self) -> None:
-        self.assertIsNone(
-            strict_http.resolve_controller_route(strict_http.HOSTED_CONTROLLER, "GET", _parts("/v1/teams/t/chat"))
-        )
+    def test_wrong_methods_and_suffixes_do_not_fall_through(self) -> None:
+        self.assertIsNone(strict_http.resolve_controller_route("GET", _parts("/v1/teams/t/chat")))
         self.assertIsNone(
             strict_http.resolve_controller_route(
-                strict_http.LOCAL_CONTROLLER,
                 "POST",
                 _parts("/v1/teams/t/files/id/extra"),
             )
@@ -154,27 +134,22 @@ class ControllerRoutingTests(unittest.TestCase):
         fresh_path = "/v1/teams/team_1/assistants/local/fresh"
         self.assertIsNone(
             strict_http.resolve_controller_route(
-                strict_http.LOCAL_CONTROLLER,
                 "GET",
                 _parts(fresh_path),
             )
         )
         self.assertIsNone(
             strict_http.resolve_controller_route(
-                strict_http.LOCAL_CONTROLLER,
                 "POST",
                 _parts(f"{fresh_path}/extra"),
             )
         )
         action_labels = strict_http.resolve_controller_route(
-            strict_http.LOCAL_CONTROLLER,
             "POST",
             _parts("/v1/teams/team_1/assistants/local/action-labels"),
         )
         self.assertEqual(action_labels.operation, "assistant-action-labels")
         self.assertEqual(action_labels.params["assistant_id"], "local")
-        with self.assertRaises(ValueError):
-            strict_http.resolve_controller_route("unknown", "GET", _parts("/v1/teams"))
 
 
 if __name__ == "__main__":

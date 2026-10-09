@@ -1,6 +1,6 @@
 """Opt-in proof of the preparation helper in a real container of the built Team image (ADR-0093).
 
-Run with SHIMPZ_RUN_DOCKER_TESTS=1 and SHIMPZ_TEST_TEAM_IMAGE naming a locally built Local or Hosted Team image.
+Run with SHIMPZ_RUN_DOCKER_TESTS=1 and SHIMPZ_TEST_TEAM_IMAGE naming a locally built Team image.
 """
 
 import os

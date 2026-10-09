@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import hosted_assistant_fixture as harness
 from test_brain_runtime_client import (
     NO_USAGE,
     RuntimeClientCase,
@@ -211,18 +210,6 @@ class AuditAttachmentTests(unittest.TestCase):
         )
         self.assertEqual(first["model_usage"][0]["cache_read_tokens"], 512)
         self.assertNotIn("model_usage", second)
-
-    def test_the_hosted_security_event_carries_the_usage_and_drains_it(self):
-        server = harness.hosted_controller
-        audit_security = server.Handler._audit_security.__get__(object.__new__(server.Handler))
-        # The hosted harness loads its own module graph, so meter through the usage module its server drains.
-        usage = server.brain_usage
-        with mock.patch.object(server.audit, "log", return_value="trace") as log, usage.metered():
-            usage.record("turn", "openai", "gpt-6-luna", USAGE)
-            audit_security("chat", "team_1", result="ok")
-            audit_security("chat", "team_1", result="ok")
-        self.assertEqual(log.call_args_list[0].kwargs["model_usage"][0]["model"], "gpt-6-luna")
-        self.assertNotIn("model_usage", log.call_args_list[1].kwargs)
 
 
 if __name__ == "__main__":

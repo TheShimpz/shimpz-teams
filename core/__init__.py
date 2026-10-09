@@ -1,1 +1,1 @@
-"""Profile-neutral Team invariants shared by Hosted and Local."""
+"""Team invariants shared across its responsibilities."""

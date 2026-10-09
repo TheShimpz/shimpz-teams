@@ -1,4 +1,4 @@
-"""Characterize the shared hosted/local HTTP boundary decisions."""
+"""Characterize the strict HTTP boundary decisions."""
 
 import sys
 import unittest
@@ -12,13 +12,11 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from hosted_assistant_fixture import app, hosted_controller, runtime_state
-
 from core.http import strict as strict_http
 from local import app as local_app
 
 
-class SharedStrictHttpTest(unittest.TestCase):
+class StrictHttpTest(unittest.TestCase):
     @staticmethod
     def _handler(handler_type: type, body: bytes, headers: tuple[tuple[str, str], ...]):
         handler = object.__new__(handler_type)
@@ -28,54 +26,39 @@ class SharedStrictHttpTest(unittest.TestCase):
         handler.rfile = BytesIO(body)
         return handler
 
-    def test_hosted_and_local_wrappers_make_the_same_body_decision(self) -> None:
+    def test_the_local_wrapper_refuses_an_ambiguous_or_invalid_body(self) -> None:
         cases = (
             (b'{"a":1,"a":2}', (("Content-Type", "application/json"),), HTTPStatus.BAD_REQUEST),
             (b'{"a":NaN}', (("Content-Type", "application/json"),), HTTPStatus.BAD_REQUEST),
             (b"[]", (("Content-Type", "application/json"),), HTTPStatus.UNPROCESSABLE_ENTITY),
             (b"{}", (("Transfer-Encoding", "chunked"),), HTTPStatus.BAD_REQUEST),
+            (b"{}", (("Content-Type", "text/plain"),), HTTPStatus.UNSUPPORTED_MEDIA_TYPE),
         )
         for body, extra_headers, expected in cases:
             headers = (("Content-Length", str(len(body))), *extra_headers)
-            hosted = self._handler(app.Handler, body, headers)
             local = self._handler(local_app.Handler, body, headers)
-            with self.subTest(body=body):
-                with self.assertRaises(runtime_state.ApiError) as hosted_error:
-                    hosted._capture_body("team-create")
-                with self.assertRaises(local_app.ApiProblem) as local_error:
-                    local._capture_body("team-create")
-                self.assertEqual((hosted_error.exception.status, local_error.exception.status), (expected, expected))
+            with self.subTest(body=body), self.assertRaises(local_app.ApiProblem) as local_error:
+                local._capture_body("team-create")
+            self.assertEqual(local_error.exception.status, expected)
 
-    def test_hosted_and_local_wrappers_reject_the_same_encoded_route(self) -> None:
-        hosted = self._handler(app.Handler, b"", ())
-        hosted.path = "/v1/teams/%74eam_1"
+    def test_the_local_wrapper_rejects_an_encoded_route(self) -> None:
         local = self._handler(local_app.Handler, b"", ())
-        local.path = hosted.path
-
-        with self.assertRaises(runtime_state.ApiError) as hosted_error:
-            hosted_controller.hosted.route_target(hosted.headers, hosted.path, "GET", runtime_state.ApiError)
+        local.path = "/v1/teams/%74eam_1"
+        local.command = "GET"
         with self.assertRaises(local_app.ApiProblem) as local_error:
-            local.command = "GET"
             local._resolved_route()
+        self.assertEqual(local_error.exception.status, HTTPStatus.BAD_REQUEST)
 
-        self.assertEqual(
-            (hosted_error.exception.status, local_error.exception.status),
-            (HTTPStatus.BAD_REQUEST, HTTPStatus.BAD_REQUEST),
-        )
-
-    def test_hosted_and_local_wrappers_read_the_same_raw_file_contract(self) -> None:
+    def test_the_local_wrapper_reads_the_raw_file_contract(self) -> None:
         body = b"Team private data"
         headers = (
             ("Content-Length", str(len(body))),
             ("Content-Type", "text/plain"),
             ("X-Shimpz-Filename", "brief%20%E2%9C%93.txt"),
         )
-        hosted = self._handler(app.Handler, body, headers)
         local = self._handler(local_app.Handler, body, headers)
 
         expected = ("brief ✓.txt", body, "text/plain")
-        hosted._capture_body("file-upload")
-        self.assertEqual(hosted._read_file_body(), expected)
         local._capture_body("file-upload")
         self.assertEqual(local._file_body(), expected)
 
@@ -212,13 +195,7 @@ class SharedStrictHttpTest(unittest.TestCase):
         ):
             with self.subTest(target=target), self.assertRaises(strict_http.HttpContractError):
                 strict_http.parse_request_target(target, allow_query=allow_query, max_bytes=maximum)
-        target = strict_http.parse_routed_request(
-            Message(),
-            "/path?key=value",
-            "POST",
-            body_methods=frozenset({"POST"}),
-            allow_query=True,
-        )
+        target = strict_http.parse_request_target("/path?key=value", allow_query=True)
         self.assertEqual(target.query, {"key": "value"})
 
     def test_bearer_match_refuses_non_ascii_headers_instead_of_raising(self) -> None:
@@ -229,13 +206,13 @@ class SharedStrictHttpTest(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIs(strict_http.bearer_matches(headers, token), value == f"Bearer {token}")
 
-    def test_route_groups_and_profile_validation_cover_every_routing_family(self) -> None:
+    def test_route_groups_cover_every_routing_family(self) -> None:
         expected = {
             "health": "fixed",
             "team-create": "team",
             "file-list": "file",
             "inference-status": "inference",
-            "chat-stream": "chat",
+            "chat-stop": "chat",
             "assistant-integration-list": "assistant-integration",
             "assistant-stored-input-list": "assistant-stored-input",
             "local-assistant-list": "local-assistant",
@@ -247,29 +224,27 @@ class SharedStrictHttpTest(unittest.TestCase):
         for operation, group in expected.items():
             with self.subTest(operation=operation):
                 self.assertEqual(strict_http.ControllerRouteMatch(operation, {}).group, group)
-        with self.assertRaises(ValueError):
-            strict_http.resolve_controller_route("unknown", "GET", ())
 
         action_labels = ("v1", "teams", "team_1", "assistants", "cloudflare-assistant", "action-labels")
-        resolved = strict_http.resolve_controller_route(strict_http.LOCAL_CONTROLLER, "POST", action_labels)
+        resolved = strict_http.resolve_controller_route("POST", action_labels)
         self.assertEqual(resolved.operation, "assistant-action-labels")
         self.assertEqual(
             resolved.params,
             {"team_id": "team_1", "assistant_id": "cloudflare-assistant"},
         )
-        self.assertIsNone(strict_http.resolve_controller_route(strict_http.HOSTED_CONTROLLER, "POST", action_labels))
 
-        capability_plan = ("v1", "teams", "team_1", "chat", "capability-plan")
-        planned = strict_http.resolve_controller_route(strict_http.LOCAL_CONTROLLER, "POST", capability_plan)
-        self.assertEqual(planned.operation, "chat-capability-plan")
-        self.assertEqual(planned.params, {"team_id": "team_1"})
-        self.assertIsNone(strict_http.resolve_controller_route(strict_http.HOSTED_CONTROLLER, "POST", capability_plan))
-
-        intent_route = ("v1", "teams", "team_1", "chat", "intent-route")
-        routed = strict_http.resolve_controller_route(strict_http.LOCAL_CONTROLLER, "POST", intent_route)
-        self.assertEqual(routed.operation, "chat-intent-route")
-        self.assertEqual(routed.params, {"team_id": "team_1"})
-        self.assertIsNone(strict_http.resolve_controller_route(strict_http.HOSTED_CONTROLLER, "POST", intent_route))
+    def test_retired_hosted_team_routes_are_not_routed(self) -> None:
+        for method, operation in (
+            ("POST", "chat/stream"),
+            ("GET", "status"),
+            ("GET", "logs"),
+            ("POST", "stop"),
+            ("POST", "start"),
+            ("POST", "restart"),
+        ):
+            with self.subTest(operation=operation):
+                parts = ("v1", "teams", "team_1", *operation.split("/"))
+                self.assertIsNone(strict_http.resolve_controller_route(method, parts))
 
 
 if __name__ == "__main__":

@@ -55,7 +55,7 @@ def _import_closure(*entrypoints: str) -> set[str]:
 
 class ControllerFootprintTests(unittest.TestCase):
     def test_controller_entrypoints_never_import_the_parsers(self) -> None:
-        for entrypoint in ("local.app", "hosted.app", "local.healthcheck", "hosted.healthcheck"):
+        for entrypoint in ("local.app", "local.healthcheck"):
             with self.subTest(entrypoint=entrypoint):
                 closure = _import_closure(entrypoint)
                 self.assertFalse({name.split(".")[0] for name in closure} & PARSERS)

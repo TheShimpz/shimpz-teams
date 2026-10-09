@@ -8,12 +8,12 @@ import struct
 import threading
 import time
 import unittest
+from pathlib import PurePosixPath
 from types import SimpleNamespace
 from unittest import mock
 
 from action import dispatch as action_dispatch
 from action import execution as action_execution
-from hosted import container as container_spec
 
 OPERATION_ID = "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
 
@@ -158,7 +158,7 @@ def rpc_strategy(api: object, **changes: object) -> action_execution.RpcExchange
         action_execution.RpcExchangeStrategy(
             api=api,
             user="10001:10001",
-            workdir=container_spec.CONTAINER_TMP,
+            workdir=str(PurePosixPath("/") / "tmp"),
             timeout=0.1,
             maximum=1024,
             transport_errors=(),

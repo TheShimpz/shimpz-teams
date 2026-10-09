@@ -20,27 +20,16 @@ class SharedEgressPolicyTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
 
-    def test_hosted_and_local_stores_make_the_same_drift_decision(self) -> None:
+    def test_a_rewritten_policy_is_refused_as_drift(self) -> None:
         hosts = ("api.open-meteo.com", "geocoding-api.open-meteo.com")
-        decisions: list[type[Exception]] = []
+        token = self.store.token("space\0team_1\0assistant", create=True)
+        self.assertIsNotNone(token)
+        assert token is not None
+        self.store.write(token, hosts)
+        (self.root / f"{token}.json").write_text('["evil.example"]', encoding="ascii")
 
-        with tempfile.TemporaryDirectory() as directory:
-            for name in ("hosted", "local"):
-                root = Path(directory) / name
-                root.mkdir(mode=0o750)
-                root.chmod(0o750)
-                store = egress_policy.EgressPolicyStore(root, os.getgid())
-                token = store.token("space\0team_1\0assistant", create=True)
-                self.assertIsNotNone(token)
-                assert token is not None
-                store.write(token, hosts)
-                (root / f"{token}.json").write_text('["evil.example"]', encoding="ascii")
-
-                with self.assertRaises(egress_policy.EgressPolicyError) as caught:
-                    store.validate("space\0team_1\0assistant", hosts)
-                decisions.append(type(caught.exception))
-
-        self.assertEqual(decisions, [egress_policy.EgressPolicyDriftError] * 2)
+        with self.assertRaises(egress_policy.EgressPolicyDriftError):
+            self.store.validate("space\0team_1\0assistant", hosts)
 
     def test_token_and_policy_writes_commit_their_directory_entry(self) -> None:
         real_fsync = os.fsync
