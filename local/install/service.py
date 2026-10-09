@@ -7,7 +7,7 @@ from http import HTTPStatus
 
 from install import artifact_trust, bindings, icons
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import assistant_icon_unavailable, invalid_locale
+from local.errors import assistant_icon_unavailable, assistant_limit_reached, invalid_locale
 from local.install import developers, preview, snapshots
 from local.install.registry import is_successor
 from local.validation import validate_team_id
@@ -151,6 +151,8 @@ def _install_local_snapshot(self, team_id: str, image_id: str, *, fresh_only: bo
                 )
             else:
                 result = _apply_local_snapshot(self, team_id, existing, admitted.record)
+    except bindings.AssistantLimitReachedError as exc:
+        raise assistant_limit_reached() from exc
     except bindings.DynamicAssistantError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
@@ -265,6 +267,8 @@ def install_publication(
             "Assistant artifact trust failed",
             code="assistant-artifact-untrusted",
         ) from exc
+    except bindings.AssistantLimitReachedError as exc:
+        raise assistant_limit_reached() from exc
     except bindings.DynamicAssistantError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,

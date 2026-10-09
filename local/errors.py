@@ -77,6 +77,9 @@ chat_stop_timeout = _problem(_CONFLICT, "active Team chat did not stop in time",
 routine_active = _problem(_CONFLICT, "Team is running a Routine", "routine-active")
 chat_active = _problem(_CONFLICT, "Team already has an active chat turn", "chat-active")
 invalid_locale = _problem(_INVALID, "locale must be one interface language", "invalid-locale")
+assistant_limit_reached = _problem(
+    _CONFLICT, "Team already has the maximum number of Assistants", "assistant_limit_reached"
+)
 assistant_not_installed = _problem(_NOT_FOUND, "Assistant is not installed in this Team", "assistant-not-installed")
 assistant_manifest_unavailable = _problem(
     _UNAVAILABLE, "installed Assistant manifest could not be verified", "assistant-manifest-unavailable"

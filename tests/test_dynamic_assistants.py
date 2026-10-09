@@ -11,12 +11,14 @@ from pathlib import Path
 from unittest import mock
 
 from install.bindings import (
+    AssistantLimitReachedError,
     DynamicAssistantConflictError,
     DynamicAssistantError,
     DynamicAssistantStore,
     binding_from_resolution,
 )
 from install.contract import CONTRACT_ROOT
+from protocol.http.v1 import payload as http_payload
 
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())
 RESOLUTION = VECTORS["fixtures"]["resolve_response"]["value"]
@@ -40,6 +42,78 @@ def runtime_resolution() -> dict[str, object]:
     action["stored_inputs"] = []
     action["human_requests"] = []
     return resolution
+
+
+def named_resolution(assistant_id: str) -> dict[str, object]:
+    resolution = copy.deepcopy(RESOLUTION)
+    resolution["assistant_id"] = assistant_id
+    return resolution
+
+
+class TeamAssistantLimitTests(unittest.TestCase):
+    """A Team holds at most MAX_TEAM_ASSISTANTS bindings; only a new Assistant id can be refused for it."""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name) / "bindings.json"
+        self.store = DynamicAssistantStore(self.path)
+
+    def _fill(self, count: int) -> None:
+        for index in range(count):
+            self.store.put("team_1", named_resolution(f"helper-{index}"))
+
+    def test_a_new_assistant_beyond_the_limit_is_refused_without_writing(self) -> None:
+        self._fill(http_payload.MAX_TEAM_ASSISTANTS)
+        before = self.path.read_bytes()
+
+        with self.assertRaises(AssistantLimitReachedError):
+            self.store.put("team_1", named_resolution("one-more"))
+
+        self.assertEqual(self.path.read_bytes(), before)
+        # The limit is per Team.
+        self.store.put("team_2", named_resolution("one-more"))
+
+    def test_every_installed_binding_counts_even_one_the_current_contract_refuses(self) -> None:
+        DynamicAssistantStore(self.path, local_record_validator=validate_local_record).put_local(
+            "team_1", copy.deepcopy(LOCAL_RECORD)
+        )
+        self._fill(http_payload.MAX_TEAM_ASSISTANTS - 1)
+        (refused,) = [binding for binding in self.store.list("team_1") if not binding.admissible]
+        self.assertEqual(refused.assistant_id, "local-example")
+
+        with self.assertRaises(AssistantLimitReachedError):
+            self.store.put("team_1", named_resolution("one-more"))
+
+    def test_an_identical_reinstall_or_a_replacement_at_the_limit_is_admitted(self) -> None:
+        self._fill(http_payload.MAX_TEAM_ASSISTANTS)
+        current = self.store.get("team_1", "helper-0")
+
+        self.assertEqual(self.store.put_with_status("team_1", named_resolution("helper-0")), (current, False))
+        successor = named_resolution("helper-0")
+        successor["source_digest"] = f"sha256:{'9' * 64}"
+        replaced = self.store.replace("team_1", current.binding_digest, successor)
+
+        self.assertEqual(self.store.get("team_1", "helper-0"), replaced)
+        self.assertEqual(len(self.store.list("team_1")), http_payload.MAX_TEAM_ASSISTANTS)
+
+    def test_two_installs_racing_for_the_last_slot_admit_exactly_one(self) -> None:
+        self._fill(http_payload.MAX_TEAM_ASSISTANTS - 1)
+        ready = threading.Barrier(2)
+
+        def install(assistant_id: str) -> str:
+            ready.wait(timeout=5)
+            try:
+                DynamicAssistantStore(self.path).put("team_1", named_resolution(assistant_id))
+            except AssistantLimitReachedError:
+                return "refused"
+            return "installed"
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            outcomes = sorted(executor.map(install, ("racer-a", "racer-b")))
+
+        self.assertEqual(outcomes, ["installed", "refused"])
+        self.assertEqual(len(self.store.list("team_1")), http_payload.MAX_TEAM_ASSISTANTS)
 
 
 class DynamicAssistantStoreTests(unittest.TestCase):

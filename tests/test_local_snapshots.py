@@ -18,6 +18,7 @@ from install.update import AssistantUpdateStore
 from local.errors import ApiProblemError
 from local.install import registry as assistant_registry
 from local.install import service, snapshots, source_package
+from protocol.http.v1 import payload as http_payload
 from tests import catalog_fixtures
 from tests.local_snapshot_fixtures import CREATED, IMAGE_ID
 from tests.local_snapshot_fixtures import archive as _archive
@@ -346,6 +347,28 @@ class LocalSnapshotTests(unittest.TestCase):
                 ),
             ):
                 snapshots.validate_record({**record, "stored_inputs": value})
+
+    def test_a_local_install_beyond_the_team_limit_is_refused_before_it_starts(self) -> None:
+        client, _image_value, _container_value = _client()
+        admitted = snapshots.admit(client, IMAGE_ID)
+        install = mock.Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            registry = _registry(Path(directory))
+            for index in range(http_payload.MAX_TEAM_ASSISTANTS):
+                resolution = _runtime_resolution()
+                resolution["assistant_id"] = f"helper-{index}"
+                registry.put("team_1", resolution)
+            controller = _controller(client, registry, _fresh_installing_lifecycle(install))
+
+            with (
+                mock.patch.object(service.snapshots, "admit", return_value=admitted),
+                self.assertRaises(ApiProblemError) as caught,
+            ):
+                service.install_local_snapshot(controller, "team_1", IMAGE_ID)
+
+            self.assertIsNone(registry.binding("team_1", "fixture-assistant"))
+        self.assertEqual((caught.exception.status, caught.exception.code), (409, "assistant_limit_reached"))
+        install.assert_not_called()
 
     def test_registry_projects_local_runtime_and_replaces_only_local_bindings(self) -> None:
         client, _image_value, _container_value = _client()

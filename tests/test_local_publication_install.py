@@ -32,6 +32,7 @@ from local.install.developers import (
     PublicationNotInstallableError,
 )
 from local.install.registry import AssistantRegistry
+from protocol.http.v1 import payload as http_payload
 
 RESOLUTION = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())["fixtures"]["resolve_response"]["value"]
 ICON = b"canonical icon"
@@ -728,6 +729,28 @@ class LocalStartAuthorizationCompensationTests(unittest.TestCase):
                 "release-egress",
             ],
         )
+
+    def test_a_fresh_install_beyond_the_team_limit_is_refused_before_any_side_effect(self) -> None:
+        resolution = _runtime_resolution()
+        self.successor_image = resolution["image_reference"]
+        events: list[object] = []
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._controller(directory, events, None)
+            for index in range(http_payload.MAX_TEAM_ASSISTANTS):
+                installed = _runtime_resolution()
+                installed["assistant_id"] = f"helper-{index}"
+                controller.registry.put("team_1", installed)
+            controller.developers.resolve.return_value = resolution
+
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                controller.install_publication("team_1", resolution["assistant_id"], resolution["source_digest"])
+
+            bound = [binding for binding in controller.registry.bindings() if binding.team_id == "team_1"]
+
+        self.assertEqual((caught.exception.status, caught.exception.code), (409, "assistant_limit_reached"))
+        self.assertEqual(len(bound), http_payload.MAX_TEAM_ASSISTANTS)
+        self.assertNotIn(resolution["assistant_id"], {binding.assistant_id for binding in bound})
+        self.assertEqual(events, [])
 
     def test_update_restores_the_previous_generation_synchronously(self) -> None:
         current = _runtime_resolution()

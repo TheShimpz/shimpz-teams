@@ -36,6 +36,10 @@ class DynamicAssistantConflictError(DynamicAssistantError):
     """A Team already binds this Assistant id to a different artifact."""
 
 
+class AssistantLimitReachedError(DynamicAssistantError):
+    """The Team already has the most Assistants one Team may have installed."""
+
+
 class InadmissibleAssistantBindingError(DynamicAssistantError):
     """An intact installed binding that the current Assistant contract refuses; it must be replaced or uninstalled."""
 
@@ -114,6 +118,10 @@ class DynamicAssistantStore:
                 if existing == binding:
                     return existing, False
                 raise DynamicAssistantConflictError("the Team already binds this Assistant id to another artifact")
+            # Every installed binding counts, whatever its runtime state or admissibility; a replacement goes through
+            # _replace and an identical reinstall returned above, so only a new Assistant id can reach the limit.
+            if sum(current.team_id == binding.team_id for current in bindings) >= http_payload.MAX_TEAM_ASSISTANTS:
+                raise AssistantLimitReachedError("the Team already has the maximum number of Assistants")
             if len(bindings) >= _MAX_BINDINGS:
                 raise DynamicAssistantError("the dynamic Assistant registry is full")
             bindings.append(binding)
