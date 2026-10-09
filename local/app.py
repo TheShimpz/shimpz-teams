@@ -6,11 +6,13 @@ digest-pinned published Assistants with declared Action contracts.
 """
 
 import hashlib
+import json
 import logging
 import os
 import signal
 import sys
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
@@ -21,9 +23,9 @@ from docker.errors import DockerException
 
 from action import challenges as action_challenges
 from action import execution as action_execution
-from action import failure as action_failure
 from action import files as action_files
 from action import journal as action_journal
+from action import provider as action_provider
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
 from assistant import language as assistant_language
@@ -74,6 +76,7 @@ from local.install import preview as local_snapshot_preview
 from local.install import service as local_install_service
 from local.install import snapshots as local_snapshots
 from local.install.registry import AssistantRegistry
+from local.install.runtime import AssistantSpec
 from local.labels import (
     IMAGE_LABEL as _LOCAL_IMAGE_LABEL,
 )
@@ -605,37 +608,19 @@ class LocalController:
                 assistant=assistant_id,
                 detail=f"started:{action}",
             )
-            if action_spec.stored_inputs:
-                # Every attempt of an Action that declares Stored Inputs names the ids it was delivered, none included,
-                # under its logical operation; with the request's trace id that is exactly one attempt and its outcome.
-                local_audit.record_request(
-                    "assistant-action",
-                    result="ok",
-                    team_id=team_id,
-                    assistant=assistant_id,
-                    detail=f"stored-inputs-delivered:{action}:{private.operation_id}:{','.join(sorted(private.stored_inputs))}",
-                )
             rpc_payload = {
                 "input": safe_payload,
-                "integrations": action_execution.integration_access_tokens(private.integrations),
-                "stored_inputs": private.stored_inputs,
+                "stored_inputs": tuple(private.stored_inputs),
                 "files": files,
                 "operation_id": private.operation_id,
             }
             if private.transcript.responses:
                 rpc_payload["responses"] = private.transcript.payloads()
-            capabilities = action_failure.capability_values(container)
-            if evidence is not None and evidence.protect is not None:
-                # A Routine run or recording turn protects the workload's capabilities before its RPC (ADR-0101).
-                evidence.protect(capabilities)
+            broker = self._provider_broker(team_id, spec, action, action_spec, private)
         # Audit names a delivered file by its opaque id and size only, never its name or content (ADR-0093).
         sent = action_files.delivered(files)
         try:
-            raw_result = self.assistant_lifecycle._rpc(
-                container,
-                action,
-                rpc_payload,
-            )
+            raw_result = self.assistant_lifecycle._rpc(container, action, rpc_payload, broker)
         except ApiProblem:
             local_audit.record_request(
                 "assistant-action",
@@ -664,7 +649,7 @@ class LocalController:
             )
         projected = local_chat_execution.project_invocation(
             self.assistant_stored_inputs,
-            local_chat_execution.Invocation(team_id, assistant_id, action, action_spec, spec, capabilities),
+            local_chat_execution.Invocation(team_id, assistant_id, action, action_spec, spec),
             raw_result,
             private,
             validate_action_payload,
@@ -677,6 +662,38 @@ class LocalController:
             detail=f"completed:{action}",
         )
         return {"assistant": assistant_id, "action": action, "result": projected}
+
+    def _provider_broker(
+        self,
+        team_id: str,
+        spec: AssistantSpec,
+        action: str,
+        action_spec: object,
+        private: action_execution.ResolvedInvocationEvidence,
+    ) -> action_provider.Broker:
+        """Team's answer to this attempt's provider calls, through the Assistant's own egress policy (ADR-0106)."""
+
+        def route() -> tuple[str, frozenset[str]]:
+            try:
+                token = self.assistant_lifecycle._egress_token(team_id, spec.assistant_id, create=False)
+            except ApiProblem as exc:
+                raise action_provider.CallRefusedError("unavailable", "egress-policy") from exc
+            return ("", frozenset()) if token is None else (token, frozenset(spec.allowed_hosts))
+
+        def audit(fields: Mapping[str, object]) -> None:
+            phase = fields["phase"]
+            result = "denied" if phase == "refused" else "error" if "error" in fields else "ok"
+            detail = json.dumps(dict(fields), sort_keys=True, separators=(",", ":"))
+            local_audit.record_request(
+                "assistant-provider-call",
+                result=result,
+                team_id=team_id,
+                assistant=spec.assistant_id,
+                detail=f"{action}:{private.operation_id}:{detail}",
+            )
+
+        attempt = action_provider.Attempt(team_id, spec.assistant_id, action, private.operation_id)
+        return action_provider.Broker(action_provider.call_scope(attempt, spec, action_spec, private, route, audit))
 
 
 def main() -> int:

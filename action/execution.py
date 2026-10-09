@@ -8,11 +8,11 @@ import select
 import socket
 import struct
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import AbstractContextManager, nullcontext, suppress
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import NoReturn
+from typing import NoReturn, Protocol
 
 from action import dispatch as action_dispatch
 from action import failure as action_failure
@@ -68,35 +68,20 @@ def rpc_failure_message(kind: str) -> tuple[str, str]:
         _raise_unknown_rpc_failure(kind)
 
 
-def integration_access_tokens(integrations: Mapping[str, Mapping[str, object]]) -> dict[str, str]:
-    """Project controller integration records into the minimal Spec v1 token mapping."""
-    tokens: dict[str, str] = {}
-    for integration_id, envelope in integrations.items():
-        if (
-            not isinstance(integration_id, str)
-            or set(envelope) != {"type", "access_token"}
-            or envelope["type"] != "oauth2-bearer"
-            or not isinstance(envelope["access_token"], str)
-        ):
-            raise ValueError("Assistant integration envelope is invalid")
-        tokens[integration_id] = envelope["access_token"]
-    return tokens
-
-
 # Sizes an invocation before its journal mints the real id, which always has this exact length.
 OPERATION_ID_PLACEHOLDER = "00000000-0000-4000-8000-000000000000"
 
 
 def encode_rpc_invocation(
     action_input: object,
-    integrations: Mapping[str, str],
-    stored_inputs: Mapping[str, str],
+    stored_inputs: Iterable[str],
     operation_id: str,
     responses: tuple[Mapping[str, object], ...] = (),
     files: Mapping[str, object] | None = None,
 ) -> bytes:
     """Encode one bounded Spec v1 invocation of one logical operation, adding responses only for replay.
 
+    ``stored_inputs`` names the held Stored Inputs, never their values: no credential enters the workload (ADR-0106).
     ``files`` is always present, ``{}`` for an ordinary Action; only an invocation carrying delivered file content
     admits the larger bound the SDK applies to it (ADR-0093).
     """
@@ -104,8 +89,7 @@ def encode_rpc_invocation(
         raise ValueError("Assistant Action operation id is invalid")
     invocation: dict[str, object] = {
         "input": action_input,
-        "integrations": dict(integrations),
-        "stored_inputs": dict(stored_inputs),
+        "stored_inputs": sorted(stored_inputs),
         "files": dict(files or {}),
         "operation_id": operation_id,
     }
@@ -393,15 +377,12 @@ class RpcResultPolicy:
     """Reviewed Action result capabilities and private values for one invocation."""
 
     human_requests: tuple[str, ...] = ()
-    protected_values: Mapping[str, str] | None = None
     authorization_requested: bool = False
     # The values of the declared Stored Inputs Team injected; only these can be rejected (ADR-0059).
     stored_inputs_by_id: Mapping[str, str] | None = None
     declared_stored_inputs: tuple[str, ...] = ()
     # The reviewed English message catalog every request copy reference must name (ADR-0091).
     catalog: Mapping[str, Mapping[str, object]] | None = None
-    # Capabilities Team injected into the workload, such as its egress token: protected like every injected value.
-    capabilities: tuple[str, ...] = ()
     # A file-taking Action whose file content was withheld cannot have succeeded with it (ADR-0093).
     file_withheld: bool = False
 
@@ -410,15 +391,12 @@ _DEFAULT_RPC_RESULT_POLICY = RpcResultPolicy()
 
 
 def _injected_values(integrations_by_id: Mapping[str, Mapping[str, object]], policy: RpcResultPolicy) -> dict[str, str]:
-    """Every private value Team supplied to one invocation: tokens, secret responses, Stored Inputs, capabilities.
+    """Every private value Team holds for one invocation: Integration tokens and Stored Inputs (ADR-0106).
 
     Every envelope branch uses this one collection: the failure branch redacts these values, and every other branch
     refuses an echo of any of them outright.
     """
     secrets = protected_rpc_values(integrations_by_id)
-    secrets.update({f"capability:{index}": value for index, value in enumerate(policy.capabilities)})
-    if policy.protected_values is not None:
-        secrets.update(policy.protected_values)
     if policy.stored_inputs_by_id is not None:
         secrets.update({f"stored-input:{key}": value for key, value in policy.stored_inputs_by_id.items()})
     return secrets
@@ -495,6 +473,14 @@ def decode_rpc_response(raw: bytes) -> dict[str, object]:
     return response
 
 
+class ProviderBroker(Protocol):
+    """Team's answer to an Action's provider calls; ``calls`` counts every call frame the attempt sent."""
+
+    calls: int
+
+    def __call__(self, frame: object, deadline: float) -> bytes: ...
+
+
 @dataclass(frozen=True, slots=True)
 class RpcExchangeStrategy:
     api: object
@@ -509,6 +495,8 @@ class RpcExchangeStrategy:
     # An absolute monotonic deadline that already bounds this RPC, such as an admitted file delivery's (ADR-0093);
     # without one, the RPC's deadline starts when it is called.
     deadline: float | None = None
+    # Answers the Action's provider calls on the same channel (ADR-0106); without one, stdin is one request.
+    broker: ProviderBroker | None = None
 
 
 def _start_exec(container_id: str, argv: list[str], strategy: RpcExchangeStrategy, deadline: float) -> object:
@@ -585,7 +573,7 @@ def rpc_exchange(
             raw_socket = getattr(stream, "_sock", None)
             if raw_socket is None:
                 raise OSError("Docker attach socket cannot half-close stdin")
-            stdout, stderr = exchange_rpc_frames(raw_socket, encoded, deadline, strategy.maximum)
+            stdout, stderr = exchange_rpc_frames(raw_socket, encoded, deadline, strategy.maximum, strategy.broker)
         finally:
             strategy.close_stream(stream)
     except action_dispatch.DispatchRefusedError as exc:
@@ -626,7 +614,15 @@ def rpc_exchange(
         strategy.fail_stop()
         strategy.cancelled(None)
         raise RpcExchangeError("failed", f"exit-status:{exit_code}" if exit_code != 0 else "stderr-output")
-    return decode_rpc_response(bytes(stdout))
+    return _terminal(stdout, strategy.broker)
+
+
+def _terminal(stdout: bytes, broker: ProviderBroker | None) -> dict[str, object]:
+    """Decode the terminal frame; a replay would repeat every provider call before a request, so none may follow one."""
+    response = decode_rpc_response(bytes(stdout))
+    if broker is not None and broker.calls and response.get("type") == "request":
+        raise RpcExchangeError("invalid-result", "request-after-provider-call")
+    return response
 
 
 def private_generations(metadata: tuple[object, ...]) -> tuple[tuple[str, int], ...]:
@@ -779,16 +775,11 @@ class RpcPrivateInputs:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ActionInvocationEvidence:
-    """Invoke-time private evidence, the memory-only replay transcript, and the journaled logical operation id.
-
-    ``protect`` receives every further value Team injects into the workload, its capabilities, before the RPC, so a
-    Routine run or a recording turn protects them even when the attempt then fails (ADR-0101 section 6.2).
-    """
+    """Invoke-time private evidence, the memory-only replay transcript, and the journaled logical operation id."""
 
     private_inputs: RpcPrivateInputs
     transcript: action_human.ActionTranscript
     operation_id: str
-    protect: Callable[[tuple[str, ...]], None] | None = dataclasses.field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -841,7 +832,6 @@ def require_rpc_envelope(
     stored_inputs = {stored_input_id: resolved.value for stored_input_id, resolved in resolved_stored_inputs.items()}
     encode_rpc_invocation(
         request.input,
-        integration_access_tokens(integrations),
         stored_inputs,
         OPERATION_ID_PLACEHOLDER,
         files=action_files.invocation_files(file, False, lambda _file_id: ({}, b"")),
@@ -879,13 +869,15 @@ def protected_rpc_values(
 
 
 class _FrameReader:
-    """Parse Docker's multiplexed exec frames incrementally within one cumulative output bound."""
+    """Parse Docker's multiplexed exec frames incrementally within one bound on the output buffered at once."""
 
     def __init__(self, maximum: int) -> None:
         self._maximum = maximum
         self._pending = bytearray()
         self._stdout = bytearray()
         self._stderr = bytearray()
+        # The end of the terminal stdout line once it arrived; nothing may follow it (ADR-0106).
+        self._terminal: int | None = None
 
     def feed(self, data: bytes) -> None:
         self._pending.extend(data)
@@ -903,6 +895,21 @@ class _FrameReader:
             if len(self._stdout) + len(self._stderr) > self._maximum:
                 raise ValueError("oversized Assistant RPC response")
 
+    def calls(self) -> Iterator[object]:
+        """Take each complete provider-call line before the terminal line; output after the terminal is refused."""
+        while self._terminal is None and (end := self._stdout.find(b"\n")) >= 0:
+            try:
+                frame = strict_json.loads(bytes(self._stdout[:end]))
+            except (UnicodeError, RecursionError) as exc:
+                raise ValueError("invalid Assistant RPC line") from exc
+            if not isinstance(frame, dict) or frame.get("type") != "fetch":
+                self._terminal = end + 1
+                break
+            del self._stdout[: end + 1]
+            yield frame
+        if self._terminal is not None and len(self._stdout) > self._terminal:
+            raise ValueError("Assistant RPC output follows its terminal frame")
+
     def finish(self) -> tuple[bytes, bytes]:
         if self._pending:
             raise ValueError("truncated Assistant RPC frame")
@@ -913,35 +920,37 @@ _FRAME_HEADER_BYTES = 8
 _CHUNK_BYTES = 64 * 1024
 
 
-def exchange_rpc_frames(raw_socket: socket.socket, data: bytes, deadline: float, maximum: int) -> tuple[bytes, bytes]:
-    """Write stdin while draining output, then half-close; return the bounded stdout and stderr at end of stream.
+def exchange_rpc_frames(
+    raw_socket: socket.socket,
+    data: bytes,
+    deadline: float,
+    maximum: int,
+    broker: ProviderBroker | None = None,
+) -> tuple[bytes, bytes]:
+    """Write stdin while draining output; return the bounded stdout and stderr at end of stream.
 
     Reading and writing interleave on a non-blocking socket within one deadline, so a workload that answers before it
-    reads all of a large invocation never stalls on a full buffer (ADR-0093).
+    reads all of a large invocation never stalls on a full buffer (ADR-0093). Without a broker, stdin is one request
+    and is half-closed once written. With one, the request is the first stdin line and stdin stays open: each complete
+    stdout provider-call line is answered by one broker line, and the first other line is the terminal frame (ADR-0106).
     """
     reader = _FrameReader(maximum)
-    view = memoryview(data)
-    sent = 0
+    pending = bytearray(data if broker is None else data + b"\n")
+    closed = False
     previous = raw_socket.gettimeout()
     raw_socket.setblocking(False)
     try:
         while True:
             remaining = deadline - time.monotonic()
-            writing = sent < len(view)
             if remaining <= 0:
                 raise TimeoutError
-            readable, writable, _ = select.select([raw_socket], [raw_socket] if writing else [], [], remaining)
+            readable, writable, _ = select.select([raw_socket], [raw_socket] if pending else [], [], remaining)
             if not readable and not writable:
                 raise TimeoutError
             if writable:
-                try:
-                    sent += raw_socket.send(view[sent : sent + _CHUNK_BYTES])
-                except BlockingIOError:
-                    pass
-                except BrokenPipeError:
-                    # The workload stopped reading its input; its output and exit status still decide the outcome.
-                    sent = len(view)
-                if sent == len(view):
+                _send_pending(raw_socket, pending)
+                if not pending and broker is None and not closed:
+                    closed = True
                     with suppress(OSError):
                         raw_socket.shutdown(socket.SHUT_WR)
             if readable:
@@ -952,8 +961,30 @@ def exchange_rpc_frames(raw_socket: socket.socket, data: bytes, deadline: float,
                 if not chunk:
                     return reader.finish()
                 reader.feed(chunk)
+                if broker is not None:
+                    _answer_calls(reader, broker, pending, deadline)
     finally:
         raw_socket.settimeout(previous)
+
+
+def _send_pending(raw_socket: socket.socket, pending: bytearray) -> None:
+    try:
+        del pending[: raw_socket.send(pending[:_CHUNK_BYTES])]
+    except BlockingIOError:
+        pass
+    except BrokenPipeError:
+        # The workload stopped reading its input; its output and exit status still decide the outcome.
+        pending.clear()
+
+
+def _answer_calls(reader: _FrameReader, broker: ProviderBroker, pending: bytearray, deadline: float) -> None:
+    for frame in reader.calls():
+        try:
+            reply = broker(frame, deadline)
+        except (RuntimeError, OSError, ValueError, TypeError, KeyError) as exc:
+            # An unauditable or broken call ends the attempt as uncertain, never silently.
+            raise OSError("the provider call failed inside Team") from exc
+        pending.extend(reply + b"\n")
 
 
 def close_exec_stream(stream: object) -> None:

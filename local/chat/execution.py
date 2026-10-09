@@ -39,7 +39,6 @@ def project_action_result(
     private: action_execution.ResolvedInvocationEvidence,
     validate: Callable[[object, str, object], object],
     spec: object,
-    capabilities: tuple[str, ...] = (),
 ) -> object:
     return action_execution.project_rpc_result(
         raw_result,
@@ -47,14 +46,12 @@ def project_action_result(
         lambda value: validate(action_spec, "output", value),
         action_execution.RpcResultPolicy(
             human_requests=action_spec.human_requests,
-            protected_values=private.transcript.protected_values(),
             authorization_requested=any(
                 response.kind in action_human.AUTHORIZATION_KINDS for response in private.transcript.responses
             ),
             stored_inputs_by_id=private.stored_inputs,
             declared_stored_inputs=action_spec.stored_inputs,
             catalog=action_human.catalog_by_id(spec.machine_contract) if action_spec.human_requests else None,
-            capabilities=capabilities,
             file_withheld=private.file is not None
             and not action_files.authorized(action_spec.human_requests, private.transcript),
         ),
@@ -63,14 +60,13 @@ def project_action_result(
 
 @dataclass(frozen=True, slots=True)
 class Invocation:
-    """The reviewed Action one RPC ran, and the capabilities Team injected into its workload."""
+    """The reviewed Action one RPC ran."""
 
     team_id: str
     assistant_id: str
     action: str
     action_spec: object
     spec: object
-    capabilities: tuple[str, ...]
 
 
 # Each refused projection: its audit reason, public message, and problem code.
@@ -100,9 +96,7 @@ def project_invocation(
 ) -> object:
     """Project one RPC result, or audit and raise the public problem of a rejection or a handled failure."""
     try:
-        return project_action_result(
-            raw_result, invocation.action_spec, private, validate, invocation.spec, invocation.capabilities
-        )
+        return project_action_result(raw_result, invocation.action_spec, private, validate, invocation.spec)
     except action_execution.StoredInputRejectedError as exc:
         clear_rejected_stored_input(
             store, invocation.team_id, invocation.assistant_id, invocation.action, exc.stored_input

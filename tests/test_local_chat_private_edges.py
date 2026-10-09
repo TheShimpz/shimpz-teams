@@ -99,19 +99,6 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         )
         subject._terminal_human_failure.assert_called_with("team_1", "token", payload, "request-invalid")
 
-        response = types.SimpleNamespace(secret=True)
-        secret_payload = _pending(transcripts=(types.SimpleNamespace(responses=(response,)),))
-        requirement = types.SimpleNamespace(request=request)
-        local_chat_pause._pause_human(
-            subject,
-            "team_1",
-            "token",
-            outcome,
-            (requirement,),
-            secret_payload,
-        )
-        subject._terminal_human_failure.assert_called_with("team_1", "token", secret_payload, "secret-must-be-last")
-
         auth_request = types.SimpleNamespace(kind="auth:totp")
         auth_outcome = types.SimpleNamespace(request=auth_request)
         auth_requirement = types.SimpleNamespace(request=auth_request)

@@ -95,8 +95,6 @@ def _pause_human(
 ) -> dict[str, object]:
     if len(requirements) != 1 or requirements[0].request != outcome.request:
         return self._terminal_human_failure(team_id, token, payload, "request-invalid")
-    if any(response.secret for transcript in payload.transcripts for response in transcript.responses):
-        return self._terminal_human_failure(team_id, token, payload, "secret-must-be-last")
     if outcome.request.kind in action_human.AUTH_KINDS - {"auth:password"}:
         return self._terminal_human_failure(team_id, token, payload, "authentication-unavailable")
     # Publication, persistence, and the commit or its rollback hold the Team lock, so a relocalization never reissues a

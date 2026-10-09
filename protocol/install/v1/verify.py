@@ -174,6 +174,51 @@ def validate_resolve(value: dict[str, object]) -> None:
         if isinstance(action, dict)
     ):
         raise ContractViolationError("resolve_stored_input_mismatch")
+    if not placements_admitted(stored_inputs, value.get("allowed_hosts")):
+        raise ContractViolationError("resolve_stored_input_placement")
+
+
+# Fields Team owns in every provider call; no Stored Input may be placed in one (compared without case).
+RESERVED_HEADERS = frozenset(
+    {
+        "accept-encoding",
+        "connection",
+        "content-length",
+        "expect",
+        "host",
+        "keep-alive",
+        "proxy-authorization",
+        "proxy-connection",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
+)
+
+
+def placements_admitted(stored_inputs: list[object], allowed_hosts: object) -> bool:
+    """Admit placements that each go to one declared host and a field nothing else uses there (ADR-0106).
+
+    A proof signs exactly one plain Stored Input of its own host.
+    """
+    declared = {item["id"]: item for item in stored_inputs if isinstance(item, dict)}
+    hosts = allowed_hosts if isinstance(allowed_hosts, list) else []
+    fields: set[tuple[object, str]] = set()
+    for identifier, item in declared.items():
+        header = item.get("header")
+        field = f"header:{header.lower()}" if isinstance(header, str) else f"query:{item.get('query')}"
+        target = declared.get(item["hmac"]) if "hmac" in item else None
+        if (
+            item.get("host") not in hosts
+            or field.removeprefix("header:") in RESERVED_HEADERS
+            or (item.get("host"), field) in fields
+            or ("hmac" in item and (target is None or item["hmac"] == identifier or "hmac" in target))
+            or (target is not None and target.get("host") != item.get("host"))
+        ):
+            return False
+        fields.add((item.get("host"), field))
+    return True
 
 
 def input_files_admitted(action: dict[str, object]) -> bool:

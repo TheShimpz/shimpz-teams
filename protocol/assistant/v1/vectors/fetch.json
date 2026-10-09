@@ -1,0 +1,256 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "minimal GET",
+      "frame": {
+        "type": "fetch",
+        "method": "GET",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": [
+          [
+            "accept",
+            "application/json"
+          ]
+        ]
+      },
+      "valid": true
+    },
+    {
+      "name": "POST with a body and a timeout",
+      "frame": {
+        "type": "fetch",
+        "method": "POST",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "eyJxIjoieCJ9",
+        "timeout_ms": 5000
+      },
+      "valid": true
+    },
+    {
+      "name": "GET without headers",
+      "frame": {
+        "type": "fetch",
+        "method": "GET",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": []
+      },
+      "valid": true
+    },
+    {
+      "name": "plain HTTP",
+      "frame": {
+        "type": "fetch",
+        "method": "GET",
+        "url": "http://api.example.com/v1/items",
+        "headers": [
+          [
+            "accept",
+            "application/json"
+          ]
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "URL with a fragment",
+      "frame": {
+        "type": "fetch",
+        "method": "GET",
+        "url": "https://api.example.com/v1/items#top",
+        "headers": [
+          [
+            "accept",
+            "application/json"
+          ]
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "URL with a space",
+      "frame": {
+        "type": "fetch",
+        "method": "GET",
+        "url": "https://api.example.com/v1/my items",
+        "headers": [
+          [
+            "accept",
+            "application/json"
+          ]
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "unknown method",
+      "frame": {
+        "type": "fetch",
+        "method": "TRACE",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": [
+          [
+            "accept",
+            "application/json"
+          ]
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "lowercase method",
+      "frame": {
+        "type": "fetch",
+        "method": "get",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": [
+          [
+            "accept",
+            "application/json"
+          ]
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "header name with a space",
+      "frame": {
+        "type": "fetch",
+        "method": "GET",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": [
+          [
+            "x api",
+            "1"
+          ]
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "header value with a line break",
+      "frame": {
+        "type": "fetch",
+        "method": "GET",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": [
+          [
+            "x-api",
+            "a\r\nb"
+          ]
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "header with three members",
+      "frame": {
+        "type": "fetch",
+        "method": "GET",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": [
+          [
+            "x-api",
+            "a",
+            "b"
+          ]
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "body that is not base64",
+      "frame": {
+        "type": "fetch",
+        "method": "POST",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": [
+          [
+            "accept",
+            "application/json"
+          ]
+        ],
+        "body": "not base64!"
+      },
+      "valid": false
+    },
+    {
+      "name": "timeout of zero",
+      "frame": {
+        "type": "fetch",
+        "method": "GET",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": [
+          [
+            "accept",
+            "application/json"
+          ]
+        ],
+        "timeout_ms": 0
+      },
+      "valid": false
+    },
+    {
+      "name": "timeout above thirty seconds",
+      "frame": {
+        "type": "fetch",
+        "method": "GET",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": [
+          [
+            "accept",
+            "application/json"
+          ]
+        ],
+        "timeout_ms": 30001
+      },
+      "valid": false
+    },
+    {
+      "name": "frame with an unknown member",
+      "frame": {
+        "type": "fetch",
+        "method": "GET",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": [
+          [
+            "accept",
+            "application/json"
+          ]
+        ],
+        "credential": "meta-access-token"
+      },
+      "valid": false
+    },
+    {
+      "name": "frame without headers",
+      "frame": {
+        "type": "fetch",
+        "method": "GET",
+        "url": "https://api.example.com/v1/items?limit=10"
+      },
+      "valid": false
+    },
+    {
+      "name": "frame of another type",
+      "frame": {
+        "type": "result",
+        "method": "GET",
+        "url": "https://api.example.com/v1/items?limit=10",
+        "headers": [
+          [
+            "accept",
+            "application/json"
+          ]
+        ]
+      },
+      "valid": false
+    }
+  ]
+}

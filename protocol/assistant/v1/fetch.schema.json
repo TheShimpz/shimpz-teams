@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.shimpz.com/assistant/v1/fetch.schema.json",
+  "title": "Shimpz Action provider call v1",
+  "description": "One provider call an Action asks Team to make on its behalf, and Team's one reply. Team injects every credential; the Action never sends or receives one.",
+  "$ref": "#/$defs/request",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "method", "url", "headers"],
+      "properties": {
+        "type": { "const": "fetch" },
+        "method": { "enum": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] },
+        "url": {
+          "type": "string",
+          "minLength": 9,
+          "maxLength": 8192,
+          "pattern": "^https://[^\\u0000-\\u0020\\u007f#]+$"
+        },
+        "headers": { "$ref": "#/$defs/headers" },
+        "body": { "$ref": "#/$defs/body" },
+        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 30000 }
+      }
+    },
+    "response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "headers", "body"],
+          "properties": {
+            "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+            "headers": { "$ref": "#/$defs/headers" },
+            "body": { "type": "string", "maxLength": 5592408 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["error"],
+          "properties": {
+            "error": { "enum": ["refused", "credential-missing", "unavailable", "failed"] }
+          }
+        }
+      ]
+    },
+    "headers": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          { "type": "string", "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$" },
+          { "type": "string", "maxLength": 8192, "pattern": "^[^\\u0000-\\u0008\\u000a-\\u001f\\u007f]*$" }
+        ],
+        "minItems": 2,
+        "items": false
+      }
+    },
+    "body": {
+      "type": "string",
+      "maxLength": 349528,
+      "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+    }
+  }
+}

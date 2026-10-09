@@ -135,7 +135,7 @@ class OAuthExchangeDeadlineTests(unittest.TestCase):
             response = connection.getresponse()
             self.assertEqual(response.read(), b"{}")
         # A timer that fires after the exchange ended finds nothing to shut down.
-        deadline._expire()
+        deadline.expire()
         self.assertTrue(deadline.expired)
         self.assertEqual(deadline._sockets, [])
         self.assertEqual(connection.sock.getpeername()[1], peer.port)

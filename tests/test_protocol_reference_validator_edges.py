@@ -115,7 +115,6 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
             _text_request(),
             _text_request(placeholder=_ref("Example: {zone}", zone="example.com")),
             _text_request(kind="input:textarea", max_length=16000),
-            _text_request(kind="input:password", max_length=1024),
             _text_request(
                 kind="input:password",
                 max_length=1024,
@@ -147,6 +146,7 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
             (_text_request(min_length=True), "length_bounds"),
             (_text_request(min_length=2, max_length=1), "length_bounds"),
             (_text_request(stored_input="whatsapp-token"), "request_shape"),
+            (_text_request(kind="input:password", max_length=1024), "request_shape"),
             (
                 _text_request(
                     kind="input:password",
@@ -266,7 +266,11 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
             ([_approval(ordinal=1)], [], "ordinal_sequence"),
             ([_approval(extra=True)], [], "request_shape"),
             ([_approval(title=_ref("Unknown"))], [], "copy_reference"),
-            ([_text_request(kind="input:password"), _approval(ordinal=1)], [], "secret_last"),
+            (
+                [_text_request(kind="input:password", stored_input="whatsapp-token"), _approval(ordinal=1)],
+                [],
+                "stored_input_response",
+            ),
             (
                 [_approval(), _approval(kind="auth:password", ordinal=1)],
                 [],

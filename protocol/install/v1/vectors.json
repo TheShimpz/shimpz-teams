@@ -190,7 +190,8 @@
         },
         "pack_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
         "allowed_hosts": [
-          "api.cloudflare.com"
+          "api.cloudflare.com",
+          "graph.facebook.com"
         ],
         "integrations": [
           {
@@ -206,13 +207,19 @@
             "id": "whatsapp-app-secret",
             "kind": "password",
             "label": "WhatsApp app secret",
-            "description": "App secret used to sign WhatsApp API calls."
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token"
           },
           {
             "id": "whatsapp-token",
             "kind": "password",
             "label": "WhatsApp token",
-            "description": "Token used to call the WhatsApp API."
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer"
           }
         ],
         "review_state": "pending",
@@ -1546,13 +1553,19 @@
             "id": "whatsapp-token",
             "kind": "password",
             "label": "WhatsApp token",
-            "description": "Token used to call the WhatsApp API."
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer"
           },
           {
             "id": "whatsapp-token",
             "kind": "password",
             "label": "WhatsApp token",
-            "description": "Token used to call the WhatsApp API."
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer"
           }
         ]
       }
@@ -1770,7 +1783,10 @@
             "kind": "password",
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
-            "help_url": "https://business.facebook.com/settings/system-users"
+            "help_url": "https://business.facebook.com/settings/system-users",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer"
           }
         ]
       }
@@ -1791,7 +1807,10 @@
             "kind": "password",
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
-            "help_url": "http://business.facebook.com/settings"
+            "help_url": "http://business.facebook.com/settings",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer"
           }
         ]
       }
@@ -1812,7 +1831,10 @@
             "kind": "password",
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
-            "help_url": "https://business.facebook.com"
+            "help_url": "https://business.facebook.com",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer"
           }
         ]
       }
@@ -1833,7 +1855,10 @@
             "kind": "password",
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
-            "help_url": "https://user@business.facebook.com/settings"
+            "help_url": "https://user@business.facebook.com/settings",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer"
           }
         ]
       }
@@ -1854,7 +1879,199 @@
             "kind": "password",
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
-            "help_url": "https://keys.internal/settings"
+            "help_url": "https://keys.internal/settings",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_without_placement",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_placement_host_not_allowed",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_placement",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "collector.example.org",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "collector.example.org",
+            "header": "Authorization",
+            "scheme": "Bearer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_reserved_header",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_placement",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Host"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_shared_field",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_placement",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "header": "authorization"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_proof_of_unknown_slot",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_placement",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "other-token"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_proof_of_a_proof",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_placement",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer",
+            "hmac": "whatsapp-app-secret"
           }
         ]
       }

@@ -7,6 +7,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
+from assistant import manifest as assistant_manifest
 from protocol.assistant.v1.validators import input_file as input_file_validator
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
 
@@ -156,6 +157,11 @@ def _validate_resolve(value: dict[str, object]) -> None:
         if isinstance(action, dict)
     ):
         raise ContractValidationError("resolve_stored_input_mismatch")
+    try:
+        allowed_hosts = tuple(value["allowed_hosts"])
+        assistant_manifest.stored_input_declarations_from_documents(stored_inputs, allowed_hosts)
+    except (assistant_manifest.ManifestError, KeyError, TypeError) as exc:
+        raise ContractValidationError("resolve_stored_input_placement") from exc
 
 
 def _validate_catalog(value: dict[str, object]) -> None:

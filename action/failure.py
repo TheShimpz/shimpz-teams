@@ -2,9 +2,9 @@
 
 A handled failure is one ``{"type": "failure", ...}`` stdout frame after exit 0 with empty stderr. Team admits it
 with the mirrored Developers validator and then re-redacts every member itself, never trusting the Assistant's own
-sanitization: each value Team injected for the invocation (Integration tokens, Stored Input values, secret human
-responses, and the egress capability in the workload environment) is replaced in every common encoding, matched
-ASCII-case-insensitively, and secret-shaped text is replaced through the end of its value. A secret the producer cut
+sanitization: each value Team holds for the invocation (Integration tokens and Stored Input values, which the
+workload never receives) is replaced in every common encoding, matched ASCII-case-insensitively, and secret-shaped text
+is replaced through the end of its value. A secret the producer cut
 at the end of a text cannot be matched whole, so any trailing prefix of one is withheld rather than shown clipped.
 Redaction runs before the bound is enforced again, and both flags record what changed. A diagnostic is never
 evidence that an effect did or did not occur, and never authority.
@@ -34,8 +34,6 @@ MAX_ERROR_TYPE = 128
 MIN_DERIVED = 4
 # The shortest trailing prefix of an injected value that is withheld as a possibly clipped secret.
 MIN_CLIPPED = 4
-_PROXY_KEYS = ("HTTPS_PROXY", "https_proxy")
-_USERINFO = re.compile(r"[a-z][a-z0-9+.-]*://([^\s/@]+)@", re.IGNORECASE)
 # Each pattern consumes the whole value it recognizes, through the end of the text when nothing closes it.
 _SHAPED = (
     re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)", re.DOTALL),
@@ -108,20 +106,6 @@ def failure_of(exc: BaseException | None) -> ActionFailure | None:
     return None
 
 
-def capability_values(container: object) -> tuple[str, ...]:
-    """The egress capability Team injected into a workload's environment, read from its proxy URLs."""
-    attrs = getattr(container, "attrs", None)
-    config = attrs.get("Config") if isinstance(attrs, dict) else None
-    environment = config.get("Env") if isinstance(config, dict) else None
-    values: set[str] = set()
-    for entry in environment if isinstance(environment, list) else ():
-        key, separator, value = entry.partition("=") if isinstance(entry, str) else ("", "", "")
-        match = _USERINFO.match(value) if separator and key in _PROXY_KEYS else None
-        if match is not None:
-            values.add(match[1])
-    return tuple(sorted(values))
-
-
 def admit(envelope: object, secrets: Iterable[str]) -> ActionFailure:
     """Admit one failure frame and re-redact every member with each value Team injected for the invocation."""
     error = failure_validator.failure_error(envelope)
@@ -183,7 +167,7 @@ class _Redactor:
         for secret in secrets:
             if isinstance(secret, str) and secret:
                 needles.add(secret)
-                needles.update(item for item in _encodings(secret) if len(item) >= MIN_DERIVED)
+                needles.update(item for item in encodings(secret) if len(item) >= MIN_DERIVED)
         # Longest first, folded once, so a longer encoding is never left partly matched by a shorter one.
         folded = {needle.translate(_ASCII_LOWER) for needle in needles}
         self._lowered = tuple(sorted(folded, key=lambda item: (-len(item), item)))
@@ -232,14 +216,14 @@ class _Redactor:
         return value if start == len(value) else value[:start] + REDACTED
 
 
-def _encodings(secret: str) -> tuple[str, ...]:
+def encodings(secret: str) -> tuple[str, ...]:
     """The common encodings an Action may print a value in: JSON, percent, hexadecimal, and both base64 alphabets.
 
     Base64 is taken at each of the three byte alignments, keeping only the characters that depend on the value alone,
     so the value is found inside a longer encoded string such as a Basic credential.
     """
     raw = secret.encode("utf-8")
-    encodings = [
+    forms = [
         json.dumps(secret)[1:-1],
         json.dumps(secret, ensure_ascii=False)[1:-1],
         json.dumps(secret)[1:-1].replace("/", "\\/"),
@@ -252,8 +236,8 @@ def _encodings(secret: str) -> tuple[str, ...]:
         first = -(-offset * 4 // 3)
         last = (offset + len(raw)) * 8 // 6
         core = encoded[first:last]
-        encodings.extend((core, core.translate(str.maketrans("+/", "-_"))))
-    return tuple(encodings)
+        forms.extend((core, core.translate(str.maketrans("+/", "-_"))))
+    return tuple(forms)
 
 
 def _bound(value: str, limit: int) -> str:

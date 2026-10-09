@@ -205,7 +205,7 @@ class DynamicAssistantStoreTests(unittest.TestCase):
 
         self.assertEqual(spec.image, RESOLUTION["image_reference"])
         self.assertEqual(spec.archs, ("amd64", "arm64"))
-        self.assertEqual(spec.allowed_hosts, ("api.cloudflare.com",))
+        self.assertEqual(spec.allowed_hosts, ("api.cloudflare.com", "graph.facebook.com"))
         self.assertEqual(tuple(spec.contract.actions), ("hello",))
         self.assertEqual(spec.contract.actions["hello"].human_requests, ())
         self.assertEqual(

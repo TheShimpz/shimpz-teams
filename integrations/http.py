@@ -51,7 +51,7 @@ class ExchangeDeadline:
             return created
 
         connection._create_connection = tracked
-        self._timer = threading.Timer(seconds, self._expire)
+        self._timer = threading.Timer(seconds, self.expire)
         self._timer.daemon = True
 
     def __enter__(self) -> ExchangeDeadline:
@@ -80,7 +80,8 @@ class ExchangeDeadline:
             if self._overdue():
                 _shutdown(duplicate)
 
-    def _expire(self) -> None:
+    def expire(self) -> None:
+        """End the exchange now: shut down every tracked socket and count the deadline as passed."""
         with self._guard:
             self._expired = True
             for duplicate in self._sockets:

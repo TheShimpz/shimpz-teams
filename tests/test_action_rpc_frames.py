@@ -127,18 +127,16 @@ class ActionRpcFrameTests(unittest.TestCase):
             action_execution.rpc_failure_message("unknown")
 
     def test_rpc_invocation_and_operation_inputs_are_bounded(self) -> None:
-        with self.assertRaisesRegex(ValueError, "envelope"):
-            action_execution.integration_access_tokens({"cloud": {"type": "invalid", "access_token": "token"}})
         with self.assertRaisesRegex(ValueError, "invocation"):
-            action_execution.encode_rpc_invocation({"value": object()}, {}, {}, OPERATION_ID)
+            action_execution.encode_rpc_invocation({"value": object()}, (), OPERATION_ID)
         with (
             mock.patch.object(action_execution, "MAX_RPC_REQUEST_BYTES", 1),
             self.assertRaisesRegex(ValueError, "too large"),
         ):
-            action_execution.encode_rpc_invocation({}, {}, {}, OPERATION_ID)
+            action_execution.encode_rpc_invocation({}, (), OPERATION_ID)
         for operation_id in ("", OPERATION_ID.upper(), OPERATION_ID.replace("-4", "-1"), None):
             with self.subTest(operation_id=operation_id), self.assertRaisesRegex(ValueError, "operation id"):
-                action_execution.encode_rpc_invocation({}, {}, {}, operation_id)
+                action_execution.encode_rpc_invocation({}, (), operation_id)
 
         request = brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {})
         for container_id, image in (("", "image"), ("container", "")):
@@ -387,39 +385,31 @@ class ActionRpcFrameTests(unittest.TestCase):
                 _project({"type": "stored_input_rejected", "stored_input": "whatsapp-token"}, policy)
 
     def test_rpc_invocation_adds_a_transcript_only_during_replay(self) -> None:
-        initial = action_execution.encode_rpc_invocation({}, {}, {}, OPERATION_ID)
+        initial = action_execution.encode_rpc_invocation({}, (), OPERATION_ID)
         response = {
             "kind": "approval",
             "ordinal": 0,
             "fingerprint": "a" * 64,
             "value": True,
         }
-        replay = action_execution.encode_rpc_invocation({}, {}, {}, OPERATION_ID, (response,))
+        replay = action_execution.encode_rpc_invocation({}, (), OPERATION_ID, (response,))
 
         self.assertEqual(
             initial,
-            b'{"input":{},"integrations":{},"stored_inputs":{},"files":{},"operation_id":"'
-            + OPERATION_ID.encode()
-            + b'"}',
+            b'{"input":{},"stored_inputs":[],"files":{},"operation_id":"' + OPERATION_ID.encode() + b'"}',
         )
         self.assertEqual(
             replay,
-            b'{"input":{},"integrations":{},"stored_inputs":{},"files":{},"operation_id":"'
-            + OPERATION_ID.encode()
-            + b'",'
+            b'{"input":{},"stored_inputs":[],"files":{},"operation_id":"' + OPERATION_ID.encode() + b'",'
             b'"responses":[{"kind":"approval","ordinal":0,'
             b'"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
             b'"value":true}]}',
         )
-        with_stored_input = action_execution.encode_rpc_invocation(
-            {},
-            {},
-            {"whatsapp-token": "private"},
-            OPERATION_ID,
-        )
+        # Only the held ids travel, sorted, never a value (ADR-0106).
+        with_stored_inputs = action_execution.encode_rpc_invocation({}, ("whatsapp-token", "app-secret"), OPERATION_ID)
         self.assertEqual(
-            with_stored_input,
-            b'{"input":{},"integrations":{},"stored_inputs":{"whatsapp-token":"private"},"files":{},"operation_id":"'
+            with_stored_inputs,
+            b'{"input":{},"stored_inputs":["app-secret","whatsapp-token"],"files":{},"operation_id":"'
             + OPERATION_ID.encode()
             + b'"}',
         )
@@ -681,7 +671,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                         team_id="team_1",
                         container=container,
                         action_id="test",
-                        payload={"input": {}, "integrations": {}, "stored_inputs": {}, "operation_id": OPERATION_ID},
+                        payload={"input": {}, "stored_inputs": (), "operation_id": OPERATION_ID},
                         token=None,
                     )
                 )
@@ -714,7 +704,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 controller.assistant_lifecycle._rpc(
                     SimpleNamespace(id="assistant-container"),
                     "test",
-                    {"input": {}, "integrations": {}, "stored_inputs": {}, "operation_id": OPERATION_ID},
+                    {"input": {}, "stored_inputs": (), "operation_id": OPERATION_ID},
                 )
 
         self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
@@ -748,14 +738,13 @@ class ActionRpcFrameTests(unittest.TestCase):
                 "test",
                 {
                     "input": {},
-                    "integrations": {},
-                    "stored_inputs": {},
+                    "stored_inputs": (),
                     "operation_id": OPERATION_ID,
                     "responses": (response,),
                 },
             )
 
-        encode.assert_called_once_with({}, {}, {}, OPERATION_ID, (response,), {})
+        encode.assert_called_once_with({}, (), OPERATION_ID, (response,), {})
 
     def test_hosted_exchange_carries_replay_responses_only_when_present(self) -> None:
         response = {
@@ -770,8 +759,7 @@ class ActionRpcFrameTests(unittest.TestCase):
             action_id="test",
             payload={
                 "input": {},
-                "integrations": {},
-                "stored_inputs": {},
+                "stored_inputs": (),
                 "operation_id": OPERATION_ID,
                 "responses": (response,),
             },
@@ -788,7 +776,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         ):
             hosted_assistants._assistant_rpc_exchange(request)
 
-        encode.assert_called_once_with({}, {}, {}, OPERATION_ID, (response,), {})
+        encode.assert_called_once_with({}, (), OPERATION_ID, (response,), {})
 
 
 class RpcMessageParity(unittest.TestCase):
@@ -797,7 +785,7 @@ class RpcMessageParity(unittest.TestCase):
             team_id="t",
             container=SimpleNamespace(id="c"),
             action_id="p",
-            payload={"input": {}, "integrations": {}, "stored_inputs": {}, "operation_id": OPERATION_ID},
+            payload={"input": {}, "stored_inputs": (), "operation_id": OPERATION_ID},
             token=None,
         )
         with (
@@ -831,7 +819,7 @@ class RpcMessageParity(unittest.TestCase):
                 fake,
                 SimpleNamespace(id="c"),
                 "p",
-                {"input": {}, "integrations": {}, "stored_inputs": {}, "operation_id": OPERATION_ID},
+                {"input": {}, "stored_inputs": (), "operation_id": OPERATION_ID},
             )
         return caught.exception.message
 

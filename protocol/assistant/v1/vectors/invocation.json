@@ -7,25 +7,21 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
       },
       "valid": true
     },
     {
-      "name": "invocation with an Integration and a Stored Input",
+      "name": "invocation with one held Stored Input",
       "invocation": {
         "input": {
           "zone": "example.com"
         },
-        "integrations": {
-          "cloudflare": "token"
-        },
-        "stored_inputs": {
-          "api-key": "secret"
-        },
+        "stored_inputs": [
+          "api-key"
+        ],
         "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
       },
@@ -37,11 +33,10 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {
-          "access-token": "token",
-          "app-secret": "secret"
-        },
+        "stored_inputs": [
+          "access-token",
+          "app-secret"
+        ],
         "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
       },
@@ -53,17 +48,16 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {
-          "key-1": "secret",
-          "key-2": "secret",
-          "key-3": "secret",
-          "key-4": "secret",
-          "key-5": "secret",
-          "key-6": "secret",
-          "key-7": "secret",
-          "key-8": "secret"
-        },
+        "stored_inputs": [
+          "key-1",
+          "key-2",
+          "key-3",
+          "key-4",
+          "key-5",
+          "key-6",
+          "key-7",
+          "key-8"
+        ],
         "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
       },
@@ -75,18 +69,55 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
+        "stored_inputs": [
+          "key-1",
+          "key-2",
+          "key-3",
+          "key-4",
+          "key-5",
+          "key-6",
+          "key-7",
+          "key-8",
+          "key-9"
+        ],
+        "files": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "invocation that still carries Integration tokens",
+      "invocation": {
+        "input": {},
+        "stored_inputs": [],
+        "files": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "integrations": {
+          "cloudflare": "token"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "invocation that carries a Stored Input value",
+      "invocation": {
+        "input": {},
         "stored_inputs": {
-          "key-1": "secret",
-          "key-2": "secret",
-          "key-3": "secret",
-          "key-4": "secret",
-          "key-5": "secret",
-          "key-6": "secret",
-          "key-7": "secret",
-          "key-8": "secret",
-          "key-9": "secret"
+          "api-key": "secret"
         },
+        "files": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "invocation with a duplicate Stored Input",
+      "invocation": {
+        "input": {},
+        "stored_inputs": [
+          "api-key",
+          "api-key"
+        ],
         "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
       },
@@ -98,8 +129,7 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
         "responses": [
@@ -119,8 +149,7 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": "00000000-0000-4000-b000-000000000000"
       },
@@ -132,8 +161,7 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {}
       },
       "valid": false
@@ -144,8 +172,7 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": "6F1C2B8E-3A4D-4C5E-9F60-718293A4B5C6"
       },
@@ -157,8 +184,7 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": "6f1c2b8e-3a4d-1c5e-9f60-718293a4b5c6"
       },
@@ -170,8 +196,7 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-cf60-718293a4b5c6"
       },
@@ -183,8 +208,7 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": "6f1c2b8e3a4d4c5e9f60718293a4b5c6"
       },
@@ -196,8 +220,7 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": "{6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6}"
       },
@@ -209,8 +232,7 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c60"
       },
@@ -222,8 +244,7 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": 7
       },
@@ -235,8 +256,7 @@
         "input": {
           "zone": "example.com"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
         "attempt_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
@@ -250,8 +270,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -274,8 +293,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -307,8 +325,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
       },
       "valid": false
@@ -320,8 +337,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -353,8 +369,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789ABCDEF0123456789ABCDEF": {
             "name": "invoices.csv",
@@ -377,8 +392,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -398,8 +412,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -422,8 +435,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -447,8 +459,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -471,8 +482,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -495,8 +505,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "a/b.csv",
@@ -519,8 +528,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",

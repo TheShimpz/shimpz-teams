@@ -14,13 +14,12 @@ from test_action_rpc_exchange import rpc_strategy
 
 from action import execution as action_execution
 from action import failure as action_failure
-from action import human as action_human
 
 VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "vectors" / "failure.json"
 TOKEN = "oauth-Access-Token-7f3a9c"
 STORED = "stored/input+value=42"
-ANSWER = "human-password-answer"
-CAPABILITY = "egresscapability0123456789abcdef"
+REGISTERED = "registered-derived-answer"
+DERIVED = "derivedsecret0123456789abcdef"
 
 
 def _envelope(**members: object) -> dict[str, object]:
@@ -64,13 +63,13 @@ class FailureAdmissionTests(unittest.TestCase):
     def test_every_member_is_re_redacted_with_each_injected_value(self) -> None:
         envelope = _envelope(
             error_type=f"Leak{TOKEN}Error",
-            message=f"stored value {STORED} and answer {ANSWER.upper()} were refused",
-            provider=f"{CAPABILITY}.example.com",
+            message=f"stored value {STORED} and registered {REGISTERED.upper()} were refused",
+            provider=f"{DERIVED}.example.com",
             response_excerpt=f'{{"token":"{TOKEN}"}}',
         )
-        failure = _admit(envelope, TOKEN, STORED, ANSWER, CAPABILITY)
+        failure = _admit(envelope, TOKEN, STORED, REGISTERED, DERIVED)
         rendered = json.dumps(failure.document())
-        for secret in (TOKEN, STORED, ANSWER, ANSWER.upper(), CAPABILITY):
+        for secret in (TOKEN, STORED, REGISTERED, REGISTERED.upper(), DERIVED):
             self.assertNotIn(secret, rendered)
         self.assertEqual(failure.error_type, "Leak[REDACTED]Error")
         self.assertIsNone(failure.provider)
@@ -180,47 +179,21 @@ class FailureAdmissionTests(unittest.TestCase):
         current.__cause__ = action_failure.ActionFailedError(failure)
         self.assertIsNone(action_failure.failure_of(deep))
 
-    def test_the_egress_capability_is_read_from_the_workload_proxy_environment(self) -> None:
-        container = SimpleNamespace(
-            attrs={
-                "Config": {
-                    "Env": [
-                        f"HTTPS_PROXY=http://{CAPABILITY}@assistant-egress:3128",
-                        f"https_proxy=http://{CAPABILITY}@assistant-egress:3128",
-                        "HTTP_PROXY=http://ignored@proxy:1",
-                        "NO_PROXY=localhost",
-                        "HTTPS_PROXY",
-                        7,
-                    ]
-                }
-            }
-        )
-        self.assertEqual(action_failure.capability_values(container), (CAPABILITY,))
-        for missing in (SimpleNamespace(), SimpleNamespace(attrs=[]), SimpleNamespace(attrs={"Config": []})):
-            self.assertEqual(action_failure.capability_values(missing), ())
-        self.assertEqual(action_failure.capability_values(SimpleNamespace(attrs={"Config": {"Env": "x"}})), ())
-
 
 class FailureProjectionTests(unittest.TestCase):
     def _project(self, raw: object, **policy: object) -> object:
-        transcript = SimpleNamespace(protected_values=lambda: {"human-response-0": ANSWER})
         return action_execution.project_rpc_result(
             raw,
             {"cloudflare": {"type": "oauth2-bearer", "access_token": TOKEN}},
             lambda value: value,
-            action_execution.RpcResultPolicy(
-                protected_values=transcript.protected_values(),
-                stored_inputs_by_id={"api-key": STORED},
-                capabilities=(CAPABILITY,),
-                **policy,
-            ),
+            action_execution.RpcResultPolicy(stored_inputs_by_id={"api-key": STORED}, **policy),
         )
 
     def test_a_handled_failure_is_re_redacted_instead_of_refused_as_an_echo(self) -> None:
-        envelope = _envelope(message=f"{TOKEN} {STORED} {ANSWER} {CAPABILITY}")
+        envelope = _envelope(message=f"{TOKEN} {STORED}")
         with self.assertRaises(action_failure.ActionFailedError) as caught:
             self._project(envelope)
-        self.assertEqual(caught.exception.failure.message, " ".join(["[REDACTED]"] * 4))
+        self.assertEqual(caught.exception.failure.message, " ".join(["[REDACTED]"] * 2))
         self.assertTrue(caught.exception.failure.redacted)
 
     def test_a_malformed_failure_frame_is_an_invalid_result(self) -> None:
@@ -238,31 +211,11 @@ class FailureProjectionTests(unittest.TestCase):
         for raw in (
             {"type": "result", "result": {"value": TOKEN}},
             {"type": "result", "result": {"value": STORED}},
-            {"type": "result", "result": {"value": ANSWER}},
             {"type": "stored_input_rejected", "stored_input": STORED},
         ):
             with self.subTest(raw=raw), self.assertRaises(action_execution.RpcSecretExposureError):
                 self._project(raw)
         self.assertEqual(self._project({"type": "result", "result": {"value": "public"}}), {"value": "public"})
-
-    def test_an_echoed_egress_capability_is_refused_outside_the_failure_branch(self) -> None:
-        request = {
-            "kind": "approval",
-            "ordinal": 0,
-            "fingerprint": "a" * 64,
-            "title": {"message": CAPABILITY, "params": {}},
-            "description": {"message": "b" * 64, "params": {}},
-        }
-        for raw in (
-            {"type": "result", "result": {"proxy": f"http://{CAPABILITY}@assistant-egress:3128"}},
-            {"type": "result", "result": {CAPABILITY: True}},
-            {"type": "request", "request": request},
-        ):
-            with self.subTest(raw=raw), self.assertRaises(action_execution.RpcSecretExposureError):
-                self._project(raw, human_requests=("approval",))
-        with self.assertRaises(action_failure.ActionFailedError) as caught:
-            self._project(_envelope(message=f"proxy {CAPABILITY} refused"))
-        self.assertEqual(caught.exception.failure.message, "proxy [REDACTED] refused")
 
     def test_transport_faults_record_only_the_actual_safe_condition(self) -> None:
         stream = SimpleNamespace(_sock=SimpleNamespace(shutdown=lambda _how: None))
@@ -293,7 +246,6 @@ class FailureProjectionTests(unittest.TestCase):
                 action_execution.decode_rpc_response(raw)
             self.assertEqual((decoded.exception.kind, decoded.exception.condition), ("invalid-result", "frame-invalid"))
         self.assertEqual(action_execution.RpcExchangeError("timeout").condition, "timeout")
-        self.assertIsInstance(action_human.ActionTranscript("interrupt").protected_values(), dict)
 
 
 if __name__ == "__main__":

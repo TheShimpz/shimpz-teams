@@ -536,7 +536,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                 )
             )
         self.assertEqual(result["result"], {"ok": True})
-        self.assertEqual(rpc.call_args.args[-1]["responses"], (response.payload(),))
+        self.assertEqual(rpc.call_args.args[-2]["responses"], (response.payload(),))
 
     def test_stored_input_rejection_and_sealing_preserve_secret_custody(self) -> None:
         action = SimpleNamespace(
@@ -583,23 +583,31 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         self.assertEqual(rejected.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self.assertNotIn("private-token", rejected.exception.message)
 
-    def test_each_attempt_audits_the_ids_of_the_stored_inputs_it_was_delivered(self) -> None:
-        declaration = SimpleNamespace(kind="password")
+    def test_an_attempt_receives_the_held_ids_and_only_the_broker_holds_their_values(self) -> None:
+        def declaration(header: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                kind="password", host="graph.facebook.com", header=header, query=None, scheme=None, hmac=None
+            )
+
         contract = SimpleNamespace(
             actions={
                 ACTION_ID: SimpleNamespace(
-                    human_requests=("input:password",), stored_inputs=("app-secret", "whatsapp-token"), input_files=()
+                    human_requests=("input:password",),
+                    stored_inputs=("app-secret", "whatsapp-token"),
+                    integrations=(),
+                    input_files=(),
                 )
             },
-            stored_inputs={"app-secret": declaration, "whatsapp-token": declaration},
+            stored_inputs={"app-secret": declaration("x-app-secret"), "whatsapp-token": declaration("authorization")},
+            integrations={},
             machine_contract={"messages": []},
         )
         container = _container()
         for delivered in ({"whatsapp-token": "private-token", "app-secret": "private-secret"}, {}):
             with self.subTest(delivered=sorted(delivered)):
-                self._audit_one_attempt(contract, container, delivered)
+                self._one_attempt(contract, container, delivered)
 
-    def _audit_one_attempt(self, contract, container, delivered) -> None:
+    def _one_attempt(self, contract, container, delivered) -> None:
         evidence = assistants.action_execution.ActionInvocationEvidence(
             assistants.action_execution.RpcPrivateInputs({}, delivered),
             assistants.action_human.ActionTranscript("interrupt"),
@@ -624,18 +632,13 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             mock.patch.object(assistants.audit, "log") as audit,
         ):
             assistants._invoke_assistant_action(request)
-        self.assertEqual(rpc.call_args.args[-1]["stored_inputs"], delivered)
-        audit.assert_any_call(
-            "assistant_action",
-            TEAM_ID,
-            result="ok",
-            phase="stored-inputs-delivered",
-            assistant=ASSISTANT_ID,
-            action=ACTION_ID,
-            operation_id="6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
-            stored_inputs=sorted(delivered),
-        )
-        self.assertNotIn("private-", repr(audit.call_args_list))
+        payload, broker = rpc.call_args.args[-2:]
+        self.assertEqual(payload["stored_inputs"], tuple(delivered))
+        for value in delivered.values():
+            self.assertNotIn(value, repr(payload))
+            self.assertNotIn(value, repr(audit.call_args_list))
+        placed = {credential.id: credential.value for credential in broker._scope.credentials}
+        self.assertEqual(placed, {f"stored-input:{slot}": value for slot, value in delivered.items()})
 
     def test_action_payload_file_and_storage_errors_are_normalized(self) -> None:
         active = _active()

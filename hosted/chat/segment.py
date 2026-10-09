@@ -655,8 +655,6 @@ def _pause_hosted_human(
 ) -> dict[str, object]:
     if len(requirements) != 1 or requirements[0].request != outcome.request:
         return _terminal_hosted_human_failure(team_id, token, pending, "request-invalid")
-    if any(response.secret for transcript in pending.transcripts for response in transcript.responses):
-        return _terminal_hosted_human_failure(team_id, token, pending, "secret-must-be-last")
     try:
         challenge = runtime_state._human_challenges.create(team_id, requirements[0], pending)
     except action_challenges.HumanChallengeError as exc:

@@ -16,8 +16,16 @@ optional persistent Action inputs use peer `[stored_inputs.<id>]` tables with th
 bounded public label, bounded public description, and an optional `help_url`: the page where a person creates the
 value, at most 2,048 characters of one canonical `https` URL on a public DNS host with a path, an optional query,
 and no port, credentials, fragment, or dot segment, written exactly as WHATWG URL serialization prints it. Team
-shows it as the key-creation link of the Stored Input request. Unknown fields are rejected rather than accepted as
-compatibility syntax. The required `[shimpz].id`
+shows it as the key-creation link of the Stored Input request. A Stored Input is a provider credential the Action
+never receives: its required placement says where Team puts it in each provider call (ADR-0106). `host` is one of the
+manifest's `allowed_hosts` and the only host that ever receives the value. Exactly one of `header` (an RFC 9110
+field name other than `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `TE`, `Trailer`,
+`Upgrade`, `Expect`, `Accept-Encoding`, `Proxy-Authorization`, or `Proxy-Connection`, compared without case) or
+`query` (a parameter name of 1 to 64 unreserved characters) names the field; `scheme`, only with `header`, prefixes
+the value with one token and a space, such as `Bearer`. `hmac` names another Stored Input of the same manifest on the
+same host that has no `hmac` itself: the placed value is then the lowercase hexadecimal HMAC-SHA256 keyed by this
+Stored Input's value over that one's value, as Meta's `appsecret_proof`. No two Stored Inputs may share one host and
+field. Unknown fields are rejected rather than accepted as compatibility syntax. The required `[shimpz].id`
 is the stable public Assistant identity: 1–40
 lowercase dash-separated characters, excluding Team infrastructure aliases.
 Every Creator entry is the canonical Account-owned handle: `@` followed by the 3–32 character
@@ -295,13 +303,13 @@ uses a reference that the request rules below admit for a field with one of the 
 
 ## Invocation
 
-`invocation.schema.json` contains the validated Action input, invocation-scoped Integration bearer tokens,
-the Team-custodied values of the Stored Inputs that Action declares and Team already holds (at most eight), the
-selected `files`, the logical `operation_id`, and, only during
-deterministic logical replay, at most eight Team-admitted human responses. The request is
-passed over a private bounded stdin channel; tokens, file bytes, and responses never enter command-line arguments,
-environment variables, logs, generated artifacts, or the Brain. An invocation is at most 524,288 bytes of UTF-8 JSON,
-or 12,582,912 bytes when it carries delivered file content.
+`invocation.schema.json` contains the validated Action input, the ids of the Stored Inputs that Action declares and
+Team already holds (at most eight, never their values), the selected `files`, the logical `operation_id`, and, only
+during deterministic logical replay, at most eight Team-admitted human responses. No credential is ever part of an
+invocation: Team keeps every Integration token and Stored Input value and injects it into the Action's provider calls
+(see Provider calls). The request is the first line of a private bounded stdin channel; file bytes and responses
+never enter command-line arguments, environment variables, logs, generated artifacts, or the Brain. An invocation is at
+most 524,288 bytes of UTF-8 JSON, or 12,582,912 bytes when it carries delivered file content.
 
 `files` is `{}` for an Action without a file input. For a file-taking Action it holds exactly the file named by the
 declared input property, keyed by that id:
@@ -342,6 +350,28 @@ authorization never receives bytes. Reading withheld content is an error in the 
 the Action's declaration is known, so a runtime can refuse a malformed invocation frame before it loads any Action;
 `invocation_files_error` adds the declaration, authorization, and content rules.
 
+## Provider calls
+
+An Action reaches its providers only through Team. On the same exec channel, after the invocation line, the Action may
+write zero or more provider-call lines to stdout, one compact JSON object each, described by `fetch.schema.json`:
+`{"type":"fetch","method":M,"url":U,"headers":[[name,value],...],"body":B,"timeout_ms":T}` with an optional standard
+base64 `body` of at most 262,144 bytes and an optional `timeout_ms` that may only shorten the attempt's deadline. Team
+answers each with exactly one stdin line: `{"status":S,"headers":[[name,value],...],"body":B}` with lowercase header
+names and the base64 body, or `{"error":E}` with `refused` (Team did not send it), `credential-missing` (a declared
+credential for that host is not held; nothing was sent), `unavailable` (the provider could not be reached before the
+request was written), or `failed` (the request may have been sent and its outcome is unknown). Calls are strictly
+sequential, at most sixteen per attempt, and the terminal envelope is always the last stdout line.
+
+Team admits a call only when the URL is `https` on port 443 without user information or fragment, its host is exactly
+one of the manifest's `allowed_hosts`, the method is `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, or `DELETE`, and no
+header or query parameter collides with a Team-owned field. An Action that declares an authorization capability may
+call only once its transcript holds that authorization response. Team then injects every credential the Action
+declares whose host is the call's host: each Integration as `Authorization: Bearer <token>` on its provider's
+reviewed API hosts, and each Stored Input by its placement. It connects through the Assistant's egress proxy, verifies
+TLS, sends `Accept-Encoding: identity`, follows no redirect, and returns only a complete response of at most
+4,194,304 bytes with identity content encoding whose headers, body, and decoded JSON strings contain no injected value.
+`vectors/fetch.json` freezes admitted and refused call frames.
+
 `operation_id` is the canonical lowercase text of a random RFC 9562 version 4 UUID, such as
 `6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6`, exactly 36 characters. Team mints and persists it before the first
 invocation of one logical Action operation and sends the same value on every replay re-invocation, verification
@@ -359,7 +389,7 @@ ordinal, canonical fingerprint, and catalog copy references. Team accepts it onl
 returns the journal operation to `prepared`, and later re-invokes the same operation with its admitted
 response transcript.
 The terminal `{"type":"stored_input_rejected","stored_input":"<id>"}` envelope lets an Action reject only a
-declared Stored Input supplied in that invocation. Team validates the relationship, clears that exact value and no
+declared Stored Input Team held for that invocation. Team validates the relationship, clears that exact value and no
 other, and terminates the turn with a sanitized retry instruction; generic failure never clears a value.
 
 A handled application failure is the terminal `{"type":"failure","failure":{...}}` envelope. The process writes
@@ -384,8 +414,8 @@ not occur and never authority. A `mutating` Action's handled failure stays uncer
 evidence resolves it.
 
 The Assistant sanitizes every string member, including `error_type` and `provider`, before it bounds them. It
-replaces the exact value of every secret it holds for the invocation (each Integration token, Stored Input value,
-password response, and every derived secret the Action registers or acquires) in its common encodings (standard and
+replaces the exact value of every secret it holds for the invocation (every derived secret the Action registers or
+acquires; it never holds a credential) in its common encodings (standard and
 URL-safe base64, JSON string escaping, upper- and lowercase percent-encoding, and case-insensitive spellings of
 hexadecimal or other case-insensitive tokens) and secret-shaped text such as bearer and basic credentials, provider API keys, JSON Web Tokens, private
 key blocks, `password=`, `token=`, or `api_key=` values, and URL user information, then truncates on a character
@@ -416,17 +446,16 @@ strings, integers, booleans, null, arrays, and objects, so this profile is porta
 canonicalizer. `vectors/human-request.json` freezes one reviewed catalog with representative preimages, digests,
 semantic request and reference constraints, and replay transcript failures that JSON Schema cannot express alone.
 
-Human responses are never answer logs. Non-secret replay values may exist only in Team continuation state. An
-ordinary `password` input is memory-only, protected from result echo, and must be the final request. A reviewed
-password request may instead name one Stored Input declared by its Action. Such a request is always answered by
-injection and never by a transcript response: Team supplies a held value in the invocation `stored_inputs` map
-without an ordinal; otherwise the Action suspends with the request at its current ordinal, Team seals the admitted
-value as soon as it admits the response, and the replay receives it injected, so the next request reuses that
-ordinal. An Action resolves all the Stored Inputs it needs as one batch before it observes any of them; after that,
-no further request is valid. Stored Input prompts do not consume the Action's eight replay ordinals; the Team-wide
+Human responses are never answer logs. Non-secret replay values may exist only in Team continuation state. A
+`password` request always names one Stored Input declared by its Action, and it is never answered by a transcript
+response: Team lists a held slot in the invocation `stored_inputs` ids without an ordinal; otherwise the Action
+suspends with the request at its current ordinal, Team seals the admitted value as soon as it admits the response,
+and the replay lists it as held, so the next request reuses that ordinal. The Action never receives the value. An
+Action resolves all the Stored Inputs it needs as one batch; after that, no further request is valid. Stored Input prompts do not consume the Action's eight replay ordinals; the Team-wide
 budget of sixteen admitted requests per turn bounds them. Authentication both
 proves the named mechanism and authorizes the exact challenge whose copy the human submits. One logical Action may
-resolve at most one authorization request. A request after observing an Integration token is invalid. Denial,
+resolve at most one authorization request. A request after the Action's first provider call is invalid, and Team
+refuses it. Denial,
 cancellation, expiry, unsupported authentication, transcript divergence, and undeclared capability all block the
 Action without returning control to Assistant code.
 There are no authored HTTP servers or compatibility envelopes.

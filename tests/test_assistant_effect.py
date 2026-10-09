@@ -33,7 +33,17 @@ def _stored_inputs(actions: object) -> tuple[assistant_manifest.StoredInputDecla
         if isinstance(name, str)
     }
     return assistant_manifest.canonical_stored_input_declarations(
-        {name: {"kind": "password", "label": "Key", "description": "The provider key."} for name in names}
+        {
+            name: {
+                "kind": "password",
+                "label": "Key",
+                "description": "The provider key.",
+                "host": "api.example.com",
+                "header": f"x-{name}",
+            }
+            for name in names
+        },
+        ("api.example.com",),
     )
 
 

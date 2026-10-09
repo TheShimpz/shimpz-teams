@@ -217,23 +217,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             self.assertEqual(segment._pause_hosted_human("team_1", "token", outcome, (), pending), {"failed": True})
         terminal.assert_called_once()
 
-        response = SimpleNamespace(secret=True)
-        transcript = SimpleNamespace(responses=(response,))
-        pending = assistants._PendingHostedChat(
-            SimpleNamespace(),
-            (),
-            (),
-            "account_1",
-            ("generation",),
-            (transcript,),
-        )
         requirement = SimpleNamespace(request=outcome.request)
-        with mock.patch.object(segment, "_terminal_hosted_human_failure", return_value={"secret": True}):
-            self.assertEqual(
-                segment._pause_hosted_human("team_1", "token", outcome, (requirement,), pending),
-                {"secret": True},
-            )
-
         with (
             mock.patch.object(
                 state._human_challenges,

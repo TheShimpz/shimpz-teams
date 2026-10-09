@@ -36,7 +36,14 @@ class LocalFileDeliveryTests(unittest.TestCase):
         controller = object.__new__(local_app.LocalController)
         controller._locks = tuple(threading.RLock() for _ in range(64))
         controller.storage = self.storage
-        spec = types.SimpleNamespace(actions={"upload": UPLOAD}, stored_inputs={}, machine_contract={"messages": []})
+        spec = types.SimpleNamespace(
+            assistant_id="docs",
+            actions={"upload": UPLOAD},
+            stored_inputs={},
+            integrations={},
+            allowed_hosts=(),
+            machine_contract={"messages": []},
+        )
         self.container = types.SimpleNamespace(id="container", status="running", reload=mock.Mock())
         self.rpc = mock.Mock(return_value={"type": "result", "result": {"stored": True}})
         controller.assistant_lifecycle = types.SimpleNamespace(

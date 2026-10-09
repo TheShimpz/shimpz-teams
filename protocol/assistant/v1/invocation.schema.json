@@ -4,7 +4,7 @@
   "title": "Shimpz Action invocation v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["input", "integrations", "stored_inputs", "files", "operation_id"],
+  "required": ["input", "stored_inputs", "files", "operation_id"],
   "properties": {
     "input": {
       "type": "object"
@@ -12,28 +12,12 @@
     "operation_id": {
       "$ref": "#/$defs/operationId"
     },
-    "integrations": {
-      "type": "object",
-      "maxProperties": 4,
-      "propertyNames": {
-        "$ref": "#/$defs/identifier"
-      },
-      "additionalProperties": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 16384
-      }
-    },
     "stored_inputs": {
-      "type": "object",
-      "maxProperties": 8,
-      "propertyNames": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
         "$ref": "#/$defs/identifier"
-      },
-      "additionalProperties": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 1024
       }
     },
     "files": {
@@ -176,22 +160,6 @@
                 "value": {
                   "type": "string",
                   "maxLength": 16000
-                }
-              }
-            }
-          ]
-        },
-        {
-          "allOf": [
-            { "$ref": "#/$defs/responseBase" },
-            {
-              "type": "object",
-              "required": ["kind", "value"],
-              "properties": {
-                "kind": { "const": "input:password" },
-                "value": {
-                  "type": "string",
-                  "maxLength": 1024
                 }
               }
             }

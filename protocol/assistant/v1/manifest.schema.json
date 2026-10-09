@@ -169,11 +169,49 @@
       "required": [
         "kind",
         "label",
-        "description"
+        "description",
+        "host"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "header"
+          ]
+        },
+        {
+          "required": [
+            "query"
+          ],
+          "not": {
+            "required": [
+              "scheme"
+            ]
+          }
+        }
       ],
       "properties": {
         "kind": {
           "const": "password"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253
+        },
+        "header": {
+          "type": "string",
+          "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$"
+        },
+        "query": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._~-]{1,64}$"
+        },
+        "scheme": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9-]{0,31}$"
+        },
+        "hmac": {
+          "$ref": "#/$defs/identifier"
         },
         "label": {
           "type": "string",

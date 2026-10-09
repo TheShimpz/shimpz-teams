@@ -11,6 +11,7 @@ from unittest import mock
 
 from docker.errors import APIError, DockerException, NotFound
 
+from action import failure as action_failure
 from inference import config as inference_config
 from local import app as local_app
 from local import labels as local_labels
@@ -447,8 +448,14 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
     def controller() -> tuple[local_app.LocalController, object, object]:
         controller = object.__new__(local_app.LocalController)
         controller._locks = tuple(threading.RLock() for _ in range(64))
-        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=(), input_files=())
-        spec = types.SimpleNamespace(actions={"action": action_spec}, stored_inputs={})
+        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=(), integrations=(), input_files=())
+        spec = types.SimpleNamespace(
+            assistant_id="assistant",
+            actions={"action": action_spec},
+            stored_inputs={},
+            integrations={},
+            allowed_hosts=(),
+        )
         container = types.SimpleNamespace(id="container", status="running", reload=mock.Mock())
         controller.assistant_lifecycle = types.SimpleNamespace(
             _resolve=lambda *_args: spec,
@@ -473,7 +480,9 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             controller.invoke("team_1", "assistant", "action", {})
         self.assertEqual(caught.exception.code, "action-not-declared")
 
-        spec.actions = {"action": types.SimpleNamespace(human_requests=(), stored_inputs=(), input_files=())}
+        spec.actions = {
+            "action": types.SimpleNamespace(human_requests=(), stored_inputs=(), integrations=(), input_files=())
+        }
         with (
             mock.patch.object(
                 local_app,
@@ -517,8 +526,8 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
 
     def test_invoke_maps_projection_failures_and_returns_valid_result(self) -> None:
         controller, _spec, _container = self.controller()
-        handled = local_app.action_failure.ActionFailedError(
-            local_app.action_failure.ActionFailure("ValueError", "", None, None, None, False, False)
+        handled = action_failure.ActionFailedError(
+            action_failure.ActionFailure("ValueError", "", None, None, None, False, False)
         )
         failures = (
             (local_app.action_execution.RpcSecretExposureError("unsafe"), "assistant-secret-exposure"),
@@ -544,7 +553,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             expected_cause = None if expected_code == "assistant-secret-exposure" else failure
             self.assertIs(caught.exception.__cause__, expected_cause)
             if failure is handled:
-                self.assertIs(local_app.action_failure.failure_of(caught.exception), handled.failure)
+                self.assertIs(action_failure.failure_of(caught.exception), handled.failure)
 
         with (
             mock.patch.object(local_app, "validate_action_payload", return_value={}),
@@ -558,15 +567,27 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             result = controller.invoke("team_1", "assistant", "action", {})
         self.assertEqual(result["result"], {"ok": True})
 
-    def test_declared_stored_inputs_are_delivered_audited_and_cleared_only_on_exact_rejection(self) -> None:
+    def test_declared_stored_inputs_reach_only_the_broker_and_are_cleared_only_on_exact_rejection(self) -> None:
         controller, spec, _container = self.controller()
         action_spec = types.SimpleNamespace(
-            human_requests=("input:password",), stored_inputs=("app-secret", "whatsapp-token"), input_files=()
+            human_requests=("input:password",),
+            stored_inputs=("app-secret", "whatsapp-token"),
+            integrations=(),
+            input_files=(),
         )
-        declaration = types.SimpleNamespace(kind="password")
+
+        def declaration(header: str) -> types.SimpleNamespace:
+            return types.SimpleNamespace(
+                kind="password", host="graph.facebook.com", header=header, query=None, scheme=None, hmac=None
+            )
+
         spec.assistant_id = "assistant"
         spec.actions = {"action": action_spec}
-        spec.stored_inputs = {"app-secret": declaration, "unused-key": declaration, "whatsapp-token": declaration}
+        spec.stored_inputs = {
+            "app-secret": declaration("x-app-secret"),
+            "unused-key": declaration("x-unused"),
+            "whatsapp-token": declaration("authorization"),
+        }
         spec.machine_contract = {"messages": []}
         token = "whatsapp-private-token-123456789"
         secret = "test-app-secret"
@@ -595,8 +616,11 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
                 )
             )
 
-            def rpc(_container, _action, payload):
+            brokers: list[object] = []
+
+            def rpc(_container, _action, payload, broker):
                 captured.append(payload)
+                brokers.append(broker)
                 return {"type": "result", "result": {"ok": True}}
 
             controller.assistant_lifecycle._rpc = rpc
@@ -612,13 +636,6 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
                 with self.assertRaises(local_app.ApiProblem) as rejected:
                     controller.invoke("team_1", "assistant", "action", {})
 
-            delivered = [
-                call.kwargs["detail"]
-                for call in audit.call_args_list
-                if call.kwargs.get("detail", "").startswith("stored-inputs-delivered:")
-            ]
-            self.assertEqual(len(delivered), 2)
-            self.assertTrue(all(detail.endswith(":app-secret,whatsapp-token") for detail in delivered))
             self.assertNotIn(token, repr(audit.call_args_list))
             self.assertNotIn(secret, repr(audit.call_args_list))
             audit.assert_any_call(
@@ -635,9 +652,14 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             self.assertEqual(store.resolve("team_1", "assistant", "app-secret", "password").value, secret)
             self.assertEqual(store.resolve("team_1", "assistant", "unused-key", "password").value, "undeclared-value")
 
-        # An Action receives exactly the slots it declares, never another slot of its Assistant.
-        self.assertEqual(captured[0]["stored_inputs"], {"app-secret": secret, "whatsapp-token": token})
+        # The invocation names the held slots it declares and never a value; only Team's broker holds the values,
+        # placed for exactly those slots (ADR-0106).
+        self.assertEqual(captured[0]["stored_inputs"], ("app-secret", "whatsapp-token"))
+        self.assertNotIn(token, repr(captured[0]))
+        self.assertNotIn(secret, repr(captured[0]))
         self.assertNotIn("responses", captured[0])
+        placed = {credential.id: credential.value for credential in brokers[0]._scope.credentials}
+        self.assertEqual(placed, {"stored-input:app-secret": secret, "stored-input:whatsapp-token": token})
 
 
 class LocalAppMainEdgeTests(unittest.TestCase):

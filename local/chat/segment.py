@@ -85,15 +85,6 @@ class SegmentRequest:
     model: str | None = None
 
 
-def _protector(self, request: SegmentRequest) -> Callable[[tuple[str, ...]], object] | None:
-    """Where an attempt's further injected values are protected before its RPC: its run's, or its recording's."""
-    if request.routine is not None:
-        return request.routine.runtime.protect
-    if request.recording is not None:
-        return lambda values: self.routine_recordings.protect(request.team_id, request.recording, values)
-    return None
-
-
 def _observed(invoke: Callable[[], object], runtime, action_request, evidence) -> object:
     """One Action call of a compiled run: its failure is kept, and its own time ends at its return (ADR-0092, scale).
 
@@ -340,12 +331,7 @@ def _run_chat_segment_with_metadata(
         transcript = action_human.transcript_for(request.transcripts, action_request.interrupt_id)
         if not isinstance(private_inputs, action_execution.RpcPrivateInputs):
             raise action_journal.ActionJournalConflictError("Action private input evidence is unavailable")
-        evidence = action_execution.ActionInvocationEvidence(
-            private_inputs,
-            transcript,
-            operation_id,
-            protect=_protector(self, request),
-        )
+        evidence = action_execution.ActionInvocationEvidence(private_inputs, transcript, operation_id)
 
         def invoke() -> object:
             return self._invoke_chat_action(

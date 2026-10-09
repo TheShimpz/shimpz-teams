@@ -32,8 +32,7 @@
       },
       "invocation": {
         "input": {},
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
       },
@@ -91,8 +90,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -160,8 +158,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -238,8 +235,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "Relat\u00f3rio de mar\u00e7o.csv",
@@ -307,8 +303,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "fedcba9876543210fedcba9876543210": {
             "name": "invoices.csv",
@@ -376,8 +371,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
       },
@@ -414,8 +408,7 @@
       },
       "invocation": {
         "input": {},
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -483,8 +476,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
       },
       "valid": false
@@ -541,8 +533,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -611,8 +602,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -689,8 +679,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -766,8 +755,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -844,8 +832,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -922,8 +909,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -1000,8 +986,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -1078,8 +1063,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -1156,8 +1140,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -1234,8 +1217,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -1303,8 +1285,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -1372,8 +1353,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "../invoices.csv",
@@ -1441,8 +1421,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "..",
@@ -1510,8 +1489,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": " invoices.csv",
@@ -1579,8 +1557,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "a\tb.csv",
@@ -1648,8 +1625,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
@@ -1717,8 +1693,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -1786,8 +1761,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -1855,8 +1829,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -1924,8 +1897,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -1994,8 +1966,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -2064,8 +2035,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -2134,8 +2104,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -2213,8 +2182,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -2297,8 +2265,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -2375,8 +2342,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -2453,8 +2419,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -2529,8 +2494,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -2607,8 +2571,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -2686,8 +2649,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -2764,8 +2726,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -2848,8 +2809,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -2932,8 +2892,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -3010,8 +2969,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",
@@ -3087,8 +3045,7 @@
           "document": "0123456789abcdef0123456789abcdef",
           "folder": "invoices"
         },
-        "integrations": {},
-        "stored_inputs": {},
+        "stored_inputs": [],
         "files": {
           "0123456789abcdef0123456789abcdef": {
             "name": "invoices.csv",

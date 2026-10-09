@@ -1403,7 +1403,8 @@
         "required": true,
         "placeholder": null,
         "min_length": 0,
-        "max_length": 1025
+        "max_length": 1025,
+        "stored_input": "whatsapp-token"
       }
     },
     {
@@ -1429,6 +1430,31 @@
         "min_length": 1,
         "max_length": 1024,
         "stored_input": "whatsapp-token"
+      }
+    },
+    {
+      "name": "reject_password_without_stored_input",
+      "valid": false,
+      "error": "request_shape",
+      "request": {
+        "kind": "input:password",
+        "ordinal": 0,
+        "title": {
+          "message": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+          "params": {}
+        },
+        "description": {
+          "message": "fad7962089b211a94243a5382a0b02f3563da8b08d72948a008b9f63631a4b95",
+          "params": {}
+        },
+        "label": {
+          "message": "d2089be672953d1136faa84079af1b6f3967fed8932dabffba3032d30e3c0618",
+          "params": {}
+        },
+        "required": true,
+        "placeholder": null,
+        "min_length": 1,
+        "max_length": 1024
       }
     },
     {
@@ -1920,9 +1946,9 @@
       ]
     },
     {
-      "name": "reject_password_before_another_request",
+      "name": "reject_stored_input_answered_by_a_response",
       "valid": false,
-      "error": "secret_last",
+      "error": "stored_input_response",
       "requests": [
         {
           "kind": "input:password",
@@ -1942,7 +1968,8 @@
           "required": true,
           "placeholder": null,
           "min_length": 1,
-          "max_length": 128
+          "max_length": 128,
+          "stored_input": "whatsapp-token"
         },
         {
           "kind": "approval",

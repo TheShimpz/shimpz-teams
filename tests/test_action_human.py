@@ -57,23 +57,27 @@ class HumanResponseTests(unittest.TestCase):
             with self.subTest(value=invalid), self.assertRaises(human.HumanRequestError):
                 human.admit_response(current, invalid)
 
-    def test_transcript_requires_exact_sequence_and_keeps_password_secret_last(self) -> None:
+    def test_transcript_requires_exact_sequence_and_a_password_is_only_a_stored_input(self) -> None:
         approval = request("approval")
-        password = request(
-            "input:password",
-            1,
-            label="Provider secret",
-            required=True,
-            placeholder=None,
-            min_length=1,
-            max_length=64,
+        text = request(
+            "input:text", 1, label="Provider id", required=True, placeholder=None, min_length=1, max_length=64
         )
-        transcript = human.ActionTranscript("interrupt-1").append(approval, True).append(password, "secret")
+        transcript = human.ActionTranscript("interrupt-1").append(approval, True).append(text, "act_1")
 
         self.assertEqual([item["ordinal"] for item in transcript.payloads()], [0, 1])
-        self.assertEqual(transcript.protected_values(), {"human-response-1": "secret"})
         with self.assertRaises(human.HumanRequestError):
-            transcript.append(request("approval", 2), True)
+            transcript.append(request("approval", 3), True)
+        # A password request that names no Stored Input is refused: its value would reach the Action (ADR-0106).
+        with self.assertRaises(human.HumanRequestError):
+            request(
+                "input:password",
+                2,
+                label="Provider secret",
+                required=True,
+                placeholder=None,
+                min_length=1,
+                max_length=64,
+            )
         with self.assertRaisesRegex(human.HumanRequestError, "authorization more than once"):
             human.ActionTranscript("interrupt-1").append(approval, True).append(request("auth:password", 1), True)
         with self.assertRaises(human.HumanRequestError):
@@ -126,7 +130,7 @@ class HumanResponseTests(unittest.TestCase):
         with self.assertRaises(human.HumanRequestError):
             human.validate_request(malformed, ("input:password",), ("whatsapp-token",), catalog=CATALOG)
 
-    def test_stored_input_answer_keeps_ordinal_and_secret_last_rules(self) -> None:
+    def test_stored_input_answer_keeps_the_ordinal_rule(self) -> None:
         def stored(ordinal: int, stored_input: str) -> human.HumanRequest:
             return human.validate_request(
                 human_request_fixtures.fingerprinted(
@@ -157,20 +161,6 @@ class HumanResponseTests(unittest.TestCase):
         self.assertEqual(second.stored_input.stored_input, "app-secret")
         with self.assertRaisesRegex(human.HumanRequestError, "sequence is invalid"):
             human.append_response((approved,), "interrupt-1", stored(2, "app-secret"), "secret", 2)
-        after_secret = human.ActionTranscript("interrupt-1").append(
-            request(
-                "input:password",
-                0,
-                label="Provider secret",
-                required=True,
-                placeholder=None,
-                min_length=1,
-                max_length=64,
-            ),
-            "plain",
-        )
-        with self.assertRaisesRegex(human.HumanRequestError, "after a secret response"):
-            human.append_response((after_secret,), "interrupt-1", stored(1, "app-secret"), "secret", 1)
 
     def test_turn_transcripts_are_interrupt_bound_and_globally_bounded(self) -> None:
         transcripts: tuple[human.ActionTranscript, ...] = ()

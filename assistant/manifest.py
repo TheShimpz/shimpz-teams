@@ -84,6 +84,29 @@ _NON_PUBLIC_HOST_SUFFIXES = (
 )
 
 
+# Fields Team owns in every provider call, so no Stored Input is ever placed in one (ADR-0106).
+RESERVED_HEADERS = frozenset(
+    {
+        "accept-encoding",
+        "connection",
+        "content-length",
+        "expect",
+        "host",
+        "keep-alive",
+        "proxy-authorization",
+        "proxy-connection",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
+)
+_HEADER_RE = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}\Z")
+_QUERY_RE = re.compile(r"[A-Za-z0-9._~-]{1,64}\Z")
+_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,31}\Z")
+_PLACEMENT_FIELDS = ("host", "header", "query", "scheme", "hmac")
+
+
 class ManifestError(RuntimeError):
     """An immutable Assistant package did not expose its reviewed security intent."""
 
@@ -111,11 +134,19 @@ class StoredInputDeclaration:
     description: str
     # The page where a person creates the value, when the Assistant declared one.
     help_url: str | None = None
+    # Its placement (ADR-0106): the one host that receives the value and the header or query field Team puts it in,
+    # with an optional header scheme and an optional HMAC proof over another Stored Input's value.
+    host: str = ""
+    header: str | None = None
+    query: str | None = None
+    scheme: str | None = None
+    hmac: str | None = None
 
     def metadata(self) -> dict[str, str]:
         """The closed declaration fields after its id, as manifests, resolutions, and records carry them."""
         fields = {"kind": self.kind, "label": self.label, "description": self.description}
-        return fields if self.help_url is None else {**fields, "help_url": self.help_url}
+        optional = {"help_url": self.help_url} | {name: getattr(self, name) for name in _PLACEMENT_FIELDS}
+        return fields | {name: value for name, value in optional.items() if value is not None}
 
     def document(self) -> dict[str, str]:
         """One declaration as a resolution or Local record lists it."""
@@ -235,14 +266,22 @@ def canonical_integration_declarations(value: object) -> tuple[IntegrationDeclar
     return tuple(sorted(declarations))
 
 
-def canonical_stored_input_declarations(value: object) -> tuple[StoredInputDeclaration, ...]:
-    """Canonicalize bounded declarations without accepting credential values."""
+def canonical_stored_input_declarations(
+    value: object, allowed_hosts: tuple[str, ...]
+) -> tuple[StoredInputDeclaration, ...]:
+    """Canonicalize bounded declarations and their placements without accepting credential values."""
     if not isinstance(value, Mapping) or len(value) > MAX_STORED_INPUTS:
         raise ManifestError("Assistant Stored Input declarations are invalid")
     declarations: list[StoredInputDeclaration] = []
     for stored_input_id, metadata in value.items():
         identifier = _identifier(stored_input_id, kind="Stored Input")
-        if not isinstance(metadata, Mapping) or set(metadata) - {"help_url"} != {"kind", "label", "description"}:
+        if not isinstance(metadata, Mapping) or not {"kind", "label", "description", "host"} <= set(metadata) <= {
+            "kind",
+            "label",
+            "description",
+            "help_url",
+            *_PLACEMENT_FIELDS,
+        }:
             raise ManifestError("Assistant Stored Input declaration is invalid")
         if metadata["kind"] != "password":
             raise ManifestError("Assistant Stored Input kind is invalid")
@@ -260,17 +299,58 @@ def canonical_stored_input_declarations(value: object) -> tuple[StoredInputDecla
                     maximum=500,
                 ),
                 help_url=help_url,
+                **_placement(metadata, allowed_hosts),
             )
         )
+    _require_distinct_placements(declarations)
     return tuple(sorted(declarations))
 
 
+def _placement(metadata: Mapping[str, object], allowed_hosts: tuple[str, ...]) -> dict[str, str | None]:
+    """One Stored Input's placement: an allowed host and exactly one field Team does not own there (ADR-0106)."""
+    placement = {name: metadata.get(name) for name in _PLACEMENT_FIELDS}
+    header, query, scheme, signed = (placement[name] for name in ("header", "query", "scheme", "hmac"))
+    if (
+        placement["host"] not in allowed_hosts
+        or (header is None) == (query is None)
+        or (header is not None and (not isinstance(header, str) or _HEADER_RE.match(header) is None))
+        or (header is not None and header.lower() in RESERVED_HEADERS)
+        or (query is not None and (not isinstance(query, str) or _QUERY_RE.match(query) is None))
+        or (scheme is not None and (header is None or not isinstance(scheme, str) or _SCHEME_RE.match(scheme) is None))
+        or (signed is not None and http_payload.canonical_identifier(signed) is None)
+    ):
+        raise ManifestError("Assistant Stored Input placement is invalid")
+    return placement
+
+
+def _require_distinct_placements(declarations: list[StoredInputDeclaration]) -> None:
+    """No two values share a field on one host, and a proof signs exactly one plain Stored Input of its host."""
+    by_id = {declaration.id: declaration for declaration in declarations}
+    fields = [placement_field(declaration) for declaration in declarations]
+    for declaration in declarations:
+        target = by_id.get(declaration.hmac) if declaration.hmac is not None else None
+        if declaration.hmac is not None and (
+            target is None or target is declaration or target.hmac is not None or target.host != declaration.host
+        ):
+            raise ManifestError("Assistant Stored Input proof is invalid")
+    if len(set(fields)) != len(fields):
+        raise ManifestError("Assistant Stored Input placements overlap")
+
+
+def placement_field(declaration: StoredInputDeclaration) -> tuple[str, str, str]:
+    """The host and case-folded header, or exact query parameter, one Stored Input occupies."""
+    if declaration.header is not None:
+        return declaration.host, "header", declaration.header.lower()
+    return declaration.host, "query", declaration.query or ""
+
+
 def stored_input_declarations_from_documents(
-    value: Iterable[Mapping[str, object]],
+    value: Iterable[Mapping[str, object]], allowed_hosts: tuple[str, ...]
 ) -> tuple[StoredInputDeclaration, ...]:
     """Canonicalize the declaration list a resolution carries, each entry its id plus its closed fields."""
     return canonical_stored_input_declarations(
-        {document["id"]: {key: item for key, item in document.items() if key != "id"} for document in value}
+        {document["id"]: {key: item for key, item in document.items() if key != "id"} for document in value},
+        allowed_hosts,
     )
 
 
@@ -284,20 +364,34 @@ def canonical_manifest_contract(
     integrations = canonical_integration_declarations(
         {} if integration_declarations is None else integration_declarations
     )
-    return ManifestContract(
-        allowed_hosts=canonical_allowed_hosts(allowed_hosts),
-        integrations=integrations,
-        stored_inputs=canonical_stored_input_declarations(
-            {} if stored_input_declarations is None else stored_input_declarations
-        ),
+    hosts = canonical_allowed_hosts(allowed_hosts)
+    stored_inputs = canonical_stored_input_declarations(
+        {} if stored_input_declarations is None else stored_input_declarations, hosts
     )
+    # An Integration bearer owns Authorization on its provider's API hosts, so no Stored Input may take it there.
+    bearer_hosts = {
+        host for integration in integrations for host in integration_providers.resolve(integration.provider).api_hosts
+    }
+    if any(
+        placement_field(item) in {(host, "header", "authorization") for host in bearer_hosts} for item in stored_inputs
+    ):
+        raise ManifestError("Assistant Stored Input placements overlap")
+    return ManifestContract(allowed_hosts=hosts, integrations=integrations, stored_inputs=stored_inputs)
 
 
 def automatic_update_preserves_egress(previous: ManifestContract, successor: ManifestContract) -> bool:
-    """Return whether a successor stays within the installed outbound-host envelope."""
+    """Return whether a successor stays within the installed outbound-host and credential-placement envelope."""
     if not isinstance(previous, ManifestContract) or not isinstance(successor, ManifestContract):
         raise ManifestError("Assistant update manifest contract is invalid")
-    return set(successor.allowed_hosts).issubset(previous.allowed_hosts)
+    # A retained Stored Input keeps its value only while its value keeps its exact placement (ADR-0106).
+    retained = {item.id: _placement_of(item) for item in previous.stored_inputs}
+    return set(successor.allowed_hosts).issubset(previous.allowed_hosts) and all(
+        retained[item.id] == _placement_of(item) for item in successor.stored_inputs if item.id in retained
+    )
+
+
+def _placement_of(declaration: StoredInputDeclaration) -> tuple[str | None, ...]:
+    return tuple(getattr(declaration, name) for name in _PLACEMENT_FIELDS)
 
 
 def reviewed_manifest_contract(
@@ -317,10 +411,9 @@ def reviewed_manifest_contract(
         }
         stored_input_declarations = {
             stored_input_id: {
-                "kind": metadata.kind,
-                "label": metadata.label,
-                "description": metadata.description,
-                **({} if metadata.help_url is None else {"help_url": metadata.help_url}),
+                name: value
+                for name in ("kind", "label", "description", "help_url", *_PLACEMENT_FIELDS)
+                if (value := getattr(metadata, name)) is not None
             }
             for stored_input_id, metadata in stored_inputs.items()
         }

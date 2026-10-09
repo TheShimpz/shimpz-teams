@@ -264,6 +264,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         shapes += [
             ({"kind": kind, **text, "max_length": limit}, (), None)
             for kind, limit in sorted(action_human.LENGTH_KINDS.items())
+            if kind != "input:password"
         ]
         shapes.append(
             (
@@ -390,31 +391,6 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         for name, variant in variants.items():
             with self.subTest(name), self.assertRaises(local_chat_continuations.ContinuationCodecError):
                 local_chat_continuations.decode(stored_record("human", bindings, json.dumps(variant).encode()))
-
-    def test_refuses_to_persist_password_response_material(self) -> None:
-        secret_request = {
-            "kind": "input:password",
-            "ordinal": 0,
-            "title": "Provider secret",
-            "description": "Enter the third-party provider secret.",
-            "label": "Secret",
-            "required": True,
-            "placeholder": None,
-            "min_length": 1,
-            "max_length": 64,
-        }
-        answered = action_human.admit_response(
-            human_request_fixtures.admit(human_request_fixtures.fingerprinted(secret_request), ("input:password",)),
-            "secret",
-        )
-        state = human_pending(transcripts=(action_human.ActionTranscript("action-1", (answered,)),), requests_used=1)
-
-        with self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "secret"):
-            local_chat_continuations.encode(
-                "human",
-                (human_requirement(secret_request, ("input:password",), purpose="Publish a DNS record."),),
-                state,
-            )
 
     def test_only_a_human_pause_names_its_paused_action_batch(self) -> None:
         integration = integration_requirement("dns.read")

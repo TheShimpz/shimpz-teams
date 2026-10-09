@@ -153,7 +153,7 @@ COPY --link protocol/assistant/v1/validators/action_effect.py protocol/assistant
     protocol/assistant/v1/validators/message_catalog.py \
     ./protocol/assistant/v1/validators/
 COPY --link action/__init__.py action/challenges.py action/dispatch.py action/execution.py action/failure.py \
-    action/files.py action/human.py action/journal.py action/result.py \
+    action/files.py action/human.py action/journal.py action/provider.py action/result.py \
     action/stored_input.py ./action/
 COPY --link storage/__init__.py storage/files.py storage/private_state.py ./storage/
 COPY --link prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/pdf.py \

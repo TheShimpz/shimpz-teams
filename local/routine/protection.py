@@ -1,8 +1,8 @@
 """Run protection: every value a Routine run was given or returned in secret, in this Team process only (ADR-0101).
 
 A run's protection is bound once, when its cursor is first sealed in this Team boot, and then only grows: every value
-Team injects into an attempt (Stored Inputs, Integration tokens, secret human answers, and the workload's capabilities)
-before its RPC, and every string at a secret position of every result before the result reaches anything outward.
+Team holds for an attempt (Stored Inputs and Integration tokens) before its RPC, and every string at a secret position
+of every result before the result reaches anything outward.
 Team never rebuilds it from current stores: a run resumed in another boot, or one whose protection is missing here, has
 lost it, and so has a run whose protection would exceed its bound. Loss is never undone.
 """

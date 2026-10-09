@@ -81,11 +81,6 @@ class HumanResponse:
     fingerprint: str
     value: object
 
-    @property
-    def secret(self) -> bool:
-        """Return whether this response must remain in process memory only."""
-        return self.kind == "input:password"
-
     def payload(self) -> dict[str, object]:
         """Project the closed replay frame consumed by the Assistant SDK."""
         return {
@@ -121,23 +116,13 @@ class ActionTranscript:
         )
 
     def require_next(self, request: HumanRequest) -> None:
-        """Refuse a request that is not the next ordinal, exceeds the Action budget, or follows a secret response."""
+        """Refuse a request that is not the next ordinal or exceeds the Action budget."""
         if len(self.responses) >= MAX_REQUESTS_PER_ACTION or request.ordinal != len(self.responses):
             raise HumanRequestError("Assistant Action human request sequence is invalid")
-        if any(response.secret for response in self.responses):
-            raise HumanRequestError("Assistant Action requested input after a secret response")
 
     def payloads(self) -> tuple[Mapping[str, object], ...]:
         """Return independent replay frames in their admitted order."""
         return tuple(response.payload() for response in self.responses)
-
-    def protected_values(self) -> dict[str, str]:
-        """Return ephemeral arbitrary secrets that a final result must not expose."""
-        return {
-            f"human-response-{response.ordinal}": response.value
-            for response in self.responses
-            if response.secret and isinstance(response.value, str)
-        }
 
 
 @dataclass(frozen=True, slots=True, repr=False)

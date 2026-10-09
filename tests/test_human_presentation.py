@@ -46,23 +46,41 @@ def _requirement(request: action_human.HumanRequest, **presentation) -> action_c
 
 class DeclarationTests(unittest.TestCase):
     def test_a_declaration_carries_its_key_page_only_when_declared(self) -> None:
-        declared = assistant_manifest.StoredInputDeclaration("exa-api-key", "password", "Key", "Exa key.", HELP_URL)
-        plain = assistant_manifest.StoredInputDeclaration("exa-api-key", "password", "Key", "Exa key.")
+        placement = {"host": "api.exa.ai", "header": "x-api-key"}
+        declared = assistant_manifest.StoredInputDeclaration(
+            "exa-api-key", "password", "Key", "Exa key.", HELP_URL, **placement
+        )
+        plain = assistant_manifest.StoredInputDeclaration("exa-api-key", "password", "Key", "Exa key.", **placement)
         self.assertEqual(
             declared.document(),
-            {"id": "exa-api-key", "kind": "password", "label": "Key", "description": "Exa key.", "help_url": HELP_URL},
+            {
+                "id": "exa-api-key",
+                "kind": "password",
+                "label": "Key",
+                "description": "Exa key.",
+                "help_url": HELP_URL,
+                **placement,
+            },
         )
         self.assertNotIn("help_url", plain.metadata())
         documents = [declared.document()]
-        self.assertEqual(assistant_manifest.stored_input_declarations_from_documents(documents), (declared,))
+        self.assertEqual(
+            assistant_manifest.stored_input_declarations_from_documents(documents, ("api.exa.ai",)), (declared,)
+        )
         spec = assistant_registry.StoredInputSpec(**declared.metadata())
         contract = assistant_manifest.reviewed_manifest_contract(
-            allowed_hosts=[], integrations={}, stored_inputs={"exa-api-key": spec}
+            allowed_hosts=["api.exa.ai"], integrations={}, stored_inputs={"exa-api-key": spec}
         )
         self.assertEqual(contract.stored_inputs, (declared,))
 
     def test_an_invalid_or_unknown_declaration_field_fails_closed(self) -> None:
-        base = {"kind": "password", "label": "Key", "description": "Exa key."}
+        base = {
+            "kind": "password",
+            "label": "Key",
+            "description": "Exa key.",
+            "host": "api.exa.ai",
+            "header": "x-api-key",
+        }
         for metadata in (
             {**base, "help_url": "http://dashboard.exa.ai/api-keys"},
             {**base, "help_url": "https://dashboard.exa.ai"},
@@ -70,7 +88,7 @@ class DeclarationTests(unittest.TestCase):
             {**base, "url": HELP_URL},
         ):
             with self.subTest(metadata=metadata), self.assertRaises(assistant_manifest.ManifestError):
-                assistant_manifest.canonical_stored_input_declarations({"exa-api-key": metadata})
+                assistant_manifest.canonical_stored_input_declarations({"exa-api-key": metadata}, ("api.exa.ai",))
 
 
 class ChallengeTests(unittest.TestCase):
@@ -79,7 +97,6 @@ class ChallengeTests(unittest.TestCase):
         stored = _request("input:password", stored_input="exa-api-key")
         self.assertEqual(action_challenges.declared_help_url(stored, declarations), HELP_URL)
         self.assertIsNone(action_challenges.declared_help_url(_request("approval"), declarations))
-        self.assertIsNone(action_challenges.declared_help_url(_request("input:password"), declarations))
         self.assertIsNone(action_challenges.declared_help_url(stored, {}))
         self.assertIsNone(action_challenges.declared_help_url(stored, None))
         undeclared = {"exa-api-key": assistant_registry.StoredInputSpec("password", "Key", "Exa key.")}
@@ -104,7 +121,6 @@ class ChallengeTests(unittest.TestCase):
         stored = _request("input:password", stored_input="exa-api-key")
         for requirement in (
             _requirement(_request("approval"), help_url=HELP_URL),
-            _requirement(_request("input:password"), help_url=HELP_URL),
             _requirement(stored, help_url="https://dashboard.exa.ai"),
             _requirement(stored, purpose="Search — then read"),
         ):

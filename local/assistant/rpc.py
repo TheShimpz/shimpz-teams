@@ -63,11 +63,11 @@ def _rpc(
     container,
     action_id: str,
     payload: dict,
+    broker: action_execution.ProviderBroker | None = None,
 ) -> object:
     try:
         encoded = action_execution.encode_rpc_invocation(
             payload["input"],
-            payload["integrations"],
             payload["stored_inputs"],
             payload["operation_id"],
             payload.get("responses", ()),
@@ -84,10 +84,17 @@ def _rpc(
         deadline = action_files.rpc_deadline(payload.get("files", {}))
     except action_files.FileDeliveryError as exc:
         raise action_file_unavailable() from exc
-    return _exchange(self, container, action_id, encoded, deadline)
+    return _exchange(self, container, action_id, encoded, deadline, broker)
 
 
-def _exchange(self, container, action_id: str, encoded: bytes, deadline: float | None) -> object:
+def _exchange(
+    self,
+    container,
+    action_id: str,
+    encoded: bytes,
+    deadline: float | None,
+    broker: action_execution.ProviderBroker | None = None,
+) -> object:
     def close_stream(stream: object) -> None:
         with suppress(Exception):
             self._close_exec_stream(stream)
@@ -108,6 +115,7 @@ def _exchange(self, container, action_id: str, encoded: bytes, deadline: float |
                 cancelled=lambda _exc: None,
                 close_stream=close_stream,
                 deadline=deadline,
+                broker=broker,
             ),
         )
     except action_execution.RpcExchangeError as exc:

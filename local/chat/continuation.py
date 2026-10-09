@@ -255,10 +255,8 @@ def _transcripts_payload(transcripts: tuple[action_human.ActionTranscript, ...])
         raise ContinuationCodecError("pending human transcripts are malformed")
     payload: list[dict[str, object]] = []
     for transcript in transcripts:
-        if not isinstance(transcript, action_human.ActionTranscript) or any(
-            response.secret for response in transcript.responses
-        ):
-            raise ContinuationCodecError("secret human responses cannot be persisted")
+        if not isinstance(transcript, action_human.ActionTranscript):
+            raise ContinuationCodecError("pending human transcripts are malformed")
         payload.append(
             {
                 "interrupt_id": _interrupt_id(transcript.interrupt_id),

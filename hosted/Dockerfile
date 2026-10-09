@@ -152,7 +152,7 @@ COPY integrations/__init__.py integrations/account_egress.py integrations/broker
      integrations/pkce.py integrations/providers.py \
      integrations/service.py integrations/store.py ./integrations/
 COPY action/__init__.py action/challenges.py action/dispatch.py action/execution.py action/failure.py \
-     action/files.py action/human.py action/journal.py action/result.py \
+     action/files.py action/human.py action/journal.py action/provider.py action/result.py \
      action/stored_input.py ./action/
 COPY storage/__init__.py storage/files.py storage/private_state.py ./storage/
 COPY prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/pdf.py \

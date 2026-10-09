@@ -25,8 +25,8 @@ def _reviewed_contract() -> SimpleNamespace:
     integrations = assistant_manifest.canonical_integration_declarations(
         {"cloudflare": ["zone.read", "dns.read", "offline_access"]}
     )
-    stored_inputs = assistant_manifest.canonical_stored_input_declarations({})
     allowed_hosts = assistant_manifest.canonical_allowed_hosts(["api.cloudflare.com"])
+    stored_inputs = assistant_manifest.canonical_stored_input_declarations({}, allowed_hosts)
     contract = json.loads((FIXTURE_MANIFEST.parent / "shimpz.contract.json").read_text(encoding="utf-8"))
     return SimpleNamespace(
         allowed_hosts=allowed_hosts,
@@ -63,6 +63,14 @@ def manifest(
         "\n[network]\n"
         f"allowed_hosts = [{hosts}]\n\n{integrations}"
     ).encode()
+
+
+def _stored(label: str, **placement: str) -> dict[str, str]:
+    """One Stored Input declaration with its placement, by default a header on the fixture's host."""
+    fields = {"host": "api.example.com", **placement}
+    if "query" not in fields:
+        fields.setdefault("header", "X-Api-Key")
+    return {"kind": "password", "label": label, "description": f"{label} for the provider.", **fields}
 
 
 def archive(
@@ -133,6 +141,9 @@ class AssistantManifestTests(unittest.TestCase):
                 'kind = "password"\n'
                 'label = "WhatsApp token"\n'
                 'description = "Token used to call the WhatsApp API."\n'
+                'host = "api.example.com"\n'
+                'header = "Authorization"\n'
+                'scheme = "Bearer"\n'
             )
         )
 
@@ -146,31 +157,71 @@ class AssistantManifestTests(unittest.TestCase):
                     kind="password",
                     label="WhatsApp token",
                     description="Token used to call the WhatsApp API.",
+                    host="api.example.com",
+                    header="Authorization",
+                    scheme="Bearer",
                 ),
             ),
         )
 
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "declarations are invalid"):
             assistant_manifest.canonical_stored_input_declarations(
-                {
-                    f"token-{index}": {
-                        "kind": "password",
-                        "label": "Token",
-                        "description": "Provider token.",
-                    }
-                    for index in range(assistant_manifest.MAX_STORED_INPUTS + 1)
-                }
+                {f"token-{index}": _stored("Token") for index in range(assistant_manifest.MAX_STORED_INPUTS + 1)},
+                ("api.example.com",),
             )
+
+    def test_each_stored_input_has_one_placement_its_host_and_no_other_value_shares(self) -> None:
+        """Placement admission (ADR-0106): one allowed host, one field Team does not own, one plain proof target."""
+        hosts = ("api.example.com", "other.example.com")
+        token = _stored("Token", header="Authorization", scheme="Bearer")
+        admitted = assistant_manifest.canonical_stored_input_declarations(
+            {"token": token, "secret": _stored("Secret", query="appsecret_proof", hmac="token")}, hosts
+        )
+        self.assertEqual([(item.id, item.hmac) for item in admitted], [("secret", "token"), ("token", None)])
+        refused = (
+            {"token": {**token, "host": "collector.example.org"}},
+            {"token": {key: value for key, value in token.items() if key != "header"}},
+            {"token": {**token, "query": "key"}},
+            {"token": _stored("Token", query="key", scheme="Bearer")},
+            {"token": _stored("Token", header="Content-Length")},
+            {"token": _stored("Token", header="bad header")},
+            {"token": _stored("Token", query="a&b")},
+            {"token": token, "other": _stored("Other", header="authorization")},
+            {"token": token, "secret": _stored("Secret", query="proof", hmac="missing")},
+            {"token": token, "secret": _stored("Secret", query="proof", hmac="secret")},
+            {"token": {**token, "hmac": "secret"}, "secret": _stored("Secret", query="proof", hmac="token")},
+            {"token": token, "secret": _stored("Secret", query="proof", hmac="token", host="other.example.com")},
+        )
+        for declarations in refused:
+            with self.subTest(declarations=declarations), self.assertRaises(assistant_manifest.ManifestError):
+                assistant_manifest.canonical_stored_input_declarations(declarations, hosts)
+
+    def test_an_integration_bearer_owns_authorization_on_its_provider_hosts(self) -> None:
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "overlap"):
+            assistant_manifest.canonical_manifest_contract(
+                allowed_hosts=["api.cloudflare.com"],
+                integration_declarations={"cloudflare": ["dns.read"]},
+                stored_input_declarations={
+                    "token": _stored("Token", header="Authorization", host="api.cloudflare.com")
+                },
+            )
+
+    def test_an_automatic_update_keeps_every_retained_placement(self) -> None:
+        def contract(**placement: str) -> assistant_manifest.ManifestContract:
+            return assistant_manifest.canonical_manifest_contract(
+                allowed_hosts=["api.example.com", "other.example.com"],
+                stored_input_declarations={"token": _stored("Token", **{"header": "Authorization", **placement})},
+            )
+
+        previous = contract()
+        self.assertTrue(assistant_manifest.automatic_update_preserves_egress(previous, contract()))
+        for changed in ({"host": "other.example.com"}, {"header": "X-Token"}, {"scheme": "Bearer"}):
+            with self.subTest(changed=changed):
+                self.assertFalse(assistant_manifest.automatic_update_preserves_egress(previous, contract(**changed)))
 
     def test_machine_contract_requires_password_capability_for_stored_input(self) -> None:
         declarations = assistant_manifest.canonical_stored_input_declarations(
-            {
-                "whatsapp-token": {
-                    "kind": "password",
-                    "label": "WhatsApp token",
-                    "description": "Token used to call the WhatsApp API.",
-                }
-            }
+            {"whatsapp-token": _stored("WhatsApp token")}, ("api.example.com",)
         )
         contract = {
             "version": 1,
@@ -212,9 +263,10 @@ class AssistantManifestTests(unittest.TestCase):
     def test_an_action_may_use_several_declared_stored_inputs_as_one_sorted_list(self) -> None:
         declarations = assistant_manifest.canonical_stored_input_declarations(
             {
-                f"key-{index}": {"kind": "password", "label": "Key", "description": "Provider key."}
+                f"key-{index}": _stored("Key", header=f"X-Key-{index}")
                 for index in range(1, assistant_manifest.MAX_STORED_INPUTS + 1)
-            }
+            },
+            ("api.example.com",),
         )
 
         def contract(stored_inputs: list[str]) -> dict[str, object]:

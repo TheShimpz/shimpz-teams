@@ -563,8 +563,11 @@ class LocalContractTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, object())
 
-            def rpc(_container, action_id, payload):
+            brokers: list[object] = []
+
+            def rpc(_container, action_id, payload, broker):
                 captured.append((action_id, payload))
+                brokers.append(broker)
                 return {"type": "result", "result": LOOKUP_RESULT}
 
             controller.assistant_lifecycle._rpc = rpc
@@ -582,14 +585,18 @@ class LocalContractTests(LocalContractCase):
                     "list-zones",
                     {
                         "input": LOOKUP_INPUT,
-                        "integrations": {"cloudflare": TEST_ACCOUNT_ACCESS_TOKEN},
-                        "stored_inputs": {},
+                        "stored_inputs": (),
                         "files": {},
                     },
                 )
             ],
         )
         self.assertEqual(response["result"], LOOKUP_RESULT)
+        # The Integration token stays with Team's broker, placed only on its provider's API host (ADR-0106).
+        self.assertEqual(
+            [(item.host, item.value) for item in brokers[0]._scope.credentials],
+            [("api.cloudflare.com", f"Bearer {TEST_ACCOUNT_ACCESS_TOKEN}")],
+        )
 
     def test_action_output_containing_a_secret_is_blocked_and_redacted(self) -> None:
         raw_secret = TEST_ACCOUNT_ACCESS_TOKEN

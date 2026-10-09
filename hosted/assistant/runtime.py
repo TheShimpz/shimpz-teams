@@ -15,12 +15,14 @@ from action import failure as action_failure
 from action import files as action_files
 from action import human as action_human
 from action import journal as action_journal
+from action import provider as action_provider
 from action import stored_input as action_stored_input
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from core.container import network as network_policy
+from egress import policy as egress_policy
 from hosted import audit
 from hosted import container as container_spec
 from hosted import state as runtime_state
@@ -311,13 +313,14 @@ class AssistantRpcRequest:
     action_id: str
     payload: dict
     token: str | None
+    # Team's answer to this attempt's provider calls (ADR-0106).
+    broker: action_execution.ProviderBroker | None = None
 
 
 def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
     try:
         encoded = action_execution.encode_rpc_invocation(
             request.payload["input"],
-            request.payload["integrations"],
             request.payload["stored_inputs"],
             request.payload["operation_id"],
             request.payload.get("responses", ()),
@@ -361,6 +364,7 @@ def _exchange_registered(request: AssistantRpcRequest, encoded: bytes, deadline:
                     cancelled=lambda exc: _raise_if_rpc_cancelled(token, exc),
                     close_stream=close_stream,
                     deadline=deadline,
+                    broker=request.broker,
                 ),
             )
         except action_execution.RpcExchangeError as exc:
@@ -377,6 +381,7 @@ def _assistant_rpc(
     container,
     action_id: str,
     payload: dict,
+    broker: action_execution.ProviderBroker | None = None,
 ) -> object:
     return _assistant_rpc_exchange(
         AssistantRpcRequest(
@@ -385,6 +390,7 @@ def _assistant_rpc(
             action_id=action_id,
             payload=payload,
             token=token,
+            broker=broker,
         )
     )
 
@@ -620,7 +626,6 @@ def _project_hosted_action_result(
             lambda value: _validate_action_payload(request.contract, action, value, output=True),
             action_execution.RpcResultPolicy(
                 human_requests=tuple(action_spec.human_requests),
-                protected_values=private.transcript.protected_values(),
                 authorization_requested=any(
                     response.kind in action_human.AUTHORIZATION_KINDS for response in private.transcript.responses
                 ),
@@ -631,7 +636,6 @@ def _project_hosted_action_result(
                     if action_spec.human_requests
                     else None
                 ),
-                capabilities=action_failure.capability_values(request.container),
                 file_withheld=private.file is not None
                 and not action_files.authorized(action_spec.human_requests, private.transcript),
             ),
@@ -754,23 +758,9 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
         action=action,
         operation_id=private.operation_id,
     )
-    if contract.actions[action].stored_inputs:
-        # Every attempt of an Action that declares Stored Inputs names the ids it was delivered, none included, under
-        # the logical operation its started and outcome records also carry.
-        audit.log(
-            "assistant_action",
-            team_id,
-            result="ok",
-            phase="stored-inputs-delivered",
-            assistant=assistant_id,
-            action=action,
-            operation_id=private.operation_id,
-            stored_inputs=sorted(private.stored_inputs),
-        )
     rpc_payload = {
         "input": safe_input,
-        "integrations": action_execution.integration_access_tokens(private.integrations),
-        "stored_inputs": private.stored_inputs,
+        "stored_inputs": tuple(private.stored_inputs),
         "files": files,
         "operation_id": private.operation_id,
     }
@@ -780,11 +770,7 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
     sent = action_files.delivered(files)
     try:
         raw_result = _assistant_rpc(
-            team_id,
-            request.token,
-            container,
-            action,
-            rpc_payload,
+            team_id, request.token, container, action, rpc_payload, _provider_broker(request, private)
         )
     except runtime_state.ApiError as exc:
         audit.log(
@@ -831,6 +817,39 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
         operation_id=private.operation_id,
     )
     return {"assistant": assistant_id, "action": action, "result": projected}
+
+
+def _provider_broker(
+    request: ActionInvocationRequest, private: action_execution.ResolvedInvocationEvidence
+) -> action_provider.Broker:
+    """Team's answer to this attempt's provider calls, through the Assistant's admitted egress policy (ADR-0106)."""
+    identity = container_spec.team_assistant_container_name(request.team_id, request.assistant_id)
+    action = str(request.action)
+
+    def route() -> tuple[str, frozenset[str]]:
+        try:
+            admitted = assistant_lifecycle._egress_store().admitted(identity)
+        except egress_policy.EgressPolicyError as exc:
+            raise action_provider.CallRefusedError("unavailable", "egress-policy") from exc
+        return ("", frozenset()) if admitted is None else (admitted[0], frozenset(admitted[1]))
+
+    def record(fields: Mapping[str, object]) -> None:
+        phase = fields["phase"]
+        result = "denied" if phase == "refused" else "error" if "error" in fields else "ok"
+        audit.log(
+            "assistant_provider_call",
+            request.team_id,
+            result=result,
+            assistant=request.assistant_id,
+            action=action,
+            operation_id=private.operation_id,
+            **fields,
+        )
+
+    attempt = action_provider.Attempt(request.team_id, request.assistant_id, action, private.operation_id)
+    return action_provider.Broker(
+        action_provider.call_scope(attempt, request.contract, request.contract.actions[action], private, route, record)
+    )
 
 
 def _validate_assistant_action_input(bindings, assistant_id: str, action: str, action_input) -> object:

@@ -60,6 +60,12 @@ class StoredInputSpec:
     label: str
     description: str
     help_url: str | None = None
+    # Its placement (ADR-0106).
+    host: str = ""
+    header: str | None = None
+    query: str | None = None
+    scheme: str | None = None
+    hmac: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +119,10 @@ def runtime_contract(document: Mapping[str, Any]) -> RuntimeContract:
         )
         for integration in document["integrations"]
     )
-    stored_input_declarations = assistant_manifest.stored_input_declarations_from_documents(document["stored_inputs"])
+    allowed_hosts = assistant_manifest.canonical_allowed_hosts(document["allowed_hosts"])
+    stored_input_declarations = assistant_manifest.stored_input_declarations_from_documents(
+        document["stored_inputs"], allowed_hosts
+    )
     presentation = assistant_manifest.canonical_manifest_presentation(
         description=document["description"], links=document["links"]
     )
@@ -123,7 +132,7 @@ def runtime_contract(document: Mapping[str, Any]) -> RuntimeContract:
         stored_input_declarations,
         summary=document["summary"],
         description=presentation.description,
-        allowed_hosts=assistant_manifest.canonical_allowed_hosts(document["allowed_hosts"]),
+        allowed_hosts=allowed_hosts,
     )
     if machine_contract != document["machine_contract"]:
         raise assistant_manifest.ManifestError("machine contract is not canonical")

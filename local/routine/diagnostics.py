@@ -547,8 +547,7 @@ def evidence(exc: BaseException, protection: object) -> tuple[dict[str, object] 
 
 def protected(evidence_value: action_execution.ActionInvocationEvidence) -> tuple[str, ...]:
     """Every value Team injected into one attempt, which its diagnostic must never hold."""
-    found: list[str] = list(evidence_value.transcript.protected_values().values())
-    found.extend(evidence_value.private_inputs.stored_inputs.values())
+    found: list[str] = list(evidence_value.private_inputs.stored_inputs.values())
     pending: list[object] = [evidence_value.private_inputs.integrations]
     while pending:
         value = pending.pop()

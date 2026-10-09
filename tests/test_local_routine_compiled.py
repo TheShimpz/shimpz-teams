@@ -608,12 +608,13 @@ class AssistantProcess:
 
         def serve() -> None:
             raw = b""
-            while chunk := assistant_side.recv(65536):
+            # The invocation is the first stdin line; stdin stays open for provider-call replies (ADR-0106).
+            while b"\n" not in raw and (chunk := assistant_side.recv(65536)):
                 raw += chunk
             invocation = json.loads(raw)
             self.invocations.append({"action": exec_id, **invocation})
             result = ZONES if exec_id == "list-zones" else RECORDS
-            payload = json.dumps({"type": "result", "result": result}).encode()
+            payload = json.dumps({"type": "result", "result": result}).encode() + b"\n"
             assistant_side.sendall(struct.pack(">BxxxL", 1, len(payload)) + payload)
             assistant_side.close()
 
@@ -639,9 +640,10 @@ class RealRpcTests(CompiledRunCase):
         first, second = process.invocations
         self.assertEqual((first["action"], first["input"]), ("list-zones", LOOKUP_INPUT))
         self.assertEqual((second["action"], second["input"]), ("list-dns-records", {**LOOKUP_INPUT, "zone_id": ZONE}))
-        # Each step is its own logical operation, and the Integration token reached only the Assistant.
+        # Each step is its own logical operation, and no Integration token reached the Assistant.
         self.assertNotEqual(first["operation_id"], second["operation_id"])
-        self.assertEqual(set(first["integrations"]), {"cloudflare"})
+        self.assertNotIn("integrations", first)
+        self.assertEqual(first["stored_inputs"], [])
         detail = state.notices[-1].detail
         summary = routine_definition.summary(value.plan, value.revision)
         self.assertEqual((detail["plan"], detail["output"]["state"]), (summary, "shown"))

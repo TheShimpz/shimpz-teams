@@ -22,6 +22,8 @@ class OAuthProviderError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class OAuthProvider:
     id: str
+    # The reviewed API hosts Team sends this provider's bearer to in an Assistant's provider calls (ADR-0106).
+    api_hosts: tuple[str, ...]
     allowed_scopes: frozenset[str]
     pkce_method: str
 
@@ -32,9 +34,9 @@ class OAuthIntegrationIntent:
     scopes: tuple[str, ...]
 
 
-def _provider(*, provider_id: str, allowed_scopes: frozenset[str]) -> OAuthProvider:
-    provider = OAuthProvider(id=provider_id, allowed_scopes=allowed_scopes, pkce_method="S256")
-    if http_payload.canonical_identifier(provider.id) is None or not provider.allowed_scopes:
+def _provider(*, provider_id: str, api_hosts: tuple[str, ...], allowed_scopes: frozenset[str]) -> OAuthProvider:
+    provider = OAuthProvider(id=provider_id, api_hosts=api_hosts, allowed_scopes=allowed_scopes, pkce_method="S256")
+    if http_payload.canonical_identifier(provider.id) is None or not provider.api_hosts or not provider.allowed_scopes:
         raise RuntimeError("trusted OAuth provider registry is invalid")
     if any(_SCOPE.fullmatch(scope) is None for scope in provider.allowed_scopes):
         raise RuntimeError("trusted OAuth provider registry is invalid")
@@ -46,6 +48,7 @@ def _provider(*, provider_id: str, allowed_scopes: frozenset[str]) -> OAuthProvi
 # is admitted.
 _CLOUDFLARE = _provider(
     provider_id="cloudflare",
+    api_hosts=("api.cloudflare.com",),
     allowed_scopes=frozenset({"dns.read", "dns.write", "offline_access", "zone.read"}),
 )
 

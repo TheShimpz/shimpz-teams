@@ -62,14 +62,14 @@ class ActionRpcExchangeTests(unittest.TestCase):
         withheld = {"0" * 32: {**record, "content": {"type": "withheld"}}}
         large = {"note": "x" * (600 * 1024)}
         with self.assertRaisesRegex(ValueError, "too large"):
-            action_execution.encode_rpc_invocation(large, {}, {}, OPERATION_ID, files=withheld)
+            action_execution.encode_rpc_invocation(large, (), OPERATION_ID, files=withheld)
         delivered = {"0" * 32: {**record, "content": {"type": "delivered", "base64": "x" * (8 * 1024 * 1024)}}}
-        encoded = action_execution.encode_rpc_invocation({"file": "0" * 32}, {}, {}, OPERATION_ID, files=delivered)
+        encoded = action_execution.encode_rpc_invocation({"file": "0" * 32}, (), OPERATION_ID, files=delivered)
         self.assertGreater(len(encoded), action_execution.MAX_RPC_REQUEST_BYTES)
         self.assertEqual(json.loads(encoded)["files"], delivered)
         too_large = {"0" * 32: {**record, "content": {"type": "delivered", "base64": "x" * (12 * 1024 * 1024)}}}
         with self.assertRaisesRegex(ValueError, "too large"):
-            action_execution.encode_rpc_invocation({}, {}, {}, OPERATION_ID, files=too_large)
+            action_execution.encode_rpc_invocation({}, (), OPERATION_ID, files=too_large)
 
     def test_setup_time_is_charged_to_the_one_absolute_deadline(self) -> None:
         clock = [100.0]
@@ -86,7 +86,7 @@ class ActionRpcExchangeTests(unittest.TestCase):
         )
         strategy = rpc_strategy(api, timeout=60)
 
-        def exchange(_socket, _data, deadline, _maximum) -> tuple[bytes, bytes]:
+        def exchange(_socket, _data, deadline, _maximum, _broker) -> tuple[bytes, bytes]:
             seen.append(deadline)
             return b"{}", b""
 
@@ -168,6 +168,93 @@ def rpc_strategy(api: object, **changes: object) -> action_execution.RpcExchange
         ),
         **changes,
     )
+
+
+class _RecordingBroker:
+    """Answers each provider-call frame with one fixed reply and keeps every frame it was asked."""
+
+    def __init__(self, reply: bytes = b'{"error":"refused"}') -> None:
+        self.reply = reply
+        self.frames: list[object] = []
+        self.calls = 0
+
+    def __call__(self, frame: object, _deadline: float) -> bytes:
+        self.calls += 1
+        self.frames.append(frame)
+        return self.reply
+
+
+def _lines(connection: socket.socket, count: int) -> list[bytes]:
+    buffer = bytearray()
+    while buffer.count(b"\n") < count and (chunk := connection.recv(65536)):
+        buffer.extend(chunk)
+    return bytes(buffer).split(b"\n")[:count]
+
+
+class ProviderCallChannelTests(unittest.TestCase):
+    """With a broker, stdin stays open: each provider-call line gets one reply line before the terminal (ADR-0106)."""
+
+    def _exchange(self, workload, broker: _RecordingBroker) -> tuple[tuple[bytes, bytes], list[bytes]]:
+        ours, theirs = socket.socketpair()
+        self.addCleanup(ours.close)
+        self.addCleanup(theirs.close)
+        seen: list[bytes] = []
+        thread = threading.Thread(target=workload, args=(theirs, seen), daemon=True)
+        thread.start()
+        try:
+            return action_execution.exchange_rpc_frames(ours, b'{"input":{}}', time.monotonic() + 5, 4096, broker), seen
+        finally:
+            thread.join(5)
+
+    def test_each_call_is_answered_in_order_and_the_terminal_line_ends_the_exchange(self) -> None:
+        call = b'{"type":"fetch","method":"GET","url":"https://api.example.com/","headers":[]}'
+
+        def workload(connection: socket.socket, seen: list[bytes]) -> None:
+            seen.extend(_lines(connection, 1))
+            for _ in range(2):
+                connection.sendall(_frame(1, call + b"\n"))
+                seen.extend(_lines(connection, 1))
+            connection.sendall(_frame(1, b'{"type":"result","result":{}}\n'))
+            connection.shutdown(socket.SHUT_WR)
+
+        broker = _RecordingBroker()
+        (stdout, stderr), seen = self._exchange(workload, broker)
+        self.assertEqual((stdout, stderr), (b'{"type":"result","result":{}}\n', b""))
+        self.assertEqual(seen, [b'{"input":{}}', b'{"error":"refused"}', b'{"error":"refused"}'])
+        self.assertEqual(broker.calls, 2)
+        self.assertEqual(broker.frames[0]["url"], "https://api.example.com/")
+
+    def test_output_after_the_terminal_or_an_invalid_line_is_refused(self) -> None:
+        for output in (b'{"type":"result","result":{}}\n{"type":"fetch"}\n', b"not json\n"):
+
+            def workload(connection: socket.socket, _seen: list[bytes], output: bytes = output) -> None:
+                connection.sendall(_frame(1, output))
+                connection.shutdown(socket.SHUT_WR)
+
+            with self.subTest(output=output), self.assertRaises(ValueError):
+                self._exchange(workload, _RecordingBroker())
+
+    def test_a_request_after_a_call_is_refused_because_its_replay_would_repeat_the_call(self) -> None:
+        broker = _RecordingBroker()
+        request = b'{"type":"request","request":{}}'
+        self.assertEqual(action_execution._terminal(request, broker), {"type": "request", "request": {}})
+        broker.calls = 1
+        with self.assertRaises(action_execution.RpcExchangeError) as refused:
+            action_execution._terminal(request, broker)
+        self.assertEqual(refused.exception.condition, "request-after-provider-call")
+        self.assertEqual(action_execution._terminal(b'{"type":"result","result":{}}', broker)["type"], "result")
+
+    def test_a_broker_that_cannot_answer_ends_the_attempt_as_a_transport_fault(self) -> None:
+        def workload(connection: socket.socket, _seen: list[bytes]) -> None:
+            _lines(connection, 1)
+            connection.sendall(_frame(1, b'{"type":"fetch"}\n'))
+
+        class Failing(_RecordingBroker):
+            def __call__(self, _frame: object, _deadline: float) -> bytes:
+                raise RuntimeError("the audit journal is unavailable")
+
+        with self.assertRaisesRegex(OSError, "provider call failed"):
+            self._exchange(workload, Failing())
 
 
 class DockerCallBoundTests(unittest.TestCase):

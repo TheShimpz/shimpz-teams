@@ -227,7 +227,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             )
             supplied: list[tuple[str, list[str]]] = []
 
-            def rpc(_container, _action, payload):
+            def rpc(_container, _action, payload, _broker=None):
                 supplied.append((payload["input"]["query"], sorted(payload["stored_inputs"])))
                 if not payload["stored_inputs"] and not payload.get("responses"):
                     return {"type": "request", "request": request}
@@ -293,7 +293,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             )
             supplied: list[dict[str, object]] = []
 
-            def rpc(_container, _action, payload):
+            def rpc(_container, _action, payload, _broker=None):
                 supplied.append(dict(payload))
                 for slot in ("exa-api-key", "exa-account"):
                     if slot not in payload["stored_inputs"]:
@@ -324,14 +324,15 @@ class LocalTurnLifecycleTests(LocalContractCase):
             [sorted(payload["stored_inputs"]) for payload in supplied],
             [[], ["exa-api-key"], ["exa-account", "exa-api-key"]],
         )
-        # Neither value ever travels as a replay response; each is injected once sealed.
+        # Neither value ever travels as a replay response; each slot is listed as held once sealed.
         self.assertTrue(all("responses" not in payload for payload in supplied))
         details = [call.kwargs.get("detail", "") for call in audit.call_args_list]
         self.assertIn("stored-input-sealed:search-web:exa-api-key", details)
         self.assertIn("stored-input-sealed:search-web:exa-account", details)
-        self.assertTrue(any(detail.endswith(":exa-account,exa-api-key") for detail in details))
         for value in sealed.values():
             self.assertNotIn(value, repr(audit.call_args_list))
+            # The Action is told which slots Team holds, never a value (ADR-0106).
+            self.assertNotIn(value, repr(supplied))
 
     def test_denied_human_request_purges_the_action_batch_without_brain_resume(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -375,14 +375,9 @@ def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: dict[str,
     """Keep a paused run for a human: its continuation first, then the frozen record commits the freeze."""
     team_id, run_id = run.team_id, run.run_id
     frozen = _frozen_request(segment)
-    # As in chat, a secret answer must be the last one a logical run gives: none may follow it. A request the person
-    # would be shown is checked against the run's protection now, while it is known: one with no public copy hiding
-    # every protected value is never shown (ADR-0101 section 6).
-    if (
-        frozen is None
-        or any(response.secret for transcript in pending.transcripts for response in transcript.responses)
-        or _unshowable(self, run_id, segment)
-    ):
+    # A request the person would be shown is checked against the run's protection now, while it is known: one with no
+    # public copy hiding every protected value is never shown (ADR-0101 section 6).
+    if frozen is None or _unshowable(self, run_id, segment):
         self._commit_chat_terminal(team_id, run.token)
         placed = {"position": step, "steps": len(run.routine.plan["steps"])}
         return _end(self, team_id, run_id, "failed", {"code": "request-unavailable", "actions": [], **placed})

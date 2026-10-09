@@ -145,13 +145,11 @@ class RecordingTests(LocalContractCase):
         )
         return controller, books, recording
 
-    def test_a_successful_call_is_an_occurrence_and_its_capabilities_are_protected(self) -> None:
+    def test_a_successful_call_is_an_occurrence(self) -> None:
         seen: list[object] = []
 
         def invoke(_team, _assistant, _action, _payload, evidence):
             seen.append(evidence)
-            # The workload's capabilities reach the turn's protection before the RPC.
-            evidence.protect(("capability-value-1",))
             return {"result": LOOKUP_RESULT}
 
         with tempfile.TemporaryDirectory() as directory:
@@ -164,12 +162,10 @@ class RecordingTests(LocalContractCase):
             ("shimpz-cloudflare", LIST.action, True, seen[0].operation_id),
         )
         self.assertEqual((occurrence.input.value, occurrence.result.value), (LOOKUP_INPUT, LOOKUP_RESULT))
-        self.assertIn("capability-value-1", found.protection.values)
         self.assertRegex(occurrence.pin, r"\Asha256:[0-9a-f]{64}\Z")
 
-    def test_a_failed_call_is_never_an_occurrence_but_keeps_the_protection_it_grew(self) -> None:
-        def invoke(_team, _assistant, _action, _payload, evidence):
-            evidence.protect(("capability-value-2",))
+    def test_a_failed_call_is_never_an_occurrence(self) -> None:
+        def invoke(_team, _assistant, _action, _payload, _evidence):
             raise local_app.ApiProblem(HTTPStatus.BAD_GATEWAY, "failed", code="assistant-action-failed")
 
         with tempfile.TemporaryDirectory() as directory:
@@ -178,17 +174,16 @@ class RecordingTests(LocalContractCase):
                 run_chat(controller.chat_turn_service, recording)
             found = books.get("team_1", recording)
         self.assertEqual(found.sends[-1].occurrences, ())
-        self.assertIn("capability-value-2", found.protection.values)
 
-    def test_an_ordinary_turn_protects_nothing_and_records_nothing(self) -> None:
+    def test_an_ordinary_turn_records_nothing(self) -> None:
         seen: list[object] = []
 
         def invoke(_team, _assistant, _action, _payload, evidence):
-            seen.append(evidence.protect)
+            seen.append(evidence)
             return {"result": LOOKUP_RESULT}
 
         with tempfile.TemporaryDirectory() as directory:
             controller, books, recording = self.controller(directory, invoke)
             run_chat(controller.chat_turn_service, None)
             found = books.get("team_1", recording)
-        self.assertEqual((seen, found.sends[-1].occurrences), ([None], ()))
+        self.assertEqual((len(seen), found.sends[-1].occurrences), (1, ()))

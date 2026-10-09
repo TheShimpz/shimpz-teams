@@ -45,10 +45,15 @@ class OAuthProviderTests(unittest.TestCase):
                 integration_providers.integration_intent(provider_id, scopes)
 
     def test_trusted_provider_factory_rejects_invalid_registry_metadata(self) -> None:
-        base = {"provider_id": "provider", "allowed_scopes": frozenset({"data.read"})}
+        base = {
+            "provider_id": "provider",
+            "api_hosts": ("api.example.com",),
+            "allowed_scopes": frozenset({"data.read"}),
+        }
         self.assertEqual(integration_providers._provider(**base).id, "provider")
         invalid = (
             {"provider_id": "Provider"},
+            {"api_hosts": ()},
             {"allowed_scopes": frozenset()},
             {"allowed_scopes": frozenset({"bad/scope"})},
         )

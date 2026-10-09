@@ -21,6 +21,7 @@ MANIFEST = HERE / "contract-files.sha256"
 DIRECTORIES = ("validators", "vectors")
 ROW = re.compile(r"([0-9a-f]{64})  ((?:(?:validators|vectors)/)?[A-Za-z0-9._-]+)")
 SCHEMAS = (
+    "fetch.schema.json",
     "invocation.schema.json",
     "language-pack.schema.json",
     "machine-contract.schema.json",
@@ -227,16 +228,36 @@ if (
     or stored_input.get("additionalProperties") is not False
     or stored_input.get("properties", {}).get("kind", {}).get("const") != "password"
     or "help_url" in stored_input.get("required", [])
+    or stored_input.get("required") != ["kind", "label", "description", "host"]
+    or stored_input.get("oneOf") != [{"required": ["header"]}, {"required": ["query"], "not": {"required": ["scheme"]}}]
     or manifest_schema.get("$defs", {}).get("helpUrl", {}).get("maxLength") != 2048
 ):
     fail("Assistant Stored Input manifest contract is invalid")
 
 invocation = json.loads((HERE / "invocation.schema.json").read_bytes())
+held = invocation.get("properties", {}).get("stored_inputs", {})
 if (
     "stored_inputs" not in invocation.get("required", [])
-    or invocation.get("properties", {}).get("stored_inputs", {}).get("maxProperties") != 8
+    or held.get("type") != "array"
+    or held.get("maxItems") != 8
+    or held.get("uniqueItems") is not True
+    or "integrations" in invocation.get("properties", {})
 ):
     fail("Assistant Stored Input invocation contract is invalid")
+
+fetch = json.loads((HERE / "fetch.schema.json").read_bytes())
+fetch_error = fetch.get("$defs", {}).get("response", {}).get("oneOf", [{}, {}])[-1]
+if (
+    fetch.get("$ref") != "#/$defs/request"
+    or fetch.get("$defs", {}).get("request", {}).get("required") != ["type", "method", "url", "headers"]
+    or fetch.get("$defs", {}).get("request", {}).get("additionalProperties") is not False
+    or set(fetch.get("$defs", {}).get("request", {}).get("properties", {}))
+    != {"type", "method", "url", "headers", "body", "timeout_ms"}
+    or fetch_error.get("properties", {}).get("error", {}).get("enum")
+    != ["refused", "credential-missing", "unavailable", "failed"]
+):
+    fail("Assistant provider call contract is invalid")
+verify_verdict_vectors("vectors/fetch.json", "provider call", {"frame": dict})
 if (
     "operation_id" not in invocation.get("required", [])
     or invocation.get("$defs", {}).get("operationId", {}).get("pattern") != f"^{OPERATION_ID.pattern}$"

@@ -98,11 +98,11 @@ def transcript_error(requests: object, responses: object, catalog: Catalog) -> s
     prefix_error = _transcript_prefix_error(requests, responses, catalog)
     if prefix_error is not None or not isinstance(requests, list) or not isinstance(responses, list):
         return prefix_error
-    password_positions = [index for index, item in enumerate(requests) if item["kind"] == "input:password"]
     if sum(item["kind"] in AUTHORIZATION_KINDS for item in requests) > 1:
         return "authorization_once"
-    if password_positions and password_positions != [len(requests) - 1]:
-        return "secret_last"
+    # A password request always names a Stored Input, which Team answers only by injection, never by a response.
+    if any(item["kind"] == "input:password" for item in requests):
+        return "stored_input_response"
     if len(responses) != len(requests):
         return "response_count"
     for request, response in zip(requests, responses, strict=True):
@@ -217,7 +217,8 @@ def _verify_cases(cases: object, kind: str, catalog: Catalog) -> None:
 
 def _length_error(request: dict[str, object], limit: int, catalog: Catalog) -> str | None:
     expected = BASE | {"label", "required", "placeholder", "min_length", "max_length"}
-    if request.get("kind") == "input:password" and "stored_input" in request:
+    # A password is only ever a Stored Input: the Action names the slot and Team keeps the value (ADR-0106).
+    if request.get("kind") == "input:password":
         expected.add("stored_input")
     if set(request) != expected or type(request["required"]) is not bool:
         return "request_shape"

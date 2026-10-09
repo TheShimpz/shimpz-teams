@@ -159,8 +159,11 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         inspect_memo: dict[str, dict[str, dict]] = {}
         turn_token = "turn-token"
 
-        def rpc(_team_id, _token, _container, _action_id, payload):
+        brokers: list[object] = []
+
+        def rpc(_team_id, _token, _container, _action_id, payload, broker):
             captured.append(payload)
+            brokers.append(broker)
             return {"type": "result", "result": _zones()}
 
         def installed(_team_id, _assistant_id, current_inspect_memo=None):
@@ -192,11 +195,15 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             [
                 {
                     "input": ZONE_INPUT,
-                    "integrations": {"cloudflare": ACCESS_TOKEN},
-                    "stored_inputs": {},
+                    "stored_inputs": (),
                     "files": {},
                 }
             ],
+        )
+        # The token never enters the invocation; only Team's broker places it, on the provider's API host (ADR-0106).
+        self.assertEqual(
+            [(item.host, item.value) for item in brokers[0]._scope.credentials],
+            [("api.cloudflare.com", f"Bearer {ACCESS_TOKEN}")],
         )
         serialized = json.dumps(payload)
         self.assertNotIn(ACCESS_TOKEN, serialized)
@@ -234,7 +241,8 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             )
 
         self.assertEqual(result["result"]["zones"][0]["name"], "example.com")
-        self.assertEqual(rpc.call_args.args[-1]["integrations"], {"cloudflare": ACCESS_TOKEN})
+        self.assertNotIn(ACCESS_TOKEN, repr(rpc.call_args.args[-2]))
+        self.assertEqual([item.value for item in rpc.call_args.args[-1]._scope.credentials], [f"Bearer {ACCESS_TOKEN}"])
 
     def test_hosted_rpc_admits_a_declared_human_request_frame(self) -> None:
         turn_token = "-".join(("turn", "token"))
