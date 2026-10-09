@@ -193,22 +193,23 @@ def prepare_account_egress_capability(
     run: Callable[..., CompletedProcess[str]],
     flow: DockerFlow,
 ) -> None:
+    """Run the real non-root Account egress capability initializer on the fresh volume, as the Local graph does."""
     run(
         "run",
         "--rm",
         "--user",
-        "0:0",
+        "10023:10022",
         "--network",
         "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges:true",
         "--volume",
         f"{flow.account_egress_capability_volume}:/run/shimpz-account-egress",
-        "--entrypoint",
-        "/opt/venv/bin/python",
-        flow.controller_tag,
-        "-c",
-        "import os; from pathlib import Path; "
-        "p=Path('/run/shimpz-account-egress/token'); p.write_text('a'*64,encoding='ascii'); "
-        "os.chown(p,0,10022); p.chmod(0o440)",
+        flow.egress_proxy_tag,
+        "account-init",
     )
 
 

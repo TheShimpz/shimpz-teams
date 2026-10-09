@@ -792,7 +792,7 @@ class DockerFlowTests(
         token_mode, runtime_token_mode, account_egress_capability_mode = runtime_secret_metadata(self._run, flow)
         self.assertEqual(token_mode, "0o440 10001 10010 1 64")
         self.assertEqual(runtime_token_mode, "0o440 10001 10016 1 64")
-        self.assertEqual(account_egress_capability_mode, "0o440 0 10022 1 64")
+        self.assertEqual(account_egress_capability_mode, "0o440 10023 10022 1 64")
 
         # Leave one exact-owned pair for the outer finally. This proves cleanup does not depend
         # on reaching the controller reset route and therefore also runs after an earlier failure.

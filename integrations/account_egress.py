@@ -8,6 +8,8 @@ from pathlib import Path
 
 CAPABILITY_PATH = Path("/run/shimpz-account-egress/token")
 CAPABILITY_GROUP = "shimpzaccount-egress-token"
+# The non-root Account egress capability initializer is the writer of record; Team reads only through group 10022.
+CAPABILITY_OWNER_UID = 10023
 _CAPABILITY = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -42,7 +44,7 @@ def read_capability(
     path: Path = CAPABILITY_PATH,
     *,
     group: str = CAPABILITY_GROUP,
-    owner_uid: int = 0,
+    owner_uid: int = CAPABILITY_OWNER_UID,
 ) -> str:
     """Read the exact capability for each outbound broker operation."""
     descriptor = -1

@@ -188,7 +188,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
         metadata = Mock(
             st_mode=0o100440,
             st_nlink=1,
-            st_uid=0,
+            st_uid=account_egress.CAPABILITY_OWNER_UID,
             st_gid=7,
             st_size=64,
             st_dev=1,
@@ -199,7 +199,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
         changed = Mock(
             st_mode=0o100440,
             st_nlink=1,
-            st_uid=0,
+            st_uid=account_egress.CAPABILITY_OWNER_UID,
             st_gid=7,
             st_size=64,
             st_dev=1,
