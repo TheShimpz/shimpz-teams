@@ -45,6 +45,7 @@ _RECORD_FIELDS = {
     "summary",
     "description",
     "links",
+    "declared_creators",
     "image_id",
     "platform",
     "source_digest",
@@ -249,6 +250,8 @@ def validate_record(record: dict[str, Any]) -> None:
         presentation = assistant_manifest.canonical_manifest_presentation(
             description=record["description"], links=record["links"]
         )
+        # The first four self-declared Creator handles: unverified Local presentation, never identity authority.
+        assistant_manifest.canonical_manifest_creators(record["declared_creators"], maximum=4)
         declarations = _integration_declarations(record["integrations"])
         stored_inputs = _stored_input_declarations(record["stored_inputs"])
         contract = assistant_manifest.canonical_manifest_contract(
@@ -474,6 +477,8 @@ def _record(
         raise LocalSnapshotError("the Local Assistant manifest does not match its image labels")
     manifest_contract = assistant_manifest.parse_manifest_contract(package.manifest)
     presentation = assistant_manifest.parse_manifest_presentation(package.manifest)
+    if assistant_manifest.parse_manifest_creators(package.manifest)[:4] != candidate.declared_creators:
+        raise LocalSnapshotError("the Local Assistant manifest does not match its image labels")
     machine_contract = assistant_manifest.parse_machine_contract(
         raw_contract,
         manifest_contract.integrations,
@@ -497,6 +502,7 @@ def _record(
         "summary": identity.summary,
         "description": presentation.description,
         "links": dict(presentation.links),
+        "declared_creators": list(candidate.declared_creators),
         "image_id": candidate.image_id,
         "platform": candidate.platform,
         "source_digest": package.digest,

@@ -18,6 +18,7 @@ from install.update import AssistantUpdateStore
 from local.errors import ApiProblemError
 from local.install import registry as assistant_registry
 from local.install import service, snapshots, source_package
+from tests import catalog_fixtures
 from tests.local_snapshot_fixtures import CREATED, IMAGE_ID
 from tests.local_snapshot_fixtures import archive as _archive
 from tests.local_snapshot_fixtures import client as _client
@@ -231,6 +232,9 @@ class LocalSnapshotTests(unittest.TestCase):
         self.assertEqual(admitted.record["assistant_id"], "fixture-assistant")
         self.assertEqual(admitted.record["platform"], "linux/amd64")
         self.assertNotIn("creators", admitted.record)
+        self.assertEqual(admitted.record["declared_creators"], ["@fixture"])
+        self.assertEqual(admitted.record["description"], catalog_fixtures.ASSISTANT_DESCRIPTION)
+        self.assertEqual(admitted.record["links"], {})
         self.assertNotIn("github", admitted.record)
         snapshots.validate_record(admitted.record)
         client.images.get.assert_called_once_with(IMAGE_ID)
@@ -270,10 +274,14 @@ class LocalSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(snapshots.LocalSnapshotError, "do not match"):
             snapshots.admit(client, IMAGE_ID)
 
-        client, image, _container_value = _client()
-        image.attrs["Config"]["Labels"][snapshots.VERSION_LABEL] = "0.2.0"
-        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "manifest does not match"):
-            snapshots.admit(client, IMAGE_ID)
+        for label, value in ((snapshots.VERSION_LABEL, "0.2.0"), (snapshots.DECLARED_CREATORS_LABEL, "@other")):
+            client, image, _container_value = _client()
+            image.attrs["Config"]["Labels"][label] = value
+            with (
+                self.subTest(label=label),
+                self.assertRaisesRegex(snapshots.LocalSnapshotError, "manifest does not match"),
+            ):
+                snapshots.admit(client, IMAGE_ID)
 
         client, _image_value, _container_value = _client()
         with (
@@ -291,6 +299,11 @@ class LocalSnapshotTests(unittest.TestCase):
         record = snapshots.admit(client, IMAGE_ID).record
         mutations = (
             {**record, "creators": ["@fixture"]},
+            {key: value for key, value in record.items() if key != "declared_creators"},
+            {**record, "declared_creators": ["@fixture", "@two", "@three", "@four", "@five"]},
+            {**record, "declared_creators": ["Fixture"]},
+            {**record, "description": " Leading."},
+            {**record, "links": {"x": "https://twitter.com/fixture"}},
             {**record, "integrations": [{"id": "cloudflare", "provider": "other", "scopes": []}]},
             {**record, "runtime": {"user": "0:0", "entrypoint": snapshots.RUNTIME_ENTRYPOINT}},
         )

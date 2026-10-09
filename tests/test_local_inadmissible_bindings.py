@@ -91,6 +91,23 @@ class InadmissibleBindingStoreTests(unittest.TestCase):
         with self.assertRaises(bindings.InadmissibleAssistantBindingError):
             _ = refused.local_record
 
+    def test_a_local_record_staged_before_the_page_copy_is_refused_and_still_uninstallable(self) -> None:
+        client, _image, _container = _client()
+        record = snapshots.admit(client, IMAGE_ID).record
+        store = bindings.DynamicAssistantStore(self.path, local_record_validator=snapshots.validate_record)
+        store.put_local("team_1", record)
+
+        def earlier(document: dict[str, object]) -> None:
+            for field in ("description", "links", "declared_creators"):
+                del document[field]
+
+        _refuse(self.path, "team_1", record["assistant_id"], earlier)
+        (refused,) = store.snapshot()
+        self.assertFalse(refused.admissible)
+        self.assertNotIn("description", refused.document)
+        self.assertTrue(store.delete_if_matches("team_1", refused.assistant_id, refused.binding_digest))
+        self.assertEqual(store.snapshot(), ())
+
     def test_integrity_stays_fatal_for_the_whole_registry(self) -> None:
         store = DynamicAssistantStoreFactory.published(self.path)
         stored = json.loads(self.path.read_bytes())
