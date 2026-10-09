@@ -2090,6 +2090,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },

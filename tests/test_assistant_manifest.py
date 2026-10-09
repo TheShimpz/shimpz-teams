@@ -270,6 +270,7 @@ class AssistantManifestTests(unittest.TestCase):
         )
         action = {
             "id": "list-items",
+            "description": catalog_fixtures.ACTION_DESCRIPTION,
             "input_schema": {"type": "object", "additionalProperties": False},
             "output_schema": {"type": "object", "additionalProperties": False},
             "integrations": [],
@@ -278,19 +279,20 @@ class AssistantManifestTests(unittest.TestCase):
             "human_requests": ["input:password"],
             "effect": "read_only",
         }
-        contract = {"version": 1, "actions": [action], "messages": catalog_fixtures.messages()}
-        summary = catalog_fixtures.SUMMARY
-        assistant_manifest.canonical_machine_contract(contract, (), declarations, summary=summary, allowed_hosts=())
+        messages = catalog_fixtures.display_messages(labels=("Token", "Secret"))
+        contract = {"version": 1, "actions": [action], "messages": messages}
+        copy = catalog_fixtures.COPY
+        assistant_manifest.canonical_machine_contract(contract, (), declarations, **copy, allowed_hosts=())
         for slots in (["secret"], ["token"]):
             contract["actions"] = [{**action, "stored_inputs": slots}]
             if slots == ["token"]:
                 assistant_manifest.canonical_machine_contract(
-                    contract, (), declarations, summary=summary, allowed_hosts=()
+                    contract, (), declarations, **copy, allowed_hosts=()
                 )
                 continue
             with self.subTest(slots=slots), self.assertRaisesRegex(assistant_manifest.ManifestError, "proof"):
                 assistant_manifest.canonical_machine_contract(
-                    contract, (), declarations, summary=summary, allowed_hosts=()
+                    contract, (), declarations, **copy, allowed_hosts=()
                 )
 
     def test_an_action_may_use_several_declared_stored_inputs_as_one_sorted_list(self) -> None:

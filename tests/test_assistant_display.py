@@ -9,7 +9,16 @@ from tests.test_assistant_manifest import manifest
 
 LABEL = "API key"
 STORED_INPUT = assistant_manifest.canonical_stored_input_declarations(
-    {"api-key": {"kind": "password", "label": LABEL, "description": "The provider key."}}
+    {
+        "api-key": {
+            "kind": "password",
+            "label": LABEL,
+            "description": "The provider key.",
+            "host": "api.example.com",
+            "header": "X-Api-Key",
+        }
+    },
+    ("api.example.com",),
 )
 
 
