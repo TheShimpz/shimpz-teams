@@ -167,7 +167,7 @@ class RoutineServiceCase(LocalContractCase):
             permitted=self.permitted(service, document),
             confirmation=dict(routine_fixture.CONFIRMATION),
         )
-        value = dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
+        value = dataclasses.replace(value, next_run_at=record.first_run(value))
         service.routine_store.update("team_1", lambda state: (record.add_routine(state, value), None))
         due = fired if next_run_at is None else next_run_at
         routine_fixture.update_routine(service, value.routine_id, next_run_at=due)

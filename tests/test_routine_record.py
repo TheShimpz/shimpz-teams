@@ -380,7 +380,7 @@ class AddTests(unittest.TestCase):
         hundred = routine_fixture.confirmed(
             dataclasses.replace(routine(), plan=plan, schedule={"kind": "continuous", "gap": 432, "cap": 200})
         )
-        hundred = dataclasses.replace(hundred, next_run_at=record.next_after(hundred, ANCHOR))
+        hundred = dataclasses.replace(hundred, next_run_at=record.first_run(hundred))
         # 200 runs of 100 steps is exactly the Team's 20,000 daily steps.
         self.assertEqual(routine_definition.daily_steps(hundred), routine_plan.MAX_DAILY_STEPS)
         state = record.set_paused(record.add_routine(record.TeamRoutines(), hundred), "a" * 32, True)
@@ -388,7 +388,7 @@ class AddTests(unittest.TestCase):
         with self.assertRaisesRegex(record.RoutineStateError, "routine-step-budget"):
             record.add_routine(state, routine("b" * 32))
         over = dataclasses.replace(hundred, schedule={"kind": "continuous", "gap": 430, "cap": 201})
-        over = dataclasses.replace(over, next_run_at=record.next_after(over, ANCHOR))
+        over = dataclasses.replace(over, next_run_at=record.first_run(over))
         with self.assertRaisesRegex(record.RoutineStateError, "routine-step-budget"):
             record.add_routine(record.TeamRoutines(), over)
 
@@ -498,11 +498,13 @@ class RoutineViewContractTests(unittest.TestCase):
 class ConfirmedChangeTests(unittest.TestCase):
     """A confirmed card creates or changes a Routine with its notice in one transition (ADR-0101)."""
 
-    def test_a_defined_routine_first_fires_no_sooner_than_thirty_seconds_after_it_is_durable(self):
+    def test_a_defined_routine_is_scheduled_from_the_instant_it_is_durable(self):
         now = epoch(2026, 9, 1, 8, 59, 45)
         value = record.scheduled(dataclasses.replace(routine(), anchor=0, next_run_at=0), now)
-        self.assertEqual(value.anchor, now + record.INITIAL_DELAY_SECONDS)
-        self.assertEqual(value.next_run_at, epoch(2026, 9, 2, 9))
+        # A fixed schedule's first firing is its next one, however soon; a continuous Routine is due at once.
+        self.assertEqual((value.anchor, value.next_run_at), (now, epoch(2026, 9, 1, 9)))
+        continuous = record.scheduled(dataclasses.replace(routine(schedule=CONTINUOUS), anchor=0, next_run_at=0), now)
+        self.assertEqual(continuous.next_run_at, now)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-invalid"):
             record.scheduled(dataclasses.replace(routine(), schedule={"kind": "yearly"}), now)
 

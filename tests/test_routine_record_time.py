@@ -169,7 +169,7 @@ class ContinuousTests(unittest.TestCase):
         value = routine(schedule={"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)})
         return at(added(value), "a" * 32, NINE)
 
-    def test_the_next_run_is_due_its_gap_after_the_previous_one_ended_and_never_overlaps(self):
+    def test_the_next_run_is_due_its_gap_after_the_previous_one_started_and_never_overlaps(self):
         state = self.continuous()
         state, claim = routine_claim.claim(state, NINE, KEY)
         run_id = claim.run.run_id
@@ -180,16 +180,17 @@ class ContinuousTests(unittest.TestCase):
         for later in (NINE + 5, NINE + 600):
             self.assertIsNone(routine_claim.claimable(state, later))
         self.assertIsNone(routine_claim.next_due(state, NINE + 600))
+        # A run that outlasted its gap makes the next one due at its end: no overlap, no backlog.
         lease = record.lease_of(claim.lease_token, KEY)
         ended = routine_runs.finish(state, run_id, lease, NINE + 40, "done", routine_fixture.DONE)
-        self.assertEqual(record.routine(ended, "a" * 32).next_run_at, NINE + 45)
-        self.assertIsNone(routine_claim.claimable(ended, NINE + 44))
-        self.assertEqual(routine_claim.next_due(ended, NINE + 40), NINE + 45)
-        self.assertEqual(routine_claim.claimable(ended, NINE + 45).routine_id, "a" * 32)
-        # Any ending counts, a Team-decided one included.
-        state, claim = routine_claim.claim(ended, NINE + 45, KEY)
-        stopped = routine_runs.end(state, claim.run.run_id, NINE + 50, "stopped", {"actions": []})
-        self.assertEqual(record.routine(stopped, "a" * 32).next_run_at, NINE + 55)
+        self.assertEqual(record.routine(ended, "a" * 32).next_run_at, NINE + 40)
+        self.assertEqual(routine_claim.claimable(ended, NINE + 40).routine_id, "a" * 32)
+        # A shorter run keeps the interval from its own start; any ending counts, a Team-decided one included.
+        state, claim = routine_claim.claim(ended, NINE + 40, KEY)
+        stopped = routine_runs.end(state, claim.run.run_id, NINE + 42, "stopped", {"actions": []})
+        self.assertEqual(record.routine(stopped, "a" * 32).next_run_at, NINE + 45)
+        self.assertIsNone(routine_claim.claimable(stopped, NINE + 44))
+        self.assertEqual(routine_claim.next_due(stopped, NINE + 42), NINE + 45)
 
     def test_a_continuous_routine_never_skips_a_backlog_and_waits_out_its_cap_to_the_second(self):
         # Every twelve hours: at most two starts in any rolling 24 hours, even when a person forces earlier ones.

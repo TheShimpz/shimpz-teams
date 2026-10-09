@@ -54,8 +54,6 @@ MAX_UNRESOLVED_INCIDENTS = http_routine_notice.MAX_UNRESOLVED_INCIDENTS
 MAX_INCIDENTS = 2 * MAX_UNRESOLVED_INCIDENTS
 # Undelivered Routine outcomes beside every run's: a created or changed notice and, once, a deleted one per Routine.
 MAX_ROUTINE_NOTICES = 2 * MAX_ROUTINES
-# A new or changed Routine never fires sooner than this after it is durable.
-INITIAL_DELAY_SECONDS = 30
 # Consecutive no-effect failures that pause a Routine (ADR-0092 section 6).
 MAX_FAILURE_STREAK = 3
 
@@ -365,7 +363,7 @@ def _admitted(value: Routine, revision: int = 1) -> Routine:
     """
     canonical = http_routine.canonical_schedule(value.schedule)
     if not definition_valid(dataclasses.replace(value, revision=revision)) or (
-        value.next_run_at != next_after(dataclasses.replace(value, schedule=canonical), value.anchor)
+        value.next_run_at != first_run(dataclasses.replace(value, schedule=canonical))
     ):
         raise RoutineStateError("routine-invalid")
     # Every page of what a Supervisor inspects is deliverable, and the definition fits its own budget (scale).
@@ -391,11 +389,16 @@ def _admitted(value: Routine, revision: int = 1) -> Routine:
     )
 
 
+def first_run(value: Routine) -> int:
+    """A new revision's first firing: a continuous Routine at once, any other its schedule's first after its anchor."""
+    return value.anchor if continuous(value) else next_after(value, value.anchor)
+
+
 def scheduled(value: Routine, now: int) -> Routine:
-    """A defined Routine scheduled from ``now``: its first firing comes no sooner than 30 s after it is durable."""
-    anchored = dataclasses.replace(value, anchor=now + INITIAL_DELAY_SECONDS)
+    """A defined Routine scheduled from ``now``, the instant it is durable."""
+    anchored = dataclasses.replace(value, anchor=now)
     try:
-        return dataclasses.replace(anchored, next_run_at=next_after(anchored, anchored.anchor))
+        return dataclasses.replace(anchored, next_run_at=first_run(anchored))
     except (KeyError, TypeError, schedule.ScheduleError) as exc:
         raise RoutineStateError("routine-invalid") from exc
 
@@ -491,7 +494,7 @@ def _replace_run(state: TeamRoutines, updated: Run) -> TeamRoutines:
 def _without_run(state: TeamRoutines, run_id: str, now: int) -> TeamRoutines:
     """Remove an ended run and, in the same write, queue the removal of everything it held.
 
-    A continuous Routine's next run becomes due its gap after this one ended, so its runs never overlap.
+    A continuous Routine keeps its cadence from this run's start, so its runs never overlap or drift.
     """
     value = run(state, run_id)
     state = dataclasses.replace(
@@ -499,15 +502,20 @@ def _without_run(state: TeamRoutines, run_id: str, now: int) -> TeamRoutines:
         runs=tuple(item for item in state.runs if item.run_id != run_id),
         discards=(*state.discards, (run_id, value.generation)),
     )
-    return rebase_continuous(state, value.routine_id, now)
+    return rebase_continuous(state, value.routine_id, now, cadence=True)
 
 
-def rebase_continuous(state: TeamRoutines, routine_id: str, now: int) -> TeamRoutines:
-    """A continuous Routine's run ended at ``now``, so its next one is due its gap later; any other is unchanged."""
+def rebase_continuous(state: TeamRoutines, routine_id: str, now: int, *, cadence: bool = False) -> TeamRoutines:
+    """A continuous Routine's next run once its run is over at ``now``; any other Routine is unchanged.
+
+    With ``cadence`` the run ended, and the next is due when its claim set it, its gap after the run started, or now
+    when the run outlasted the gap; a held run set aside makes the next due its gap after ``now``.
+    """
     current = next((item for item in state.routines if item.routine_id == routine_id), None)
     if current is None or not continuous(current):
         return state
-    return _replace_routine(state, dataclasses.replace(current, next_run_at=now + current.schedule["gap"]))
+    next_run_at = max(now, current.next_run_at) if cadence else now + current.schedule["gap"]
+    return _replace_routine(state, dataclasses.replace(current, next_run_at=next_run_at))
 
 
 def discarded(state: TeamRoutines, run_id: str, generation: str) -> TeamRoutines:

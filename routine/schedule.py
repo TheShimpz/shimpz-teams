@@ -54,7 +54,7 @@ def next_run(
     # Nothing fires at or before the anchor: the first firing is strictly after it.
     after = max(after, anchor)
     if canonical["kind"] == "continuous":
-        # A continuous Routine's next run is due its gap after the previous one ended, never a backlog.
+        # A continuous Routine's next run is due its gap after ``after``: the start a claim records, never a backlog.
         return after + datetime.timedelta(seconds=canonical["gap"])
     if canonical["kind"] == "hourly":
         period = datetime.timedelta(hours=canonical["every"])

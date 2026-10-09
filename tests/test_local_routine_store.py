@@ -49,7 +49,7 @@ def changes_routine(routine_id: str = "d" * 32) -> record.Routine:
         schedule={"kind": "hourly", "every": 1},
         rollup_usage={"duration_ms": 5, "models": []},
     )
-    return dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
+    return dataclasses.replace(value, next_run_at=record.first_run(value))
 
 
 def busy_state() -> record.TeamRoutines:

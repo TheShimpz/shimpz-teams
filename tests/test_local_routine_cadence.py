@@ -41,7 +41,7 @@ def caught_up(state: record.TeamRoutines) -> record.TeamRoutines:
 class SimulatedDayTests(unittest.TestCase):
     """A simulated clock runs continuous Routines back to back for more than a day."""
 
-    def test_back_to_back_runs_never_overlap_and_each_starts_its_gap_after_the_previous_ended(self) -> None:
+    def test_back_to_back_runs_never_overlap_and_start_exactly_their_interval_apart(self) -> None:
         start = 1_800_000_000
         state = record.add_routine(record.TeamRoutines(), continuous(at=start - 5))
         now, starts, running = start, [], None
@@ -57,13 +57,13 @@ class SimulatedDayTests(unittest.TestCase):
                 state = routine_runs.end(state, running, now, "stopped", {"actions": []})
                 state = caught_up(state)
                 running = None
-                # The next run is due exactly its gap after this one ended.
-                self.assertEqual(record.routine(state, "a" * 32).next_run_at, now + 5)
+                # The next run is due exactly its gap after this one started, not after it ended.
+                self.assertEqual(record.routine(state, "a" * 32).next_run_at, starts[-1] + 5)
             due = routine_claim.next_due(state, now)
             now = now + 1 if due is None or running is not None else max(now + 1, due)
-        # A hundred runs, each its gap after the previous ended: the cap is its whole day and never holds one back.
+        # A hundred runs, each its gap after the previous started: the cap is its whole day and never holds one back.
         gaps = {later - earlier for earlier, later in itertools.pairwise(starts)}
-        self.assertEqual((len(starts), gaps), (100, {8}))
+        self.assertEqual((len(starts), gaps), (100, {5}))
 
     def test_continuous_routines_take_turns_and_a_scheduled_one_due_earlier_goes_first(self) -> None:
         state = record.TeamRoutines()
@@ -136,7 +136,7 @@ class ServiceLoadTests(RoutineHttpCase):
             permitted=self.permitted(service, plan),
             confirmation=dict(routine_fixture.CONFIRMATION),
         )
-        value = dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
+        value = dataclasses.replace(value, next_run_at=record.first_run(value))
         service.routine_store.update("team_1", lambda state: (record.add_routine(state, value), None))
         return value
 

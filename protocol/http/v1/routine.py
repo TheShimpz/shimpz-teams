@@ -20,15 +20,16 @@ MAX_ROUTINES = 8
 MAX_ROUTINE_NAME_CHARS = 80
 # The ordered Actions of a recorded plan (ADR-0092 section 3, ADR-0101): one Action may repeat.
 MAX_ROUTINE_STEPS = 256
-# A continuous Routine starts its next run this long, at least, after the previous one ended; at most a day.
+# A continuous Routine starts its runs this far apart, at least, and at most a day.
 MIN_CONTINUOUS_GAP_SECONDS = 5
 MAX_CONTINUOUS_GAP_SECONDS = 86_400
 DAY_SECONDS = 86_400
 # A continuous Routine's cap is always its gap's whole day, never lowered, so the interval a person stated is what
 # runs; the Team's daily Action-step budget alone bounds the sum (ADR-0101).
 MAX_CONTINUOUS_CAP = -(-DAY_SECONDS // MIN_CONTINUOUS_GAP_SECONDS)
-# The healthy runs a continuous Routine can end in one minute bucket, since each next run starts its gap after.
-MAX_ROLLUP_RUNS = 60 // MIN_CONTINUOUS_GAP_SECONDS
+# The healthy runs one minute bucket rolls up: runs start their gap apart, but a run that outlasted it or a confirmed
+# change starts the next at once, so the bound is one a second.
+MAX_ROLLUP_RUNS = 60
 MAX_NOTICE_ACTIONS = 16
 MAX_NOTICE_ASSISTANTS = 16
 # A Routine's permitted Actions: every Action its replay steps call, each once (ADR-0101).

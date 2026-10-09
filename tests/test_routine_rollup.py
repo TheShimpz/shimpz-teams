@@ -210,7 +210,8 @@ class RollupTests(unittest.TestCase):
             state = dataclasses.replace(state, discards=())
             now += 5
         self.assertEqual(len(delivered), 60)
-        self.assertEqual(set(delivered.values()), {http_routine.MAX_ROLLUP_RUNS})
+        # Every minute's one notice counts its twelve runs.
+        self.assertEqual(set(delivered.values()), {12})
 
 
 if __name__ == "__main__":

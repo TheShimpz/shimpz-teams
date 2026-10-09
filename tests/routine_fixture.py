@@ -67,7 +67,7 @@ def routine(
             next_run_at=0,
         )
     )
-    return dataclasses.replace(value, next_run_at=record.next_after(value, anchor))
+    return dataclasses.replace(value, next_run_at=record.first_run(value))
 
 
 def put(store, team_id: str, state) -> None:
