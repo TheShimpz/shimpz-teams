@@ -126,8 +126,8 @@ COPY --link routine/__init__.py routine/claim.py routine/compose.py routine/curs
     routine/hold.py routine/pin.py routine/plan.py routine/provenance.py routine/record.py \
     routine/recording.py routine/rerun.py routine/runs.py routine/schedule.py routine/starts.py routine/trace.py \
     ./routine/
-COPY --link local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/inference.py local/http/routine.py \
-    local/http/server.py local/http/stream.py ./local/http/
+COPY --link local/http/__init__.py local/http/audit.py local/http/deadline.py local/http/dispatch.py local/http/inference.py \
+    local/http/routine.py local/http/server.py local/http/stream.py ./local/http/
 COPY --link install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/lock.py \
     install/registry_auth.py install/update.py ./install/
 COPY --link protocol/install/upstream.json ./protocol/install/

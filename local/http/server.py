@@ -4,7 +4,8 @@ import contextlib
 import json
 import threading
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
+from typing import override
 
 from docker.errors import DockerException
 
@@ -19,6 +20,7 @@ from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import oauth_authorization_invalid
+from local.http import deadline as http_deadline
 from local.http import dispatch as local
 from local.http import inference as local_http_inference
 from local.http import routine as local_http_routine
@@ -103,18 +105,16 @@ class BoundedServer(ThreadingHTTPServer):
             self._slots.release()
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(http_deadline.DeadlineRequestHandler):
     server: BoundedServer
     protocol_version = "HTTP/1.1"
+    # The per-read idle timeout; the deadline handler bounds headers and body absolutely on top of it.
+    timeout = REQUEST_TIMEOUT_SECONDS
     # The resolved route's response allowance; anything sent before a route resolves keeps the API cap.
     _response_limit = MAX_API_RESPONSE_BYTES
 
     def log_message(self, *_args) -> None:
         return
-
-    def setup(self) -> None:
-        super().setup()
-        self.connection.settimeout(REQUEST_TIMEOUT_SECONDS)
 
     def _authorized(self) -> bool:
         return strict_http.bearer_matches(self.headers, self.server.token)
@@ -941,23 +941,30 @@ class Handler(BaseHTTPRequestHandler):
                 if mutating and request_audit.principal_class == "human":
                     self.server.activity.supervised()
 
+    @override
     def do_GET(self) -> None:
         self._handle()
 
+    @override
     def do_POST(self) -> None:
         self._handle()
 
+    @override
     def do_DELETE(self) -> None:
         self._handle()
 
+    @override
     def do_HEAD(self) -> None:
         self._handle()
 
+    @override
     def do_OPTIONS(self) -> None:
         self._handle()
 
+    @override
     def do_PATCH(self) -> None:
         self._handle()
 
+    @override
     def do_PUT(self) -> None:
         self._handle()

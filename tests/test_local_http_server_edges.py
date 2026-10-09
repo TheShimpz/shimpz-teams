@@ -4,7 +4,7 @@ import unittest
 from collections.abc import Iterator
 from email.message import Message
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
 from io import BytesIO
 from types import SimpleNamespace
 from unittest import mock
@@ -93,11 +93,6 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
 
     def test_setup_authorization_and_response_writers(self) -> None:
         handler = self.handler()
-        handler.connection = SimpleNamespace(settimeout=mock.Mock())
-        with mock.patch.object(BaseHTTPRequestHandler, "setup"):
-            handler.setup()
-        handler.connection.settimeout.assert_called_once_with(server.REQUEST_TIMEOUT_SECONDS)
-
         handler.headers["Authorization"] = f"Bearer {TEST_TOKEN}"
         self.assertTrue(handler._authorized())
         self.assertIsNone(handler.log_message("ignored"))
