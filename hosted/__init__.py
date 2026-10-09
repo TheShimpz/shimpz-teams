@@ -1,1 +1,0 @@
-"""Hosted Team profile."""

@@ -62,23 +62,6 @@ class InstallContractEdgeCoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "schema is invalid"):
             install_contract._check_definitions({"entry": {"type": "no-such-type"}})
 
-    def test_semantic_lifetimes_ignore_untyped_values_and_reject_invalid_bounds(self) -> None:
-        install_contract._validate_semantics("delegation-claims.schema.json", [])
-        for value in (
-            {"iat": "1", "exp": 2},
-            {"iat": 1, "exp": "2"},
-        ):
-            install_contract._validate_lifetime(value, "iat", "exp", 60, "lifetime")
-        for value in ({"iat": 2, "exp": 2}, {"iat": 1, "exp": 62}):
-            with (
-                self.subTest(value=value),
-                self.assertRaisesRegex(
-                    install_contract.ContractValidationError,
-                    "lifetime",
-                ),
-            ):
-                install_contract._validate_lifetime(value, "iat", "exp", 60, "lifetime")
-
     def test_resolve_semantics_reject_digest_and_integration_mismatches(self) -> None:
         with self.assertRaisesRegex(install_contract.ContractValidationError, "digest_mismatch"):
             install_contract._validate_resolve({"oci_digest": "sha256:" + "a" * 64, "image_reference": "wrong"})

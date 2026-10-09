@@ -52,7 +52,7 @@ class DevelopersControllerVectorTests(unittest.TestCase):
     def test_validation_errors_do_not_echo_input(self) -> None:
         secret = "attacker-controlled-secret"
         with self.assertRaises(ContractValidationError) as raised:
-            self.validator.validate("team-list-response.schema.json", {"unexpected": secret})
+            self.validator.validate("resolve-response.schema.json", {"unexpected": secret})
         self.assertNotIn(secret, str(raised.exception))
 
 

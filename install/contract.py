@@ -13,15 +13,7 @@ from protocol.assistant.v1.validators import message_catalog as catalog_validato
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[1] / "protocol" / "install" / "v1"
 DEFINITIONS = "definitions.schema.json"
-ENTRY_POINTS = {
-    "install-request.schema.json": "installRequest",
-    "install-response.schema.json": "installResponse",
-    "delegation-claims.schema.json": "delegationClaims",
-    "install-authorization-receipt.schema.json": "installAuthorizationReceipt",
-    "install-authorization-request.schema.json": "installAuthorizationRequest",
-    "resolve-response.schema.json": "resolveResponse",
-    "team-list-response.schema.json": "teamListResponse",
-}
+ENTRY_POINTS = {"resolve-response.schema.json": "resolveResponse"}
 
 
 class ContractValidationError(ValueError):
@@ -54,7 +46,7 @@ class ContractValidator:
             validator.validate(value)
         except ValidationError:
             raise ContractValidationError("schema_violation") from None
-        _validate_semantics(schema_name, value)
+        _validate_resolve(value)
 
 
 def _load_json(path: Path) -> dict[str, object]:
@@ -93,35 +85,8 @@ def _build_validator(
     )
 
 
-def _validate_semantics(schema_name: str, value: object) -> None:
-    if not isinstance(value, dict):
-        return
-    if schema_name == "delegation-claims.schema.json":
-        _validate_lifetime(value, "iat", "exp", 60, "delegation_lifetime")
-    elif schema_name == "install-authorization-receipt.schema.json":
-        _validate_lifetime(value, "issued_at", "expires_at", 120, "authorization_lifetime")
-    elif schema_name == "resolve-response.schema.json":
-        _validate_resolve(value)
-
-
-def _validate_lifetime(
-    value: dict[str, object],
-    issued_key: str,
-    expires_key: str,
-    maximum: int,
-    code: str,
-) -> None:
-    issued = value.get(issued_key)
-    expires = value.get(expires_key)
-    if not isinstance(issued, int) or isinstance(issued, bool):
-        return
-    if not isinstance(expires, int) or isinstance(expires, bool):
-        return
-    if expires <= issued or expires - issued > maximum:
-        raise ContractValidationError(code)
-
-
 def _validate_resolve(value: dict[str, object]) -> None:
+    """Bind a schema-valid resolve response's image, catalog, Integrations, and Stored Inputs to one another."""
     expected = f"ghcr.io/theshimpz/shimpz-assistant@{value.get('oci_digest')}"
     if value.get("image_reference") != expected:
         raise ContractValidationError("resolve_digest_mismatch")

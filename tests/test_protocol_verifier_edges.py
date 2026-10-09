@@ -19,7 +19,6 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-ACCOUNT = ROOT / "protocol/account/authority/v1"
 ASSISTANT = ROOT / "protocol/assistant/v1"
 HTTP = ROOT / "protocol/http/v1"
 INSTALL = ROOT / "protocol/install/v1"
@@ -121,41 +120,6 @@ def _rehash(root: Path, filename: str) -> None:
 def _png_chunk(kind: bytes, data: bytes = b"") -> bytes:
     checksum = zlib.crc32(kind + data) & 0xFFFFFFFF
     return len(data).to_bytes(4, "big") + kind + data + checksum.to_bytes(4, "big")
-
-
-class AccountAuthorityVerifierEdgeTests(unittest.TestCase):
-    def test_accepts_the_current_pinned_authority(self) -> None:
-        self.assertIn("verified", _execute(ACCOUNT / "verify.py"))
-
-    def test_rejects_inventory_digest_schema_and_vector_drift(self) -> None:
-        mutations = (
-            lambda root: (root / "contract-files.sha256").write_text("", encoding="ascii"),
-            lambda root: (root / "README.md").write_text("drift", encoding="utf-8"),
-            lambda root: _rewrite_json(
-                root,
-                "evaluation-request.schema.json",
-                lambda value: value.update({"$schema": "draft"}),
-            ),
-            lambda root: _rewrite_json(
-                root,
-                "evaluation-response.schema.json",
-                lambda value: value.update({"$id": "invalid"}),
-            ),
-            lambda root: _rewrite_json(root, "vectors.json", lambda value: value.update({"version": 2})),
-            lambda root: _rewrite_json(
-                root,
-                "vectors.json",
-                lambda value: value["vectors"][0].update({"binding": []}),
-            ),
-            lambda root: _rewrite_json(
-                root,
-                "vectors.json",
-                lambda value: value["vectors"][0].update({"binding_digest": "0" * 64}),
-            ),
-        )
-        for mutate in mutations:
-            with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
-                _execute(ACCOUNT / "verify.py", mutate)
 
 
 class AssistantVerifierEdgeTests(unittest.TestCase):
@@ -518,27 +482,12 @@ class AssistantInstallVerifierEdgeTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises(SystemExit):
                 apply_mutation(original, mutation, "case")
 
-    def test_semantic_validation_covers_lifetimes_digest_and_integrations(self) -> None:
+    def test_semantic_validation_covers_digest_and_integrations(self) -> None:
         semantic_validation = self.api["semantic_validation"]
         semantic_validation("other", None)
-        semantic_validation("delegation-claims.schema.json", {"iat": "bad", "exp": 2})
-        semantic_validation("install-authorization-receipt.schema.json", {"issued_at": 1, "expires_at": "bad"})
-        for name, value, code in (
-            ("delegation-claims.schema.json", {"iat": 1, "exp": 62}, "delegation_lifetime"),
-            (
-                "install-authorization-receipt.schema.json",
-                {"issued_at": 2, "expires_at": 1},
-                "authorization_lifetime",
-            ),
-            (
-                "resolve-response.schema.json",
-                {"oci_digest": "digest", "image_reference": "wrong"},
-                "resolve_digest_mismatch",
-            ),
-        ):
-            with self.subTest(name=name), self.assertRaises(self.api["ContractViolationError"]) as caught:
-                semantic_validation(name, value)
-            self.assertEqual(caught.exception.code, code)
+        with self.assertRaises(self.api["ContractViolationError"]) as caught:
+            semantic_validation("resolve-response.schema.json", {"oci_digest": "digest", "image_reference": "wrong"})
+        self.assertEqual(caught.exception.code, "resolve_digest_mismatch")
 
         base = {
             "oci_digest": "digest",
@@ -568,8 +517,8 @@ class AssistantInstallVerifierEdgeTests(unittest.TestCase):
 
     def test_case_validation_maps_schema_semantic_and_fixture_failures(self) -> None:
         validate_case = self.api["validate_case"]
-        documents = {f"{self.api['SCHEMA_ORIGIN']}install-request.schema.json": {}}
-        fixture = {"fixture": {"schema": "install-request.schema.json", "value": {}}}
+        documents = {f"{self.api['SCHEMA_ORIGIN']}resolve-response.schema.json": {}}
+        fixture = {"fixture": {"schema": "resolve-response.schema.json", "value": {}}}
         case = {"name": "case", "fixture": "fixture"}
         for changed_case, changed_fixture in (
             ({**case, "fixture": "missing"}, fixture),
