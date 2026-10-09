@@ -54,10 +54,15 @@
         "assistant_id": "hello-world",
         "name": "Hello World",
         "summary": "Complete one reviewed greeting Action.",
+        "description": "Greets one reviewed zone after your approval and reports exactly what it sent.",
         "assistant_version": "0.1.0",
         "creators": [
           "@creator"
         ],
+        "links": {
+          "site": "https://hello.example.org/",
+          "github": "https://github.com/creator"
+        },
         "source_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "icon_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
         "image_reference": "ghcr.io/theshimpz/shimpz-assistant@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -104,6 +109,7 @@
           "actions": [
             {
               "id": "hello",
+              "description": "Greet one reviewed zone.",
               "input_schema": {
                 "type": "object"
               },
@@ -127,6 +133,12 @@
           ],
           "messages": [
             {
+              "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+              "msgid": "Greet one reviewed zone.",
+              "max_length": 120,
+              "params": []
+            },
+            {
               "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
               "msgid": "Approve the greeting for {zone}",
               "max_length": 80,
@@ -139,9 +151,27 @@
               ]
             },
             {
+              "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+              "msgid": "WhatsApp app secret",
+              "max_length": 120,
+              "params": []
+            },
+            {
               "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
               "msgid": "Complete one reviewed greeting Action.",
               "max_length": 80,
+              "params": []
+            },
+            {
+              "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+              "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+              "max_length": 500,
+              "params": []
+            },
+            {
+              "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+              "msgid": "WhatsApp token",
+              "max_length": 120,
               "params": []
             },
             {
@@ -704,6 +734,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -732,6 +763,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -767,6 +799,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -803,6 +836,7 @@
           },
           {
             "id": "lookup",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -831,6 +865,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -877,6 +912,7 @@
           },
           {
             "id": "lookup",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -906,6 +942,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -953,6 +990,7 @@
           },
           {
             "id": "lookup",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -982,6 +1020,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1028,6 +1067,7 @@
           },
           {
             "id": "lookup",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1057,6 +1097,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1103,6 +1144,7 @@
           },
           {
             "id": "lookup",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1153,6 +1195,7 @@
           },
           {
             "id": "lookup",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1182,6 +1225,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1218,6 +1262,7 @@
           },
           {
             "id": "lookup",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1247,6 +1292,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1284,6 +1330,7 @@
           },
           {
             "id": "lookup",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1313,6 +1360,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1346,6 +1394,7 @@
           },
           {
             "id": "lookup",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1375,6 +1424,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1411,6 +1461,7 @@
           },
           {
             "id": "lookup",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1520,6 +1571,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1557,6 +1609,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1592,6 +1645,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1630,6 +1684,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1675,6 +1730,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -1911,6 +1967,12 @@
         ],
         "value": [
           {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
             "msgid": "Approve the greeting for {zone}",
             "max_length": 80,
@@ -1923,11 +1985,29 @@
             ]
           },
           {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
             "msgid": "Complete one reviewed greeting Action.",
             "max_length": 80,
             "params": [],
             "context": "dns"
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 500,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
+            "max_length": 120,
+            "params": []
           }
         ]
       }
@@ -1944,6 +2024,12 @@
         ],
         "value": [
           {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
             "msgid": "Approve the greeting for {zone}",
             "max_length": 80,
@@ -1956,9 +2042,27 @@
             ]
           },
           {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
             "msgid": "Complete one reviewed greeting Action.",
             "max_length": 80,
+            "params": []
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 500,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
+            "max_length": 120,
             "params": []
           },
           {
@@ -1989,6 +2093,12 @@
         ],
         "value": [
           {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
             "msgid": "Approve the greeting for {zone}",
             "max_length": 80,
@@ -2001,9 +2111,27 @@
             ]
           },
           {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
             "msgid": "Complete one reviewed greeting Action.",
             "max_length": 80,
+            "params": []
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 500,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
+            "max_length": 120,
             "params": []
           }
         ]
@@ -2022,6 +2150,12 @@
         ],
         "value": [
           {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
             "msgid": "Approve the greeting for {zone}",
             "max_length": 80,
@@ -2034,9 +2168,27 @@
             ]
           },
           {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
             "msgid": "Complete one reviewed greeting Action.",
             "max_length": 80,
+            "params": []
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 500,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
+            "max_length": 120,
             "params": []
           }
         ]
@@ -2055,6 +2207,12 @@
         ],
         "value": [
           {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
             "msgid": "Approve the greeting for {zone}",
             "max_length": 100,
@@ -2067,9 +2225,27 @@
             ]
           },
           {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
             "msgid": "Complete one reviewed greeting Action.",
             "max_length": 80,
+            "params": []
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 500,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
+            "max_length": 120,
             "params": []
           }
         ]
@@ -2088,6 +2264,12 @@
         ],
         "value": [
           {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
             "msgid": "Approve the greeting for {domain}",
             "max_length": 80,
@@ -2100,9 +2282,27 @@
             ]
           },
           {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
             "msgid": "Complete one reviewed greeting Action.",
             "max_length": 80,
+            "params": []
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 500,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
+            "max_length": 120,
             "params": []
           }
         ]
@@ -2137,6 +2337,30 @@
                 "max_length": 40
               }
             ]
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 500,
+            "params": []
+          },
+          {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
+            "max_length": 120,
+            "params": []
           }
         ]
       }
@@ -2167,6 +2391,12 @@
         ],
         "value": [
           {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
             "msgid": "Approve the greeting for {zone}",
             "max_length": 80,
@@ -2179,8 +2409,26 @@
             ]
           },
           {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
             "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
             "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 500,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
             "max_length": 120,
             "params": []
           }
@@ -2310,6 +2558,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -2332,6 +2581,7 @@
           },
           {
             "id": "attach",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -2380,6 +2630,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -2402,6 +2653,7 @@
           },
           {
             "id": "attach",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -2452,6 +2704,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -2474,6 +2727,7 @@
           },
           {
             "id": "attach",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -2520,6 +2774,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -2542,6 +2797,7 @@
           },
           {
             "id": "attach",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -2592,6 +2848,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -2614,6 +2871,7 @@
           },
           {
             "id": "attach",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -2663,6 +2921,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -2685,6 +2944,7 @@
           },
           {
             "id": "attach",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -2734,6 +2994,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -2756,6 +3017,7 @@
           },
           {
             "id": "attach",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -2804,6 +3066,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -2826,6 +3089,7 @@
           },
           {
             "id": "attach",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -2875,6 +3139,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -2897,6 +3162,7 @@
           },
           {
             "id": "attach",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -2947,6 +3213,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -2969,6 +3236,7 @@
           },
           {
             "id": "attach",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -3017,6 +3285,7 @@
         "value": [
           {
             "id": "hello",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object"
             },
@@ -3039,6 +3308,7 @@
           },
           {
             "id": "attach",
+            "description": "Greet one reviewed zone.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -3068,6 +3338,463 @@
             "effect": "mutating"
           }
         ]
+      }
+    },
+    {
+      "name": "resolve_without_description",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "remove",
+        "path": [
+          "description"
+        ]
+      }
+    },
+    {
+      "name": "resolve_description_over_four_hundred_characters",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "description"
+        ],
+        "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "resolve_description_not_in_catalog",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_display_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 80,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "b9cd804198a1dd974b3d36a8b8f025986f7d147355befb42da9b5874204e009f",
+            "msgid": "Greet {zone}",
+            "max_length": 160,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_description_message_at_a_tighter_bound",
+      "fixture": "resolve_response",
+      "valid": true,
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 80,
+            "params": []
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 160,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "b9cd804198a1dd974b3d36a8b8f025986f7d147355befb42da9b5874204e009f",
+            "msgid": "Greet {zone}",
+            "max_length": 160,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_action_without_description",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
+            "input_files": [],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "mutating"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_action_description_not_in_catalog",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_display_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 80,
+            "params": []
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 500,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "b9cd804198a1dd974b3d36a8b8f025986f7d147355befb42da9b5874204e009f",
+            "msgid": "Greet {zone}",
+            "max_length": 160,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_action_description_message_over_line_bound",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_display_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 160,
+            "params": []
+          },
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 80,
+            "params": []
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 500,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "b9cd804198a1dd974b3d36a8b8f025986f7d147355befb42da9b5874204e009f",
+            "msgid": "Greet {zone}",
+            "max_length": 160,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_label_not_in_catalog",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_display_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 80,
+            "params": []
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 500,
+            "params": []
+          },
+          {
+            "id": "b9cd804198a1dd974b3d36a8b8f025986f7d147355befb42da9b5874204e009f",
+            "msgid": "Greet {zone}",
+            "max_length": 160,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_without_links",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "remove",
+        "path": [
+          "links"
+        ]
+      }
+    },
+    {
+      "name": "resolve_with_no_links",
+      "fixture": "resolve_response",
+      "valid": true,
+      "mutation": {
+        "op": "set",
+        "path": [
+          "links"
+        ],
+        "value": {}
+      }
+    },
+    {
+      "name": "resolve_links_unknown_kind",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "links"
+        ],
+        "value": {
+          "facebook": "https://facebook.com/creator"
+        }
+      }
+    },
+    {
+      "name": "resolve_links_github_on_another_host",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "links"
+        ],
+        "value": {
+          "github": "https://gitlab.com/creator"
+        }
+      }
+    },
+    {
+      "name": "resolve_links_site_not_https",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "links"
+        ],
+        "value": {
+          "site": "http://hello.example.org/"
+        }
       }
     }
   ]

@@ -28,6 +28,10 @@ SCHEMAS = (
 AUTHORITY_FILES = (*SCHEMAS, "README.md", "schema_validator.py", "vectors.json", "verify.py")
 SCHEMA_ORIGIN = "https://schemas.shimpz.com/assistant-install/v1/"
 AUTHORIZATION_REQUESTS = frozenset({"approval", "auth:password", "auth:totp", "auth:passkey"})
+# The catalog bound of each displayed static text (Assistant Spec v1): every translation fits it.
+SUMMARY_BOUND = 80
+DESCRIPTION_BOUND = 500
+LINE_BOUND = 120
 # The exact schema of a declared file input: one opaque Team file id (ADR-0093).
 FILE_ID_SCHEMA = {"type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-f]{32}$"}
 
@@ -197,7 +201,7 @@ def same_json(left: object, right: object) -> bool:
 
 
 def validate_catalog(value: dict[str, object]) -> None:
-    """Bind each schema-valid catalog id to its template and require the summary message."""
+    """Bind each schema-valid catalog id to its template and require every displayed static text as a message."""
     contract = value.get("machine_contract")
     messages = contract.get("messages") if isinstance(contract, dict) else None
     if not isinstance(messages, list):
@@ -207,11 +211,24 @@ def validate_catalog(value: dict[str, object]) -> None:
         message["id"] != hashlib.sha256(message["msgid"].encode()).hexdigest() for message in messages
     ):
         raise ContractViolationError("resolve_catalog_mismatch")
-    if not any(
-        message["msgid"] == value["summary"] and not message["params"] and message["max_length"] <= 80
-        for message in messages
-    ):
+    if not cataloged(messages, value["summary"], SUMMARY_BOUND):
         raise ContractViolationError("resolve_summary_mismatch")
+    if not all(cataloged(messages, text, bound) for text, bound in display_uses(value)):
+        raise ContractViolationError("resolve_display_mismatch")
+
+
+def display_uses(value: dict[str, object]) -> list[tuple[object, int]]:
+    """The description, each Action description, and each Stored Input label, with their catalog bounds."""
+    actions = value["machine_contract"]["actions"]
+    lines = [action["description"] for action in actions] + [item["label"] for item in value["stored_inputs"]]
+    return [(value["description"], DESCRIPTION_BOUND), *((text, LINE_BOUND) for text in lines)]
+
+
+def cataloged(messages: list[dict[str, object]], text: object, bound: int) -> bool:
+    """Whether one parameterless message has exactly this template within this bound."""
+    return any(
+        message["msgid"] == text and not message["params"] and message["max_length"] <= bound for message in messages
+    )
 
 
 def validate_lifetime(

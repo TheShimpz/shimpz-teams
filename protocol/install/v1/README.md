@@ -38,7 +38,9 @@ digest, request ID, and idempotency key before Team invokes its
 existing ownership authorization.
 
 Resolve returns only an unblocked, installable publication. It contains a full
-digest image reference, the published Assistant name and summary, the SHA-256
+digest image reference, the published Assistant name, summary, and description, the Creator's declared `links`
+(an object of at most one each of `site`, `github`, `x`, `youtube`, `linkedin`, and `instagram`, empty when none,
+each at most 256 characters of the `helpUrl` grammar on its kind's own host), the SHA-256
 digest of the canonical `icon.png`, and the complete `assistant-direct-v1`
 envelope. The binary icon is fetched from
 Developers by exact `source_digest` and accepted only when its digest matches;
@@ -50,9 +52,12 @@ runtime setting is admitted.
 The machine contract carries the Assistant's English message catalog as a sorted `messages` list of
 `{id, msgid, max_length, params}` (Developers Assistant Spec v1 owns its complete semantics). Every `id` is the
 lowercase SHA-256 of its `msgid` bytes, and the published `summary`, a short description of 1 to 80 characters, is one
-catalog message with no parameters and a `max_length` of at most 80.
+catalog message with no parameters and a `max_length` of at most 80. The other displayed static copy is cataloged
+the same way, or resolve fails with `resolve_display_mismatch`: the `description` (1 to 400 characters) within a
+`max_length` of at most 500, and each Action `description` and each Stored Input `label` (1 to 80 characters each)
+within a `max_length` of at most 120.
 
-Every machine-contract Action carries its `effect`, `read_only` or `mutating`, and a `mutating` Action may carry one
+Every machine-contract Action carries its one-line `description` and its `effect`, `read_only` or `mutating`, and a `mutating` Action may carry one
 closed `verifier` descriptor naming a `read_only` Action of the same contract, its typed input bindings from the
 original input or `operation_id`, and the RFC 6901 pointers of its outcome and recovered result. A `mutating` Action
 may also carry one closed `idempotency` declaration: the provider host, the key location and name, the key scope,
