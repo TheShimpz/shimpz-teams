@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypedDict
 
+from core import canonical_json
 from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
@@ -81,8 +82,7 @@ def write_private_json(root: Path, target: Path, value: dict[str, object]) -> No
     """Atomically and durably replace one owner-only JSON record inside a private directory."""
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     root.chmod(0o700)
-    payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
-    private_state.replace_durably(target, payload)
+    private_state.replace_durably(target, canonical_json.encode(value))
 
 
 class InferenceConfigStore:

@@ -14,6 +14,7 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 from action import journal as action_journal
+from core import canonical_json
 from inference import abort as brain_abort
 from inference import usage as brain_usage
 from inference.errors import BrainRuntimeError
@@ -89,8 +90,7 @@ def contract_digest(assistant: RuntimeAssistant) -> str:
     """The `sha256:` fingerprint of one Assistant contract as Brain receives it; a changed contract changes it."""
     actions = [_action_wire(action) for action in assistant.actions]
     contract = {"id": assistant.id, "genesis": assistant.genesis, "actions": actions}
-    body = json.dumps(contract, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-    return "sha256:" + hashlib.sha256(body.encode()).hexdigest()
+    return "sha256:" + hashlib.sha256(canonical_json.encode(contract)).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)

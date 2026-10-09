@@ -27,6 +27,7 @@ from pathlib import Path
 
 from action import execution as action_execution
 from action import failure as action_failure
+from core import canonical_json
 from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_team_id
@@ -277,13 +278,11 @@ class DiagnosticStore:
         if any(form in payload for secret in protected if secret for form in _forms(secret)):
             raise DiagnosticStoreError("Routine diagnostic would hold a protected value")
         key = _PRIVATE.key(self.key_path, "Routine diagnostic keyring", allow_create=True)
-        envelope = json.dumps(
+        envelope = canonical_json.encode(
             # The authenticated origin: the AAD binds it, so a reader can tell another incarnation's body from a
             # corrupted one.
-            {**private_state.seal(key, payload, _aad(team, incarnation, name)), "incarnation": incarnation},
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("ascii")
+            {**private_state.seal(key, payload, _aad(team, incarnation, name)), "incarnation": incarnation}
+        )
         # The family's own directory is as private as each Team's, not left to the process umask.
         _PRIVATE.require_private_directory(self.root, "Routine diagnostic")
         directory = self._team_dir(team)

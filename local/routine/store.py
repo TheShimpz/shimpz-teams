@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from action import human as action_human
 from action import journal as action_journal
-from core import identifier
+from core import canonical_json, identifier
 from local.chat import continuation as local_chat_continuation
 from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import payload as http_payload
@@ -615,8 +615,7 @@ class RoutineStore:
             with self._key_lock:
                 key = _PRIVATE.key(self.key_path, "Routine keyring", allow_create=True)
             envelope = private_state.seal(key, payload, aad)
-            encoded = json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode("ascii")
-            _PRIVATE.atomic_write(self._team_dir(team) / name, encoded, label)
+            _PRIVATE.atomic_write(self._team_dir(team) / name, canonical_json.encode(envelope), label)
 
     def _sealed_read(self, team: str, name: str, aad: bytes, label: str, maximum: int) -> bytes | None:
         """One sealed record, or None when absent.
