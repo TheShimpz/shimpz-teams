@@ -209,7 +209,7 @@ def chat(
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
     team_id = validate_team_id(team_id)
-    if not isinstance(body, dict) or set(body) != http_payload.LOCAL_CHAT_BODY_FIELDS:
+    if not isinstance(body, dict) or set(body) != http_payload.CHAT_BODY_FIELDS:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "Team chat requires only message, files, assistant_ids, conversation, locale, request, and timezone",

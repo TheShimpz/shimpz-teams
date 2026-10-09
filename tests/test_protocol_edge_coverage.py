@@ -97,7 +97,6 @@ class PayloadEdgeCoverageTests(unittest.TestCase):
 
     def test_scalar_validators_and_filename_edges(self) -> None:
         self.assertIsNone(payload.canonical_source_digest(None))
-        self.assertIsNone(payload.canonical_assurance_handle(None))
         self.assertIsNone(payload.canonical_team_name("bad\nname"))
         self.assertIsNone(payload.canonical_filename(None))
         self.assertIsNone(payload.canonical_filename(_Unencodable("name")))

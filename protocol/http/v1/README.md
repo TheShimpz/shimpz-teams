@@ -1,7 +1,7 @@
 # Team HTTP protocol v1
 
-Team owns the closed identifiers, payload projections, and WebSocket frame boundary used by Admin
-and Store. `payload.py` validates Team-facing HTTP values without trusting upstream fields.
+Team owns the closed identifiers, payload projections, and WebSocket frame boundary used by Admin.
+`payload.py` validates Team-facing HTTP values without trusting upstream fields.
 `identifiers.py` owns the closed Team, Assistant, and Action identifier grammars, `purpose.py` the Action purpose
 sentence rule, and `turn.py` the chat-turn bounds (the user message, a clarification question, memory and skill
 changes, a skill's content key, the reply, the Action requests one suspension carries, Action labels, capability
@@ -36,12 +36,7 @@ bounded string, or one bounded unique string list. The pending reviewed descript
 actual request kind and tighter bounds; the Team revalidates it authoritatively. For Local
 `auth:password`, the browser submits the password only to Admin, Admin replaces it with `true` after
 verification, and the signed Local assertion binds the successful assurance to the same challenge.
-In Hosted, the browser completes the requested Account ceremony, receives one opaque Account-issued
-handle, and submits it as `value` over the chat surface; Store relays it unmodified. Team only
-pattern-admits and forwards that credential to Account, then replaces it with `true` before Action
-resumption after Account consumes it successfully. Handle issuance, freshness, binding, one-use
-semantics, and factor custody remain Account authority. Authentication factor material never crosses
-to Team, Brain, an Assistant, or a progress event.
+Authentication factor material never crosses to Team, Brain, an Assistant, or a progress event.
 
 A `human-required` challenge carries the reviewed `assistant` and `action` identity and the exact canonical
 Assistant `request` with its fingerprint: every copy field is a catalog reference `{"message": id, "params": {...}}`
@@ -400,22 +395,21 @@ completed ordinary capability plan sends only `objective` with the admitted unio
 optional capability planning authorizes no installation and sends only `message`; structured routing, required
 install-directory, lifecycle, or Stop failure sends neither.
 The browser visibly attributes the resumed objective, clears it on Team change, scope change, uninstall proposal,
-page disposal, or consumption, and never writes it to browser storage. The retained Hosted Store backend does not
-accept `resume-task`.
+page disposal, or consumption, and never writes it to browser storage.
 
-The exact `POST /v1/teams/:team_id/chat` body carries `message`, `files`, `assistant_ids`, `conversation`, and
-`locale`. `locale` is one closed interface language (`ar`, `de`, `en`, `es`, `fr`, `ja`, `pt`, `zh`;
-`payload.canonical_locale`) or `null`: Local Admin sends the language selected in its interface, Hosted Store and
-Routine runs send or use `null`. Team forwards it only to the Brain's turn start, which pins it for the whole logical
+The exact `POST /v1/teams/:team_id/chat` body carries `message`, `files`, `assistant_ids`, `conversation`,
+`locale`, `request`, and `timezone` (`payload.CHAT_BODY_FIELDS`). `assistant_ids` names at most
+`payload.MAX_CHAT_ASSISTANTS` Assistants, which equals `payload.MAX_TEAM_ASSISTANTS`, the most Assistants one Team may
+have installed. `locale` is one closed interface language (`ar`, `de`, `en`, `es`, `fr`, `ja`, `pt`, `zh`;
+`payload.canonical_locale`) or `null`: Local Admin sends the language selected in its interface, and Routine runs
+use `null`. Team forwards it only to the Brain's turn start, which pins it for the whole logical
 turn and writes replies and clarifications in it; `null` keeps the language of the message (ADR-0090).
 `conversation` is one window of committed presentation history strictly before this turn, projected server-side
 by Local Admin with the intent-route bounds: at most 8 entries of exactly `{role, text, truncated}` where `role` is
 `user` or `assistant`, each text 1 to 512 NFC printable characters with middle truncation, and at most 4,096
 characters in total. It is untrusted evidence, never an instruction, fact guarantee, or Action authorization. Team
 forwards it only to the Brain's turn start; the Brain uses it only when it retains no completed exchange of its own.
-Hosted Team requires an empty window because Store relays browser frames and no Hosted history is server-derived.
-A Local chat body also carries `request` and `timezone` (`payload.LOCAL_CHAT_BODY_FIELDS`, ADR-0092); Hosted keeps
-the exact body above. `request` is the identity Local Admin issues once per sent message
+`request` (ADR-0092) is the identity Local Admin issues once per sent message
 (`payload.canonical_request_identity`): `issued_at`, a whole UTC epoch second, and `nonce`, 32 lowercase hex. Admin
 returns the browser an authenticated seal of it; an ADR-0081 resend of that message carries the seal back, and Admin forwards the original identity only while `payload.request_identity_fresh`
 admits it, so an expired retry is never a new grant. Team binds it to the Supervisor
@@ -489,7 +483,7 @@ ever returned. A missing binding fails as absent, and a missing or mismatched pa
 whose `locale` is not the one it asked for.
 
 An installed Assistant's page reads the same way at `GET /v1/teams/:team_id/assistants/:assistant_id/details/:locale`
-on both profiles. Team answers the same closed Assistant details object plus `trace_id`, from the exact current
+and Team answers the same closed Assistant details object plus `trace_id`, from the exact current
 binding: its admitted name, declared Creators (a published resolution's creators, a Local record's declared ones),
 description, links, Actions, Integrations, and Stored Input labels, help texts, and help links, localized from the pack verified against the
 binding's `pack_digest`. A missing binding fails as absent, a binding needing replacement or a missing or mismatched
@@ -505,13 +499,10 @@ an inert bounded `label`; the HTTP adapter adds `trace_id`. Labels never replace
 history, describe Action schemas, or grant authority. Binding drift fails closed. Model or label failure is
 availability failure after installation and must not be represented as installation rollback.
 
-In the Hosted profile, every human Team operation carries exactly one `X-Shimpz-Account`
-header containing the current opaque Account session. Team binds the canonical route, parameters,
-query, and exact request-body evidence before synchronously asking Account to evaluate that session.
 The internal Team bearer is machine authority only for the one-use OAuth callback continuation and
 the Local bootstrap reset. The bootstrap reset is admitted only while Team independently verifies
 that the Supervisor key directory is safe and the Supervisor public key is absent; after identity
-establishment it fails closed and never substitutes for human Supervisor evidence. In Local, Admin emits one short-lived
+establishment it fails closed and never substitutes for human Supervisor evidence. Admin emits one short-lived
 Ed25519 assertion in `X-Shimpz-Supervisor` after validating either its current browser session or the exact
 password-and-host-capability reset authority. Its `authority` claim distinguishes `session` from `host-reset`, and
 Team admits `host-reset` only on exact Space reset. Team binds the assertion to the canonical request and consumes
@@ -521,27 +512,26 @@ For an authentication-gated Action response, that same signed, one-use assertion
 Team requires that binding for the matching authentication challenge and rejects it on every
 non-authentication request. Credential and factor material never cross this protocol.
 
-An authenticated Supervisor or Owner may inspect persistent Action input status through
+An authenticated Supervisor may inspect persistent Action input status through
 `GET /v1/teams/:team_id/assistant-stored-inputs`. The response is metadata-only: each current
 declaration carries exactly `assistant_id`, `stored_input_id`, and `status`; values and generations
 never cross HTTP. `DELETE /v1/teams/:team_id/assistant-stored-inputs/:assistant_id/:stored_input_id`
 clears only that exact currently declared slot and is idempotent when its value is already absent.
 The next Action that needs the slot requests it just in time through the existing human-response
 surface. A submitted password is memory-only until the exact Action returns a valid terminal result;
-Team then encrypts it for later invocations. Store has no public browser surface for these endpoints.
+Team then encrypts it for later invocations.
 
 A Local Team has a display name distinct from its immutable id (ADR-0088). `PATCH /v1/teams/:team_id` with
 exactly `{"team_name"}` renames it under a Supervisor session and returns exactly `{"team_id", "team_name"}`; a
 Local `DELETE /v1/teams/:team_id` carries exactly `{"team_name"}`, the current name, which Team confirms before any
 side effect. `payload.canonical_local_team_name` admits a Local display name: the shared 1 to 80 trimmed characters
 without controls, already NFC. Supervisor assertions admit `PATCH` alongside `DELETE`, `GET`, `POST`, and `PUT`.
-Hosted Team names are unchanged by this contract.
 A Local `GET /v1/teams` lists every Team newest first by its Team network's creation instant, compared at Docker's
 full nanosecond precision after normalizing the reported offset; only Teams created at the same instant fall back to
 ascending `team_id`. Each item keeps exactly `{"team_id", "team_name", "status"}`, and creation metadata that is not
 a valid RFC 3339 instant refuses the listing with `503` `team-metadata-invalid`.
 
-`vectors.json` contains positive and negative cases that Team, Admin, and Store execute
+`vectors.json` contains positive and negative cases that Team and every consumer mirror execute
 independently. Generated consumer mirrors pin the producing Teams commit, verify
 `contract-files.sha256`, and remain byte-identical to this directory.
 

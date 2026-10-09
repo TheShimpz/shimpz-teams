@@ -1,4 +1,4 @@
-"""Pure Team wire contract shared by the Admin and Store backends."""
+"""Pure Team wire contract shared with its consumers."""
 
 from __future__ import annotations
 
@@ -53,9 +53,7 @@ skill_key = turn.skill_key
 FILE_ID_PATTERN = r"^[0-9a-f]{32}$"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 SOURCE_DIGEST_PATTERN = rf"^sha256:{SHA256_PATTERN[1:-1]}$"
-ASSURANCE_HANDLE_PATTERN = r"^[A-Za-z0-9_-]{43}$"
 MEDIA_TYPE_PATTERN = r"^[a-z0-9][a-z0-9!#$&^_.+\-]*/[a-z0-9][a-z0-9!#$&^_.+\-]*$"
-ACCOUNT_SESSION_HEADER = "X-Shimpz-Account"
 # A Stored Input's key page (Developers manifest `help_url`): one canonical public https URL that WHATWG URL
 # serialization prints unchanged, with a path, an optional query, and no port, credentials, fragment, or dot segment.
 HELP_URL_PATTERN = (
@@ -87,12 +85,13 @@ RENDERED_OPTION_CHARS = {"label": 80, "description": 160}
 FILE_ID_RE = re.compile(FILE_ID_PATTERN)
 SHA256_RE = re.compile(SHA256_PATTERN)
 SOURCE_DIGEST_RE = re.compile(SOURCE_DIGEST_PATTERN)
-ASSURANCE_HANDLE_RE = re.compile(ASSURANCE_HANDLE_PATTERN)
 MEDIA_TYPE_RE = re.compile(MEDIA_TYPE_PATTERN)
 HELP_URL_RE = re.compile(HELP_URL_PATTERN)
 
 MAX_CHAT_FILES = 8
-MAX_CHAT_ASSISTANTS = 16
+# The most Assistants one Team may have installed; a chat turn may name every one of them.
+MAX_TEAM_ASSISTANTS = 16
+MAX_CHAT_ASSISTANTS = MAX_TEAM_ASSISTANTS
 MAX_TEAM_FILES = 256
 MAX_TEAM_NAME_CHARS = 80
 MAX_ACTION_LABEL_CHARS = 80
@@ -103,10 +102,9 @@ MAX_MEDIA_TYPE_CHARS = 127
 MAX_CONVERSATION_ENTRIES = 8
 MAX_CONVERSATION_TEXT_CHARS = 512
 MAX_CONVERSATION_CHARS = 4_096
-CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation", "locale"})
-# A Local chat body adds what direct Routine creation binds (ADR-0092): the request identity Admin issues once per sent
+# A chat body carries what direct Routine creation binds (ADR-0092): the request identity Admin issues once per sent
 # message and keeps across a transport retry or a resend, and the user's IANA timezone, or null.
-LOCAL_CHAT_BODY_FIELDS = CHAT_BODY_FIELDS | {"request", "timezone"}
+CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation", "locale", "request", "timezone"})
 REQUEST_IDENTITY_FIELDS = frozenset({"issued_at", "nonce"})
 # How long a request identity may mutate a Routine after Admin issued it, and how far ahead of Team's clock it may be.
 REQUEST_IDENTITY_SECONDS = 900
@@ -763,10 +761,6 @@ def apply_knowledge(
 
 def canonical_source_digest(value: object) -> str | None:
     return value if isinstance(value, str) and SOURCE_DIGEST_RE.fullmatch(value) is not None else None
-
-
-def canonical_assurance_handle(value: object) -> str | None:
-    return value if isinstance(value, str) and ASSURANCE_HANDLE_RE.fullmatch(value) is not None else None
 
 
 def canonical_team_name(value: object) -> str | None:

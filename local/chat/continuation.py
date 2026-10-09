@@ -27,7 +27,7 @@ from routine import plan as routine_plan
 SCHEMA_VERSION = 7
 _RECORDING_RE = re.compile(r"[0-9a-f]{32}\Z")
 MAX_INVOKED_ACTIONS = 512
-MAX_IDENTITY_ASSISTANTS = 16
+MAX_IDENTITY_ASSISTANTS = http_payload.MAX_CHAT_ASSISTANTS
 MAX_IDENTITY_FILES = 8
 # A turn's wall-clock admission in epoch milliseconds, within the exact JSON integer range.
 MAX_STARTED_MS = 2**53 - 1

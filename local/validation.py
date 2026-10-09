@@ -12,7 +12,7 @@ from protocol.http.v1 import routine as http_routine
 SPACE_ID_RE = re.compile(r"[a-z0-9][a-z0-9]*(?:-[a-z0-9]+)*")
 DOCKER_ID_RE = re.compile(r"[0-9a-f]{12,64}")
 MAX_SPACE_ID_LENGTH = 48
-MAX_CHAT_ASSISTANTS = 16
+MAX_CHAT_ASSISTANTS = http_payload.MAX_CHAT_ASSISTANTS
 MIN_API_KEY_BYTES = 16
 MAX_API_KEY_BYTES = 8 * 1024
 

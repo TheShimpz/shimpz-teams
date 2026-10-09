@@ -46,11 +46,8 @@ for filename, expected in rows.items():
 vectors = json.loads((HERE / "vectors.json").read_bytes())
 if not isinstance(vectors, dict) or vectors.get("version") != 1:
     fail("Team HTTP vectors have an invalid root")
-if vectors.get("headers") != {
-    "account_session": payload.ACCOUNT_SESSION_HEADER,
-    "local_supervisor": supervisor.ASSERTION_HEADER,
-}:
-    fail("Team HTTP Account session header vector differs")
+if vectors.get("headers") != {"local_supervisor": supervisor.ASSERTION_HEADER}:
+    fail("Team HTTP header vector differs")
 supervisor_vectors = vectors.get("local_supervisor", {})
 for case in supervisor_vectors.get("valid", []):
     if supervisor.canonical_claims(case) != case:
@@ -155,7 +152,6 @@ validators = {
     "action": payload.canonical_action_id,
     "identifier": payload.canonical_identifier,
     "source_digest": payload.canonical_source_digest,
-    "assurance_handle": payload.canonical_assurance_handle,
     "local_team_name": payload.canonical_local_team_name,
 }
 for kind, validator in validators.items():

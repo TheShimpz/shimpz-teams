@@ -1,7 +1,6 @@
 {
   "version": 1,
   "headers": {
-    "account_session": "X-Shimpz-Account",
     "local_supervisor": "X-Shimpz-Supervisor"
   },
   "local_supervisor": {
@@ -429,16 +428,6 @@
     "source_digest": {
       "valid": ["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
       "invalid": ["", "sha256:abc", "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
-    },
-    "assurance_handle": {
-      "valid": ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
-      "invalid": [
-        "",
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA!",
-        true
-      ]
     }
   },
   "action_label_text": {
