@@ -241,6 +241,7 @@ class SharedStrictHttpTest(unittest.TestCase):
             "local-assistant-list": "local-assistant",
             "local-assistant-icon": "local-assistant",
             "local-assistant-summary": "local-assistant",
+            "local-assistant-details": "local-assistant",
             "unknown": None,
         }
         for operation, group in expected.items():

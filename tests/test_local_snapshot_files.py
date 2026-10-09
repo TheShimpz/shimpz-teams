@@ -15,7 +15,7 @@ from tests.local_snapshot_fixtures import client as _client
 
 
 class LocalSnapshotFileTests(unittest.TestCase):
-    def test_previews_the_validated_icon_and_summaries_only_from_the_image_pack(self) -> None:
+    def test_previews_the_validated_icon_and_pages_only_from_the_image_pack(self) -> None:
         client, _image_value, container = _client()
 
         value = snapshots.preview(client, IMAGE_ID)
@@ -30,11 +30,29 @@ class LocalSnapshotFileTests(unittest.TestCase):
                 snapshots.ICON_PATH,
             ],
         )
-        # English is the catalog summary; every other interface language is that message's pack translation.
-        self.assertEqual(set(value.summaries), {"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
-        self.assertEqual(value.summaries["en"], "Exercise immutable admission.")
-        self.assertEqual(value.summaries["pt"], "PT Exercise immutable admission.")
-        self.assertIsInstance(value.summaries, MappingProxyType)
+        # English is the catalog copy; every other interface language is each message's pack translation.
+        self.assertEqual(set(value.details), {"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
+        self.assertEqual(value.details["en"]["summary"], "Exercise immutable admission.")
+        self.assertEqual(
+            dict(value.details["pt"]),
+            {
+                "locale": "pt",
+                "assistant_id": "fixture-assistant",
+                "assistant_version": "0.1.0",
+                "name": "Fixture Assistant",
+                "creators": ["@fixture"],
+                "summary": "PT Exercise immutable admission.",
+                "description": f"PT {catalog_fixtures.ASSISTANT_DESCRIPTION}",
+                "links": {},
+                "actions": [
+                    {"id": "ping", "effect": "read_only", "description": f"PT {catalog_fixtures.ACTION_DESCRIPTION}"}
+                ],
+                "integrations": [],
+                "stored_inputs": [],
+            },
+        )
+        self.assertIsInstance(value.details, MappingProxyType)
+        self.assertIsInstance(value.details["en"], MappingProxyType)
         container.start.assert_not_called()
         container.remove.assert_called_once_with(force=True, v=False)
 

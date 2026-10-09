@@ -1,5 +1,6 @@
-"""Bounded ephemeral reuse of validated Local Assistant previews: the icon and the localized summaries."""
+"""Bounded ephemeral reuse of validated Local Assistant previews: the icon and the localized Assistant pages."""
 
+import json
 import threading
 from collections import OrderedDict
 from concurrent.futures import Future
@@ -16,14 +17,16 @@ class PreviewBusyError(RuntimeError):
 
 
 def _size(value: snapshots.SnapshotPreview) -> int:
-    return len(value.icon) + sum(len(summary.encode()) for summary in value.summaries.values())
+    """The icon's bytes and every language's page as compact UTF-8 JSON, which bounds all the text it holds."""
+    pages = (json.dumps(dict(page), ensure_ascii=False, separators=(",", ":")) for page in value.details.values())
+    return len(value.icon) + sum(len(page.encode()) for page in pages)
 
 
 class LocalSnapshotPreviewCache:
     """Reuse one immutable image's validated preview while revalidating the exact staged image.
 
-    Concurrent misses for one image join a single extraction that holds one bounded slot, so concurrent icon and
-    summary requests extract an image's preview once and share its outcome.
+    Concurrent misses for one image join a single extraction that holds one bounded slot, so concurrent icon, summary,
+    and details requests extract an image's preview once and share its outcome.
     """
 
     def __init__(self, client, platform: str) -> None:
@@ -40,7 +43,11 @@ class LocalSnapshotPreviewCache:
 
     def summary(self, image_id: str, locale: str) -> str:
         """The image's summary in one closed interface language, read only from its own admitted pack."""
-        return self._preview(image_id).summaries[locale]
+        return str(self._preview(image_id).details[locale]["summary"])
+
+    def details(self, image_id: str, locale: str) -> dict[str, object]:
+        """A copy of the image's Assistant page in one closed interface language, from its own admitted pack."""
+        return json.loads(json.dumps(dict(self._preview(image_id).details[locale])))
 
     def _preview(self, image_id: str) -> snapshots.SnapshotPreview:
         with self._lock:

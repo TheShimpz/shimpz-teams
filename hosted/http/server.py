@@ -851,6 +851,16 @@ class Handler(BaseHTTPRequestHandler):
         )
         self._send_json(HTTPStatus.OK, summary, no_store=True)
 
+    def _route_assistant_details(self, request: _AuthorizedRequest) -> None:
+        details = assistant_lifecycle._assistant_details(
+            request.team_id,
+            request.params["assistant_id"],
+            request.params["locale"],
+            request.lease,
+        )
+        # The request's own authority event names this read; its trace identifies the answer.
+        self._send_json(HTTPStatus.OK, {**details, "trace_id": self._audit_trace_id}, no_store=True)
+
     def _route_assistant_uninstall(self, request: _AuthorizedRequest) -> None:
         assistant_id = assistant_registry.validate_assistant_id(request.params["assistant_id"])
         result = assistant_lifecycle._uninstall_assistant(
@@ -903,6 +913,7 @@ _AUTHORIZED_ROUTES = {
     "assistant-install": Handler._route_assistant_install,
     "assistant-icon": Handler._route_assistant_icon,
     "assistant-summary": Handler._route_assistant_summary,
+    "assistant-details": Handler._route_assistant_details,
     "assistant-list": Handler._route_assistant_list,
     "assistant-uninstall": Handler._route_assistant_uninstall,
     "team-status": Handler._route_team_status,

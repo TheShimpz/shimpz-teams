@@ -51,6 +51,8 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
             machine_contract=contract.machine_contract,
             pack_digest=resolution["pack_digest"],
         ),
+        creators=tuple(resolution["creators"]),
+        links=dict(contract.presentation.links),
     )
 
 

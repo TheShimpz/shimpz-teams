@@ -489,7 +489,8 @@ class LocalSnapshotTests(unittest.TestCase):
         controller = SimpleNamespace(
             local_snapshot_previews=SimpleNamespace(
                 icon=lambda image_id: snapshots.preview(client, image_id).icon,
-                summary=lambda image_id, locale: snapshots.preview(client, image_id).summaries[locale],
+                summary=lambda image_id, locale: snapshots.preview(client, image_id).details[locale]["summary"],
+                details=lambda image_id, locale: dict(snapshots.preview(client, image_id).details[locale]),
             )
         )
 
@@ -498,10 +499,13 @@ class LocalSnapshotTests(unittest.TestCase):
             service.local_snapshot_summary(controller, IMAGE_ID, "pt"),
             {"locale": "pt", "summary": "PT Exercise immutable admission."},
         )
+        details = service.local_snapshot_details(controller, IMAGE_ID, "pt")
+        self.assertEqual((details["locale"], details["summary"]), ("pt", "PT Exercise immutable admission."))
         for refused in ("it", "PT", "", None):
-            with self.subTest(locale=refused), self.assertRaises(ApiProblemError) as invalid:
-                service.local_snapshot_summary(controller, IMAGE_ID, refused)
-            self.assertEqual(invalid.exception.code, "invalid-locale")
+            for read in (service.local_snapshot_summary, service.local_snapshot_details):
+                with self.subTest(locale=refused, read=read.__name__), self.assertRaises(ApiProblemError) as invalid:
+                    read(controller, IMAGE_ID, refused)
+                self.assertEqual(invalid.exception.code, "invalid-locale")
 
         with (
             mock.patch.object(

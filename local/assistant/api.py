@@ -4,6 +4,7 @@ from http import HTTPStatus
 
 from docker.errors import DockerException
 
+from assistant import details as assistant_page
 from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from install import icons
@@ -64,6 +65,48 @@ def assistant_summary(self, team_id: str, assistant_id: str, locale: object) -> 
         pack = self.assistant_lifecycle._assistant_language(ActiveAssistant(spec, container.id, container))
         summary = pack.template(catalog_validator.message_id(spec.summary), canonical)
     return {"locale": canonical, "summary": summary}
+
+
+def assistant_details(self, team_id: str, assistant_id: str, locale: object) -> dict[str, object]:
+    """One installed Assistant's page in one closed interface language, from its exact current binding.
+
+    Like the summary, English is the binding's own catalog copy and any other language only its translations from the
+    pack verified against the binding's digest; Team validates the closed answer before it leaves.
+    """
+    team_id = validate_team_id(team_id)
+    assistant_id = validate_assistant_id(assistant_id)
+    canonical = http_payload.canonical_locale(locale)
+    if canonical is None:
+        raise invalid_locale()
+    with self._lock(team_id):
+        binding = self.registry.binding(team_id, assistant_id)
+        if binding is None:
+            raise assistant_not_installed()
+        if not binding.admissible:
+            raise assistant_manifest_invalid()
+        spec = self.registry.spec(binding)
+        pack = None
+        if canonical != assistant_language.ENGLISH:
+            container = self.assistant_lifecycle._assistant_container(team_id, assistant_id)
+            pack = self.assistant_lifecycle._assistant_language(ActiveAssistant(spec, container.id, container))
+        document = binding.document
+        page = assistant_page.AssistantPage(
+            assistant_id=spec.assistant_id,
+            version=spec.version,
+            name=spec.name,
+            # A Local record keeps its snapshot's declared Creators; a resolution its published ones.
+            creators=tuple(document["declared_creators" if spec.provenance == "local" else "creators"]),
+            summary=spec.summary,
+            description=spec.description,
+            links=document["links"],
+            machine_contract=spec.machine_contract,
+            integrations={identifier: value.provider for identifier, value in spec.integrations.items()},
+            labels={identifier: value.label for identifier, value in spec.stored_inputs.items()},
+        )
+        try:
+            return page.localized(canonical, pack)
+        except assistant_manifest.ManifestError as exc:
+            raise assistant_manifest_invalid() from exc
 
 
 def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:

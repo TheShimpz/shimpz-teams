@@ -1,5 +1,6 @@
 """Bounded ephemeral Local Assistant preview reuse."""
 
+import json
 import threading
 import unittest
 from concurrent.futures import Future
@@ -12,10 +13,16 @@ from local.install import preview, snapshots
 IMAGE_ID = "sha256:" + ("a" * 64)
 ICON = b"validated icon"
 SUMMARIES = {"en": "Summary.", "pt": "Resumo."}
+DETAILS = {
+    locale: {"locale": locale, "summary": summary, "actions": [{"id": "run", "description": f"{summary} Run."}]}
+    for locale, summary in SUMMARIES.items()
+}
+# Every language's page as compact UTF-8 JSON: what the cache counts beside the icon.
+PAGE_BYTES = sum(len(json.dumps(page, ensure_ascii=False, separators=(",", ":")).encode()) for page in DETAILS.values())
 
 
 def _preview(icon: bytes = ICON) -> snapshots.SnapshotPreview:
-    return snapshots.SnapshotPreview(icon=icon, summaries=SUMMARIES)
+    return snapshots.SnapshotPreview(icon=icon, details=DETAILS)
 
 
 class LocalSnapshotPreviewCacheTests(unittest.TestCase):
@@ -73,8 +80,7 @@ class LocalSnapshotPreviewCacheTests(unittest.TestCase):
     def test_evicts_the_least_recently_used_icon_at_the_byte_bound(self) -> None:
         image_ids = [f"sha256:{value:064x}" for value in range(preview.MAX_CACHED_PREVIEWS + 1)]
         # Eight previews fill the byte bound exactly; a ninth evicts the least recently used one.
-        summary_bytes = sum(len(text.encode()) for text in SUMMARIES.values())
-        large_icon = b"x" * (1024 * 1024 - summary_bytes)
+        large_icon = b"x" * (1024 * 1024 - PAGE_BYTES)
         with (
             mock.patch.object(
                 preview.snapshots,
@@ -103,7 +109,7 @@ class LocalSnapshotPreviewCacheTests(unittest.TestCase):
 
         self.assertEqual(load.call_count, preview.MAX_CACHED_PREVIEWS + 2)
 
-    def test_serves_each_summary_from_the_same_validated_preview(self) -> None:
+    def test_serves_each_summary_and_page_from_the_same_validated_preview(self) -> None:
         with (
             mock.patch.object(preview.snapshots, "preview", return_value=_preview()) as load,
             mock.patch.object(preview.snapshots, "require_candidate") as require,
@@ -111,15 +117,20 @@ class LocalSnapshotPreviewCacheTests(unittest.TestCase):
             self.assertEqual(self.cache.icon(IMAGE_ID), ICON)
             self.assertEqual(self.cache.summary(IMAGE_ID, "pt"), "Resumo.")
             self.assertEqual(self.cache.summary(IMAGE_ID, "en"), "Summary.")
+            page = self.cache.details(IMAGE_ID, "pt")
+            self.assertEqual(page, DETAILS["pt"])
+            # Each answer is a copy, so a caller can never change the cached page.
+            page["actions"][0]["description"] = "Changed."
+            self.assertEqual(self.cache.details(IMAGE_ID, "pt"), DETAILS["pt"])
 
         load.assert_called_once_with(self.client, IMAGE_ID, platform="linux/amd64")
-        self.assertEqual(require.call_count, 2)
+        self.assertEqual(require.call_count, 4)
 
     def test_a_repeated_miss_replaces_its_entry_without_leaking_its_budget(self) -> None:
         with mock.patch.object(preview.snapshots, "preview", return_value=_preview()):
             self.cache._remember(IMAGE_ID, _preview())
             self.cache._remember(IMAGE_ID, _preview(b"other icon"))
-        expected = len(b"other icon") + sum(len(text.encode()) for text in SUMMARIES.values())
+        expected = len(b"other icon") + PAGE_BYTES
         self.assertEqual(self.cache._cached_bytes, expected)
         self.cache._discard("sha256:" + ("b" * 64))
         self.cache._discard(IMAGE_ID)

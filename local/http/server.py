@@ -738,6 +738,8 @@ class Handler(BaseHTTPRequestHandler):
         operation = route.operation
         if operation == "assistant-summary":
             return controller.assistant_summary(team_id, assistant_id, route.params["locale"])
+        if operation == "assistant-details":
+            return controller.assistant_details(team_id, assistant_id, route.params["locale"])
         if operation == "assistant-action-labels":
             provider, api_key = self._model_credential_headers()
             return controller.chat_turn_service.action_labels(team_id, assistant_id, self._body(), provider, api_key)
@@ -846,20 +848,22 @@ class Handler(BaseHTTPRequestHandler):
             request_audit.record("assistant-icon", result="ok", team_id=team_id, assistant=assistant_id)
             self._send_icon(contents)
             return None
-        if route.operation in {"local-assistant-icon", "local-assistant-summary"}:
+        if route.operation in {"local-assistant-icon", "local-assistant-summary", "local-assistant-details"}:
             self._local_assistant_preview(route, request_audit)
             return None
         return self._route(parts, route)
 
     def _local_assistant_preview(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
-        """Send one staged snapshot's icon or localized summary; a busy preview tells the caller when to retry."""
+        """Send one staged snapshot's icon, localized summary, or localized page; a busy preview says when to retry."""
         image_id = f"sha256:{route.params['image_hash']}"
         controller = self.server.controller
         try:
             if route.operation == "local-assistant-icon":
                 contents = controller.local_snapshot_icon(image_id)
+            elif route.operation == "local-assistant-summary":
+                document = controller.local_snapshot_summary(image_id, route.params["locale"])
             else:
-                summary = controller.local_snapshot_summary(image_id, route.params["locale"])
+                document = controller.local_snapshot_details(image_id, route.params["locale"])
         except ApiProblem as exc:
             if exc.code != "local-assistant-preview-busy":
                 raise
@@ -882,7 +886,7 @@ class Handler(BaseHTTPRequestHandler):
         if route.operation == "local-assistant-icon":
             self._send_icon(contents)
         else:
-            self._send(HTTPStatus.OK, {**summary, "trace_id": trace_id})
+            self._send(HTTPStatus.OK, {**document, "trace_id": trace_id})
 
     def _expected_human_assurance(
         self,

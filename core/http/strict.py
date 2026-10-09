@@ -497,6 +497,12 @@ CONTROLLER_ROUTES = (
         "local-assistant-summary",
         _LOCAL_CONTROLLER_ONLY,
     ),
+    _controller_route(
+        "GET",
+        "/v1/local-assistants/:image_hash/details/:locale",
+        "local-assistant-details",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
     _controller_route("GET", "/v1/assistants", "registry-list", _LOCAL_CONTROLLER_ONLY),
     _controller_route("DELETE", "/v1/space/bootstrap", "space-bootstrap-reset", _LOCAL_CONTROLLER_ONLY),
     _controller_route("DELETE", "/v1/space", "space-reset", _LOCAL_CONTROLLER_ONLY),
@@ -510,6 +516,11 @@ CONTROLLER_ROUTES = (
         "GET",
         "/v1/teams/:team_id/assistants/:assistant_id/summary/:locale",
         "assistant-summary",
+    ),
+    _controller_route(
+        "GET",
+        "/v1/teams/:team_id/assistants/:assistant_id/details/:locale",
+        "assistant-details",
     ),
     _controller_route(
         "POST",

@@ -275,11 +275,13 @@ class LocalController:
     list_assistants = local_assistant_api.list_assistants
     assistant_icon = local_assistant_api.assistant_icon
     assistant_summary = local_assistant_api.assistant_summary
+    assistant_details = local_assistant_api.assistant_details
     install_publication = local_install_service.install_publication
     _install_bound_publication = local_install_service._install_bound_publication
     list_local_snapshots = local_install_service.list_local_snapshots
     local_snapshot_icon = local_install_service.local_snapshot_icon
     local_snapshot_summary = local_install_service.local_snapshot_summary
+    local_snapshot_details = local_install_service.local_snapshot_details
     install_local_snapshot = local_install_service.install_local_snapshot
     install_fresh_local_snapshot = local_install_service.install_fresh_local_snapshot
 

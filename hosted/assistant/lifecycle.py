@@ -9,6 +9,7 @@ from typing import NoReturn
 import docker.errors
 
 from action import stored_input as action_stored_input
+from assistant import details as assistant_details
 from assistant import genesis as assistant_genesis
 from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
@@ -851,3 +852,51 @@ def _assistant_summary(
         pack = _assistant_language(spec.contract, container)
         summary = pack.template(catalog_validator.message_id(spec.summary), canonical)
     return {"locale": canonical, "summary": summary}
+
+
+def _assistant_details(
+    team_id: str,
+    assistant_id: str,
+    locale: object,
+    lease: hosted_resources._AuthorizationLease,
+) -> dict[str, object]:
+    """One installed Assistant's page in one closed interface language, from its exact current binding.
+
+    Like the summary, English is the binding's own catalog copy and any other language only its translations from the
+    pack verified against the binding's digest; Team validates the closed answer before it leaves.
+    """
+    canonical = http_payload.canonical_locale(locale)
+    if canonical is None:
+        raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "locale must be one interface language")
+    with runtime_state._lock_for(team_id):
+        hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
+        try:
+            assistant_id, spec = _resolve_team_assistant(team_id, assistant_id)
+        except assistant_registry.AssistantSpecError as exc:
+            raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "Assistant is not installed in this Team") from exc
+        pack = None
+        if canonical != assistant_language.ENGLISH:
+            container = hosted_resources._get_container(
+                container_spec.team_assistant_container_name(team_id, assistant_id)
+            )
+            if container is None:
+                raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant is not running in this Team")
+            pack = _assistant_language(spec.contract, container)
+        page = assistant_details.AssistantPage(
+            assistant_id=assistant_id,
+            version=spec.version,
+            name=spec.contract.name,
+            creators=spec.creators,
+            summary=spec.summary,
+            description=spec.description,
+            links=spec.links,
+            machine_contract=spec.contract.machine_contract,
+            integrations={identifier: value.provider for identifier, value in spec.contract.integrations.items()},
+            labels={identifier: value.label for identifier, value in spec.contract.stored_inputs.items()},
+        )
+        try:
+            return page.localized(canonical, pack)
+        except assistant_manifest.ManifestError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.CONFLICT, "installed Assistant manifest failed its reviewed contract"
+            ) from exc

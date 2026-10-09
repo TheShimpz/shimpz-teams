@@ -9,11 +9,11 @@ from typing import Any
 
 from docker.errors import DockerException, ImageNotFound, NotFound
 
+from assistant import details as assistant_details
 from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from install import bindings
 from local.install import source_package
-from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
 
 LOCAL_STAGE_LABEL = "org.shimpz.local.stage"
@@ -93,10 +93,11 @@ class LocalSnapshotCandidate:
 
 @dataclass(frozen=True, slots=True)
 class SnapshotPreview:
-    """A staged image's validated icon and its summary in every interface language, read without starting it."""
+    """A staged image's validated icon and its Assistant page in every interface language, read without starting it."""
 
     icon: bytes
-    summaries: Mapping[str, str]
+    # Interface language to the closed Assistant details object; its summary is the localized summary.
+    details: Mapping[str, Mapping[str, object]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,11 +191,11 @@ def require_candidate(
 
 
 def preview(client, image_id: str, *, platform: str | None = None) -> SnapshotPreview:
-    """Return the validated icon and localized summaries of an exact staged image without starting it.
+    """Return the validated icon and localized Assistant page of an exact staged image without starting it.
 
-    The summary in every non-English interface language is read only from the image's own pack, admitted complete
-    for the image's own catalog under Local's unsigned self-consistency trust (ADR-0060, ADR-0091); English is the
-    catalog summary itself, and no request message is ever read.
+    Every displayed text in every non-English interface language is read only from the image's own pack, admitted
+    complete for the image's own catalog under Local's unsigned self-consistency trust (ADR-0060, ADR-0091); English is
+    the catalog text itself, and no request message is ever read.
     """
     candidate = require_candidate(client, image_id, platform=platform)
     extracted = _extract_preview_files(client, image_id)
@@ -204,7 +205,7 @@ def preview(client, image_id: str, *, platform: str | None = None) -> SnapshotPr
         creators = assistant_manifest.parse_manifest_creators(manifest)[:4]
         source_package.validate_icon(extracted[ICON_PATH])
         presentation = assistant_manifest.parse_manifest_presentation(manifest)
-        summaries = _preview_summaries(identity.summary, presentation.description, manifest, extracted)
+        details = _preview_details(identity, presentation, creators, manifest, extracted)
     except (source_package.SourcePackageError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the Local Assistant preview is invalid") from exc
     if (
@@ -215,25 +216,42 @@ def preview(client, image_id: str, *, platform: str | None = None) -> SnapshotPr
         or creators != candidate.declared_creators
     ):
         raise LocalSnapshotError("the Local Assistant preview does not match its image labels")
-    return SnapshotPreview(icon=extracted[ICON_PATH], summaries=summaries)
+    return SnapshotPreview(icon=extracted[ICON_PATH], details=details)
 
 
-def _preview_summaries(
-    summary: str, description: str, manifest: bytes, extracted: dict[str, bytes]
-) -> Mapping[str, str]:
+def _preview_details(
+    identity: assistant_manifest.ManifestIdentity,
+    presentation: assistant_manifest.ManifestPresentation,
+    creators: tuple[str, ...],
+    manifest: bytes,
+    extracted: dict[str, bytes],
+) -> Mapping[str, Mapping[str, object]]:
     contract = assistant_manifest.parse_manifest_contract(manifest)
     machine_contract = assistant_manifest.parse_machine_contract(
         extracted[assistant_manifest.CONTRACT_PATH],
         contract.integrations,
         contract.stored_inputs,
-        summary=summary,
-        description=description,
+        summary=identity.summary,
+        description=presentation.description,
         allowed_hosts=contract.allowed_hosts,
     )
     raw_pack = extracted[assistant_language.PACK_PATH]
     pack = assistant_language.admit_pack(raw_pack, machine_contract["messages"], _digest(raw_pack))
-    identifier = catalog_validator.message_id(summary)
-    return MappingProxyType({locale: pack.template(identifier, locale) for locale in sorted(http_payload.CHAT_LOCALES)})
+    page = assistant_details.AssistantPage(
+        assistant_id=identity.assistant_id,
+        version=identity.version,
+        name=identity.name,
+        creators=creators,
+        summary=identity.summary,
+        description=presentation.description,
+        links=presentation.links,
+        machine_contract=machine_contract,
+        integrations={declaration.id: declaration.provider for declaration in contract.integrations},
+        labels={declaration.id: declaration.label for declaration in contract.stored_inputs},
+    )
+    return MappingProxyType(
+        {locale: MappingProxyType(page.localized(locale, pack)) for locale in sorted(http_payload.CHAT_LOCALES)}
+    )
 
 
 def validate_record(record: dict[str, Any]) -> None:

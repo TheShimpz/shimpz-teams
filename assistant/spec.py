@@ -83,6 +83,9 @@ class AssistantSpec:
     archs: tuple[str, ...]
     required_image_labels: tuple[tuple[str, str], ...]
     contract: AssistantContract
+    # The published resolution's self-declared Creators and unverified Creator links, shown on its Assistant page.
+    creators: tuple[str, ...] = ()
+    links: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

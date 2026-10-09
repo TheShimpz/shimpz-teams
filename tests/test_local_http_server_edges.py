@@ -461,6 +461,15 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             result, (200, {"locale": "pt", "summary": "Resumo."}, "assistant-summary", "team_1", "assistant")
         )
         controller.assistant_summary.assert_called_once_with("team_1", "assistant", "pt")
+        controller.assistant_details = mock.Mock(return_value={"locale": "pt", "name": "Assistente"})
+        result = handler._route(
+            [],
+            self.route("assistant-details", team_id="team_1", assistant_id="assistant", locale="pt"),
+        )
+        self.assertEqual(
+            result, (200, {"locale": "pt", "name": "Assistente"}, "assistant-details", "team_1", "assistant")
+        )
+        controller.assistant_details.assert_called_once_with("team_1", "assistant", "pt")
 
         handler.command = "POST"
         result = handler._route(
@@ -718,6 +727,37 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         handler._send.reset_mock()
         with self._assertion_admitted("b" * 32):
             self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
+        self.assertEqual(handler._send.call_args.args[1]["retry_after_ms"], 250)
+
+    def test_a_staged_snapshots_page_shares_the_bounded_preview_and_its_busy_hint(self) -> None:
+        busy = ApiProblemError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Local Assistant preview capacity is busy",
+            code="local-assistant-preview-busy",
+        )
+        controller = SimpleNamespace(
+            local_snapshot_details=mock.Mock(side_effect=({"locale": "pt", "summary": "Resumo."}, busy))
+        )
+        handler = self.handler(controller=controller)
+        handler._resolved_route = mock.Mock(
+            return_value=([], self.route("local-assistant-details", image_hash="a" * 64, locale="pt"))
+        )
+        handler._capture_body = mock.Mock(return_value={})
+        handler._model_binding = mock.Mock(return_value=None)
+        handler._expected_human_assurance = mock.Mock(return_value=None)
+        handler._send = mock.Mock()
+        with self._assertion_admitted("c" * 32):
+            self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
+        controller.local_snapshot_details.assert_called_with("sha256:" + "a" * 64, "pt")
+        handler._send.assert_called_once_with(
+            HTTPStatus.OK,
+            {"locale": "pt", "summary": "Resumo.", "trace_id": "c" * 32},
+        )
+        handler._send.reset_mock()
+        with self._assertion_admitted("d" * 32):
+            self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
+        self.assertEqual(handler._send.call_args.args[0], HTTPStatus.SERVICE_UNAVAILABLE)
+        self.assertEqual(handler._send.call_args.args[1]["code"], "local-assistant-preview-busy")
         self.assertEqual(handler._send.call_args.args[1]["retry_after_ms"], 250)
 
     def test_bootstrap_reset_uses_machine_authority_without_human_assertion(self) -> None:

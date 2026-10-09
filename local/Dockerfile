@@ -94,8 +94,8 @@ COPY --link local/__init__.py local/app.py local/audit.py local/authority.py loc
 COPY --link local/install/__init__.py local/install/automatic.py local/install/collector.py local/install/developers.py local/install/inventory.py local/install/preview.py \
     local/install/registry.py local/install/runtime.py local/install/service.py local/install/snapshots.py \
     local/install/source_package.py ./local/install/
-COPY --link assistant/__init__.py assistant/action_schema.py assistant/cache.py assistant/effect.py assistant/genesis.py \
-    assistant/language.py assistant/manifest.py assistant/spec.py \
+COPY --link assistant/__init__.py assistant/action_schema.py assistant/cache.py assistant/details.py \
+    assistant/effect.py assistant/genesis.py assistant/language.py assistant/manifest.py assistant/spec.py \
     ./assistant/
 COPY --link chat/__init__.py chat/attachments.py chat/contract.py chat/knowledge.py chat/orchestrator.py chat/progress.py \
     chat/turn.py ./chat/

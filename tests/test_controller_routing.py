@@ -53,6 +53,12 @@ class ControllerRoutingTests(unittest.TestCase):
                 "assistant-summary",
                 {"team_id": "team_1", "assistant_id": "helper", "locale": "pt"},
             ),
+            (
+                "GET",
+                "/v1/teams/team_1/assistants/helper/details/pt",
+                "assistant-details",
+                {"team_id": "team_1", "assistant_id": "helper", "locale": "pt"},
+            ),
         )
         for method, path, operation, params in common:
             with self.subTest(method=method, path=path):
@@ -103,6 +109,12 @@ class ControllerRoutingTests(unittest.TestCase):
                 "GET",
                 "/v1/local-assistants/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/summary/pt",
                 "local-assistant-summary",
+            ),
+            (
+                strict_http.LOCAL_CONTROLLER,
+                "GET",
+                "/v1/local-assistants/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/details/pt",
+                "local-assistant-details",
             ),
             (
                 strict_http.LOCAL_CONTROLLER,

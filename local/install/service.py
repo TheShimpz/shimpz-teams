@@ -69,6 +69,14 @@ def local_snapshot_summary(self, image_id: str, locale: object) -> dict[str, obj
     return {"locale": canonical, "summary": summary}
 
 
+def local_snapshot_details(self, image_id: str, locale: object) -> dict[str, object]:
+    """One staged snapshot's Assistant page in one closed interface language, read only from its own pack."""
+    canonical = http_payload.canonical_locale(locale)
+    if canonical is None:
+        raise invalid_locale()
+    return _preview(lambda: self.local_snapshot_previews.details(image_id, canonical))
+
+
 def _preview[T](load: Callable[[], T]) -> T:
     try:
         return load()
