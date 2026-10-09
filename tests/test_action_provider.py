@@ -313,6 +313,7 @@ class TransportTests(unittest.TestCase):
         cls.directory = tempfile.TemporaryDirectory()
         certificate, key = _certificate(Path(cls.directory.name))
         server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        server_context.minimum_version = ssl.TLSVersion.TLSv1_2
         server_context.load_cert_chain(certificate, key)
         cls.origin = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Origin)
         cls.origin.socket = server_context.wrap_socket(cls.origin.socket, server_side=True)
