@@ -8,7 +8,7 @@ import select
 import socket
 import struct
 import time
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractContextManager, nullcontext, suppress
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -480,6 +480,9 @@ class ProviderBroker(Protocol):
 
     def __call__(self, frame: object, deadline: float) -> bytes: ...
 
+    def release(self) -> None:
+        """Return what the last reply held once it has been written or abandoned; idempotent."""
+
 
 @dataclass(frozen=True, slots=True)
 class RpcExchangeStrategy:
@@ -895,20 +898,22 @@ class _FrameReader:
             if len(self._stdout) + len(self._stderr) > self._maximum:
                 raise ValueError("oversized Assistant RPC response")
 
-    def calls(self) -> Iterator[object]:
-        """Take each complete provider-call line before the terminal line; output after the terminal is refused."""
-        while self._terminal is None and (end := self._stdout.find(b"\n")) >= 0:
+    def next_call(self) -> object | None:
+        """Take the next complete provider-call line before the terminal line; output after the terminal is refused."""
+        frame = None
+        if self._terminal is None and (end := self._stdout.find(b"\n")) >= 0:
             try:
-                frame = strict_json.loads(bytes(self._stdout[:end]))
+                line = strict_json.loads(bytes(self._stdout[:end]))
             except (UnicodeError, RecursionError) as exc:
                 raise ValueError("invalid Assistant RPC line") from exc
-            if not isinstance(frame, dict) or frame.get("type") != "fetch":
+            if isinstance(line, dict) and line.get("type") == "fetch":
+                del self._stdout[: end + 1]
+                frame = line
+            else:
                 self._terminal = end + 1
-                break
-            del self._stdout[: end + 1]
-            yield frame
         if self._terminal is not None and len(self._stdout) > self._terminal:
             raise ValueError("Assistant RPC output follows its terminal frame")
+        return frame
 
     def finish(self) -> tuple[bytes, bytes]:
         if self._pending:
@@ -933,6 +938,7 @@ def exchange_rpc_frames(
     reads all of a large invocation never stalls on a full buffer (ADR-0093). Without a broker, stdin is one request
     and is half-closed once written. With one, the request is the first stdin line and stdin stays open: each complete
     stdout provider-call line is answered by one broker line, and the first other line is the terminal frame (ADR-0106).
+    A call is answered only once the previous reply has been written, so at most one reply is ever held.
     """
     reader = _FrameReader(maximum)
     pending = bytearray(data if broker is None else data + b"\n")
@@ -961,10 +967,13 @@ def exchange_rpc_frames(
                 if not chunk:
                     return reader.finish()
                 reader.feed(chunk)
-                if broker is not None:
-                    _answer_calls(reader, broker, pending, deadline)
+            if broker is not None and not pending:
+                broker.release()
+                _answer_call(reader, broker, pending, deadline)
     finally:
         raw_socket.settimeout(previous)
+        if broker is not None:
+            broker.release()
 
 
 def _send_pending(raw_socket: socket.socket, pending: bytearray) -> None:
@@ -977,14 +986,16 @@ def _send_pending(raw_socket: socket.socket, pending: bytearray) -> None:
         pending.clear()
 
 
-def _answer_calls(reader: _FrameReader, broker: ProviderBroker, pending: bytearray, deadline: float) -> None:
-    for frame in reader.calls():
-        try:
-            reply = broker(frame, deadline)
-        except (RuntimeError, OSError, ValueError, TypeError, KeyError) as exc:
-            # An unauditable or broken call ends the attempt as uncertain, never silently.
-            raise OSError("the provider call failed inside Team") from exc
-        pending.extend(reply + b"\n")
+def _answer_call(reader: _FrameReader, broker: ProviderBroker, pending: bytearray, deadline: float) -> None:
+    frame = reader.next_call()
+    if frame is None:
+        return
+    try:
+        reply = broker(frame, deadline)
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError) as exc:
+        # An unauditable or broken call ends the attempt as uncertain, never silently.
+        raise OSError("the provider call failed inside Team") from exc
+    pending.extend(reply + b"\n")
 
 
 def close_exec_stream(stream: object) -> None:

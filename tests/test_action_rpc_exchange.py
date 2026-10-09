@@ -177,11 +177,21 @@ class _RecordingBroker:
         self.reply = reply
         self.frames: list[object] = []
         self.calls = 0
+        self.released = 0
+        self.held = False
 
     def __call__(self, frame: object, _deadline: float) -> bytes:
+        # A call is answered only after the previous reply was written and released.
+        assert not self.held, "a call was answered while the previous reply was still held"
         self.calls += 1
         self.frames.append(frame)
+        self.held = True
         return self.reply
+
+    def release(self) -> None:
+        if self.held:
+            self.held = False
+            self.released += 1
 
 
 def _lines(connection: socket.socket, count: int) -> list[bytes]:
@@ -223,6 +233,22 @@ class ProviderCallChannelTests(unittest.TestCase):
         self.assertEqual(seen, [b'{"input":{}}', b'{"error":"refused"}', b'{"error":"refused"}'])
         self.assertEqual(broker.calls, 2)
         self.assertEqual(broker.frames[0]["url"], "https://api.example.com/")
+
+    def test_pipelined_calls_are_answered_one_at_a_time(self) -> None:
+        call = b'{"type":"fetch","method":"GET","url":"https://api.example.com/","headers":[]}\n'
+
+        def workload(connection: socket.socket, seen: list[bytes]) -> None:
+            seen.extend(_lines(connection, 1))
+            connection.sendall(_frame(1, call * 3))
+            seen.extend(_lines(connection, 3))
+            connection.sendall(_frame(1, b'{"type":"result","result":{}}\n'))
+            connection.shutdown(socket.SHUT_WR)
+
+        broker = _RecordingBroker()
+        (stdout, _stderr), seen = self._exchange(workload, broker)
+        self.assertEqual(stdout, b'{"type":"result","result":{}}\n')
+        self.assertEqual((broker.calls, broker.released, broker.held), (3, 3, False))
+        self.assertEqual(seen[1:], [b'{"error":"refused"}'] * 3)
 
     def test_output_after_the_terminal_or_an_invalid_line_is_refused(self) -> None:
         for output in (b'{"type":"result","result":{}}\n{"type":"fetch"}\n', b"not json\n"):

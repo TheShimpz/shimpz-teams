@@ -498,6 +498,8 @@ def canonical_machine_contract(
     used_integrations = {integration for action in actions for integration in action["integrations"]}
     if used_integrations != declared_ids:
         raise ManifestError("Assistant machine contract must use every declared integration")
+    if not proofs_signed(actions, declared_stored_inputs):
+        raise ManifestError("Assistant machine contract Action declares a proof without the Stored Input it signs")
     refused = action_effect.refusal(actions, allowed_hosts)
     if refused is not None:
         raise ManifestError(f"Assistant machine contract Action effect is invalid: {refused}")
@@ -513,6 +515,17 @@ def canonical_machine_contract(
         "actions": sorted(actions, key=lambda action: action["id"]),
         "messages": json.loads(catalog_validator.canonical_json(value["messages"])),
     }
+
+
+def proofs_signed(actions: Iterable[Mapping[str, Any]], declarations: Iterable[StoredInputDeclaration]) -> bool:
+    """Whether every Action declaring a proof also declares the Stored Input it signs, which Team places beside it."""
+    signed = {declaration.id: declaration.hmac for declaration in declarations if declaration.hmac}
+    return all(
+        signed[slot] in action["stored_inputs"]
+        for action in actions
+        for slot in action["stored_inputs"]
+        if slot in signed
+    )
 
 
 def _canonical_action(

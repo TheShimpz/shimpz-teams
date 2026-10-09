@@ -11,10 +11,11 @@ import hashlib
 import hmac
 import http.client
 import json
+import re
 import ssl
 import threading
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from urllib.parse import parse_qsl, quote, unquote, urlsplit
 
@@ -24,7 +25,6 @@ from action import human as action_human
 from assistant import manifest as assistant_manifest
 from integrations import http as integration_http
 from integrations import providers as integration_providers
-from protocol.http.v1 import strict_json
 
 MAX_CALLS = 16
 MAX_URL_CHARACTERS = 8192
@@ -203,7 +203,15 @@ class Broker:
     def __init__(self, scope: CallScope) -> None:
         self._scope = scope
         self._route: tuple[str, frozenset[str]] | None = None
+        # A delivered reply keeps its call capacity until the exchange has written it, which bounds its memory.
+        self._held = False
         self.calls = 0
+
+    def release(self) -> None:
+        """Return the capacity the last reply held once it has been written or abandoned; idempotent."""
+        if self._held:
+            self._held = False
+            _CAPACITY.release()
 
     def __call__(self, frame: object, deadline: float) -> bytes:
         """Return the encoded one-line reply to one ``fetch`` frame."""
@@ -249,14 +257,20 @@ class Broker:
                     "credentials": injected,
                 }
             )
+            # A Stop that arrived while the dispatch record was written still prevents the call.
+            if scope.stopped():
+                raise CallRefusedError("refused", "stopped")
             started = time.monotonic()
             status, headers, body = _transport(call, (self._route or ("", frozenset()))[0], scope.stopped, deadline)
             _require_clean(headers, body, scope.credentials)
         except CallRefusedError as exc:
+            _CAPACITY.release()
             scope.audit({"phase": "outcome", "call": ordinal, "error": exc.code, "reason": exc.reason})
             raise _ReportedError(exc) from None
-        finally:
+        except BaseException:
             _CAPACITY.release()
+            raise
+        self._held = True
         scope.audit(
             {
                 "phase": "outcome",
@@ -375,8 +389,8 @@ def _headers(value: object) -> tuple[tuple[str, str], ...]:
 
 
 def _field_value(value: str) -> bool:
-    """A header value without a line break or any other control character than tab."""
-    return all(character == "\t" or " " <= character != "\x7f" for character in value)
+    """A Latin-1 header value without a line break or any other control character than tab."""
+    return all(character == "\t" or (" " <= character <= "\xff" and character != "\x7f") for character in value)
 
 
 def _body(value: object) -> bytes | None:
@@ -467,6 +481,9 @@ def _exchange(
             raise CallRefusedError("failed", "response-size")
     if guard.expired:
         raise CallRefusedError("failed", "timeout")
+    # read1 ends at a premature end of stream without error; only a complete message is released.
+    if response.length:
+        raise CallRefusedError("failed", "response-incomplete")
     return response.status, received, bytes(body)
 
 
@@ -494,33 +511,32 @@ class _Observing:
 
 
 def _require_clean(headers: tuple[tuple[str, str], ...], body: bytes, credentials: tuple[Credential, ...]) -> None:
-    """Refuse a response that carries any injected value in a common encoding or inside a decoded JSON string."""
-    secrets = tuple(dict.fromkeys(secret for credential in credentials for secret in credential.protected if secret))
-    forms = tuple({form.lower() for secret in secrets for form in (secret, *action_failure.encodings(secret)) if form})
-    texts = (*(value.lower() for _name, value in headers), body.decode("latin-1").lower())
-    if any(form in text for form in forms for text in texts) or _json_echoes(body, secrets):
+    """Refuse a response that carries any injected value in a common encoding, in any header or the body.
+
+    The body is read as bytes, as UTF-8 text, and with its JSON string escapes decoded, whether or not it parses, so an
+    escaped or duplicated JSON member cannot carry a value past the scan; every comparison ignores case.
+    """
+    secrets = {secret for credential in credentials for secret in credential.protected if secret}
+    forms = {form.lower() for secret in secrets for form in (secret, *action_failure.encodings(secret)) if form}
+    text = body.decode("utf-8", "replace")
+    texts = (
+        *(f"{name}: {value}".lower() for name, value in headers),
+        body.decode("latin-1").lower(),
+        text.lower(),
+        _json_unescaped(text).lower(),
+    )
+    if any(form in candidate for form in forms for candidate in texts):
         raise CallRefusedError("failed", "credential-echo")
 
 
-def _json_echoes(body: bytes, secrets: tuple[str, ...]) -> bool:
-    try:
-        document = strict_json.loads(body)
-    except UnicodeError, ValueError, RecursionError:
-        return False
-    return any(secret in text for text in _strings(document) for secret in secrets)
+_JSON_ESCAPE = re.compile(r'\\(?:u([0-9a-fA-F]{4})|(["\\/bfnrt]))')
+_JSON_SIMPLE = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
 
 
-def _strings(document: object) -> Iterator[str]:
-    pending = [document]
-    while pending:
-        current = pending.pop()
-        if isinstance(current, str):
-            yield current
-        elif isinstance(current, dict):
-            yield from current
-            pending.extend(current.values())
-        elif isinstance(current, list):
-            pending.extend(current)
+def _json_unescaped(text: str) -> str:
+    """Decode every JSON string escape in ``text``; a surrogate pair decodes to its one character."""
+    decoded = _JSON_ESCAPE.sub(lambda match: chr(int(match[1], 16)) if match[1] else _JSON_SIMPLE[match[2]], text)
+    return decoded.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
 
 
 def _b64(value: bytes) -> str:

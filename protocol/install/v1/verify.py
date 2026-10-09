@@ -174,7 +174,7 @@ def validate_resolve(value: dict[str, object]) -> None:
         if isinstance(action, dict)
     ):
         raise ContractViolationError("resolve_stored_input_mismatch")
-    if not placements_admitted(stored_inputs, value.get("allowed_hosts")):
+    if not placements_admitted(stored_inputs, value.get("allowed_hosts")) or not proofs_signed(actions, stored_inputs):
         raise ContractViolationError("resolve_stored_input_placement")
 
 
@@ -219,6 +219,18 @@ def placements_admitted(stored_inputs: list[object], allowed_hosts: object) -> b
             return False
         fields.add((item.get("host"), field))
     return True
+
+
+def proofs_signed(actions: list[object], stored_inputs: list[object]) -> bool:
+    """An Action that declares a proof also declares the Stored Input it signs, which Team places beside it."""
+    signed = {item["id"]: item["hmac"] for item in stored_inputs if isinstance(item, dict) and "hmac" in item}
+    return all(
+        signed[slot] in action["stored_inputs"]
+        for action in actions
+        if isinstance(action, dict) and isinstance(action.get("stored_inputs"), list)
+        for slot in action["stored_inputs"]
+        if slot in signed
+    )
 
 
 def input_files_admitted(action: dict[str, object]) -> bool:

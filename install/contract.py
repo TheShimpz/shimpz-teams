@@ -159,9 +159,12 @@ def _validate_resolve(value: dict[str, object]) -> None:
         raise ContractValidationError("resolve_stored_input_mismatch")
     try:
         allowed_hosts = tuple(value["allowed_hosts"])
-        assistant_manifest.stored_input_declarations_from_documents(stored_inputs, allowed_hosts)
+        declarations = assistant_manifest.stored_input_declarations_from_documents(stored_inputs, allowed_hosts)
+        signed = assistant_manifest.proofs_signed(actions if isinstance(actions, list) else [], declarations)
     except (assistant_manifest.ManifestError, KeyError, TypeError) as exc:
         raise ContractValidationError("resolve_stored_input_placement") from exc
+    if not signed:
+        raise ContractValidationError("resolve_stored_input_placement")
 
 
 def _validate_catalog(value: dict[str, object]) -> None:

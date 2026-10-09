@@ -2077,6 +2077,43 @@
       }
     },
     {
+      "name": "resolve_stored_input_proof_without_its_signed_slot",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_placement",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-app-secret"
+            ],
+            "input_files": [],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "mutating"
+          }
+        ]
+      }
+    },
+    {
       "name": "resolve_without_pack_digest",
       "fixture": "resolve_response",
       "valid": false,

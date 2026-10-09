@@ -260,6 +260,39 @@ class AssistantManifestTests(unittest.TestCase):
                 allowed_hosts=(),
             )
 
+    def test_an_action_declaring_a_proof_also_declares_the_stored_input_it_signs(self) -> None:
+        declarations = assistant_manifest.canonical_stored_input_declarations(
+            {
+                "token": _stored("Token", header="Authorization", scheme="Bearer"),
+                "secret": _stored("Secret", query="appsecret_proof", hmac="token"),
+            },
+            ("api.example.com",),
+        )
+        action = {
+            "id": "list-items",
+            "input_schema": {"type": "object", "additionalProperties": False},
+            "output_schema": {"type": "object", "additionalProperties": False},
+            "integrations": [],
+            "stored_inputs": ["secret", "token"],
+            "input_files": [],
+            "human_requests": ["input:password"],
+            "effect": "read_only",
+        }
+        contract = {"version": 1, "actions": [action], "messages": catalog_fixtures.messages()}
+        summary = catalog_fixtures.SUMMARY
+        assistant_manifest.canonical_machine_contract(contract, (), declarations, summary=summary, allowed_hosts=())
+        for slots in (["secret"], ["token"]):
+            contract["actions"] = [{**action, "stored_inputs": slots}]
+            if slots == ["token"]:
+                assistant_manifest.canonical_machine_contract(
+                    contract, (), declarations, summary=summary, allowed_hosts=()
+                )
+                continue
+            with self.subTest(slots=slots), self.assertRaisesRegex(assistant_manifest.ManifestError, "proof"):
+                assistant_manifest.canonical_machine_contract(
+                    contract, (), declarations, summary=summary, allowed_hosts=()
+                )
+
     def test_an_action_may_use_several_declared_stored_inputs_as_one_sorted_list(self) -> None:
         declarations = assistant_manifest.canonical_stored_input_declarations(
             {

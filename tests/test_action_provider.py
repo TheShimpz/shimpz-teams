@@ -340,7 +340,10 @@ class TransportTests(unittest.TestCase):
 
     def _call(self, frame: dict[str, object], credentials=(), audit=None) -> dict[str, object]:
         broker = provider.Broker(_scope(credentials, audit=audit))
-        return json.loads(broker(frame, time.monotonic() + 5))
+        try:
+            return json.loads(broker(frame, time.monotonic() + 5))
+        finally:
+            broker.release()
 
     def test_team_places_the_credential_and_the_action_receives_only_the_response(self) -> None:
         bearer = provider.Credential("stored-input:t", HOST, "authorization", None, f"Bearer {TOKEN}", (TOKEN,))
@@ -380,6 +383,48 @@ class TransportTests(unittest.TestCase):
         _Origin.script = (200, [("X-Echo", TOKEN)], b"{}")
         self.assertEqual(self._call(_frame(), (bearer,)), {"error": "failed"})
 
+    def test_refuses_echoes_in_header_names_escaped_or_duplicated_json_and_unicode_text(self) -> None:
+        unicode_token = "tök€n-" + TOKEN
+        bearer = provider.Credential("stored-input:t", HOST, "authorization", None, f"Bearer {TOKEN}", (TOKEN,))
+        accented = provider.Credential("stored-input:u", HOST, None, "key", unicode_token, (unicode_token,))
+        mixed = "".join(f"\\u{ord(character):04X}" for character in TOKEN)
+        for headers, payload in (
+            ([(f"X-{TOKEN}", "1")], b"{}"),
+            ([], b'{"a":"' + mixed.encode() + b'"}'),
+            ([], b'{"a":"safe","a":"' + mixed.encode() + b'"}'),
+            ([], b'not json "' + mixed.encode() + b'"'),
+            ([], f"plain {unicode_token}".encode()),
+        ):
+            with self.subTest(payload=payload[:24]):
+                _Origin.script = (200, headers, payload)
+                self.assertEqual(self._call(_frame(), (bearer, accented)), {"error": "failed"})
+
+    def test_a_header_value_http_cannot_carry_is_refused_before_dispatch(self) -> None:
+        euro = provider.Credential("stored-input:e", HOST, "x-key", None, "k€y", ("k€y",))
+        self.assertEqual(self._call(_frame(), (euro,)), {"error": "refused"})
+        self.assertEqual(self._call(_frame(headers=[["x-note", "€"]])), {"error": "refused"})
+        self.assertEqual(_Origin.seen, [])
+
+    def test_a_response_cut_before_its_declared_length_is_refused(self) -> None:
+        def truncated(handler: _Origin) -> None:
+            handler.send_response(200)
+            handler.send_header("Content-Length", "10")
+            handler.end_headers()
+            handler.wfile.write(b"{}")
+            handler.close_connection = True
+
+        with mock.patch.object(_Origin, "_answer", truncated):
+            self.assertEqual(self._call(_frame()), {"error": "failed"})
+
+    def test_a_delivered_reply_holds_its_call_capacity_until_released(self) -> None:
+        free = provider._CAPACITY._value
+        broker = provider.Broker(_scope())
+        self.assertEqual(json.loads(broker(_frame(), time.monotonic() + 5))["status"], 200)
+        self.assertEqual(provider._CAPACITY._value, free - 1)
+        broker.release()
+        broker.release()
+        self.assertEqual(provider._CAPACITY._value, free)
+
     def test_refuses_compressed_and_oversized_responses(self) -> None:
         _Origin.script = (200, [("Content-Encoding", "gzip")], b"\x1f\x8b")
         self.assertEqual(self._call(_frame()), {"error": "failed"})
@@ -411,6 +456,22 @@ class TransportTests(unittest.TestCase):
             self.assertEqual(json.loads(broker(_frame(), time.monotonic() + 5)), {"error": "failed"})
             self.assertLess(time.monotonic() - started, 1.5)
         self.assertEqual(json.loads(broker(_frame(), time.monotonic() + 5)), {"error": "refused"})
+
+    def test_a_stop_while_the_dispatch_record_is_written_sends_nothing(self) -> None:
+        stopped = threading.Event()
+        audits: list[dict[str, object]] = []
+
+        def audit(fields: dict[str, object]) -> None:
+            audits.append(fields)
+            if fields["phase"] == "dispatch":
+                stopped.set()
+
+        broker = provider.Broker(_scope(audit=audit, stopped=stopped.is_set))
+        self.assertEqual(json.loads(broker(_frame(), time.monotonic() + 5)), {"error": "refused"})
+        self.assertEqual(_Origin.seen, [])
+        self.assertEqual(
+            [(item["phase"], item.get("reason")) for item in audits], [("dispatch", None), ("outcome", "stopped")]
+        )
 
     def test_an_audit_failure_before_dispatch_sends_nothing(self) -> None:
         def failing(_fields: object) -> None:
