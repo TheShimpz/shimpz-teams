@@ -133,6 +133,12 @@
           ],
           "messages": [
             {
+              "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+              "msgid": "Token used to call the WhatsApp API.",
+              "max_length": 500,
+              "params": []
+            },
+            {
               "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
               "msgid": "Greet one reviewed zone.",
               "max_length": 120,
@@ -185,6 +191,12 @@
                   "max_length": 40
                 }
               ]
+            },
+            {
+              "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+              "msgid": "App secret used to sign WhatsApp API calls.",
+              "max_length": 500,
+              "params": []
             }
           ]
         },
@@ -210,7 +222,8 @@
             "description": "App secret used to sign WhatsApp API calls.",
             "host": "graph.facebook.com",
             "query": "appsecret_proof",
-            "hmac": "whatsapp-token"
+            "hmac": "whatsapp-token",
+            "help_url": "https://developers.facebook.com/apps/"
           },
           {
             "id": "whatsapp-token",
@@ -219,7 +232,8 @@
             "description": "Token used to call the WhatsApp API.",
             "host": "graph.facebook.com",
             "header": "Authorization",
-            "scheme": "Bearer"
+            "scheme": "Bearer",
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ],
         "review_state": "pending",
@@ -1556,7 +1570,8 @@
             "description": "Token used to call the WhatsApp API.",
             "host": "graph.facebook.com",
             "header": "Authorization",
-            "scheme": "Bearer"
+            "scheme": "Bearer",
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           },
           {
             "id": "whatsapp-token",
@@ -1565,7 +1580,8 @@
             "description": "Token used to call the WhatsApp API.",
             "host": "graph.facebook.com",
             "header": "Authorization",
-            "scheme": "Bearer"
+            "scheme": "Bearer",
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
       }
@@ -1905,14 +1921,16 @@
             "description": "App secret used to sign WhatsApp API calls.",
             "host": "graph.facebook.com",
             "query": "appsecret_proof",
-            "hmac": "whatsapp-token"
+            "hmac": "whatsapp-token",
+            "help_url": "https://developers.facebook.com/apps/"
           },
           {
             "id": "whatsapp-token",
             "kind": "password",
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
-            "host": "graph.facebook.com"
+            "host": "graph.facebook.com",
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
       }
@@ -1935,7 +1953,8 @@
             "description": "App secret used to sign WhatsApp API calls.",
             "host": "collector.example.org",
             "query": "appsecret_proof",
-            "hmac": "whatsapp-token"
+            "hmac": "whatsapp-token",
+            "help_url": "https://developers.facebook.com/apps/"
           },
           {
             "id": "whatsapp-token",
@@ -1944,7 +1963,8 @@
             "description": "Token used to call the WhatsApp API.",
             "host": "collector.example.org",
             "header": "Authorization",
-            "scheme": "Bearer"
+            "scheme": "Bearer",
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
       }
@@ -1967,7 +1987,8 @@
             "description": "App secret used to sign WhatsApp API calls.",
             "host": "graph.facebook.com",
             "query": "appsecret_proof",
-            "hmac": "whatsapp-token"
+            "hmac": "whatsapp-token",
+            "help_url": "https://developers.facebook.com/apps/"
           },
           {
             "id": "whatsapp-token",
@@ -1975,7 +1996,8 @@
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
             "host": "graph.facebook.com",
-            "header": "Host"
+            "header": "Host",
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
       }
@@ -1997,7 +2019,8 @@
             "label": "WhatsApp app secret",
             "description": "App secret used to sign WhatsApp API calls.",
             "host": "graph.facebook.com",
-            "header": "authorization"
+            "header": "authorization",
+            "help_url": "https://developers.facebook.com/apps/"
           },
           {
             "id": "whatsapp-token",
@@ -2006,7 +2029,8 @@
             "description": "Token used to call the WhatsApp API.",
             "host": "graph.facebook.com",
             "header": "Authorization",
-            "scheme": "Bearer"
+            "scheme": "Bearer",
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
       }
@@ -2029,7 +2053,8 @@
             "description": "App secret used to sign WhatsApp API calls.",
             "host": "graph.facebook.com",
             "query": "appsecret_proof",
-            "hmac": "other-token"
+            "hmac": "other-token",
+            "help_url": "https://developers.facebook.com/apps/"
           },
           {
             "id": "whatsapp-token",
@@ -2038,7 +2063,8 @@
             "description": "Token used to call the WhatsApp API.",
             "host": "graph.facebook.com",
             "header": "Authorization",
-            "scheme": "Bearer"
+            "scheme": "Bearer",
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
       }
@@ -2061,7 +2087,8 @@
             "description": "App secret used to sign WhatsApp API calls.",
             "host": "graph.facebook.com",
             "query": "appsecret_proof",
-            "hmac": "whatsapp-token"
+            "hmac": "whatsapp-token",
+            "help_url": "https://developers.facebook.com/apps/"
           },
           {
             "id": "whatsapp-token",
@@ -2071,7 +2098,8 @@
             "host": "graph.facebook.com",
             "header": "Authorization",
             "scheme": "Bearer",
-            "hmac": "whatsapp-app-secret"
+            "hmac": "whatsapp-app-secret",
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
       }
@@ -2222,6 +2250,12 @@
         ],
         "value": [
           {
+            "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+            "msgid": "Token used to call the WhatsApp API.",
+            "max_length": 500,
+            "params": []
+          },
+          {
             "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
             "msgid": "Greet one reviewed zone.",
             "max_length": 120,
@@ -2263,6 +2297,12 @@
             "msgid": "WhatsApp token",
             "max_length": 120,
             "params": []
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
+            "params": []
           }
         ]
       }
@@ -2278,6 +2318,12 @@
           "messages"
         ],
         "value": [
+          {
+            "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+            "msgid": "Token used to call the WhatsApp API.",
+            "max_length": 500,
+            "params": []
+          },
           {
             "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
             "msgid": "Greet one reviewed zone.",
@@ -2331,6 +2377,12 @@
                 "max_length": 40
               }
             ]
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
+            "params": []
           }
         ]
       }
@@ -2347,6 +2399,12 @@
           "messages"
         ],
         "value": [
+          {
+            "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+            "msgid": "Token used to call the WhatsApp API.",
+            "max_length": 500,
+            "params": []
+          },
           {
             "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
             "msgid": "Greet one reviewed zone.",
@@ -2388,6 +2446,12 @@
             "msgid": "WhatsApp token",
             "max_length": 120,
             "params": []
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
+            "params": []
           }
         ]
       }
@@ -2404,6 +2468,12 @@
           "messages"
         ],
         "value": [
+          {
+            "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+            "msgid": "Token used to call the WhatsApp API.",
+            "max_length": 500,
+            "params": []
+          },
           {
             "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
             "msgid": "Greet one reviewed zone.",
@@ -2445,6 +2515,12 @@
             "msgid": "WhatsApp token",
             "max_length": 120,
             "params": []
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
+            "params": []
           }
         ]
       }
@@ -2461,6 +2537,12 @@
           "messages"
         ],
         "value": [
+          {
+            "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+            "msgid": "Token used to call the WhatsApp API.",
+            "max_length": 500,
+            "params": []
+          },
           {
             "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
             "msgid": "Greet one reviewed zone.",
@@ -2502,6 +2584,12 @@
             "msgid": "WhatsApp token",
             "max_length": 120,
             "params": []
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
+            "params": []
           }
         ]
       }
@@ -2518,6 +2606,12 @@
           "messages"
         ],
         "value": [
+          {
+            "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+            "msgid": "Token used to call the WhatsApp API.",
+            "max_length": 500,
+            "params": []
+          },
           {
             "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
             "msgid": "Greet one reviewed zone.",
@@ -2559,6 +2653,12 @@
             "msgid": "WhatsApp token",
             "max_length": 120,
             "params": []
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
+            "params": []
           }
         ]
       }
@@ -2575,6 +2675,12 @@
           "messages"
         ],
         "value": [
+          {
+            "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+            "msgid": "Token used to call the WhatsApp API.",
+            "max_length": 500,
+            "params": []
+          },
           {
             "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
             "msgid": "Complete one reviewed greeting Action.",
@@ -2615,6 +2721,12 @@
             "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
             "msgid": "WhatsApp token",
             "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
             "params": []
           }
         ]
@@ -2646,6 +2758,12 @@
         ],
         "value": [
           {
+            "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+            "msgid": "Token used to call the WhatsApp API.",
+            "max_length": 500,
+            "params": []
+          },
+          {
             "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
             "msgid": "Greet one reviewed zone.",
             "max_length": 120,
@@ -2685,6 +2803,12 @@
             "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
             "msgid": "WhatsApp token",
             "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
             "params": []
           }
         ]
@@ -3633,6 +3757,12 @@
         ],
         "value": [
           {
+            "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+            "msgid": "Token used to call the WhatsApp API.",
+            "max_length": 500,
+            "params": []
+          },
+          {
             "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
             "msgid": "Greet one reviewed zone.",
             "max_length": 120,
@@ -3679,6 +3809,12 @@
                 "max_length": 40
               }
             ]
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
+            "params": []
           }
         ]
       }
@@ -3694,6 +3830,12 @@
           "messages"
         ],
         "value": [
+          {
+            "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+            "msgid": "Token used to call the WhatsApp API.",
+            "max_length": 500,
+            "params": []
+          },
           {
             "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
             "msgid": "Greet one reviewed zone.",
@@ -3747,6 +3889,12 @@
                 "max_length": 40
               }
             ]
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
+            "params": []
           }
         ]
       }
@@ -3801,6 +3949,12 @@
         ],
         "value": [
           {
+            "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+            "msgid": "Token used to call the WhatsApp API.",
+            "max_length": 500,
+            "params": []
+          },
+          {
             "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
             "msgid": "Approve the greeting for {zone}",
             "max_length": 80,
@@ -3847,6 +4001,12 @@
                 "max_length": 40
               }
             ]
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
+            "params": []
           }
         ]
       }
@@ -3863,6 +4023,12 @@
           "messages"
         ],
         "value": [
+          {
+            "id": "1fdf6d2d1af0020835453dd5f6c51775fb4520016a47dd2cf172736510b335e8",
+            "msgid": "Token used to call the WhatsApp API.",
+            "max_length": 500,
+            "params": []
+          },
           {
             "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
             "msgid": "Greet one reviewed zone.",
@@ -3916,6 +4082,12 @@
                 "max_length": 40
               }
             ]
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
+            "params": []
           }
         ]
       }
@@ -3979,6 +4151,148 @@
                 "max_length": 40
               }
             ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_without_help_url",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token",
+            "help_url": "https://developers.facebook.com/apps/"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_description_over_400",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token",
+            "help_url": "https://developers.facebook.com/apps/"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Open the provider settings and create a token. Open the provider settings and create a token. Open the provider settings and create a token. Open the provider settings and create a token. Open the provider settings and create a token. Open the provider settings and create a token. Open the provider settings and create a token. Open the provider settings and create a token. Open the provider setting",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer",
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_description_not_in_catalog",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_display_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "2710e5304daee1885ae04def2202be78a0078e85213a9e06eb802b1bd930e3eb",
+            "msgid": "Greet one reviewed zone.",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "5abdd2187142cad388dc40840c7f376b87c1d091aea242c0bd8ac8364286a65a",
+            "msgid": "WhatsApp app secret",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 80,
+            "params": []
+          },
+          {
+            "id": "8c1aa89e9169e9632ffcd0206f7689235ba77d69747bed641e4a89485fbb5f2d",
+            "msgid": "Greets one reviewed zone after your approval and reports exactly what it sent.",
+            "max_length": 500,
+            "params": []
+          },
+          {
+            "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "msgid": "WhatsApp token",
+            "max_length": 120,
+            "params": []
+          },
+          {
+            "id": "b9cd804198a1dd974b3d36a8b8f025986f7d147355befb42da9b5874204e009f",
+            "msgid": "Greet {zone}",
+            "max_length": 160,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "d614880601b1c385e06812bc70bd414a196f5bf5a6c5b7c21f58391b2a7b41ef",
+            "msgid": "App secret used to sign WhatsApp API calls.",
+            "max_length": 500,
+            "params": []
           }
         ]
       }

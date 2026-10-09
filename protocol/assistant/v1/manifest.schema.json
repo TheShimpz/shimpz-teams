@@ -170,6 +170,7 @@
         "kind",
         "label",
         "description",
+        "help_url",
         "host"
       ],
       "oneOf": [
@@ -222,7 +223,7 @@
         "description": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 500,
+          "maxLength": 400,
           "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]+$"
         },
         "help_url": {

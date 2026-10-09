@@ -227,8 +227,8 @@ if (
     manifest_schema.get("properties", {}).get("stored_inputs", {}).get("maxProperties") != 8
     or stored_input.get("additionalProperties") is not False
     or stored_input.get("properties", {}).get("kind", {}).get("const") != "password"
-    or "help_url" in stored_input.get("required", [])
-    or stored_input.get("required") != ["kind", "label", "description", "host"]
+    or stored_input.get("properties", {}).get("description", {}).get("maxLength") != 400
+    or stored_input.get("required") != ["kind", "label", "description", "help_url", "host"]
     or stored_input.get("oneOf") != [{"required": ["header"]}, {"required": ["query"], "not": {"required": ["scheme"]}}]
     or manifest_schema.get("$defs", {}).get("helpUrl", {}).get("maxLength") != 2048
 ):

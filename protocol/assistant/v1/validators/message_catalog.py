@@ -105,10 +105,16 @@ def catalog_error(messages: object, summary: object) -> str | None:
     return _summary_error(messages, summary)
 
 
-def display_uses(description: str, action_descriptions: Iterable[str], labels: Iterable[str]) -> list[tuple[str, int]]:
-    """Return every displayed static text beyond the summary with the bound its catalog message must fit."""
+def display_uses(
+    description: str, action_descriptions: Iterable[str], labels: Iterable[str], help_texts: Iterable[str]
+) -> list[tuple[str, int]]:
+    """Return every displayed static text beyond the summary with the bound its catalog message must fit.
+
+    ``help_texts`` are the Stored Input descriptions: the paragraph a person reads before entering each value.
+    """
     lines = [*action_descriptions, *labels]
-    return [(description, DESCRIPTION_BOUND), *((text, LINE_BOUND) for text in lines)]
+    paragraphs = [description, *help_texts]
+    return [*((text, DESCRIPTION_BOUND) for text in paragraphs), *((text, LINE_BOUND) for text in lines)]
 
 
 def display_error(messages: list[dict[str, object]], uses: Iterable[tuple[object, int]]) -> str | None:
@@ -388,7 +394,7 @@ def _case_messages(case: dict[str, object]) -> object:
 
 
 def _case_uses(case: dict[str, object]) -> list[tuple[object, int]]:
-    return display_uses(case["description"], case["action_descriptions"], case["labels"])
+    return display_uses(case["description"], case["action_descriptions"], case["labels"], case["help_texts"])
 
 
 def _case_bytes(case: dict[str, object]) -> bytes:
@@ -402,7 +408,7 @@ def _verify_outcomes(cases: object, kind: str, evaluate) -> None:
     outcomes: set[bool] = set()
     payloads = {
         "catalog": ({"summary", "messages"}, {"summary", "generated"}, {"summary", "nested"}),
-        "display": ({"messages", "description", "action_descriptions", "labels"},),
+        "display": ({"messages", "description", "action_descriptions", "labels", "help_texts"},),
         "pack": ({"pack"}, {"text"}),
     }[kind]
     for case in cases:

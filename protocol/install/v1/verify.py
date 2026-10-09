@@ -275,10 +275,12 @@ def validate_catalog(value: dict[str, object]) -> None:
 
 
 def display_uses(value: dict[str, object]) -> list[tuple[object, int]]:
-    """The description, each Action description, and each Stored Input label, with their catalog bounds."""
+    """The description, each Action description, and each Stored Input label and help text, with their bounds."""
     actions = value["machine_contract"]["actions"]
-    lines = [action["description"] for action in actions] + [item["label"] for item in value["stored_inputs"]]
-    return [(value["description"], DESCRIPTION_BOUND), *((text, LINE_BOUND) for text in lines)]
+    stored_inputs = value["stored_inputs"]
+    lines = [action["description"] for action in actions] + [item["label"] for item in stored_inputs]
+    paragraphs = [value["description"], *(item["description"] for item in stored_inputs)]
+    return [*((text, DESCRIPTION_BOUND) for text in paragraphs), *((text, LINE_BOUND) for text in lines)]
 
 
 def cataloged(messages: list[dict[str, object]], text: object, bound: int) -> bool:

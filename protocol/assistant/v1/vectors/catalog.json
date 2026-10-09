@@ -1244,6 +1244,12 @@
           "params": []
         },
         {
+          "id": "182637dd0dd78e2a8ce635afb87133995be9e6d00a82030c366b62850cff3300",
+          "msgid": "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it.",
+          "max_length": 500,
+          "params": []
+        },
+        {
           "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
           "msgid": "Delete one DNS record.",
           "max_length": 120,
@@ -1269,6 +1275,9 @@
       ],
       "labels": [
         "Cloudflare API token"
+      ],
+      "help_texts": [
+        "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it."
       ]
     },
     {
@@ -1299,7 +1308,8 @@
         "List your DNS zones.",
         "Delete one DNS record."
       ],
-      "labels": []
+      "labels": [],
+      "help_texts": []
     },
     {
       "name": "valid_shared_template_takes_the_tighter_bound",
@@ -1309,6 +1319,12 @@
           "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
           "msgid": "List your DNS zones.",
           "max_length": 80,
+          "params": []
+        },
+        {
+          "id": "182637dd0dd78e2a8ce635afb87133995be9e6d00a82030c366b62850cff3300",
+          "msgid": "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it.",
+          "max_length": 500,
           "params": []
         },
         {
@@ -1331,6 +1347,9 @@
       ],
       "labels": [
         "List your DNS zones."
+      ],
+      "help_texts": [
+        "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it."
       ]
     },
     {
@@ -1341,6 +1360,12 @@
           "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
           "msgid": "List your DNS zones.",
           "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "182637dd0dd78e2a8ce635afb87133995be9e6d00a82030c366b62850cff3300",
+          "msgid": "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it.",
+          "max_length": 500,
           "params": []
         },
         {
@@ -1363,6 +1388,9 @@
       ],
       "labels": [
         "Cloudflare API token"
+      ],
+      "help_texts": [
+        "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it."
       ]
     },
     {
@@ -1377,6 +1405,12 @@
           "params": []
         },
         {
+          "id": "182637dd0dd78e2a8ce635afb87133995be9e6d00a82030c366b62850cff3300",
+          "msgid": "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it.",
+          "max_length": 500,
+          "params": []
+        },
+        {
           "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
           "msgid": "Delete one DNS record.",
           "max_length": 120,
@@ -1396,6 +1430,9 @@
       ],
       "labels": [
         "Cloudflare API token"
+      ],
+      "help_texts": [
+        "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it."
       ]
     },
     {
@@ -1403,6 +1440,12 @@
       "valid": false,
       "error": "catalog_display",
       "messages": [
+        {
+          "id": "182637dd0dd78e2a8ce635afb87133995be9e6d00a82030c366b62850cff3300",
+          "msgid": "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it.",
+          "max_length": 500,
+          "params": []
+        },
         {
           "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
           "msgid": "Delete one DNS record.",
@@ -1429,6 +1472,9 @@
       ],
       "labels": [
         "Cloudflare API token"
+      ],
+      "help_texts": [
+        "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it."
       ]
     },
     {
@@ -1443,6 +1489,12 @@
           "params": []
         },
         {
+          "id": "182637dd0dd78e2a8ce635afb87133995be9e6d00a82030c366b62850cff3300",
+          "msgid": "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it.",
+          "max_length": 500,
+          "params": []
+        },
+        {
           "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
           "msgid": "Delete one DNS record.",
           "max_length": 120,
@@ -1462,6 +1514,51 @@
       ],
       "labels": [
         "Cloudflare API token"
+      ],
+      "help_texts": [
+        "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it."
+      ]
+    },
+    {
+      "name": "reject_missing_help_text",
+      "valid": false,
+      "error": "catalog_display",
+      "messages": [
+        {
+          "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
+          "msgid": "List your DNS zones.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
+          "msgid": "Delete one DNS record.",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "677521d34853b4c2f638c341bbca71497901fd297bcef9bb37971a6dbb256283",
+          "msgid": "Cloudflare API token",
+          "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "d582afdfcaec555293adcb7e7f904a6e063e6cb0b66aa358a1dad7efa36a58b9",
+          "msgid": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+          "max_length": 500,
+          "params": []
+        }
+      ],
+      "description": "Manage your Cloudflare DNS by asking in plain words. It reads your zones and records, shows exactly what will change, and applies a change only after your password.",
+      "action_descriptions": [
+        "List your DNS zones.",
+        "Delete one DNS record."
+      ],
+      "labels": [
+        "Cloudflare API token"
+      ],
+      "help_texts": [
+        "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it."
       ]
     },
     {
@@ -1476,6 +1573,12 @@
           "params": []
         },
         {
+          "id": "182637dd0dd78e2a8ce635afb87133995be9e6d00a82030c366b62850cff3300",
+          "msgid": "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it.",
+          "max_length": 500,
+          "params": []
+        },
+        {
           "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
           "msgid": "Delete one DNS record.",
           "max_length": 120,
@@ -1501,6 +1604,9 @@
       ],
       "labels": [
         "Cloudflare API token"
+      ],
+      "help_texts": [
+        "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it."
       ]
     },
     {
@@ -1515,6 +1621,12 @@
           "params": []
         },
         {
+          "id": "182637dd0dd78e2a8ce635afb87133995be9e6d00a82030c366b62850cff3300",
+          "msgid": "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it.",
+          "max_length": 500,
+          "params": []
+        },
+        {
           "id": "51bfc80ba92d84fdcaeba7747dad4c5d1a1382554beb6cfa8250d403bdc03ee9",
           "msgid": "Delete one DNS record.",
           "max_length": 120,
@@ -1540,6 +1652,9 @@
       ],
       "labels": [
         "Cloudflare API token"
+      ],
+      "help_texts": [
+        "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it."
       ]
     },
     {
@@ -1551,6 +1666,12 @@
           "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
           "msgid": "List your DNS zones.",
           "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "182637dd0dd78e2a8ce635afb87133995be9e6d00a82030c366b62850cff3300",
+          "msgid": "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it.",
+          "max_length": 500,
           "params": []
         },
         {
@@ -1585,6 +1706,9 @@
       ],
       "labels": [
         "Cloudflare API token"
+      ],
+      "help_texts": [
+        "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it."
       ]
     },
     {
@@ -1596,6 +1720,12 @@
           "id": "14b28d56f3123e2fcf2a2919263f288c6294c6039fc16405f2b0b97900eece04",
           "msgid": "List your DNS zones.",
           "max_length": 120,
+          "params": []
+        },
+        {
+          "id": "182637dd0dd78e2a8ce635afb87133995be9e6d00a82030c366b62850cff3300",
+          "msgid": "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it.",
+          "max_length": 500,
           "params": []
         },
         {
@@ -1624,6 +1754,9 @@
       ],
       "labels": [
         "Cloudflare API token"
+      ],
+      "help_texts": [
+        "A key that lets this Assistant change your DNS. In the Cloudflare dashboard, open My Profile > API Tokens, create a token with DNS edit access, and copy it."
       ]
     }
   ],

@@ -53,9 +53,9 @@ The machine contract carries the Assistant's English message catalog as a sorted
 `{id, msgid, max_length, params}` (Developers Assistant Spec v1 owns its complete semantics). Every `id` is the
 lowercase SHA-256 of its `msgid` bytes, and the published `summary`, a short description of 1 to 80 characters, is one
 catalog message with no parameters and a `max_length` of at most 80. The other displayed static copy is cataloged
-the same way, or resolve fails with `resolve_display_mismatch`: the `description` (1 to 400 characters) within a
-`max_length` of at most 500, and each Action `description` and each Stored Input `label` (1 to 80 characters each)
-within a `max_length` of at most 120.
+the same way, or resolve fails with `resolve_display_mismatch`: the `description` and each Stored Input
+`description` (1 to 400 characters each) within a `max_length` of at most 500, and each Action `description` and each
+Stored Input `label` (1 to 80 characters each) within a `max_length` of at most 120.
 
 Every machine-contract Action carries its one-line `description` and its `effect`, `read_only` or `mutating`, and a `mutating` Action may carry one
 closed `verifier` descriptor naming a `read_only` Action of the same contract, its typed input bindings from the
@@ -94,13 +94,16 @@ same Action.
 
 Resolve also carries each reviewed Stored Input declaration and every Action's exact use list. Stored Inputs are
 token-like third-party credentials rather than OAuth Integrations. The declaration contains only id, closed
-`password` kind, label, description, an optional `help_url`, and its placement: the one `host` (one of
+`password` kind, label, description, `help_url`, and its placement: the one `host` (one of
 `allowed_hosts`) that ever receives the value and exactly one `header` or `query` field, with an optional `scheme`
 for a header and an optional `hmac` proof over another plain Stored Input of the same host (ADR-0106). A placement in
 a field Team owns, a field another Stored Input uses on the same host, or a proof of an unknown, own, or proof slot
-is refused as `resolve_stored_input_placement`. No value, configured status, or ciphertext crosses this boundary. `help_url` is the page where a person creates the value: at most 2,048 characters of one canonical
-`https` URL on a public DNS host, with a path, an optional query, and no port, credentials, fragment, or dot
-segment, written exactly as WHATWG URL serialization would print it. Every Action references a sorted, unique list
+is refused as `resolve_stored_input_placement`. No value, configured status, or ciphertext crosses this boundary.
+The description is the help text a person reads before entering the value: what it is and how to get it, in plain
+language. `help_url` is the official page where a person creates or finds the value, or the provider documentation
+that explains how: at most 2,048 characters of one canonical `https` URL on a public DNS host, with a path, an
+optional query, and no port, credentials, fragment, or dot segment, written exactly as WHATWG URL serialization would
+print it. Every Action references a sorted, unique list
 of at most eight declared ids, and Team injects into that Action's provider calls only the values of the ids it
 lists; the Assistant never receives a value.
 

@@ -12,11 +12,13 @@ id after replacing underscores with hyphens. `lib/` and `tests/` are optional au
 The manifest is represented by `manifest.schema.json`. Identity, version, disclosure, and Genesis
 live under the required `[shimpz]` table. Exact outbound hosts live under the required `[network]`
 table. Optional provider requests remain peer `[integrations.<id>]` tables. Root-level metadata and
-optional persistent Action inputs use peer `[stored_inputs.<id>]` tables with the closed `password` kind,
-bounded public label, bounded public description, and an optional `help_url`: the page where a person creates the
-value, at most 2,048 characters of one canonical `https` URL on a public DNS host with a path, an optional query,
-and no port, credentials, fragment, or dot segment, written exactly as WHATWG URL serialization prints it. Team
-shows it as the key-creation link of the Stored Input request. A Stored Input is a provider credential the Action
+optional persistent Action inputs use peer `[stored_inputs.<id>]` tables with the closed `password` kind, a
+bounded public label, a help-text `description`, and a required `help_url`. The description is what a person reads
+before entering the value: what it is and how to get it, in plain language, one line of 1 to 400 characters. The
+`help_url` is the official page where a person creates or finds the value, or the provider documentation that explains
+how: at most 2,048 characters of one canonical `https` URL on a public DNS host with a path, an optional query, and no
+port, credentials, fragment, or dot segment, written exactly as WHATWG URL serialization prints it. Team shows the help
+text and link wherever the person is asked for the value, and only the link is clickable. A Stored Input is a provider credential the Action
 never receives: its required placement says where Team puts it in each provider call (ADR-0106). `host` is one of the
 manifest's `allowed_hosts` and the only host that ever receives the value. Exactly one of `header` (an RFC 9110
 field name other than `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `TE`, `Trailer`,
@@ -271,11 +273,12 @@ a required `messages` list of `{id, msgid, max_length, params}` objects, sorted 
 - The manifest `summary` is a short description of 1 to 80 characters (Unicode code points), and it joins the catalog:
   one message has exactly that `msgid`, no parameters, and a `max_length` of at most 80, so every translated summary
   also fits 80 characters. A summary that is not NFC or that contains a brace therefore cannot be published.
-- The other displayed static copy joins the catalog the same way: the manifest `description` as a parameterless
-  message with a `max_length` of at most 500, and each Action `description` and each Stored Input `label` as a
-  parameterless message with a `max_length` of at most 120, so their translations fit 500 and 120 characters while
-  the English copy stays within 400 and 80. One template that serves several uses carries the smallest bound of them
-  all. A Stored Input `description` is not displayed and stays canonical English outside the catalog.
+- The other displayed static copy joins the catalog the same way: the manifest `description` and each Stored Input
+  `description` as a parameterless message with a `max_length` of at most 500, and each Action `description` and each
+  Stored Input `label` as a parameterless message with a `max_length` of at most 120, so their translations fit 500
+  and 120 characters while the English copy stays within 400 and 80. One template that serves several uses carries
+  the smallest bound of them all. Literal identifiers inside a translated text, such as a provider permission name,
+  are kept by translation intent, not by an admission rule.
   `validators/message_catalog.py` `display_error` is the reference check and `vectors/catalog.json` `display_cases`
   freezes it.
 
