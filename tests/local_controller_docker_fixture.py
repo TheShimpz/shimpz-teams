@@ -8,6 +8,7 @@ import os
 import secrets
 import threading
 import time
+import tomllib
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -310,6 +311,8 @@ def fixture_resolution(flow: DockerFlow) -> dict[str, object]:
             "assistant_id": "shimpz-cloudflare",
             "name": "Shimpz Cloudflare",
             "summary": "List Cloudflare zones and inspect their DNS records through OAuth.",
+            "description": tomllib.loads(manifest.decode())["shimpz"]["description"],
+            "links": tomllib.loads(manifest.decode())["shimpz"]["links"],
             "assistant_version": "0.1.0",
             "creators": ["@roxygens"],
             "source_digest": flow.source_digest,
