@@ -192,6 +192,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             version=str(document["assistant_version"]),
             name=str(document["name"]),
             summary=str(document["summary"]),
+            description=contract.presentation.description,
             image=image,
             actions=contract.actions,
             allowed_hosts=contract.allowed_hosts,

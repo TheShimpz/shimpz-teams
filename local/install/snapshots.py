@@ -43,6 +43,8 @@ _RECORD_FIELDS = {
     "assistant_version",
     "name",
     "summary",
+    "description",
+    "links",
     "image_id",
     "platform",
     "source_digest",
@@ -200,7 +202,8 @@ def preview(client, image_id: str, *, platform: str | None = None) -> SnapshotPr
         identity = assistant_manifest.parse_manifest_identity(manifest)
         creators = assistant_manifest.parse_manifest_creators(manifest)[:4]
         source_package.validate_icon(extracted[ICON_PATH])
-        summaries = _preview_summaries(identity.summary, manifest, extracted)
+        presentation = assistant_manifest.parse_manifest_presentation(manifest)
+        summaries = _preview_summaries(identity.summary, presentation.description, manifest, extracted)
     except (source_package.SourcePackageError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the Local Assistant preview is invalid") from exc
     if (
@@ -214,13 +217,16 @@ def preview(client, image_id: str, *, platform: str | None = None) -> SnapshotPr
     return SnapshotPreview(icon=extracted[ICON_PATH], summaries=summaries)
 
 
-def _preview_summaries(summary: str, manifest: bytes, extracted: dict[str, bytes]) -> Mapping[str, str]:
+def _preview_summaries(
+    summary: str, description: str, manifest: bytes, extracted: dict[str, bytes]
+) -> Mapping[str, str]:
     contract = assistant_manifest.parse_manifest_contract(manifest)
     machine_contract = assistant_manifest.parse_machine_contract(
         extracted[assistant_manifest.CONTRACT_PATH],
         contract.integrations,
         contract.stored_inputs,
         summary=summary,
+        description=description,
         allowed_hosts=contract.allowed_hosts,
     )
     raw_pack = extracted[assistant_language.PACK_PATH]
@@ -240,6 +246,9 @@ def validate_record(record: dict[str, Any]) -> None:
             name=record["name"],
             summary=record["summary"],
         )
+        presentation = assistant_manifest.canonical_manifest_presentation(
+            description=record["description"], links=record["links"]
+        )
         declarations = _integration_declarations(record["integrations"])
         stored_inputs = _stored_input_declarations(record["stored_inputs"])
         contract = assistant_manifest.canonical_manifest_contract(
@@ -252,6 +261,7 @@ def validate_record(record: dict[str, Any]) -> None:
             declarations,
             stored_inputs,
             summary=identity.summary,
+            description=presentation.description,
             allowed_hosts=contract.allowed_hosts,
         )
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
@@ -463,11 +473,13 @@ def _record(
     if (identity.assistant_id, identity.version) != (candidate.assistant_id, candidate.version):
         raise LocalSnapshotError("the Local Assistant manifest does not match its image labels")
     manifest_contract = assistant_manifest.parse_manifest_contract(package.manifest)
+    presentation = assistant_manifest.parse_manifest_presentation(package.manifest)
     machine_contract = assistant_manifest.parse_machine_contract(
         raw_contract,
         manifest_contract.integrations,
         manifest_contract.stored_inputs,
         summary=identity.summary,
+        description=presentation.description,
         allowed_hosts=manifest_contract.allowed_hosts,
     )
     if candidate.actions != tuple(
@@ -483,6 +495,8 @@ def _record(
         "assistant_version": identity.version,
         "name": identity.name,
         "summary": identity.summary,
+        "description": presentation.description,
+        "links": dict(presentation.links),
         "image_id": candidate.image_id,
         "platform": candidate.platform,
         "source_digest": package.digest,

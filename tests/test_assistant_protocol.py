@@ -56,6 +56,7 @@ class AssistantProtocolTests(unittest.TestCase):
             for position in ("input_schema", "output_schema"):
                 action = {
                     "id": "run",
+                    "description": catalog_fixtures.ACTION_DESCRIPTION,
                     "input_schema": CLOSED_OBJECT,
                     "output_schema": CLOSED_OBJECT,
                     "integrations": [],
@@ -70,6 +71,7 @@ class AssistantProtocolTests(unittest.TestCase):
                         {"version": 1, "actions": [action], "messages": catalog_fixtures.messages()},
                         (),
                         summary=catalog_fixtures.SUMMARY,
+                        description=catalog_fixtures.ASSISTANT_DESCRIPTION,
                         allowed_hosts=(),
                     )
                 except ManifestError:

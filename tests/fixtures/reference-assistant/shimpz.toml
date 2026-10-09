@@ -4,6 +4,7 @@ id = "shimpz-cloudflare"
 version = "0.1.0"
 name = "Shimpz Cloudflare"
 summary = "List Cloudflare zones and inspect their DNS records through OAuth."
+description = "Browse the zones of your Cloudflare account and read the DNS records of each zone. Every Action only reads; nothing in your account changes."
 creators = ["@roxygens"]
 github = "https://github.com/TheShimpz/shimpz-cloudflare"
 genesis = """
@@ -13,6 +14,10 @@ Call list-zones to discover available zones. Call list-dns-records only with a z
 list-zones. Start with page 1 and a small per_page. These Actions are read-only: never claim that a DNS
 record or zone was changed, and never ask the user to paste OAuth credentials.
 """
+
+[shimpz.links]
+site = "https://shimpz.com/"
+github = "https://github.com/TheShimpz"
 
 [network]
 allowed_hosts = ["api.cloudflare.com"]

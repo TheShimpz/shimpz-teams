@@ -24,6 +24,17 @@ REQUEST_TEMPLATES = {
     OPTION: 80,
     OPTION_DESCRIPTION: 160,
 }
+# Displayed static copy every fixture Assistant may declare: its description, one shared Action description, and the
+# Stored Input labels the suite uses, each cataloged within its display bound.
+ASSISTANT_DESCRIPTION = "Exercise one reviewed Assistant through the Team test suite."
+ACTION_DESCRIPTION = "Run one reviewed test Action."
+LINKS = {"site": "https://shimpz.com/", "github": "https://github.com/TheShimpz"}
+# The admitted summary and description a fixture machine contract's catalog carries, as admission takes them.
+COPY = {"summary": SUMMARY, "description": ASSISTANT_DESCRIPTION}
+DISPLAY_TEMPLATES = {
+    ASSISTANT_DESCRIPTION: catalog_validator.DESCRIPTION_BOUND,
+    ACTION_DESCRIPTION: catalog_validator.LINE_BOUND,
+}
 ZONE_PARAMS = [
     {"name": "record", "kind": "identifier", "max_length": 16},
     {"name": "zone", "kind": "domain", "max_length": 30},
@@ -41,13 +52,25 @@ def message(msgid: str, max_length: int = 160, params: list[dict[str, object]] |
 
 
 def messages(summary: str = SUMMARY, *extra: dict[str, object]) -> list[dict[str, object]]:
-    """The summary message, every request template, and any extra messages, sorted by id."""
+    """The summary message, every request and display template, and any extra messages, sorted by id."""
     entries = {item["id"]: item for item in (message(summary, catalog_validator.SUMMARY_BOUND), *extra)}
-    for msgid, bound in REQUEST_TEMPLATES.items():
+    for msgid, bound in {**REQUEST_TEMPLATES, **DISPLAY_TEMPLATES}.items():
         entries.setdefault(catalog_validator.message_id(msgid), message(msgid, bound))
     zone = message(ZONE_TITLE, 80, ZONE_PARAMS)
     entries.setdefault(zone["id"], zone)
     return [entries[identifier] for identifier in sorted(entries)]
+
+
+def display_messages(
+    actions: object = (), labels: tuple[str, ...] = (), summary: str = SUMMARY
+) -> list[dict[str, object]]:
+    """The catalog of ``messages`` plus one display message per string Action description and Stored Input label."""
+    descriptions = [
+        action["description"]
+        for action in actions
+        if isinstance(action, dict) and isinstance(action.get("description"), str)
+    ]
+    return messages(summary, *(message(text, catalog_validator.LINE_BOUND) for text in (*descriptions, *labels)))
 
 
 def ref(msgid: str, **params: object) -> dict[str, object]:

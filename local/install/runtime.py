@@ -18,6 +18,7 @@ class AssistantSpec:
     version: str
     name: str
     summary: str
+    description: str
     image: str
     actions: dict[str, ActionSpec]
     allowed_hosts: tuple[str, ...]

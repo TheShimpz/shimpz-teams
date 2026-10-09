@@ -8,6 +8,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
 from protocol.assistant.v1.validators import input_file as input_file_validator
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[1] / "protocol" / "install" / "v1"
 DEFINITIONS = "definitions.schema.json"
@@ -140,9 +141,8 @@ def _validate_resolve(value: dict[str, object]) -> None:
         raise ContractValidationError("resolve_integration_mismatch")
     if set(intent_ids) != required_ids:
         raise ContractValidationError("resolve_integration_mismatch")
-    stored_inputs = value.get("stored_inputs")
-    if not isinstance(stored_inputs, list):
-        return
+    # Catalog validation already read the schema-valid Stored Input list for its labels.
+    stored_inputs = value["stored_inputs"]
     stored_input_ids = _intent_ids(stored_inputs)
     required_stored_input_ids = _required_ids(contract, "stored_inputs")
     if len(stored_input_ids) != len(stored_inputs) or len(set(stored_input_ids)) != len(stored_input_ids):
@@ -159,7 +159,7 @@ def _validate_resolve(value: dict[str, object]) -> None:
 
 
 def _validate_catalog(value: dict[str, object]) -> None:
-    """Bind each schema-valid catalog id to its template and require the summary message."""
+    """Bind each schema-valid catalog id to its template and require every displayed static text as a message."""
     contract = value.get("machine_contract")
     messages = contract.get("messages") if isinstance(contract, dict) else None
     if not isinstance(messages, list):
@@ -170,10 +170,19 @@ def _validate_catalog(value: dict[str, object]) -> None:
     ):
         raise ContractValidationError("resolve_catalog_mismatch")
     if not any(
-        message["msgid"] == value["summary"] and not message["params"] and message["max_length"] <= 80
+        message["msgid"] == value["summary"]
+        and not message["params"]
+        and message["max_length"] <= catalog_validator.SUMMARY_BOUND
         for message in messages
     ):
         raise ContractValidationError("resolve_summary_mismatch")
+    uses = catalog_validator.display_uses(
+        value["description"],
+        (action["description"] for action in contract["actions"]),
+        (stored_input["label"] for stored_input in value["stored_inputs"]),
+    )
+    if catalog_validator.display_error(messages, uses) is not None:
+        raise ContractValidationError("resolve_display_mismatch")
 
 
 def _intent_ids(intents: list[object]) -> list[str]:

@@ -13,9 +13,10 @@ VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" 
 
 def _admit(actions: object) -> dict[str, object]:
     return assistant_manifest.canonical_machine_contract(
-        {"version": 1, "actions": actions, "messages": catalog_fixtures.messages()},
+        {"version": 1, "actions": actions, "messages": catalog_fixtures.display_messages(actions)},
         (),
         summary=catalog_fixtures.SUMMARY,
+        description=catalog_fixtures.ASSISTANT_DESCRIPTION,
         allowed_hosts=(),
     )
 

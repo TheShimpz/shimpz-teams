@@ -77,6 +77,7 @@ class AssistantContract:
 class AssistantSpec:
     version: str
     summary: str
+    description: str
     image: str
     allowed_hosts: tuple[str, ...]
     archs: tuple[str, ...]
@@ -93,6 +94,7 @@ class RuntimeContract:
     integrations: dict[str, IntegrationSpec]
     stored_inputs: dict[str, StoredInputSpec]
     machine_contract: dict[str, Any]
+    presentation: assistant_manifest.ManifestPresentation
 
 
 def runtime_contract(document: Mapping[str, Any]) -> RuntimeContract:
@@ -109,11 +111,15 @@ def runtime_contract(document: Mapping[str, Any]) -> RuntimeContract:
         for integration in document["integrations"]
     )
     stored_input_declarations = assistant_manifest.stored_input_declarations_from_documents(document["stored_inputs"])
+    presentation = assistant_manifest.canonical_manifest_presentation(
+        description=document["description"], links=document["links"]
+    )
     machine_contract = assistant_manifest.canonical_machine_contract(
         document["machine_contract"],
         declarations,
         stored_input_declarations,
         summary=document["summary"],
+        description=presentation.description,
         allowed_hosts=assistant_manifest.canonical_allowed_hosts(document["allowed_hosts"]),
     )
     if machine_contract != document["machine_contract"]:
@@ -136,6 +142,7 @@ def runtime_contract(document: Mapping[str, Any]) -> RuntimeContract:
         integrations=integrations,
         stored_inputs=stored_inputs,
         machine_contract=machine_contract,
+        presentation=presentation,
     )
 
 

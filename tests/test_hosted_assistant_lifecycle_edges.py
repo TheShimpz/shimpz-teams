@@ -264,6 +264,7 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
     def test_hosted_admission_refuses_a_pack_that_fails_its_binding(self) -> None:
         spec = SimpleNamespace(
             summary=catalog_fixtures.SUMMARY,
+            description=catalog_fixtures.ASSISTANT_DESCRIPTION,
             allowed_hosts=(),
             contract=SimpleNamespace(
                 machine_contract=CONTRACT,
@@ -367,6 +368,7 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
         lease = object()
         spec = SimpleNamespace(
             summary=catalog_fixtures.SUMMARY,
+            description=catalog_fixtures.ASSISTANT_DESCRIPTION,
             contract=SimpleNamespace(machine_contract=CONTRACT, pack_digest=DIGEST),
         )
         cache = lifecycle.assistant_language.LanguagePackCache()

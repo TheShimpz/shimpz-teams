@@ -35,6 +35,7 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
     return assistant_registry.AssistantSpec(
         version=resolution["assistant_version"],
         summary=resolution["summary"],
+        description=contract.presentation.description,
         image=resolution["image_reference"],
         allowed_hosts=contract.allowed_hosts,
         archs=platforms,

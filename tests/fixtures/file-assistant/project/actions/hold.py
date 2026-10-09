@@ -8,7 +8,7 @@ class Result(TypedDict):
     bytes: int
 
 
-@action(human_requests=["approval"])
+@action(description="Hold one approved document.", human_requests=["approval"])
 async def run(document: File, *, ctx: Context) -> Result:
     ctx.request_approval(title=text("Hold the document"), description=text("Hold the selected document."))
     size = len(document.read())

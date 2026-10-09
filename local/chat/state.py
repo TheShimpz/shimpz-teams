@@ -181,6 +181,7 @@ def _admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tupl
             declared.stored_inputs,
             spec.machine_contract,
             summary=spec.summary,
+            description=spec.description,
             allowed_hosts=declared.allowed_hosts,
         )
         self._assistant_language_cache.get(container, spec.machine_contract, spec.pack_digest)

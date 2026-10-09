@@ -6,9 +6,11 @@ import json
 import re
 import tarfile
 import tomllib
+import unicodedata
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -139,6 +141,15 @@ class ManifestIdentity:
     summary: str
 
 
+@dataclass(frozen=True, slots=True)
+class ManifestPresentation:
+    """Creator-declared Assistant page copy: one description paragraph and unverified public links."""
+
+    description: str
+    # Kind to URL in canonical display order; empty when the manifest declares no links.
+    links: Mapping[str, str]
+
+
 def canonical_allowed_hosts(value: object) -> tuple[str, ...]:
     """Return one deterministic list of exact public DNS host names."""
     if not isinstance(value, list | tuple) or len(value) > MAX_ALLOWED_HOSTS:
@@ -182,6 +193,14 @@ def _public_text(value: object, *, kind: str, maximum: int) -> str:
     if resembles_credential(value):
         raise ManifestError(f"Assistant {kind} resembles credential material")
     return value
+
+
+def _display_text(value: object, *, kind: str, maximum: int) -> str:
+    """Public text an Assistant page displays: one printable NFC line, as every translation of it must be."""
+    text = _public_text(value, kind=kind, maximum=maximum)
+    if not text.isprintable() or not unicodedata.is_normalized("NFC", text):
+        raise ManifestError(f"Assistant {kind} is invalid")
+    return text
 
 
 def _genesis(value: object) -> str:
@@ -338,7 +357,16 @@ def _machine_schema(value: object, *, kind: str) -> dict[str, Any]:
 
 
 _ACTION_FIELDS = frozenset(
-    {"id", "input_schema", "output_schema", "integrations", "stored_inputs", "input_files", "human_requests"}
+    {
+        "id",
+        "description",
+        "input_schema",
+        "output_schema",
+        "integrations",
+        "stored_inputs",
+        "input_files",
+        "human_requests",
+    }
 )
 _ACTION_REQUIRED = _ACTION_FIELDS | {"effect"}
 _ACTION_OPTIONAL = frozenset({"verifier", "idempotency"})
@@ -350,12 +378,15 @@ def canonical_machine_contract(
     declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
     *,
     summary: str,
+    description: str,
     allowed_hosts: tuple[str, ...],
 ) -> dict[str, Any]:
     """Validate and canonicalize an untrusted SDK-generated Action contract and its English message catalog.
 
-    The published summary must be one catalog message (ADR-0091), so the caller supplies the summary it admitted, and
-    an idempotency provider must be one of the manifest's exact outbound hosts (ADR-0092), so it supplies those too.
+    The published summary must be one catalog message (ADR-0091), and so must every other displayed static text: the
+    Assistant description, each Action description, and each Stored Input label, within its catalog bound. The caller
+    supplies the summary and description it admitted. An idempotency provider must be one of the manifest's exact
+    outbound hosts (ADR-0092), so the caller supplies those too.
     """
     if not isinstance(value, dict) or set(value) != {"version", "actions", "messages"} or value["version"] != 1:
         raise ManifestError("Assistant machine contract has an unsupported shape")
@@ -377,6 +408,13 @@ def canonical_machine_contract(
     refused = action_effect.refusal(actions, allowed_hosts)
     if refused is not None:
         raise ManifestError(f"Assistant machine contract Action effect is invalid: {refused}")
+    displayed = catalog_validator.display_uses(
+        description,
+        (action["description"] for action in actions),
+        (stored_input.label for stored_input in declared_stored_inputs),
+    )
+    if catalog_validator.display_error(value["messages"], displayed) is not None:
+        raise ManifestError("Assistant machine contract message catalog lacks its displayed copy")
     return {
         "version": 1,
         "actions": sorted(actions, key=lambda action: action["id"]),
@@ -431,6 +469,9 @@ def _canonical_action(
         raise ManifestError("Assistant machine contract Action file input is invalid")
     return {
         "id": action_id,
+        "description": _display_text(
+            raw_action["description"], kind="Action description", maximum=catalog_validator.LINE_CHARS
+        ),
         "input_schema": _machine_schema(raw_action["input_schema"], kind="input"),
         "output_schema": _machine_schema(raw_action["output_schema"], kind="output"),
         "integrations": sorted(integrations),
@@ -448,6 +489,7 @@ def parse_machine_contract(
     declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
     *,
     summary: str,
+    description: str,
     allowed_hosts: tuple[str, ...],
 ) -> dict[str, Any]:
     """Parse a bounded SDK artifact without executing Assistant code."""
@@ -456,6 +498,7 @@ def parse_machine_contract(
         declared_integrations,
         declared_stored_inputs,
         summary=summary,
+        description=description,
         allowed_hosts=allowed_hosts,
     )
 
@@ -523,11 +566,12 @@ def _manifest_table(raw: bytes) -> dict[str, object]:
         "version",
         "name",
         "summary",
+        "description",
         "creators",
         "github",
         "genesis",
     }
-    if set(metadata) != required_metadata or set(network) != {"allowed_hosts"}:
+    if set(metadata) - {"links"} != required_metadata or set(network) != {"allowed_hosts"}:
         raise ManifestError("Assistant manifest contains an unsupported section field")
     _reject_credential_material(manifest)
     return manifest
@@ -548,6 +592,7 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
         raise ManifestError("Assistant version is invalid")
     _public_text(metadata["name"], kind="name", maximum=80)
     _public_text(metadata["summary"], kind="summary", maximum=80)
+    _manifest_presentation(metadata)
     _genesis(metadata["genesis"])
     canonical_manifest_creators(metadata["creators"])
     github = metadata["github"]
@@ -584,6 +629,31 @@ def parse_manifest_identity(raw: bytes) -> ManifestIdentity:
         name=metadata["name"],
         summary=metadata["summary"],
     )
+
+
+def parse_manifest_presentation(raw: bytes) -> ManifestPresentation:
+    """Parse the Creator-declared page copy only after complete manifest admission."""
+    parse_manifest_contract(raw)
+    return _manifest_presentation(_manifest_table(raw)["shimpz"])
+
+
+def _manifest_presentation(metadata: dict[str, object]) -> ManifestPresentation:
+    # A declared links table names at least one link; a record or resolution carries an absent table as empty.
+    if "links" in metadata and metadata["links"] == {}:
+        raise ManifestError("Assistant links are invalid")
+    return canonical_manifest_presentation(description=metadata["description"], links=metadata.get("links", {}))
+
+
+def canonical_manifest_presentation(*, description: object, links: object) -> ManifestPresentation:
+    """Canonicalize the description and the zero to six Creator links a manifest, record, or resolution carries."""
+    canonical_links = http_payload.canonical_creator_links(links)
+    if canonical_links is None:
+        raise ManifestError("Assistant links are invalid")
+    return ManifestPresentation(description=_description(description), links=MappingProxyType(canonical_links))
+
+
+def _description(value: object) -> str:
+    return _display_text(value, kind="description", maximum=catalog_validator.DESCRIPTION_CHARS)
 
 
 def parse_manifest_creators(raw: bytes) -> tuple[str, ...]:
@@ -721,6 +791,7 @@ def read_container_machine_contract(
     declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
     *,
     summary: str,
+    description: str,
     allowed_hosts: tuple[str, ...],
 ) -> dict[str, Any]:
     """Read and validate the fixed SDK contract artifact from an immutable image."""
@@ -731,7 +802,12 @@ def read_container_machine_contract(
         maximum=MAX_CONTRACT_BYTES,
     )
     return parse_machine_contract(
-        raw, declared_integrations, declared_stored_inputs, summary=summary, allowed_hosts=allowed_hosts
+        raw,
+        declared_integrations,
+        declared_stored_inputs,
+        summary=summary,
+        description=description,
+        allowed_hosts=allowed_hosts,
     )
 
 
@@ -780,6 +856,7 @@ class MachineContractCache:
         reviewed: object,
         *,
         summary: str,
+        description: str,
         allowed_hosts: tuple[str, ...],
     ) -> dict[str, Any]:
         """Return the machine contract only after exact semantic equality."""
@@ -793,6 +870,7 @@ class MachineContractCache:
                 declared_integrations,
                 declared_stored_inputs,
                 summary=summary,
+                description=description,
                 allowed_hosts=allowed_hosts,
             ),
         )

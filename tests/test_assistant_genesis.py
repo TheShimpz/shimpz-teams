@@ -13,6 +13,7 @@ id = "fixture"
 version = "0.1.0"
 name = "Fixture"
 summary = "Exercise Genesis admission."
+description = "Exercise the Genesis admission of one fixture Assistant."
 creators = ["@fixture"]
 github = "https://github.com/TheShimpz/fixture"
 genesis = \"\"\"

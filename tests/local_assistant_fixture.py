@@ -2,7 +2,7 @@
 
 from assistant import spec as assistant_registry
 from local.install.runtime import AssistantSpec
-from tests import human_request_fixtures
+from tests import catalog_fixtures, human_request_fixtures
 
 SUMMARY = "Cloudflare test fixture"
 # The fixed reviewed catalog and pack every harness binding carries (ADR-0091).
@@ -81,6 +81,7 @@ def assistant_spec(image: str) -> AssistantSpec:
         version="0.4.1",
         name="Shimpz Cloudflare",
         summary=SUMMARY,
+        description=catalog_fixtures.ASSISTANT_DESCRIPTION,
         image=image,
         actions=actions,
         allowed_hosts=("api.cloudflare.com",),
@@ -94,6 +95,7 @@ def assistant_spec(image: str) -> AssistantSpec:
             "actions": [
                 {
                     "id": action_id,
+                    "description": catalog_fixtures.ACTION_DESCRIPTION,
                     "input_schema": dict(action.input_schema),
                     "output_schema": dict(action.output_schema),
                     "integrations": list(action.integrations),
@@ -115,6 +117,7 @@ def hosted_spec(image: str) -> assistant_registry.AssistantSpec:
     return assistant_registry.AssistantSpec(
         version=local.version,
         summary=local.summary,
+        description=catalog_fixtures.ASSISTANT_DESCRIPTION,
         image=image,
         allowed_hosts=local.allowed_hosts,
         archs=("amd64", "arm64"),
@@ -188,6 +191,7 @@ def mutating_spec(image: str) -> AssistantSpec:
     contract["actions"] = [
         {
             "id": action_id,
+            "description": catalog_fixtures.ACTION_DESCRIPTION,
             "input_schema": dict(action.input_schema),
             "output_schema": dict(action.output_schema),
             "integrations": list(action.integrations),

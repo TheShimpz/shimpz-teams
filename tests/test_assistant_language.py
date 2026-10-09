@@ -179,6 +179,7 @@ class LanguagePackBindingAdmissionTests(unittest.TestCase):
             stored_inputs={},
             machine_contract=CONTRACT,
             summary=catalog_fixtures.SUMMARY,
+            description=catalog_fixtures.ASSISTANT_DESCRIPTION,
             pack_digest=DIGEST,
         )
         self.assertEqual(local_chat_state._admit_assistant_allowed_hosts(subject, PackContainer("good", RAW), spec), ())

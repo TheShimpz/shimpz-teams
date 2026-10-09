@@ -134,9 +134,6 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
             bindings._encode_binding(invalid)
 
     def test_resolve_contract_helpers_handle_schema_invalid_shapes(self) -> None:
-        resolution = copy.deepcopy(RESOLUTION)
-        resolution["stored_inputs"] = None
-        contract._validate_resolve(resolution)
         self.assertEqual(contract._required_ids({"actions": None}, "stored_inputs"), set())
 
     def test_reserved_assistant_identity_is_rejected_after_contract_validation(self) -> None:

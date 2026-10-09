@@ -66,6 +66,17 @@ HELP_URL_PATTERN = (
     r"(?:\?(?:[A-Za-z0-9._~!$&()*+,;=:@/?-]|%[0-9A-F]{2})+)?(?![\s\S])"
 )
 MAX_HELP_URL_CHARS = 2_048
+# The Creator's public links an Assistant page shows (Developers manifest `[shimpz.links]`): unverified presentation,
+# in this canonical display order, each one help-URL-grammar URL on its own kind's host.
+CREATOR_LINK_PREFIXES = {
+    "site": ("https://",),
+    "github": ("https://github.com/",),
+    "x": ("https://x.com/",),
+    "youtube": ("https://youtube.com/", "https://www.youtube.com/"),
+    "linkedin": ("https://linkedin.com/", "https://www.linkedin.com/"),
+    "instagram": ("https://instagram.com/", "https://www.instagram.com/"),
+}
+MAX_CREATOR_LINK_CHARS = 256
 # The rendered copy bounds of a human request's catalog references (Assistant Spec v1, ADR-0091).
 RENDERED_FIELD_CHARS = {"title": 80, "description": 500, "label": 80, "placeholder": 120}
 RENDERED_OPTION_CHARS = {"label": 80, "description": 160}
@@ -184,6 +195,22 @@ def canonical_help_url(value: object) -> str | None:
     if not isinstance(value, str) or len(value) > MAX_HELP_URL_CHARS or HELP_URL_RE.fullmatch(value) is None:
         return None
     return value
+
+
+def canonical_creator_links(value: object) -> dict[str, str] | None:
+    """Return zero to six Creator links in canonical display order, or None when any kind or URL is invalid."""
+    if not isinstance(value, dict) or not set(value) <= CREATOR_LINK_PREFIXES.keys():
+        return None
+    links = {kind: value[kind] for kind in CREATOR_LINK_PREFIXES if kind in value}
+    if any(
+        not isinstance(url, str)
+        or len(url) > MAX_CREATOR_LINK_CHARS
+        or canonical_help_url(url) is None
+        or not url.startswith(CREATOR_LINK_PREFIXES[kind])
+        for kind, url in links.items()
+    ):
+        return None
+    return links
 
 
 def canonical_pack_digest(value: object) -> str | None:

@@ -75,6 +75,7 @@ def _require_assistant_allowed_hosts(
             declared.stored_inputs,
             spec.contract.machine_contract,
             summary=spec.summary,
+            description=spec.description,
             allowed_hosts=declared.allowed_hosts,
         )
         runtime_state._assistant_language_cache.get(

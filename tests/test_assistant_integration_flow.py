@@ -81,6 +81,7 @@ def _spec() -> AssistantSpec:
         version="0.4.1",
         name="Cloudflare Assistant",
         summary="test",
+        description="test",
         image="example.invalid/x@sha256:" + ("a" * 64),
         actions={
             "read-profile": ActionSpec(
@@ -118,6 +119,7 @@ def _cloudflare_spec() -> AssistantSpec:
         version="0.4.1",
         name="Shimpz Cloudflare",
         summary="test",
+        description="test",
         image="example.invalid/cloudflare@sha256:" + ("b" * 64),
         actions={
             "list-zones": ActionSpec(

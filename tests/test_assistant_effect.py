@@ -53,12 +53,13 @@ def _providers(actions: object) -> tuple[str, ...]:
 
 
 def _contract(*actions: dict[str, object]) -> dict[str, object]:
-    return {"version": 1, "actions": list(actions), "messages": catalog_fixtures.messages()}
+    return {"version": 1, "actions": list(actions), "messages": catalog_fixtures.display_messages(actions, ("Key",))}
 
 
 def _action(action_id: str, effect: str, **members: object) -> dict[str, object]:
     return {
         "id": action_id,
+        "description": catalog_fixtures.ACTION_DESCRIPTION,
         "input_schema": copy.deepcopy(CLOSED),
         "output_schema": copy.deepcopy(CLOSED),
         "integrations": [],
@@ -77,6 +78,7 @@ def _admit(contract: dict[str, object], allowed_hosts: tuple[str, ...] = ()) -> 
         (),
         _stored_inputs(actions),
         summary=catalog_fixtures.SUMMARY,
+        description=catalog_fixtures.ASSISTANT_DESCRIPTION,
         allowed_hosts=allowed_hosts,
     )
 

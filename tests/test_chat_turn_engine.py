@@ -30,7 +30,7 @@ from local.chat.segment import SegmentRequest
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
 from routine import record as routine_record
-from tests import human_request_fixtures
+from tests import catalog_fixtures, human_request_fixtures
 
 hosted_app = hosted_harness.app
 
@@ -551,6 +551,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             version="0.4.1",
             name="Assistant",
             summary="Test Assistant",
+            description=catalog_fixtures.ASSISTANT_DESCRIPTION,
             image="example.invalid/assistant@sha256:" + ("c" * 64),
             actions={"list-zones": local_action},
             allowed_hosts=(),
@@ -563,6 +564,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                 "actions": [
                     {
                         "id": "list-zones",
+                        "description": catalog_fixtures.ACTION_DESCRIPTION,
                         "input_schema": dict(declared_action.input_schema),
                         "output_schema": dict(declared_action.output_schema),
                         "integrations": [],

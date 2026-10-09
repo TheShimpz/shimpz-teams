@@ -4,6 +4,7 @@ id = "documents"
 version = "0.1.0"
 name = "Documents"
 summary = "Store reviewed documents."
+description = "Store a document you choose after you approve it."
 creators = ["@roxygens"]
 github = "https://github.com/TheShimpz/documents"
 genesis = "Store documents only after approval."

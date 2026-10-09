@@ -50,6 +50,7 @@ def _contract() -> dict[str, object]:
         "actions": [
             {
                 "id": "create-record",
+                "description": catalog_fixtures.ACTION_DESCRIPTION,
                 "input_schema": RECORD,
                 "output_schema": CREATED,
                 "integrations": ["cloudflare"],
@@ -73,6 +74,7 @@ def _contract() -> dict[str, object]:
             },
             {
                 "id": "find-record",
+                "description": catalog_fixtures.ACTION_DESCRIPTION,
                 "input_schema": FIND_INPUT,
                 "output_schema": FIND_OUTPUT,
                 "integrations": [],
@@ -83,6 +85,7 @@ def _contract() -> dict[str, object]:
             },
             {
                 "id": "list-zones",
+                "description": catalog_fixtures.ACTION_DESCRIPTION,
                 "input_schema": FIND_INPUT,
                 "output_schema": CREATED,
                 "integrations": [],
@@ -102,6 +105,7 @@ def _spec(**changes: object) -> AssistantSpec:
         version="1.2.3",
         name="Cloudflare",
         summary=catalog_fixtures.SUMMARY,
+        description=catalog_fixtures.ASSISTANT_DESCRIPTION,
         image="registry.example/cloudflare@sha256:" + "a" * 64,
         actions={},
         allowed_hosts=("api.cloudflare.com",),

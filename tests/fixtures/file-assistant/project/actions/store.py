@@ -9,7 +9,7 @@ class Result(TypedDict):
     sha256: str
 
 
-@action(human_requests=["approval"])
+@action(description="Store one approved document.", human_requests=["approval"])
 async def run(document: File, *, ctx: Context) -> Result:
     ctx.request_approval(title=text("Store the document"), description=text("Store the selected document."))
     data = document.read()

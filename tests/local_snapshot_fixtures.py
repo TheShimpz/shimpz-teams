@@ -27,6 +27,7 @@ MACHINE_CONTRACT = {
     "actions": [
         {
             "id": "ping",
+            "description": catalog_fixtures.ACTION_DESCRIPTION,
             "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
             "output_schema": {"type": "object", "properties": {}, "additionalProperties": False},
             "integrations": [],
