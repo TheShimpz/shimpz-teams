@@ -117,75 +117,44 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
         store = mock.Mock()
         store.token.return_value = "token"
         store.validate.return_value = "token"
-        store.proxy_environment.return_value = {"HTTPS_PROXY": "proxy"}
 
         self.assertEqual(lifecycle._assistant_egress_token(TEAM_ID, ASSISTANT_ID, store=store), "token")
         lifecycle._write_egress_policy("token", ("api.example",), store)
         self.assertEqual(lifecycle._validate_egress_policy(TEAM_ID, ASSISTANT_ID, ("api.example",), store), "token")
         self.assertEqual(lifecycle._validate_admitted_egress(TEAM_ID, ASSISTANT_ID, (), store), None)
-        self.assertEqual(lifecycle._egress_proxy_environment("token", store), {"HTTPS_PROXY": "proxy"})
 
         for method, invoke in (
             ("token", lambda: lifecycle._assistant_egress_token(TEAM_ID, ASSISTANT_ID, store=store)),
             ("write", lambda: lifecycle._write_egress_policy("token", (), store)),
             ("validate", lambda: lifecycle._validate_egress_policy(TEAM_ID, ASSISTANT_ID, (), store)),
-            ("proxy_environment", lambda: lifecycle._egress_proxy_environment("token", store)),
         ):
             getattr(store, method).side_effect = lifecycle.egress_policy.EgressPolicyError("failed")
             with self.subTest(method=method), self.assertRaises(state.ApiError):
                 invoke()
             getattr(store, method).side_effect = None
 
-    def test_proxy_environment_requires_exact_proxy_projection(self) -> None:
+    def test_egress_admission_writes_a_route_only_for_declared_hosts(self) -> None:
         store = mock.Mock()
-        store.proxy_environment.return_value = {"HTTPS_PROXY": "proxy"}
-        lifecycle._validate_assistant_proxy_environment(
-            _container(attrs={"Config": {"Env": ["HTTPS_PROXY=proxy", "OTHER=value"]}}),
-            "token",
-            ("api.example",),
-            store,
-        )
-
-        cases = (
-            (_container(attrs={}), None, ()),
-            (_container(attrs={"Config": {"Env": []}}), None, ("api.example",)),
-            (_container(attrs={"Config": {"Env": ["HTTPS_PROXY=other"]}}), "token", ("api.example",)),
-        )
-        for container, token, allowed_hosts in cases:
-            with self.subTest(token=token, allowed_hosts=allowed_hosts), self.assertRaises(state.ApiError):
-                lifecycle._validate_assistant_proxy_environment(container, token, allowed_hosts, store)
-
-    def test_egress_reservation_and_activation_are_capability_bound(self) -> None:
-        store = mock.Mock()
-        self.assertEqual(lifecycle._reserve_egress_environment(TEAM_ID, ASSISTANT_ID, (), store), (None, {}))
+        with mock.patch.object(lifecycle, "_write_egress_policy") as write:
+            lifecycle._admit_egress_policy(TEAM_ID, ASSISTANT_ID, (), store)
+        write.assert_not_called()
         with (
             mock.patch.object(lifecycle, "_assistant_egress_token", return_value=None),
             self.assertRaises(state.ApiError) as unavailable,
         ):
-            lifecycle._reserve_egress_environment(TEAM_ID, ASSISTANT_ID, ("api.example",), store)
+            lifecycle._admit_egress_policy(TEAM_ID, ASSISTANT_ID, ("api.example",), store)
         self.assertEqual(unavailable.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
-
         with (
             mock.patch.object(lifecycle, "_assistant_egress_token", return_value="token"),
-            mock.patch.object(lifecycle, "_egress_proxy_environment", return_value={"HTTPS_PROXY": "proxy"}),
-        ):
-            self.assertEqual(
-                lifecycle._reserve_egress_environment(TEAM_ID, ASSISTANT_ID, ("api.example",), store),
-                ("token", {"HTTPS_PROXY": "proxy"}),
-            )
-
-        network = object()
-        lifecycle._activate_admitted_egress(network, None, (), store)
-        with self.assertRaises(state.ApiError) as internal:
-            lifecycle._activate_admitted_egress(network, None, ("api.example",), store)
-        self.assertEqual(internal.exception.status, HTTPStatus.INTERNAL_SERVER_ERROR)
-        with (
             mock.patch.object(lifecycle, "_write_egress_policy") as write,
-            mock.patch.object(resources, "_safe_connect") as connect,
         ):
-            lifecycle._activate_admitted_egress(network, "token", ("api.example",), store)
+            lifecycle._admit_egress_policy(TEAM_ID, ASSISTANT_ID, ("api.example",), store)
         write.assert_called_once_with("token", ("api.example",), store)
-        connect.assert_called_once()
+
+    def test_a_malformed_environment_is_refused(self) -> None:
+        for container in (_container(attrs={}), _container(attrs={"Config": {"Env": ["missing-separator"]}})):
+            with self.subTest(container=container), self.assertRaises(state.ApiError):
+                lifecycle._require_no_proxy_environment(container)
 
     def test_policy_removal_readiness_and_wait_contracts(self) -> None:
         store = mock.Mock()

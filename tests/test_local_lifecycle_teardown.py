@@ -52,8 +52,8 @@ class LocalLifecycleTeardownTests(LocalContractCase):
                 code="assistant-manifest-invalid",
             )
         )
-        controller.assistant_lifecycle._activate_assistant_egress = lambda *_args: events.append("activate-egress")
-        controller.assistant_lifecycle._release_assistant_egress = lambda *_args: events.append("release-egress")
+        controller.assistant_lifecycle._write_egress_policy = lambda *_args: events.append("activate-egress")
+        controller.assistant_lifecycle._remove_egress_policy = lambda *_args: events.append("release-egress")
 
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.assistant_lifecycle._create_assistant_container("team_1", spec, network, image)
@@ -75,9 +75,10 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         self.assertEqual(refused.code, "assistant-manifest-invalid")
         self.assertNotIn("start", events)
         self.assertNotIn("activate-egress", events)
-        self.assertEqual(events, ["reload", ("remove", True), "release-egress"])
+        # Team writes its egress route only after admission, so a refused manifest leaves none to revoke.
+        self.assertEqual(events, ["reload", ("remove", True)])
 
-    def test_failed_install_removal_still_revokes_egress_and_reports_incomplete_rollback(self) -> None:
+    def test_failed_install_removal_reports_incomplete_rollback(self) -> None:
         events: list[object] = []
 
         class Container:
@@ -105,7 +106,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         self.assertNotIn("activate-egress", events)
         self.assertEqual(
             events,
-            ["reload", ("remove", True), ("stop", 3), "reload", "release-egress"],
+            ["reload", ("remove", True), ("stop", 3), "reload"],
         )
 
     def test_uninstall_removes_an_outdated_release_after_current_contract_admission(self) -> None:
@@ -353,10 +354,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         controller.assistant_lifecycle._validate_container_isolation = lambda *_args: self.fail(
             "teardown must not admit a retiring egress policy"
         )
-        controller.assistant_lifecycle._team_has_egress_assistant = mock.Mock(return_value=False)
-        controller.assistant_lifecycle._release_assistant_egress = lambda *_args, **_kwargs: events.append(
-            "release-egress"
-        )
+        controller.assistant_lifecycle._remove_egress_policy = lambda *_args, **_kwargs: events.append("release-egress")
 
         result = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
 

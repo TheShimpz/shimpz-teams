@@ -1,31 +1,21 @@
-"""Local Team resource naming, network validation, and Assistant egress."""
+"""Local Team resource naming, network validation, and each Assistant's egress policy.
 
-import logging
+The policy is Team's own route for the Assistant's provider calls: the token Team presents to the Assistant egress
+proxy and the reviewed hosts the proxy admits for it. No Assistant workload holds it (ADR-0106).
+"""
+
 import os
-import re
 from http import HTTPStatus
 from pathlib import Path
 from typing import NoReturn
 
 from docker.errors import DockerException, NotFound
 
-from core.container import network as network_policy
 from egress import policy as egress_policy
-from install import bindings
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import (
-    assistant_isolation_drift,
-    assistant_manifest_invalid,
-    assistant_registry_drift,
-    docker_unavailable,
-    egress_proxy_drift,
-    egress_proxy_join_failed,
-    egress_proxy_unavailable,
-    ownership_conflict,
-)
+from local.errors import docker_unavailable, ownership_conflict
 from local.install.runtime import AssistantSpec
 from local.labels import (
-    ASSISTANT_LABEL,
     KIND_LABEL,
     MANAGED_LABEL,
     PROFILE_LABEL,
@@ -34,38 +24,20 @@ from local.labels import (
     TEAM_NAME_LABEL,
 )
 from local.validation import space_prefix as _space_prefix
-from local.validation import validate_team_id, validate_team_name
+from local.validation import validate_team_name
 
 PROFILE = "local-v1"
-ASSISTANT_EGRESS_ALIAS = "shimpz-assistant-egress"
-ASSISTANT_EGRESS_PORT = 8889
-ASSISTANT_EGRESS_KIND = "assistant-egress"
 ASSISTANT_EGRESS_POLICY_GID = 10017
-ASSISTANT_EGRESS_CONTAINER = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_CONTAINER", "").strip()
 ASSISTANT_EGRESS_POLICY_DIR = Path(
     os.environ.get(
         "SHIMPZ_ASSISTANT_EGRESS_POLICY_DIR",
         "/var/lib/shimpz-local/assistant-egress",
     )
 )
-_CONTAINER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
-_ENABLED_NO_NEW_PRIVILEGES = frozenset({"no-new-privileges", "no-new-privileges:true"})
-log = logging.getLogger("shimpz.team.local.assistant.egress")
-
-
-def _security_options_valid(options: object) -> bool:
-    """Accept only Docker's enabled rendering of the Local proxy's sole security option."""
-    return isinstance(options, list) and len(options) == 1 and str(options[0]) in _ENABLED_NO_NEW_PRIVILEGES
 
 
 def _egress_store() -> egress_policy.EgressPolicyStore:
-    return egress_policy.EgressPolicyStore(
-        ASSISTANT_EGRESS_POLICY_DIR,
-        ASSISTANT_EGRESS_POLICY_GID,
-        "127.0.0.1,localhost",
-        ASSISTANT_EGRESS_ALIAS,
-        ASSISTANT_EGRESS_PORT,
-    )
+    return egress_policy.EgressPolicyStore(ASSISTANT_EGRESS_POLICY_DIR, ASSISTANT_EGRESS_POLICY_GID)
 
 
 def _raise_egress_problem(exc: egress_policy.EgressPolicyError) -> NoReturn:
@@ -122,35 +94,13 @@ def _egress_token(
         _raise_egress_problem(exc)
 
 
-def _proxy_environment(
-    token: str,
-    store: egress_policy.EgressPolicyStore | None = None,
-) -> dict[str, str]:
-    try:
-        current_store = store if store is not None else _egress_store()
-        return current_store.proxy_environment(token)
-    except egress_policy.EgressPolicyError as exc:
-        _raise_egress_problem(exc)
-
-
-def _reserve_assistant_egress_environment(
-    self,
-    team_id: str,
-    assistant_id: str,
-) -> tuple[str | None, dict[str, str], egress_policy.EgressPolicyStore]:
-    store = _egress_store()
-    token = self._egress_token(team_id, assistant_id, create=True, store=store)
-    environment = self._proxy_environment(token, store) if token is not None else {}
-    return token, environment, store
-
-
 def _write_egress_policy(
     self,
     team_id: str,
     spec: AssistantSpec,
     allowed_hosts: tuple[str, ...],
     store: egress_policy.EgressPolicyStore | None = None,
-) -> dict[str, str]:
+) -> None:
     try:
         current_store = store if store is not None else _egress_store()
         token = current_store.token(
@@ -160,7 +110,6 @@ def _write_egress_policy(
         if token is None:
             raise egress_policy.EgressPolicyUnavailableError("egress token was not created")
         current_store.write(token, allowed_hosts)
-        return current_store.proxy_environment(token)
     except egress_policy.EgressPolicyError as exc:
         _raise_egress_problem(exc)
 
@@ -171,15 +120,11 @@ def _validate_egress_policy(
     spec: AssistantSpec,
     allowed_hosts: tuple[str, ...],
     store: egress_policy.EgressPolicyStore | None = None,
-) -> dict[str, str]:
+) -> None:
     try:
         current_store = store if store is not None else _egress_store()
         admitted = self._read_admitted_egress_policy(team_id, spec.assistant_id, current_store)
-        token = current_store.validate_admitted(
-            admitted,
-            allowed_hosts,
-        )
-        return current_store.proxy_environment(token)
+        current_store.validate_admitted(admitted, allowed_hosts)
     except egress_policy.EgressPolicyError as exc:
         _raise_egress_problem(exc)
 
@@ -215,156 +160,6 @@ def _remove_egress_policy(
         _raise_egress_problem(exc)
 
 
-def _team_attachment_drifted(attrs: dict, network_name: str) -> bool:
-    """Whether the proxy's network state is malformed or its entry on one Team network lacks the exact alias."""
-    settings = attrs.get("NetworkSettings")
-    networks = settings.get("Networks") if isinstance(settings, dict) else None
-    if not isinstance(networks, dict):
-        return True
-    if network_name not in networks:
-        return False
-    attached = networks[network_name]
-    aliases = attached.get("Aliases") if isinstance(attached, dict) else None
-    return not (
-        isinstance(aliases, list)
-        and all(isinstance(alias, str) for alias in aliases)
-        and ASSISTANT_EGRESS_ALIAS in aliases
-    )
-
-
-def _proxy_image_drifted(client, attrs: dict) -> bool:
-    """Whether the proxy is not the exact pinned egress artifact; an unanswerable Engine is only unavailable."""
-    expected = network_policy.ASSISTANT_EGRESS_IMAGE
-    try:
-        expected_id = client.images.get(expected).id
-    except NotFound:
-        return True
-    except DockerException as exc:
-        raise egress_proxy_unavailable() from exc
-    return not network_policy.image_identity_valid(attrs, expected, expected_id)
-
-
-def _egress_proxy(self, network_name: str):
-    """The proxy as one Team network sees it: any drift answers 409 before a stopped proxy answers 503."""
-    if (
-        not ASSISTANT_EGRESS_CONTAINER
-        or _CONTAINER_NAME.fullmatch(ASSISTANT_EGRESS_CONTAINER) is None
-        or not network_policy.image_reference_valid(network_policy.ASSISTANT_EGRESS_IMAGE)
-    ):
-        raise egress_proxy_unavailable()
-    try:
-        proxy = self.client.containers.get(ASSISTANT_EGRESS_CONTAINER)
-    except (NotFound, DockerException) as exc:
-        raise egress_proxy_unavailable() from exc
-    attrs = proxy.attrs
-    config = attrs.get("Config") or {}
-    host = attrs.get("HostConfig") or {}
-    labels = config.get("Labels") or {}
-    expected_labels = {
-        MANAGED_LABEL: "1",
-        PROFILE_LABEL: PROFILE,
-        SPACE_LABEL: self.space_id,
-        KIND_LABEL: ASSISTANT_EGRESS_KIND,
-    }
-    mounts = attrs.get("Mounts") or []
-    policy_mounts = [mount for mount in mounts if mount.get("Destination") == "/policy"]
-    if (
-        proxy.name != ASSISTANT_EGRESS_CONTAINER
-        or not self._labels_include(labels, expected_labels)
-        or config.get("User") not in {"10005", "10005:10005"}
-        or host.get("ReadonlyRootfs") is not True
-        or set(host.get("CapDrop") or []) != {"ALL"}
-        or host.get("CapAdd") not in (None, [])
-        or not _security_options_valid(host.get("SecurityOpt"))
-        or host.get("Privileged") is not False
-        or host.get("PortBindings") not in (None, {})
-        or len(policy_mounts) != 1
-        or policy_mounts[0].get("RW") is not False
-        or _proxy_image_drifted(self.client, attrs)
-    ):
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Assistant egress proxy failed its isolation profile",
-            code="egress-proxy-drift",
-        )
-    if _team_attachment_drifted(attrs, network_name):
-        raise egress_proxy_drift()
-    if proxy.status != "running":
-        # A proxy whose profile and attachment hold is only stopped, as during a release swap or restart: retryable.
-        raise egress_proxy_unavailable()
-    return proxy
-
-
-def _connect_egress_proxy(self, network, proxy=None) -> None:
-    if any(self._network_name(team_id) == network.name for team_id, _assistant_id in self._unisolated_refusals):
-        # A refused Assistant's runtime may still hold an unrevoked policy: never give it the proxy back.
-        raise assistant_isolation_drift()
-    proxy = proxy if proxy is not None else self._egress_proxy(network.name)
-    attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
-    if attached is None:
-        try:
-            network.connect(proxy, aliases=[ASSISTANT_EGRESS_ALIAS])
-            proxy.reload()
-        except DockerException as exc:
-            try:
-                proxy.reload()
-            except DockerException:
-                raise egress_proxy_join_failed() from exc
-            attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
-            if not isinstance(attached, dict) or ASSISTANT_EGRESS_ALIAS not in (attached.get("Aliases") or []):
-                raise egress_proxy_join_failed() from exc
-        attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
-    if not isinstance(attached, dict) or ASSISTANT_EGRESS_ALIAS not in (attached.get("Aliases") or []):
-        raise egress_proxy_drift()
-
-
-def _reconcile_egress_proxy_attachment(self, team_id: str, network_name: str, proxy=None) -> None:
-    proxy = proxy if proxy is not None else self._egress_proxy(network_name)
-    attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network_name)
-    if isinstance(attached, dict):
-        if ASSISTANT_EGRESS_ALIAS in (attached.get("Aliases") or []):
-            return
-        raise egress_proxy_drift()
-    network = self._network(team_id)
-    if network.name != network_name:
-        raise ownership_conflict()
-    self._connect_egress_proxy(network, proxy)
-
-
-def _disconnect_egress_proxy(self, network) -> None:
-    proxy = self._egress_proxy(network.name)
-    attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
-    if attached is None:
-        return
-    try:
-        network.disconnect(proxy)
-        proxy.reload()
-    except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant egress proxy could not leave the Team",
-            code="egress-proxy-unavailable",
-        ) from exc
-    if network.name in ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}):
-        raise egress_proxy_drift()
-
-
-def _disconnect_egress_proxy_if_attached(self, network) -> None:
-    try:
-        network.reload()
-    except DockerException as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Team network could not be inspected",
-            code="docker-unavailable",
-        ) from exc
-    endpoints = network.attrs.get("Containers") or {}
-    if not isinstance(endpoints, dict):
-        raise ownership_conflict()
-    if any(endpoint.get("Name") == ASSISTANT_EGRESS_CONTAINER for endpoint in endpoints.values()):
-        self._disconnect_egress_proxy(network)
-
-
 def _managed_team_networks(self) -> list:
     labels = [
         f"{MANAGED_LABEL}=1",
@@ -376,137 +171,6 @@ def _managed_team_networks(self) -> list:
         return self.client.networks.list(filters={"label": labels})
     except DockerException as exc:
         raise docker_unavailable() from exc
-
-
-def _team_requires_egress_proxy(self, team_id: str, network) -> bool:
-    try:
-        containers = self.client.containers.list(**self._assistant_filters(team_id))
-    except DockerException as exc:
-        raise docker_unavailable() from exc
-    seen: set[str] = set()
-    requires_proxy = False
-    for container in containers:
-        assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
-        try:
-            spec = self.registry.get(team_id, assistant_id)
-        except bindings.InadmissibleAssistantBindingError as exc:
-            # The Team's proxy is reconciled fail-closed while a refused binding still has a runtime.
-            raise assistant_manifest_invalid() from exc
-        if spec is None or assistant_id in seen:
-            raise assistant_registry_drift()
-        seen.add(assistant_id)
-        _config, environment = self._validate_container_profile(
-            container,
-            team_id,
-            spec,
-            network.name,
-        )
-        reviewed_hosts = self._validate_container_egress_environment(team_id, spec, environment)
-        requires_proxy = requires_proxy or bool(reviewed_hosts)
-    return requires_proxy
-
-
-def _reconcile_egress_proxy_attachments(self) -> None:
-    seen: set[str] = set()
-    for network in self._managed_team_networks():
-        labels = network.attrs.get("Labels") or {}
-        team_id = labels.get(TEAM_LABEL)
-        try:
-            team_id = validate_team_id(team_id)
-        except ApiProblem as exc:
-            raise ownership_conflict() from exc
-        if team_id in seen:
-            raise ownership_conflict()
-        seen.add(team_id)
-        self._validate_network(network, team_id)
-        try:
-            requires_proxy = self._team_requires_egress_proxy(team_id, network)
-        except ApiProblem as exc:
-            log.warning("Assistant egress startup admission failed closed: %s", exc.code)
-            try:
-                self._disconnect_egress_proxy_if_attached(network)
-            except ApiProblem as disconnect_exc:
-                log.warning(
-                    "Assistant egress startup isolation could not be reconciled: %s",
-                    disconnect_exc.code,
-                )
-            continue
-        if requires_proxy:
-            self._connect_egress_proxy(network)
-        else:
-            self._disconnect_egress_proxy_if_attached(network)
-
-
-def _team_has_egress_assistant(self, team_id: str, *, excluding: str | None = None) -> bool:
-    try:
-        containers = self.client.containers.list(**self._assistant_filters(team_id))
-    except DockerException as exc:
-        raise docker_unavailable() from exc
-    for container in containers:
-        assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
-        if assistant_id == excluding:
-            continue
-        binding = self.registry.binding(team_id, assistant_id)
-        if binding is not None and not binding.admissible:
-            # A refused binding never keeps the Team's proxy attached.
-            continue
-        spec = self.registry.get(team_id, assistant_id)
-        if spec is None:
-            raise assistant_registry_drift()
-        self._validate_container_profile(
-            container,
-            team_id,
-            spec,
-            self._network_name(team_id),
-        )
-        if spec.allowed_hosts:
-            return True
-    return False
-
-
-def _release_assistant_egress(
-    self,
-    team_id: str,
-    assistant_id: str,
-    network,
-    *,
-    remaining_egress: bool | None = None,
-) -> None:
-    self._remove_egress_policy(team_id, assistant_id)
-    if remaining_egress is None:
-        remaining_egress = self._team_has_egress_assistant(team_id)
-    if not remaining_egress:
-        self._disconnect_egress_proxy(network)
-
-
-def _remove_assistant_policy_if_needed(
-    self,
-    team_id: str,
-    assistant_id: str,
-    spec: AssistantSpec,
-) -> None:
-    if spec.allowed_hosts:
-        self._remove_egress_policy(team_id, assistant_id)
-
-
-def _activate_assistant_egress(
-    self,
-    team_id: str,
-    spec: AssistantSpec,
-    network,
-    allowed_hosts: tuple[str, ...],
-    store: egress_policy.EgressPolicyStore | None = None,
-) -> dict[str, str]:
-    if not allowed_hosts:
-        return {}
-    current_store = store if store is not None else _egress_store()
-    environment = self._write_egress_policy(team_id, spec, allowed_hosts, current_store)
-    try:
-        self._connect_egress_proxy(network)
-    except ApiProblem:
-        self._remove_egress_policy(team_id, spec.assistant_id, current_store)
-        raise
-    return environment
 
 
 def _labels_include(actual: object, expected: dict[str, str]) -> bool:

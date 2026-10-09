@@ -39,10 +39,6 @@ WORKSPACE_VOLUME_KIND = "workspace"
 VOLUME_KINDS = frozenset({CONFIG_VOLUME_KIND, WORKSPACE_VOLUME_KIND})
 
 POSTGRES_CONTAINER = os.environ.get("SHIMPZ_POSTGRES_CONTAINER", f"shimpz-postgres{SUFFIX}")
-ASSISTANT_EGRESS_CONTAINER = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_CONTAINER", f"shimpz-assistant-egress{SUFFIX}")
-# The deployable that instantiates the Assistant egress proxy passes Team the exact same image reference. There is
-# deliberately no default: Team refuses to start without it and refuses any proxy that is not that exact artifact.
-ASSISTANT_EGRESS_IMAGE = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_IMAGE", "")
 # Docker's reference grammar, narrowed to an explicit tag and/or sha256 digest so an implicit ``latest`` never pins.
 _DOMAIN_COMPONENT = r"(?:[A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9])"
 _PATH_COMPONENT = r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*"
@@ -57,8 +53,7 @@ DOCKER_IMAGE_NAME_MAX = 255
 SHARED_MANAGED_LABEL = "shimpz.team.shared"
 SHARED_ROLE_LABEL = "shimpz.team.shared.role"
 POSTGRES_ROLE = "postgres"
-ASSISTANT_EGRESS_ROLE = "assistant-egress"
-SHARED_ROLES = frozenset({POSTGRES_ROLE, ASSISTANT_EGRESS_ROLE})
+SHARED_ROLES = frozenset({POSTGRES_ROLE})
 RESERVED_SERVICE_ALIASES = frozenset({"postgres", "assistant-egress", "shimpz-assistant-egress"})
 
 
@@ -73,13 +68,6 @@ def image_reference_valid(value: object) -> bool:
     """Whether a value is one Docker image reference with an explicit tag or sha256 digest."""
     match = _IMAGE_REFERENCE.fullmatch(value) if isinstance(value, str) else None
     return match is not None and len(match.group("name")) <= DOCKER_IMAGE_NAME_MAX
-
-
-def require_image_reference(value: object, *, setting: str) -> str:
-    """Admit one Docker image reference, failing closed on absence or malformation."""
-    if not image_reference_valid(value):
-        raise RuntimeError(f"{setting} must name one exact image reference")
-    return value
 
 
 def image_identity_valid(metadata: Mapping, expected_image_ref: str, expected_image_id: str) -> bool:
@@ -300,7 +288,6 @@ def shared_service_labels(role: str) -> dict[str, str]:
 def _shared_role_for_name(name: str) -> str | None:
     return {
         POSTGRES_CONTAINER: POSTGRES_ROLE,
-        ASSISTANT_EGRESS_CONTAINER: ASSISTANT_EGRESS_ROLE,
     }.get(name)
 
 
@@ -315,20 +302,6 @@ def shared_service_identity_valid(metadata: Mapping, expected_role: str | None =
     return all(labels.get(key) == value for key, value in expected.items())
 
 
-def assistant_egress_member(metadata: Mapping) -> bool:
-    """Whether a container claims the configured Assistant egress proxy name."""
-    return _container_name(metadata) == ASSISTANT_EGRESS_CONTAINER
-
-
-def assistant_egress_image_valid(metadata: Mapping, expected_image_id: str) -> bool:
-    """Whether a Team network member is not the Assistant egress proxy or runs its exact pinned artifact."""
-    return not assistant_egress_member(metadata) or image_identity_valid(
-        metadata,
-        ASSISTANT_EGRESS_IMAGE,
-        expected_image_id,
-    )
-
-
 def shared_service_role_for_name(name: str) -> str | None:
     """Return the configured role for one exact suffix-aware shared service name."""
     return _shared_role_for_name(name)
@@ -340,8 +313,6 @@ def _member_role(metadata: Mapping, team_id: str, kind: str) -> tuple[str, str] 
     name = _container_name(metadata)
     if name == POSTGRES_CONTAINER and shared_service_identity_valid(metadata, POSTGRES_ROLE):
         return POSTGRES_ROLE, ""
-    if name == ASSISTANT_EGRESS_CONTAINER and shared_service_identity_valid(metadata, ASSISTANT_EGRESS_ROLE):
-        return ASSISTANT_EGRESS_ROLE, ""
     return _workload_role(metadata, team_id)
 
 
@@ -362,8 +333,6 @@ def _required_aliases(role: tuple[str, str]) -> frozenset[str]:
     name, value = role
     if name == "postgres":
         return frozenset({"postgres"})
-    if name == "assistant-egress":
-        return frozenset({"shimpz-assistant-egress"})
     if name == "assistant":
         return frozenset({value, f"{value}.team"})
     return frozenset()

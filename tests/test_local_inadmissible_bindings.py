@@ -25,7 +25,6 @@ from install import update as assistant_update
 from install.contract import CONTRACT_ROOT
 from local import lifecycle as local_lifecycle
 from local.assistant import api as assistant_api
-from local.assistant import egress as local_egress
 from local.assistant import lifecycle as assistant_lifecycle
 from local.assistant import resources as local_resources
 from local.errors import ApiProblemError
@@ -302,7 +301,7 @@ class InadmissibleBindingLifecycleTests(LocalContractCase):
         with self.assertLogs(assistant_lifecycle.log, logging.ERROR):
             lifecycle.quarantine_inadmissible()
 
-    def test_a_refused_runtime_never_proved_isolated_keeps_its_team_proxy_detached(self) -> None:
+    def test_a_quarantine_that_proves_nothing_is_logged_and_never_stops_the_team(self) -> None:
         controller, _container, events = self._lifecycle_controller()
         lifecycle = controller.assistant_lifecycle
         lifecycle._remove_egress_policy = mock.Mock(side_effect=ApiProblemError(503, "policy", code="egress-policy"))
@@ -310,41 +309,7 @@ class InadmissibleBindingLifecycleTests(LocalContractCase):
         controller.registry.inadmissible = lambda: (_refused(),)
         with self.assertLogs(assistant_lifecycle.log, logging.ERROR):
             lifecycle.quarantine_inadmissible()
-        self.assertEqual(lifecycle._unisolated_refusals, {("team_1", "shimpz-cloudflare")})
-
-        # A sibling's validation can never give that Team its egress proxy back.
-        network = types.SimpleNamespace(name=lifecycle._network_name("team_1"), connect=mock.Mock())
-        with self.assertRaises(ApiProblemError) as caught:
-            lifecycle._connect_egress_proxy(network)
-        self.assertEqual(caught.exception.code, "assistant-isolation-drift")
-        network.connect.assert_not_called()
-
-        # Another Team is untouched by the barrier.
-        other = types.SimpleNamespace(name=lifecycle._network_name("team_2"), connect=mock.Mock())
-        proxy = types.SimpleNamespace(attrs={"NetworkSettings": {"Networks": {other.name: {"Aliases": []}}}})
-        with self.assertRaises(ApiProblemError) as caught:
-            lifecycle._connect_egress_proxy(other, proxy)
-        self.assertEqual(caught.exception.code, "egress-proxy-drift")
         self.assertEqual(events, [])
-
-    def test_a_proved_team_teardown_lifts_only_that_teams_barrier(self) -> None:
-        controller, _container, _events = self._lifecycle_controller()
-        lifecycle = controller.assistant_lifecycle
-        lifecycle._unisolated_refusals.update({("team_1", "shimpz-cloudflare"), ("team_2", "other")})
-
-        controller._clear_team_runtime_state("team_1")
-
-        self.assertEqual(lifecycle._unisolated_refusals, {("team_2", "other")})
-        # The same Team id, recreated after a reset or destruction, may attach its egress proxy again.
-        network = types.SimpleNamespace(name=lifecycle._network_name("team_1"), connect=mock.Mock())
-        proxy = types.SimpleNamespace(
-            attrs={"NetworkSettings": {"Networks": {}}},
-            reload=lambda: proxy.attrs["NetworkSettings"]["Networks"].update(
-                {network.name: {"Aliases": [local_egress.ASSISTANT_EGRESS_ALIAS]}}
-            ),
-        )
-        lifecycle._connect_egress_proxy(network, proxy)
-        network.connect.assert_called_once_with(proxy, aliases=[local_egress.ASSISTANT_EGRESS_ALIAS])
 
     def test_startup_resumes_only_admitted_bindings(self) -> None:
         subject = types.SimpleNamespace(
@@ -374,7 +339,6 @@ class InadmissibleBindingLifecycleTests(LocalContractCase):
             get=mock.Mock(return_value=interrupted), clear=mock.Mock(side_effect=lambda _update: None)
         )
         lifecycle.residues = types.SimpleNamespace(add=mock.Mock())
-        lifecycle._unisolated_refusals.add(("team_1", "shimpz-cloudflare"))
 
         result = lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
 
@@ -383,8 +347,6 @@ class InadmissibleBindingLifecycleTests(LocalContractCase):
         lifecycle.residues.add.assert_called_once_with("sha256:" + "d" * 64)
         self.assertIn(("residue-add", container.attrs["Image"]), events)
         lifecycle.updates.clear.assert_called_once_with(interrupted)
-        # A proved removal lifts the Team's egress barrier.
-        self.assertEqual(lifecycle._unisolated_refusals, set())
 
         # The transaction stays the retry anchor until its previous image is durably queued.
         lifecycle.updates.clear.reset_mock()
@@ -493,15 +455,6 @@ class InadmissibleBindingRequestTests(unittest.TestCase):
             with self.subTest(call=call), self.assertRaises(ApiProblemError) as caught:
                 call()
             self.assertEqual(caught.exception.code, "assistant-manifest-invalid")
-
-        leftover = types.SimpleNamespace(labels={ASSISTANT_LABEL: "shimpz-cloudflare"})
-        controller.client = types.SimpleNamespace(containers=types.SimpleNamespace(list=lambda **_kwargs: [leftover]))
-        controller._assistant_filters = lambda _team_id: {}
-        with self.assertRaises(ApiProblemError) as caught:
-            local_egress._team_requires_egress_proxy(controller, "team_1", types.SimpleNamespace(name="network"))
-        self.assertEqual(caught.exception.code, "assistant-manifest-invalid")
-        # A refused binding never keeps the Team's egress proxy attached.
-        self.assertFalse(local_egress._team_has_egress_assistant(controller, "team_1"))
 
     def test_installation_replaces_a_refused_binding_and_never_updates_it_automatically(self) -> None:
         refused = _refused()

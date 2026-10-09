@@ -31,7 +31,6 @@ from assistant import genesis as assistant_genesis
 from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from assistant.spec import validate_action_payload
-from core.container import network as network_policy
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import token as brain_runtime_token_store
@@ -150,9 +149,6 @@ class AssistantLifecycle:
         self._assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
         self._assistant_language_cache = assistant_language.LanguagePackCache()
         self._blocked_action_workloads: set[str] = set()
-        # Refused Assistants whose startup quarantine proved neither egress revocation nor runtime removal: their
-        # Team's egress proxy stays detached until one of them is proved (ADR-0033's 2026-10-08 amendment).
-        self._unisolated_refusals: set[tuple[str, str]] = set()
 
     _rollback_assistant_install = local_assistant_lifecycle._rollback_assistant_install
     _create_assistant_container = local_assistant_lifecycle._create_assistant_container
@@ -193,7 +189,6 @@ class AssistantLifecycle:
     _assistant_labels = local_assistant_resources._assistant_labels
     _validate_container_profile = local_assistant_resources._validate_container_profile
     _validate_container_egress_environment = local_assistant_resources._validate_container_egress_environment
-    _validate_container_egress = local_assistant_resources._validate_container_egress
     _validate_container_isolation = local_assistant_resources._validate_container_isolation
     _validate_container_security = local_assistant_resources._validate_container_security
     _has_current_assistant_artifact = staticmethod(local_assistant_resources._has_current_assistant_artifact)
@@ -214,24 +209,11 @@ class AssistantLifecycle:
     _container_name = local_egress._container_name
     _egress_policy_identity = local_egress._egress_policy_identity
     _egress_token = local_egress._egress_token
-    _proxy_environment = staticmethod(local_egress._proxy_environment)
-    _reserve_assistant_egress_environment = local_egress._reserve_assistant_egress_environment
     _write_egress_policy = local_egress._write_egress_policy
     _validate_egress_policy = local_egress._validate_egress_policy
     _read_admitted_egress_policy = local_egress._read_admitted_egress_policy
     _remove_egress_policy = local_egress._remove_egress_policy
-    _egress_proxy = local_egress._egress_proxy
-    _connect_egress_proxy = local_egress._connect_egress_proxy
-    _reconcile_egress_proxy_attachment = local_egress._reconcile_egress_proxy_attachment
-    _disconnect_egress_proxy = local_egress._disconnect_egress_proxy
-    _disconnect_egress_proxy_if_attached = local_egress._disconnect_egress_proxy_if_attached
     _managed_team_networks = local_egress._managed_team_networks
-    _team_requires_egress_proxy = local_egress._team_requires_egress_proxy
-    _reconcile_egress_proxy_attachments = local_egress._reconcile_egress_proxy_attachments
-    _team_has_egress_assistant = local_egress._team_has_egress_assistant
-    _release_assistant_egress = local_egress._release_assistant_egress
-    _remove_assistant_policy_if_needed = local_egress._remove_assistant_policy_if_needed
-    _activate_assistant_egress = local_egress._activate_assistant_egress
     _labels_include = staticmethod(local_egress._labels_include)
     _validate_network = local_egress._validate_network
     _network = local_egress._network
@@ -390,10 +372,9 @@ class LocalController:
         self.local_snapshot_previews = local_snapshot_preview.LocalSnapshotPreviewCache(client, local_platform)
         self.local_snapshot_collector = local_snapshot_collector.SupersededSnapshotCollector(client, registry)
         self._wire_collaborators()
-        # Every binding the current contract refuses is taken out of service first, so the startup reconciliation
-        # below, and every later request, sees only admissible Assistants and the Team always starts.
+        # Every binding the current contract refuses is taken out of service first, so the startup recovery below,
+        # and every later request, sees only admissible Assistants and the Team always starts.
         self.assistant_lifecycle.quarantine_inadmissible()
-        self.assistant_lifecycle._reconcile_egress_proxy_attachments()
         self.assistant_lifecycle.recover_updates()
         self.assistant_lifecycle.resume_assistants()
         self.chat_turn_service._restore_all_chat_continuations()
@@ -699,10 +680,6 @@ class LocalController:
 def main() -> int:
     try:
         space_id = os.environ["SHIMPZ_SPACE_ID"]
-        network_policy.require_image_reference(
-            network_policy.ASSISTANT_EGRESS_IMAGE,
-            setting="SHIMPZ_ASSISTANT_EGRESS_IMAGE",
-        )
         token = local_token_store.ensure_token()
         brain_runtime_token_store.ensure()
         client = docker.from_env(timeout=REQUEST_TIMEOUT_SECONDS)

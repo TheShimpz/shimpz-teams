@@ -1,4 +1,8 @@
-"""Private, canonical egress-policy storage shared by both Team profiles."""
+"""Private, canonical egress-policy storage shared by both Team profiles.
+
+Each Assistant's policy is a Team-held token and the reviewed hosts the Assistant egress proxy admits for it. Team
+presents the token for the Assistant's provider calls; no workload ever receives it (ADR-0106).
+"""
 
 import hashlib
 import hmac
@@ -86,9 +90,6 @@ def _read_exact_private_file(
 class EgressPolicyStore:
     root: Path
     policy_gid: int
-    no_proxy: str
-    proxy_alias: str = "shimpz-assistant-egress"
-    proxy_port: int = 8889
 
     def _require_root(self) -> Path:
         try:
@@ -158,17 +159,6 @@ class EgressPolicyStore:
         except OSError as exc:
             raise EgressPolicyUnavailableError("egress token could not be saved") from exc
         return self._read_token(path)
-
-    def proxy_environment(self, token: str) -> dict[str, str]:
-        if _TOKEN.fullmatch(token) is None:
-            raise EgressPolicyDriftError("egress token is invalid")
-        proxy = f"http://{token}@{self.proxy_alias}:{self.proxy_port}"
-        return {
-            "HTTPS_PROXY": proxy,
-            "https_proxy": proxy,
-            "NO_PROXY": self.no_proxy,
-            "no_proxy": self.no_proxy,
-        }
 
     @staticmethod
     def _canonical_hosts(hosts: tuple[str, ...]) -> tuple[tuple[str, ...], bytes]:

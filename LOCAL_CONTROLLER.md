@@ -8,8 +8,10 @@ Integrations.
 
 The Admin never receives the Docker socket or controller bearer. It mounts the token volume read-only
 and calls port `7077` over the private control network. Brain runtime receives only a separate runtime
-bearer and has no Docker socket, Assistant credentials, or direct internet route. Assistant traffic can
-leave only through the deny-by-default egress proxy policy written by this controller.
+bearer and has no Docker socket, Assistant credentials, or direct internet route. An Assistant workload has no
+outbound route and no credential: its Actions ask this controller for each provider call on their exec channel, and
+the controller injects the declared credentials and sends the call through the Assistant egress proxy under that
+Assistant's own deny-by-default policy (ADR-0106).
 
 ## Owned resources and identity
 
@@ -29,10 +31,9 @@ failure. It does not remove shared images, the controller container, or unlabele
 ## Runtime boundary
 
 - Required identity: `SHIMPZ_SPACE_ID`, a stable lowercase/dash-separated value of at most 48 bytes.
-- Required egress pin: `SHIMPZ_ASSISTANT_EGRESS_IMAGE`, the exact image reference Compose instantiates for the
-  Assistant egress proxy. The controller refuses to start without it and, before attaching or using the proxy,
-  answers `409 egress-proxy-drift` unless the proxy's configured reference and image ID equal that reference and
-  Docker's current resolution of it.
+- Provider calls: the controller reaches `shimpz-assistant-egress:8889` over the internal network Compose shares
+  only with that proxy, presenting each Assistant's private policy token. The proxy never joins a Team network, and
+  an Assistant container carrying any proxy variable is refused as isolation drift.
 - HTTP: port `7077`, private Compose networking only. Every route—including `/healthz`—requires
   `Authorization: Bearer <controller token>`.
 - Process: UID/GID `10001:10001`, supplementary token GID `10010`, read-only root filesystem, bounded

@@ -15,7 +15,7 @@ class SharedEgressPolicyTests(unittest.TestCase):
         self.root = Path(self.temporary_directory.name) / "policies"
         self.root.mkdir(mode=0o750)
         self.root.chmod(0o750)
-        self.store = egress_policy.EgressPolicyStore(self.root, os.getgid(), "localhost")
+        self.store = egress_policy.EgressPolicyStore(self.root, os.getgid())
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
@@ -25,14 +25,11 @@ class SharedEgressPolicyTests(unittest.TestCase):
         decisions: list[type[Exception]] = []
 
         with tempfile.TemporaryDirectory() as directory:
-            for name, no_proxy in (
-                ("hosted", "localhost,127.0.0.1,::1,postgres,.team"),
-                ("local", "127.0.0.1,localhost"),
-            ):
+            for name in ("hosted", "local"):
                 root = Path(directory) / name
                 root.mkdir(mode=0o750)
                 root.chmod(0o750)
-                store = egress_policy.EgressPolicyStore(root, os.getgid(), no_proxy)
+                store = egress_policy.EgressPolicyStore(root, os.getgid())
                 token = store.token("space\0team_1\0assistant", create=True)
                 self.assertIsNotNone(token)
                 assert token is not None
@@ -105,7 +102,7 @@ class SharedEgressPolicyTests(unittest.TestCase):
             read_exact()
 
     def test_store_and_identity_metadata_are_strict(self) -> None:
-        missing = egress_policy.EgressPolicyStore(self.root / "missing", os.getgid(), "localhost")
+        missing = egress_policy.EgressPolicyStore(self.root / "missing", os.getgid())
         with self.assertRaises(egress_policy.EgressPolicyUnavailableError):
             missing.token("identity", create=False)
 
@@ -159,9 +156,7 @@ class SharedEgressPolicyTests(unittest.TestCase):
         ):
             self.store.token("identity", create=True)
 
-    def test_proxy_and_policy_inputs_must_be_canonical(self) -> None:
-        with self.assertRaises(egress_policy.EgressPolicyDriftError):
-            self.store.proxy_environment("invalid")
+    def test_policy_inputs_must_be_canonical(self) -> None:
         with self.assertRaises(egress_policy.EgressPolicyDriftError):
             self.store._canonical_hosts(("https://example.com",))
         with self.assertRaises(egress_policy.EgressPolicyDriftError):

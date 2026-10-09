@@ -181,11 +181,6 @@ class LocalContractTests(LocalContractCase):
         with (
             mock.patch.dict(os.environ, {"SHIMPZ_SPACE_ID": "local-space"}),
             mock.patch.object(
-                local_app.network_policy,
-                "ASSISTANT_EGRESS_IMAGE",
-                "ghcr.io/theshimpz/shimpz-egress@sha256:" + "e" * 64,
-            ),
-            mock.patch.object(
                 local_app.local_token_store,
                 "ensure_token",
                 side_effect=lambda: events.append("controller-token") or "a" * 64,

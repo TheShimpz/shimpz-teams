@@ -34,7 +34,6 @@ _ALL_PROXY_VARIABLES = frozenset(
         "all_proxy",
     }
 )
-_UNSUPPORTED_PROXY_VARIABLES = frozenset({"HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"})
 
 
 def _security_options_valid(options: object) -> bool:
@@ -42,16 +41,9 @@ def _security_options_valid(options: object) -> bool:
     return isinstance(options, list) and len(options) == 1 and str(options[0]) in _ENABLED_NO_NEW_PRIVILEGES
 
 
-def egress_environment_valid(
-    environment: dict[str, str],
-    expected_proxy_environment: dict[str, str] | None,
-) -> bool:
-    """Require the exact reviewed proxy environment, or no proxy variables for offline Assistants."""
-    if expected_proxy_environment is None:
-        return not _ALL_PROXY_VARIABLES.intersection(environment)
-    return all(environment.get(key) == value for key, value in expected_proxy_environment.items()) and not (
-        _UNSUPPORTED_PROXY_VARIABLES.intersection(environment)
-    )
+def egress_environment_valid(environment: dict[str, str]) -> bool:
+    """Require no proxy variable: an Assistant reaches providers only through Team (ADR-0106)."""
+    return not _ALL_PROXY_VARIABLES.intersection(environment)
 
 
 def inspect_profile(

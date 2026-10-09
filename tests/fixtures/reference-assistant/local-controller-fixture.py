@@ -110,12 +110,12 @@ def _install_phase_spans() -> None:
     recorder = _PhaseSpans()
     targets = (
         (app.AssistantLifecycle, ("_resolve", "_network", "_assistant_container", "_validate_container_profile")),
-        (app.AssistantLifecycle, ("_team_has_egress_assistant", "_release_assistant_egress", "_queue_residue")),
+        (app.AssistantLifecycle, ("_remove_egress_policy", "_queue_residue")),
         (app.AssistantLifecycle, ("sweep_residues", "_binding_uses_image", "_remove_retired_image")),
-        (app.AssistantLifecycle, ("_delete_retired_image", "_disconnect_egress_proxy")),
+        (app.AssistantLifecycle, ("_delete_retired_image",)),
         (app.AssistantLifecycle, ("install_assistant", "_trusted_image", "_create_assistant_container")),
-        (app.AssistantLifecycle, ("_reserve_assistant_egress_environment", "_admit_assistant_allowed_hosts")),
-        (app.AssistantLifecycle, ("_activate_assistant_egress", "_validate_container", "_wait_ready")),
+        (app.AssistantLifecycle, ("_admit_assistant_allowed_hosts", "_write_egress_policy")),
+        (app.AssistantLifecycle, ("_validate_container", "_wait_ready")),
         (app.AssistantLifecycle, ("_active_assistant_genesis",)),
         (app.ChatTurnService, ("_delete_chat_continuation", "_delete_assistant_integration_state")),
         (app.ChatTurnService, ("_delete_assistant_stored_input_state",)),
@@ -144,7 +144,7 @@ def _install_phase_spans() -> None:
 def _install_chat_spans() -> None:
     recorder = _PhaseSpans()
     targets = (
-        (app.AssistantLifecycle, ("_validate_container", "_egress_proxy", "_admit_assistant_allowed_hosts")),
+        (app.AssistantLifecycle, ("_validate_container", "_admit_assistant_allowed_hosts")),
         (local_registry.AssistantRegistry, ("team_bindings",)),
         (assistant_manifest.ManifestContractCache, ("get",)),
         (assistant_manifest.MachineContractCache, ("get",)),
@@ -168,8 +168,8 @@ def _install_chat_spans() -> None:
 def _install_inventory_spans() -> None:
     recorder = _PhaseSpans()
     targets = (
-        (app.AssistantLifecycle, ("_network", "_egress_proxy", "_validate_container_profile")),
-        (app.AssistantLifecycle, ("_validate_container_egress", "_admit_assistant_allowed_hosts")),
+        (app.AssistantLifecycle, ("_network", "_validate_container_profile")),
+        (app.AssistantLifecycle, ("_validate_container_egress_environment", "_admit_assistant_allowed_hosts")),
         (local_registry.AssistantRegistry, ("installed",)),
         (assistant_manifest.ManifestContractCache, ("get",)),
         (assistant_manifest.MachineContractCache, ("get",)),

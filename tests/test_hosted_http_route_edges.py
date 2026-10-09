@@ -566,23 +566,9 @@ class HostedHttpAssistantRouteEdgeTests(unittest.TestCase):
             no_store=True,
         )
 
-    def test_main_refuses_to_start_without_the_assistant_egress_image_pin(self) -> None:
-        for image in ("", "shimpz egress"):
-            with (
-                self.subTest(image=image),
-                mock.patch.object(server.network_policy, "ASSISTANT_EGRESS_IMAGE", image),
-                mock.patch.object(server.brain_runtime_token_store, "ensure") as ensure,
-                mock.patch.object(server, "BoundedThreadingHTTPServer") as constructor,
-                self.assertRaisesRegex(RuntimeError, "SHIMPZ_ASSISTANT_EGRESS_IMAGE"),
-            ):
-                server.main()
-            ensure.assert_not_called()
-            constructor.assert_not_called()
-
     def test_main_initializes_authorities_before_serving(self) -> None:
         http_server = mock.Mock()
         with (
-            mock.patch.object(server.network_policy, "ASSISTANT_EGRESS_IMAGE", "shimpz-egress:shimpz-local"),
             mock.patch.object(server.brain_runtime_token_store, "ensure") as ensure,
             mock.patch.object(runtime_state, "_initialize_developers_integration") as initialize,
             mock.patch.object(server, "BoundedThreadingHTTPServer", return_value=http_server) as constructor,

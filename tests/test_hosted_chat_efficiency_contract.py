@@ -34,12 +34,7 @@ class CountingContainer:
         self.status = "running"
         self.attrs = {
             "Config": {
-                "Env": [
-                    f"HTTPS_PROXY=http://{TOKEN}@shimpz-assistant-egress:8889",
-                    f"https_proxy=http://{TOKEN}@shimpz-assistant-egress:8889",
-                    "NO_PROXY=localhost,127.0.0.1,::1,postgres,.team",
-                    "no_proxy=localhost,127.0.0.1,::1,postgres,.team",
-                ],
+                "Env": ["SHIMPZ_TEAM_ID=team_1"],
                 "Image": image,
                 "Labels": labels,
             },
@@ -83,17 +78,6 @@ class CountingEgressStore:
     def validate(self, _identity: str, _hosts: tuple[str, ...]) -> str:
         self._calls["egress.file-read"] += 2
         return TOKEN
-
-    @staticmethod
-    def proxy_environment(_token: str) -> dict[str, str]:
-        proxy = f"http://{TOKEN}@shimpz-assistant-egress:8889"
-        no_proxy = "localhost,127.0.0.1,::1,postgres,.team"
-        return {
-            "HTTPS_PROXY": proxy,
-            "https_proxy": proxy,
-            "NO_PROXY": no_proxy,
-            "no_proxy": no_proxy,
-        }
 
 
 class HostedCheckHarness:

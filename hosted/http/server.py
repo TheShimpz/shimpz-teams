@@ -10,7 +10,6 @@ from http.server import BaseHTTPRequestHandler
 import docker
 
 from assistant import spec as assistant_registry
-from core.container import network as network_policy
 from core.http import stdlib
 from core.http import strict as strict_http
 from hosted import audit
@@ -925,10 +924,6 @@ _AUTHORIZED_ROUTES = {
 
 
 def main() -> None:
-    network_policy.require_image_reference(
-        network_policy.ASSISTANT_EGRESS_IMAGE,
-        setting="SHIMPZ_ASSISTANT_EGRESS_IMAGE",
-    )
     # The Controller owns this bearer. The runtime receives the same named volume read-only and
     # cannot rotate or replace its authority.
     brain_runtime_token_store.ensure()

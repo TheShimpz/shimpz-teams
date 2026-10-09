@@ -57,9 +57,8 @@ CHAT_SPAN_PREFIX = "SHIMPZ-PERF-CHAT-ADMISSION "
 INVENTORY_SPAN_PREFIX = "SHIMPZ-PERF-INVENTORY "
 INVENTORY_SPAN_NAMES = (
     "AssistantLifecycle._network",
-    "AssistantLifecycle._egress_proxy",
     "AssistantLifecycle._validate_container_profile",
-    "AssistantLifecycle._validate_container_egress",
+    "AssistantLifecycle._validate_container_egress_environment",
     "AssistantLifecycle._admit_assistant_allowed_hosts",
     "AssistantRegistry.installed",
     "AssistantRegistry.versioned",
@@ -76,7 +75,6 @@ CHAT_SPAN_NAMES = (
     "AssistantRegistry.team_bindings",
     "AssistantRegistry.spec",
     "AssistantLifecycle._validate_container",
-    "AssistantLifecycle._egress_proxy",
     "ContainerCollection.get",
     "AssistantLifecycle._admit_assistant_allowed_hosts",
     "reviewed_manifest_contract",
@@ -385,12 +383,11 @@ def _chat_span_sample(record: dict[str, object], installed: bool) -> dict[str, f
         "AssistantRegistry.spec": int(installed),
         "AssistantLifecycle._validate_container": int(installed),
         "AssistantLifecycle._admit_assistant_allowed_hosts": int(installed),
-        "AssistantLifecycle._egress_proxy": int(installed),
         "ManifestContractCache.get": int(installed),
         "MachineContractCache.get": int(installed),
         "Container.get_archive": 0,
-        # Docker SDK list() inspects the Assistant with get(); the proxy adds another get().
-        "ContainerCollection.get": 2 * int(installed),
+        # Docker SDK list() inspects the Assistant with get().
+        "ContainerCollection.get": int(installed),
     }
     if (
         any(counts[name] != count for name, count in required.items())
@@ -404,7 +401,6 @@ def _chat_span_sample(record: dict[str, object], installed: bool) -> dict[str, f
             "ContainerCollection.list",
             "AssistantRegistry.spec",
             "AssistantLifecycle._validate_container",
-            "AssistantLifecycle._egress_proxy",
             "AssistantLifecycle._admit_assistant_allowed_hosts",
         )
     }
@@ -572,7 +568,7 @@ def _inventory_span_sample(record: dict[str, object]) -> dict[str, float | int]:
     durations = dict.fromkeys(INVENTORY_SPAN_NAMES, 0.0)
     counts = dict.fromkeys(INVENTORY_SPAN_NAMES, 0)
     children = dict.fromkeys(INVENTORY_SPAN_NAMES, 0.0)
-    get_parents = dict.fromkeys(("ContainerCollection.list", "Container.reload", "AssistantLifecycle._egress_proxy"), 0)
+    get_parents = dict.fromkeys(("ContainerCollection.list", "Container.reload"), 0)
     top_level = 0.0
     for span in record["spans"]:
         if not isinstance(span, dict) or set(span) != {"name", "parent", "ms"}:
@@ -596,9 +592,8 @@ def _inventory_span_sample(record: dict[str, object]) -> dict[str, float | int]:
         f"{name}_exclusive_ms": max(0.0, durations[name] - children[name])
         for name in (
             "AssistantLifecycle._network",
-            "AssistantLifecycle._egress_proxy",
             "AssistantLifecycle._validate_container_profile",
-            "AssistantLifecycle._validate_container_egress",
+            "AssistantLifecycle._validate_container_egress_environment",
             "ContainerCollection.list",
             "Container.reload",
         )
@@ -624,14 +619,12 @@ def _inventory_span_summary(records: list[dict[str, object]], installed: bool) -
         "AssistantRegistry.installed_calls": 1,
         "AssistantRegistry.versioned_calls": int(installed),
         "AssistantLifecycle._validate_container_profile_calls": int(installed),
-        "AssistantLifecycle._validate_container_egress_calls": int(installed),
+        "AssistantLifecycle._validate_container_egress_environment_calls": int(installed),
         "AssistantLifecycle._admit_assistant_allowed_hosts_calls": int(installed),
-        "AssistantLifecycle._egress_proxy_calls": int(installed),
         "Container.reload_calls": int(installed),
-        "ContainerCollection.get_calls": 3 * int(installed),
+        "ContainerCollection.get_calls": 2 * int(installed),
         "ContainerCollection.get_from_ContainerCollection.list_calls": int(installed),
         "ContainerCollection.get_from_Container.reload_calls": int(installed),
-        "ContainerCollection.get_from_AssistantLifecycle._egress_proxy_calls": int(installed),
         "ManifestContractCache.get_calls": int(installed),
         "MachineContractCache.get_calls": int(installed),
         "Container.get_archive_calls": 0,

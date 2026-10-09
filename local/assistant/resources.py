@@ -240,26 +240,11 @@ def _validate_container_egress_environment(
             "the reviewed Assistant allowed_hosts contract is invalid",
             code="assistant-registry-drift",
         ) from exc
-    expected_proxy_environment = None
-    if reviewed_hosts:
-        expected_proxy_environment = self._validate_egress_policy(team_id, spec, reviewed_hosts)
-    if not local_container_policy.egress_environment_valid(environment, expected_proxy_environment):
+    if not local_container_policy.egress_environment_valid(environment):
         raise assistant_isolation_drift()
-    return reviewed_hosts
-
-
-def _validate_container_egress(
-    self,
-    team_id: str,
-    spec: AssistantSpec,
-    network_name: str,
-    environment: dict[str, str],
-    egress_proxy=None,
-) -> tuple[str, ...]:
-    reviewed_hosts = self._validate_container_egress_environment(team_id, spec, environment)
     if reviewed_hosts:
-        proxy = egress_proxy() if egress_proxy is not None else None
-        self._reconcile_egress_proxy_attachment(team_id, network_name, proxy)
+        # Team's own provider-call route for this Assistant must hold exactly the reviewed hosts (ADR-0106).
+        self._validate_egress_policy(team_id, spec, reviewed_hosts)
     return reviewed_hosts
 
 
@@ -269,7 +254,6 @@ def _validate_container_isolation(
     team_id: str,
     spec: AssistantSpec,
     network_name: str,
-    egress_proxy=None,
     *,
     refresh: bool = True,
 ) -> dict:
@@ -280,13 +264,7 @@ def _validate_container_isolation(
         network_name,
         refresh=refresh,
     )
-    self._validate_container_egress(
-        team_id,
-        spec,
-        network_name,
-        environment,
-        egress_proxy,
-    )
+    self._validate_container_egress_environment(team_id, spec, environment)
     return config
 
 
@@ -296,18 +274,10 @@ def _validate_container_security(
     team_id: str,
     spec: AssistantSpec,
     network_name: str,
-    egress_proxy=None,
     *,
     refresh: bool = True,
 ) -> dict:
-    config = self._validate_container_isolation(
-        container,
-        team_id,
-        spec,
-        network_name,
-        egress_proxy,
-        refresh=refresh,
-    )
+    config = self._validate_container_isolation(container, team_id, spec, network_name, refresh=refresh)
     self._admit_assistant_allowed_hosts(container, spec)
     return config
 
@@ -332,16 +302,8 @@ def _validate_container(
     team_id: str,
     spec: AssistantSpec,
     network_name: str,
-    egress_proxy=None,
     *,
     refresh: bool = True,
 ) -> None:
-    config = self._validate_container_security(
-        container,
-        team_id,
-        spec,
-        network_name,
-        egress_proxy,
-        refresh=refresh,
-    )
+    config = self._validate_container_security(container, team_id, spec, network_name, refresh=refresh)
     self._validate_current_assistant_artifact(config, spec)

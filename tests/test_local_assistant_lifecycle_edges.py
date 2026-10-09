@@ -52,7 +52,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             _assistant_machine_contract_cache=types.SimpleNamespace(discard=mock.Mock()),
             _assistant_language_cache=types.SimpleNamespace(discard=mock.Mock()),
             _fail_stop_action=mock.Mock(),
-            _release_assistant_egress=mock.Mock(),
+            _remove_egress_policy=mock.Mock(),
         )
 
     def test_install_rollback_accepts_absence_and_reports_egress_failure(self) -> None:
@@ -75,10 +75,10 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
         # The verified language pack is removed with the container generation it was admitted from (ADR-0091).
         subject._assistant_language_cache.discard.assert_called_once_with("container")
 
-        subject._release_assistant_egress.side_effect = local_app.ApiProblem(
+        subject._remove_egress_policy.side_effect = local_app.ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "unavailable",
-            code="egress-proxy-unavailable",
+            code="egress-policy-unavailable",
         )
         problem = assistant_lifecycle._rollback_assistant_install(
             subject,
@@ -90,23 +90,17 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
         )
         self.assertEqual(problem.code, "assistant-install-rollback-incomplete")
 
-    def test_container_creation_rejects_missing_token_image_drift_and_docker_failure(self) -> None:
+    def test_container_creation_rejects_image_drift_and_docker_failure(self) -> None:
         spec = types.SimpleNamespace(
             assistant_id="assistant",
             image="image@sha256:" + "a" * 64,
-            allowed_hosts=("api.example.com",),
+            allowed_hosts=(),
             provenance="published",
         )
         subject = types.SimpleNamespace(
-            _reserve_assistant_egress_environment=lambda *_args: (None, {}, object()),
             _rollback_assistant_install=mock.Mock(return_value=None),
             client=types.SimpleNamespace(containers=types.SimpleNamespace(create=mock.Mock())),
         )
-        with self.assertRaises(local_app.ApiProblem) as caught:
-            _create_container(subject, spec)
-        self.assertEqual(caught.exception.code, "egress-policy-unavailable")
-
-        spec.allowed_hosts = ()
         container = types.SimpleNamespace(
             attrs={"Image": "sha256:" + "b" * 64},
             reload=mock.Mock(),
@@ -172,8 +166,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             _assistant_machine_contract_cache=types.SimpleNamespace(discard=mock.Mock()),
             _assistant_language_cache=types.SimpleNamespace(discard=mock.Mock()),
             _create_assistant_container=mock.Mock(),
-            _team_has_egress_assistant=mock.Mock(return_value=False),
-            _release_assistant_egress=mock.Mock(),
+            _remove_egress_policy=mock.Mock(),
             chat_turn_service=types.SimpleNamespace(
                 _retain_declared_assistant_integration_state=mock.Mock(),
                 _retain_declared_assistant_stored_input_state=mock.Mock(),
@@ -264,7 +257,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             existing,
             authorize_start=authorize,
         )
-        subject._release_assistant_egress.assert_called_once()
+        subject._remove_egress_policy.assert_called_once()
         self.assertIs(
             subject._create_assistant_container.call_args.kwargs["authorize_start"],
             authorize,
@@ -414,8 +407,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         controller.assistant_lifecycle._assistant_image = mock.Mock(return_value=successor_image)
         controller.client.images = types.SimpleNamespace(get=lambda _image: previous_image)
         controller.assistant_lifecycle.updates = types.SimpleNamespace(begin=lambda *_args: object())
-        controller.assistant_lifecycle._team_has_egress_assistant = mock.Mock(return_value=False)
-        controller.assistant_lifecycle._release_assistant_egress = mock.Mock()
+        controller.assistant_lifecycle._remove_egress_policy = mock.Mock()
         controller.assistant_lifecycle._create_assistant_container = mock.Mock(
             side_effect=local_app.ApiProblem(
                 HTTPStatus.BAD_GATEWAY,
@@ -429,7 +421,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         with self.assertRaises(local_app.ApiProblem) as caught:
             _update(controller, previous, successor, binding)
         self.assertEqual(caught.exception.code, "assistant-not-ready")
-        controller.assistant_lifecycle._release_assistant_egress.assert_called_once()
+        controller.assistant_lifecycle._remove_egress_policy.assert_called_once()
 
         controller.assistant_lifecycle._create_assistant_container.side_effect = None
         container.remove = mock.Mock(side_effect=DockerException("unavailable"))
@@ -590,17 +582,16 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         target.allowed_hosts = actual.allowed_hosts
         subject._has_current_assistant_artifact.side_effect = (False, True, True)
         existing.remove.side_effect = DockerException("unavailable")
-        subject._team_has_egress_assistant = mock.Mock(return_value=False)
         with self.assertRaises(local_app.ApiProblem) as caught:
             assistant_lifecycle._recover_update_target(subject, update, target)
         self.assertEqual(caught.exception.code, "docker-remove-failed")
 
         subject._has_current_assistant_artifact.side_effect = (False, True, True)
         existing.remove.side_effect = None
-        subject._release_assistant_egress = mock.Mock()
+        subject._remove_egress_policy = mock.Mock()
         subject._create_assistant_container.reset_mock()
         assistant_lifecycle._recover_update_target(subject, update, target)
-        subject._release_assistant_egress.assert_called_once()
+        subject._remove_egress_policy.assert_called_once()
         subject._create_assistant_container.assert_called_once()
 
     def test_recover_updates_handles_previous_successor_and_mismatched_bindings(self) -> None:
@@ -800,13 +791,12 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
         _retire_into(controller, binding)
         controller.assistant_lifecycle._assistant_container = lambda *_args, **_kwargs: None
         controller.assistant_lifecycle._egress_token = mock.Mock(return_value="token")
-        controller.assistant_lifecycle._team_has_egress_assistant = mock.Mock(return_value=False)
-        controller.assistant_lifecycle._release_assistant_egress = mock.Mock()
+        controller.assistant_lifecycle._remove_egress_policy = mock.Mock()
 
         result = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
 
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": False})
-        controller.assistant_lifecycle._release_assistant_egress.assert_called_once()
+        controller.assistant_lifecycle._remove_egress_policy.assert_called_once()
         controller.icons.retire.assert_called_once_with(binding, controller.registry.bindings, mock.ANY)
 
     def test_uninstall_existing_container_discards_unreferenced_icon(self) -> None:

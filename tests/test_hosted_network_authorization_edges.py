@@ -10,8 +10,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hosted_assistant_fixture as harness
-from test_network_policy import EGRESS_IMAGE_ID, EGRESS_IMAGE_REF, _valid_topology
 from test_network_policy import TEAM_ID as POLICY_TEAM_ID
+from test_network_policy import _attached_egress_proxy, _valid_topology
 
 resources = harness.hosted_resources
 state = harness.runtime_state
@@ -48,21 +48,6 @@ def _network(**changes):
     }
     values.update(changes)
     return SimpleNamespace(**values)
-
-
-def _resolve_pinned_egress(reference: str):
-    if reference != EGRESS_IMAGE_REF:
-        raise resources.docker.errors.ImageNotFound(reference)
-    return SimpleNamespace(id=EGRESS_IMAGE_ID)
-
-
-@contextlib.contextmanager
-def _pinned_egress():
-    with (
-        mock.patch.object(resources.network_policy, "ASSISTANT_EGRESS_IMAGE", EGRESS_IMAGE_REF),
-        mock.patch.object(state._docker, "images", SimpleNamespace(get=_resolve_pinned_egress), create=True),
-    ):
-        yield
 
 
 def _api_error(*, status: int = 500, explanation: str = "failed"):
@@ -204,33 +189,34 @@ class HostedNetworkAuthorizationEdgeTests(unittest.TestCase):
             check(False, False, retry_memo)
             self.assertEqual(scan.call_count, 2)
 
-    def test_network_admission_refuses_an_already_attached_foreign_egress_proxy(self) -> None:
-        def admit(containers: dict, memo: dict) -> None:
-            metadata = _valid_topology()[0]
-            with mock.patch.object(resources, "_network_container_metadata", return_value=containers):
-                resources._require_network_policy(
-                    _network(id=metadata["Id"], attrs=metadata),
-                    POLICY_TEAM_ID,
-                    resources.network_policy.CORE_KIND,
-                    require_runtime=True,
-                    require_dependencies=True,
-                    inspect_memo=memo,
-                )
-
-        with _pinned_egress():
-            admit(_valid_topology()[1], {})
-            for name, mutate in {
-                "foreign image under the pinned reference": lambda proxy: proxy.update(Image="sha256:foreign"),
-                "foreign configured reference": lambda proxy: proxy["Config"].update(Image="foreign/egress:v1"),
-            }.items():
-                with self.subTest(case=name):
-                    containers = _valid_topology()[1]
-                    mutate(containers["assistant-egress-id"])
-                    memo: dict = {}
-                    with self.assertRaises(state.ApiError) as caught:
-                        admit(containers, memo)
-                    self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
-                    self.assertNotIn(True, memo.values())
+    def test_network_admission_refuses_an_attached_assistant_egress_proxy(self) -> None:
+        """The proxy serves only Team's provider calls; on a Team network it is contamination (ADR-0106)."""
+        metadata, containers = _valid_topology()
+        with mock.patch.object(resources, "_network_container_metadata", return_value=containers):
+            resources._require_network_policy(
+                _network(id=metadata["Id"], attrs=metadata),
+                POLICY_TEAM_ID,
+                resources.network_policy.CORE_KIND,
+                require_runtime=True,
+                require_dependencies=True,
+                inspect_memo={},
+            )
+        containers["assistant-egress-id"] = _attached_egress_proxy()
+        metadata["Containers"]["assistant-egress-id"] = {}
+        memo: dict = {}
+        with (
+            mock.patch.object(resources, "_network_container_metadata", return_value=containers),
+            self.assertRaises(state.ApiError),
+        ):
+            resources._require_network_policy(
+                _network(id=metadata["Id"], attrs=metadata),
+                POLICY_TEAM_ID,
+                resources.network_policy.CORE_KIND,
+                require_runtime=True,
+                require_dependencies=True,
+                inspect_memo=memo,
+            )
+        self.assertNotIn(True, memo.values())
 
     def test_network_policy_memo_cannot_promote_missing_required_roles(self) -> None:
         for missing, first, second in (
@@ -242,10 +228,7 @@ class HostedNetworkAuthorizationEdgeTests(unittest.TestCase):
                 del metadata["Containers"][missing]
                 network = _network(id=metadata["Id"], attrs=metadata)
                 memo = {}
-                with (
-                    _pinned_egress(),
-                    mock.patch.object(resources, "_network_container_metadata", return_value=containers),
-                ):
+                with mock.patch.object(resources, "_network_container_metadata", return_value=containers):
                     resources._require_network_policy(
                         network,
                         POLICY_TEAM_ID,
@@ -334,71 +317,6 @@ class HostedNetworkAuthorizationEdgeTests(unittest.TestCase):
         ):
             resources._safe_connect(network, "service", required=True)
         network.connect.assert_called_once_with(container, aliases=None)
-
-    def test_safe_connect_attaches_only_the_exact_pinned_egress_artifact(self) -> None:
-        policy = resources.network_policy
-        reference = "shimpz-egress:shimpz-local"
-        image_id = "sha256:" + "1" * 64
-
-        def proxy(**changes):
-            attrs = {
-                "Name": f"/{policy.ASSISTANT_EGRESS_CONTAINER}",
-                "Config": {"Labels": policy.shared_service_labels(policy.ASSISTANT_EGRESS_ROLE), "Image": reference},
-                "Image": image_id,
-            }
-            attrs.update(changes)
-            return _container(name=policy.ASSISTANT_EGRESS_CONTAINER, attrs=attrs)
-
-        def images(resolved):
-            return SimpleNamespace(get=mock.Mock(side_effect=resolved))
-
-        def exact(ref: str):
-            if ref != reference:
-                raise resources.docker.errors.ImageNotFound(ref)
-            return SimpleNamespace(id=image_id)
-
-        cases = {
-            "foreign image under the pinned reference": (proxy(Image="sha256:" + "f" * 64), exact),
-            "foreign configured reference": (
-                proxy(Config={**proxy().attrs["Config"], "Image": "foreign/egress:latest"}),
-                exact,
-            ),
-            "pinned image absent": (proxy(), resources.docker.errors.ImageNotFound("absent")),
-        }
-        with mock.patch.object(policy, "ASSISTANT_EGRESS_IMAGE", reference):
-            matching = proxy()
-            network = _network()
-            state._docker.containers.get = mock.Mock(return_value=matching)
-            with mock.patch.object(state._docker, "images", images(exact), create=True):
-                resources._safe_connect(network, policy.ASSISTANT_EGRESS_CONTAINER, required=True)
-            network.connect.assert_called_once_with(matching, aliases=None)
-
-            for name, (container, resolved) in cases.items():
-                with self.subTest(case=name):
-                    network = _network()
-                    state._docker.containers.get = mock.Mock(return_value=container)
-                    with (
-                        mock.patch.object(state._docker, "images", images(resolved), create=True),
-                        self.assertRaises(state.ApiError) as caught,
-                    ):
-                        resources._safe_connect(network, policy.ASSISTANT_EGRESS_CONTAINER, required=True)
-                    self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
-                    network.connect.assert_not_called()
-
-            network = _network()
-            state._docker.containers.get = mock.Mock(return_value=proxy())
-            with (
-                mock.patch.object(
-                    state._docker,
-                    "images",
-                    images(resources.docker.errors.DockerException("unavailable")),
-                    create=True,
-                ),
-                self.assertRaises(state.ApiError) as caught,
-            ):
-                resources._safe_connect(network, policy.ASSISTANT_EGRESS_CONTAINER, required=True)
-            self.assertEqual(caught.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
-            network.connect.assert_not_called()
 
     def test_network_dependency_wiring_and_teardown_are_identity_safe(self) -> None:
         network = _network()

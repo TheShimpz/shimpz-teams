@@ -236,9 +236,6 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
                 f"{authority_secrets_path}:/run/shimpz-account-team-authority:ro",
                 "--env",
                 f"SHIMPZ_ACCOUNT_URL=http://{bridge_gateway}:{account.server_port}",
-                # This flow attaches no Assistant egress proxy; the required pin names an image present on the host.
-                "--env",
-                f"SHIMPZ_ASSISTANT_EGRESS_IMAGE={image}",
                 "--publish",
                 "127.0.0.1::7077",
                 image,

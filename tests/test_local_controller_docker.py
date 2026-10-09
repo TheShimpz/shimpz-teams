@@ -54,7 +54,6 @@ LOCAL_TEAM_RESIDUES = [
 sys.path.insert(0, str(TEAM))
 from docker_harness import DockerHarnessMixin
 from local_controller_docker_assistant import LocalAssistantLifecycleMixin
-from local_controller_docker_egress import LocalEgressRecoveryMixin
 from local_controller_docker_fixture import (
     DockerFlow,
     fixture_resolution,
@@ -73,7 +72,6 @@ from protocol.http.v1 import supervisor as supervisor_contract
 
 class DockerFlowTests(
     LocalAssistantLifecycleMixin,
-    LocalEgressRecoveryMixin,
     DockerHarnessMixin,
     unittest.TestCase,
 ):
@@ -456,10 +454,6 @@ class DockerFlowTests(
             "--env",
             f"SHIMPZ_SPACE_ID={flow.space_id}",
             "--env",
-            f"SHIMPZ_ASSISTANT_EGRESS_CONTAINER={flow.egress_proxy}",
-            "--env",
-            f"SHIMPZ_ASSISTANT_EGRESS_IMAGE={flow.egress_proxy_tag}",
-            "--env",
             "SHIMPZ_ASSISTANT_EGRESS_POLICY_DIR=/var/lib/shimpz-local/assistant-egress",
             "--env",
             "SHIMPZ_OAUTH_BROKER_PROXY_HOST=shimpz-account-egress",
@@ -637,10 +631,9 @@ class DockerFlowTests(
         self._api(flow.port, flow.token, "DELETE", "/v1/teams/orphan_team", {"team_name": "Orphan Team"})
 
     def _exercise_teardown(self, flow: DockerFlow) -> None:
+        # The proxy serves only Team's provider calls, so it never joins a Team network (ADR-0106).
         proxy_metadata = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]
-        proxy_networks = proxy_metadata["NetworkSettings"]["Networks"]
-        self.assertEqual(set(proxy_networks), {flow.outbound_network, flow.network_name})
-        self.assertIn("shimpz-assistant-egress", proxy_networks[flow.network_name]["Aliases"])
+        self.assertEqual(set(proxy_metadata["NetworkSettings"]["Networks"]), {flow.outbound_network})
         policy_contract = self._run(
             "exec",
             flow.controller,
@@ -933,7 +926,6 @@ class DockerFlowTests(
             self._exercise_team_storage(flow)
             self._exercise_assistant(flow)
             self._exercise_assistant_recovery(flow)
-            self._exercise_egress_attachment_recovery(flow)
             self._exercise_inadmissible_binding(flow)
             self._exercise_teardown(flow)
             self._exercise_reset(flow)

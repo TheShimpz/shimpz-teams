@@ -36,7 +36,6 @@ def _egress_store() -> egress_policy.EgressPolicyStore:
     return egress_policy.EgressPolicyStore(
         runtime_state.ASSISTANT_EGRESS_POLICY_DIR,
         runtime_state.ASSISTANT_EGRESS_POLICY_GID,
-        "localhost,127.0.0.1,::1,postgres,.team",
     )
 
 
@@ -224,87 +223,32 @@ def _validate_admitted_egress(
     return None
 
 
-def _egress_proxy_environment(
-    token: str,
-    store: egress_policy.EgressPolicyStore | None = None,
-) -> dict[str, str]:
-    try:
-        current_store = store if store is not None else _egress_store()
-        return current_store.proxy_environment(token)
-    except egress_policy.EgressPolicyError as exc:
-        _raise_egress_error(exc)
-
-
-def _validate_assistant_proxy_environment(
-    container,
-    token: str | None,
-    allowed_hosts: tuple[str, ...],
-    store: egress_policy.EgressPolicyStore | None = None,
-) -> None:
+def _require_no_proxy_environment(container) -> None:
+    """An Assistant reaches providers only through Team, so its workload carries no proxy variable (ADR-0106)."""
     config = container.attrs.get("Config")
     raw_environment = config.get("Env") if isinstance(config, dict) else None
     environment = egress_policy.environment_map(raw_environment)
-    if environment is None:
-        raise runtime_state.ApiError(
-            HTTPStatus.CONFLICT,
-            "installed Assistant proxy environment is invalid",
-        )
-    proxy_environment = {key: value for key, value in environment.items() if key.upper().endswith("_PROXY")}
-    if allowed_hosts and token is None:
-        raise runtime_state.ApiError(
-            HTTPStatus.CONFLICT,
-            "installed Assistant proxy environment failed its contract",
-        )
-    expected = _egress_proxy_environment(token, store) if token is not None else {}
-    if proxy_environment != expected:
+    if environment is None or any(key.upper().endswith("_PROXY") for key in environment):
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT,
             "installed Assistant proxy environment failed its contract",
         )
 
 
-def _reserve_egress_environment(
+def _admit_egress_policy(
     team_id: str,
     assistant_id: str,
     allowed_hosts: tuple[str, ...],
     store: egress_policy.EgressPolicyStore | None = None,
-) -> tuple[str | None, dict[str, str]]:
-    if not allowed_hosts:
-        return None, {}
-    current_store = store if store is not None else _egress_store()
-    token = _assistant_egress_token(
-        team_id,
-        assistant_id,
-        store=current_store,
-    )
-    if token is None:
-        raise runtime_state.ApiError(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant egress token is unavailable",
-        )
-    return token, _egress_proxy_environment(token, current_store)
-
-
-def _activate_admitted_egress(
-    network,
-    token: str | None,
-    allowed_hosts: tuple[str, ...],
-    store: egress_policy.EgressPolicyStore | None = None,
 ) -> None:
+    """Write Team's own route for this Assistant's provider calls: its token and its reviewed hosts (ADR-0106)."""
     if not allowed_hosts:
         return
+    current_store = store if store is not None else _egress_store()
+    token = _assistant_egress_token(team_id, assistant_id, store=current_store)
     if token is None:
-        raise runtime_state.ApiError(
-            HTTPStatus.INTERNAL_SERVER_ERROR,
-            "Assistant egress admission failed",
-        )
-    _write_egress_policy(token, allowed_hosts, store)
-    hosted_resources._safe_connect(
-        network,
-        container_spec.ASSISTANT_EGRESS_CONTAINER,
-        aliases=["shimpz-assistant-egress"],
-        required=True,
-    )
+        raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Assistant egress token is unavailable")
+    _write_egress_policy(token, allowed_hosts, current_store)
 
 
 def _remove_egress_policy(team_id: str, assistant_id: str) -> bool:
@@ -551,18 +495,8 @@ def _admit_existing_assistant(
             f"installed Assistant {assistant_id!r} uses a different image",
         )
     admitted_hosts = _admit_assistant_contract(spec, existing)
-    token = _validate_admitted_egress(
-        team_id,
-        assistant_id,
-        admitted_hosts,
-        egress_store,
-    )
-    _validate_assistant_proxy_environment(
-        existing,
-        token,
-        admitted_hosts,
-        egress_store,
-    )
+    _validate_admitted_egress(team_id, assistant_id, admitted_hosts, egress_store)
+    _require_no_proxy_environment(existing)
     ready, status = _assistant_ready_now(existing)
     if not ready:
         raise runtime_state.ApiError(
@@ -627,17 +561,10 @@ def _provision_assistant_transaction(
     egress_store = _egress_store()
     try:
         network = hosted_resources._ensure_team_network(team_id)
-        token, proxy_env = _reserve_egress_environment(
-            team_id,
-            assistant_id,
-            spec.allowed_hosts,
-            egress_store,
-        )
         kwargs = container_spec.build_assistant_kwargs(
             team_id,
             assistant_id,
             spec,
-            proxy_env=proxy_env,
             owner=owner,
             source_digest=binding.resolution["source_digest"],
         )
@@ -649,18 +576,8 @@ def _provision_assistant_transaction(
             aliases=[assistant_id, f"{assistant_id}.team"],
         )
         admitted_hosts = _admit_assistant_contract(spec, container)
-        _validate_assistant_proxy_environment(
-            container,
-            token,
-            admitted_hosts,
-            egress_store,
-        )
-        _activate_admitted_egress(
-            network,
-            token,
-            admitted_hosts,
-            egress_store,
-        )
+        _require_no_proxy_environment(container)
+        _admit_egress_policy(team_id, assistant_id, admitted_hosts, egress_store)
         authorize_start()
         hosted_resources._start_team_with_isolation(
             container,

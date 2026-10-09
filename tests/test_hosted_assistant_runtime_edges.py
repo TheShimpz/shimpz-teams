@@ -109,14 +109,14 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             mock.patch.object(lifecycle, "_require_assistant_allowed_hosts", return_value=("api.example",)),
             mock.patch.object(lifecycle, "_egress_store", return_value=egress),
             mock.patch.object(lifecycle, "_validate_admitted_egress", return_value="token") as admitted,
-            mock.patch.object(lifecycle, "_validate_assistant_proxy_environment") as proxy,
+            mock.patch.object(lifecycle, "_require_no_proxy_environment") as proxy,
         ):
             result = assistants._installed_assistant(TEAM_ID, ASSISTANT_ID, candidate=container)
 
         self.assertEqual(result, (ASSISTANT_ID, CONTRACT, container))
         isolation.assert_called_once()
         admitted.assert_called_once_with(TEAM_ID, ASSISTANT_ID, ("api.example",), egress)
-        proxy.assert_called_once_with(container, "token", ("api.example",), egress)
+        proxy.assert_called_once_with(container)
 
     def test_active_inventory_contains_docker_failures_and_filters_candidates(self) -> None:
         docker_error = assistants.docker.errors.DockerException("docker")

@@ -300,9 +300,8 @@ class LocalLeafContractTests(unittest.TestCase):
             _network=lambda _team_id: object(),
             _assistant_filters=lambda _team_id: {},
             _network_name=lambda _team_id: "network",
-            _egress_proxy=lambda _network_name: object(),
             _validate_container_profile=lambda *_args: (object(), {}),
-            _validate_container_egress=lambda *_args: None,
+            _validate_container_egress_environment=lambda *_args: None,
             _has_current_assistant_artifact=lambda *_args: True,
             _admit_assistant_allowed_hosts=lambda *_args: None,
         )
@@ -330,13 +329,13 @@ class LocalLeafContractTests(unittest.TestCase):
             types.SimpleNamespace(admissible=True, provenance="published"),
             "0.1.0",
         )
-        lifecycle._validate_container_egress = mock.Mock(
+        lifecycle._validate_container_egress_environment = mock.Mock(
             side_effect=ApiProblemError(409, "unexpected egress failure", code="unexpected")
         )
         with self.assertRaisesRegex(ApiProblemError, "unexpected egress failure"):
             assistant_api.list_assistants(controller, "team_1")
 
-        lifecycle._validate_container_egress.side_effect = None
+        lifecycle._validate_container_egress_environment.side_effect = None
         self.assertEqual(
             assistant_api.list_assistants(controller, "team_1"),
             {

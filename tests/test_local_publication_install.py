@@ -431,7 +431,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 _assistant_filters=lambda _team_id: {},
                 _network_name=lambda _team_id: "network",
                 _validate_container_profile=mock.Mock(return_value=(object(), {})),
-                _validate_container_egress=mock.Mock(),
+                _validate_container_egress_environment=mock.Mock(),
                 _has_current_assistant_artifact=lambda *_args: False,
             )
             controller = SimpleNamespace(
@@ -455,7 +455,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 {RESOLUTION["assistant_version"]},
             )
             self.assertEqual(lifecycle._validate_container_profile.call_count, 4)
-            self.assertEqual(lifecycle._validate_container_egress.call_count, 4)
+            self.assertEqual(lifecycle._validate_container_egress_environment.call_count, 4)
 
             controller.client.containers.list.side_effect = None
             controller.client.containers.list.return_value = []
@@ -684,11 +684,9 @@ class LocalStartAuthorizationCompensationTests(unittest.TestCase):
         lifecycle._assistant_image = lambda spec: (
             images["successor"] if spec.image == self.successor_image else images["current"]
         )
-        lifecycle._reserve_assistant_egress_environment = lambda *_args: ("a" * 32, {}, None)
         lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(spec.allowed_hosts)
-        lifecycle._activate_assistant_egress = lambda *_args: events.append("activate-egress")
-        lifecycle._release_assistant_egress = lambda *_args, **_kwargs: events.append("release-egress")
-        lifecycle._team_has_egress_assistant = lambda *_args, **_kwargs: False
+        lifecycle._write_egress_policy = lambda *_args: events.append("activate-egress")
+        lifecycle._remove_egress_policy = lambda *_args, **_kwargs: events.append("release-egress")
         lifecycle._validate_container = lambda *_args: None
         lifecycle._wait_ready = lambda *_args: None
         lifecycle._active_assistant_genesis = lambda _active: None

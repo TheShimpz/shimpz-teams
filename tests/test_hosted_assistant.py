@@ -567,7 +567,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                     assistant_lifecycle._validate_egress_policy("team_1", "shimpz-cloudflare", hosts)
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
 
-    def test_egress_reservation_constructs_one_store_for_the_operation(self) -> None:
+    def test_egress_admission_writes_teams_route_with_one_store(self) -> None:
         hosts = ("api.open-meteo.com",)
         with tempfile.TemporaryDirectory() as directory:
             policy_root = Path(directory)
@@ -584,59 +584,19 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                     wraps=hosted_egress_policy.EgressPolicyStore,
                 ) as store_constructor,
             ):
-                token, environment = assistant_lifecycle._reserve_egress_environment(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    hosts,
-                )
+                assistant_lifecycle._admit_egress_policy("team_1", "shimpz-cloudflare", hosts)
+                token = assistant_lifecycle._validate_egress_policy("team_1", "shimpz-cloudflare", hosts)
 
-        self.assertIsNotNone(token)
-        self.assertEqual(environment, assistant_lifecycle._egress_proxy_environment(token))
-        store_constructor.assert_called_once_with(
-            policy_root,
-            os.getgid(),
-            "localhost,127.0.0.1,::1,postgres,.team",
-        )
+        self.assertRegex(token, r"^[0-9a-f]{32}$")
+        store_constructor.assert_any_call(policy_root, os.getgid())
 
-    def test_nonempty_hosts_require_the_exact_admitted_proxy_token(self) -> None:
-        token = "a" * 32
-        hosts = ("api.open-meteo.com",)
-        expected = assistant_lifecycle._egress_proxy_environment(token)
-        assistant_lifecycle._validate_assistant_proxy_environment(
-            self._container_with_environment(expected),
-            token,
-            hosts,
-        )
-
-        drifted_environments = {
-            "wrong-token": {**expected, "HTTPS_PROXY": expected["HTTPS_PROXY"].replace(token, "b" * 32)},
-            "missing-lowercase": {key: value for key, value in expected.items() if key != "https_proxy"},
-            "http-proxy": {**expected, "HTTP_PROXY": "http://shimpz-assistant-egress:8889"},
-            "all-proxy": {**expected, "all_proxy": "http://shimpz-assistant-egress:8889"},
-        }
-        for name, environment in drifted_environments.items():
-            with self.subTest(name=name), self.assertRaises(runtime_state.ApiError) as caught:
-                assistant_lifecycle._validate_assistant_proxy_environment(
-                    self._container_with_environment(environment),
-                    token,
-                    hosts,
-                )
-            self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
-
-    def test_empty_hosts_forbid_every_proxy_environment_variable(self) -> None:
-        assistant_lifecycle._validate_assistant_proxy_environment(
-            self._container_with_environment({"SHIMPZ_TEAM_ID": "team_1"}),
-            None,
-            (),
-        )
+    def test_every_workload_proxy_variable_is_refused(self) -> None:
+        """An Assistant reaches providers only through Team, so its workload carries no proxy (ADR-0106)."""
+        assistant_lifecycle._require_no_proxy_environment(self._container_with_environment({"SHIMPZ_TEAM_ID": "t"}))
 
         for key in ("HTTPS_PROXY", "http_proxy", "ALL_PROXY", "no_proxy", "FTP_PROXY", "custom_proxy"):
             with self.subTest(key=key), self.assertRaises(runtime_state.ApiError) as caught:
-                assistant_lifecycle._validate_assistant_proxy_environment(
-                    self._container_with_environment({key: "unexpected"}),
-                    None,
-                    (),
-                )
+                assistant_lifecycle._require_no_proxy_environment(self._container_with_environment({key: "unexpected"}))
             self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
 
     def test_empty_hosts_build_no_proxy_environment(self) -> None:

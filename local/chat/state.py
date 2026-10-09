@@ -203,16 +203,9 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
     except DockerException as exc:
         raise docker_unavailable() from exc
     active: list[_ActiveAssistant] = []
-    egress_proxy = None
     bindings_by_id = (
         {binding.assistant_id: binding for binding in self.registry.team_bindings(team_id)} if containers else {}
     )
-
-    def current_egress_proxy():
-        nonlocal egress_proxy
-        if egress_proxy is None:
-            egress_proxy = self.assistant_lifecycle._egress_proxy(network_name)
-        return egress_proxy
 
     for container in containers:
         assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
@@ -220,14 +213,7 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
         if binding is None:
             raise assistant_registry_drift()
         spec = self.registry.spec(binding)
-        self.assistant_lifecycle._validate_container(
-            container,
-            team_id,
-            spec,
-            network_name,
-            current_egress_proxy,
-            refresh=False,
-        )
+        self.assistant_lifecycle._validate_container(container, team_id, spec, network_name, refresh=False)
         if container.id in self.assistant_lifecycle._blocked_action_workloads:
             raise assistant_action_blocked()
         if container.status == "running":

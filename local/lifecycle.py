@@ -114,7 +114,8 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
         if retired_image_id is not None and spec.provenance == "published":
             self.assistant_lifecycle._queue_residue(retired_image_id)
         self.assistant_lifecycle._blocked_action_workloads.discard(container.id)
-        self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
+        if spec.allowed_hosts:
+            self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)
         _retire_team_binding(self, team_id, assistant_id)
     for bound_team_id, assistant_id in sorted(self.registry.identities()):
         if bound_team_id != team_id:
@@ -127,7 +128,8 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
             spec = self.registry.get(team_id, assistant_id)
             if spec is None:
                 raise team_resources_ownership_conflict()
-            self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
+            if spec.allowed_hosts:
+                self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)
         _retire_team_binding(self, team_id, assistant_id)
     self.assistant_lifecycle.sweep_residues()
     return len(containers)
@@ -167,7 +169,6 @@ def _delete_team_private_state(self, team_id: str) -> None:
 def _remove_team_network(self, network) -> bool:
     if network is None:
         return False
-    self.assistant_lifecycle._disconnect_egress_proxy_if_attached(network)
     try:
         network.remove()
     except DockerException as exc:
@@ -176,9 +177,6 @@ def _remove_team_network(self, network) -> bool:
 
 
 def _clear_team_runtime_state(self, team_id: str) -> None:
-    # Teardown proved every Assistant runtime of the Team gone, so no refused one can still need its proxy kept away.
-    refusals = self.assistant_lifecycle._unisolated_refusals
-    refusals.difference_update({refusal for refusal in refusals if refusal[0] == team_id})
     with self.chat_turn_service._active_chat_guard:
         token = self.chat_turn_service._active_chat_tokens.pop(team_id, None)
         self.chat_turn_service._active_action_containers.pop(team_id, None)
@@ -337,8 +335,6 @@ def _remove_space_resources(
         _retire_team_binding(self, team_id, assistant_id)
     self.assistant_lifecycle.sweep_residues()
     absent.update(("egress_policies", "publication_bindings"))
-    for network in networks:
-        self.assistant_lifecycle._disconnect_egress_proxy_if_attached(network)
     storage_removed = self.storage.destroy_all()
     absent.add("team_storage")
     # Every owned file goes, even for a Team whose network a crash already removed.
@@ -351,8 +347,6 @@ def _remove_space_resources(
     absent.add("team_names")
     team_ids = {team_id for team_id, _assistant_id in owned_assistants}
     team_ids.update(network.attrs["Labels"][TEAM_LABEL] for network in networks)
-    # A retry may find nothing left of a Team whose refused runtime still holds its egress barrier.
-    team_ids.update(team_id for team_id, _assistant_id in self.assistant_lifecycle._unisolated_refusals)
     for team_id in team_ids:
         self._clear_team_runtime_state(team_id)
     absent.add("runtime_state")

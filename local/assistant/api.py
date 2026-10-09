@@ -114,13 +114,6 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
     with self._lock(team_id):
         self.assistant_lifecycle._network(team_id)
         output: list[dict[str, str]] = []
-        egress_proxy = None
-
-        def current_egress_proxy():
-            nonlocal egress_proxy
-            if egress_proxy is None:
-                egress_proxy = self.assistant_lifecycle._egress_proxy(self.assistant_lifecycle._network_name(team_id))
-            return egress_proxy
 
         try:
             containers = self.client.containers.list(**self.assistant_lifecycle._assistant_filters(team_id))
@@ -147,13 +140,7 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
             )
             invalid = False
             try:
-                self.assistant_lifecycle._validate_container_egress(
-                    team_id,
-                    spec,
-                    self.assistant_lifecycle._network_name(team_id),
-                    environment,
-                    current_egress_proxy,
-                )
+                self.assistant_lifecycle._validate_container_egress_environment(team_id, spec, environment)
             except ApiProblem as exc:
                 if exc.code != "egress-policy-drift":
                     raise

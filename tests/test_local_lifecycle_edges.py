@@ -60,7 +60,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         lifecycle = types.SimpleNamespace(
             _retired_image_id=lambda _container: None,
             _blocked_action_workloads=set(),
-            _remove_assistant_policy_if_needed=mock.Mock(),
+            _remove_egress_policy=mock.Mock(),
             _queue_residue=mock.Mock(),
             sweep_residues=mock.Mock(),
         )
@@ -73,7 +73,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
         subject.registry = TestAssistantRegistry(
-            {"assistant": types.SimpleNamespace(admissible=True, provenance="local")}
+            {"assistant": types.SimpleNamespace(admissible=True, provenance="local", allowed_hosts=())}
         )
         lifecycle._retired_image_id = lambda _container: "sha256:" + "a" * 64
         container.remove.side_effect = DockerException("unavailable")
@@ -89,7 +89,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         lifecycle._queue_residue.assert_not_called()
 
         subject.registry = TestAssistantRegistry(
-            {"assistant": types.SimpleNamespace(admissible=True, provenance="published")}
+            {"assistant": types.SimpleNamespace(admissible=True, provenance="published", allowed_hosts=())}
         )
         self.assertEqual(
             local_lifecycle._remove_team_assistants(subject, "team_1", [container]),
@@ -98,19 +98,19 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         lifecycle._queue_residue.assert_called_once_with("sha256:" + "a" * 64)
 
     def test_binding_only_assistants_are_removed_for_the_exact_team(self) -> None:
-        own_spec = object()
-        registry = TestAssistantRegistry({"own": own_spec, "other": object()})
+        own_spec = types.SimpleNamespace(allowed_hosts=("api.example.com",))
+        registry = TestAssistantRegistry({"own": own_spec, "other": types.SimpleNamespace(allowed_hosts=())})
         registry.identities = lambda: {("other_team", "other"), ("team_1", "own")}
         lifecycle = types.SimpleNamespace(
             _blocked_action_workloads=set(),
-            _remove_assistant_policy_if_needed=mock.Mock(),
+            _remove_egress_policy=mock.Mock(),
             sweep_residues=mock.Mock(),
         )
         subject = types.SimpleNamespace(registry=registry, assistant_lifecycle=lifecycle)
 
         self.assertEqual(local_lifecycle._remove_team_assistants(subject, "team_1", []), 0)
 
-        lifecycle._remove_assistant_policy_if_needed.assert_called_once_with("team_1", "own", own_spec)
+        lifecycle._remove_egress_policy.assert_called_once_with("team_1", "own")
         self.assertIsNone(registry.get("team_1", "own"))
         self.assertIsNotNone(registry.get("other_team", "other"))
 
@@ -154,9 +154,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             local_lifecycle._delete_team_persistence(unavailable_inference, "team_1")
         self.assertEqual(caught.exception.code, "inference-config-unavailable")
 
-        subject = types.SimpleNamespace(
-            assistant_lifecycle=types.SimpleNamespace(_disconnect_egress_proxy_if_attached=mock.Mock())
-        )
+        subject = types.SimpleNamespace(assistant_lifecycle=types.SimpleNamespace())
         self.assertFalse(local_lifecycle._remove_team_network(subject, None))
         network = types.SimpleNamespace(remove=mock.Mock(side_effect=DockerException("unavailable")))
         with self.assertRaises(local_app.ApiProblem) as caught:
@@ -253,8 +251,6 @@ class LocalLifecycleEdgeTests(LocalContractCase):
                 _queue_residue=mock.Mock(),
                 _remove_egress_policy=lambda *_args: events.append("policy-delete"),
                 sweep_residues=lambda: events.append("residue-sweep"),
-                _disconnect_egress_proxy_if_attached=lambda _network: events.append("proxy-disconnect"),
-                _unisolated_refusals=set(),
             ),
             registry=TestAssistantRegistry({"assistant": types.SimpleNamespace(admissible=True, provenance="local")}),
             storage=types.SimpleNamespace(destroy_all=lambda: True),
@@ -276,12 +272,6 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         self.assertTrue(storage_removed)
         self.assertIn("runtime_state", absent)
         subject.assistant_lifecycle._queue_residue.assert_not_called()
-
-        # A retry that finds nothing left of a Team still clears the refused-runtime barrier it holds.
-        events.clear()
-        subject.assistant_lifecycle._unisolated_refusals.add(("team_9", "refused"))
-        local_lifecycle._remove_space_resources(subject, [], [], set())
-        self.assertIn(("runtime-clear", "team_9"), events)
 
     def test_reset_maps_each_failure_and_requires_complete_proof(self) -> None:
         controller, _container, _events = self._lifecycle_controller()

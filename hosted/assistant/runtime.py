@@ -174,8 +174,8 @@ def _installed_assistant(
     )
     allowed_hosts = assistant_lifecycle._require_assistant_allowed_hosts(spec, container)
     current_egress_store = egress_store if egress_store is not None else assistant_lifecycle._egress_store()
-    token = assistant_lifecycle._validate_admitted_egress(team_id, assistant_id, allowed_hosts, current_egress_store)
-    assistant_lifecycle._validate_assistant_proxy_environment(container, token, allowed_hosts, current_egress_store)
+    assistant_lifecycle._validate_admitted_egress(team_id, assistant_id, allowed_hosts, current_egress_store)
+    assistant_lifecycle._require_no_proxy_environment(container)
     return assistant_id, contract, container
 
 

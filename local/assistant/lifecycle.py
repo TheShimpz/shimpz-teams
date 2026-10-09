@@ -104,7 +104,7 @@ def _rollback_assistant_install(
                 self._fail_stop_action(container)
     if egress_prepared:
         try:
-            self._release_assistant_egress(team_id, spec.assistant_id, network)
+            self._remove_egress_policy(team_id, spec.assistant_id)
         except ApiProblem:
             incomplete = True
     if incomplete:
@@ -127,21 +127,7 @@ def _create_assistant_container(
 ) -> None:
     container = None
     egress_prepared = False
-    egress_store = None
     try:
-        proxy_environment: dict[str, str] = {}
-        if spec.allowed_hosts:
-            token, proxy_environment, egress_store = self._reserve_assistant_egress_environment(
-                team_id,
-                spec.assistant_id,
-            )
-            if token is None:
-                raise ApiProblem(
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                    "Assistant egress token could not be saved",
-                    code="egress-policy-unavailable",
-                )
-            egress_prepared = True
         container = self.client.containers.create(
             image=spec.image,
             name=self._container_name(team_id, spec.assistant_id),
@@ -154,7 +140,6 @@ def _create_assistant_container(
                 "SHIMPZ_ASSISTANT_ID": spec.assistant_id,
                 "SHIMPZ_TEAM_ID": team_id,
                 "PYTHONDONTWRITEBYTECODE": "1",
-                **proxy_environment,
             },
             read_only=True,
             cap_drop=["ALL"],
@@ -187,7 +172,9 @@ def _create_assistant_container(
             )
         allowed_hosts = self._admit_assistant_allowed_hosts(container, spec)
         if allowed_hosts:
-            self._activate_assistant_egress(team_id, spec, network, allowed_hosts, egress_store)
+            # Team's own route for this Assistant's provider calls; the workload never holds it (ADR-0106).
+            egress_prepared = True
+            self._write_egress_policy(team_id, spec, allowed_hosts)
         if authorize_start is not None:
             authorize_start()
         container.start()
@@ -253,21 +240,13 @@ def _replace_outdated_assistant(
         )
     self.chat_turn_service._retain_declared_assistant_integration_state(team_id, spec)
     self.chat_turn_service._retain_declared_assistant_stored_input_state(team_id, spec)
-    remaining_egress = (
-        self._team_has_egress_assistant(team_id, excluding=spec.assistant_id) if spec.allowed_hosts else None
-    )
     try:
         _forget_container_review(self, existing.id)
         existing.remove(force=True)
     except DockerException as exc:
         raise assistant_replace_failed() from exc
     if spec.allowed_hosts:
-        self._release_assistant_egress(
-            team_id,
-            spec.assistant_id,
-            network,
-            remaining_egress=remaining_egress,
-        )
+        self._remove_egress_policy(team_id, spec.assistant_id)
     self._create_assistant_container(team_id, spec, network, image, authorize_start=authorize_start)
 
 
@@ -426,7 +405,7 @@ def update_assistant(
     if not assistant_manifest.automatic_update_preserves_egress(previous_contract, successor_contract):
         raise ApiProblem(
             HTTPStatus.CONFLICT,
-            "Assistant update requires approval for expanded outbound hosts",
+            "Assistant update requires approval for expanded outbound hosts or moved credentials",
             code="assistant-update-approval-required",
         )
     with self._lock(team_id):
@@ -443,21 +422,11 @@ def update_assistant(
                 code="docker-image-unavailable",
             ) from exc
         transaction = self.updates.begin(previous_binding, successor_document, previous_image.id)
-        remaining_egress = (
-            self._team_has_egress_assistant(team_id, excluding=previous.assistant_id)
-            if previous.allowed_hosts
-            else None
-        )
         try:
             _forget_container_review(self, existing.id)
             existing.remove(force=True)
             if previous.allowed_hosts:
-                self._release_assistant_egress(
-                    team_id,
-                    previous.assistant_id,
-                    network,
-                    remaining_egress=remaining_egress,
-                )
+                self._remove_egress_policy(team_id, previous.assistant_id)
             self._create_assistant_container(
                 team_id,
                 successor,
@@ -539,9 +508,6 @@ def _recover_update_target(self, update, target: AssistantSpec) -> None:
         )
     self._validate_container_security(existing, team_id, actual, network.name, refresh=False)
     target_image = self._assistant_image(target)
-    remaining_egress = (
-        self._team_has_egress_assistant(team_id, excluding=target.assistant_id) if actual.allowed_hosts else None
-    )
     try:
         existing.remove(force=True)
     except DockerException as exc:
@@ -551,12 +517,7 @@ def _recover_update_target(self, update, target: AssistantSpec) -> None:
             code="docker-remove-failed",
         ) from exc
     if actual.allowed_hosts:
-        self._release_assistant_egress(
-            team_id,
-            target.assistant_id,
-            network,
-            remaining_egress=remaining_egress,
-        )
+        self._remove_egress_policy(team_id, target.assistant_id)
     self._create_assistant_container(team_id, target, network, target_image)
 
 
@@ -595,11 +556,11 @@ def recover_updates(self) -> None:
 def quarantine_inadmissible(self) -> None:
     """At startup, take every binding the current contract refuses out of service, one Assistant at a time.
 
-    Its admitted egress policy is revoked first and independently, so a runtime that cannot be removed reaches nothing
-    through the Team's proxy; then its owned runtime container is removed, so nothing runs that current admission
-    cannot validate. The binding, its Team-custodied state, and its image stay until its Supervisor replaces or
-    uninstalls it, and a published image is queued as residue that is collected only once no binding holds it. A
-    failure is logged for that Assistant only and never stops the Team (ADR-0033's 2026-10-08 amendment).
+    Its admitted egress policy is revoked first and independently, so Team holds no route for a binding it refuses;
+    then its owned runtime container is removed, so nothing runs that current admission cannot validate. The binding,
+    its Team-custodied state, and its image stay until its Supervisor replaces or uninstalls it, and a published image
+    is queued as residue that is collected only once no binding holds it. A failure is logged for that Assistant only
+    and never stops the Team (ADR-0033's 2026-10-08 amendment).
     """
     try:
         refused = self.registry.inadmissible()
@@ -610,19 +571,14 @@ def quarantine_inadmissible(self) -> None:
         team_id, assistant_id = binding.team_id, binding.assistant_id
         log.warning("Installed Assistant %s/%s needs replacement under the current contract", team_id, assistant_id)
         with self._lock(team_id):
-            revoked = removed = True
             try:
                 self._remove_egress_policy(team_id, assistant_id)
             except ApiProblem:
-                revoked = False
                 log.exception("Assistant egress revocation deferred for %s/%s", team_id, assistant_id)
             try:
                 _remove_inadmissible_runtime(self, binding)
             except ApiProblem, DockerException:
-                removed = False
                 log.exception("Assistant quarantine deferred for %s/%s", team_id, assistant_id)
-            if not (revoked or removed):
-                self._unisolated_refusals.add((team_id, assistant_id))
 
 
 def _remove_inadmissible_runtime(self, binding: bindings.DynamicAssistantBinding) -> None:
@@ -774,17 +730,10 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
                     "Docker could not uninstall the Assistant",
                     code="docker-remove-failed",
                 ) from exc
-            self._unisolated_refusals.discard((team_id, assistant_id))
         container = self._assistant_container(team_id, assistant_id, required=False)
         if container is None:
             if self._egress_token(team_id, assistant_id, create=False) is not None:
-                remaining_egress = self._team_has_egress_assistant(team_id, excluding=assistant_id)
-                self._release_assistant_egress(
-                    team_id,
-                    assistant_id,
-                    network,
-                    remaining_egress=remaining_egress,
-                )
+                self._remove_egress_policy(team_id, assistant_id)
             self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
             self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
             _retire_binding(self, team_id, assistant_id, binding)
@@ -796,9 +745,6 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
             raise assistant_registry_drift()
         self._validate_container_profile(container, team_id, spec, network.name)
         retired_image_id = _retired_image_id(container)
-        remaining_egress = (
-            self._team_has_egress_assistant(team_id, excluding=assistant_id) if spec.allowed_hosts else None
-        )
         try:
             container.remove(force=True)
         except DockerException as exc:
@@ -812,12 +758,7 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
         if retired_image_id is not None and (binding is None or binding.provenance == "published"):
             self._queue_residue(retired_image_id)
         if spec.allowed_hosts:
-            self._release_assistant_egress(
-                team_id,
-                assistant_id,
-                network,
-                remaining_egress=remaining_egress,
-            )
+            self._remove_egress_policy(team_id, assistant_id)
         self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
         self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
         _retire_binding(self, team_id, assistant_id, binding)

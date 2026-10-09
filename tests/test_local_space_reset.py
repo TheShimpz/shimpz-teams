@@ -54,9 +54,6 @@ class LocalSpaceResetTests(LocalContractCase):
         controller.assistant_lifecycle._remove_egress_policy = lambda team_id, assistant_id: events.append(
             ("remove-policy", team_id, assistant_id)
         )
-        controller.assistant_lifecycle._disconnect_egress_proxy_if_attached = lambda _network: events.append(
-            "disconnect-proxy"
-        )
         controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
         # Recording turns, cards, and run protection live in memory only; a reset forgets every one.
         recording = controller.routine_recordings.start(

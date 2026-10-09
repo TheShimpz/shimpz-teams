@@ -71,10 +71,6 @@ assistant_isolation_drift = _problem(
 integration_contract_unavailable = _problem(
     _CONFLICT, "Assistant integration contract is unavailable", "assistant-integration-contract-invalid"
 )
-egress_proxy_unavailable = _problem(_UNAVAILABLE, "Assistant egress proxy is unavailable", "egress-proxy-unavailable")
-egress_proxy_drift = _problem(
-    _CONFLICT, "Assistant egress proxy failed its Team attachment contract", "egress-proxy-drift"
-)
 team_destroy_failed = _problem(_UNAVAILABLE, "Docker could not destroy the Team", "docker-remove-failed")
 assistant_replace_failed = _problem(_UNAVAILABLE, "Docker could not replace the Assistant", "docker-remove-failed")
 chat_stop_timeout = _problem(_CONFLICT, "active Team chat did not stop in time", "chat-active")
@@ -97,9 +93,6 @@ integration_oauth_unavailable = _problem(
     "assistant-integration-oauth-unavailable",
 )
 oauth_authorization_invalid = _problem(_INVALID, "OAuth authorization is invalid", "invalid-body")
-egress_proxy_join_failed = _problem(
-    _UNAVAILABLE, "Assistant egress proxy could not join the Team", "egress-proxy-unavailable"
-)
 space_resource_ownership_conflict = _problem(
     _CONFLICT, "a labeled Space resource failed its ownership contract", "ownership-conflict"
 )

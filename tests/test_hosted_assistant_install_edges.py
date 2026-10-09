@@ -201,7 +201,7 @@ class HostedAssistantInstallEdgeTests(unittest.TestCase):
             mock.patch.object(resources, "_require_team_isolation"),
             mock.patch.object(lifecycle, "_admit_assistant_contract", return_value=()),
             mock.patch.object(lifecycle, "_validate_admitted_egress", return_value=None),
-            mock.patch.object(lifecycle, "_validate_assistant_proxy_environment"),
+            mock.patch.object(lifecycle, "_require_no_proxy_environment"),
             mock.patch.object(lifecycle, "_assistant_ready_now", return_value=(False, "stopped")),
             self.assertRaises(state.ApiError) as stopped,
         ):
@@ -216,13 +216,13 @@ class HostedAssistantInstallEdgeTests(unittest.TestCase):
             mock.patch.object(resources, "_require_team_isolation"),
             mock.patch.object(lifecycle, "_admit_assistant_contract", return_value=("api.example",)),
             mock.patch.object(lifecycle, "_validate_admitted_egress", return_value="token"),
-            mock.patch.object(lifecycle, "_validate_assistant_proxy_environment") as proxy,
+            mock.patch.object(lifecycle, "_require_no_proxy_environment") as proxy,
             mock.patch.object(lifecycle, "_assistant_ready_now", return_value=(True, "running")),
             mock.patch.object(lifecycle, "_retain_admitted_assistant_integrations") as retain,
         ):
             result = lifecycle._admit_existing_assistant(TEAM_ID, BINDING, SPEC, OWNER, container)
         self.assertFalse(result["installed"])
-        proxy.assert_called_once_with(container, "token", ("api.example",), store)
+        proxy.assert_called_once_with(container)
         retain.assert_called_once_with(TEAM_ID, ASSISTANT_ID, SPEC)
 
     def test_provision_enforces_team_limit_and_capacity_reservation(self) -> None:
@@ -266,12 +266,11 @@ class HostedAssistantInstallEdgeTests(unittest.TestCase):
         with (
             mock.patch.object(lifecycle, "_egress_store", return_value=object()),
             mock.patch.object(resources, "_ensure_team_network", return_value=network),
-            mock.patch.object(lifecycle, "_reserve_egress_environment", return_value=(None, {})),
             mock.patch.object(lifecycle.container_spec, "build_assistant_kwargs", return_value={"name": "assistant"}),
             mock.patch.object(resources, "_require_team_runtime"),
             mock.patch.object(lifecycle, "_admit_assistant_contract", return_value=()),
-            mock.patch.object(lifecycle, "_validate_assistant_proxy_environment"),
-            mock.patch.object(lifecycle, "_activate_admitted_egress"),
+            mock.patch.object(lifecycle, "_require_no_proxy_environment"),
+            mock.patch.object(lifecycle, "_admit_egress_policy"),
             mock.patch.object(resources, "_start_team_with_isolation"),
             mock.patch.object(lifecycle, "_wait_assistant_ready", return_value=(True, "running")),
             mock.patch.object(resources, "_require_team_isolation"),
@@ -342,13 +341,12 @@ class HostedAssistantInstallEdgeTests(unittest.TestCase):
             patches = (
                 mock.patch.object(lifecycle, "_egress_store", return_value=object()),
                 mock.patch.object(resources, "_ensure_team_network", return_value=network),
-                mock.patch.object(lifecycle, "_reserve_egress_environment", return_value=(None, {})),
                 mock.patch.object(lifecycle.container_spec, "build_assistant_kwargs", return_value={}),
                 mock.patch.object(state._docker.containers, "create", return_value=container),
                 mock.patch.object(resources, "_require_team_runtime"),
                 mock.patch.object(lifecycle, "_admit_assistant_contract", return_value=()),
-                mock.patch.object(lifecycle, "_validate_assistant_proxy_environment"),
-                mock.patch.object(lifecycle, "_activate_admitted_egress"),
+                mock.patch.object(lifecycle, "_require_no_proxy_environment"),
+                mock.patch.object(lifecycle, "_admit_egress_policy"),
                 mock.patch.object(resources, "_start_team_with_isolation"),
                 mock.patch.object(lifecycle, "_wait_assistant_ready", return_value=wait_result),
                 mock.patch.object(resources, "_require_team_isolation"),

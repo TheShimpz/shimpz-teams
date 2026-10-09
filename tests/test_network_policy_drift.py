@@ -210,16 +210,12 @@ def test_network_reuse_rejects_wrong_identity_and_contamination() -> None:
     )
     assistant_egress = _container(
         "shimpz-assistant-egress",
-        policy.ASSISTANT_EGRESS_CONTAINER,
-        labels=policy.shared_service_labels(policy.ASSISTANT_EGRESS_ROLE),
+        "shimpz-assistant-egress",
+        labels={policy.SHARED_MANAGED_LABEL: "1", policy.SHARED_ROLE_LABEL: "assistant-egress"},
     )
     check(
-        policy.network_member_managed(assistant_egress, TEAM_ID, policy.CORE_KIND),
-        "cleanup recognizes the exact token proxy on the core plane",
-    )
-    check(
-        not policy.network_member_managed(assistant_egress, TEAM_ID, "brain-egress"),
-        "cleanup never accepts the retired Runtime-egress plane",
+        not policy.network_member_managed(assistant_egress, TEAM_ID, policy.CORE_KIND),
+        "the Assistant egress proxy is no Team network member, so teardown never claims it (ADR-0106)",
     )
     name_only_postgres = _container("name-only", policy.POSTGRES_CONTAINER)
     check(
@@ -265,7 +261,7 @@ def test_alias_and_endpoint_identity_drift_fail_closed() -> None:
     check(not _members_valid(core, containers, policy.CORE_KIND), "automatic Runtime hostname cannot claim postgres")
 
     core, containers = _valid_topology()
-    containers["postgres-id"]["Config"]["Labels"][policy.SHARED_ROLE_LABEL] = policy.ASSISTANT_EGRESS_ROLE
+    containers["postgres-id"]["Config"]["Labels"][policy.SHARED_ROLE_LABEL] = "assistant-egress"
     check(not _members_valid(core, containers, policy.CORE_KIND), "shared service role-label drift is rejected")
 
 

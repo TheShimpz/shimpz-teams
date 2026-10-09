@@ -18,7 +18,6 @@ from local_controller_harness import (
 )
 
 from local import app as local_app
-from local.assistant.egress import ASSISTANT_EGRESS_ALIAS
 
 
 def _second_assistant(controller: object, first: object) -> object:
@@ -33,13 +32,6 @@ def _second_assistant(controller: object, first: object) -> object:
     second.attrs["Config"]["Labels"][local_app.ASSISTANT_LABEL] = second_spec.assistant_id
     second.name = controller.assistant_lifecycle._container_name("team_1", second_spec.assistant_id)
     return second
-
-
-def _egress_proxy(network_name: str) -> SimpleNamespace:
-    """The Assistant egress proxy container, attached to the Team network under its reviewed alias."""
-    return SimpleNamespace(
-        attrs={"NetworkSettings": {"Networks": {network_name: {"Aliases": [ASSISTANT_EGRESS_ALIAS]}}}}
-    )
 
 
 class LocalLifecycleTests(LocalContractCase):
@@ -407,7 +399,7 @@ class LocalLifecycleTests(LocalContractCase):
 
     def test_listing_keeps_egress_policy_drift_in_the_removable_inventory(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
-        controller.assistant_lifecycle._validate_container_egress = mock.Mock(
+        controller.assistant_lifecycle._validate_container_egress_environment = mock.Mock(
             side_effect=local_app.ApiProblem(
                 HTTPStatus.CONFLICT,
                 "Assistant egress policy drifted",
@@ -442,39 +434,36 @@ class LocalLifecycleTests(LocalContractCase):
 
         self.assertEqual(caught.exception.code, "assistant-manifest-invalid")
 
-    def test_listing_fetches_the_egress_proxy_once_for_multiple_assistants(self) -> None:
+    def test_listing_and_chat_inventory_refuse_any_workload_proxy_variable(self) -> None:
+        """An Assistant reaches providers only through Team, so a proxy variable is isolation drift (ADR-0106)."""
         controller, first, _events = self._lifecycle_controller()
         second = _second_assistant(controller, first)
-        proxy_environment = {"HTTPS_PROXY": "http://shimpz-assistant-egress:8889"}
-        for container in (first, second):
-            container.attrs["Config"]["Env"] = [f"{key}={value}" for key, value in proxy_environment.items()]
         network_name = controller.assistant_lifecycle._network_name("team_1")
-        proxy = _egress_proxy(network_name)
         controller.client.containers.list = lambda **_kwargs: [first, second]
-        controller.assistant_lifecycle._validate_egress_policy = lambda *_args: proxy_environment
-        controller.assistant_lifecycle._egress_proxy = mock.Mock(return_value=proxy)
-
+        controller.assistant_lifecycle._validate_egress_policy = lambda *_args: None
         result = controller.list_assistants("team_1")
-
         self.assertEqual(
             tuple(item["assistant"] for item in result["assistants"]),
             ("future-assistant", "shimpz-cloudflare"),
         )
-        controller.assistant_lifecycle._egress_proxy.assert_called_once_with(network_name)
+        first.attrs["Config"]["Env"].append("HTTPS_PROXY=http://token@shimpz-assistant-egress:8889")
+        for operation in (
+            lambda: controller.list_assistants("team_1"),
+            lambda: controller.chat_turn_service._active_chat_assistants("team_1", network_name),
+        ):
+            with self.subTest(operation=operation), self.assertRaises(local_app.ApiProblem) as caught:
+                operation()
+            self.assertEqual(caught.exception.code, "assistant-isolation-drift")
 
-    def test_chat_inventory_uses_listed_attrs_and_one_egress_proxy_inspection(self) -> None:
+    def test_chat_inventory_uses_listed_attrs(self) -> None:
         controller, first, events = self._lifecycle_controller()
         second = _second_assistant(controller, first)
-        proxy_environment = {"HTTPS_PROXY": "http://shimpz-assistant-egress:8889"}
         network_name = controller.assistant_lifecycle._network_name("team_1")
         for container in (first, second):
             container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
             container.attrs["Config"]["Labels"][local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
-            container.attrs["Config"]["Env"] = [f"{key}={value}" for key, value in proxy_environment.items()]
-        proxy = _egress_proxy(network_name)
         controller.client.containers.list = mock.Mock(return_value=[first, second])
-        controller.assistant_lifecycle._validate_egress_policy = lambda *_args: proxy_environment
-        controller.assistant_lifecycle._egress_proxy = mock.Mock(return_value=proxy)
+        controller.assistant_lifecycle._validate_egress_policy = lambda *_args: None
 
         active = controller.chat_turn_service._active_chat_assistants("team_1", network_name)
 
@@ -483,7 +472,6 @@ class LocalLifecycleTests(LocalContractCase):
         controller.client.containers.list.assert_called_once_with(
             **controller.assistant_lifecycle._assistant_filters("team_1")
         )
-        controller.assistant_lifecycle._egress_proxy.assert_called_once_with(network_name)
 
     def test_release_update_rejects_a_previous_security_contract(self) -> None:
         controller, _container, events = self._lifecycle_controller()
@@ -544,7 +532,7 @@ class LocalLifecycleTests(LocalContractCase):
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, _spec: (
             events.append("admit") or tuple(sorted(_spec.allowed_hosts))
         )
-        controller.assistant_lifecycle._activate_assistant_egress = lambda *_args: events.append("activate-egress")
+        controller.assistant_lifecycle._write_egress_policy = lambda *_args: events.append("activate-egress")
         controller.assistant_lifecycle._validate_container = lambda *_args: events.append("validate")
         controller.assistant_lifecycle._wait_ready = lambda *_args: events.append("ready")
         controller.assistant_lifecycle._active_assistant_genesis = lambda *_args: events.append("genesis") or "Genesis"
