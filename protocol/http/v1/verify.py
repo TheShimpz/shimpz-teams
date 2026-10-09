@@ -211,6 +211,8 @@ for name, admit in (
     ("purpose", payload.canonical_purpose),
     ("pack_digest", payload.canonical_pack_digest),
     ("snapshot_summary", payload.canonical_snapshot_summary),
+    ("assistant_details", payload.canonical_assistant_details),
+    ("creator_links", payload.canonical_creator_links),
     ("routine_challenge_open", routine_run.canonical_challenge_open),
     ("turn_usage", payload.canonical_turn_usage),
 ):

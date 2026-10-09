@@ -113,6 +113,33 @@ REQUEST_NONCE_RE = re.compile(r"[0-9a-f]{32}\Z")
 CHAT_LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
 SNAPSHOT_SUMMARY_FIELDS = frozenset({"locale", "summary"})
 MAX_SNAPSHOT_SUMMARY_CHARS = 80
+# An Assistant page in one interface language: a staged Local snapshot's or an installed binding's identity, display
+# copy, and declared capabilities. Localized text is rendered text within its catalog bound (Assistant Spec v1).
+ASSISTANT_DETAILS_FIELDS = frozenset(
+    {
+        "locale",
+        "assistant_id",
+        "assistant_version",
+        "name",
+        "creators",
+        "summary",
+        "description",
+        "links",
+        "actions",
+        "integrations",
+        "stored_inputs",
+    }
+)
+ASSISTANT_VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
+DETAILS_CREATOR_RE = re.compile(r"@[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\Z")
+ACTION_EFFECTS = frozenset({"read_only", "mutating"})
+MAX_DETAILS_NAME_CHARS = 80
+MAX_DETAILS_DESCRIPTION_CHARS = 500
+MAX_DETAILS_LINE_CHARS = 120
+MAX_DETAILS_CREATORS = 16
+MAX_DETAILS_ACTIONS = 128
+MAX_DETAILS_INTEGRATIONS = 16
+MAX_DETAILS_STORED_INPUTS = 8
 # What one completed chat turn consumed: its wall-clock duration and the model tokens it was told it used.
 MAX_TURN_DURATION_MS = 86_400_000
 MAX_TURN_USAGE_MODELS = 16
@@ -283,6 +310,72 @@ def canonical_snapshot_summary(value: object) -> dict[str, object] | None:
     ):
         return None
     return value
+
+
+def canonical_assistant_details(value: object) -> dict[str, object] | None:
+    """Return one exact Assistant page in one interface language, or None when any member or bound fails.
+
+    Creators are self-declared handles, links are unverified Creator presentation, and every list of declared
+    capabilities is sorted by its unique id. The caller compares `locale` with the one it asked for.
+    """
+    if not isinstance(value, dict) or set(value) != ASSISTANT_DETAILS_FIELDS:
+        return None
+    version = value["assistant_version"]
+    if (
+        canonical_locale(value["locale"]) is None
+        or canonical_assistant_id(value["assistant_id"]) is None
+        or not isinstance(version, str)
+        or ASSISTANT_VERSION_RE.fullmatch(version) is None
+        or not _details_creators(value["creators"])
+        or canonical_creator_links(value["links"]) is None
+    ):
+        return None
+    texts = (
+        (value["name"], MAX_DETAILS_NAME_CHARS),
+        (value["summary"], MAX_SNAPSHOT_SUMMARY_CHARS),
+        (value["description"], MAX_DETAILS_DESCRIPTION_CHARS),
+    )
+    if not all(_rendered(text, text, maximum, nullable=False) for text, maximum in texts):
+        return None
+    return value if _details_capabilities(value) else None
+
+
+def _details_creators(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and 1 <= len(value) <= MAX_DETAILS_CREATORS
+        and all(isinstance(creator, str) and DETAILS_CREATOR_RE.fullmatch(creator) for creator in value)
+        and len(set(value)) == len(value)
+    )
+
+
+def _details_capabilities(value: dict[str, object]) -> bool:
+    """Whether the Actions, Integrations, and Stored Inputs are each a bounded list of closed items sorted by id."""
+    return (
+        _details_items(value["actions"], 1, MAX_DETAILS_ACTIONS, {"id", "effect", "description"})
+        and all(
+            isinstance(action["effect"], str)
+            and action["effect"] in ACTION_EFFECTS
+            and _rendered(action["description"], action["description"], MAX_DETAILS_LINE_CHARS, nullable=False)
+            for action in value["actions"]
+        )
+        and _details_items(value["integrations"], 0, MAX_DETAILS_INTEGRATIONS, {"id", "provider"})
+        and all(canonical_identifier(item["provider"]) is not None for item in value["integrations"])
+        and _details_items(value["stored_inputs"], 0, MAX_DETAILS_STORED_INPUTS, {"id", "label"})
+        and all(
+            _rendered(item["label"], item["label"], MAX_DETAILS_LINE_CHARS, nullable=False)
+            for item in value["stored_inputs"]
+        )
+    )
+
+
+def _details_items(items: object, minimum: int, maximum: int, keys: set[str]) -> bool:
+    if not isinstance(items, list) or not minimum <= len(items) <= maximum:
+        return False
+    if not all(isinstance(item, dict) and set(item) == keys for item in items):
+        return False
+    ids = [item["id"] for item in items]
+    return all(canonical_identifier(identifier) is not None for identifier in ids) and ids == sorted(set(ids))
 
 
 def canonical_action_label(value: object) -> str | None:

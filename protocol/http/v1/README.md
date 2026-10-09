@@ -76,6 +76,34 @@ no request copy, catalog, or pack is ever returned. Admin refuses an answer whos
 The read shares the bounded icon preview: while extraction capacity is busy Team answers 503
 `local-assistant-preview-busy` with `retry_after_ms`.
 
+A staged snapshot's whole Assistant page follows the interface language too. Local Admin reads it at
+`GET /v1/local-assistants/:image_hash/details/:locale` (Local only), from the same bounded preview, with the same
+busy answer and errors. Team answers the closed Assistant details object (`payload.canonical_assistant_details`) plus
+`trace_id`:
+
+```json
+{"locale": "pt", "assistant_id": "shimpz-cloudflare", "assistant_version": "1.4.0", "name": "Shimpz Cloudflare",
+ "creators": ["@roxygens"], "summary": "Publica alterações de DNS com segurança.",
+ "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+ "links": {"site": "https://shimpz.com/", "github": "https://github.com/TheShimpz"},
+ "actions": [{"id": "list-zones", "effect": "read_only", "description": "Liste suas zonas do Cloudflare."}],
+ "integrations": [{"id": "cloudflare", "provider": "cloudflare"}],
+ "stored_inputs": [{"id": "api-token", "label": "Token da API"}]}
+```
+
+`locale` is the closed interface language asked for; `assistant_id` and `assistant_version` follow the Developers
+grammars; `name` is 1 to 80 characters; `creators` are 1 to 16 unique self-declared `@handle`s (a staged snapshot's
+first four), never identity authority; `summary` (80), `description` (500), each Action `description` (120), and each
+Stored Input `label` (120) are rendered text: the English catalog text for `en`, otherwise that message's translation
+from the snapshot's or binding's own pack, trimmed, printable, and NFC within the bound. `links` holds zero to six
+unverified Creator links (`payload.canonical_creator_links`): kinds `site`, `github`, `x`, `youtube`, `linkedin`, and
+`instagram`, each a `help_url`-grammar URL of at most 256 characters on its kind's host (`site` any public host,
+`github` `https://github.com/`, `x` `https://x.com/`, and `youtube`, `linkedin`, and `instagram` on their `.com` host
+with or without `www.`). `actions` (1 to 128, `effect` `read_only` or `mutating`), `integrations` (0 to 16, each its
+provider identifier), and `stored_inputs` (0 to 8) are each sorted by unique identifier `id`. No catalog, pack, schema,
+request copy, Stored Input description, or key page is returned. Admin refuses an answer whose `locale` is not the one
+it asked for.
+
 The challenge may also carry two optional presentation fields (ADR-0090). `purpose` is the Brain's own sentence for
 why the user's task needs this Action, projected only when its recorded origin locale equals the challenge `locale`,
 so a Routine challenge shows its localized scope without a purpose. It is written in the turn's interface language
@@ -453,6 +481,13 @@ and Team answers the same closed `{locale, summary}` as a staged snapshot's summ
 message's translation from the pack verified against the binding's `pack_digest`. No request copy, catalog, or pack is
 ever returned. A missing binding fails as absent, and a missing or mismatched pack fails closed. Admin refuses an answer
 whose `locale` is not the one it asked for.
+
+An installed Assistant's page reads the same way at `GET /v1/teams/:team_id/assistants/:assistant_id/details/:locale`
+on both profiles. Team answers the same closed Assistant details object plus `trace_id`, from the exact current
+binding: its admitted name, declared Creators (a published resolution's creators, a Local record's declared ones),
+description, links, Actions, Integrations, and Stored Input labels, localized from the pack verified against the
+binding's `pack_digest`. A missing binding fails as absent, a binding needing replacement or a missing or mismatched
+pack fails closed, and Team validates its own answer before sending it.
 
 Local Admin may request presentation-only labels for one installed binding from
 `POST /v1/teams/:team_id/assistants/:assistant_id/action-labels`. The exact request body is

@@ -1696,6 +1696,3376 @@
       null
     ]
   },
+  "assistant_details": {
+    "valid": [
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "ja",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@a"
+        ],
+        "summary": "要約。",
+        "description": "説明。",
+        "links": {},
+        "actions": [
+          {
+            "id": "run",
+            "effect": "read_only",
+            "description": "実行します。"
+          }
+        ],
+        "integrations": [],
+        "stored_inputs": []
+      },
+      {
+        "locale": "en",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+        "creators": [
+          "@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "@c0",
+          "@c1",
+          "@c2",
+          "@c3",
+          "@c4",
+          "@c5",
+          "@c6",
+          "@c7",
+          "@c8",
+          "@c9",
+          "@c10",
+          "@c11",
+          "@c12",
+          "@c13",
+          "@c14"
+        ],
+        "summary": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss😀",
+        "description": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "links": {
+          "site": "https://shimpz.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "github": "https://github.com/a",
+          "x": "https://x.com/a",
+          "youtube": "https://www.youtube.com/@a",
+          "linkedin": "https://linkedin.com/in/a",
+          "instagram": "https://instagram.com/a"
+        },
+        "actions": [
+          {
+            "id": "action-000",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-001",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-002",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-003",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-004",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-005",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-006",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-007",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-008",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-009",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-010",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-011",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-012",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-013",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-014",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-015",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-016",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-017",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-018",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-019",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-020",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-021",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-022",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-023",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-024",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-025",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-026",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-027",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-028",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-029",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-030",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-031",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-032",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-033",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-034",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-035",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-036",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-037",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-038",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-039",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-040",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-041",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-042",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-043",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-044",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-045",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-046",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-047",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-048",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-049",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-050",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-051",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-052",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-053",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-054",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-055",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-056",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-057",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-058",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-059",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-060",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-061",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-062",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-063",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-064",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-065",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-066",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-067",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-068",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-069",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-070",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-071",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-072",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-073",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-074",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-075",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-076",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-077",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-078",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-079",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-080",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-081",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-082",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-083",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-084",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-085",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-086",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-087",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-088",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-089",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-090",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-091",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-092",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-093",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-094",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-095",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-096",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-097",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-098",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-099",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-100",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-101",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-102",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-103",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-104",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-105",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-106",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-107",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-108",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-109",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-110",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-111",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-112",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-113",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-114",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-115",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-116",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-117",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-118",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-119",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-120",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-121",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-122",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-123",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-124",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-125",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-126",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "action-127",
+            "effect": "read_only",
+            "description": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          }
+        ],
+        "integrations": [
+          {
+            "id": "integration-00",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-01",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-02",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-03",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-04",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-05",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-06",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-07",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-08",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-09",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-10",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-11",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-12",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-13",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-14",
+            "provider": "cloudflare"
+          },
+          {
+            "id": "integration-15",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "input-0",
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "input-1",
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "input-2",
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "input-3",
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "input-4",
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "input-5",
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "input-6",
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          },
+          {
+            "id": "input-7",
+            "label": "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          }
+        ]
+      }
+    ],
+    "invalid": [
+      {},
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ],
+        "trace_id": "trace"
+      },
+      {
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt-BR",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "Shimpz",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0-beta",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": 140,
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": " Shimpz",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "roxygens"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@roxygens"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@c0",
+          "@c1",
+          "@c2",
+          "@c3",
+          "@c4",
+          "@c5",
+          "@c6",
+          "@c7",
+          "@c8",
+          "@c9",
+          "@c10",
+          "@c11",
+          "@c12",
+          "@c13",
+          "@c14",
+          "@c15",
+          "@c16"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": "@roxygens",
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Linha\nquebrada.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Café.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": null,
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "mastodon": "https://mastodon.social/@a"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "x": "https://twitter.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "action-000",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-001",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-002",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-003",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-004",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-005",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-006",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-007",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-008",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-009",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-010",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-011",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-012",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-013",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-014",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-015",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-016",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-017",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-018",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-019",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-020",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-021",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-022",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-023",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-024",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-025",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-026",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-027",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-028",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-029",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-030",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-031",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-032",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-033",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-034",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-035",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-036",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-037",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-038",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-039",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-040",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-041",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-042",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-043",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-044",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-045",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-046",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-047",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-048",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-049",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-050",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-051",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-052",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-053",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-054",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-055",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-056",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-057",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-058",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-059",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-060",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-061",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-062",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-063",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-064",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-065",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-066",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-067",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-068",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-069",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-070",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-071",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-072",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-073",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-074",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-075",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-076",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-077",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-078",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-079",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-080",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-081",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-082",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-083",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-084",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-085",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-086",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-087",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-088",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-089",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-090",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-091",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-092",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-093",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-094",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-095",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-096",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-097",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-098",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-099",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-100",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-101",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-102",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-103",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-104",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-105",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-106",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-107",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-108",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-109",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-110",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-111",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-112",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-113",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-114",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-115",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-116",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-117",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-118",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-119",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-120",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-121",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-122",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-123",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-124",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-125",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-126",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-127",
+            "effect": "read_only",
+            "description": "x"
+          },
+          {
+            "id": "action-128",
+            "effect": "read_only",
+            "description": "x"
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          },
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "list-zones",
+            "effect": "destructive",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "list-zones",
+            "effect": [
+              "read_only"
+            ],
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "lllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "List",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "list-zones",
+            "effect": "read_only"
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare.",
+            "summary": "x"
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          "list-zones"
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "Cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "i00",
+            "provider": "p"
+          },
+          {
+            "id": "i01",
+            "provider": "p"
+          },
+          {
+            "id": "i02",
+            "provider": "p"
+          },
+          {
+            "id": "i03",
+            "provider": "p"
+          },
+          {
+            "id": "i04",
+            "provider": "p"
+          },
+          {
+            "id": "i05",
+            "provider": "p"
+          },
+          {
+            "id": "i06",
+            "provider": "p"
+          },
+          {
+            "id": "i07",
+            "provider": "p"
+          },
+          {
+            "id": "i08",
+            "provider": "p"
+          },
+          {
+            "id": "i09",
+            "provider": "p"
+          },
+          {
+            "id": "i10",
+            "provider": "p"
+          },
+          {
+            "id": "i11",
+            "provider": "p"
+          },
+          {
+            "id": "i12",
+            "provider": "p"
+          },
+          {
+            "id": "i13",
+            "provider": "p"
+          },
+          {
+            "id": "i14",
+            "provider": "p"
+          },
+          {
+            "id": "i15",
+            "provider": "p"
+          },
+          {
+            "id": "i16",
+            "provider": "p"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": ""
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "input-0",
+            "label": "x"
+          },
+          {
+            "id": "input-1",
+            "label": "x"
+          },
+          {
+            "id": "input-2",
+            "label": "x"
+          },
+          {
+            "id": "input-3",
+            "label": "x"
+          },
+          {
+            "id": "input-4",
+            "label": "x"
+          },
+          {
+            "id": "input-5",
+            "label": "x"
+          },
+          {
+            "id": "input-6",
+            "label": "x"
+          },
+          {
+            "id": "input-7",
+            "label": "x"
+          },
+          {
+            "id": "input-8",
+            "label": "x"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "b",
+            "label": "B"
+          },
+          {
+            "id": "a",
+            "label": "A"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token",
+            "description": "The key."
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": null,
+        "stored_inputs": [
+          {
+            "id": "api-token",
+            "label": "Token da API"
+          }
+        ]
+      },
+      {
+        "locale": "pt",
+        "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "1.4.0",
+        "name": "Shimpz Cloudflare",
+        "creators": [
+          "@roxygens",
+          "@Shimpz-Team"
+        ],
+        "summary": "Publica alterações de DNS com segurança.",
+        "description": "Navegue pelas zonas da sua conta Cloudflare e publique registros DNS somente depois da sua aprovação.",
+        "links": {
+          "site": "https://shimpz.com/",
+          "github": "https://github.com/TheShimpz",
+          "x": "https://x.com/shimpz"
+        },
+        "actions": [
+          {
+            "id": "create-record",
+            "effect": "mutating",
+            "description": "Crie um registro DNS em uma zona."
+          },
+          {
+            "id": "list-zones",
+            "effect": "read_only",
+            "description": "Liste suas zonas do Cloudflare."
+          }
+        ],
+        "integrations": [
+          {
+            "id": "cloudflare",
+            "provider": "cloudflare"
+          }
+        ],
+        "stored_inputs": "none"
+      },
+      [
+        "not",
+        "an",
+        "object"
+      ]
+    ]
+  },
+  "creator_links": {
+    "valid": [
+      {},
+      {
+        "site": "https://shimpz.com/",
+        "github": "https://github.com/"
+      },
+      {
+        "youtube": "https://youtube.com/@a",
+        "linkedin": "https://www.linkedin.com/in/a",
+        "instagram": "https://www.instagram.com/a"
+      }
+    ],
+    "invalid": [
+      null,
+      [],
+      {
+        "site": 1
+      },
+      {
+        "site": "http://shimpz.com/"
+      },
+      {
+        "site": "https://shimpz.local/a"
+      },
+      {
+        "site": "https://shimpz.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "github": "https://gitlab.com/a"
+      },
+      {
+        "x": "https://x.com.evil.example/a"
+      },
+      {
+        "youtube": "https://youtube.co/a"
+      },
+      {
+        "tiktok": "https://tiktok.com/@a"
+      }
+    ]
+  },
   "routine_challenge_open": {
     "valid": [
       {
