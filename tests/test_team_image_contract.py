@@ -35,6 +35,7 @@ ASSISTANT_PROTOCOL_RUNTIME = {
     "protocol/assistant/v1/validators/human_request.py",
     "protocol/assistant/v1/validators/input_file.py",
     "protocol/assistant/v1/validators/message_catalog.py",
+    "protocol/assistant/v1/validators/route.py",
 }
 LOCAL_PROTOCOL_DATA = {
     *ASSISTANT_PROTOCOL_RUNTIME,

@@ -15,6 +15,7 @@ STORED_INPUT_DECLARATION = {
     "help_url": catalog_fixtures.HELP_URL,
     "host": "api.example.com",
     "header": "X-Api-Key",
+    "routes": [{"method": "POST", "path": "/search"}],
 }
 HOSTS = ("api.example.com",)
 STORED_INPUT = assistant_manifest.canonical_stored_input_declarations({"api-key": STORED_INPUT_DECLARATION}, HOSTS)

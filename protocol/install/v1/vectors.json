@@ -177,6 +177,12 @@
             "host": "graph.facebook.com",
             "query": "appsecret_proof",
             "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/apps/"
           },
           {
@@ -187,6 +193,12 @@
             "host": "graph.facebook.com",
             "header": "Authorization",
             "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ],
@@ -1349,6 +1361,12 @@
             "host": "graph.facebook.com",
             "header": "Authorization",
             "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           },
           {
@@ -1359,6 +1377,12 @@
             "host": "graph.facebook.com",
             "header": "Authorization",
             "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
@@ -1577,6 +1601,12 @@
             "kind": "password",
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://business.facebook.com/settings/system-users",
             "host": "graph.facebook.com",
             "header": "Authorization",
@@ -1601,6 +1631,12 @@
             "kind": "password",
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "http://business.facebook.com/settings",
             "host": "graph.facebook.com",
             "header": "Authorization",
@@ -1625,6 +1661,12 @@
             "kind": "password",
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://business.facebook.com",
             "host": "graph.facebook.com",
             "header": "Authorization",
@@ -1649,6 +1691,12 @@
             "kind": "password",
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://user@business.facebook.com/settings",
             "host": "graph.facebook.com",
             "header": "Authorization",
@@ -1673,6 +1721,12 @@
             "kind": "password",
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://keys.internal/settings",
             "host": "graph.facebook.com",
             "header": "Authorization",
@@ -1700,6 +1754,12 @@
             "host": "graph.facebook.com",
             "query": "appsecret_proof",
             "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/apps/"
           },
           {
@@ -1708,6 +1768,12 @@
             "label": "WhatsApp token",
             "description": "Token used to call the WhatsApp API.",
             "host": "graph.facebook.com",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
@@ -1732,6 +1798,12 @@
             "host": "collector.example.org",
             "query": "appsecret_proof",
             "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/apps/"
           },
           {
@@ -1742,6 +1814,12 @@
             "host": "collector.example.org",
             "header": "Authorization",
             "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
@@ -1766,6 +1844,12 @@
             "host": "graph.facebook.com",
             "query": "appsecret_proof",
             "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/apps/"
           },
           {
@@ -1775,6 +1859,12 @@
             "description": "Token used to call the WhatsApp API.",
             "host": "graph.facebook.com",
             "header": "Host",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
@@ -1798,6 +1888,12 @@
             "description": "App secret used to sign WhatsApp API calls.",
             "host": "graph.facebook.com",
             "header": "authorization",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/apps/"
           },
           {
@@ -1808,6 +1904,12 @@
             "host": "graph.facebook.com",
             "header": "Authorization",
             "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
@@ -1832,6 +1934,12 @@
             "host": "graph.facebook.com",
             "query": "appsecret_proof",
             "hmac": "other-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/apps/"
           },
           {
@@ -1842,6 +1950,12 @@
             "host": "graph.facebook.com",
             "header": "Authorization",
             "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
@@ -1866,6 +1980,12 @@
             "host": "graph.facebook.com",
             "query": "appsecret_proof",
             "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/apps/"
           },
           {
@@ -1877,6 +1997,12 @@
             "header": "Authorization",
             "scheme": "Bearer",
             "hmac": "whatsapp-app-secret",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
@@ -1916,6 +2042,504 @@
               "input:password"
             ],
             "effect": "mutating"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_routes_with_wildcards_and_selector",
+      "fixture": "resolve_response",
+      "valid": true,
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/apps/"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              },
+              {
+                "method": "PUT",
+                "path": "/v23.0/*/messages"
+              },
+              {
+                "method": "GET",
+                "path": "/v23.0/me/accounts",
+                "query": [
+                  {
+                    "name": "fields",
+                    "values": [
+                      "id%2Cname"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_without_routes",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/apps/"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer",
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_routes_empty",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/apps/"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer",
+            "routes": [],
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_route_unknown_method",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/apps/"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "TRACE",
+                "path": "/v23.0/*/messages"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_route_dot_segment",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/apps/"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/../messages"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_route_path_with_line_feed",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/apps/"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages\n"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_route_selector_value_not_encoded",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/apps/"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "GET",
+                "path": "/v23.0/me/accounts",
+                "query": [
+                  {
+                    "name": "fields",
+                    "values": [
+                      "id,name"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_route_credential_path",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_placement",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/apps/"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "GET",
+                "path": "/v23.0/oauth/access_token"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_route_duplicate",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_placement",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/apps/"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              },
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages",
+                "query": [
+                  {
+                    "name": "fields",
+                    "values": [
+                      "id"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_route_selector_names_differing_in_case",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_placement",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-app-secret",
+            "kind": "password",
+            "label": "WhatsApp app secret",
+            "description": "App secret used to sign WhatsApp API calls.",
+            "host": "graph.facebook.com",
+            "query": "appsecret_proof",
+            "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
+            "help_url": "https://developers.facebook.com/apps/"
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "host": "graph.facebook.com",
+            "header": "Authorization",
+            "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "GET",
+                "path": "/v23.0/me/accounts",
+                "query": [
+                  {
+                    "name": "fields",
+                    "values": [
+                      "id"
+                    ]
+                  },
+                  {
+                    "name": "Fields",
+                    "values": [
+                      "id"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]
       }
@@ -3855,6 +4479,12 @@
             "host": "graph.facebook.com",
             "query": "appsecret_proof",
             "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/apps/"
           },
           {
@@ -3864,7 +4494,13 @@
             "description": "Token used to call the WhatsApp API.",
             "host": "graph.facebook.com",
             "header": "Authorization",
-            "scheme": "Bearer"
+            "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ]
           }
         ]
       }
@@ -3888,6 +4524,12 @@
             "host": "graph.facebook.com",
             "query": "appsecret_proof",
             "hmac": "whatsapp-token",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/apps/"
           },
           {
@@ -3898,6 +4540,12 @@
             "host": "graph.facebook.com",
             "header": "Authorization",
             "scheme": "Bearer",
+            "routes": [
+              {
+                "method": "POST",
+                "path": "/v23.0/*/messages"
+              }
+            ],
             "help_url": "https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens"
           }
         ]

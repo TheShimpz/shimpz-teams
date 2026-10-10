@@ -9,7 +9,7 @@ import tomllib
 import unicodedata
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
@@ -23,6 +23,7 @@ from assistant import effect as action_effect
 from integrations import providers as integration_providers
 from protocol.assistant.v1.validators import input_file as input_file_validator
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
+from protocol.assistant.v1.validators import route as route_validator
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
 
@@ -104,7 +105,9 @@ RESERVED_HEADERS = frozenset(
 _HEADER_RE = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}\Z")
 _QUERY_RE = re.compile(r"[A-Za-z0-9._~-]{1,64}\Z")
 _SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,31}\Z")
-_PLACEMENT_FIELDS = ("host", "header", "query", "scheme", "hmac")
+_PLACEMENT_FIELDS = ("host", "header", "query", "scheme", "hmac", "routes")
+_STORED_INPUT_REQUIRED = frozenset({"kind", "label", "description", "help_url", "host", "routes"})
+_STORED_INPUT_FIELDS = frozenset({"kind", "label", "description", "help_url", *_PLACEMENT_FIELDS})
 
 
 class ManifestError(RuntimeError):
@@ -142,14 +145,16 @@ class StoredInputDeclaration:
     query: str | None = None
     scheme: str | None = None
     hmac: str | None = None
+    # The only endpoints on its host that ever receive the value, exactly as declared (ADR-0106 amendment, 2026-10-09).
+    routes: list[dict[str, object]] = field(default_factory=list)
 
-    def metadata(self) -> dict[str, str]:
+    def metadata(self) -> dict[str, object]:
         """The closed declaration fields after its id, as manifests, resolutions, and records carry them."""
         fields = {"kind": self.kind, "label": self.label, "description": self.description, "help_url": self.help_url}
-        optional = {name: getattr(self, name) for name in _PLACEMENT_FIELDS}
+        optional = {name: copy.deepcopy(getattr(self, name)) for name in _PLACEMENT_FIELDS}
         return fields | {name: value for name, value in optional.items() if value is not None}
 
-    def document(self) -> dict[str, str]:
+    def document(self) -> dict[str, object]:
         """One declaration as a resolution or Local record lists it."""
         return {"id": self.id, **self.metadata()}
 
@@ -276,15 +281,7 @@ def canonical_stored_input_declarations(
     declarations: list[StoredInputDeclaration] = []
     for stored_input_id, metadata in value.items():
         identifier = _identifier(stored_input_id, kind="Stored Input")
-        if not isinstance(metadata, Mapping) or not {"kind", "label", "description", "help_url", "host"} <= set(
-            metadata
-        ) <= {
-            "kind",
-            "label",
-            "description",
-            "help_url",
-            *_PLACEMENT_FIELDS,
-        }:
+        if not isinstance(metadata, Mapping) or not _STORED_INPUT_REQUIRED <= set(metadata) <= _STORED_INPUT_FIELDS:
             raise ManifestError("Assistant Stored Input declaration is invalid")
         if metadata["kind"] != "password":
             raise ManifestError("Assistant Stored Input kind is invalid")
@@ -308,9 +305,12 @@ def canonical_stored_input_declarations(
     return tuple(sorted(declarations))
 
 
-def _placement(metadata: Mapping[str, object], allowed_hosts: tuple[str, ...]) -> dict[str, str | None]:
-    """One Stored Input's placement: an allowed host and exactly one field Team does not own there (ADR-0106)."""
-    placement = {name: metadata.get(name) for name in _PLACEMENT_FIELDS}
+def _placement(metadata: Mapping[str, object], allowed_hosts: tuple[str, ...]) -> dict[str, object]:
+    """One Stored Input's placement: an allowed host, exactly one field Team does not own there, and reviewed routes.
+
+    The routes are kept exactly as declared, in order, so the reviewed-contract equality check sees any change.
+    """
+    placement = {name: copy.deepcopy(metadata.get(name)) for name in _PLACEMENT_FIELDS}
     header, query, scheme, signed = (placement[name] for name in ("header", "query", "scheme", "hmac"))
     if (
         placement["host"] not in allowed_hosts
@@ -320,6 +320,7 @@ def _placement(metadata: Mapping[str, object], allowed_hosts: tuple[str, ...]) -
         or (query is not None and (not isinstance(query, str) or _QUERY_RE.match(query) is None))
         or (scheme is not None and (header is None or not isinstance(scheme, str) or _SCHEME_RE.match(scheme) is None))
         or (signed is not None and http_payload.canonical_identifier(signed) is None)
+        or route_validator.routes_error(placement["routes"]) is not None
     ):
         raise ManifestError("Assistant Stored Input placement is invalid")
     return placement
@@ -392,7 +393,7 @@ def automatic_update_preserves_egress(previous: ManifestContract, successor: Man
     )
 
 
-def _placement_of(declaration: StoredInputDeclaration) -> tuple[str | None, ...]:
+def _placement_of(declaration: StoredInputDeclaration) -> tuple[object, ...]:
     return tuple(getattr(declaration, name) for name in _PLACEMENT_FIELDS)
 
 

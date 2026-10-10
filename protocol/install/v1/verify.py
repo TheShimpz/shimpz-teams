@@ -182,10 +182,37 @@ RESERVED_HEADERS = frozenset(
 )
 
 
+# A literal route segment containing one of these, compared in ASCII lowercase without "-", "_", ".", and "~", names an
+# endpoint that may issue, list, or exchange credentials (ADR-0106 amendment).
+CREDENTIAL_STEMS = ("apikey", "authoriz", "credential", "oauth", "password", "secret", "token")
+
+
+def credential_segment(segment: str) -> bool:
+    folded = segment.lower().translate(str.maketrans("", "", "-_.~"))
+    return any(stem in folded for stem in CREDENTIAL_STEMS)
+
+
+def routes_admitted(routes: list[dict[str, object]]) -> bool:
+    """Schema-valid routes are unique by method and path, name no credential endpoint, and repeat no selector name.
+
+    Selector names are compared without case.
+    """
+    selectors = [[str(selector["name"]).lower() for selector in route.get("query", [])] for route in routes]
+    return (
+        len({(route["method"], route["path"]) for route in routes}) == len(routes)
+        and not any(
+            segment != "*" and credential_segment(segment)
+            for route in routes
+            for segment in str(route["path"]).split("/")[1:]
+        )
+        and all(len(set(names)) == len(names) for names in selectors)
+    )
+
+
 def placements_admitted(stored_inputs: list[object], allowed_hosts: object) -> bool:
     """Admit placements that each go to one declared host and a field nothing else uses there (ADR-0106).
 
-    A proof signs exactly one plain Stored Input of its own host.
+    Each is sent only on its admitted reviewed routes, and a proof signs exactly one plain Stored Input of its own host.
     """
     declared = {item["id"]: item for item in stored_inputs if isinstance(item, dict)}
     hosts = allowed_hosts if isinstance(allowed_hosts, list) else []
@@ -196,6 +223,7 @@ def placements_admitted(stored_inputs: list[object], allowed_hosts: object) -> b
         target = declared.get(item["hmac"]) if "hmac" in item else None
         if (
             item.get("host") not in hosts
+            or not routes_admitted(item["routes"])
             or field.removeprefix("header:") in RESERVED_HEADERS
             or (item.get("host"), field) in fields
             or ("hmac" in item and (target is None or item["hmac"] == identifier or "hmac" in target))

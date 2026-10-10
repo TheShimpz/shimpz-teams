@@ -27,7 +27,26 @@ field name other than `Host`, `Content-Length`, `Transfer-Encoding`, `Connection
 the value with one token and a space, such as `Bearer`. `hmac` names another Stored Input of the same manifest on the
 same host that has no `hmac` itself: the placed value is then the lowercase hexadecimal HMAC-SHA256 keyed by this
 Stored Input's value over that one's value, as Meta's `appsecret_proof`. No two Stored Inputs may share one host and
-field. Unknown fields are rejected rather than accepted as compatibility syntax. The required `[shimpz].id`
+field. Every Stored Input also declares `routes`, the only endpoints on its host that ever receive its value (ADR-0106
+amendment): 1 to 32 `{method, path, query}` entries, unique by method and path, written in TOML as
+`routes = [{ method = "POST", path = "/v23.0/*/messages" }]`. `method` is `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, or
+`DELETE`. `path` is at most 512 characters of `/`-prefixed segments, each a literal of 1 to 64 unreserved characters
+(`A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, `~`) other than `.` and `..`, or `*` for exactly one concrete segment of 1 to 256
+unreserved characters other than `.` and `..`; there is no root, empty, trailing, partial-wildcard, or multi-segment
+wildcard form. The optional `query` lists 1 to 8 provider selectors that change which authority an endpoint acts on,
+such as Meta's `fields` on an object that can return a token: `{name, values}` with a unique name (compared without
+case) of 1 to 64 unreserved characters and 1 to 16 unique raw values of at most 256 characters, each unreserved
+characters and `%` with two uppercase hexadecimal digits, exactly as the Action's query encoder writes them. A call to
+that route must carry each selector exactly once with one listed raw value. A segment whose ASCII-lowercased text
+without `-`, `_`, `.`, and `~` contains `apikey`, `authoriz`, `credential`, `oauth`, `password`, `secret`, or `token`
+names an endpoint that may issue, list, or exchange credentials: no route may name it, and Team refuses a call whose
+concrete path has one even when a wildcard matches it. Team matches each call's path as sent, before its query: a path
+with percent-encoding, an empty, dot, or non-unreserved segment, or a trailing slash matches no route, so Team refuses
+it rather than normalizing it, and a route with selectors also refuses a query with `;` or a non-unreserved parameter
+name. Every credential the Action declares for the call's host must admit the call, or Team refuses it before any
+credential is placed. `vectors/route.json` freezes admitted and refused declarations, `vectors/route-match.json`
+freezes Team's call-time verdicts, and `validators/route.py` is the reference implementation of both.
+Unknown fields are rejected rather than accepted as compatibility syntax. The required `[shimpz].id`
 is the stable public Assistant identity: 1–40
 lowercase dash-separated characters, excluding Team infrastructure aliases.
 Every Creator entry is the canonical Account-owned handle: `@` followed by the 3–32 character
@@ -367,7 +386,8 @@ sequential, at most sixteen per attempt, and the terminal envelope is always the
 
 Team admits a call only when the URL is `https` on port 443 without user information or fragment, its host is exactly
 one of the manifest's `allowed_hosts`, the method is `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, or `DELETE`, and no
-header or query parameter collides with a Team-owned field. An Action that declares an authorization capability may
+header or query parameter collides with a Team-owned field, and every Stored Input it would place on that host admits
+the call's method and path under its reviewed `routes`. An Action that declares an authorization capability may
 call only once its transcript holds that authorization response. Team then injects every credential the Action
 declares whose host is the call's host: each Integration as `Authorization: Bearer <token>` on its provider's
 reviewed API hosts, and each Stored Input by its placement. It connects through the Assistant's egress proxy, verifies

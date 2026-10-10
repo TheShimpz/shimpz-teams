@@ -8,6 +8,7 @@ from pathlib import Path
 from assistant.manifest import (
     ManifestError,
     canonical_machine_contract,
+    canonical_stored_input_declarations,
     parse_manifest_contract,
     parse_manifest_genesis,
 )
@@ -18,10 +19,10 @@ PROTOCOL = VECTORS.parents[1]
 CLOSED_OBJECT = {"type": "object", "additionalProperties": False}
 EXPECTED_UPSTREAM = {
     "repository": "https://github.com/TheShimpz/shimpz-developers",
-    "commit": "64ac348c774533b9bc53fe188bcdfe60c886f553",
+    "commit": "35f92a09afe39f17c79833ca33d0578b6b13cf18",
     "path": "protocol/assistant/v1",
-    "tree": "d832179aacd20ea2ea97b7a565398f7265683ea2",
-    "contract_files_sha256": "37d96f3772ad3143ea96d346cb6a8ea54040c4e4ca578e03a6282fc130a9b8fa",
+    "tree": "8263084cd58c3e386757ac0693d8e8c5623f196a",
+    "contract_files_sha256": "1d27ac2da50b40dc6f436b9daef15e548438083f137f96c04c7e5d4990511ab9",
 }
 
 
@@ -47,6 +48,29 @@ class AssistantProtocolTests(unittest.TestCase):
                 valid = False
             else:
                 valid = True
+            self.assertEqual(valid, case["valid"], case["name"])
+
+    def test_admits_stored_input_routes_exactly_as_every_published_route_vector(self) -> None:
+        vectors = json.loads((PROTOCOL / "vectors/route.json").read_bytes())
+        self.assertEqual(vectors["version"], 1)
+        declaration = {
+            "kind": "password",
+            "label": "Token",
+            "description": catalog_fixtures.STORED_INPUT_HELP,
+            "help_url": catalog_fixtures.HELP_URL,
+            "host": "api.example.com",
+            "header": "X-Api-Key",
+        }
+        for case in vectors["cases"]:
+            try:
+                admitted = canonical_stored_input_declarations(
+                    {"token": {**declaration, "routes": case["routes"]}}, ("api.example.com",)
+                )
+            except ManifestError:
+                valid = False
+            else:
+                valid = True
+                self.assertEqual(admitted[0].routes, case["routes"], case["name"])
             self.assertEqual(valid, case["valid"], case["name"])
 
     def test_matches_every_published_action_schema_vector_in_both_positions(self) -> None:

@@ -41,6 +41,7 @@ def _stored_inputs(actions: object) -> tuple[assistant_manifest.StoredInputDecla
                 "help_url": catalog_fixtures.HELP_URL,
                 "host": "api.example.com",
                 "header": f"x-{name}",
+                "routes": [{"method": "POST", "path": "/search"}],
             }
             for name in names
         },

@@ -1,7 +1,7 @@
 """Shared reviewed Assistant contract primitives."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from assistant import manifest as assistant_manifest
@@ -53,12 +53,13 @@ class StoredInputSpec:
     label: str
     description: str
     help_url: str
-    # Its placement (ADR-0106).
+    # Its placement and reviewed routes (ADR-0106 and its 2026-10-09 amendment).
     host: str = ""
     header: str | None = None
     query: str | None = None
     scheme: str | None = None
     hmac: str | None = None
+    routes: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

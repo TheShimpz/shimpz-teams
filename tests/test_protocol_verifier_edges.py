@@ -70,6 +70,7 @@ def _execute(
             "validators.human_request",
             "validators.input_file",
             "validators.message_catalog",
+            "validators.route",
             "websocket",
         )
 
@@ -155,6 +156,11 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
                 root,
                 "manifest.schema.json",
                 lambda value: value["properties"]["stored_inputs"].update({"maxProperties": 7}),
+            ),
+            lambda root: _rewrite_json(
+                root,
+                "manifest.schema.json",
+                lambda value: value["$defs"]["route"].update({"required": ["method"]}),
             ),
             lambda root: _rewrite_json(
                 root,

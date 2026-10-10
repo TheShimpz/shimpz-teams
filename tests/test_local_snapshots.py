@@ -337,6 +337,18 @@ class LocalSnapshotTests(unittest.TestCase):
             # A record whose Stored Input lacks its help link is not a record of the current contract.
             [{"id": "token", "kind": "password", "label": "Token", "description": "Secret"}],
             [{"id": "token", "kind": "input:password", "label": "Token"}],
+            # A record whose Stored Input lacks its reviewed routes is not a record of the current contract either.
+            [
+                {
+                    "id": "token",
+                    "kind": "password",
+                    "label": "Token",
+                    "description": "Secret",
+                    "help_url": "https://example.com/token",
+                    "host": "api.example.com",
+                    "header": "X-Api-Key",
+                }
+            ],
         )
         for value in malformed_stored_inputs:
             with (

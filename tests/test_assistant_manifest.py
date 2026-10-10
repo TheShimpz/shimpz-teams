@@ -65,9 +65,12 @@ def manifest(
     ).encode()
 
 
-def _stored(label: str, **placement: str) -> dict[str, str]:
+ROUTES = [{"method": "POST", "path": "/v23.0/*/messages"}]
+
+
+def _stored(label: str, **placement: object) -> dict[str, object]:
     """One Stored Input declaration with its placement, by default a header on the fixture's host."""
-    fields = {"host": "api.example.com", **placement}
+    fields = {"host": "api.example.com", "routes": ROUTES, **placement}
     if "query" not in fields:
         fields.setdefault("header", "X-Api-Key")
     return {
@@ -151,6 +154,7 @@ class AssistantManifestTests(unittest.TestCase):
                 'host = "api.example.com"\n'
                 'header = "Authorization"\n'
                 'scheme = "Bearer"\n'
+                'routes = [{ method = "POST", path = "/v23.0/*/messages" }]\n'
             )
         )
 
@@ -168,6 +172,7 @@ class AssistantManifestTests(unittest.TestCase):
                     host="api.example.com",
                     header="Authorization",
                     scheme="Bearer",
+                    routes=ROUTES,
                 ),
             ),
         )
@@ -215,7 +220,7 @@ class AssistantManifestTests(unittest.TestCase):
             )
 
     def test_an_automatic_update_keeps_every_retained_placement(self) -> None:
-        def contract(**placement: str) -> assistant_manifest.ManifestContract:
+        def contract(**placement: object) -> assistant_manifest.ManifestContract:
             return assistant_manifest.canonical_manifest_contract(
                 allowed_hosts=["api.example.com", "other.example.com"],
                 stored_input_declarations={"token": _stored("Token", **{"header": "Authorization", **placement})},
@@ -223,7 +228,13 @@ class AssistantManifestTests(unittest.TestCase):
 
         previous = contract()
         self.assertTrue(assistant_manifest.automatic_update_preserves_egress(previous, contract()))
-        for changed in ({"host": "other.example.com"}, {"header": "X-Token"}, {"scheme": "Bearer"}):
+        for changed in (
+            {"host": "other.example.com"},
+            {"header": "X-Token"},
+            {"scheme": "Bearer"},
+            {"routes": [{"method": "PUT", "path": "/v23.0/*/messages"}]},
+            {"routes": [*ROUTES, {"method": "GET", "path": "/v23.0/*/messages"}]},
+        ):
             with self.subTest(changed=changed):
                 self.assertFalse(assistant_manifest.automatic_update_preserves_egress(previous, contract(**changed)))
 
@@ -570,6 +581,40 @@ class AssistantManifestTests(unittest.TestCase):
         for reviewed in drifted:
             with self.subTest(reviewed=reviewed), self.assertRaises(assistant_manifest.ManifestError):
                 cache.get(container, reviewed)
+
+    def test_cache_rejects_a_reviewed_contract_whose_stored_input_routes_differ(self) -> None:
+        """Routes are part of the reviewed contract (ADR-0106 amendment): any change, even order, is drift."""
+        content = manifest(
+            integrations=(
+                "[stored_inputs.token]\n"
+                'kind = "password"\n'
+                'label = "Token"\n'
+                f'description = "{catalog_fixtures.STORED_INPUT_HELP}"\n'
+                f'help_url = "{catalog_fixtures.HELP_URL}"\n'
+                'host = "api.example.com"\n'
+                'header = "X-Api-Key"\n'
+                'routes = [{ method = "POST", path = "/search" }, { method = "GET", path = "/v1/*" }]\n'
+            )
+        )
+        container = Container("container-one", content)
+        cache = assistant_manifest.ManifestContractCache(max_entries=1)
+        routes = [{"method": "POST", "path": "/search"}, {"method": "GET", "path": "/v1/*"}]
+
+        def reviewed(declared: list[dict[str, object]]) -> assistant_manifest.ManifestContract:
+            return assistant_manifest.canonical_manifest_contract(
+                allowed_hosts=("api.example.com",),
+                stored_input_declarations={"token": _stored("Token", routes=declared)},
+            )
+
+        self.assertEqual(cache.get(container, reviewed(routes)).stored_inputs[0].routes, routes)
+        for drifted in (
+            routes[::-1],
+            routes[:1],
+            [routes[0], {"method": "GET", "path": "/v2/*"}],
+            [routes[0], {"method": "GET", "path": "/v1/*", "query": [{"name": "fields", "values": ["id"]}]}],
+        ):
+            with self.subTest(routes=drifted), self.assertRaises(assistant_manifest.ManifestError):
+                cache.get(container, reviewed(drifted))
 
     def test_machine_contract_loader_accepts_reviewed_artifact_and_rejects_foreign_integrations(self) -> None:
         reviewed = _reviewed_contract()

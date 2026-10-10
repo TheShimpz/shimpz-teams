@@ -68,9 +68,13 @@ Resolve also carries each reviewed Stored Input declaration and every Action's e
 token-like third-party credentials rather than OAuth Integrations. The declaration contains only id, closed
 `password` kind, label, description, `help_url`, and its placement: the one `host` (one of
 `allowed_hosts`) that ever receives the value and exactly one `header` or `query` field, with an optional `scheme`
-for a header and an optional `hmac` proof over another plain Stored Input of the same host (ADR-0106). A placement in
-a field Team owns, a field another Stored Input uses on the same host, or a proof of an unknown, own, or proof slot
-is refused as `resolve_stored_input_placement`. No value, configured status, or ciphertext crosses this boundary.
+for a header, an optional `hmac` proof over another plain Stored Input of the same host (ADR-0106), and its reviewed
+`routes`: 1 to 32 `{method, path, query}` entries naming the only endpoints on that host that ever receive the value,
+exactly as Assistant Spec v1 declares them (ADR-0106 amendment). A placement in a field Team owns, a field another
+Stored Input uses on the same host, a proof of an unknown, own, or proof slot, two routes with one method and path, a
+route selector name repeated without regard to case, or a literal route segment that names a credential endpoint (its
+ASCII-lowercased text without `-`, `_`, `.`, and `~` contains `apikey`, `authoriz`, `credential`, `oauth`,
+`password`, `secret`, or `token`) is refused as `resolve_stored_input_placement`. No value, configured status, or ciphertext crosses this boundary.
 The description is the help text a person reads before entering the value: what it is and how to get it, in plain
 language. `help_url` is the official page where a person creates or finds the value, or the provider documentation
 that explains how: at most 2,048 characters of one canonical `https` URL on a public DNS host, with a path, an

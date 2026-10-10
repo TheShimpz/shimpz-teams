@@ -144,7 +144,7 @@ COPY --link protocol/http/v1/identifiers.py protocol/http/v1/payload.py protocol
     protocol/http/v1/turn.py ./protocol/http/v1/
 COPY --link protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
     protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
-    protocol/assistant/v1/validators/message_catalog.py \
+    protocol/assistant/v1/validators/message_catalog.py protocol/assistant/v1/validators/route.py \
     ./protocol/assistant/v1/validators/
 COPY --link action/__init__.py action/challenges.py action/confirmation.py action/dispatch.py action/execution.py \
     action/failure.py action/frames.py action/files.py action/human.py action/journal.py action/provider.py \

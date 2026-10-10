@@ -559,9 +559,9 @@ def _integration_declarations(value: object) -> tuple[assistant_manifest.Integra
     return declarations
 
 
-_STORED_INPUT_REQUIRED = frozenset({"id", "kind", "label", "description", "help_url", "host"})
+_STORED_INPUT_REQUIRED = frozenset({"id", "kind", "label", "description", "help_url", "host", "routes"})
 _STORED_INPUT_FIELDS = frozenset(
-    {"id", "kind", "label", "description", "help_url", "host", "header", "query", "scheme", "hmac"}
+    {"id", "kind", "label", "description", "help_url", "host", "header", "query", "scheme", "hmac", "routes"}
 )
 
 

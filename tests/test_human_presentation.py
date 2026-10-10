@@ -63,7 +63,7 @@ def _crafted_pack(request: action_human.HumanRequest, help_message: dict[str, ob
 
 class DeclarationTests(unittest.TestCase):
     def test_a_declaration_carries_its_help_text_and_help_link(self) -> None:
-        placement = {"host": "api.exa.ai", "header": "x-api-key"}
+        placement = {"host": "api.exa.ai", "header": "x-api-key", "routes": [{"method": "POST", "path": "/search"}]}
         declared = assistant_manifest.StoredInputDeclaration(
             "exa-api-key", "password", "Key", HELP, HELP_URL, **placement
         )
@@ -96,8 +96,10 @@ class DeclarationTests(unittest.TestCase):
             "help_url": HELP_URL,
             "host": "api.exa.ai",
             "header": "x-api-key",
+            "routes": [{"method": "POST", "path": "/search"}],
         }
         for metadata in (
+            {key: value for key, value in base.items() if key != "routes"},
             {key: value for key, value in base.items() if key != "help_url"},
             {key: value for key, value in base.items() if key != "description"},
             {**base, "help_url": "http://dashboard.exa.ai/api-keys"},

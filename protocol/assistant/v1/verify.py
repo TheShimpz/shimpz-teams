@@ -203,6 +203,7 @@ failure = importlib.import_module("validators.failure")
 human_request = importlib.import_module("validators.human_request")
 input_file = importlib.import_module("validators.input_file")
 message_catalog = importlib.import_module("validators.message_catalog")
+route = importlib.import_module("validators.route")
 EFFECTS, effect_error = action_effect.EFFECTS, action_effect.effect_error
 FAILURE_KEYS, failure_error = failure.FAILURE_KEYS, failure.failure_error
 reference_error, verify_human_vectors = human_request.reference_error, human_request.verify_vectors
@@ -228,11 +229,32 @@ if (
     or stored_input.get("additionalProperties") is not False
     or stored_input.get("properties", {}).get("kind", {}).get("const") != "password"
     or stored_input.get("properties", {}).get("description", {}).get("maxLength") != 400
-    or stored_input.get("required") != ["kind", "label", "description", "help_url", "host"]
+    or stored_input.get("required") != ["kind", "label", "description", "help_url", "host", "routes"]
     or stored_input.get("oneOf") != [{"required": ["header"]}, {"required": ["query"], "not": {"required": ["scheme"]}}]
     or manifest_schema.get("$defs", {}).get("helpUrl", {}).get("maxLength") != 2048
 ):
     fail("Assistant Stored Input manifest contract is invalid")
+routes = stored_input.get("properties", {}).get("routes", {})
+route_schema = manifest_schema.get("$defs", {}).get("route", {})
+selector_schema = manifest_schema.get("$defs", {}).get("routeSelector", {})
+selector_values = selector_schema.get("properties", {}).get("values", {})
+if (
+    routes.get("minItems") != 1
+    or routes.get("maxItems") != route.MAX_ROUTES
+    or route_schema.get("additionalProperties") is not False
+    or route_schema.get("required") != ["method", "path"]
+    or route_schema.get("properties", {}).get("method", {}).get("enum") != list(route.METHODS)
+    or route_schema.get("properties", {}).get("path", {}).get("maxLength") != route.MAX_PATH
+    or route_schema.get("properties", {}).get("query", {}).get("maxItems") != route.MAX_SELECTORS
+    or selector_schema.get("additionalProperties") is not False
+    or selector_values.get("maxItems") != route.MAX_SELECTOR_VALUES
+    or selector_values.get("items", {}).get("maxLength") != route.MAX_SELECTOR_VALUE
+):
+    fail("Assistant Stored Input route contract is invalid")
+verify_reference_vectors("vectors/route.json", "Stored Input route", "routes", route.routes_error)
+verify_reference_vectors(
+    "vectors/route-match.json", "Stored Input route match", ("routes", "method", "target"), route.call_error
+)
 
 invocation = json.loads((HERE / "invocation.schema.json").read_bytes())
 held = invocation.get("properties", {}).get("stored_inputs", {})
