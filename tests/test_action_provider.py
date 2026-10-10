@@ -176,6 +176,31 @@ class AdmissionTests(unittest.TestCase):
                 self.assertEqual(reply, {"error": code})
                 self.assertEqual([item["phase"] for item in audits], ["refused"])
 
+    def test_an_integration_bearer_is_never_sent_outside_its_providers_reviewed_routes(self) -> None:
+        action = SimpleNamespace(stored_inputs=(), integrations=("cloudflare",))
+        credentials, _missing = provider.action_credentials(
+            action, {}, {}, {"cloudflare": {"access_token": TOKEN}}, {"cloudflare": "cloudflare"}
+        )
+        cloudflare = "api.cloudflare.com"
+        scope = provider.CallScope(
+            **{**_fields(_scope(credentials)), "route": lambda: (PROXY_TOKEN, frozenset({cloudflare}))}
+        )
+        zones = _frame(url=f"https://{cloudflare}/client/v4/zones?page=1&per_page=25")
+        admitted = provider.Broker(scope)._admit(zones)
+        self.assertIn(("authorization", f"Bearer {TOKEN}"), admitted.headers)
+        for frame in (
+            _frame(url=f"https://{cloudflare}/client/v4/user/tokens/verify"),
+            _frame(method="POST", url=f"https://{cloudflare}/client/v4/user/tokens"),
+            _frame(method="DELETE", url=f"https://{cloudflare}/client/v4/zones/{'a' * 32}"),
+            _frame(url=f"https://{cloudflare}/client/v4/zones/{'a' * 32}/../../user/tokens"),
+        ):
+            with self.subTest(frame=frame):
+                audits = []
+                broker = provider.Broker(provider.CallScope(**{**_fields(scope), "audit": audits.append}))
+                self.addCleanup(broker.release)
+                self.assertEqual(json.loads(broker(frame, time.monotonic() + 5)), {"error": "refused"})
+                self.assertEqual([(item["phase"], item["reason"]) for item in audits], [("refused", "route")])
+
     def test_the_egress_route_is_read_once_on_the_first_call_and_its_absence_refuses(self) -> None:
         reads = []
 

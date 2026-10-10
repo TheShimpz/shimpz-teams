@@ -66,6 +66,10 @@ class Credential:
     value: str
     # Every raw and placed form a response must never echo.
     protected: tuple[str, ...]
+    # The reviewed endpoints this credential may be sent to, by method and canonical path; None means its host-bound
+    # placement is the whole reviewed scope. Every Integration credential carries its provider's routes (ADR-0106
+    # amendment); a Stored Input carries none until its declaration names routes.
+    routes: Callable[[str, str], bool] | None = None
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -186,7 +190,9 @@ def action_credentials(
             continue
         bearer = f"Bearer {token}"
         credentials.extend(
-            Credential(f"integration:{integration_id}", host, "authorization", None, bearer, (token, bearer))
+            Credential(
+                f"integration:{integration_id}", host, "authorization", None, bearer, (token, bearer), provider.allows
+            )
             for host in provider.api_hosts
         )
     return tuple(credentials), frozenset(missing)
@@ -241,6 +247,13 @@ class Broker:
             raise CallRefusedError("refused", "credential-field")
         if call.host in scope.missing:
             raise CallRefusedError("credential-missing", "credential-missing")
+        path = call.target.partition("?")[0]
+        if any(
+            credential.host == call.host and credential.routes is not None and not credential.routes(call.method, path)
+            for credential in scope.credentials
+        ):
+            # A credential is never sent to an endpoint outside its reviewed routes.
+            raise CallRefusedError("refused", "route")
         return _inject(call, scope.credentials)
 
     def _send(self, call: _Call, ordinal: int, deadline: float) -> dict[str, object]:
