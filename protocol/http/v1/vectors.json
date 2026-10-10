@@ -551,6 +551,22 @@
       []
     ]
   },
+  "supervisor_key_rotation": {
+    "valid": [
+      {"public_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"},
+      {"public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+    ],
+    "invalid": [
+      {"public_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="},
+      {"public_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh"},
+      {"public_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHhB"},
+      {"public_key": "+++++++++++++++++++++++++++++++++++++++++++"},
+      {"public_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "extra": 1},
+      {},
+      [],
+      {"public_key": 1}
+    ]
+  },
   "restricted_actions": {
     "valid": [
       {"actions": [{"assistant": "shimpz-cloudflare", "action": "list-zones"}], "total": 2},

@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import os
+import stat
 import tempfile
 import types
 import unittest
@@ -75,6 +76,7 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         self._write_public_key()
         self.patches = (
             mock.patch.object(authority, "PUBLIC_KEY_FILE", self.public_key_path),
+            mock.patch.object(authority, "VERIFIER_FILE", Path(self.temporary.name) / "team" / "supervisor.pem"),
             mock.patch.object(
                 authority.grp,
                 "getgrnam",
@@ -118,6 +120,88 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
                 replay_guard=guard,
                 now=NOW,
             )
+
+    def _verify(self, key: Ed25519PrivateKey, jti: str) -> authority.Evidence:
+        headers = Message()
+        headers[contract.ASSERTION_HEADER] = f"Bearer {_assertion(key, _claims(jti=jti))}"
+        return authority.verify(headers, request=_binding(), replay_guard=authority.ReplayGuard(), now=NOW)
+
+    def _rotation(self, key: Ed25519PrivateKey) -> dict[str, str]:
+        return {"public_key": _segment(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))}
+
+    def test_team_pins_the_first_published_key_and_ignores_a_replaced_file(self) -> None:
+        evidence = self._verify(self.private_key, "1" * 32)
+        self.assertEqual(evidence.key_sha256, authority.key_sha256(self.private_key.public_key()))
+        self.assertEqual(stat.S_IMODE(authority.VERIFIER_FILE.stat().st_mode), 0o600)
+        # Whoever can rewrite Admin's published file cannot make Team accept another key.
+        intruder = Ed25519PrivateKey.generate()
+        self.public_key_path.chmod(0o640)
+        self.public_key_path.write_bytes(
+            intruder.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
+        )
+        self.public_key_path.chmod(0o440)
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "signature is invalid"):
+            self._verify(intruder, "2" * 32)
+        self.assertEqual(self._verify(self.private_key, "3" * 32).key_sha256, evidence.key_sha256)
+
+    def test_a_rotation_signed_by_the_pinned_key_switches_it_once_and_is_idempotent(self) -> None:
+        old = self._verify(self.private_key, "1" * 32).key_sha256
+        new_key, other = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
+        expected = {"rotated": True, "key_sha256": authority.key_sha256(new_key.public_key())}
+        self.assertEqual(authority.rotate_supervisor_key(self._rotation(new_key), old), expected)
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "signature is invalid"):
+            self._verify(self.private_key, "2" * 32)
+        current = self._verify(new_key, "3" * 32).key_sha256
+        # A retry of the rotation that took effect succeeds whichever key signed it.
+        self.assertEqual(authority.rotate_supervisor_key(self._rotation(new_key), old), expected)
+        self.assertEqual(authority.rotate_supervisor_key(self._rotation(new_key), current), expected)
+        # A rotation the earlier key signed can no longer switch the pin to any other key.
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "no longer current"):
+            authority.rotate_supervisor_key(self._rotation(other), old)
+        self.assertEqual(self._verify(new_key, "4" * 32).key_sha256, current)
+
+    def test_a_rotation_fails_closed_without_changing_the_pin(self) -> None:
+        current = self._verify(self.private_key, "1" * 32).key_sha256
+        pinned = authority.VERIFIER_FILE.read_bytes()
+        new_key = Ed25519PrivateKey.generate()
+        for body in ({}, {"public_key": "A" * 42}, {"public_key": "A" * 43, "extra": 1}, None):
+            with self.subTest(body=body), self.assertRaisesRegex(authority.SupervisorDeniedError, "invalid"):
+                authority.rotate_supervisor_key(body, current)
+        with (
+            mock.patch.object(authority.Ed25519PublicKey, "from_public_bytes", side_effect=ValueError("point")),
+            self.assertRaisesRegex(authority.SupervisorDeniedError, "invalid"),
+        ):
+            authority.rotate_supervisor_key(self._rotation(new_key), current)
+        with (
+            mock.patch.object(authority.private_state, "replace_durably", side_effect=OSError("full")),
+            self.assertRaisesRegex(authority.SupervisorUnavailableError, "could not be saved"),
+        ):
+            authority.rotate_supervisor_key(self._rotation(new_key), current)
+        self.assertEqual(authority.VERIFIER_FILE.read_bytes(), pinned)
+        authority.forget_supervisor_key()
+        self.assertFalse(authority.VERIFIER_FILE.exists())
+        with self.assertRaisesRegex(authority.SupervisorUnavailableError, "unavailable"):
+            authority.rotate_supervisor_key(self._rotation(new_key), current)
+
+    def test_the_pin_and_its_removal_fail_closed(self) -> None:
+        self._verify(self.private_key, "1" * 32)
+        with (
+            mock.patch.object(authority.os, "read", side_effect=OSError("io")),
+            self.assertRaisesRegex(authority.SupervisorUnavailableError, "unavailable"),
+        ):
+            authority.supervisor_key()
+        with (
+            mock.patch.object(authority, "VERIFIER_FILE", self.public_key_path / "pin"),
+            self.assertRaisesRegex(authority.SupervisorUnavailableError, "unavailable"),
+        ):
+            authority.supervisor_key()
+        with (
+            mock.patch.object(authority.private_state, "fsync_directory", side_effect=OSError("io")),
+            self.assertRaisesRegex(authority.SupervisorUnavailableError, "could not be removed"),
+        ):
+            authority.forget_supervisor_key()
+        with mock.patch.object(authority, "VERIFIER_FILE", Path(self.temporary.name) / "absent" / "pin"):
+            authority.forget_supervisor_key()
 
     def test_json_body_binding_accepts_the_chat_transport_boundary_only(self) -> None:
         body = {
@@ -233,6 +317,17 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
                 replay_guard=guard,
                 now=NOW,
             )
+        # Team's pin of the key fails closed on its own metadata.
+        authority.VERIFIER_FILE.chmod(0o644)
+        with self.assertRaisesRegex(authority.SupervisorUnavailableError, "unsafe metadata"):
+            authority.verify(
+                self._headers(_claims(jti="1" * 32)),
+                request=_binding(),
+                replay_guard=authority.ReplayGuard(),
+                now=NOW,
+            )
+        # Before Team pins a key, Admin's published key fails closed on its metadata.
+        authority.VERIFIER_FILE.unlink()
         self.public_key_path.chmod(0o400)
         with self.assertRaisesRegex(authority.SupervisorUnavailableError, "unavailable"):
             authority.verify(
@@ -241,6 +336,7 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
                 replay_guard=authority.ReplayGuard(),
                 now=NOW,
             )
+        self.assertFalse(authority.VERIFIER_FILE.exists())
 
     def test_human_assurance_is_required_exactly_when_signed(self) -> None:
         assurance = {
@@ -400,6 +496,7 @@ class LocalRoutineAuthorityTests(unittest.TestCase):
             path.chmod(0o440)
         for patch in (
             mock.patch.object(authority, "PUBLIC_KEY_FILE", directory / "public.pem"),
+            mock.patch.object(authority, "VERIFIER_FILE", directory / "team" / "supervisor.pem"),
             mock.patch.object(authority, "ROUTINE_PUBLIC_KEY_FILE", directory / "routine.pem"),
             mock.patch.object(authority.grp, "getgrnam", return_value=types.SimpleNamespace(gr_gid=os.getgid())),
         ):

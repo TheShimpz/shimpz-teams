@@ -768,6 +768,58 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         self.assertEqual(handler._send.call_args.args[1]["code"], "local-assistant-preview-busy")
         self.assertEqual(handler._send.call_args.args[1]["retry_after_ms"], 250)
 
+    def test_supervisor_key_rotation_route_maps_every_outcome(self) -> None:
+        controller = HandlerRouteEdgeTests.controller()
+        handler = self.handler(method="POST", controller=controller)
+        handler._body = mock.Mock(return_value={"public_key": "A" * 43})
+        handler.command = "GET"
+        self.assertIsNone(handler._supervisor_key_route(["v1", "space", "supervisor-key"]))
+        handler.command = "POST"
+        rotated = {"rotated": True, "key_sha256": "a" * 64}
+        with (
+            mock.patch.object(authority, "rotate_supervisor_key", return_value=rotated) as rotate,
+            mock.patch.object(http_audit.local_audit, "record_request") as audit,
+        ):
+            self.assertEqual(
+                handler._fixed_route(["v1", "space", "supervisor-key"])[1:3], (rotated, "supervisor-key-rotate")
+            )
+            handler._supervisor_evidence = SimpleNamespace(key_sha256="b" * 64)
+            handler._fixed_route(["v1", "space", "supervisor-key"])
+        self.assertEqual([call.args[1] for call in rotate.call_args_list], ["", "b" * 64])
+        audit.assert_called_with("supervisor-key-rotate", result="ok", detail="a" * 16)
+        for error, status, code in (
+            (authority.SupervisorDeniedError("stale"), HTTPStatus.CONFLICT, "supervisor-key-rotation-refused"),
+            (authority.SupervisorUnavailableError("io"), HTTPStatus.SERVICE_UNAVAILABLE, "supervisor-unavailable"),
+        ):
+            with (
+                self.subTest(code=code),
+                mock.patch.object(authority, "rotate_supervisor_key", side_effect=error),
+                self.assertRaises(ApiProblemError) as caught,
+            ):
+                handler._supervisor_key_route(["v1", "space", "supervisor-key"])
+            self.assertEqual((caught.exception.status, caught.exception.code), (status, code))
+        match = strict_http.resolve_controller_route("POST", ("v1", "space", "supervisor-key"))
+        self.assertEqual((match.operation, match.group), ("supervisor-key-rotate", "fixed"))
+
+    def test_a_bootstrap_reset_removes_teams_supervisor_key_pin(self) -> None:
+        controller = HandlerRouteEdgeTests.controller()
+        handler = self.handler(method="DELETE", controller=controller)
+        with (
+            mock.patch.object(authority, "require_supervisor_absent"),
+            mock.patch.object(authority, "forget_supervisor_key") as forget,
+        ):
+            handler._fixed_route(["v1", "space", "bootstrap"])
+        forget.assert_called_once_with()
+        with (
+            mock.patch.object(authority, "require_supervisor_absent"),
+            mock.patch.object(
+                authority, "forget_supervisor_key", side_effect=authority.SupervisorUnavailableError("io")
+            ),
+            self.assertRaises(ApiProblemError) as caught,
+        ):
+            handler._fixed_route(["v1", "space", "bootstrap"])
+        self.assertEqual(caught.exception.code, "supervisor-unavailable")
+
     def test_bootstrap_reset_uses_machine_authority_without_human_assertion(self) -> None:
         controller = HandlerRouteEdgeTests.controller()
         handler = self.handler(method="DELETE", path="/v1/space/bootstrap", controller=controller)

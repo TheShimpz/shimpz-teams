@@ -54,6 +54,7 @@ _MACHINE_ONLY_OPERATIONS = frozenset(
 )
 _READ_METHODS = frozenset({"GET", "HEAD"})
 _JSON_BODY_LIMITS = {
+    "supervisor-key-rotate": MAX_BODY_BYTES,
     "action-confirmation-configure": MAX_BODY_BYTES,
     "assistant-action-labels": MAX_BODY_BYTES,
     "assistant-install": MAX_BODY_BYTES,
@@ -113,6 +114,8 @@ class Handler(http_deadline.DeadlineRequestHandler):
     timeout = REQUEST_TIMEOUT_SECONDS
     # The resolved route's response allowance; anything sent before a route resolves keeps the API cap.
     _response_limit = MAX_API_RESPONSE_BYTES
+    # The Supervisor evidence that authorized this request, once a session assertion verified.
+    _supervisor_evidence: local_authority.Evidence | None = None
 
     def log_message(self, *_args) -> None:
         return
@@ -296,7 +299,38 @@ class Handler(http_deadline.DeadlineRequestHandler):
                 "Supervisor authority state is unavailable",
                 code="supervisor-unavailable",
             ) from exc
-        return HTTPStatus.OK, self.server.controller.reset_space(), "space-bootstrap-reset", None, None
+        result = self.server.controller.reset_space()
+        try:
+            # Admin publishes no Supervisor key, so Team's pin of an earlier one goes with the reset Space.
+            local_authority.forget_supervisor_key()
+        except local_authority.SupervisorUnavailableError as exc:
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Supervisor authority state is unavailable",
+                code="supervisor-unavailable",
+            ) from exc
+        return HTTPStatus.OK, result, "space-bootstrap-reset", None, None
+
+    def _supervisor_key_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, None, None] | None:
+        if self.command != "POST" or parts != ["v1", "space", "supervisor-key"]:
+            return None
+        try:
+            signed_by = "" if self._supervisor_evidence is None else self._supervisor_evidence.key_sha256
+            rotated = local_authority.rotate_supervisor_key(self._body(), signed_by)
+        except local_authority.SupervisorDeniedError as exc:
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "the Supervisor key rotation is invalid or no longer current",
+                code="supervisor-key-rotation-refused",
+            ) from exc
+        except local_authority.SupervisorUnavailableError as exc:
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Supervisor authority state is unavailable",
+                code="supervisor-unavailable",
+            ) from exc
+        local_audit.record_request("supervisor-key-rotate", result="ok", detail=rotated["key_sha256"][:16])
+        return HTTPStatus.OK, rotated, "supervisor-key-rotate", None, None
 
     def _machine_read_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, None, None] | None:
         if self.command == "GET" and parts == ["healthz"]:
@@ -316,7 +350,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
             return HTTPStatus.OK, controller.list_registry(), "registry-list", None, None
         if self.command == "GET" and parts == ["v1", "teams"]:
             return HTTPStatus.OK, controller.list_teams(), "team-list", None, None
-        space_reset = self._space_reset_route(parts)
+        space_reset = self._space_reset_route(parts) or self._supervisor_key_route(parts)
         if space_reset is not None:
             return space_reset
         if self.command == "POST" and parts == ["v1", "oauth", "cloudflare", "callback"]:
@@ -821,6 +855,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
                 code="supervisor-unavailable",
             ) from exc
         request_audit.human(evidence)
+        self._supervisor_evidence = evidence
         request_audit.record("human-authority", result="ok")
         with local_audit.bind_request_principal(request_audit.principal()):
             return self._session_route(parts, route, request_audit)

@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat,
 
 from core import base64url
 from protocol.http.v1 import supervisor as contract
+from storage import private_state
 
 PUBLIC_KEY_FILE = Path(
     os.environ.get(
@@ -29,6 +30,11 @@ PUBLIC_KEY_FILE = Path(
 # The Routine identity's public key sits beside the Supervisor's, in the same Admin-owned directory (ADR-0086).
 ROUTINE_PUBLIC_KEY_FILE = PUBLIC_KEY_FILE.with_name("routine.pem")
 PUBLIC_KEY_GROUP = "shimpzsupervisor-key"
+# Team's own pin of the Supervisor verification key, in Team's private settings volume. Team pins the key Admin
+# publishes the first time it verifies; from then on only a rotation signed by the pinned key changes it, and only a
+# bootstrap reset, which proves Admin publishes no key, removes it.
+VERIFIER_FILE = Path("/var/lib/shimpz-local/inference/supervisor.pem")
+_VERIFIER_LOCK = threading.Lock()
 MAX_ASSERTION_BYTES = 8192
 MAX_REPLAY_ENTRIES = 16 * 1024
 
@@ -54,6 +60,8 @@ class Evidence:
     authority_digest: str
     assertion_id: str
     expires_at: int
+    # The SHA-256 of the raw pinned key that verified the assertion.
+    key_sha256: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +176,97 @@ def _public_key(path: Path | None = None) -> Ed25519PublicKey:
     return _parse_public_key(raw)
 
 
+def key_sha256(key: Ed25519PublicKey) -> str:
+    """The SHA-256 of one Ed25519 verification key's 32 raw bytes, in lowercase hex."""
+    return hashlib.sha256(key.public_bytes(Encoding.Raw, PublicFormat.Raw)).hexdigest()
+
+
+def _read_pin() -> Ed25519PublicKey | None:
+    """Team's pinned Supervisor key, or None before the first verification; a damaged pin is unavailable."""
+    try:
+        descriptor = os.open(VERIFIER_FILE, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise SupervisorUnavailableError("Team's Supervisor key is unavailable") from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or not 1 <= metadata.st_size <= 512
+        ):
+            raise SupervisorUnavailableError("Team's Supervisor key has unsafe metadata")
+        raw = os.read(descriptor, 513)
+    except OSError as exc:
+        raise SupervisorUnavailableError("Team's Supervisor key is unavailable") from exc
+    finally:
+        os.close(descriptor)
+    return _parse_public_key(raw)
+
+
+def _write_pin(key: Ed25519PublicKey) -> None:
+    """Atomically and durably replace Team's pin: a crash leaves the complete earlier key or the complete new one."""
+    try:
+        VERIFIER_FILE.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        private_state.replace_durably(VERIFIER_FILE, key.public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo))
+    except OSError as exc:
+        raise SupervisorUnavailableError("Team's Supervisor key could not be saved") from exc
+
+
+def supervisor_key() -> Ed25519PublicKey:
+    """The key every Supervisor assertion must verify under: Team's pin, first taken from Admin's published key."""
+    with _VERIFIER_LOCK:
+        pinned = _read_pin()
+        if pinned is not None:
+            return pinned
+        published = _public_key()
+        _write_pin(published)
+        return published
+
+
+def rotate_supervisor_key(body: object, signed_by: str) -> dict[str, object]:
+    """Replace Team's pin with the new key of a rotation whose assertion the current pin verified.
+
+    ``signed_by`` is the SHA-256 of the key that verified the rotation's assertion. A retry of a rotation that already
+    took effect, signed by either key, succeeds unchanged; a rotation verified by a key that is no longer pinned is
+    refused, so two rotations signed by one key never both take effect. From the switch on, the earlier key's
+    assertions are refused.
+    """
+    admitted = contract.canonical_key_rotation(body)
+    if admitted is None:
+        raise SupervisorDeniedError("Supervisor key rotation is invalid")
+    try:
+        new = Ed25519PublicKey.from_public_bytes(base64url.decode(admitted["public_key"]))
+    except ValueError as exc:
+        raise SupervisorDeniedError("Supervisor key rotation is invalid") from exc
+    fingerprint = key_sha256(new)
+    with _VERIFIER_LOCK:
+        current = _read_pin()
+        if current is None:
+            raise SupervisorUnavailableError("Team's Supervisor key is unavailable")
+        pinned = key_sha256(current)
+        if pinned != fingerprint:
+            if not hmac.compare_digest(pinned, signed_by):
+                raise SupervisorDeniedError("Supervisor key rotation was signed by a key that is no longer current")
+            _write_pin(new)
+    return {"rotated": True, "key_sha256": fingerprint}
+
+
+def forget_supervisor_key() -> None:
+    """Remove Team's pin after a bootstrap reset proved that Admin publishes no Supervisor key; absence is success."""
+    with _VERIFIER_LOCK:
+        try:
+            VERIFIER_FILE.unlink(missing_ok=True)
+            private_state.fsync_directory(VERIFIER_FILE.parent)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise SupervisorUnavailableError("Team's Supervisor key could not be removed") from exc
+
+
 def _public_key_directory(expected_gid: int) -> int:
     descriptor = os.open(
         PUBLIC_KEY_FILE.parent,
@@ -270,8 +369,10 @@ def verify(
     replay_guard: ReplayGuard | None = None,
     now: int | None = None,
 ) -> Evidence:
-    """Verify and atomically consume evidence for one exact request."""
-    claims = _verified_claims(_one_assertion(headers), _public_key())
+    """Verify and atomically consume evidence for one exact request under Team's pinned Supervisor key."""
+    encoded = _one_assertion(headers)
+    key = supervisor_key()
+    claims = _verified_claims(encoded, key)
     assertion_id, expires_at = _bound(claims, request, replay_guard, now)
     return Evidence(
         supervisor_id=str(claims["sub"]),
@@ -279,13 +380,13 @@ def verify(
         authority_digest=str(claims["authority_sha256"]),
         assertion_id=assertion_id,
         expires_at=expires_at,
+        key_sha256=key_sha256(key),
     )
 
 
 def routine_key_fingerprint() -> str:
     """The SHA-256 of the current Routine public key; a lease records it, so a new key fences every older lease."""
-    key = _public_key(ROUTINE_PUBLIC_KEY_FILE)
-    return hashlib.sha256(key.public_bytes(Encoding.Raw, PublicFormat.Raw)).hexdigest()
+    return key_sha256(_public_key(ROUTINE_PUBLIC_KEY_FILE))
 
 
 def verify_routine(
@@ -313,7 +414,7 @@ def verify_routine(
     )
     assertion_id, expires_at = _bound(claims, routine_request, replay_guard, now)
     return RoutineEvidence(
-        key_fingerprint=hashlib.sha256(key.public_bytes(Encoding.Raw, PublicFormat.Raw)).hexdigest(),
+        key_fingerprint=key_sha256(key),
         lease_sha256=str(claims["authority_sha256"]),
         assertion_id=assertion_id,
         expires_at=expires_at,

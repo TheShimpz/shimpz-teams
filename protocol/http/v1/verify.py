@@ -205,6 +205,7 @@ for name, admit in (
     ("stored_input_help", payload.canonical_stored_input_help),
     ("file_disclosure", payload.canonical_file_disclosure),
     ("input_projection", payload.canonical_input_projection),
+    ("supervisor_key_rotation", supervisor.canonical_key_rotation),
     ("restricted_actions", payload.canonical_restricted_actions),
     ("purpose", payload.canonical_purpose),
     ("pack_digest", payload.canonical_pack_digest),

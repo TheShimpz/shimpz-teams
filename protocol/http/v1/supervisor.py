@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -269,3 +270,25 @@ def canonical_json(value: object) -> bytes:
 def claims_json(value: object, *, audience: str = ASSERTION_AUDIENCE) -> bytes:
     """Validate and encode one canonical claim set."""
     return canonical_json(canonical_claims(value, audience=audience))
+
+
+KEY_ROTATION_FIELDS = frozenset({"public_key"})
+_RAW_PUBLIC_KEY = re.compile(r"^[A-Za-z0-9_-]{43}$")
+
+
+def canonical_key_rotation(value: object) -> dict[str, str] | None:
+    """Return one Supervisor key rotation body, or None.
+
+    The body is exactly ``{"public_key": key}``: the new Ed25519 verification key as the canonical unpadded base64url
+    of its 32 raw bytes. The current key signs the rotation's assertion; Team decides whether the bytes are a key.
+    """
+    if not isinstance(value, dict) or set(value) != KEY_ROTATION_FIELDS:
+        return None
+    key = value["public_key"]
+    if not isinstance(key, str) or _RAW_PUBLIC_KEY.fullmatch(key) is None:
+        return None
+    # Forty-three characters of the alphabet always decode with one pad; only canonical text re-encodes to itself.
+    raw = base64.urlsafe_b64decode(key + "=")
+    if base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii") != key:
+        return None
+    return {"public_key": key}

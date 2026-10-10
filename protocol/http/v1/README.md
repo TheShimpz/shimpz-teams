@@ -524,8 +524,8 @@ an inert bounded `label`; the HTTP adapter adds `trace_id`. Labels never replace
 history, describe Action schemas, or grant authority. Binding drift fails closed. Model or label failure is
 availability failure after installation and must not be represented as installation rollback.
 
-The internal Team bearer is machine authority only for the one-use OAuth callback continuation and
-the Local bootstrap reset. The bootstrap reset is admitted only while Team independently verifies
+The internal Team bearer is machine authority only for the one-use OAuth callback continuation, the Local bootstrap
+reset, health and activity reads, and Admin's Routine scheduler (claim, notices, and their acknowledgement). The bootstrap reset is admitted only while Team independently verifies
 that the Supervisor key directory is safe and the Supervisor public key is absent; after identity
 establishment it fails closed and never substitutes for human Supervisor evidence. Admin emits one short-lived
 Ed25519 assertion in `X-Shimpz-Supervisor` after validating either its current browser session or the exact
@@ -536,6 +536,19 @@ For an authentication-gated Action response, that same signed, one-use assertion
 `assurance` binding containing only the exact reviewed `auth:*` kind and pending challenge ID.
 Team requires that binding for the matching authentication challenge and rejects it on every
 non-authentication request. Credential and factor material never cross this protocol.
+
+Team verifies every Supervisor assertion under its own pin of the Supervisor key, kept in Team's private state: the
+first verification pins the key Admin publishes, and later changes to Admin's published file do not change it. The
+Supervisor rotates the key with `POST /v1/space/supervisor-key`, a `session` assertion signed by the pinned key whose
+body is exactly `{"public_key": key}` (`supervisor.canonical_key_rotation`): the new Ed25519 verification key as the
+canonical unpadded base64url of its 32 raw bytes. Team atomically and durably replaces its pin and answers
+`{"rotated": true, "key_sha256": digest}` with the lowercase SHA-256 of the new key's raw bytes; from then on an
+assertion signed by the earlier key is refused. A retry of a rotation that already took effect, signed by either key,
+answers the same; a rotation verified by a key that is no longer pinned, or whose key is not a valid Ed25519 point,
+is refused with `409` `supervisor-key-rotation-refused`. Admin keeps the pending new key beside the current one until
+Team answers, and after a restart with a pending key it retries signed by the earlier key and, when Team refuses it
+because it already switched, signed by the new one. A bootstrap reset, admitted only while Admin publishes no key,
+also removes Team's pin.
 
 An authenticated Supervisor may inspect persistent Action input status through
 `GET /v1/teams/:team_id/assistant-stored-inputs`. The response is metadata-only: each current

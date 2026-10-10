@@ -289,6 +289,7 @@ class ControllerRouteMatch:
             "team-list",
             "space-bootstrap-reset",
             "space-reset",
+            "supervisor-key-rotate",
             "assistant-integration-complete",
         }
         if self.operation in fixed:
@@ -453,6 +454,8 @@ CONTROLLER_ROUTES = (
     _controller_route("GET", "/v1/assistants", "registry-list"),
     _controller_route("DELETE", "/v1/space/bootstrap", "space-bootstrap-reset"),
     _controller_route("DELETE", "/v1/space", "space-reset"),
+    # The Supervisor's key rotation, signed by the key Team pins now.
+    _controller_route("POST", "/v1/space/supervisor-key", "supervisor-key-rotate"),
     _controller_route("GET", "/v1/teams/:team_id/assistants", "assistant-list"),
     _controller_route(
         "GET",
