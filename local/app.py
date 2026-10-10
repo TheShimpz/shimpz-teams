@@ -683,7 +683,7 @@ class LocalController:
 def main() -> int:
     try:
         space_id = os.environ["SHIMPZ_SPACE_ID"]
-        token = local_token_store.ensure_token()
+        token = local_token_store.issue_token()
         brain_runtime_token_store.ensure()
         client = docker.DockerClient(base_url=DOCKER_SOCKET_URL, timeout=REQUEST_TIMEOUT_SECONDS)
         registry = AssistantRegistry(

@@ -39,8 +39,9 @@ failure. It does not remove shared images, the controller container, or unlabele
 - Process: UID/GID `10001:10001`, supplementary token GID `10010`, read-only root filesystem, bounded
   tmpfs, resources, request bodies, queues, and audit output.
 - Docker: `/var/run/docker.sock` is mounted only here. Compose supplies the socket's numeric host GID.
-- Controller bearer: created atomically as 32 random bytes encoded to 64 lowercase hex characters at
-  `/run/shimpz-local/token`, `10001:10010`, mode `0440`, never environment/argv/log output.
+- Controller bearer: issued afresh on every controller start, before it serves, as 32 random bytes encoded to 64
+  lowercase hex characters and atomically renamed over `/run/shimpz-local/token`, `10001:10010`, mode `0440`, never
+  environment/argv/log output. A bearer from an earlier start is refused; Admin re-reads the file once on a `401`.
 - Brain bearer/state: the controller writes the dedicated runtime token volume; Brain runtime mounts it
   read-only. Conversation checkpoints stay in the Brain runtime state volume.
 - Persistent controller state: audit, Team storage, inference selection and learned memory, Action

@@ -1,4 +1,8 @@
-"""Persistent bearer token for the local Admin-to-controller boundary."""
+"""Bearer token for the local Admin-to-controller boundary, issued afresh on every controller start.
+
+A token from an earlier start stops working when the controller restarts, so a copied bearer lives only as long as one
+controller process. Admin reads the file again when Team answers 401.
+"""
 
 import grp
 import os
@@ -32,12 +36,14 @@ def _read_checked(path: Path, expected_gid: int) -> str:
     return token
 
 
-def ensure_token(path: Path = TOKEN_PATH) -> str:
-    """Create the token once, then fail closed on metadata drift."""
-    expected_gid = grp.getgrnam(LOCAL_ACCESS_GROUP).gr_gid
-    if path.exists() or path.is_symlink():
-        return _read_checked(path, expected_gid)
+def issue_token(path: Path = TOKEN_PATH) -> str:
+    """Atomically replace the token with a fresh one before the controller serves; any earlier token stops working.
 
+    The new file is created exclusively beside the current one, written, fsynced, made 0440 in the setgid directory's
+    Admin-readable group, renamed over the current token, and the directory is fsynced, so Admin always reads either
+    the complete earlier token or the complete new one.
+    """
+    expected_gid = grp.getgrnam(LOCAL_ACCESS_GROUP).gr_gid
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o750)
     temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -62,4 +68,6 @@ def ensure_token(path: Path = TOKEN_PATH) -> str:
     finally:
         if temporary.exists():
             temporary.unlink()
-    return _read_checked(path, expected_gid)
+    if _read_checked(path, expected_gid) != token:
+        raise RuntimeError("the local controller token changed while it was issued")
+    return token

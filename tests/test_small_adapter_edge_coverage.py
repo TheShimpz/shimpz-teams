@@ -4,13 +4,16 @@ import io
 import json
 import os
 import re
+import stat
 import tempfile
 import types
 import unittest
+from email.message import Message
 from pathlib import Path
 from unittest import mock
 
 from core.http import stdlib
+from core.http import strict as strict_http
 from local import token as local_token
 from local.http import dispatch as local_dispatch
 
@@ -145,25 +148,40 @@ class SmallHttpAdapterCoverageTests(unittest.TestCase):
 
 
 class TokenAndProcessCoverageTests(unittest.TestCase):
-    def test_local_token_creation_and_metadata_failures_are_closed(self) -> None:
+    def test_a_token_from_a_previous_start_is_refused_after_restart(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "tokens" / "token"
             group = types.SimpleNamespace(gr_gid=os.getgid())
             with mock.patch.object(local_token.grp, "getgrnam", return_value=group):
-                token = local_token.ensure_token(path)
-                self.assertEqual(local_token.ensure_token(path), token)
-                path.chmod(0o600)
-                with self.assertRaisesRegex(RuntimeError, "unsafe metadata"):
-                    local_token.ensure_token(path)
+                earlier = local_token.issue_token(path)
+                current = local_token.issue_token(path)
+            self.assertNotEqual(earlier, current)
+            self.assertEqual(path.read_text(encoding="ascii"), current)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o440)
+            self.assertEqual([entry.name for entry in path.parent.iterdir()], ["token"])
+            for token, admitted in ((earlier, False), (current, True)):
+                headers = Message()
+                headers["Authorization"] = f"Bearer {token}"
+                self.assertIs(strict_http.bearer_matches(headers, current), admitted)
 
+    def test_local_token_metadata_and_content_failures_are_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "token"
+            path.write_text("a" * 64, encoding="ascii")
             path.chmod(0o600)
+            with self.assertRaisesRegex(RuntimeError, "unsafe metadata"):
+                local_token._read_checked(path, os.getgid())
             path.write_text("z" * 64, encoding="ascii")
             path.chmod(0o440)
+            with self.assertRaisesRegex(RuntimeError, "token is invalid"):
+                local_token._read_checked(path, os.getgid())
+            group = types.SimpleNamespace(gr_gid=os.getgid())
             with (
                 mock.patch.object(local_token.grp, "getgrnam", return_value=group),
-                self.assertRaisesRegex(RuntimeError, "token is invalid"),
+                mock.patch.object(local_token, "_read_checked", return_value="b" * 64),
+                self.assertRaisesRegex(RuntimeError, "changed while it was issued"),
             ):
-                local_token.ensure_token(path)
+                local_token.issue_token(Path(directory) / "issued" / "token")
 
     def test_local_token_detects_changed_read_and_creation_group(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -182,7 +200,7 @@ class TokenAndProcessCoverageTests(unittest.TestCase):
                 mock.patch.object(local_token.grp, "getgrnam", return_value=wrong_group),
                 self.assertRaisesRegex(RuntimeError, "unsafe ownership"),
             ):
-                local_token.ensure_token(new_path)
+                local_token.issue_token(new_path)
             self.assertFalse(any(new_path.parent.iterdir()))
 
 

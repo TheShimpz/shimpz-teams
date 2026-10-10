@@ -690,7 +690,7 @@ class LocalAppMainEdgeTests(unittest.TestCase):
                 local_app.os.environ,
                 {"SHIMPZ_SPACE_ID": "local-space", "DOCKER_HOST": "tcp://docker.invalid:2375"},
             ),
-            mock.patch.object(local_app.local_token_store, "ensure_token", return_value="token"),
+            mock.patch.object(local_app.local_token_store, "issue_token", return_value="token"),
             mock.patch.object(local_app.brain_runtime_token_store, "ensure"),
             mock.patch.object(local_app.docker, "DockerClient", return_value=client) as docker_client,
             mock.patch.object(local_app, "AssistantRegistry", return_value=object()),

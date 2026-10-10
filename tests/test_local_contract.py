@@ -182,7 +182,7 @@ class LocalContractTests(LocalContractCase):
             mock.patch.dict(os.environ, {"SHIMPZ_SPACE_ID": "local-space"}),
             mock.patch.object(
                 local_app.local_token_store,
-                "ensure_token",
+                "issue_token",
                 side_effect=lambda: events.append("controller-token") or "a" * 64,
             ),
             mock.patch.object(
