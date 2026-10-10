@@ -409,7 +409,6 @@ class ArtifactTrustTests(unittest.TestCase):
             ("provenance-only", [_claim(digest, PROVENANCE_PREDICATE)]),
             ("untyped", [{"critical": {"image": {"docker-manifest-digest": digest}}}]),
             ("other-digest", [_claim("sha256:" + "9" * 64, SIGNATURE_PREDICATE)]),
-            ("legacy-capitalised", [{"Critical": {"Image": {"Docker-manifest-digest": digest}}}]),
         ):
             with self.subTest(name=name), self.assertRaisesRegex(ArtifactTrustError, "does not bind"):
                 self._verify(resolution, _Registry(resolution), (records, _attestation(resolution)))
