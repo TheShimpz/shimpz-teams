@@ -18,7 +18,9 @@ ASSISTANT_UID = "10001:10001"
 ASSISTANT_MEMORY = 128 * 1024 * 1024
 ASSISTANT_NANO_CPUS = 250_000_000
 ASSISTANT_PIDS = 64
-ASSISTANT_TMPFS = {str(PurePosixPath("/") / "tmp"): "size=256m"}
+# Explicit, not Docker's implicit tmpfs defaults: admission compares this exact value, so a container whose /tmp
+# could execute a dropped binary, honour a setuid bit, or expose a device node is drift.
+ASSISTANT_TMPFS = {str(PurePosixPath("/") / "tmp"): "size=256m,noexec,nosuid,nodev"}
 ASSISTANT_NOFILE_LIMIT = 1024
 ASSISTANT_ULIMITS = [{"Name": "nofile", "Soft": ASSISTANT_NOFILE_LIMIT, "Hard": ASSISTANT_NOFILE_LIMIT}]
 _ENABLED_NO_NEW_PRIVILEGES = frozenset({"no-new-privileges", "no-new-privileges:true"})
