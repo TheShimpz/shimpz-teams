@@ -91,6 +91,21 @@ class AbsoluteDeadlineTests(unittest.TestCase):
         self.assertTrue(reply.startswith(b"HTTP/1.1 400"), reply)
         self.assertIn(b"invalid-json", reply)
 
+    def test_a_malformed_request_line_is_refused_before_any_body_deadline(self) -> None:
+        reply = _drip(self.serve().server_address, b"NOT-HTTP\r\n\r\n", [])
+        self.assertIn(b"Error code: 400", reply)
+
+    def test_every_reply_closes_its_connection_so_no_keep_alive_outlives_the_deadlines(self) -> None:
+        address = self.serve().server_address
+        for request in (
+            b"GET /v1/teams HTTP/1.1\r\nHost: team\r\nConnection: keep-alive\r\n\r\n",
+            b"TRACE /v1/teams HTTP/1.1\r\nHost: team\r\nConnection: keep-alive\r\n\r\n",
+        ):
+            with self.subTest(request=request.split(b" ", 1)[0]):
+                # The whole reply reads to EOF only because the controller closed the kept-alive connection.
+                reply = _drip(address, request, [])
+                self.assertIn(b"\r\nConnection: close\r\n", reply)
+
     def test_an_expired_deadline_refuses_the_read_without_waiting(self) -> None:
         server_side, client_side = socket.socketpair()
         self.addCleanup(server_side.close)
