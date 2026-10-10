@@ -1,5 +1,6 @@
 """Durability and metadata contracts for the local audit journal."""
 
+import hashlib
 import json
 import multiprocessing
 import os
@@ -36,6 +37,77 @@ def _crash_after_acknowledged_audit(path: str, sync_marker: str) -> None:
     audit.os.fsync = mark_sync
     _record("assistant-action", result="ok", team_id="team_1")
     os._exit(0)
+
+
+def _chained(*files: Path) -> list[dict[str, object]]:
+    """Every event of the files, oldest first, after proving each line carries the SHA-256 of the line before it."""
+    lines = [line for path in files for line in path.read_bytes().splitlines(keepends=True)]
+    previous = audit.GENESIS
+    for line in lines:
+        if json.loads(line)["prev_sha256"] != previous:
+            raise AssertionError("the audit chain is broken")
+        previous = hashlib.sha256(line).hexdigest()
+    return [json.loads(line) for line in lines]
+
+
+class LocalAuditChainTests(unittest.TestCase):
+    def setUp(self) -> None:
+        audit.close()
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.addCleanup(audit.close)
+        self.path = Path(self.temporary.name) / "audit" / "audit.jsonl"
+        patcher = mock.patch.object(audit, "AUDIT_PATH", self.path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_each_line_carries_the_previous_lines_hash_across_restarts(self) -> None:
+        _record("first", result="ok")
+        _record("second", result="ok")
+        audit.close()
+        _record("after-restart", result="ok")
+        audit.close()
+        events = _chained(self.path)
+        self.assertEqual([event["operation"] for event in events], ["first", "second", "after-restart"])
+        self.assertEqual(events[0]["prev_sha256"], audit.GENESIS)
+
+    def test_a_rotated_in_file_starts_from_the_last_line_of_the_file_it_replaced(self) -> None:
+        rotated = self.path.with_name(f"{self.path.name}.1")
+        with mock.patch.object(audit, "MAX_BYTES", 1):
+            _record("first", result="ok")
+            _record("second", result="ok")
+        audit.close()
+        self.assertEqual([event["operation"] for event in _chained(rotated, self.path)], ["first", "second"])
+        # A restart after a rotation that wrote nothing yet continues from the newest rotated file.
+        self.path.write_bytes(b"")
+        self.path.chmod(0o600)
+        _record("third", result="ok")
+        audit.close()
+        self.assertEqual([event["operation"] for event in _chained(rotated, self.path)], ["first", "third"])
+
+    def test_a_torn_final_write_is_ended_and_keeps_its_place_in_the_chain(self) -> None:
+        _record("first", result="ok")
+        audit.close()
+        with self.path.open("ab") as journal:
+            journal.write(b'{"torn":')
+        _record("after-crash", result="ok")
+        audit.close()
+        lines = self.path.read_bytes().splitlines(keepends=True)
+        self.assertEqual(lines[1], b'{"torn":\n')
+        self.assertEqual(json.loads(lines[2])["prev_sha256"], hashlib.sha256(lines[1]).hexdigest())
+        self.assertEqual(json.loads(lines[2])["operation"], "after-crash")
+
+    def test_an_altered_removed_or_reordered_line_breaks_the_chain(self) -> None:
+        for operation in ("first", "second", "third"):
+            _record(operation, result="ok")
+        audit.close()
+        lines = self.path.read_bytes().splitlines(keepends=True)
+        altered = lines[1].replace(b'"second"', b'"forged"')
+        for tampered in ([lines[0], altered, lines[2]], [lines[0], lines[2]], [lines[1], lines[0], lines[2]]):
+            with self.subTest(tampered=tampered):
+                self.path.write_bytes(b"".join(tampered))
+                with self.assertRaisesRegex(AssertionError, "chain is broken"):
+                    _chained(self.path)
 
 
 class LocalAuditTests(unittest.TestCase):

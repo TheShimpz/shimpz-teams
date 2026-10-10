@@ -3,8 +3,16 @@
 Events are appended before ``record`` returns. A background group commit synchronizes
 the first unsynced event within a 50 ms target window; a sudden action loss may discard
 that window, while process crashes retain the already-written kernel state.
+
+Every line carries ``prev_sha256``, the SHA-256 of the exact bytes of the line before it (the newline included), and
+the first line ever written carries 64 zeros. A restarted writer continues from the last line on disk, and a rotated-in
+file starts from the last line of the file it replaced, so the chain runs across every retained file. The chain makes a
+removed, inserted, reordered, or altered line inside the retained lines evident. It is not protection against a
+wholesale rewrite: whoever can write the journal can recompute every link, drop the newest lines, or delete a whole
+file. Only a copy of a recent link kept elsewhere could show that.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -29,6 +37,9 @@ _dirty_since: float | None = None
 _flush_thread: threading.Thread | None = None
 _stopping = False
 _failure: RuntimeError | None = None
+# The SHA-256 of the last line written or found, which the next line carries; None while the journal is not open.
+_chain: str | None = None
+GENESIS = "0" * 64
 _OPAQUE_HUMAN_ID = re.compile(r"^[0-9a-f]{32}$")
 _MACHINE_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 _TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -133,10 +144,12 @@ def _raise_failure_locked() -> None:
 
 
 def _close_descriptor_locked() -> None:
-    global _descriptor
+    global _chain, _descriptor
     if _descriptor is not None:
         os.close(_descriptor)
         _descriptor = None
+    # The next open continues from the journal on disk, which holds every line this writer wrote.
+    _chain = None
 
 
 def _sync_locked() -> None:
@@ -152,8 +165,30 @@ def _sync_locked() -> None:
     _CONDITION.notify_all()
 
 
+def _last_line(path: Path) -> bytes | None:
+    """The last line of one journal file, or None when it holds none.
+
+    A torn final write (a crash inside one append) is ended with its newline first, so it keeps its place in the chain
+    and the next line never runs into it.
+    """
+    if not path.exists():
+        return None
+    _safe_file(path)
+    content = path.read_bytes()
+    if not content:
+        return None
+    if not content.endswith(b"\n"):
+        descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+        try:
+            _write_all(descriptor, b"\n")
+        finally:
+            os.close(descriptor)
+        content += b"\n"
+    return content[content.rfind(b"\n", 0, len(content) - 1) + 1 :]
+
+
 def _open_descriptor_locked() -> int:
-    global _descriptor
+    global _chain, _descriptor
     if _descriptor is not None:
         _safe_file(AUDIT_PATH)
         path_metadata = AUDIT_PATH.lstat()
@@ -169,6 +204,9 @@ def _open_descriptor_locked() -> int:
         _close_descriptor_locked()
     AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     _safe_file(AUDIT_PATH)
+    # The chain continues after the current file's last line, read before a rotation moves it, or after the newest
+    # rotated file's when a rotation was interrupted before its first line.
+    found = _last_line(AUDIT_PATH) or _last_line(AUDIT_PATH.with_name(f"{AUDIT_PATH.name}.1"))
     _rotate(AUDIT_PATH)
     _descriptor = os.open(
         AUDIT_PATH,
@@ -176,6 +214,7 @@ def _open_descriptor_locked() -> int:
         0o600,
     )
     _safe_file(AUDIT_PATH)
+    _chain = GENESIS if found is None else hashlib.sha256(found).hexdigest()
     return _descriptor
 
 
@@ -279,16 +318,19 @@ def record(
         event["model_usage"] = model_usage
     if credential_state is not None:
         event["credential_state"] = credential_state
-    encoded = (json.dumps(event, separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8")
 
-    global _dirty_since
+    global _chain, _dirty_since
     with _CONDITION:
         _raise_failure_locked()
         try:
             descriptor = _open_descriptor_locked()
+            encoded = (
+                json.dumps({**event, "prev_sha256": _chain}, separators=(",", ":"), sort_keys=True) + "\n"
+            ).encode("utf-8")
             _write_all(descriptor, encoded)
         except OSError as exc:
             raise RuntimeError("the local audit journal could not be written") from exc
+        _chain = hashlib.sha256(encoded).hexdigest()
         if _dirty_since is None:
             _dirty_since = time.monotonic()
         _ensure_worker_locked()
@@ -305,7 +347,7 @@ def flush() -> None:
 
 
 def close() -> None:
-    """Flush and close the process-local writer, allowing a later clean restart."""
+    """Flush and close the process-local writer, allowing a later clean restart that continues the chain on disk."""
     global _flush_thread, _stopping
     with _CONDITION:
         thread = _flush_thread
