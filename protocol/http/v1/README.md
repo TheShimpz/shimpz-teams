@@ -123,7 +123,7 @@ most 8 MiB, and the original lowercase SHA-256 (`payload.canonical_file_disclosu
 Admin renders as text, never a Creator translation parameter. Team binds the disclosed file to the challenge and
 delivers only bytes with that size and digest; any other challenge carries no `file`.
 
-Team's own Action confirmation policy (ADR-0110) is a Team setting only a Supervisor session reads and changes, on by
+Team's own Action confirmation policy (ADR-0112) is a Team setting only a Supervisor session reads and changes, on by
 default: `GET /v1/teams/:team_id/action-confirmation` and `PUT` with exactly `{"confirm_mutating": true|false}` both
 answer `{team_id, confirm_mutating}`. While it is on, a chat Action whose reviewed `effect` is `mutating` and that
 declares no authorization capability pauses before its workload starts with a `human-required` challenge whose
