@@ -72,7 +72,9 @@ class AdmissionEdgeTests(unittest.TestCase):
 
     def test_a_credential_for_another_host_is_not_placed(self) -> None:
         call = provider._Call("GET", HOST, "/", (), None, None)
-        other = provider.Credential("stored-input:o", "other.example.com", "x-key", None, "value", ("value",))
+        other = provider.Credential(
+            "stored-input:o", "other.example.com", "x-key", None, "value", ("value",), lambda *_: True
+        )
         self.assertEqual(provider._inject(call, (other,)), call)
 
 

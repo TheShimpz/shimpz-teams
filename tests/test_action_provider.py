@@ -36,12 +36,18 @@ HOST = "api.example.com"
 TOKEN = "test-token"
 SECRET = "test-secret"
 PROXY_TOKEN = "f" * 32
+ROUTES = [{"method": "GET", "path": "/v1/items"}]
+
+
+def _any_route(_method: str, _target: str) -> bool:
+    """A credential whose reviewed routes admit every call, for placement and transport scenarios."""
+    return True
 
 
 def _spec(**placements: dict[str, str]) -> SimpleNamespace:
     stored = {
         stored_id: SimpleNamespace(
-            **{"host": HOST, "header": None, "query": None, "scheme": None, "hmac": None, **placement}
+            **{"host": HOST, "header": None, "query": None, "scheme": None, "hmac": None, "routes": ROUTES, **placement}
         )
         for stored_id, placement in placements.items()
     }
@@ -158,8 +164,8 @@ class AdmissionTests(unittest.TestCase):
                 provider._parse(frame, frozenset({HOST}))
 
     def test_refuses_a_header_or_parameter_a_placement_owns_and_a_missing_or_unauthorized_call(self) -> None:
-        credential = provider.Credential("stored-input:k", HOST, "x-api-key", None, "v", ("v",))
-        proof = provider.Credential("stored-input:p", HOST, None, "appsecret_proof", "p", ("p",))
+        credential = provider.Credential("stored-input:k", HOST, "x-api-key", None, "v", ("v",), _any_route)
+        proof = provider.Credential("stored-input:p", HOST, None, "appsecret_proof", "p", ("p",), _any_route)
         cases = (
             (_scope((credential,)), _frame(headers=[["X-Api-Key", "mine"]]), "refused"),
             (_scope((proof,)), _frame(url=f"https://{HOST}/v1?appsecret_proof=forged"), "refused"),
@@ -200,6 +206,69 @@ class AdmissionTests(unittest.TestCase):
                 self.addCleanup(broker.release)
                 self.assertEqual(json.loads(broker(frame, time.monotonic() + 5)), {"error": "refused"})
                 self.assertEqual([(item["phase"], item["reason"]) for item in audits], [("refused", "route")])
+
+    def test_a_stored_input_admits_exactly_the_calls_every_published_route_match_vector_admits(self) -> None:
+        """The Developers reference verdict on the raw method and target is Team's verdict (ADR-0106 amendment)."""
+        vectors = json.loads((PROTOCOL / "vectors" / "route-match.json").read_bytes())
+        self.assertEqual(vectors["version"], 1)
+        for case in vectors["cases"]:
+            with self.subTest(case=case["name"]):
+                spec = _spec(key={"header": "X-Api-Key", "routes": case["routes"]})
+                action = SimpleNamespace(stored_inputs=("key",), integrations=())
+                credentials, _missing = provider.action_credentials(action, spec.stored_inputs, {"key": "v"}, {}, {})
+                self.assertIs(credentials[0].routes(case["method"], case["target"]), case["valid"])
+
+    def test_a_stored_input_is_sent_only_on_a_call_its_routes_admit_and_a_refusal_is_audited_before_injection(
+        self,
+    ) -> None:
+        vectors = json.loads((PROTOCOL / "vectors" / "route-match.json").read_bytes())
+        for case in vectors["cases"]:
+            frame = _frame(method=case["method"], url=f"https://{HOST}{case['target']}")
+            try:
+                provider._parse(frame, frozenset({HOST}))
+            except provider.CallRefusedError:
+                # A frame admission refuses first; the matcher verdict above still covers its target.
+                self.assertFalse(case["valid"], case["name"])
+                continue
+            with self.subTest(case=case["name"]):
+                spec = _spec(key={"header": "X-Api-Key", "routes": case["routes"]})
+                action = SimpleNamespace(stored_inputs=("key",), integrations=())
+                credentials, _missing = provider.action_credentials(action, spec.stored_inputs, {"key": "v"}, {}, {})
+                audits = []
+                broker = provider.Broker(provider.CallScope(**{**_fields(_scope(credentials)), "audit": audits.append}))
+                self.addCleanup(broker.release)
+                if case["valid"]:
+                    self.assertIn(("x-api-key", "v"), broker._admit(frame).headers)
+                    continue
+                with mock.patch.object(provider, "_inject") as inject:
+                    self.assertEqual(json.loads(broker(frame, time.monotonic() + 5)), {"error": "refused"})
+                inject.assert_not_called()
+                self.assertEqual([(item["phase"], item["reason"]) for item in audits], [("refused", "route")])
+
+    def test_every_stored_input_placed_on_the_host_must_admit_the_call(self) -> None:
+        spec = _spec(
+            token={"header": "Authorization", "scheme": "Bearer", "routes": [{"method": "GET", "path": "/v1/*"}]},
+            proof={
+                "query": "appsecret_proof",
+                "hmac": "token",
+                "routes": [
+                    {"method": "GET", "path": "/v1/items", "query": [{"name": "fields", "values": ["id%2Cname"]}]}
+                ],
+            },
+            elsewhere={"host": "other.example.com", "header": "X-Key", "routes": [{"method": "POST", "path": "/x"}]},
+        )
+        action = SimpleNamespace(stored_inputs=("elsewhere", "proof", "token"), integrations=())
+        held = {"token": TOKEN, "proof": SECRET, "elsewhere": "v"}
+        credentials, _missing = provider.action_credentials(action, spec.stored_inputs, held, {}, {})
+        broker = provider.Broker(_scope(credentials))
+        self.addCleanup(broker.release)
+        admitted = broker._admit(_frame(url=f"https://{HOST}/v1/items?fields=id%2Cname"))
+        self.assertIn(("authorization", f"Bearer {TOKEN}"), admitted.headers)
+        self.assertRegex(admitted.target, r"^/v1/items\?fields=id%2Cname&appsecret_proof=[0-9a-f]{64}$")
+        for url in (f"https://{HOST}/v1/other", f"https://{HOST}/v1/items", f"https://{HOST}/v1/items?fields=id"):
+            with self.subTest(url=url), self.assertRaises(provider.CallRefusedError) as refused:
+                broker._admit(_frame(url=url))
+            self.assertEqual(refused.exception.reason, "route")
 
     def test_the_egress_route_is_read_once_on_the_first_call_and_its_absence_refuses(self) -> None:
         reads = []
@@ -377,8 +446,12 @@ class TransportTests(unittest.TestCase):
             broker.release()
 
     def test_team_places_the_credential_and_the_action_receives_only_the_response(self) -> None:
-        bearer = provider.Credential("stored-input:t", HOST, "authorization", None, f"Bearer {TOKEN}", (TOKEN,))
-        proof = provider.Credential("stored-input:p", HOST, None, "appsecret_proof", "abc123", (SECRET, "abc123"))
+        bearer = provider.Credential(
+            "stored-input:t", HOST, "authorization", None, f"Bearer {TOKEN}", (TOKEN,), _any_route
+        )
+        proof = provider.Credential(
+            "stored-input:p", HOST, None, "appsecret_proof", "abc123", (SECRET, "abc123"), _any_route
+        )
         audits: list[dict[str, object]] = []
         body = base64.b64encode(b"status=PAUSED").decode()
         reply = self._call(
@@ -399,7 +472,9 @@ class TransportTests(unittest.TestCase):
         self.assertNotIn("appsecret_proof", json.dumps(audits))
 
     def test_refuses_a_response_that_echoes_a_credential_in_any_common_form(self) -> None:
-        bearer = provider.Credential("stored-input:t", HOST, "authorization", None, f"Bearer {TOKEN}", (TOKEN,))
+        bearer = provider.Credential(
+            "stored-input:t", HOST, "authorization", None, f"Bearer {TOKEN}", (TOKEN,), _any_route
+        )
         escaped = "".join(f"\\u{ord(character):04x}" for character in TOKEN)
         for payload in (
             TOKEN.encode(),
@@ -416,8 +491,10 @@ class TransportTests(unittest.TestCase):
 
     def test_refuses_echoes_in_header_names_escaped_or_duplicated_json_and_unicode_text(self) -> None:
         unicode_token = "tök€n-" + TOKEN
-        bearer = provider.Credential("stored-input:t", HOST, "authorization", None, f"Bearer {TOKEN}", (TOKEN,))
-        accented = provider.Credential("stored-input:u", HOST, None, "key", unicode_token, (unicode_token,))
+        bearer = provider.Credential(
+            "stored-input:t", HOST, "authorization", None, f"Bearer {TOKEN}", (TOKEN,), _any_route
+        )
+        accented = provider.Credential("stored-input:u", HOST, None, "key", unicode_token, (unicode_token,), _any_route)
         mixed = "".join(f"\\u{ord(character):04X}" for character in TOKEN)
         for headers, payload in (
             ([(f"X-{TOKEN}", "1")], b"{}"),
@@ -431,7 +508,7 @@ class TransportTests(unittest.TestCase):
                 self.assertEqual(self._call(_frame(), (bearer, accented)), {"error": "failed"})
 
     def test_a_header_value_http_cannot_carry_is_refused_before_dispatch(self) -> None:
-        euro = provider.Credential("stored-input:e", HOST, "x-key", None, "k€y", ("k€y",))
+        euro = provider.Credential("stored-input:e", HOST, "x-key", None, "k€y", ("k€y",), _any_route)
         self.assertEqual(self._call(_frame(), (euro,)), {"error": "refused"})
         self.assertEqual(self._call(_frame(headers=[["x-note", "€"]])), {"error": "refused"})
         self.assertEqual(_Origin.seen, [])
@@ -458,7 +535,9 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(provider._CAPACITY._value, free)
 
     def test_a_failed_call_holds_its_capacity_through_its_audit_until_released(self) -> None:
-        bearer = provider.Credential("stored-input:t", HOST, "authorization", None, f"Bearer {TOKEN}", (TOKEN,))
+        bearer = provider.Credential(
+            "stored-input:t", HOST, "authorization", None, f"Bearer {TOKEN}", (TOKEN,), _any_route
+        )
         _Origin.script = (200, [("Content-Type", "application/json")], TOKEN.encode())
         free = provider._CAPACITY._value
         held: list[int] = []

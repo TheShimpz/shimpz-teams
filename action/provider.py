@@ -25,6 +25,7 @@ from action import human as action_human
 from assistant import manifest as assistant_manifest
 from integrations import http as integration_http
 from integrations import providers as integration_providers
+from protocol.assistant.v1.validators import route as route_validator
 
 MAX_CALLS = 16
 MAX_URL_CHARACTERS = 8192
@@ -66,10 +67,10 @@ class Credential:
     value: str
     # Every raw and placed form a response must never echo.
     protected: tuple[str, ...]
-    # The reviewed endpoints this credential may be sent to, by method and canonical path; None means its host-bound
-    # placement is the whole reviewed scope. Every Integration credential carries its provider's routes (ADR-0106
-    # amendment); a Stored Input carries none until its declaration names routes.
-    routes: Callable[[str, str], bool] | None = None
+    # Whether one call, by its method and its request target as sent (path, then any raw query), is a reviewed
+    # endpoint this credential may be sent to (ADR-0106 amendment, 2026-10-09): an Integration's provider routes, or a
+    # Stored Input's declared routes and selectors.
+    routes: Callable[[str, str], bool]
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -180,6 +181,7 @@ def action_credentials(
                 declaration.query,
                 placed,
                 (value, placed),
+                _declared_routes(declaration.routes),
             )
         )
     for integration_id in getattr(action, "integrations", ()):
@@ -191,11 +193,27 @@ def action_credentials(
         bearer = f"Bearer {token}"
         credentials.extend(
             Credential(
-                f"integration:{integration_id}", host, "authorization", None, bearer, (token, bearer), provider.allows
+                f"integration:{integration_id}",
+                host,
+                "authorization",
+                None,
+                bearer,
+                (token, bearer),
+                _provider_routes(provider),
             )
             for host in provider.api_hosts
         )
     return tuple(credentials), frozenset(missing)
+
+
+def _declared_routes(routes: object) -> Callable[[str, str], bool]:
+    """A Stored Input's reviewed routes, matched by the Developers reference: raw path, method, and selectors."""
+    return lambda method, target: route_validator.call_error(routes, method, target) is None
+
+
+def _provider_routes(provider: integration_providers.OAuthProvider) -> Callable[[str, str], bool]:
+    """An Integration provider's reviewed routes, matched against the path as sent, before any query."""
+    return lambda method, target: provider.allows(method, target.partition("?")[0])
 
 
 def _proof(key: str, message: str) -> str:
@@ -247,12 +265,11 @@ class Broker:
             raise CallRefusedError("refused", "credential-field")
         if call.host in scope.missing:
             raise CallRefusedError("credential-missing", "credential-missing")
-        path = call.target.partition("?")[0]
         if any(
-            credential.host == call.host and credential.routes is not None and not credential.routes(call.method, path)
+            credential.host == call.host and not credential.routes(call.method, call.target)
             for credential in scope.credentials
         ):
-            # A credential is never sent to an endpoint outside its reviewed routes.
+            # Every credential placed on the host must admit the call: none is sent outside its reviewed routes.
             raise CallRefusedError("refused", "route")
         return _inject(call, scope.credentials)
 

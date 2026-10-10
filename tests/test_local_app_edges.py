@@ -578,7 +578,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
 
         def declaration(header: str) -> types.SimpleNamespace:
             return types.SimpleNamespace(
-                kind="password", host="graph.facebook.com", header=header, query=None, scheme=None, hmac=None
+                kind="password", host="graph.facebook.com", header=header, query=None, scheme=None, hmac=None, routes=[]
             )
 
         spec.assistant_id = "assistant"
