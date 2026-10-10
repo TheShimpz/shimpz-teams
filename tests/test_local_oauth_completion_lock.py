@@ -26,7 +26,7 @@ ASSISTANT = "shimpz-cloudflare"
 SCOPES = ("dns.read", "offline_access", "zone.read")
 SESSION = "browser-session-private-123456789"
 CLAIM = "a" * 64
-LEASE = f"l2.1999999999.{'b' * 43}.{'c' * 43}.{'d' * 43}.{'e' * 43}"
+LEASE = f"l3.{'a' * 11}.1999999999.{'b' * 43}.{'c' * 43}.{'d' * 43}.{'e' * 43}"
 DECLARATION = types.SimpleNamespace(provider="cloudflare", scopes=SCOPES)
 
 
