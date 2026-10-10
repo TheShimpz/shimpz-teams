@@ -27,7 +27,7 @@ from inference import client as brain_runtime_client
 from local import app as local_app
 from local.assistant import rpc as local_assistant_rpc
 from local.chat import private as local_chat_private
-from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import challenge as http_challenge
 from storage import files as team_storage
 from tests import human_request_fixtures
 
@@ -430,10 +430,10 @@ class DisclosureVectorTests(unittest.TestCase):
     def test_every_published_disclosure_vector_is_admitted_exactly_or_refused(self) -> None:
         vectors = json.loads((Path(__file__).resolve().parents[1] / "protocol/http/v1/vectors.json").read_bytes())
         for value in vectors["file_disclosure"]["valid"]:
-            self.assertEqual(http_payload.canonical_file_disclosure(value), value)
+            self.assertEqual(http_challenge.canonical_file_disclosure(value), value)
         for value in vectors["file_disclosure"]["invalid"]:
             with self.subTest(value=value):
-                self.assertIsNone(http_payload.canonical_file_disclosure(value))
+                self.assertIsNone(http_challenge.canonical_file_disclosure(value))
 
 
 class LocalPreflightTests(unittest.TestCase):

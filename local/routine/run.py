@@ -25,7 +25,7 @@ from local.errors import ApiProblemError as ApiProblem
 from local.routine import contracts as routine_contracts
 from local.routine import manage as routine_manage
 from local.routine import state as routine_state
-from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import challenge as http_challenge
 from routine import claim as routine_claim
 from routine import record, trace
 from routine import runs as routine_runs
@@ -355,7 +355,7 @@ def public_challenge(descriptor: dict[str, object], protection: trace.Protection
     ordered = sorted(hidden, key=len, reverse=True)
     pattern = re.compile("|".join(re.escape(item) for item in ordered)) if ordered else None
     shown = {**descriptor, "request": request, "rendered": _redacted(descriptor["rendered"], pattern)}
-    if trace.exposes(shown, frozenset(hidden)) or http_payload.canonical_rendered(shown["rendered"], request) is None:
+    if trace.exposes(shown, frozenset(hidden)) or http_challenge.canonical_rendered(shown["rendered"], request) is None:
         return None
     return {**shown, "request": {**request, "fingerprint": request_fingerprint(request)}}
 

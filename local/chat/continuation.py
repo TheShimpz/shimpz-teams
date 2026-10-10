@@ -20,6 +20,7 @@ from local.chat import continuation_store as local_chat_continuation_store
 from local.errors import ApiProblemError
 from local.validation import validate_team_name
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
+from protocol.http.v1 import challenge as http_challenge
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
 from routine import plan as routine_plan
@@ -776,14 +777,14 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
     )
     file = raw["file"]
     file_valid = file is None or (
-        request.kind in action_human.AUTHORIZATION_KINDS and http_payload.canonical_file_disclosure(file) == file
+        request.kind in action_human.AUTHORIZATION_KINDS and http_challenge.canonical_file_disclosure(file) == file
     )
     shown = raw["input"]
     input_valid = (
         request.kind != action_human.CONFIRMATION_KIND
         if shown is None
         else request.kind in action_challenges.CONFIRMATION_KINDS
-        and http_payload.canonical_input_projection(shown) is not None
+        and http_challenge.canonical_input_projection(shown) is not None
     )
     if not help_url_valid or not purpose_valid or not file_valid or not input_valid:
         raise ContinuationCodecError("human requirement presentation is malformed")
@@ -847,7 +848,7 @@ def _request_copy(value: object, request: action_human.HumanRequest) -> action_c
         http_payload.canonical_locale(raw["locale"]) is None
         or http_payload.canonical_pack_digest(raw["catalog_digest"]) is None
         or http_payload.canonical_pack_digest(raw["pack_digest"]) is None
-        or http_payload.canonical_rendered(raw["rendered"], request.payload()) is None
+        or http_challenge.canonical_rendered(raw["rendered"], request.payload()) is None
         or (raw["help"] is not None and http_payload.canonical_stored_input_help(raw["help"]) is None)
     ):
         raise ContinuationCodecError("human request copy is malformed")

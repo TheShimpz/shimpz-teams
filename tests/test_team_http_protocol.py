@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from protocol.http.v1 import identifiers, payload, routine, routine_notice, routine_proposal, routine_run
+from protocol.http.v1 import challenge, identifiers, payload, routine, routine_notice, routine_proposal, routine_run
 
 PROTOCOL = Path(__file__).resolve().parents[1] / "protocol" / "http" / "v1"
 ASSISTANT_PROTOCOL = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1"
@@ -36,6 +36,7 @@ class FlatVerifierTests(unittest.TestCase):
 
     def test_the_verifier_imports_the_protocol_modules_flat_from_their_directory(self) -> None:
         names = (
+            "challenge",
             "identifiers",
             "payload",
             "phrase",
@@ -86,9 +87,9 @@ class LocalizedChallengeContractTests(unittest.TestCase):
 
     def test_rendered_copy_admits_exactly_the_request_copy_fields(self) -> None:
         for case in self.vectors["rendered_copy"]["valid"]:
-            self.assertEqual(payload.canonical_rendered(case["rendered"], case["request"]), case["rendered"])
+            self.assertEqual(challenge.canonical_rendered(case["rendered"], case["request"]), case["rendered"])
         for case in self.vectors["rendered_copy"]["invalid"]:
-            self.assertIsNone(payload.canonical_rendered(case["rendered"], case["request"]))
+            self.assertIsNone(challenge.canonical_rendered(case["rendered"], case["request"]))
 
     def test_pack_digest_challenge_open_and_snapshot_summary_locale_are_closed(self) -> None:
         for name, admit in (

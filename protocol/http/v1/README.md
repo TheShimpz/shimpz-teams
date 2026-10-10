@@ -8,6 +8,9 @@ changes, a skill's content key, the reply, the Action requests one suspension ca
 planning, intent routing, and the attachment content of a turn); `payload.py` re-exports all three, and the Brain
 consumes these three files as a pinned mirror. Team, the Brain, and Admin each bind a shared bound to its one
 definition here or in `payload.py`, never to a copied literal.
+`challenge.py` owns the presentation a human-required challenge carries beside its canonical request: the rendered
+copy, the one disclosed file, and a confirmation's input projection. Only Team and Admin consume it, so `payload.py`
+never imports it.
 An Assistant id (at most 40 characters) and an Assistant's Integration, provider, or Stored Input identifier
 (`canonical_identifier`, at most 64) use the Developers published-Assistant grammar; an Action id uses Team's wider
 grammar, which also admits `.` and `_` separators, within 128 characters.
@@ -44,7 +47,7 @@ Assistant `request` with its fingerprint: every copy field is a catalog referenc
 never part of its fingerprint, the challenge carries three required localization fields (ADR-0091): `locale`, the one
 concrete closed interface language (`payload.canonical_locale`, never `null`) the challenge was created for;
 `pack_digest`, the `sha256:` digest of the reviewed binding's language pack (`payload.canonical_pack_digest`); and
-`rendered`, the display text of exactly the request's copy fields in that locale (`payload.canonical_rendered`):
+`rendered`, the display text of exactly the request's copy fields in that locale (`challenge.canonical_rendered`):
 `title` (at most 80 characters) and `description` (500); `label` (80) for an input; `placeholder` (120, `null`
 exactly when the request's placeholder is `null`) for a text, textarea, password, or phone input; and, for a choice,
 `options` in request order, each exactly `{label, description}` (80 and 160, `description` `null` exactly when the
@@ -119,7 +122,7 @@ An authorization challenge (`approval`, `auth:password`, `auth:totp`, or `auth:p
 file input also carries `file`, the platform-controlled disclosure of the one selected file whose original bytes, with
 any metadata embedded in them, only the approved replay delivers to that Action (ADR-0093): exactly `{id, name,
 media_type, size, sha256}` with the opaque file id, the literal filename, the Team-determined media type, a size of at
-most 8 MiB, and the original lowercase SHA-256 (`payload.canonical_file_disclosure`). The filename is literal data that
+most 8 MiB, and the original lowercase SHA-256 (`challenge.canonical_file_disclosure`). The filename is literal data that
 Admin renders as text, never a Creator translation parameter. Team binds the disclosed file to the challenge and
 delivers only bytes with that size and digest; any other challenge carries no `file`.
 
@@ -139,7 +142,7 @@ each Action), and a direct `assistant-invoke` is itself the Supervisor's request
 
 Every chat confirmation challenge, Team's `confirmation` and a declared `approval`, `auth:password`, `auth:totp`, or
 `auth:passkey`, also carries `input`, the platform-rendered projection of the Action's validated input
-(`payload.canonical_input_projection`): exactly `{fields, omitted}`, where `fields` holds at most 16 rows
+(`challenge.canonical_input_projection`): exactly `{fields, omitted}`, where `fields` holds at most 16 rows
 `{name, value, truncated}` in strictly ascending `name` order, one per top-level argument. `name` (1 to 128
 characters) is the argument's name and `value` (1 to 400) its canonical JSON text, so a string stays quoted; both are
 printable because every other character is escaped as a visible `\uXXXX`. `truncated` is true when either had to be

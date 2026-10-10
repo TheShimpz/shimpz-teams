@@ -10,6 +10,7 @@ from action import human
 from assistant import language as assistant_language
 from integrations import challenge_store
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
+from protocol.http.v1 import challenge as http_challenge
 from protocol.http.v1 import payload as http_payload
 
 DEFAULT_TTL_SECONDS = 300
@@ -97,7 +98,7 @@ def render_copy(
         rendered["options"] = [
             {field: text(option[field]) for field in human.OPTION_COPY_FIELDS} for option in payload["options"]
         ]
-    if http_payload.canonical_rendered(rendered, payload) is None:
+    if http_challenge.canonical_rendered(rendered, payload) is None:
         raise HumanChallengeError("Action human request copy cannot be rendered")
     help_copy = None if help_text is None else _render_help(help_text, pack, locale)
     return RequestCopy(locale, pack.catalog_digest, pack.pack_digest, rendered, help_copy)
@@ -161,7 +162,7 @@ def _copy(value: object, request: human.HumanRequest) -> bool:
         and http_payload.canonical_locale(value.locale) is not None
         and http_payload.canonical_pack_digest(value.catalog_digest) is not None
         and http_payload.canonical_pack_digest(value.pack_digest) is not None
-        and http_payload.canonical_rendered(value.rendered, request.payload()) is not None
+        and http_challenge.canonical_rendered(value.rendered, request.payload()) is not None
         and (value.help is None or http_payload.canonical_stored_input_help(value.help) == value.help)
     )
 
@@ -192,7 +193,9 @@ CONFIRMATION_KINDS = frozenset({*human.AUTHORIZATION_KINDS, human.CONFIRMATION_K
 def _input(value: HumanRequirement) -> bool:
     if value.input is None:
         return value.request.kind != human.CONFIRMATION_KIND
-    return value.request.kind in CONFIRMATION_KINDS and http_payload.canonical_input_projection(value.input) is not None
+    return (
+        value.request.kind in CONFIRMATION_KINDS and http_challenge.canonical_input_projection(value.input) is not None
+    )
 
 
 def _requirement(value: object) -> bool:
@@ -209,7 +212,7 @@ def _requirement(value: object) -> bool:
             value.file is None
             or (
                 value.request.kind in human.AUTHORIZATION_KINDS
-                and http_payload.canonical_file_disclosure(value.file) == value.file
+                and http_challenge.canonical_file_disclosure(value.file) == value.file
             )
         )
     )

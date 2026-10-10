@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 
 from action import confirmation, human
-from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import challenge as http_challenge
 from tests import human_request_fixtures
 
 BINDING = ("shimpz-cloudflare", "sha256:" + "a" * 64, "container")
@@ -111,7 +111,7 @@ class InputProjectionTests(unittest.TestCase):
         self.assertEqual(rows["nested"], '{"a": null, "z": 1}')
         self.assertEqual(rows["content"], '"v=spf1 \\u202eevil\\u2028next\\nline \\udb40\\udc01"')
         self.assertIn("na\\u200bme", rows)
-        self.assertEqual(http_payload.canonical_input_projection(projection), projection)
+        self.assertEqual(http_challenge.canonical_input_projection(projection), projection)
 
     def test_bounds_are_explicit_and_never_split_an_escape(self) -> None:
         many = confirmation.input_projection({f"field{index:02d}": index for index in range(20)})

@@ -4,7 +4,7 @@ import json
 from collections.abc import Mapping
 
 from action import human as action_human
-from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import challenge as http_challenge
 
 # The one principal that confirms a Local Action: the Space's Supervisor, never an Assistant or the Brain.
 PRINCIPAL = "local-supervisor"
@@ -62,12 +62,12 @@ def input_projection(arguments: Mapping[str, object]) -> dict[str, object]:
         (_escaped(json.dumps(name, ensure_ascii=False))[1:-1], _value(value)) for name, value in arguments.items()
     )
     fields = []
-    for name, value in rows[: http_payload.INPUT_PROJECTION_MAX_FIELDS]:
-        shown_name, name_cut = _bounded(name, http_payload.INPUT_PROJECTION_NAME_CHARS)
-        shown_value, value_cut = _bounded(value, http_payload.INPUT_PROJECTION_VALUE_CHARS)
+    for name, value in rows[: http_challenge.INPUT_PROJECTION_MAX_FIELDS]:
+        shown_name, name_cut = _bounded(name, http_challenge.INPUT_PROJECTION_NAME_CHARS)
+        shown_value, value_cut = _bounded(value, http_challenge.INPUT_PROJECTION_VALUE_CHARS)
         fields.append({"name": shown_name, "value": shown_value, "truncated": name_cut or value_cut})
     projection = {"fields": fields, "omitted": len(rows) - len(fields)}
-    if http_payload.canonical_input_projection(projection) is None:
+    if http_challenge.canonical_input_projection(projection) is None:
         raise ValueError("Action input cannot be projected")
     return projection
 

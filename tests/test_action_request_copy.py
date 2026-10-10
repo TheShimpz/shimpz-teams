@@ -7,7 +7,7 @@ from dataclasses import replace
 from action import challenges as action_challenges
 from assistant import language as assistant_language
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
-from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import challenge as http_challenge
 from tests import catalog_fixtures, human_request_fixtures
 
 PURPOSE = "To clean up your zone, I need to delete one record."
@@ -65,7 +65,7 @@ class RenderTests(unittest.TestCase):
                 self.assertEqual(rendered["title"], f"{prefix} Delete the record rec-7 from example.com")
                 self.assertEqual(rendered["options"][1]["label"], f"{prefix} Second option")
                 self.assertIsNone(rendered["options"][0]["description"])
-                self.assertEqual(http_payload.canonical_rendered(rendered, request.payload()), rendered)
+                self.assertEqual(http_challenge.canonical_rendered(rendered, request.payload()), rendered)
         # Option values, kinds, and the fingerprinted references stay canonical.
         self.assertEqual([option["value"] for option in request.payload()["options"]], ["a", "b"])
 

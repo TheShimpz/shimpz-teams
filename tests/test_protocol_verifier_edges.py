@@ -50,6 +50,7 @@ def _execute(
             mutate(mirror)
         output = io.StringIO()
         module_names = (
+            "challenge",
             "identifiers",
             "payload",
             "phrase",

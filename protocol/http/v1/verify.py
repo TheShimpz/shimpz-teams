@@ -8,6 +8,7 @@ import json
 import re
 from pathlib import Path
 
+import challenge
 import payload
 import phrase
 import progress
@@ -203,8 +204,8 @@ for name, admit in (
     ("chat_request_identity", payload.canonical_request_identity),
     ("help_url", payload.canonical_help_url),
     ("stored_input_help", payload.canonical_stored_input_help),
-    ("file_disclosure", payload.canonical_file_disclosure),
-    ("input_projection", payload.canonical_input_projection),
+    ("file_disclosure", challenge.canonical_file_disclosure),
+    ("input_projection", challenge.canonical_input_projection),
     ("supervisor_key_rotation", supervisor.canonical_key_rotation),
     ("restricted_actions", payload.canonical_restricted_actions),
     ("purpose", payload.canonical_purpose),
@@ -226,10 +227,13 @@ rendered_copy = vectors.get("rendered_copy", {})
 if not rendered_copy.get("valid") or not rendered_copy.get("invalid"):
     fail("Team HTTP rendered copy vectors are missing")
 if any(
-    payload.canonical_rendered(case["rendered"], case["request"]) != case["rendered"] for case in rendered_copy["valid"]
+    challenge.canonical_rendered(case["rendered"], case["request"]) != case["rendered"]
+    for case in rendered_copy["valid"]
 ):
     fail("Team HTTP rendered copy positive vector differs")
-if any(payload.canonical_rendered(case["rendered"], case["request"]) is not None for case in rendered_copy["invalid"]):
+if any(
+    challenge.canonical_rendered(case["rendered"], case["request"]) is not None for case in rendered_copy["invalid"]
+):
     fail("Team HTTP rendered copy negative vector differs")
 if any(payload.canonical_action_label(value) != value for value in action_label_text.get("labels", [])):
     fail("Team HTTP Action-label label positive vector differs")
