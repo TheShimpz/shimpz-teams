@@ -7,17 +7,7 @@ from inference import client as brain_runtime_client
 from local.chat import state as local_chat_state
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import team_context_changed
-from local.validation import validate_assistant_id, validate_team_id
-from protocol.http.v1 import payload as http_payload
-
-
-@dataclass(frozen=True, slots=True)
-class ActionLabelSnapshot:
-    network_id: str
-    assistant_version: str
-    action_ids: tuple[str, ...]
-    provider: str
-    model: str
+from local.validation import validate_team_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,80 +15,6 @@ class CapabilityPlanSnapshot:
     network_id: str
     provider: str
     model: str
-
-
-def _action_label_snapshot(
-    self,
-    team_id: str,
-    assistant_id: str,
-    provider: str,
-) -> ActionLabelSnapshot:
-    with self._lock(team_id):
-        _team_name, network_id, active_by_id = local_chat_state._team_assistants(self, team_id)
-        active = active_by_id.get(assistant_id)
-        if active is None:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "installed Assistant is unavailable",
-                code="assistant-unavailable",
-            )
-        config = local_chat_state._turn_inference(self, team_id, provider)
-        return ActionLabelSnapshot(
-            network_id=network_id,
-            assistant_version=active.spec.version,
-            action_ids=tuple(sorted(active.spec.actions)),
-            provider=config.provider,
-            model=config.model,
-        )
-
-
-def action_labels(
-    self,
-    team_id: str,
-    assistant_id: str,
-    body: object,
-    provider: str,
-    api_key: str,
-) -> dict[str, object]:
-    team_id = validate_team_id(team_id)
-    assistant_id = validate_assistant_id(assistant_id)
-    if not isinstance(body, dict) or set(body) != {"locale"}:
-        raise ApiProblem(
-            HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Action labels require only locale",
-            code="invalid-body",
-        )
-    locale = http_payload.canonical_locale(body["locale"])
-    if locale is None:
-        raise ApiProblem(
-            HTTPStatus.UNPROCESSABLE_ENTITY,
-            "locale is invalid",
-            code="invalid-locale",
-        )
-    before = self._action_label_snapshot(team_id, assistant_id, provider)
-    try:
-        labels = self.brain_runtime.action_labels(
-            provider=before.provider,
-            model=before.model,
-            api_key=api_key,
-            locale=locale,
-            action_ids=before.action_ids,
-        )
-    except brain_runtime_client.BrainRuntimeError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "installed Assistant Action labels are unavailable",
-            code="action-labels-unavailable",
-        ) from exc
-    after = self._action_label_snapshot(team_id, assistant_id, provider)
-    if after != before:
-        raise team_context_changed()
-    return {
-        "team_id": team_id,
-        "assistant": assistant_id,
-        "assistant_version": before.assistant_version,
-        "actions": [{"id": label.id, "label": label.label} for label in labels],
-    }
 
 
 def _capability_candidate(value: object) -> brain_runtime_client.RuntimeCapabilityCandidate:

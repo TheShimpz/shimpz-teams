@@ -225,9 +225,9 @@ class StrictHttpTest(unittest.TestCase):
             with self.subTest(operation=operation):
                 self.assertEqual(strict_http.ControllerRouteMatch(operation, {}).group, group)
 
-        action_labels = ("v1", "teams", "team_1", "assistants", "cloudflare-assistant", "action-labels")
-        resolved = strict_http.resolve_controller_route("POST", action_labels)
-        self.assertEqual(resolved.operation, "assistant-action-labels")
+        uninstall = ("v1", "teams", "team_1", "assistants", "cloudflare-assistant")
+        resolved = strict_http.resolve_controller_route("DELETE", uninstall)
+        self.assertEqual(resolved.operation, "assistant-uninstall")
         self.assertEqual(
             resolved.params,
             {"team_id": "team_1", "assistant_id": "cloudflare-assistant"},

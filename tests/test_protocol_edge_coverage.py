@@ -109,9 +109,6 @@ class PayloadEdgeCoverageTests(unittest.TestCase):
         self.assertEqual(payload.canonical_locale("pt"), "pt")
         for value in (None, "pt-BR", 1):
             self.assertIsNone(payload.canonical_locale(value))
-        self.assertEqual(payload.canonical_action_label("Send message"), "Send message")
-        for value in (None, "e\u0301", " padded ", "", "line\nfeed"):
-            self.assertIsNone(payload.canonical_action_label(value))
         self.assertFalse(human_request_validator._identifier(None))
 
     def test_storage_usage_and_metadata_fail_closed(self) -> None:

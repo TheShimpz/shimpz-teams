@@ -329,45 +329,6 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         )
         self.assertTrue(connection.closed)
 
-    def test_action_labels_use_the_stateless_endpoint_and_exact_id_order(self):
-        client, connection = self.client(
-            _Response(
-                {
-                    "labels": [
-                        {"id": "get-zone", "label": "Consultar zona DNS"},
-                        {"id": "list-zones", "label": "Listar zonas DNS"},
-                    ]
-                }
-            )
-        )
-
-        labels = client.action_labels(
-            provider="openai",
-            model="gpt-6.1-sol",
-            api_key=self.secret,
-            locale="pt",
-            action_ids=("list-zones", "get-zone"),
-        )
-
-        self.assertEqual(
-            labels,
-            (
-                brain_runtime_client.RuntimeActionLabel("list-zones", "Listar zonas DNS"),
-                brain_runtime_client.RuntimeActionLabel("get-zone", "Consultar zona DNS"),
-            ),
-        )
-        method, path, raw_body, headers = connection.requests[0]
-        self.assertEqual((method, path), ("POST", "/v1/action-labels"))
-        self.assertEqual(headers["Authorization"], f"Bearer {self.token}")
-        self.assertEqual(
-            json.loads(raw_body),
-            {
-                "provider": {"provider": "openai", "model": "gpt-6.1-sol", "api_key": self.secret},
-                "locale": "pt",
-                "actions": ["list-zones", "get-zone"],
-            },
-        )
-
     def test_capability_plan_uses_only_the_stateless_bounded_endpoint(self):
         client, connection = self.client(
             _Response(
@@ -484,83 +445,28 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             brain_runtime_client.BrainRuntimeClient._capability_text(None, 10)
 
-    def test_action_label_requests_and_responses_fail_closed(self):
-        valid = {
-            "labels": [
-                {"id": "list-zones", "label": "Listar zonas DNS"},
-                {"id": "get-zone", "label": "Consultar zona DNS"},
-            ]
-        }
-        invalid_responses = (
-            {**valid, "extra": True},
-            {"labels": [None, valid["labels"][1]]},
-            {"labels": valid["labels"][:1]},
-            {"labels": [*valid["labels"], {"id": "extra", "label": "Extra"}]},
-            {"labels": [{"id": "list-zones", "label": "Mesmo"}, {"id": "get-zone", "label": "Mesmo"}]},
-            {
-                "labels": [
-                    {"id": "list-zones", "label": "é"},
-                    {"id": "get-zone", "label": "e\u0301"},
-                ]
-            },
-            {
-                "labels": [
-                    {"id": "list-zones", "label": "Listar\nzona"},
-                    {"id": "get-zone", "label": "Consultar zona"},
-                ]
-            },
-        )
-        for payload in invalid_responses:
-            with self.subTest(payload=payload), self.assertRaises(brain_runtime_client.BrainRuntimeError):
-                client, _connection = self.client(_Response(payload))
-                client.action_labels(
-                    provider="openai",
-                    model="gpt-6.1-sol",
-                    api_key=self.secret,
-                    locale="pt",
-                    action_ids=("list-zones", "get-zone"),
-                )
-
-        duplicate_raw = (
-            b'{"labels":[],"labels":['
-            b'{"id":"list-zones","label":"Listar zonas DNS"},'
-            b'{"id":"get-zone","label":"Consultar zona DNS"}'
-            b"]}"
-        )
+    def test_decision_responses_and_credentials_fail_closed(self):
+        duplicate_raw = b'{"status":"install-required","status":"sufficient","assistant_ids":[]}'
         client, _connection = self.client(_Response({}, raw=duplicate_raw))
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
-            client.action_labels(
+            client.capability_plan(
                 provider="openai",
                 model="gpt-6.1-sol",
                 api_key=self.secret,
-                locale="pt",
-                action_ids=("list-zones", "get-zone"),
+                objective="Configure DNS.",
+                candidates=capability_candidates(),
             )
-
-        invalid_requests = (
-            {"provider": "other"},
-            {"api_key": "bad\0secret"},
-            {"api_key": "x" * (16 * 1024 + 1)},
-            {"locale": ""},
-            {"locale": "pt-BR"},
-            {"locale": None},
-            {"action_ids": ()},
-            {"action_ids": ("list-zones", "list-zones")},
-            {"action_ids": ("../shell",)},
-        )
-        for update in invalid_requests:
-            with self.subTest(update=update):
-                client, connection = self.client(_Response(valid))
-                request = {
-                    "provider": "openai",
-                    "model": "gpt-6.1-sol",
-                    "api_key": self.secret,
-                    "locale": "pt",
-                    "action_ids": ("list-zones", "get-zone"),
-                    **update,
-                }
+        for api_key in ("bad\0secret", "x" * (16 * 1024 + 1)):
+            with self.subTest(api_key_length=len(api_key)):
+                client, connection = self.client(_Response({"status": "sufficient", "assistant_ids": []}))
                 with self.assertRaises(brain_runtime_client.BrainRuntimeError):
-                    client.action_labels(**request)
+                    client.capability_plan(
+                        provider="openai",
+                        model="gpt-6.1-sol",
+                        api_key=api_key,
+                        objective="Configure DNS.",
+                        candidates=capability_candidates(),
+                    )
                 self.assertEqual(connection.requests, [])
 
     def test_delete_thread_rejects_invalid_ids_before_connecting(self):

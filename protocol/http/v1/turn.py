@@ -2,8 +2,8 @@
 
 A turn carries one user message; the Brain may end it with one clarification question or propose memory and skill
 changes, and Team admits each only within these bounds. A skill's content key is derived the same way on both sides.
-The reply, the Action labels, capability planning, intent routing, and the attachment content a turn carries are
-bounded here too, so every side reads one definition of each.
+The reply, capability planning, intent routing, and the attachment content a turn carries are bounded here too, so
+every side reads one definition of each.
 """
 
 from __future__ import annotations
@@ -34,8 +34,6 @@ SKILL_INPUT_PATTERN = r"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$"
 MAX_REPLY_CHARS = 60_000
 # The Action requests one Brain suspension carries, and so the results the resume that answers it may carry.
 MAX_ACTION_REQUESTS = 64
-# The Action identifiers one label request names; each label's own bound is payload.MAX_ACTION_LABEL_CHARS.
-MAX_ACTION_LABELS = 64
 # The objective a capability plan or an intent route reasons over.
 MAX_OBJECTIVE_CHARS = 16_000
 # Capability planning over a closed shortlist of public Assistants.

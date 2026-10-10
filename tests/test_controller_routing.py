@@ -144,12 +144,12 @@ class ControllerRoutingTests(unittest.TestCase):
                 _parts(f"{fresh_path}/extra"),
             )
         )
-        action_labels = strict_http.resolve_controller_route(
-            "POST",
-            _parts("/v1/teams/team_1/assistants/local/action-labels"),
+        summary = strict_http.resolve_controller_route(
+            "GET",
+            _parts("/v1/teams/team_1/assistants/local/summary/pt"),
         )
-        self.assertEqual(action_labels.operation, "assistant-action-labels")
-        self.assertEqual(action_labels.params["assistant_id"], "local")
+        self.assertEqual(summary.operation, "assistant-summary")
+        self.assertEqual(summary.params["assistant_id"], "local")
 
 
 if __name__ == "__main__":

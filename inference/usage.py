@@ -25,7 +25,6 @@ FIELDS = (
     "cache_write_tokens",
 )
 OPERATIONS = (
-    "action-labels",
     "capability-plan",
     "intent-route",
     "purpose",

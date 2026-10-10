@@ -91,7 +91,6 @@ MAX_TEAM_ASSISTANTS = 16
 MAX_CHAT_ASSISTANTS = MAX_TEAM_ASSISTANTS
 MAX_TEAM_FILES = 256
 MAX_TEAM_NAME_CHARS = 80
-MAX_ACTION_LABEL_CHARS = 80
 MAX_FILE_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_FILENAME_BYTES = 255
 MAX_MEDIA_TYPE_CHARS = 127
@@ -345,16 +344,6 @@ def _details_items(items: object, minimum: int, maximum: int, keys: set[str]) ->
         return False
     ids = [item["id"] for item in items]
     return all(canonical_identifier(identifier) is not None for identifier in ids) and ids == sorted(set(ids))
-
-
-def canonical_action_label(value: object) -> str | None:
-    if not isinstance(value, str) or unicodedata.normalize("NFC", value) != value:
-        return None
-    if value.strip() != value or not 1 <= len(value) <= MAX_ACTION_LABEL_CHARS:
-        return None
-    if any(unicodedata.category(character).startswith("C") for character in value):
-        return None
-    return value
 
 
 def _turn_usage_count(value: object, maximum: int) -> bool:

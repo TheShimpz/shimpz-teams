@@ -187,10 +187,6 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler.headers.add_header("X-Shimpz-Model-Provider", "openai")
         handler.headers.add_header("X-Shimpz-Model-Api-Key", api_key)
         self.assertEqual(
-            handler._model_binding("assistant-action-labels"),
-            {"provider": "openai", "key_sha256": MODEL_KEY_SHA256},
-        )
-        self.assertEqual(
             handler._model_binding("chat-capability-plan"),
             {"provider": "openai", "key_sha256": MODEL_KEY_SHA256},
         )
@@ -205,7 +201,6 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
     @staticmethod
     def controller() -> SimpleNamespace:
         service = SimpleNamespace(
-            action_labels=mock.Mock(return_value={"actions": []}),
             capability_plan=mock.Mock(return_value={"status": "sufficient", "assistant_ids": []}),
             intent_route=mock.Mock(
                 return_value={
@@ -486,21 +481,6 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             self.route("local-assistant-install", team_id="team_1"),
         )
         self.assertEqual(result[2], "local-assistant-install")
-
-        exact_body = {"locale": "pt"}
-        handler._body.return_value = exact_body
-        result = handler._route(
-            [],
-            self.route("assistant-action-labels", team_id="team_1", assistant_id="assistant"),
-        )
-        self.assertEqual(result[2], "assistant-action-labels")
-        controller.chat_turn_service.action_labels.assert_called_once_with(
-            "team_1",
-            "assistant",
-            exact_body,
-            "openai",
-            "private-model-key",
-        )
 
         with self.assertRaises(AssertionError):
             handler._route([], self.route("unknown", team_id="team_1", assistant_id="assistant"))

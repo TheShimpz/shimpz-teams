@@ -430,10 +430,6 @@
       "invalid": ["", "sha256:abc", "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
     }
   },
-  "action_label_text": {
-    "labels": ["Listar zonas DNS", "Consultar zona"],
-    "invalid_labels": [" surrounding ", "Listar\nzona", "é"]
-  },
   "chat_locale": {
     "valid": ["ar", "de", "en", "es", "fr", "ja", "pt", "zh"],
     "invalid": ["EN", "pt-BR", "it", "", " en", null, 1]

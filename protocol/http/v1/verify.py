@@ -198,7 +198,6 @@ if not applied or any(
     payload.apply_memory_changes(case["memory"], case["changes"]) != case["result"] for case in applied
 ):
     fail("a memory application vector differs")
-action_label_text = vectors.get("action_label_text", {})
 for name, admit in (
     ("chat_locale", payload.canonical_locale),
     ("chat_request_identity", payload.canonical_request_identity),
@@ -235,10 +234,6 @@ if any(
     challenge.canonical_rendered(case["rendered"], case["request"]) is not None for case in rendered_copy["invalid"]
 ):
     fail("Team HTTP rendered copy negative vector differs")
-if any(payload.canonical_action_label(value) != value for value in action_label_text.get("labels", [])):
-    fail("Team HTTP Action-label label positive vector differs")
-if any(payload.canonical_action_label(value) is not None for value in action_label_text.get("invalid_labels", [])):
-    fail("Team HTTP Action-label label negative vector differs")
 
 schedules = vectors.get("routine_schedule", {})
 if not schedules.get("valid") or not schedules.get("invalid") or not schedules.get("daily_rate"):

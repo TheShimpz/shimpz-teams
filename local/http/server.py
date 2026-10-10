@@ -49,7 +49,6 @@ _READ_METHODS = frozenset({"GET", "HEAD"})
 _JSON_BODY_LIMITS = {
     "supervisor-key-rotate": MAX_BODY_BYTES,
     "action-confirmation-configure": MAX_BODY_BYTES,
-    "assistant-action-labels": MAX_BODY_BYTES,
     "assistant-install": MAX_BODY_BYTES,
     "local-assistant-fresh-install": MAX_BODY_BYTES,
     "local-assistant-install": MAX_BODY_BYTES,
@@ -598,9 +597,6 @@ class Handler(http_deadline.DeadlineRequestHandler):
             return controller.assistant_summary(team_id, assistant_id, route.params["locale"])
         if operation == "assistant-details":
             return controller.assistant_details(team_id, assistant_id, route.params["locale"])
-        if operation == "assistant-action-labels":
-            provider, api_key = self._model_credential_headers()
-            return controller.chat_turn_service.action_labels(team_id, assistant_id, self._body(), provider, api_key)
         if operation == "assistant-uninstall":
             return controller.assistant_lifecycle.uninstall_assistant(team_id, assistant_id)
         if operation == "assistant-invoke":

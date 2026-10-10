@@ -231,8 +231,6 @@ class ChatTurnService:
     _forget_file = local_chat_attachments.forget_file
     _segment_response = local_chat_api._segment_response
     chat = local_chat_api.chat
-    action_labels = local_chat_capabilities.action_labels
-    _action_label_snapshot = local_chat_capabilities._action_label_snapshot
     capability_plan = local_chat_capabilities.capability_plan
     _capability_plan_snapshot = local_chat_capabilities._capability_plan_snapshot
     intent_route = local_chat_capabilities.intent_route

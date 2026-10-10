@@ -4,8 +4,8 @@ Team owns the closed identifiers, payload projections, and WebSocket frame bound
 `payload.py` validates Team-facing HTTP values without trusting upstream fields.
 `identifiers.py` owns the closed Team, Assistant, and Action identifier grammars, `purpose.py` the Action purpose
 sentence rule, and `turn.py` the chat-turn bounds (the user message, a clarification question, memory and skill
-changes, a skill's content key, the reply, the Action requests one suspension carries, Action labels, capability
-planning, intent routing, and the attachment content of a turn); `payload.py` re-exports all three, and the Brain
+changes, a skill's content key, the reply, the Action requests one suspension carries, capability planning, intent
+routing, and the attachment content of a turn); `payload.py` re-exports all three, and the Brain
 consumes these three files as a pinned mirror. Team, the Brain, and Admin each bind a shared bound to its one
 definition here or in `payload.py`, never to a copied literal.
 `challenge.py` owns the presentation a human-required challenge carries beside its canonical request: the rendered
@@ -516,16 +516,6 @@ binding: its admitted name, declared Creators (a published resolution's creators
 description, links, Actions, Integrations, and Stored Input labels, help texts, and help links, localized from the pack verified against the
 binding's `pack_digest`. A missing binding fails as absent, a binding needing replacement or a missing or mismatched
 pack fails closed, and Team validates its own answer before sending it.
-
-Local Admin may request presentation-only labels for one installed binding from
-`POST /v1/teams/:team_id/assistants/:assistant_id/action-labels`. The exact request body is
-`{"locale":"pt"}` with one closed interface language and carries the same request-scoped model credential headers
-as chat. Team supplies Brain only that locale and the binding's canonical Action ids, then revalidates
-the Team generation, Assistant version, Action-id set, provider, and model after the stateless model call.
-The response contains `team_id`, `assistant`, `assistant_version`, and every exact Action as an `id` plus
-an inert bounded `label`; the HTTP adapter adds `trace_id`. Labels never replace canonical ids, enter chat
-history, describe Action schemas, or grant authority. Binding drift fails closed. Model or label failure is
-availability failure after installation and must not be represented as installation rollback.
 
 The internal Team bearer is machine authority only for the one-use OAuth callback continuation, the Local bootstrap
 reset, health and activity reads, and Admin's Routine scheduler (claim, notices, and their acknowledgement). The bootstrap reset is admitted only while Team independently verifies

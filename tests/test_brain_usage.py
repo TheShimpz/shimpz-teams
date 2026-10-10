@@ -115,17 +115,6 @@ class ClientMeteringTests(RuntimeClientCase):
                 lambda client: client.resume(context(self.secret), {"interrupt-1": {"ok": True}}),
             ),
             (
-                "action-labels",
-                {"labels": [{"id": "list-zones", "label": "Listar zonas"}]},
-                lambda client: client.action_labels(
-                    provider="openai",
-                    model="gpt-6-luna",
-                    api_key=self.secret,
-                    locale="pt",
-                    action_ids=("list-zones",),
-                ),
-            ),
-            (
                 "capability-plan",
                 {"status": "sufficient", "assistant_ids": []},
                 lambda client: client.capability_plan(

@@ -72,7 +72,6 @@ DECISION_OPERATION = "chat-intent-route"
 # Requests that carry the Team's model credential, whose digest the Supervisor assertion must bind.
 MODEL_BOUND_OPERATIONS = frozenset(
     {
-        "assistant-action-labels",
         "chat",
         "chat-capability-plan",
         "chat-intent-route",

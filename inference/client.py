@@ -30,8 +30,6 @@ MAX_RESPONSE_BYTES = 1024 * 1024
 # The chat-turn bounds this client admits are the Team HTTP protocol's own, which the Brain and Admin read too.
 MAX_REPLY_CHARS = http_turn.MAX_REPLY_CHARS
 MAX_ACTION_REQUESTS = http_turn.MAX_ACTION_REQUESTS
-MAX_ACTION_LABELS = http_turn.MAX_ACTION_LABELS
-MAX_ACTION_LABEL_CHARS = http_payload.MAX_ACTION_LABEL_CHARS
 MAX_CAPABILITY_CANDIDATES = http_turn.MAX_CAPABILITY_CANDIDATES
 MAX_CAPABILITY_SELECTED = http_turn.MAX_CAPABILITY_SELECTED
 MAX_OBJECTIVE_CHARS = http_turn.MAX_OBJECTIVE_CHARS
@@ -151,12 +149,6 @@ class RuntimeTurn:
     memory: tuple[dict[str, str], ...] = ()
     # The one Routine change a completed turn's isolated compiler produced (ADR-0092), or None; Local Team admits it.
     routine: dict[str, object] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeActionLabel:
-    id: str
-    label: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -503,37 +495,6 @@ class BrainRuntimeClient:
         )
 
     @staticmethod
-    def _parse_action_labels(value: object, action_ids: tuple[str, ...]) -> tuple[RuntimeActionLabel, ...]:
-        if not isinstance(value, dict) or set(value) != {"labels"} or not isinstance(value["labels"], list):
-            raise BrainRuntimeError("Brain runtime returned an invalid response")
-        expected = frozenset(action_ids)
-        labels: dict[str, str] = {}
-        for item in value["labels"]:
-            if not isinstance(item, dict) or set(item) != {"id", "label"}:
-                raise BrainRuntimeError("Brain runtime returned an invalid response")
-            action_id = item["id"]
-            label = item["label"]
-            if (
-                not isinstance(action_id, str)
-                or action_id not in expected
-                or action_id in labels
-                or not isinstance(label, str)
-            ):
-                raise BrainRuntimeError("Brain runtime returned an invalid response")
-            normalized = unicodedata.normalize("NFC", label)
-            if (
-                normalized != label
-                or normalized.strip() != normalized
-                or not 1 <= len(normalized) <= MAX_ACTION_LABEL_CHARS
-                or any(unicodedata.category(character).startswith("C") for character in normalized)
-            ):
-                raise BrainRuntimeError("Brain runtime returned an invalid response")
-            labels[action_id] = normalized
-        if len(labels) != len(expected) or len(set(labels.values())) != len(labels):
-            raise BrainRuntimeError("Brain runtime returned an invalid response")
-        return tuple(RuntimeActionLabel(action_id, labels[action_id]) for action_id in action_ids)
-
-    @staticmethod
     def _capability_text(value: object, maximum: int, *, allow_layout: bool = False) -> str:
         if not isinstance(value, str):
             raise BrainRuntimeError("Brain runtime capability plan request is invalid")
@@ -845,34 +806,6 @@ class BrainRuntimeClient:
         response = self._post("/v1/threads/delete", {"thread_id": thread_id})
         if not isinstance(response, dict) or response != {"status": "deleted"}:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
-
-    def action_labels(
-        self,
-        *,
-        provider: Literal["anthropic", "openai"],
-        model: str,
-        api_key: str,
-        locale: str,
-        action_ids: tuple[str, ...],
-    ) -> tuple[RuntimeActionLabel, ...]:
-        provider_body = provider_credential(provider, model, api_key)
-        if (
-            provider_body is None
-            or http_payload.canonical_locale(locale) is None
-            or not 1 <= len(action_ids) <= MAX_ACTION_LABELS
-            or any(http_payload.canonical_action_id(action_id) is None for action_id in action_ids)
-            or len(set(action_ids)) != len(action_ids)
-        ):
-            raise BrainRuntimeError("Brain runtime Action label request is invalid")
-        response = self._post(
-            "/v1/action-labels",
-            {
-                "provider": provider_body,
-                "locale": locale,
-                "actions": list(action_ids),
-            },
-        )
-        return self._parse_action_labels(self._metered(response, "action-labels", provider, model), action_ids)
 
     def capability_plan(
         self,
