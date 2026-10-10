@@ -26,6 +26,7 @@ from integrations import store as integration_store
 from local import app as local_app
 from local.chat.segment import SegmentRequest
 from local.chat.types import ActiveAssistant, PendingLocalChat
+from local.http import chat as http_chat
 from local.install.runtime import AssistantSpec
 
 TEST_ACCESS_TOKEN = "oauth-access-test-token-123456789"
@@ -640,12 +641,12 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
 
         handler.command = "GET"
         self.assertEqual(
-            handler._chat_route(["v1", "teams", "team_1", "chat", "integrations"]),
+            http_chat.route(handler, ["v1", "teams", "team_1", "chat", "integrations"]),
             (HTTPStatus.OK, pending, "chat-integration-pending", "team_1", None),
         )
         handler.command = "POST"
         self.assertEqual(
-            handler._chat_route(["v1", "teams", "team_1", "chat", "integrations"]),
+            http_chat.route(handler, ["v1", "teams", "team_1", "chat", "integrations"]),
             (HTTPStatus.OK, completed, "chat-integration-submit", "team_1", None),
         )
 

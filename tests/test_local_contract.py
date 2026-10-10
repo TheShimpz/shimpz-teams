@@ -31,6 +31,7 @@ from local import token as local_token_store
 from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat import service as local_chat_service
+from local.http import chat as http_chat
 from local.http import server as local_http
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import store as local_routine_store
@@ -545,7 +546,7 @@ class LocalContractTests(LocalContractCase):
 
         self.assertTrue(handler._authorized())
         handler._capture_body("chat")
-        status, response, *_audit = handler._chat_route(["v1", "teams", "team_1", "chat"])
+        status, response, *_audit = http_chat.route(handler, ["v1", "teams", "team_1", "chat"])
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertEqual(captured["payload"], payload)

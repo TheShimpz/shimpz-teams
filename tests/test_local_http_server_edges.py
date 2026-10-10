@@ -15,6 +15,7 @@ from integrations import broker as integration_broker
 from local import authority
 from local.errors import ApiProblemError
 from local.http import audit as http_audit
+from local.http import chat as http_chat
 from local.http import inference as http_inference
 from local.http import server
 from local.http import stream as local_http_stream
@@ -351,24 +352,24 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler = self.handler(controller=self.controller())
         handler._model_credential_headers = mock.Mock(return_value=("openai", "key"))
         handler._body = mock.Mock(return_value={})
-        self.assertIsNone(handler._chat_pending("team_1", "unknown"))
-        self.assertEqual(handler._chat_pending("team_1", "integrations")[2], "chat-integration-pending")
-        self.assertIsNone(handler._chat_submit("team_1", "unknown"))
-        self.assertEqual(handler._chat_submit("team_1", "integrations")[2], "chat-integration-submit")
+        self.assertIsNone(http_chat._pending(handler, "team_1", "unknown"))
+        self.assertEqual(http_chat._pending(handler, "team_1", "integrations")[2], "chat-integration-pending")
+        self.assertIsNone(http_chat._submit(handler, "team_1", "unknown"))
+        self.assertEqual(http_chat._submit(handler, "team_1", "integrations")[2], "chat-integration-submit")
         handler._body.return_value = {"unexpected": True}
         with self.assertRaises(ApiProblemError):
-            handler._chat_stop("team_1")
+            http_chat._stop(handler, "team_1")
         handler._body.return_value = {}
-        self.assertEqual(handler._chat_stop("team_1")[2], "chat-stop")
+        self.assertEqual(http_chat._stop(handler, "team_1")[2], "chat-stop")
 
-        self.assertIsNone(handler._chat_route(["other"]))
+        self.assertIsNone(http_chat.route(handler, ["other"]))
         handler.command = "GET"
-        self.assertIsNone(handler._chat_route(["v1", "teams", "team_1", "chat"]))
-        self.assertIsNone(handler._chat_route(["v1", "teams", "team_1", "chat", "unknown"]))
+        self.assertIsNone(http_chat.route(handler, ["v1", "teams", "team_1", "chat"]))
+        self.assertIsNone(http_chat.route(handler, ["v1", "teams", "team_1", "chat", "unknown"]))
         handler.command = "PATCH"
-        self.assertIsNone(handler._chat_route(["v1", "teams", "team_1", "chat", "human"]))
+        self.assertIsNone(http_chat.route(handler, ["v1", "teams", "team_1", "chat", "human"]))
         handler.command = "POST"
-        self.assertEqual(handler._chat_route(["v1", "teams", "team_1", "chat", "stop"])[2], "chat-stop")
+        self.assertEqual(http_chat.route(handler, ["v1", "teams", "team_1", "chat", "stop"])[2], "chat-stop")
 
     def test_integration_and_team_routes_cover_exact_shapes(self) -> None:
         handler = self.handler(controller=self.controller())
@@ -543,7 +544,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         handler.command = "POST"
 
-        result = handler._chat_route(["v1", "teams", "team_1", "chat", "capability-plan"])
+        result = http_chat.route(handler, ["v1", "teams", "team_1", "chat", "capability-plan"])
 
         self.assertEqual(result[2], "chat-capability-plan")
         controller.chat_turn_service.capability_plan.assert_called_once_with(
@@ -570,7 +571,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         handler.command = "POST"
 
-        result = handler._chat_route(["v1", "teams", "team_1", "chat", "intent-route"])
+        result = http_chat.route(handler, ["v1", "teams", "team_1", "chat", "intent-route"])
 
         self.assertEqual(result[2], "chat-intent-route")
         controller.chat_turn_service.intent_route.assert_called_once_with(
@@ -599,15 +600,20 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
 
     def test_stream_terminal_records_success_and_failure(self) -> None:
         handler = self.handler(controller=SimpleNamespace())
-        handler._chat_submit = mock.Mock(return_value=(HTTPStatus.OK, {"reply": "ok"}, "op", "team_1", None))
+        submitted = (HTTPStatus.OK, {"reply": "ok"}, "op", "team_1", None)
         request_audit = SimpleNamespace(record=mock.Mock(return_value="d" * 32))
-        with mock.patch.object(local_http_stream, "_write_record") as write:
+        with (
+            mock.patch.object(local_http_stream, "_write_record") as write,
+            mock.patch.object(http_chat, "_submit", return_value=submitted),
+            mock.patch.object(
+                http_chat, "_start", side_effect=ApiProblemError(HTTPStatus.BAD_REQUEST, "bad", code="bad")
+            ),
+        ):
             route = self.route("chat-human-submit", team_id="team_1")
-            handler._stream_chat_route(["v1", "teams", "team_1", "chat", "human"], route, request_audit)
+            http_chat.stream(handler, ["v1", "teams", "team_1", "chat", "human"], route, request_audit)
             self.assertEqual(write.call_args_list[-1].args[1]["type"], "terminal")
-            handler._chat_start = mock.Mock(side_effect=ApiProblemError(HTTPStatus.BAD_REQUEST, "bad", code="bad"))
-            handler._stream_chat_route(
-                ["v1", "teams", "team_1", "chat"], self.route("chat", team_id="team_1"), request_audit
+            http_chat.stream(
+                handler, ["v1", "teams", "team_1", "chat"], self.route("chat", team_id="team_1"), request_audit
             )
             self.assertEqual(write.call_args.args[1]["body"]["code"], "bad")
 

@@ -10,8 +10,6 @@ from typing import override
 from docker.errors import DockerException
 
 from action import human as action_human
-from chat import progress as chat_progress
-from chat import turn as chat_turn_engine
 from core.http import strict as strict_http
 from inference import usage as brain_usage
 from integrations import broker as integration_broker
@@ -20,11 +18,11 @@ from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import oauth_authorization_invalid
+from local.http import chat as local_http_chat
 from local.http import deadline as http_deadline
 from local.http import dispatch as local
 from local.http import inference as local_http_inference
 from local.http import routine as local_http_routine
-from local.http import stream as local_http_stream
 from local.http.audit import RequestAudit
 from local.validation import (
     MODEL_BOUND_OPERATIONS,
@@ -35,13 +33,8 @@ from local.validation import (
     validate_model_credential_headers,
     validate_team_id,
 )
-from protocol.http.v1 import supervisor as supervisor_contract
 
 MAX_BODY_BYTES = 16 * 1024
-MAX_CHAT_BODY_BYTES = supervisor_contract.MAX_JSON_BODY_BYTES
-MAX_CAPABILITY_PLAN_BODY_BYTES = 32 * 1024
-MAX_INTENT_ROUTE_BODY_BYTES = 8 * 1024
-MAX_HUMAN_RESPONSE_BODY_BYTES = 128 * 1024
 MAX_API_RESPONSE_BYTES = 128 * 1024
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_FILE_BODY_BYTES = MAX_UPLOAD_BYTES
@@ -64,17 +57,11 @@ _JSON_BODY_LIMITS = {
     "assistant-integration-cancel": MAX_BODY_BYTES,
     "assistant-integration-complete": MAX_BODY_BYTES,
     "assistant-invoke": MAX_BODY_BYTES,
-    "chat": MAX_CHAT_BODY_BYTES,
-    "chat-capability-plan": MAX_CAPABILITY_PLAN_BODY_BYTES,
-    "chat-intent-route": MAX_INTENT_ROUTE_BODY_BYTES,
-    "chat-integration-submit": MAX_BODY_BYTES,
-    "chat-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
-    "chat-human-open": MAX_BODY_BYTES,
-    "chat-stop": MAX_BODY_BYTES,
     "inference-configure": MAX_BODY_BYTES,
     "team-create": MAX_BODY_BYTES,
     "team-destroy": MAX_BODY_BYTES,
     "team-rename": MAX_BODY_BYTES,
+    **local_http_chat.BODY_LIMITS,
     **local_http_routine.BODY_LIMITS,
 }
 
@@ -431,166 +418,6 @@ class Handler(http_deadline.DeadlineRequestHandler):
             )
         return None
 
-    @staticmethod
-    def _chat_status(payload: dict[str, object]) -> HTTPStatus:
-        return (
-            HTTPStatus.PRECONDITION_REQUIRED
-            if payload.get("status") in chat_turn_engine.CHAT_PAUSED_STATUSES
-            else HTTPStatus.OK
-        )
-
-    def _chat_start(
-        self,
-        team_id: str,
-        progress: chat_progress.Reporter | None = None,
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None]:
-        provider, api_key = self._model_credential_headers()
-        body = self._body(max_bytes=MAX_CHAT_BODY_BYTES)
-        payload = self.server.controller.chat_turn_service.chat(
-            team_id,
-            body,
-            provider,
-            api_key,
-            progress,
-        )
-        return self._chat_status(payload), payload, "chat", team_id, None
-
-    def _chat_pending(
-        self,
-        team_id: str,
-        segment: str,
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        pending = {
-            "human": ("pending_chat_human", "chat-human-pending"),
-            "integrations": ("pending_chat_integrations", "chat-integration-pending"),
-        }.get(segment)
-        if pending is None:
-            return None
-        method_name, operation_name = pending
-        operation = getattr(self.server.controller.chat_turn_service, method_name)
-        return HTTPStatus.OK, operation(team_id), operation_name, team_id, None
-
-    def _chat_open(self, team_id: str) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None]:
-        """Open the pending human challenge in the Admin interface language its request copy renders in (ADR-0091)."""
-        service = self.server.controller.chat_turn_service
-        payload = service.open_chat_human(team_id, self._body(max_bytes=MAX_BODY_BYTES))
-        return HTTPStatus.OK, payload, "chat-human-open", team_id, None
-
-    def _chat_submit(
-        self,
-        team_id: str,
-        segment: str,
-        progress: chat_progress.Reporter | None = None,
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        submission = {
-            "human": ("resume_chat_human", "chat-human-submit", MAX_HUMAN_RESPONSE_BODY_BYTES),
-            "integrations": ("resume_chat_integrations", "chat-integration-submit", MAX_BODY_BYTES),
-        }.get(segment)
-        if submission is None:
-            return None
-        method_name, operation_name, max_bytes = submission
-        operation = getattr(self.server.controller.chat_turn_service, method_name)
-        provider, api_key = self._model_credential_headers()
-        payload = operation(
-            team_id,
-            self._body(max_bytes=max_bytes),
-            provider,
-            api_key,
-            progress,
-        )
-        return self._chat_status(payload), payload, operation_name, team_id, None
-
-    def _chat_stop(
-        self,
-        team_id: str,
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None]:
-        if self._body() != {}:
-            raise ApiProblem(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                "chat stop requires an empty object",
-                code="invalid-body",
-            )
-        return (
-            HTTPStatus.OK,
-            self.server.controller.chat_turn_service.stop_chat(team_id),
-            "chat-stop",
-            team_id,
-            None,
-        )
-
-    def _chat_decision(
-        self,
-        team_id: str,
-        segment: str,
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        decision = {
-            "capability-plan": ("capability_plan", "chat-capability-plan", MAX_CAPABILITY_PLAN_BODY_BYTES),
-            "intent-route": ("intent_route", "chat-intent-route", MAX_INTENT_ROUTE_BODY_BYTES),
-        }.get(segment)
-        if decision is None:
-            return None
-        method_name, operation_name, max_bytes = decision
-        operation = getattr(self.server.controller.chat_turn_service, method_name)
-        provider, api_key = self._model_credential_headers()
-        credentials = (
-            (provider, api_key, self._decision_key(operation_name))
-            if segment == "intent-route"
-            else (provider, api_key)
-        )
-        return (
-            HTTPStatus.OK,
-            operation(team_id, self._body(max_bytes=max_bytes), *credentials),
-            operation_name,
-            team_id,
-            None,
-        )
-
-    def _chat_route(
-        self,
-        parts: list[str],
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        if len(parts) not in {4, 5, 6} or parts[:2] != ["v1", "teams"] or parts[3] != "chat":
-            return None
-        team_id = validate_team_id(parts[2])
-        if len(parts) == 4:
-            return self._chat_start(team_id) if self.command == "POST" else None
-        segment = "/".join(parts[4:])
-        if self.command == "GET":
-            return self._chat_pending(team_id, segment)
-        if self.command != "POST":
-            return None
-        return (
-            self._chat_control(team_id, segment)
-            or self._chat_decision(team_id, segment)
-            or self._chat_submit(team_id, segment)
-        )
-
-    def _chat_control(
-        self,
-        team_id: str,
-        segment: str,
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        """The non-streamed chat controls: Stop, and opening the pending human challenge in one language."""
-        control = {"stop": self._chat_stop, "human/challenge": self._chat_open}.get(segment)
-        return control(team_id) if control is not None else None
-
-    def _stream_chat_route(
-        self,
-        parts: list[str],
-        route: strict_http.ControllerRouteMatch,
-        request_audit: RequestAudit,
-    ) -> None:
-        team_id = validate_team_id(route.params["team_id"])
-
-        def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
-            if route.operation == "chat":
-                status, payload, *_audit = self._chat_start(team_id, reporter)
-            else:
-                status, payload, *_audit = self._chat_submit(team_id, parts[4], reporter)
-            return status, payload
-
-        local_http_stream.respond(self, route.operation, team_id, request_audit, execute)
-
     def _assistant_integration_route(
         self,
         parts: list[str],
@@ -724,7 +551,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
             "fixed": self._fixed_route,
             "file": self._file_route,
             "inference": lambda parts: local_http_inference.route(self, parts),
-            "chat": self._chat_route,
+            "chat": lambda parts: local_http_chat.route(self, parts),
             "assistant-integration": self._assistant_integration_route,
             "assistant-stored-input": self._assistant_stored_input_route,
             "local-assistant": self._local_assistant_route,
@@ -867,8 +694,8 @@ class Handler(http_deadline.DeadlineRequestHandler):
         request_audit: RequestAudit,
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         """Dispatch a request a Supervisor session authorized; streamed and binary responses are sent here."""
-        if route.operation in {"chat", "chat-human-submit", "chat-integration-submit"}:
-            self._stream_chat_route(parts, route, request_audit)
+        if route.operation in local_http_chat.STREAMED_OPERATIONS:
+            local_http_chat.stream(self, parts, route, request_audit)
             return None
         if route.operation in local_http_routine.STREAMED_OPERATIONS:
             local_http_routine.stream(self, route, request_audit)
@@ -929,7 +756,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
             return local_http_routine.expected_assurance(self, params)
         if operation != "chat-human-submit":
             return None
-        body = self._body(max_bytes=MAX_HUMAN_RESPONSE_BODY_BYTES)
+        body = self._body(max_bytes=local_http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES)
         if (
             set(body) != {"challenge_id", "decision", "value"}
             or body.get("decision") != "submit"

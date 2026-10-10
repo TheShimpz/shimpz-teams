@@ -16,6 +16,7 @@ from local_controller_harness import chat_body
 from local import authority
 from local.errors import ApiProblemError
 from local.http import audit as http_audit
+from local.http import chat as http_chat
 from local.http import server
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import supervisor as contract
@@ -315,7 +316,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             headers=_model_headers(raw),
         )
 
-        with self._verified() as (verify, _record), mock.patch.object(handler, "_stream_chat_route"):
+        with self._verified() as (verify, _record), mock.patch.object(http_chat, "stream"):
             handler._authorized_route(http_audit.RequestAudit())
 
         self.assertEqual(
@@ -360,7 +361,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             separators=(",", ":"),
         ).encode("utf-8")
         self.assertGreater(len(raw), 24 * 1024)
-        self.assertLessEqual(len(raw), server.MAX_CHAT_BODY_BYTES)
+        self.assertLessEqual(len(raw), http_chat.MAX_CHAT_BODY_BYTES)
         chat = mock.Mock(return_value={"team_id": "team_1", "reply": "done"})
         handler = self._handler(
             "POST",

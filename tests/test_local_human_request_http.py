@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from core.http import strict as strict_http
+from local.http import chat as http_chat
 from local.http import server
 
 
@@ -36,15 +37,15 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
 
         handler.command = "GET"
         self.assertEqual(
-            handler._chat_route(["v1", "teams", "team_1", "chat", "human"]),
+            http_chat.route(handler, ["v1", "teams", "team_1", "chat", "human"]),
             (HTTPStatus.OK, pending, "chat-human-pending", "team_1", None),
         )
         handler.command = "POST"
         self.assertEqual(
-            handler._chat_route(["v1", "teams", "team_1", "chat", "human"]),
+            http_chat.route(handler, ["v1", "teams", "team_1", "chat", "human"]),
             (HTTPStatus.OK, completed, "chat-human-submit", "team_1", None),
         )
-        self.assertEqual(handler._chat_status(pending), HTTPStatus.PRECONDITION_REQUIRED)
+        self.assertEqual(http_chat._status(pending), HTTPStatus.PRECONDITION_REQUIRED)
 
     def test_opening_the_pending_challenge_in_a_language_is_a_local_post_route(self) -> None:
         opened = {"team_id": "team_1", "status": "none"}
@@ -56,10 +57,10 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
         path = ["v1", "teams", "team_1", "chat", "human", "challenge"]
 
         handler.command = "POST"
-        self.assertEqual(handler._chat_route(path), (HTTPStatus.OK, opened, "chat-human-open", "team_1", None))
+        self.assertEqual(http_chat.route(handler, path), (HTTPStatus.OK, opened, "chat-human-open", "team_1", None))
         self.assertEqual(bodies, [{"locale": "pt"}])
         handler.command = "GET"
-        self.assertIsNone(handler._chat_route(path))
+        self.assertIsNone(http_chat.route(handler, path))
         self.assertEqual(server._JSON_BODY_LIMITS["chat-human-open"], server.MAX_BODY_BYTES)
         self.assertEqual(strict_http.resolve_controller_route("POST", tuple(path)).operation, "chat-human-open")
 
@@ -83,10 +84,10 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
         captured, body = strict_http.read_json_document(
             self._json_headers(len(raw)),
             BytesIO(raw),
-            max_bytes=server.MAX_HUMAN_RESPONSE_BODY_BYTES,
+            max_bytes=http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES,
         )
 
-        self.assertEqual(server.MAX_HUMAN_RESPONSE_BODY_BYTES, 128 * 1024)
+        self.assertEqual(http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES, 128 * 1024)
         self.assertEqual(captured, raw)
         self.assertEqual(body["value"], value)
 
@@ -95,9 +96,9 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
 
         with self.assertRaises(strict_http.HttpContractError) as caught:
             strict_http.read_json_document(
-                self._json_headers(server.MAX_HUMAN_RESPONSE_BODY_BYTES + 1),
+                self._json_headers(http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES + 1),
                 stream,
-                max_bytes=server.MAX_HUMAN_RESPONSE_BODY_BYTES,
+                max_bytes=http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES,
             )
 
         self.assertEqual(caught.exception.status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
