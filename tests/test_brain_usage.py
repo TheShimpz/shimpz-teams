@@ -21,6 +21,7 @@ from local.http import audit as request_audit_module
 
 USAGE = {
     "model_calls": 2,
+    "provider_requests": 3,
     "failed_calls": 0,
     "unreported_calls": 1,
     "input_tokens": 900,
@@ -41,6 +42,8 @@ class ParseAndMeterTests(unittest.TestCase):
             {**USAGE, "input_tokens": True},
             {**USAGE, "input_tokens": 1.0},
             {**USAGE, "output_tokens": -1},
+            {**USAGE, "provider_requests": -1},
+            {**USAGE, "provider_requests": "3"},
             {**USAGE, "output_tokens": brain_usage.MAX_COUNT + 1},
             {**USAGE, "failed_calls": 2},
         ]
@@ -209,6 +212,10 @@ class AuditAttachmentTests(unittest.TestCase):
             [("turn", 40), ("turn-resume", 7)],
         )
         self.assertEqual(first["model_usage"][0]["cache_read_tokens"], 512)
+        # Every provider request, each SDK retry included, is recorded beside the model calls it served.
+        self.assertEqual(
+            [(entry["model_calls"], entry["provider_requests"]) for entry in first["model_usage"]], [(2, 3), (2, 3)]
+        )
         self.assertNotIn("model_usage", second)
 
 

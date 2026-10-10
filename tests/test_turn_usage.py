@@ -31,6 +31,7 @@ from tests import human_request_fixtures
 
 REPORTED = {
     "model_calls": 1,
+    "provider_requests": 1,
     "failed_calls": 0,
     "unreported_calls": 0,
     "input_tokens": 1331,

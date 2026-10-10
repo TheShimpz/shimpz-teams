@@ -1,7 +1,8 @@
 """Observed Brain model usage for one Team request, attached to that request's audit event (ADR-0082).
 
 Brain reports what each operation's provider responses said; a failed Brain request reports nothing. The summary is
-metadata only: provider, model, operation counts, and token counts, never a prompt, reply, or credential.
+metadata only: provider, model, operation counts, model-call and provider-request counts (each SDK retry is one more
+provider request), and token counts, never a prompt, reply, or credential.
 """
 
 import threading
@@ -15,6 +16,7 @@ from protocol.http.v1 import payload as http_payload
 
 FIELDS = (
     "model_calls",
+    "provider_requests",
     "failed_calls",
     "unreported_calls",
     "input_tokens",
