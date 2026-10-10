@@ -7,9 +7,9 @@ FROM ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ce
 
 # Cosign is downloaded and hash-checked in its own stage, so curl and APT never reach an image layer.
 FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS cosign
-ARG COSIGN_VERSION=3.1.2
-ARG COSIGN_AMD64_SHA256=f7622ed3cf22e55e1ae6377c080979ff77a22da9981c11df222a2e444991e7cf
-ARG COSIGN_ARM64_SHA256=90e7ae0b5dfd60f20816b52c012addf7fc055ebcc7bea4ce81c428ca8518c302
+ARG COSIGN_VERSION=3.1.3
+ARG COSIGN_AMD64_SHA256=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+ARG COSIGN_ARM64_SHA256=c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends curl && \
     case "${TARGETARCH}" in \

@@ -2,8 +2,12 @@
 
 import base64
 import binascii
+import hashlib
+import http.client
 import json
 import os
+import re
+import ssl
 import stat
 import tempfile
 import time
@@ -18,8 +22,22 @@ from . import registry_auth
 
 SIGNER_IDENTITY = "https://github.com/TheShimpz/shimpz-developers/.github/workflows/build-assistant.yml@refs/heads/main"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
-TRUST_REPOSITORY = "ghcr.io/theshimpz/shimpz-assistant-trust"
-RELEASE_PROXY_URL = "http://shimpz-assistant-release:8888"
+_REGISTRY_HOST = "ghcr.io"
+_TRUST_NAME = "theshimpz/shimpz-assistant-trust"
+TRUST_REPOSITORY = f"{_REGISTRY_HOST}/{_TRUST_NAME}"
+_RELEASE_PROXY_HOST = "shimpz-assistant-release"
+_RELEASE_PROXY_PORT = 8888
+RELEASE_PROXY_URL = f"http://{_RELEASE_PROXY_HOST}:{_RELEASE_PROXY_PORT}"
+SIGNATURE_PREDICATE = "https://sigstore.dev/cosign/sign/v1"
+PROVENANCE_PREDICATE = "https://slsa.dev/provenance/v1"
+_BUNDLE_ARTIFACT_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json"
+_PREDICATE_ANNOTATION = "dev.sigstore.bundle.predicateType"
+_OCI_INDEX = "application/vnd.oci.image.index.v1+json"
+_OCI_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
+_BEARER_TOKEN_RE = re.compile(r"[A-Za-z0-9._~+/-]+=*")
+_MAX_REGISTRY_BYTES = 256 * 1024
+_REGISTRY_TIMEOUT_SECONDS = 10
+_TLS_CONTEXT = ssl.create_default_context(cafile="/etc/ssl/certs/ca-certificates.crt")
 _MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 _TIMEOUT_SECONDS = 90
 _TIMEOUT_EXIT_CODES = frozenset({124, 137})
@@ -56,10 +74,12 @@ class ArtifactTrustVerifier:
     def verify(self, resolution: dict[str, Any]) -> None:
         if resolution["trust"]["signer_identity"] != SIGNER_IDENTITY:
             raise ArtifactTrustError("Assistant signer identity is not trusted")
+        # Cosign falls back to the legacy signature tags when the digest has no bundle referrers, so the recorded
+        # bundles must be proved present before Cosign runs.
+        _verify_bundles(resolution)
         image = resolution["image_reference"]
         signature = self._cosign_json(
             "verify",
-            "--new-bundle-format=false",
             "--certificate-identity",
             SIGNER_IDENTITY,
             "--certificate-oidc-issuer",
@@ -71,7 +91,6 @@ class ArtifactTrustVerifier:
         _verify_signature_payload(signature, resolution["oci_digest"])
         attestation = self._cosign_json(
             "verify-attestation",
-            "--new-bundle-format=false",
             "--certificate-identity",
             SIGNER_IDENTITY,
             "--certificate-oidc-issuer",
@@ -83,29 +102,6 @@ class ArtifactTrustVerifier:
             image,
         )
         _verify_provenance(attestation, resolution)
-        self._verify_attachment(
-            resolution["oci_digest"],
-            resolution["trust"]["signature_reference"],
-            attestation=False,
-        )
-        self._verify_attachment(
-            resolution["oci_digest"],
-            resolution["trust"]["provenance_reference"],
-            attestation=True,
-        )
-
-    def _verify_attachment(self, oci_digest: str, expected: str, *, attestation: bool) -> None:
-        tag = _attachment_tag(oci_digest, attestation=attestation)
-        try:
-            registry_data = self._docker.images.get_registry_data(
-                tag,
-                auth_config=self._credentials.docker_auth_config(),
-            )
-            digest = registry_data.id
-        except (AttributeError, docker.errors.DockerException) as exc:
-            raise ArtifactTrustError("Sigstore attachment digest is unavailable") from exc
-        if expected != f"{TRUST_REPOSITORY}@{digest}":
-            raise ArtifactTrustError("Sigstore attachment digest does not match")
 
     def _cosign_json(self, *arguments: str) -> object:
         raw = self._run_cosign(arguments)
@@ -168,12 +164,113 @@ class ArtifactTrustVerifier:
                 raise ArtifactTrustError("Cosign verification is unavailable") from exc
 
 
-def _attachment_tag(oci_digest: str, *, attestation: bool) -> str:
-    """Derive the pinned Cosign v3 attachment tag without spawning its CLI."""
+def _verify_bundles(resolution: dict[str, Any]) -> None:
+    """Prove both recorded bundles are the trust repository's bundle referrers of the Assistant digest."""
+    oci_digest = resolution["oci_digest"]
     if http_payload.SOURCE_DIGEST_RE.fullmatch(oci_digest) is None:
         raise ArtifactTrustError("Assistant OCI digest is invalid")
-    suffix = "att" if attestation else "sig"
-    return f"{TRUST_REPOSITORY}:sha256-{oci_digest.removeprefix('sha256:')}.{suffix}"
+    expected = (
+        (_trust_digest(resolution["trust"]["signature_reference"]), SIGNATURE_PREDICATE),
+        (_trust_digest(resolution["trust"]["provenance_reference"]), PROVENANCE_PREDICATE),
+    )
+    token = _pull_token()
+    # GHCR serves no referrers API; Cosign lists each bundle in the referrers tag index of the subject digest.
+    listed = _listed_bundles(
+        _registry_json(
+            f"/v2/{_TRUST_NAME}/manifests/sha256-{oci_digest.removeprefix('sha256:')}",
+            accept=_OCI_INDEX,
+            token=token,
+        )
+    )
+    for digest, predicate in expected:
+        if digest not in listed:
+            raise ArtifactTrustError("Sigstore bundle is not listed for the Assistant digest")
+        manifest = _registry_json(
+            f"/v2/{_TRUST_NAME}/manifests/{digest}",
+            accept=_OCI_MANIFEST,
+            token=token,
+            digest=digest,
+        )
+        if not _bundle_matches(manifest, oci_digest, predicate):
+            raise ArtifactTrustError("Sigstore bundle does not match the Assistant digest")
+
+
+def _trust_digest(reference: str) -> str:
+    digest = reference.removeprefix(f"{TRUST_REPOSITORY}@")
+    if digest == reference or http_payload.SOURCE_DIGEST_RE.fullmatch(digest) is None:
+        raise ArtifactTrustError("Sigstore bundle is outside the trust repository")
+    return digest
+
+
+def _pull_token() -> str:
+    value = _registry_json(
+        f"/token?scope=repository:{_TRUST_NAME}:pull&service={_REGISTRY_HOST}",
+        accept="application/json",
+    )
+    token = value.get("token") if isinstance(value, dict) else None
+    if not isinstance(token, str) or _BEARER_TOKEN_RE.fullmatch(token) is None:
+        raise ArtifactTrustError("Sigstore bundle registry token is unavailable")
+    return token
+
+
+def _listed_bundles(index: object) -> set[object]:
+    entries = index.get("manifests") if isinstance(index, dict) and index.get("mediaType") == _OCI_INDEX else None
+    if not isinstance(entries, list):
+        raise ArtifactTrustError("Sigstore bundle index is invalid")
+    return {
+        entry.get("digest")
+        for entry in entries
+        if isinstance(entry, dict)
+        and entry.get("mediaType") == _OCI_MANIFEST
+        and entry.get("artifactType") == _BUNDLE_ARTIFACT_TYPE
+    }
+
+
+def _bundle_matches(manifest: object, oci_digest: str, predicate: str) -> bool:
+    if not isinstance(manifest, dict):
+        return False
+    annotations = manifest.get("annotations")
+    subject = manifest.get("subject")
+    return (
+        manifest.get("mediaType") == _OCI_MANIFEST
+        and manifest.get("artifactType") == _BUNDLE_ARTIFACT_TYPE
+        and isinstance(annotations, dict)
+        and annotations.get(_PREDICATE_ANNOTATION) == predicate
+        and isinstance(subject, dict)
+        and subject.get("digest") == oci_digest
+    )
+
+
+def _registry_json(path: str, *, accept: str, token: str | None = None, digest: str | None = None) -> object:
+    """Read one bounded registry document through the exact-allowlisted release proxy."""
+    connection = http.client.HTTPSConnection(
+        _RELEASE_PROXY_HOST,
+        _RELEASE_PROXY_PORT,
+        timeout=_REGISTRY_TIMEOUT_SECONDS,
+        context=_TLS_CONTEXT,
+    )
+    connection.set_tunnel(_REGISTRY_HOST, 443)
+    headers = {"Accept": accept}
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        connection.request("GET", path, headers=headers)
+        response = connection.getresponse()
+        raw = response.read(_MAX_REGISTRY_BYTES + 1)
+    except (OSError, http.client.HTTPException) as exc:
+        raise ArtifactTrustError("Sigstore bundle registry is unavailable") from exc
+    finally:
+        connection.close()
+    if response.status != 200:
+        raise ArtifactTrustError("Sigstore bundle registry refused the request")
+    if len(raw) > _MAX_REGISTRY_BYTES:
+        raise ArtifactTrustError("Sigstore bundle registry response is too large")
+    if digest is not None and f"sha256:{hashlib.sha256(raw).hexdigest()}" != digest:
+        raise ArtifactTrustError("Sigstore bundle manifest does not match its digest")
+    try:
+        return json.loads(raw)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ArtifactTrustError("Sigstore bundle registry returned an invalid document") from exc
 
 
 def _ensure_private_directory(path: Path) -> Path:
@@ -203,21 +300,20 @@ def _self_container_id() -> str:
 
 
 def _verify_signature_payload(value: object, oci_digest: str) -> None:
+    # Verification lists every bundle it proved, the provenance attestation included; only a signature claim counts.
     records = value if isinstance(value, list) else []
-    if not any(_signature_digest(record) == oci_digest for record in records):
+    if not any(_signature_claim(record) == (oci_digest, SIGNATURE_PREDICATE) for record in records):
         raise ArtifactTrustError("Cosign signature does not bind the Assistant digest")
 
 
-def _signature_digest(record: object) -> object:
-    if not isinstance(record, dict):
-        return None
-    critical = record.get("critical", record.get("Critical"))
+def _signature_claim(record: object) -> tuple[object, object] | None:
+    critical = record.get("critical") if isinstance(record, dict) else None
     if not isinstance(critical, dict):
         return None
-    image = critical.get("image", critical.get("Image"))
+    image = critical.get("image")
     if not isinstance(image, dict):
         return None
-    return image.get("docker-manifest-digest", image.get("Docker-manifest-digest"))
+    return image.get("docker-manifest-digest"), critical.get("type")
 
 
 def _verify_provenance(value: object, resolution: dict[str, Any]) -> None:

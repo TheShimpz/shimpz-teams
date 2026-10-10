@@ -9,7 +9,6 @@ class AnonymousRegistryAccessTests(unittest.TestCase):
         access = AnonymousRegistryAccess()
 
         self.assertEqual(repr(access), "AnonymousRegistryAccess()")
-        self.assertIsNone(access.docker_auth_config())
         with access.docker_config() as directory:
             self.assertEqual(Path(directory, "config.json").read_text(encoding="ascii"), '{"auths":{}}')
 

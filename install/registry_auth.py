@@ -15,9 +15,6 @@ class AnonymousRegistryAccess:
     def __repr__(self) -> str:
         return "AnonymousRegistryAccess()"
 
-    def docker_auth_config(self) -> None:
-        return None
-
     @contextmanager
     def docker_config(self) -> Iterator[str]:
         with tempfile.TemporaryDirectory(prefix="shimpz-registry-") as directory:
