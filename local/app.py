@@ -33,7 +33,7 @@ from assistant.spec import validate_action_payload
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import token as brain_runtime_token_store
-from install import artifact_trust, bindings, icons, registry_auth
+from install import artifact_trust, bindings, icons
 from install import update as assistant_update
 from install.artifact_trust import ArtifactTrustVerifier
 from integrations import broker as integration_broker
@@ -703,7 +703,6 @@ def main() -> int:
                 artifact_trust=artifact_trust.ArtifactTrustVerifier(
                     client,
                     binary="/opt/venv/bin/cosign",
-                    credentials=registry_auth.AnonymousRegistryAccess(),
                     trust_root=LOCAL_COSIGN_TRUST_ROOT,
                 ),
                 assistant_updates=assistant_update.AssistantUpdateStore(

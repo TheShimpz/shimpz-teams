@@ -129,7 +129,7 @@ COPY --link routine/__init__.py routine/claim.py routine/compose.py routine/curs
 COPY --link local/http/__init__.py local/http/audit.py local/http/chat.py local/http/deadline.py local/http/dispatch.py \
     local/http/inference.py local/http/routine.py local/http/server.py local/http/stream.py ./local/http/
 COPY --link install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/lock.py \
-    install/registry_auth.py install/update.py ./install/
+    install/update.py ./install/
 COPY --link protocol/install/upstream.json ./protocol/install/
 COPY --link protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
     protocol/install/v1/definitions.schema.json \
