@@ -253,6 +253,26 @@ class PrivateStateEdgeCoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "malformed"):
             self.state._teams({"teams": []})
 
+    def test_an_identified_envelope_opens_only_under_the_key_it_names(self) -> None:
+        state = private_state.PrivateState(RuntimeError, "malformed state", "malformed envelope", 4096)
+        key, other = b"k" * 32, b"o" * 32
+        envelope = private_state.seal_identified(key, b"secret", b"aad")
+        state.check_identified_envelope(envelope, 64, "malformed")
+        self.assertEqual(envelope["key_id"], private_state.key_id(key))
+        self.assertNotEqual(private_state.key_id(key), private_state.key_id(other))
+        self.assertEqual(state.open_identified_envelope(key, envelope, b"aad", 64, "refused"), b"secret")
+        # A record sealed under another key is refused by its key_id before any decryption is attempted.
+        with (
+            mock.patch.object(private_state.AESGCM, "decrypt") as decrypt,
+            self.assertRaisesRegex(RuntimeError, "refused"),
+        ):
+            state.open_identified_envelope(other, envelope, b"aad", 64, "refused")
+        decrypt.assert_not_called()
+        unidentified = {name: value for name, value in envelope.items() if name != "key_id"}
+        for value in (unidentified, {**envelope, "key_id": 1}, {**envelope, "key_id": "F" * 32}, []):
+            with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, "malformed"):
+                state.check_identified_envelope(value, 64, "malformed")
+
 
 if __name__ == "__main__":
     unittest.main()

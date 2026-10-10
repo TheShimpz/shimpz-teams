@@ -2,8 +2,11 @@
 
 import base64
 import copy
+import hashlib
+import hmac
 import json
 import os
+import re
 import secrets
 import stat
 import threading
@@ -117,6 +120,24 @@ def seal(key: bytes, plaintext: bytes, aad: bytes) -> dict[str, str]:
         "nonce": base64.b64encode(nonce).decode("ascii"),
         "ciphertext": base64.b64encode(AESGCM(key).encrypt(nonce, plaintext, aad)).decode("ascii"),
     }
+
+
+def key_id(key: bytes) -> str:
+    """The public identifier of keyring ``key``: 128 bits of HMAC-SHA256 under it over a fixed label, in hex.
+
+    It names which key sealed an identified envelope, so a reader refuses a record sealed under any other key before it
+    decrypts and a future keyring can select among several keys. It commits to the key without disclosing it.
+    """
+    return hmac.new(key, b"shimpz-team-private-state-key-id", hashlib.sha256).hexdigest()[:32]
+
+
+def seal_identified(key: bytes, plaintext: bytes, aad: bytes) -> dict[str, str]:
+    """``seal`` into the identified envelope, which also carries the sealing key's ``key_id``."""
+    return {**seal(key, plaintext, aad), "key_id": key_id(key)}
+
+
+_KEY_ID = re.compile(r"[0-9a-f]{32}")
+_IDENTIFIED_ENVELOPE = frozenset({"algorithm", "key_id", "nonce", "ciphertext"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,6 +271,31 @@ class PrivateState:
         ):
             raise self.error_class(malformed)
         self._envelope_parts(value, maximum_plaintext)
+
+    def check_identified_envelope(self, value: object, maximum_plaintext: int, malformed: str) -> None:
+        """Require one identified AES-256-GCM envelope: ``check_envelope`` plus a mandatory, well-formed ``key_id``."""
+        if (
+            not isinstance(value, dict)
+            or set(value) != _IDENTIFIED_ENVELOPE
+            or value["algorithm"] != "AES-256-GCM"
+            or not isinstance(value["key_id"], str)
+            or _KEY_ID.fullmatch(value["key_id"]) is None
+        ):
+            raise self.error_class(malformed)
+        self._envelope_parts(value, maximum_plaintext)
+
+    def open_identified_envelope(
+        self,
+        key: bytes,
+        envelope: Mapping[str, object],
+        aad: bytes,
+        maximum_plaintext: int,
+        failure: str,
+    ) -> bytes:
+        """Open an admitted identified envelope only under the key it names; another key's record raises ``failure``."""
+        if not hmac.compare_digest(str(envelope.get("key_id")), key_id(key)):
+            raise self.error_class(failure)
+        return self.open_envelope(key, envelope, aad, maximum_plaintext, failure)
 
     def open_envelope(
         self,

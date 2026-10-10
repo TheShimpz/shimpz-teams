@@ -46,7 +46,7 @@ class StoredInputStoreTests(unittest.TestCase):
 
             self.assertEqual(
                 hashlib.sha256(store.state_path.read_bytes()).hexdigest(),
-                "dddeb845b799389832f7317f1ccee1a2c1cee636b7190a4115cc8820a5e8881b",
+                "8d997cf5143ccee71f3cf041761a6c289d49207452a673cc7fefced6d2f18d5a",
             )
             resolved = self._store(Path(directory)).resolve("team_1", "whatsapp", "whatsapp-token", "password")
             self.assertEqual((resolved.value, resolved.generation, resolved.origin), ("pässwörd ✓", 1, ORIGIN))
@@ -272,6 +272,7 @@ class StoredInputStoreTests(unittest.TestCase):
             "updated_at": "2026-09-15T12:00:00Z",
             "envelope": {
                 "algorithm": "AES-256-GCM",
+                "key_id": "0" * 32,
                 "nonce": "AAAAAAAAAAAAAAAA",
                 "ciphertext": "AAAAAAAAAAAAAAAAAAAAAAA=",
             },
@@ -287,6 +288,10 @@ class StoredInputStoreTests(unittest.TestCase):
             {**valid_record, "envelope": {**valid_record["envelope"], "algorithm": "AES-128-GCM"}},
             {**valid_record, "envelope": {**valid_record["envelope"], "nonce": "invalid"}},
             {**valid_record, "envelope": {**valid_record["envelope"], "ciphertext": "invalid"}},
+            {**valid_record, "envelope": {k: v for k, v in valid_record["envelope"].items() if k != "key_id"}},
+            {**valid_record, "envelope": {**valid_record["envelope"], "key_id": None}},
+            {**valid_record, "envelope": {**valid_record["envelope"], "key_id": "A" * 32}},
+            {**valid_record, "envelope": {**valid_record["envelope"], "key_id": "0" * 31}},
         )
         for record in malformed_records:
             with self.subTest(record=record), self.assertRaises(stored_input.StoredInputStoreError):

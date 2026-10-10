@@ -281,7 +281,7 @@ def _validate_record(value: object) -> dict[str, object]:
     updated_at = value.get("updated_at")
     if not isinstance(updated_at, str) or _TIMESTAMP.fullmatch(updated_at) is None:
         raise OAuthIntegrationStoreError("OAuth integration state record is malformed")
-    _PRIVATE_STATE.check_envelope(
+    _PRIVATE_STATE.check_identified_envelope(
         value.get("envelope"), MAX_PLAINTEXT_BYTES, "OAuth integration state record is malformed"
     )
     return value
@@ -484,7 +484,7 @@ class OAuthIntegrationStore(private_state.RecordStore):
     ) -> _TokenGrant:
         validated = _validate_record(record)
         provider, scopes, expires_at, status, generation = _record_metadata(validated)
-        plaintext = _PRIVATE_STATE.open_envelope(
+        plaintext = _PRIVATE_STATE.open_identified_envelope(
             self._key(),
             validated["envelope"],
             _aad(team, assistant, integration, validated),
@@ -578,7 +578,9 @@ class OAuthIntegrationStore(private_state.RecordStore):
             "updated_at": private_state.timestamp(),
             "envelope": {},
         }
-        record["envelope"] = private_state.seal(key, self._plaintext(grant), _aad(team, assistant, integration, record))
+        record["envelope"] = private_state.seal_identified(
+            key, self._plaintext(grant), _aad(team, assistant, integration, record)
+        )
         return record
 
     def _demote_for_reauthorization(

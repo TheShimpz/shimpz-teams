@@ -136,7 +136,9 @@ def _validate_record(value: object) -> dict[str, object]:
     updated_at = value.get("updated_at")
     if not isinstance(updated_at, str) or _TIMESTAMP.fullmatch(updated_at) is None:
         raise StoredInputStoreError("Stored Input state record is malformed")
-    _PRIVATE_STATE.check_envelope(value.get("envelope"), MAX_PLAINTEXT_BYTES, "Stored Input state record is malformed")
+    _PRIVATE_STATE.check_identified_envelope(
+        value.get("envelope"), MAX_PLAINTEXT_BYTES, "Stored Input state record is malformed"
+    )
     return value
 
 
@@ -269,7 +271,7 @@ class StoredInputStore(private_state.RecordStore):
             "updated_at": private_state.timestamp(),
             "envelope": {},
         }
-        record["envelope"] = private_state.seal(key, self._plaintext(value, origin), _aad(reference, record))
+        record["envelope"] = private_state.seal_identified(key, self._plaintext(value, origin), _aad(reference, record))
         return record
 
     def seal(
@@ -334,7 +336,7 @@ class StoredInputStore(private_state.RecordStore):
     ) -> StoredInputValue:
         validated = _validate_record(record)
         _kind_value, generation = _record_metadata(validated)
-        plaintext = _PRIVATE_STATE.open_envelope(
+        plaintext = _PRIVATE_STATE.open_identified_envelope(
             self._key(),
             validated["envelope"],
             _aad((team, assistant, stored_input), validated),

@@ -44,7 +44,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
 
             self.assertEqual(
                 hashlib.sha256(store.state_path.read_bytes()).hexdigest(),
-                "677e882eea9a5f443365c01ea78707bfedf87d87a46577fbe0d88d36b2b70a90",
+                "63272fe542b9a4beba8e21373c22cf1d0eab07db40b85a6c87ad7ea54654ed50",
             )
             reopened = open_store(Path(directory))
             self.assertEqual(resolve(reopened, self.fail), ACCESS)
