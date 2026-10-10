@@ -345,6 +345,10 @@ class ArtifactTrustTests(unittest.TestCase):
             ("index-media-type", set_index({"mediaType": OCI_MANIFEST, "manifests": []})),
             ("index-shape", set_index({"mediaType": OCI_INDEX, "manifests": {}})),
             ("index-not-an-object", set_index([])),
+            ("entry-digest-object", set_entry("digest", {"sha256": "1" * 64})),
+            ("entry-digest-list", set_entry("digest", [signature])),
+            ("entry-digest-short", set_entry("digest", "sha256:short")),
+            ("entry-not-an-object", set_index({"mediaType": OCI_INDEX, "manifests": ["entry"]})),
         )
         for name, change in cases:
             registry = _Registry(resolution)

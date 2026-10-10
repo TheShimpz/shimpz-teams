@@ -213,17 +213,25 @@ def _pull_token() -> str:
     return token
 
 
-def _listed_bundles(index: object) -> set[object]:
+def _listed_bundles(index: object) -> set[str]:
     entries = index.get("manifests") if isinstance(index, dict) and index.get("mediaType") == _OCI_INDEX else None
     if not isinstance(entries, list):
         raise ArtifactTrustError("Sigstore bundle index is invalid")
-    return {
-        entry.get("digest")
-        for entry in entries
-        if isinstance(entry, dict)
-        and entry.get("mediaType") == _OCI_MANIFEST
-        and entry.get("artifactType") == _BUNDLE_ARTIFACT_TYPE
-    }
+    listed = set()
+    for entry in entries:
+        # Every descriptor is validated, so a malformed entry fails closed instead of escaping as a TypeError.
+        digest = _descriptor_digest(entry)
+        if entry.get("mediaType") == _OCI_MANIFEST and entry.get("artifactType") == _BUNDLE_ARTIFACT_TYPE:
+            listed.add(digest)
+    return listed
+
+
+def _descriptor_digest(descriptor: object) -> str:
+    """Return one OCI descriptor's digest, which must be a full SHA-256 content address."""
+    digest = descriptor.get("digest") if isinstance(descriptor, dict) else None
+    if not isinstance(digest, str) or http_payload.SOURCE_DIGEST_RE.fullmatch(digest) is None:
+        raise ArtifactTrustError("Sigstore bundle descriptor is invalid")
+    return digest
 
 
 def _bundle_matches(manifest: object, oci_digest: str, predicate: str) -> bool:
