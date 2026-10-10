@@ -221,7 +221,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 actions={
                     **spec.actions,
                     "search-web": assistant_spec.ActionSpec(
-                        "Search the web", schema, schema, (), ("exa-api-key",), ("input:password",)
+                        "Search the web", schema, schema, (), ("exa-api-key",), ("input:password",), effect="read_only"
                     ),
                 },
                 stored_inputs={
@@ -297,7 +297,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 actions={
                     **spec.actions,
                     "search-web": assistant_spec.ActionSpec(
-                        "Search the web", schema, schema, (), ("exa-account", "exa-api-key"), ("input:password",)
+                        "Search the web",
+                        schema,
+                        schema,
+                        (),
+                        ("exa-account", "exa-api-key"),
+                        ("input:password",),
+                        effect="read_only",
                     ),
                 },
                 stored_inputs={"exa-account": declaration, "exa-api-key": declaration},

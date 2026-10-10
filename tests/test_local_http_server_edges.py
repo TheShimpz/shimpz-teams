@@ -237,6 +237,8 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             delete_file=mock.Mock(return_value={"deleted": True}),
             inference_status=mock.Mock(return_value={"configured": True}),
             configure_inference=mock.Mock(return_value={"configured": True}),
+            action_confirmation_status=mock.Mock(return_value={"confirm_mutating": True}),
+            configure_action_confirmation=mock.Mock(return_value={"confirm_mutating": False}),
             create_team=mock.Mock(return_value={"created": True}),
             destroy_team=mock.Mock(return_value={"deleted": True}),
             rename_team=mock.Mock(return_value={"team_id": "team_1", "team_name": "Team"}),
@@ -331,6 +333,19 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         self.assertEqual(route(handler, base)[2], "inference-configure")
         handler.command = "PATCH"
         self.assertIsNone(route(handler, base))
+
+        confirmation = ["v1", "teams", "team_1", "action-confirmation"]
+        handler.command = "GET"
+        self.assertEqual(route(handler, confirmation)[1:3], ({"confirm_mutating": True}, "action-confirmation-status"))
+        handler.command = "PUT"
+        handler._body = mock.Mock(return_value={"confirm_mutating": False})
+        self.assertEqual(route(handler, confirmation)[2], "action-confirmation-configure")
+        controller.configure_action_confirmation.assert_called_once_with("team_1", {"confirm_mutating": False})
+        handler.command = "PATCH"
+        self.assertIsNone(route(handler, confirmation))
+        for method, operation in (("GET", "action-confirmation-status"), ("PUT", "action-confirmation-configure")):
+            match = strict_http.resolve_controller_route(method, tuple(confirmation))
+            self.assertEqual((match.operation, match.group), (operation, "inference"))
 
     def test_chat_route_variants_and_validation(self) -> None:
         handler = self.handler(controller=self.controller())

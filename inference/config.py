@@ -37,10 +37,13 @@ PROVIDERS: dict[str, ProviderDefinition] = {
 }
 DEFAULT_PROVIDER = _MODEL_CATALOG["default_provider"]
 MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
-# Every name this store writes: a Team's configuration, its learned knowledge, and their interrupted temp files.
+# Every name this store writes: a Team's configuration, its learned knowledge, its Action confirmation setting, and
+# their interrupted temp files.
 OWNED_NAME_RE = re.compile(
-    r"(?:[0-9a-f]{64}(?:\.knowledge)?\.json|\.[0-9a-f]{64}(?:\.knowledge)?\.json\.[0-9a-f]{16}\.tmp)\Z"
+    r"(?:[0-9a-f]{64}(?:\.knowledge|\.confirmation)?\.json"
+    r"|\.[0-9a-f]{64}(?:\.knowledge|\.confirmation)?\.json\.[0-9a-f]{16}\.tmp)\Z"
 )
+CONFIRMATION_SCHEMA = 1
 
 
 class InferenceConfigError(ValueError):
@@ -96,6 +99,41 @@ class InferenceConfigStore:
     def _knowledge_path(self, team_id: str) -> Path:
         digest = hashlib.sha256(team_id.encode()).hexdigest()
         return self.root / f"{digest}.knowledge.json"
+
+    def _confirmation_path(self, team_id: str) -> Path:
+        digest = hashlib.sha256(team_id.encode()).hexdigest()
+        return self.root / f"{digest}.confirmation.json"
+
+    def load_action_confirmation(self, team_id: object) -> bool:
+        """Whether Team confirms the Team's mutating Actions that declare no authorization; absent means on."""
+        team_id = _team_id(team_id)
+        try:
+            value = json.loads(self._confirmation_path(team_id).read_bytes())
+        except FileNotFoundError:
+            return True
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise InferenceConfigError("Team Action confirmation setting is unavailable") from exc
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"schema", "team_id", "confirm_mutating"}
+            or value["schema"] != CONFIRMATION_SCHEMA
+            or value["team_id"] != team_id
+            or type(value["confirm_mutating"]) is not bool
+        ):
+            raise InferenceConfigError("Team Action confirmation setting is invalid")
+        return value["confirm_mutating"]
+
+    def save_action_confirmation(self, team_id: object, enabled: object) -> bool:
+        """Durably record the Supervisor's Action confirmation setting for one Team."""
+        team_id = _team_id(team_id)
+        if type(enabled) is not bool:
+            raise InferenceConfigError("Action confirmation setting must be a boolean")
+        record = {"schema": CONFIRMATION_SCHEMA, "team_id": team_id, "confirm_mutating": enabled}
+        try:
+            self._write(self._confirmation_path(team_id), record)
+        except OSError as exc:
+            raise InferenceConfigError("Team Action confirmation setting could not be saved") from exc
+        return enabled
 
     def save(self, team_id: object, config: InferenceConfig) -> InferenceConfig:
         team_id = _team_id(team_id)
@@ -168,10 +206,11 @@ class InferenceConfigStore:
         return normalize(value["provider"], value["model"], value["effort"])
 
     def delete(self, team_id: object) -> None:
-        """Remove the Team's inference configuration and its learned knowledge."""
+        """Remove the Team's inference configuration, its learned knowledge, and its Action confirmation setting."""
         team_id = _team_id(team_id)
         self._unlink(self._path(team_id))
         self._unlink(self._knowledge_path(team_id))
+        self._unlink(self._confirmation_path(team_id))
 
     def delete_all(self) -> None:
         """Remove every Team's configuration and knowledge, including ones no Team network names now."""

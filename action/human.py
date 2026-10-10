@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from core import canonical_json
 from protocol.assistant.v1.validators import human_request as human_request_validator
@@ -27,6 +27,11 @@ AUTH_KINDS = frozenset(
     }
 )
 AUTHORIZATION_KINDS = frozenset({"approval", *AUTH_KINDS})
+# Team's own confirmation of a mutating Action that declares no authorization (Supervisor policy). It is never an
+# Assistant request: the workload never sees it, and its answer is kept beside the transcript, not in it.
+CONFIRMATION_KIND = "confirmation"
+CONFIRMATION_POLICY = "mutating-actions"
+_CONFIRMATION_FIELDS = frozenset({"kind", "ordinal", "policy", "binding", "fingerprint"})
 # The copy fields of a request, each a reviewed catalog reference (ADR-0091); option copy lives in each option.
 COPY_FIELDS = ("title", "description", "label", "placeholder")
 OPTION_COPY_FIELDS = ("label", "description")
@@ -93,10 +98,25 @@ class HumanResponse:
 
 @dataclass(frozen=True, slots=True)
 class ActionTranscript:
-    """Bounded replay responses for one immutable Brain Action interrupt."""
+    """Bounded replay responses for one immutable Brain Action interrupt.
+
+    ``confirmation`` is Team's own policy confirmation of the Action before it first runs; it is never replayed to the
+    workload, which sees only ``responses``.
+    """
 
     interrupt_id: str
     responses: tuple[HumanResponse, ...] = ()
+    confirmation: HumanResponse | None = None
+
+    def confirm(self, request: HumanRequest, value: object) -> ActionTranscript:
+        """Admit Team's policy confirmation, which precedes every run of the Action and is given once."""
+        if request.kind != CONFIRMATION_KIND or self.confirmation is not None or self.responses:
+            raise HumanRequestError("Action confirmation sequence is invalid")
+        return replace(self, confirmation=admit_response(request, value))
+
+    def confirmed(self, request: HumanRequest) -> bool:
+        """Whether the transcript holds the confirmation of exactly this policy request."""
+        return self.confirmation is not None and hmac.compare_digest(self.confirmation.fingerprint, request.fingerprint)
 
     def append(self, request: HumanRequest, value: object) -> ActionTranscript:
         """Admit the next exact response and return an immutable transcript.
@@ -105,15 +125,14 @@ class ActionTranscript:
         """
         if request.stored_input is not None:
             raise HumanRequestError("Assistant Action Stored Input is answered by injection")
+        if request.kind == CONFIRMATION_KIND:
+            return self.confirm(request, value)
         self.require_next(request)
         if request.kind in AUTHORIZATION_KINDS and any(
             response.kind in AUTHORIZATION_KINDS for response in self.responses
         ):
             raise HumanRequestError("Assistant Action requested authorization more than once")
-        return ActionTranscript(
-            interrupt_id=self.interrupt_id,
-            responses=(*self.responses, admit_response(request, value)),
-        )
+        return replace(self, responses=(*self.responses, admit_response(request, value)))
 
     def require_next(self, request: HumanRequest) -> None:
         """Refuse a request that is not the next ordinal or exceeds the Action budget."""
@@ -178,7 +197,7 @@ def append_response(
         submission = StoredInputSubmission(request.stored_input, admit_response(request, value).value)
         return HumanResponseAdmission(transcripts, requests_used + 1, submission)
     updated = current.append(request, value)
-    if current.responses:
+    if any(item is current for item in transcripts):
         admitted = tuple(updated if item is current else item for item in transcripts)
     else:
         admitted = (*transcripts, updated)
@@ -239,6 +258,43 @@ def validate_request(
     )
 
 
+def confirmation_request(binding: Mapping[str, object]) -> HumanRequest:
+    """Team's confirmation request for one exact policy binding.
+
+    ``binding`` names everything the confirmation authorizes: the policy, the principal, the Team, the Assistant's
+    immutable binding, the Action and its interrupt, and the canonical validated arguments. The request carries only
+    its SHA-256, so a confirmation never authorizes any other argument or binding.
+    """
+    request = {
+        "kind": CONFIRMATION_KIND,
+        "ordinal": 0,
+        "policy": CONFIRMATION_POLICY,
+        "binding": hashlib.sha256(_canonical(binding)).hexdigest(),
+    }
+    fingerprint = _fingerprint(request)
+    return HumanRequest(CONFIRMATION_KIND, 0, fingerprint, _canonical({**request, "fingerprint": fingerprint}))
+
+
+def restore_confirmation_request(value: object) -> HumanRequest:
+    """Re-admit a recorded confirmation request of exactly the current shape, with its fingerprint recomputed."""
+    if (
+        not isinstance(value, dict)
+        or set(value) != _CONFIRMATION_FIELDS
+        or value["kind"] != CONFIRMATION_KIND
+        or type(value["ordinal"]) is not int
+        or value["ordinal"] != 0
+        or value["policy"] != CONFIRMATION_POLICY
+        or not isinstance(value["binding"], str)
+        or http_payload.SHA256_RE.fullmatch(value["binding"]) is None
+        or not isinstance(value["fingerprint"], str)
+    ):
+        raise HumanRequestError("Action confirmation request is invalid")
+    request = {key: value[key] for key in ("kind", "ordinal", "policy", "binding")}
+    if not hmac.compare_digest(value["fingerprint"], _fingerprint(request)):
+        raise HumanRequestError("Action confirmation request fingerprint is invalid")
+    return HumanRequest(CONFIRMATION_KIND, 0, value["fingerprint"], _canonical(value))
+
+
 def catalog_by_id(machine_contract: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
     """Index a reviewed machine contract's English message catalog by message id."""
     return {message["id"]: message for message in machine_contract["messages"]}
@@ -256,7 +312,7 @@ def admit_response(request: HumanRequest, value: object) -> HumanResponse:
     """Validate one user decision against its canonical reviewed request."""
     descriptor = request.payload()
     kind = request.kind
-    if kind == "approval" or kind in AUTH_KINDS:
+    if kind in AUTHORIZATION_KINDS or kind == CONFIRMATION_KIND:
         valid = value is True
     elif kind in CHOICE_KINDS:
         valid = _single_choice_response(descriptor, value)

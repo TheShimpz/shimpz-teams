@@ -126,6 +126,36 @@ class InferenceConfigTests(unittest.TestCase):
                 with self.assertRaises(inference_config.InferenceConfigError):
                     self.store.load("team_1")
 
+    def test_the_action_confirmation_setting_defaults_on_and_fails_closed(self) -> None:
+        self.assertTrue(self.store.load_action_confirmation("team_1"))
+        self.assertFalse(self.store.save_action_confirmation("team_1", False))
+        self.assertFalse(self.store.load_action_confirmation("team_1"))
+        self.assertTrue(self.store.load_action_confirmation("team_2"))
+        with self.assertRaises(inference_config.InferenceConfigError):
+            self.store.save_action_confirmation("team_1", 1)
+        path = self.store._confirmation_path("team_1")
+        for raw in (
+            b"[",
+            b"\xff",
+            b"[]",
+            b'{"schema": 1, "team_id": "team_1"}',
+            b'{"schema": 2, "team_id": "team_1", "confirm_mutating": true}',
+            b'{"schema": 1, "team_id": "team_2", "confirm_mutating": true}',
+            b'{"schema": 1, "team_id": "team_1", "confirm_mutating": 1}',
+        ):
+            path.write_bytes(raw)
+            with self.subTest(raw=raw), self.assertRaises(inference_config.InferenceConfigError):
+                self.store.load_action_confirmation("team_1")
+        with (
+            mock.patch.object(inference_config, "write_private_json", side_effect=OSError("read-only")),
+            self.assertRaisesRegex(inference_config.InferenceConfigError, "could not be saved"),
+        ):
+            self.store.save_action_confirmation("team_1", True)
+        path.unlink()
+        path.mkdir()
+        with self.assertRaisesRegex(inference_config.InferenceConfigError, "unavailable"):
+            self.store.load_action_confirmation("team_1")
+
     def test_malformed_and_cross_team_persisted_metadata_fails_closed(self) -> None:
         self.root.mkdir(parents=True)
         target = self.store._path("team_1")
@@ -204,7 +234,7 @@ class InferenceConfigTests(unittest.TestCase):
 
         with mock.patch.object(inference_config.os, "fsync", side_effect=observe):
             self.store.delete("team_1")
-        self.assertEqual(synced, [True, True])
+        self.assertEqual(synced, [True, True, True])
         self.store.save("team_1", inference_config.normalize())
         synced.clear()
         with mock.patch.object(inference_config.os, "fsync", side_effect=observe):

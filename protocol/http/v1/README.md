@@ -123,6 +123,31 @@ most 8 MiB, and the original lowercase SHA-256 (`payload.canonical_file_disclosu
 Admin renders as text, never a Creator translation parameter. Team binds the disclosed file to the challenge and
 delivers only bytes with that size and digest; any other challenge carries no `file`.
 
+Team's own Action confirmation policy (ADR-0110) is a Team setting only a Supervisor session reads and changes, on by
+default: `GET /v1/teams/:team_id/action-confirmation` and `PUT` with exactly `{"confirm_mutating": true|false}` both
+answer `{team_id, confirm_mutating}`. While it is on, a chat Action whose reviewed `effect` is `mutating` and that
+declares no authorization capability pauses before its workload starts with a `human-required` challenge whose
+`request` is Team's, never the Assistant's: exactly `{kind: "confirmation", ordinal: 0, policy: "mutating-actions",
+binding, fingerprint}`, where `binding` is the lowercase SHA-256 of the canonical JSON naming the policy, the
+principal, the Team, the Assistant, its immutable image and container, the Action, its interrupt, and the canonical
+validated arguments, and `fingerprint` is the SHA-256 of the canonical request without it, as for every request. It
+references no catalog copy, so `rendered` is `{}` and Admin shows its own localized confirmation copy; it is answered
+with `submit` and exactly `true`, or `deny`. The answer is kept by Team beside the Action's replay transcript and is
+never sent to the workload; a confirmation of any other binding or argument authorizes nothing. An Action that
+declares an authorization keeps its one ceremony (ADR-0046), a compiled Routine run is unchanged (its card granted
+each Action), and a direct `assistant-invoke` is itself the Supervisor's request-bound decision on its exact body.
+
+Every chat confirmation challenge, Team's `confirmation` and a declared `approval`, `auth:password`, `auth:totp`, or
+`auth:passkey`, also carries `input`, the platform-rendered projection of the Action's validated input
+(`payload.canonical_input_projection`): exactly `{fields, omitted}`, where `fields` holds at most 16 rows
+`{name, value, truncated}` in strictly ascending `name` order, one per top-level argument. `name` (1 to 128
+characters) is the argument's name and `value` (1 to 400) its canonical JSON text, so a string stays quoted; both are
+printable because every other character is escaped as a visible `\uXXXX`. `truncated` is true when either had to be
+cut to its bound, and `omitted` counts the arguments past the sixteenth row (it is nonzero only with 16 rows). Admin
+renders the rows as literal text and must show both a cut row and the count of omitted arguments, so no argument is
+ever hidden silently. Team's `confirmation` always carries `input`; a Routine run's challenge and any input request
+carry none.
+
 A completed Team chat terminal body carries `clarification`, either `null` or one exact Brain
 multiple-choice question (ADR-0081): `question` (at most 240 characters), two to five `options` with a
 `label` (at most 80) and a `description` (at most 160, may be empty), and a `default_index` that points to the one

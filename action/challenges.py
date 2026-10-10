@@ -61,6 +61,9 @@ class HumanRequirement:
     purpose_locale: str | None = None
     # The one selected file an authorization of a file-taking Action discloses, and only its approval delivers.
     file: Mapping[str, object] | None = None
+    # The platform-rendered projection of the Action's validated input that a confirmation card shows: required for
+    # Team's policy confirmation, present for a chat authorization, and absent for any other request.
+    input: Mapping[str, object] | None = None
 
 
 def render_copy(
@@ -183,6 +186,15 @@ def _purpose(purpose: object, locale: object) -> bool:
     return http_payload.canonical_purpose(purpose) == purpose and http_payload.canonical_locale(locale) is not None
 
 
+CONFIRMATION_KINDS = frozenset({*human.AUTHORIZATION_KINDS, human.CONFIRMATION_KIND})
+
+
+def _input(value: HumanRequirement) -> bool:
+    if value.input is None:
+        return value.request.kind != human.CONFIRMATION_KIND
+    return value.request.kind in CONFIRMATION_KINDS and http_payload.canonical_input_projection(value.input) is not None
+
+
 def _requirement(value: object) -> bool:
     return (
         isinstance(value, HumanRequirement)
@@ -192,6 +204,7 @@ def _requirement(value: object) -> bool:
         and 1 <= len(value.assistant_version) <= 40
         and _help(value)
         and _purpose(value.purpose, value.purpose_locale)
+        and _input(value)
         and (
             value.file is None
             or (
@@ -262,4 +275,5 @@ def challenge_payload(challenge: PendingHumanChallenge) -> dict[str, object]:
         **({} if requirement.purpose_locale != requirement.copy.locale else {"purpose": requirement.purpose}),
         **({} if requirement.copy.help is None else {"help": requirement.copy.help, "help_url": requirement.help_url}),
         **({} if requirement.file is None else {"file": dict(requirement.file)}),
+        **({} if requirement.input is None else {"input": dict(requirement.input)}),
     }

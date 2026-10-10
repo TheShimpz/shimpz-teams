@@ -204,6 +204,7 @@ for name, admit in (
     ("help_url", payload.canonical_help_url),
     ("stored_input_help", payload.canonical_stored_input_help),
     ("file_disclosure", payload.canonical_file_disclosure),
+    ("input_projection", payload.canonical_input_projection),
     ("restricted_actions", payload.canonical_restricted_actions),
     ("purpose", payload.canonical_purpose),
     ("pack_digest", payload.canonical_pack_digest),

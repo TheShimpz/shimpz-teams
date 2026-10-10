@@ -301,6 +301,7 @@ class ControllerRouteMatch:
             ("routine-", "routine"),
             ("file-", "file"),
             ("inference-", "inference"),
+            ("action-confirmation-", "inference"),
             ("chat-", "chat"),
             ("assistant-integration-", "assistant-integration"),
             ("assistant-stored-input-", "assistant-stored-input"),
@@ -325,6 +326,9 @@ CONTROLLER_ROUTES = (
     _controller_route("DELETE", "/v1/teams/:team_id/files/:file_id", "file-delete"),
     _controller_route("GET", "/v1/teams/:team_id/inference", "inference-status"),
     _controller_route("PUT", "/v1/teams/:team_id/inference", "inference-configure"),
+    # The Supervisor's Action confirmation policy for the Team's mutating Actions (default on).
+    _controller_route("GET", "/v1/teams/:team_id/action-confirmation", "action-confirmation-status"),
+    _controller_route("PUT", "/v1/teams/:team_id/action-confirmation", "action-confirmation-configure"),
     _controller_route("POST", "/v1/teams/:team_id/chat", "chat"),
     _controller_route(
         "POST",

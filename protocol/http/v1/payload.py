@@ -874,6 +874,55 @@ def canonical_file_disclosure(value: object) -> dict[str, object] | None:
     return {key: value[key] for key in ("id", "name", "media_type", "size", "sha256")}
 
 
+# The platform-rendered projection of a confirmation challenge's validated Action input (ADR-0093 file-card
+# precedent): one row per top-level argument in name order, each the argument's escaped JSON text.
+INPUT_PROJECTION_KEYS = frozenset({"fields", "omitted"})
+INPUT_PROJECTION_FIELD_KEYS = frozenset({"name", "value", "truncated"})
+INPUT_PROJECTION_MAX_FIELDS = 16
+INPUT_PROJECTION_NAME_CHARS = 128
+INPUT_PROJECTION_VALUE_CHARS = 400
+INPUT_PROJECTION_MAX_OMITTED = 4096
+
+
+def canonical_input_projection(value: object) -> dict[str, object] | None:
+    r"""Return one confirmation challenge's projection of the validated Action input, or None.
+
+    ``fields`` holds at most 16 rows in strictly ascending ``name`` order. ``name`` (1 to 128 characters) is the
+    argument's escaped name and ``value`` (1 to 400) its escaped canonical JSON text; both are printable, and escaping
+    makes every other character a visible ``\uXXXX``. A row whose name or value had to be cut to its bound has
+    ``truncated`` true, and ``omitted`` counts the arguments past the sixteenth row, so the bounds never hide an
+    argument silently: a client must show both.
+    """
+    if not isinstance(value, dict) or set(value) != INPUT_PROJECTION_KEYS:
+        return None
+    fields, omitted = value["fields"], value["omitted"]
+    if (
+        not isinstance(fields, list)
+        or len(fields) > INPUT_PROJECTION_MAX_FIELDS
+        or type(omitted) is not int
+        or not 0 <= omitted <= INPUT_PROJECTION_MAX_OMITTED
+        or (omitted and len(fields) != INPUT_PROJECTION_MAX_FIELDS)
+    ):
+        return None
+    previous = None
+    for field in fields:
+        if (
+            not isinstance(field, dict)
+            or set(field) != INPUT_PROJECTION_FIELD_KEYS
+            or not _projected_text(field["name"], INPUT_PROJECTION_NAME_CHARS)
+            or not _projected_text(field["value"], INPUT_PROJECTION_VALUE_CHARS)
+            or type(field["truncated"]) is not bool
+            or (previous is not None and field["name"] <= previous)
+        ):
+            return None
+        previous = field["name"]
+    return value
+
+
+def _projected_text(text: object, maximum: int) -> bool:
+    return isinstance(text, str) and 0 < len(text) <= maximum and text.isprintable()
+
+
 def project_file_metadata(value: object, *, include_usage: bool) -> dict[str, object] | None:
     if not isinstance(value, dict):
         return None

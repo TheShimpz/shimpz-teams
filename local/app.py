@@ -258,6 +258,8 @@ class LocalController:
     _raise_inference_problem = staticmethod(local_inference._raise_inference_problem)
     inference_status = local_inference.inference_status
     configure_inference = local_inference.configure_inference
+    action_confirmation_status = local_inference.action_confirmation_status
+    configure_action_confirmation = local_inference.configure_action_confirmation
     list_assistants = local_assistant_api.list_assistants
     assistant_icon = local_assistant_api.assistant_icon
     assistant_summary = local_assistant_api.assistant_summary

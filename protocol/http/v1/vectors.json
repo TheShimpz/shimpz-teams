@@ -530,6 +530,27 @@
       []
     ]
   },
+  "input_projection": {
+    "valid": [
+      {"fields": [{"name": "name", "value": "\"www\"", "truncated": false}, {"name": "proxied", "value": "true", "truncated": false}, {"name": "ttl", "value": "300", "truncated": false}], "omitted": 0},
+      {"fields": [], "omitted": 0},
+      {"fields": [{"name": "content", "value": "\"v=spf1 \\u202e\"", "truncated": true}], "omitted": 0},
+      {"fields": [{"name": "f00", "value": "1", "truncated": false}, {"name": "f01", "value": "1", "truncated": false}, {"name": "f02", "value": "1", "truncated": false}, {"name": "f03", "value": "1", "truncated": false}, {"name": "f04", "value": "1", "truncated": false}, {"name": "f05", "value": "1", "truncated": false}, {"name": "f06", "value": "1", "truncated": false}, {"name": "f07", "value": "1", "truncated": false}, {"name": "f08", "value": "1", "truncated": false}, {"name": "f09", "value": "1", "truncated": false}, {"name": "f10", "value": "1", "truncated": false}, {"name": "f11", "value": "1", "truncated": false}, {"name": "f12", "value": "1", "truncated": false}, {"name": "f13", "value": "1", "truncated": false}, {"name": "f14", "value": "1", "truncated": false}, {"name": "f15", "value": "1", "truncated": false}], "omitted": 3}
+    ],
+    "invalid": [
+      {"fields": [{"name": "b", "value": "1", "truncated": false}, {"name": "a", "value": "1", "truncated": false}], "omitted": 0},
+      {"fields": [{"name": "a", "value": "1", "truncated": false}, {"name": "a", "value": "2", "truncated": false}], "omitted": 0},
+      {"fields": [{"name": "a", "value": "line\nbreak", "truncated": false}], "omitted": 0},
+      {"fields": [{"name": "a", "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "truncated": false}], "omitted": 0},
+      {"fields": [{"name": "a", "value": "", "truncated": false}], "omitted": 0},
+      {"fields": [{"name": "a", "value": "1", "truncated": false}], "omitted": 2},
+      {"fields": [{"name": "f00", "value": "1", "truncated": false}, {"name": "f01", "value": "1", "truncated": false}, {"name": "f02", "value": "1", "truncated": false}, {"name": "f03", "value": "1", "truncated": false}, {"name": "f04", "value": "1", "truncated": false}, {"name": "f05", "value": "1", "truncated": false}, {"name": "f06", "value": "1", "truncated": false}, {"name": "f07", "value": "1", "truncated": false}, {"name": "f08", "value": "1", "truncated": false}, {"name": "f09", "value": "1", "truncated": false}, {"name": "f10", "value": "1", "truncated": false}, {"name": "f11", "value": "1", "truncated": false}, {"name": "f12", "value": "1", "truncated": false}, {"name": "f13", "value": "1", "truncated": false}, {"name": "f14", "value": "1", "truncated": false}, {"name": "f15", "value": "1", "truncated": false}, {"name": "g", "value": "1", "truncated": false}], "omitted": 0},
+      {"fields": [{"name": "a", "value": "1", "truncated": 0}], "omitted": 0},
+      {"fields": [{"name": "a", "value": "1", "truncated": false}], "omitted": -1},
+      {"fields": [{"name": "a", "value": "1", "truncated": false}]},
+      []
+    ]
+  },
   "restricted_actions": {
     "valid": [
       {"actions": [{"assistant": "shimpz-cloudflare", "action": "list-zones"}], "total": 2},

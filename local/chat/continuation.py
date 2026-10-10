@@ -249,21 +249,24 @@ def _usage_value(value: object) -> dict[str, object]:
 def _transcripts_payload(transcripts: tuple[action_human.ActionTranscript, ...]) -> list[dict[str, object]]:
     if (
         not isinstance(transcripts, tuple)
+        or not all(isinstance(item, action_human.ActionTranscript) for item in transcripts)
         or len({item.interrupt_id for item in transcripts}) != len(transcripts)
-        or sum(len(item.responses) for item in transcripts) > action_human.MAX_REQUESTS_PER_TURN
+        or answered(transcripts) > action_human.MAX_REQUESTS_PER_TURN
     ):
         raise ContinuationCodecError("pending human transcripts are malformed")
-    payload: list[dict[str, object]] = []
-    for transcript in transcripts:
-        if not isinstance(transcript, action_human.ActionTranscript):
-            raise ContinuationCodecError("pending human transcripts are malformed")
-        payload.append(
-            {
-                "interrupt_id": _interrupt_id(transcript.interrupt_id),
-                "responses": [_json_value(response.payload()) for response in transcript.responses],
-            }
-        )
-    return payload
+    return [
+        {
+            "interrupt_id": _interrupt_id(transcript.interrupt_id),
+            "responses": [_json_value(response.payload()) for response in transcript.responses],
+            "confirmation": None if transcript.confirmation is None else _json_value(transcript.confirmation.payload()),
+        }
+        for transcript in transcripts
+    ]
+
+
+def answered(transcripts: tuple[action_human.ActionTranscript, ...]) -> int:
+    """Every human answer the transcripts hold, Team's own confirmations included."""
+    return sum(len(item.responses) + (item.confirmation is not None) for item in transcripts)
 
 
 def _requests_used(value: object) -> int:
@@ -320,6 +323,7 @@ def _requirements_payload(kind: str, requirements: tuple[object, ...]) -> list[d
                 "purpose": requirement.purpose,
                 "purpose_locale": requirement.purpose_locale,
                 "file": None if requirement.file is None else _json_value(dict(requirement.file)),
+                "input": None if requirement.input is None else _json_value(dict(requirement.input)),
             }
         ]
     raise ContinuationCodecError("continuation requirements are malformed")
@@ -601,7 +605,7 @@ def _pending(value: object) -> PendingLocalChat:
     locale = raw["locale"]
     if locale is not None and http_payload.canonical_locale(locale) is None:
         raise ContinuationCodecError("pending locale is malformed")
-    if sum(len(item.responses) for item in transcripts) > requests_used:
+    if answered(transcripts) > requests_used:
         raise ContinuationCodecError("human request budget is malformed")
     recording = raw["recording"]
     if recording is not None and (not isinstance(recording, str) or _RECORDING_RE.fullmatch(recording) is None):
@@ -639,25 +643,44 @@ def _human_response(value: object, ordinal: int) -> action_human.HumanResponse:
         or raw["ordinal"] != ordinal
         or not isinstance(fingerprint, str)
         or http_payload.SHA256_RE.fullmatch(fingerprint) is None
-        or ((kind == "approval" or kind in action_human.AUTH_KINDS) and response_value is not True)
+        or kind == action_human.CONFIRMATION_KIND
+        or (kind in action_human.AUTHORIZATION_KINDS and response_value is not True)
     ):
         raise ContinuationCodecError("human response is malformed")
     return action_human.HumanResponse(kind, ordinal, fingerprint, response_value)
+
+
+def _confirmation(value: object) -> action_human.HumanResponse | None:
+    """Team's own confirmation of an Action, kept beside its transcript: always ordinal 0 and exactly true."""
+    if value is None:
+        return None
+    raw = _mapping(value, {"kind", "ordinal", "fingerprint", "value"}, "human confirmation")
+    if (
+        raw["kind"] != action_human.CONFIRMATION_KIND
+        or type(raw["ordinal"]) is not int
+        or raw["ordinal"] != 0
+        or not isinstance(raw["fingerprint"], str)
+        or http_payload.SHA256_RE.fullmatch(raw["fingerprint"]) is None
+        or raw["value"] is not True
+    ):
+        raise ContinuationCodecError("human confirmation is malformed")
+    return action_human.HumanResponse(action_human.CONFIRMATION_KIND, 0, raw["fingerprint"], True)
 
 
 def _transcripts(value: object) -> tuple[action_human.ActionTranscript, ...]:
     transcripts: list[action_human.ActionTranscript] = []
     count = 0
     for item in _sequence(value, action_human.MAX_REQUESTS_PER_TURN, "human transcripts"):
-        raw = _mapping(item, {"interrupt_id", "responses"}, "human transcript")
+        raw = _mapping(item, {"interrupt_id", "responses", "confirmation"}, "human transcript")
         responses = tuple(
             _human_response(response, ordinal)
             for ordinal, response in enumerate(
                 _sequence(raw["responses"], action_human.MAX_REQUESTS_PER_ACTION, "human responses")
             )
         )
-        count += len(responses)
-        transcripts.append(action_human.ActionTranscript(_interrupt_id(raw["interrupt_id"]), responses))
+        confirmation = _confirmation(raw["confirmation"])
+        count += len(responses) + (confirmation is not None)
+        transcripts.append(action_human.ActionTranscript(_interrupt_id(raw["interrupt_id"]), responses, confirmation))
     if count > action_human.MAX_REQUESTS_PER_TURN or len({item.interrupt_id for item in transcripts}) != len(
         transcripts
     ):
@@ -726,6 +749,7 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
             "purpose",
             "purpose_locale",
             "file",
+            "input",
         },
         "human requirement",
     )
@@ -754,7 +778,14 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
     file_valid = file is None or (
         request.kind in action_human.AUTHORIZATION_KINDS and http_payload.canonical_file_disclosure(file) == file
     )
-    if not help_url_valid or not purpose_valid or not file_valid:
+    shown = raw["input"]
+    input_valid = (
+        request.kind != action_human.CONFIRMATION_KIND
+        if shown is None
+        else request.kind in action_challenges.CONFIRMATION_KINDS
+        and http_payload.canonical_input_projection(shown) is not None
+    )
+    if not help_url_valid or not purpose_valid or not file_valid or not input_valid:
         raise ContinuationCodecError("human requirement presentation is malformed")
     return action_challenges.HumanRequirement(
         _component_id(raw["assistant_id"], "human Assistant", http_payload.canonical_assistant_id),
@@ -770,6 +801,7 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
         purpose=purpose,
         purpose_locale=purpose_locale,
         file=file,
+        input=shown,
     )
 
 
@@ -781,6 +813,14 @@ def _human_request(value: object, messages: object) -> action_human.HumanRequest
     """
     if not isinstance(value, dict) or not isinstance(value.get("kind"), str) or not isinstance(messages, list):
         raise ContinuationCodecError("human requirement request is malformed")
+    if value["kind"] == action_human.CONFIRMATION_KIND:
+        # Team's own confirmation references no catalog copy; its recorded fingerprint must still be its own.
+        if messages:
+            raise ContinuationCodecError("human requirement catalog is malformed")
+        try:
+            return action_human.restore_confirmation_request(value)
+        except action_human.HumanRequestError as exc:
+            raise ContinuationCodecError("human requirement request is malformed") from exc
     if any(catalog_validator.message_error(message) is not None for message in messages):
         raise ContinuationCodecError("human requirement catalog is malformed")
     catalog = {message["id"]: message for message in messages}
