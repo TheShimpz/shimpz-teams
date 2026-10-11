@@ -9,7 +9,7 @@ from docker.errors import DockerException
 
 from local.install import inventory, snapshots
 
-EMPTY: tuple[snapshots.LocalSnapshotCandidate, ...] = ()
+EMPTY = snapshots.Listing("linux/amd64", (), ())
 CANDIDATE = snapshots.LocalSnapshotCandidate(
     "fixture-assistant",
     "0.1.0",
@@ -22,7 +22,7 @@ CANDIDATE = snapshots.LocalSnapshotCandidate(
     "linux/amd64",
     "2026-09-17T00:00:00Z",
 )
-CURRENT = (CANDIDATE,)
+CURRENT = snapshots.Listing("linux/amd64", (CANDIDATE,), ())
 
 
 def _inventory(
@@ -41,7 +41,7 @@ def _warm_inventory() -> tuple[inventory.LocalSnapshotInventory, tuple[object, .
         clock_ns=mock.Mock(return_value=100),
         monotonic=mock.Mock(return_value=0.0),
     )
-    return cache, cache.candidates()
+    return cache, cache.listing()
 
 
 class LocalSnapshotInventoryTests(unittest.TestCase):
@@ -50,7 +50,7 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         with mock.patch.object(inventory.snapshots, "list_candidates", return_value=CURRENT) as list_candidates:
             cache = inventory.LocalSnapshotInventory(client, "linux/amd64")
 
-            self.assertEqual(cache.candidates(), CURRENT)
+            self.assertEqual(cache.listing(), CURRENT)
 
         list_candidates.assert_called_once_with(client, platform="linux/amd64")
 
@@ -67,8 +67,8 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             monotonic=mock.Mock(side_effect=(0.0, 1.0)),
         )
 
-        self.assertEqual(cache.candidates(), CURRENT)
-        self.assertEqual(cache.candidates(), CURRENT)
+        self.assertEqual(cache.listing(), CURRENT)
+        self.assertEqual(cache.listing(), CURRENT)
 
         loader.assert_called_once_with(client, "linux/amd64")
         client.events.assert_called_once_with(
@@ -87,8 +87,8 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             client, loader, clock_ns=iter((100, 200, 300)).__next__, monotonic=mock.Mock(return_value=0.0)
         )
 
-        self.assertEqual(cache.candidates(), EMPTY)
-        self.assertEqual(cache.candidates(), CURRENT)
+        self.assertEqual(cache.listing(), EMPTY)
+        self.assertEqual(cache.listing(), CURRENT)
         self.assertEqual(loader.call_count, 2)
 
     def test_validator_failure_degrades_to_direct_refresh(self) -> None:
@@ -99,9 +99,9 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             client, loader, clock_ns=iter((100, 200, 300)).__next__, monotonic=mock.Mock(return_value=0.0)
         )
 
-        self.assertEqual(cache.candidates(), EMPTY)
+        self.assertEqual(cache.listing(), EMPTY)
         with self.assertLogs("shimpz-team-local-snapshot-inventory", level="WARNING"):
-            self.assertEqual(cache.candidates(), CURRENT)
+            self.assertEqual(cache.listing(), CURRENT)
 
     def test_partial_event_stream_failure_degrades_to_direct_refresh(self) -> None:
         class BrokenEvents:
@@ -123,9 +123,9 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             client, loader, clock_ns=iter((100, 200, 300)).__next__, monotonic=mock.Mock(return_value=0.0)
         )
 
-        self.assertEqual(cache.candidates(), EMPTY)
+        self.assertEqual(cache.listing(), EMPTY)
         with self.assertLogs("shimpz-team-local-snapshot-inventory", level="WARNING"):
-            self.assertEqual(cache.candidates(), CURRENT)
+            self.assertEqual(cache.listing(), CURRENT)
         self.assertTrue(events.closed)
 
     def test_expired_cache_refreshes_before_returning_when_old_events_aged_out(self) -> None:
@@ -136,13 +136,13 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             client, loader, clock_ns=iter((100, 200)).__next__, monotonic=mock.Mock(side_effect=(0.0, 31.0, 32.0))
         )
 
-        self.assertEqual(cache.candidates(), EMPTY)
-        self.assertEqual(cache.candidates(), CURRENT)
+        self.assertEqual(cache.listing(), EMPTY)
+        self.assertEqual(cache.listing(), CURRENT)
 
         self.assertEqual(loader.call_count, 2)
         client.events.assert_not_called()
 
-    def test_expired_cache_failure_never_serves_stale_candidates(self) -> None:
+    def test_expired_cache_failure_never_serves_a_stale_listing(self) -> None:
         client = mock.Mock()
         loader = mock.Mock(side_effect=(EMPTY, snapshots.LocalSnapshotUnavailableError("offline")))
         cache = _inventory(
@@ -151,20 +151,20 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             clock_ns=mock.Mock(side_effect=(100, 200, 300)),
             monotonic=mock.Mock(side_effect=(0.0, 31.0)),
         )
-        self.assertEqual(cache.candidates(), EMPTY)
+        self.assertEqual(cache.listing(), EMPTY)
 
         with self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "offline"):
-            cache.candidates()
+            cache.listing()
 
         with cache._condition:
             self.assertFalse(cache._refreshing)
-            self.assertEqual(cache._candidates, EMPTY)
+            self.assertEqual(cache._listing, EMPTY)
         cache._loader = mock.Mock(return_value=CURRENT)
         cache._monotonic = mock.Mock(side_effect=(31.0, 32.0))
-        self.assertEqual(cache.candidates(), CURRENT)
+        self.assertEqual(cache.listing(), CURRENT)
         client.events.assert_not_called()
 
-    def test_concurrent_expired_readers_single_flight_without_serving_stale_candidates(self) -> None:
+    def test_concurrent_expired_readers_single_flight_without_serving_a_stale_listing(self) -> None:
         client = mock.Mock()
         client.events.return_value = ()
         refresh_started = threading.Event()
@@ -183,11 +183,11 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         cache = _inventory(
             client, load, clock_ns=mock.Mock(side_effect=range(100, 110)), monotonic=mock.Mock(return_value=0.0)
         )
-        self.assertEqual(cache.candidates(), EMPTY)
+        self.assertEqual(cache.listing(), EMPTY)
         cache._monotonic = mock.Mock(return_value=31.0)
 
         with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = [executor.submit(cache.candidates) for _ in range(4)]
+            futures = [executor.submit(cache.listing) for _ in range(4)]
             self.assertTrue(refresh_started.wait(timeout=1))
             release_refresh.set()
             self.assertEqual([future.result(timeout=1) for future in futures], [CURRENT] * 4)
@@ -212,7 +212,7 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         cache.warm()
         self.assertTrue(started.wait(timeout=1))
         with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = [executor.submit(cache.candidates) for _ in range(4)]
+            futures = [executor.submit(cache.listing) for _ in range(4)]
             release.set()
             self.assertEqual([future.result(timeout=1) for future in futures], [CURRENT] * 4)
         self.assertEqual(calls, 1)
@@ -232,7 +232,7 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             self.assertTrue(cache._condition.wait_for(lambda: not cache._refreshing, timeout=1))
         cache._loader = mock.Mock(return_value=CURRENT)
 
-        self.assertEqual(cache.candidates(), CURRENT)
+        self.assertEqual(cache.listing(), CURRENT)
 
     def test_clock_rollback_forces_refresh(self) -> None:
         client = mock.Mock()
@@ -241,8 +241,8 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             client, loader, clock_ns=iter((200, 100, 300)).__next__, monotonic=mock.Mock(return_value=0.0)
         )
 
-        self.assertEqual(cache.candidates(), EMPTY)
-        self.assertEqual(cache.candidates(), CURRENT)
+        self.assertEqual(cache.listing(), EMPTY)
+        self.assertEqual(cache.listing(), CURRENT)
         client.events.assert_not_called()
 
     def test_retry_observes_a_refresh_completed_by_another_reader(self) -> None:
@@ -252,7 +252,7 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             mock.patch.object(cache, "_validate", side_effect=((True, 200), (False, 300))),
             mock.patch.object(cache, "_claim_refresh", return_value=False),
         ):
-            self.assertEqual(cache.candidates(), CURRENT)
+            self.assertEqual(cache.listing(), CURRENT)
 
     def test_retry_discards_a_snapshot_replaced_before_freshness_check(self) -> None:
         cache, first = _warm_inventory()
@@ -265,7 +265,7 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             ),
             mock.patch.object(cache, "_validate", return_value=(False, 101)) as validate,
         ):
-            self.assertEqual(cache.candidates(), CURRENT)
+            self.assertEqual(cache.listing(), CURRENT)
         validate.assert_called_once_with(100)
 
     def test_retry_discards_a_validator_result_for_an_older_cursor(self) -> None:
@@ -281,7 +281,7 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             return False, cursor_ns + 2
 
         with mock.patch.object(cache, "_validate", side_effect=validate):
-            self.assertEqual(cache.candidates(), CURRENT)
+            self.assertEqual(cache.listing(), CURRENT)
         self.assertEqual(validations, 2)
 
     def test_refresh_waits_are_bounded_and_cursor_fenced(self) -> None:
@@ -293,7 +293,7 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         ):
             cache._snapshot_or_claim_cold_refresh()
 
-        cache._candidates = CURRENT
+        cache._listing = CURRENT
         cache._cursor_ns = 100
         self.assertFalse(cache._claim_refresh(99))
         with mock.patch.object(cache._condition, "wait", return_value=True):
@@ -319,7 +319,7 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
 
     def test_warm_is_a_noop_after_inventory_is_available(self) -> None:
         cache = inventory.LocalSnapshotInventory(mock.Mock(), "linux/amd64", loader=mock.Mock(return_value=CURRENT))
-        self.assertEqual(cache.candidates(), CURRENT)
+        self.assertEqual(cache.listing(), CURRENT)
         with mock.patch.object(cache, "_start_background_locked") as start:
             cache.warm()
         start.assert_not_called()

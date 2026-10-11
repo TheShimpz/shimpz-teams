@@ -38,8 +38,8 @@ def _percentiles(values: list[float]) -> dict[str, float | int]:
 
 def _timed(cache: inventory.LocalSnapshotInventory) -> tuple[float, int]:
     started = time.perf_counter_ns()
-    candidates = cache.candidates()
-    return (time.perf_counter_ns() - started) / 1_000_000, len(candidates)
+    listing = cache.listing()
+    return (time.perf_counter_ns() - started) / 1_000_000, len(listing.candidates)
 
 
 def _event_count(client: docker.DockerClient, start_ns: int, end_ns: int) -> int:
@@ -60,7 +60,7 @@ def _event_count(client: docker.DockerClient, start_ns: int, end_ns: int) -> int
 def _samples(client: docker.DockerClient, platform: str) -> dict[str, object]:
     load_count = 0
 
-    def load(source: object, target_platform: str) -> tuple[snapshots.LocalSnapshotCandidate, ...]:
+    def load(source: object, target_platform: str) -> snapshots.Listing:
         nonlocal load_count
         load_count += 1
         return snapshots.list_candidates(source, platform=target_platform)

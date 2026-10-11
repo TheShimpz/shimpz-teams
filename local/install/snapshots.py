@@ -70,6 +70,8 @@ UNAVAILABLE = "unavailable"
 # The declaration fails the current contract; or the image's labels or files disagree with its own declaration.
 DECLARATION_INVALID = "declaration-invalid"
 IMAGE_INCONSISTENT = "image-inconsistent"
+# A staged image whose stage labels or fixed image metadata fail validation, though it names a valid Assistant id.
+LABELS_INVALID = "labels-invalid"
 
 
 class LocalSnapshotError(bindings.DynamicAssistantError):
@@ -92,10 +94,6 @@ class LocalSnapshotAbsentError(LocalSnapshotUnavailableError):
     """The exact Local snapshot image is no longer present."""
 
 
-class InvalidLabeledSnapshotError(LocalSnapshotError):
-    """A canonically identified stage-labeled image failed validation."""
-
-
 @dataclass(frozen=True, slots=True)
 class LocalSnapshotCandidate:
     assistant_id: str
@@ -108,6 +106,27 @@ class LocalSnapshotCandidate:
     image_id: str
     platform: str
     created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class RefusedSnapshot:
+    """A staged image whose stage identity failed validation: never offered, and listed only under a valid id label.
+
+    ``assistant_id`` is the image's Assistant id label when that label alone is valid, and None when the image names no
+    Assistant at all.
+    """
+
+    image_id: str
+    assistant_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class Listing:
+    """Every current staged image on the daemon's platform: the validly identified candidates and the refused ones."""
+
+    platform: str
+    candidates: tuple[LocalSnapshotCandidate, ...]
+    refused: tuple[RefusedSnapshot, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,10 +162,12 @@ def local_repo_digests_valid(repo_digests: object, assistant_id: str, image_id: 
     return repo_digests in ([], [f"{LOCAL_SNAPSHOT_REPOSITORY}/{assistant_id}@{image_id}"])
 
 
-def list_candidates(client, *, platform: str | None = None) -> tuple[LocalSnapshotCandidate, ...]:
+def list_candidates(client, *, platform: str | None = None) -> Listing:
     """Return only bounded current snapshots, never general daemon inventory.
 
-    The reference filter reads Docker's name index, so discovery never scans every image's configuration.
+    The reference filter reads Docker's name index, so discovery never scans every image's configuration. One staged
+    image whose stage identity fails validation never fails the listing: it is refused on its own. Docker failing to
+    answer, or answering outside its own contract, still fails the whole listing.
     """
     try:
         summaries = client.api.images(filters={"reference": [f"{LOCAL_SNAPSHOT_REPOSITORY}/*:{LOCAL_SNAPSHOT_TAG}"]})
@@ -155,25 +176,36 @@ def list_candidates(client, *, platform: str | None = None) -> tuple[LocalSnapsh
     if not isinstance(summaries, list) or len(summaries) > MAX_CANDIDATES:
         raise LocalSnapshotError("the Local Assistant snapshot inventory is invalid or too large")
     platform = _daemon_platform(client) if platform is None else platform
-    candidates = []
+    candidates: list[LocalSnapshotCandidate] = []
+    refused: list[RefusedSnapshot] = []
     for summary in summaries:
-        image = None
+        image = _summary_image(client, summary)
         try:
-            image = _summary_image(client, summary)
             candidates.append(_candidate(image, platform))
         except LocalSnapshotUnavailableError:
             raise
-        except LocalSnapshotError as exc:
-            image_id = getattr(image, "id", None)
-            if isinstance(image_id, str) and http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is not None:
-                raise InvalidLabeledSnapshotError(
-                    f"Local Assistant snapshot {image_id} carries the Local stage label but failed validation"
-                ) from exc
-            raise
-    candidates = tuple(candidates)
-    if len({candidate.image_id for candidate in candidates}) != len(candidates):
+        except LocalSnapshotError:
+            refused.append(_refused(image))
+    image_ids = [value.image_id for value in (*candidates, *refused)]
+    if len(set(image_ids)) != len(image_ids):
         raise LocalSnapshotError("the Local Assistant snapshot inventory contains duplicate images")
-    return tuple(sorted(candidates, key=lambda value: (value.assistant_id, value.version, value.image_id)))
+    return Listing(
+        platform=platform,
+        candidates=tuple(sorted(candidates, key=lambda value: (value.assistant_id, value.version, value.image_id))),
+        refused=tuple(sorted(refused, key=lambda value: value.image_id)),
+    )
+
+
+def _refused(image) -> RefusedSnapshot:
+    """The staged identity of an image whose stage identity failed validation: its id, and its Assistant id label."""
+    image_id = getattr(image, "id", None)
+    if not isinstance(image_id, str) or http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is None:
+        raise LocalSnapshotError("the Local Assistant snapshot identity is invalid")
+    try:
+        assistant_id = http_payload.canonical_assistant_id(_labels(image).get(ASSISTANT_LABEL))
+    except LocalSnapshotError:
+        assistant_id = None
+    return RefusedSnapshot(image_id, assistant_id)
 
 
 def admission(client, image_id: str) -> Admission:

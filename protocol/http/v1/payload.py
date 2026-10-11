@@ -130,7 +130,17 @@ LOCAL_ASSISTANT_FIELDS = frozenset(
     }
 )
 LOCAL_ASSISTANT_ADMISSIONS = frozenset({"admissible", "inadmissible", "unavailable"})
-LOCAL_ASSISTANT_REASONS = frozenset({"declaration-invalid", "image-inconsistent"})
+LOCAL_ASSISTANT_REASONS = frozenset({"declaration-invalid", "image-inconsistent", "labels-invalid"})
+# The label projection a `labels-invalid` entry cannot carry: each of these members is null in it.
+LOCAL_ASSISTANT_LABEL_FIELDS = (
+    "assistant_version",
+    "name",
+    "summary",
+    "declared_creators",
+    "actions",
+    "integrations",
+    "created_at",
+)
 LOCAL_ASSISTANT_PLATFORMS = frozenset({"linux/amd64", "linux/arm64"})
 LOCAL_ASSISTANT_CREATOR_RE = re.compile(r"@[a-z0-9][a-z0-9-]{1,30}[a-z0-9]\Z")
 LOCAL_ASSISTANT_CREATED_RE = re.compile(r"[0-9TZ:+.-]{20,64}\Z")
@@ -308,34 +318,43 @@ def canonical_local_assistant(value: object) -> dict[str, object] | None:
     """Return one staged Local snapshot's inventory entry, or None when any member, bound, or verdict fails.
 
     `reason` is a closed code exactly when the snapshot is inadmissible and null otherwise; the entry never carries
-    the snapshot's content. The label text is unverified Local presentation.
+    the snapshot's content. The label text is unverified Local presentation. A snapshot whose stage labels fail
+    validation (`labels-invalid`) names only its staged identity: every label member is null.
     """
-    if not isinstance(value, dict) or set(value) != LOCAL_ASSISTANT_FIELDS:
-        return None
-    version = value["assistant_version"]
-    creators = value["declared_creators"]
-    created_at = value["created_at"]
     if (
-        canonical_assistant_id(value["assistant_id"]) is None
-        or not isinstance(version, str)
-        or ASSISTANT_VERSION_RE.fullmatch(version) is None
-        or not all(_label_text(value[key]) for key in ("name", "summary"))
-        or not isinstance(creators, list)
-        or not 1 <= len(creators) <= MAX_LOCAL_ASSISTANT_CREATORS
-        or not all(isinstance(item, str) and LOCAL_ASSISTANT_CREATOR_RE.fullmatch(item) for item in creators)
-        or len(set(creators)) != len(creators)
-        or not _sorted_identifiers(value["actions"], 1, MAX_DETAILS_ACTIONS)
-        or not _sorted_identifiers(value["integrations"], 0, MAX_DETAILS_INTEGRATIONS)
+        not isinstance(value, dict)
+        or set(value) != LOCAL_ASSISTANT_FIELDS
+        or canonical_assistant_id(value["assistant_id"]) is None
         or canonical_source_digest(value["image_id"]) is None
         or not isinstance(value["platform"], str)
         or value["platform"] not in LOCAL_ASSISTANT_PLATFORMS
-        or not isinstance(created_at, str)
-        or LOCAL_ASSISTANT_CREATED_RE.fullmatch(created_at) is None
         or value["provenance"] != "local"
         or value["unpublished"] is not True
+        or not _local_admission(value["admission"], value["reason"])
     ):
         return None
-    return value if _local_admission(value["admission"], value["reason"]) else None
+    if value["reason"] == "labels-invalid":
+        return value if all(value[key] is None for key in LOCAL_ASSISTANT_LABEL_FIELDS) else None
+    return value if _local_labels(value) else None
+
+
+def _local_labels(value: dict[str, object]) -> bool:
+    version = value["assistant_version"]
+    creators = value["declared_creators"]
+    created_at = value["created_at"]
+    return (
+        isinstance(version, str)
+        and ASSISTANT_VERSION_RE.fullmatch(version) is not None
+        and all(_label_text(value[key]) for key in ("name", "summary"))
+        and isinstance(creators, list)
+        and 1 <= len(creators) <= MAX_LOCAL_ASSISTANT_CREATORS
+        and all(isinstance(item, str) and LOCAL_ASSISTANT_CREATOR_RE.fullmatch(item) for item in creators)
+        and len(set(creators)) == len(creators)
+        and _sorted_identifiers(value["actions"], 1, MAX_DETAILS_ACTIONS)
+        and _sorted_identifiers(value["integrations"], 0, MAX_DETAILS_INTEGRATIONS)
+        and isinstance(created_at, str)
+        and LOCAL_ASSISTANT_CREATED_RE.fullmatch(created_at) is not None
+    )
 
 
 def _local_admission(admission: object, reason: object) -> bool:

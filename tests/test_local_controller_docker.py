@@ -72,6 +72,7 @@ from local.install import snapshots
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import supervisor as supervisor_contract
 from tests import local_snapshot_fixtures as snapshot_fixtures
+from tests.test_assistant_manifest import manifest
 from tests.test_local_snapshot_admission import UNROUTED_STORED_INPUT
 
 
@@ -514,17 +515,33 @@ class DockerFlowTests(
     def _assert_local_snapshot_fast_path(self, flow: DockerFlow) -> None:
         # A staged snapshot whose Stored Input declares no reviewed routes fails the current contract: Team still lists
         # its identity, judges it inadmissible with the full install admission, and reuses that verdict while the
-        # exact image and its tag are unchanged.
-        reference = snapshots.canonical_reference("fixture-assistant")
-        image_id = self._stage_snapshot(reference, UNROUTED_STORED_INPUT)
+        # exact image and its tag are unchanged. Beside it, an image whose valid id label sits beside an invalid
+        # Action label is an inadmissible shadow, and an image with no valid id label is left out: neither fails the
+        # inventory.
+        references = {
+            name: snapshots.canonical_reference(name) for name in ("fixture-assistant", "broken-labels", "unnamed")
+        }
+        image_id = self._stage_snapshot(references["fixture-assistant"], UNROUTED_STORED_INPUT)
+        shadow_id = self._stage_snapshot(
+            references["broken-labels"],
+            manifest(),
+            {snapshots.ASSISTANT_LABEL: "broken-labels", snapshots.ACTIONS_LABEL: "Ping"},
+        )
+        self._stage_snapshot(references["unnamed"], manifest(), {snapshots.ASSISTANT_LABEL: None})
         try:
             local_status, local_catalog = self._api(flow.port, flow.token, "GET", "/v1/local-assistants")
             self.assertEqual(local_status, 200, local_catalog)
-            (entry,) = local_catalog["assistants"]
-            self.assertEqual(http_payload.canonical_local_assistant(entry), entry)
+            entries = {entry["assistant_id"]: entry for entry in local_catalog["assistants"]}
+            self.assertEqual(set(entries), {"fixture-assistant", "broken-labels"})
+            self.assertTrue(all(http_payload.canonical_local_assistant(entry) == entry for entry in entries.values()))
+            unrouted, shadow = entries["fixture-assistant"], entries["broken-labels"]
             self.assertEqual(
-                (entry["assistant_id"], entry["image_id"], entry["admission"], entry["reason"]),
-                ("fixture-assistant", image_id, "inadmissible", "declaration-invalid"),
+                (unrouted["image_id"], unrouted["admission"], unrouted["reason"]),
+                (image_id, "inadmissible", "declaration-invalid"),
+            )
+            self.assertEqual(
+                (shadow["image_id"], shadow["admission"], shadow["reason"], shadow["name"]),
+                (shadow_id, "inadmissible", "labels-invalid", None),
             )
             started = time.monotonic()
             warm_status, warm_catalog = self._api(flow.port, flow.token, "GET", "/v1/local-assistants")
@@ -533,13 +550,22 @@ class DockerFlowTests(
             self.assertEqual(warm_catalog["assistants"], local_catalog["assistants"])
             self.assertLess(warm_elapsed, 0.5, f"warm Local snapshot inventory took {warm_elapsed:.3f}s")
         finally:
-            self._run("image", "rm", "--force", reference, check=False)
+            for reference in references.values():
+                self._run("image", "rm", "--force", reference, check=False)
         log_result = self._run("logs", flow.controller)
         logs = log_result.stdout + log_result.stderr
         self.assertNotIn("Docker image event validation failed", logs)
 
-    def _stage_snapshot(self, reference: str, declaration: bytes) -> str:
-        """Stage one never-started snapshot exactly as the CLI tags it: its files, labels, and fixed runtime."""
+    def _stage_snapshot(
+        self,
+        reference: str,
+        declaration: bytes,
+        overrides: dict[str, str | None] | None = None,
+    ) -> str:
+        """Stage one never-started snapshot exactly as the CLI tags it: its files, labels, and fixed runtime.
+
+        ``overrides`` replaces stage labels, and a None value leaves that label out.
+        """
         package, manifest, icon = snapshot_fixtures._package(declaration)
         files = {
             snapshots.SOURCE_PATH: package,
@@ -562,6 +588,11 @@ class DockerFlowTests(
             snapshots.ACTIONS_LABEL: "ping",
             snapshots.INTEGRATIONS_LABEL: "",
         }
+        for key, value in (overrides or {}).items():
+            if value is None:
+                labels.pop(key)
+            else:
+                labels[key] = value
         with tempfile.TemporaryDirectory() as build_root:
             copies = []
             for index, (path, contents) in enumerate(files.items()):

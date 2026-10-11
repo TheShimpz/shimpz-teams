@@ -84,33 +84,35 @@ class LocalSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(snapshots.LocalSnapshotError, "architecture is unsupported"):
             snapshots.list_candidates(client)
 
-    def test_candidate_inspection_and_labels_fail_closed(self) -> None:
-        client, image, _container_value = _client()
+    def test_candidate_inspection_fails_closed(self) -> None:
+        client, _image_value, _container_value = _client()
         client.images.get.side_effect = DockerException("offline")
         with self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "cannot resolve"):
             snapshots.list_candidates(client)
 
-        client, image, _container_value = _client()
-        del image.attrs["Config"]["Labels"][snapshots.ASSISTANT_LABEL]
-        with self.assertRaisesRegex(snapshots.InvalidLabeledSnapshotError, "failed validation"):
-            snapshots.list_candidates(client)
+    def test_an_image_with_invalid_stage_labels_is_refused_alone_under_its_valid_id_label(self) -> None:
+        identified = snapshots.RefusedSnapshot(IMAGE_ID, "fixture-assistant")
+        unidentified = snapshots.RefusedSnapshot(IMAGE_ID, None)
+        cases = [
+            (lambda labels: labels.update({snapshots.SOURCE_LABEL: "not-a-digest"}), identified),
+            (lambda labels: labels.pop(snapshots.ASSISTANT_LABEL), unidentified),
+            (lambda labels: labels.update({snapshots.ASSISTANT_LABEL: "Fixture Assistant"}), unidentified),
+            *(
+                (lambda labels, value=value: labels.update({snapshots.ACTIONS_LABEL: value}), identified)
+                for value in ("", "Ping", "ping,ping", "later,earlier")
+            ),
+        ]
+        for change, refused in cases:
+            with self.subTest(refused=refused):
+                client, image, _container_value = _client()
+                change(image.attrs["Config"]["Labels"])
 
-        client, image, _container_value = _client()
-        image.attrs["Config"]["Labels"][snapshots.SOURCE_LABEL] = "not-a-digest"
-        with self.assertRaisesRegex(snapshots.InvalidLabeledSnapshotError, "failed validation"):
-            snapshots.list_candidates(client)
+                self.assertEqual(snapshots.list_candidates(client), snapshots.Listing("linux/amd64", (), (refused,)))
+                client.containers.create.assert_not_called()
 
         client, image, _container_value = _client()
         image.attrs["Config"]["Labels"] = []
-        with self.assertRaisesRegex(snapshots.InvalidLabeledSnapshotError, "failed validation"):
-            snapshots.list_candidates(client)
-
-        for value in ("", "Ping", "ping,ping", "later,earlier"):
-            with self.subTest(actions=value):
-                client, image, _container_value = _client()
-                image.attrs["Config"]["Labels"][snapshots.ACTIONS_LABEL] = value
-                with self.assertRaisesRegex(snapshots.InvalidLabeledSnapshotError, "failed validation"):
-                    snapshots.list_candidates(client)
+        self.assertEqual(snapshots.list_candidates(client).refused, (unidentified,))
 
     def test_snapshot_summary_resolution_fails_closed(self) -> None:
         client, _image_value, _container_value = _client()
@@ -147,10 +149,11 @@ class LocalSnapshotTests(unittest.TestCase):
     def test_lists_only_bounded_stage_candidates(self) -> None:
         client, _image_value, _container_value = _client()
 
-        candidates = snapshots.list_candidates(client)
+        listing = snapshots.list_candidates(client)
 
+        self.assertEqual(listing.refused, ())
         self.assertEqual(
-            candidates,
+            listing.candidates,
             (
                 snapshots.LocalSnapshotCandidate(
                     "fixture-assistant",
@@ -175,8 +178,10 @@ class LocalSnapshotTests(unittest.TestCase):
             with self.subTest(tags=tags):
                 client, image, _container_value = _client()
                 image.attrs["RepoTags"] = tags
-                with self.assertRaisesRegex(snapshots.InvalidLabeledSnapshotError, "failed validation"):
-                    snapshots.list_candidates(client)
+                self.assertEqual(
+                    snapshots.list_candidates(client).refused,
+                    (snapshots.RefusedSnapshot(IMAGE_ID, "fixture-assistant"),),
+                )
                 with self.assertRaisesRegex(snapshots.LocalSnapshotError, "current snapshot"):
                     snapshots.admit(client, IMAGE_ID)
                 with self.assertRaisesRegex(snapshots.LocalSnapshotError, "current snapshot"):
@@ -185,7 +190,7 @@ class LocalSnapshotTests(unittest.TestCase):
     def test_accepts_only_a_never_pulled_snapshot_digest(self) -> None:
         client, image, _container_value = _client()
         image.attrs["RepoDigests"] = [f"shimpz-local/fixture-assistant@{IMAGE_ID}"]
-        self.assertEqual(len(snapshots.list_candidates(client)), 1)
+        self.assertEqual(len(snapshots.list_candidates(client).candidates), 1)
         for digests in (
             ["ghcr.io/theshimpz/shimpz-assistant@sha256:" + ("d" * 64)],
             ["shimpz-local/other-assistant@" + IMAGE_ID],
@@ -207,15 +212,14 @@ class LocalSnapshotTests(unittest.TestCase):
 
         client.images.get.assert_not_called()
 
-    def test_names_only_a_canonical_invalid_stage_labeled_image(self) -> None:
+    def test_a_refused_image_keeps_its_id_label_and_a_malformed_image_id_fails_the_listing(self) -> None:
         client, image, _container_value = _client()
         image.attrs["Config"]["User"] = "0:0"
 
-        with self.assertRaisesRegex(
-            snapshots.InvalidLabeledSnapshotError,
-            rf"^Local Assistant snapshot {IMAGE_ID} carries the Local stage label but failed validation$",
-        ):
-            snapshots.list_candidates(client)
+        self.assertEqual(
+            snapshots.list_candidates(client).refused,
+            (snapshots.RefusedSnapshot(IMAGE_ID, "fixture-assistant"),),
+        )
 
         image.id = "malformed-image-id"
         with self.assertRaisesRegex(
@@ -444,7 +448,7 @@ class LocalSnapshotTests(unittest.TestCase):
 
     def test_service_lists_only_public_candidate_fields(self) -> None:
         client, _image_value, _container_value = _client()
-        local_snapshot_inventory = SimpleNamespace(candidates=lambda: snapshots.list_candidates(client))
+        local_snapshot_inventory = SimpleNamespace(listing=lambda: snapshots.list_candidates(client))
         controller = SimpleNamespace(
             local_snapshot_inventory=local_snapshot_inventory,
             local_snapshot_admissions=admission.LocalSnapshotAdmissions(client),
@@ -477,20 +481,6 @@ class LocalSnapshotTests(unittest.TestCase):
         )
         self.assertIsNotNone(http_payload.canonical_local_assistant(result["assistants"][0]))
 
-    def test_service_surfaces_the_canonical_invalid_stage_labeled_image(self) -> None:
-        client, image, _container_value = _client()
-        image.attrs["Config"]["User"] = "0:0"
-        local_snapshot_inventory = SimpleNamespace(candidates=lambda: snapshots.list_candidates(client))
-
-        with self.assertRaises(ApiProblemError) as caught:
-            service.list_local_snapshots(SimpleNamespace(local_snapshot_inventory=local_snapshot_inventory))
-
-        self.assertEqual(caught.exception.code, "local-assistant-snapshots-invalid")
-        self.assertEqual(
-            caught.exception.message,
-            f"Local Assistant snapshot {IMAGE_ID} carries the Local stage label but failed validation",
-        )
-
     def test_service_maps_snapshot_inventory_and_admission_failures(self) -> None:
         inventory_failures = (
             (
@@ -505,7 +495,7 @@ class LocalSnapshotTests(unittest.TestCase):
                 self.assertRaises(ApiProblemError) as caught,
             ):
                 service.list_local_snapshots(
-                    SimpleNamespace(local_snapshot_inventory=SimpleNamespace(candidates=mock.Mock(side_effect=failure)))
+                    SimpleNamespace(local_snapshot_inventory=SimpleNamespace(listing=mock.Mock(side_effect=failure)))
                 )
             self.assertEqual(caught.exception.code, code)
 

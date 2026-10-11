@@ -15,10 +15,10 @@ REFRESH_WAIT_SECONDS = 12.0
 _NANOSECONDS_PER_SECOND = 1_000_000_000
 log = logging.getLogger("shimpz-team-local-snapshot-inventory")
 
-CandidateLoader = Callable[[object, str], tuple[snapshots.LocalSnapshotCandidate, ...]]
+ListingLoader = Callable[[object, str], snapshots.Listing]
 
 
-def _load_candidates(client, platform: str) -> tuple[snapshots.LocalSnapshotCandidate, ...]:
+def _load_listing(client, platform: str) -> snapshots.Listing:
     return snapshots.list_candidates(client, platform=platform)
 
 
@@ -30,7 +30,7 @@ class LocalSnapshotInventory:
         client,
         platform: str,
         *,
-        loader: CandidateLoader = _load_candidates,
+        loader: ListingLoader = _load_listing,
         clock_ns: Callable[[], int] = time.time_ns,
         monotonic: Callable[[], float] = time.monotonic,
         max_age_seconds: float = MAX_CACHE_AGE_SECONDS,
@@ -42,7 +42,7 @@ class LocalSnapshotInventory:
         self._monotonic = monotonic
         self._max_age_seconds = max_age_seconds
         self._condition = threading.Condition()
-        self._candidates: tuple[snapshots.LocalSnapshotCandidate, ...] | None = None
+        self._listing: snapshots.Listing | None = None
         self._cursor_ns = 0
         self._loaded_at = 0.0
         self._refreshing = False
@@ -50,11 +50,11 @@ class LocalSnapshotInventory:
     def warm(self) -> None:
         """Start one best-effort refresh without delaying Team startup."""
         with self._condition:
-            if self._candidates is not None or self._refreshing:
+            if self._listing is not None or self._refreshing:
                 return
             self._start_background_locked()
 
-    def candidates(self) -> tuple[snapshots.LocalSnapshotCandidate, ...]:
+    def listing(self) -> snapshots.Listing:
         """Return the current projection after a bounded Docker freshness check."""
         while True:
             snapshot = self._snapshot_or_claim_cold_refresh()
@@ -62,7 +62,7 @@ class LocalSnapshotInventory:
                 return self._refresh()
             _, cursor_ns = snapshot
             with self._condition:
-                if self._cursor_ns != cursor_ns or self._candidates is None:
+                if self._cursor_ns != cursor_ns or self._listing is None:
                     continue
                 expired = self._monotonic() - self._loaded_at >= self._max_age_seconds
             if expired:
@@ -75,16 +75,16 @@ class LocalSnapshotInventory:
                     return self._refresh()
                 continue
             with self._condition:
-                if self._cursor_ns != cursor_ns or self._candidates is None:
+                if self._cursor_ns != cursor_ns or self._listing is None:
                     continue
                 self._cursor_ns = next_cursor_ns
-                return self._candidates
+                return self._listing
 
     def _snapshot_or_claim_cold_refresh(
         self,
-    ) -> tuple[tuple[snapshots.LocalSnapshotCandidate, ...], int] | None:
+    ) -> tuple[snapshots.Listing, int] | None:
         with self._condition:
-            while self._candidates is None:
+            while self._listing is None:
                 if not self._refreshing:
                     self._refreshing = True
                     return None
@@ -92,7 +92,7 @@ class LocalSnapshotInventory:
                     raise snapshots.LocalSnapshotUnavailableError(
                         "Local Assistant snapshot inventory refresh timed out"
                     )
-            return self._candidates, self._cursor_ns
+            return self._listing, self._cursor_ns
 
     def _validate(self, cursor_ns: int) -> tuple[bool, int]:
         next_cursor_ns = self._clock_ns()
@@ -128,22 +128,22 @@ class LocalSnapshotInventory:
                 raise snapshots.LocalSnapshotUnavailableError("Local Assistant snapshot inventory refresh timed out")
             return False
 
-    def _refresh(self) -> tuple[snapshots.LocalSnapshotCandidate, ...]:
+    def _refresh(self) -> snapshots.Listing:
         cursor_ns = self._clock_ns()
         try:
-            candidates = self._loader(self._client, self._platform)
+            listing = self._loader(self._client, self._platform)
         except Exception:
             with self._condition:
                 self._refreshing = False
                 self._condition.notify_all()
             raise
         with self._condition:
-            self._candidates = candidates
+            self._listing = listing
             self._cursor_ns = cursor_ns
             self._loaded_at = self._monotonic()
             self._refreshing = False
             self._condition.notify_all()
-        return candidates
+        return listing
 
     def _start_background_locked(self) -> None:
         if self._refreshing:

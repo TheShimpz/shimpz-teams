@@ -21,18 +21,12 @@ def list_local_snapshots(self) -> dict[str, object]:
     A refusal or an unavailable judgment is audited as metadata only, a cached refusal once per judgment.
     """
     try:
-        candidates = self.local_snapshot_inventory.candidates()
+        listing = self.local_snapshot_inventory.listing()
     except snapshots.LocalSnapshotUnavailableError as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Local Assistant snapshots are unavailable",
             code="local-assistant-snapshots-unavailable",
-        ) from exc
-    except snapshots.InvalidLabeledSnapshotError as exc:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            str(exc),
-            code="local-assistant-snapshots-invalid",
         ) from exc
     except snapshots.LocalSnapshotError as exc:
         raise ApiProblem(
@@ -40,10 +34,54 @@ def list_local_snapshots(self) -> dict[str, object]:
             "Local Assistant snapshot inventory is invalid",
             code="local-assistant-snapshots-invalid",
         ) from exc
-    judged = self.local_snapshot_admissions.judge(candidates)
+    admissions = self.local_snapshot_admissions
+    judged = admissions.judge(listing.candidates)
     for item in judged:
         _audit_admission(item)
-    return {"assistants": [_snapshot_entry(item) for item in judged]}
+    for refused in listing.refused:
+        if admissions.first_sighting(refused):
+            _audit_refusal(refused)
+    return {
+        "assistants": [
+            *(_snapshot_entry(item) for item in judged),
+            *(
+                _refused_entry(refused, listing.platform)
+                for refused in listing.refused
+                if refused.assistant_id is not None
+            ),
+        ]
+    }
+
+
+def _audit_refusal(refused: snapshots.RefusedSnapshot) -> None:
+    """A staged image refused on its labels: its staged identity if it names one, else only its image id."""
+    reason = snapshots.LABELS_INVALID if refused.assistant_id is not None else "identity-invalid"
+    local_audit.record_request(
+        "local-assistant-inadmissible",
+        result="denied",
+        assistant=refused.assistant_id,
+        detail=f"{reason}:{refused.image_id}",
+    )
+
+
+def _refused_entry(refused: snapshots.RefusedSnapshot, platform: str) -> dict[str, object]:
+    """A staged identity whose labels failed: it carries no label projection, so it is never offered, only a shadow."""
+    return {
+        "assistant_id": refused.assistant_id,
+        "assistant_version": None,
+        "name": None,
+        "summary": None,
+        "declared_creators": None,
+        "actions": None,
+        "integrations": None,
+        "image_id": refused.image_id,
+        "platform": platform,
+        "created_at": None,
+        "provenance": "local",
+        "unpublished": True,
+        "admission": snapshots.INADMISSIBLE,
+        "reason": snapshots.LABELS_INVALID,
+    }
 
 
 def _audit_admission(item: admission.Judged) -> None:

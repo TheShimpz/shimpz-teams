@@ -170,7 +170,7 @@ def _sample(client: docker.DockerClient, image_id: str):
 
 
 def _measure(client: docker.DockerClient):
-    candidates = snapshots.list_candidates(client)
+    candidates = snapshots.list_candidates(client).candidates
     if len(candidates) != 1:
         raise ConfoundedMeasurementError("benchmark requires exactly one current staged image")
     image_id = candidates[0].image_id

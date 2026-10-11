@@ -123,7 +123,11 @@ the image's labels: unverified Local presentation. `admission` is Team's verdict
 `admissible` when the full install admission, which includes every preview check, accepts it; `inadmissible` when it
 refuses it, with `reason` `declaration-invalid` (the declaration fails the current contract) or `image-inconsistent`
 (the image's labels or files disagree with its own declaration); `unavailable` when Docker could not answer this time.
-`reason` is null for every other verdict, and no entry carries the snapshot's content. Only an admissible snapshot may
+`reason` is null for every other verdict, and no entry carries the snapshot's content. A staged image whose
+`org.shimpz.assistant.id` label is a valid Assistant id but whose other stage labels or fixed image metadata fail
+validation is `inadmissible` with `reason` `labels-invalid`, and its `assistant_version`, `name`, `summary`,
+`declared_creators`, `actions`, `integrations`, and `created_at` are null; a staged image without a valid Assistant id
+label has no identity and is left out of the inventory. One such image never fails the inventory. Only an admissible snapshot may
 be offered or installed; every other entry still names its staged identity, so a consumer never offers a publication
 of the same `assistant_id` in its place. Team reuses a settled verdict for the exact image id and tag set and never
 reuses an unavailable one.

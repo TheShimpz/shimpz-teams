@@ -275,9 +275,10 @@ class AdmissionCacheTests(unittest.TestCase):
 
 
 class LocalInventoryVerdictTests(unittest.TestCase):
-    def _list(self, candidates, admissions):
+    def _list(self, candidates, admissions, refused=()):
+        listing = snapshots.Listing("linux/amd64", tuple(candidates), tuple(refused))
         controller = SimpleNamespace(
-            local_snapshot_inventory=SimpleNamespace(candidates=lambda: candidates),
+            local_snapshot_inventory=SimpleNamespace(listing=lambda: listing),
             local_snapshot_admissions=admissions,
         )
         with mock.patch.object(service.local_audit, "record_request") as audit:
@@ -337,11 +338,108 @@ class LocalInventoryVerdictTests(unittest.TestCase):
         client, _image, _container = _client(declaration=UNROUTED_STORED_INPUT)
         admissions = admission.LocalSnapshotAdmissions(client)
 
-        result, audit = self._list(snapshots.list_candidates(client), admissions)
+        result, audit = self._list(snapshots.list_candidates(client).candidates, admissions)
 
         ((entry,),) = (result["assistants"],)
         self.assertEqual((entry["admission"], entry["reason"]), ("inadmissible", "declaration-invalid"))
         audit.assert_called_once()
+
+
+class RefusedStagedImageTests(unittest.TestCase):
+    """One staged image whose stage labels fail never fails the inventory; a valid id label still shadows."""
+
+    def _list(self, client):
+        controller = SimpleNamespace(
+            local_snapshot_inventory=SimpleNamespace(listing=lambda: snapshots.list_candidates(client)),
+            local_snapshot_admissions=admission.LocalSnapshotAdmissions(client),
+        )
+        with mock.patch.object(service.local_audit, "record_request") as audit:
+            first = service.list_local_snapshots(controller)
+            second = service.list_local_snapshots(controller)
+        self.assertEqual(first, second)
+        return first, audit
+
+    @staticmethod
+    def _beside_a_good_one(change):
+        """A Docker double listing the good fixture image and a second staged image whose labels ``change`` breaks."""
+        client, good, _container = _client()
+        bad = SimpleNamespace(
+            id=_image_id(2),
+            attrs={**good.attrs, "Id": _image_id(2), "Config": {**good.attrs["Config"]}},
+        )
+        bad.attrs["Config"]["Labels"] = dict(good.attrs["Config"]["Labels"])
+        change(bad.attrs["Config"]["Labels"])
+        assistant_id = bad.attrs["Config"]["Labels"].get(snapshots.ASSISTANT_LABEL)
+        if http_payload.canonical_assistant_id(assistant_id) is not None:
+            bad.attrs["RepoTags"] = [snapshots.canonical_reference(assistant_id)]
+        client.api.images.return_value = [{"Id": IMAGE_ID}, {"Id": _image_id(2)}]
+        client.images.get.side_effect = lambda image_id: good if image_id == IMAGE_ID else bad
+        return client
+
+    def test_a_valid_id_with_another_invalid_label_is_an_inadmissible_shadow_beside_the_good_snapshot(self) -> None:
+        client = self._beside_a_good_one(
+            lambda labels: labels.update(
+                {snapshots.ASSISTANT_LABEL: "broken-assistant", snapshots.ACTIONS_LABEL: "Ping"}
+            )
+        )
+
+        result, audit = self._list(client)
+
+        good, shadow = result["assistants"]
+        self.assertEqual((good["assistant_id"], good["admission"]), ("fixture-assistant", "admissible"))
+        self.assertEqual(
+            shadow,
+            {
+                "assistant_id": "broken-assistant",
+                "assistant_version": None,
+                "name": None,
+                "summary": None,
+                "declared_creators": None,
+                "actions": None,
+                "integrations": None,
+                "image_id": _image_id(2),
+                "platform": "linux/amd64",
+                "created_at": None,
+                "provenance": "local",
+                "unpublished": True,
+                "admission": "inadmissible",
+                "reason": "labels-invalid",
+            },
+        )
+        self.assertTrue(all(http_payload.canonical_local_assistant(entry) == entry for entry in result["assistants"]))
+        audit.assert_called_once_with(
+            "local-assistant-inadmissible",
+            result="denied",
+            assistant="broken-assistant",
+            detail=f"labels-invalid:{_image_id(2)}",
+        )
+
+    def test_an_image_without_a_valid_id_label_is_left_out_and_audited_beside_the_good_snapshot(self) -> None:
+        for change in (
+            lambda labels: labels.pop(snapshots.ASSISTANT_LABEL),
+            lambda labels: labels.update({snapshots.ASSISTANT_LABEL: "Not An Id"}),
+            lambda labels: labels.update({snapshots.ASSISTANT_LABEL: 7}),
+        ):
+            with self.subTest():
+                result, audit = self._list(self._beside_a_good_one(change))
+
+                ((good,),) = (result["assistants"],)
+                self.assertEqual((good["assistant_id"], good["admission"]), ("fixture-assistant", "admissible"))
+                audit.assert_called_once_with(
+                    "local-assistant-inadmissible",
+                    result="denied",
+                    assistant=None,
+                    detail=f"identity-invalid:{_image_id(2)}",
+                )
+
+    def test_a_refusal_is_audited_again_once_it_was_forgotten(self) -> None:
+        admissions = admission.LocalSnapshotAdmissions(object())
+        count = admission.MAX_CACHED_VERDICTS + 1
+        refused = [snapshots.RefusedSnapshot(_image_id(index), None) for index in range(count)]
+
+        self.assertTrue(all(admissions.first_sighting(item) for item in refused))
+        self.assertFalse(admissions.first_sighting(refused[-1]))
+        self.assertTrue(admissions.first_sighting(refused[0]))
 
 
 if __name__ == "__main__":

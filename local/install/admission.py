@@ -47,6 +47,7 @@ class LocalSnapshotAdmissions:
         self._verdicts: OrderedDict[tuple[str, tuple[str, ...]], snapshots.Admission] = OrderedDict()
         self._judgments: dict[tuple[str, tuple[str, ...]], Future[snapshots.Admission]] = {}
         self._slots = threading.BoundedSemaphore(MAX_CONCURRENT_EXTRACTIONS)
+        self._sightings: OrderedDict[snapshots.RefusedSnapshot, None] = OrderedDict()
 
     def judge(self, candidates: tuple[snapshots.LocalSnapshotCandidate, ...]) -> tuple[Judged, ...]:
         """Every candidate's verdict, in the candidates' order."""
@@ -101,3 +102,14 @@ class LocalSnapshotAdmissions:
             self._verdicts.move_to_end(key)
             while len(self._verdicts) > MAX_CACHED_VERDICTS:
                 self._verdicts.popitem(last=False)
+
+    def first_sighting(self, refused: snapshots.RefusedSnapshot) -> bool:
+        """Whether this refused staged image is new since it was last remembered, so its refusal is audited once."""
+        with self._lock:
+            if refused in self._sightings:
+                self._sightings.move_to_end(refused)
+                return False
+            self._sightings[refused] = None
+            while len(self._sightings) > MAX_CACHED_VERDICTS:
+                self._sightings.popitem(last=False)
+            return True
