@@ -64,10 +64,15 @@ from local_controller_docker_fixture import (
     supervisor_header,
 )
 
+from assistant import language as assistant_language
+from assistant import manifest as assistant_manifest
 from install import update as assistant_update
 from local import app as local_app
 from local.install import snapshots
+from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import supervisor as supervisor_contract
+from tests import local_snapshot_fixtures as snapshot_fixtures
+from tests.test_local_snapshot_admission import UNROUTED_STORED_INPUT
 
 
 class DockerFlowTests(
@@ -507,17 +512,71 @@ class DockerFlowTests(
         self._assert_local_snapshot_fast_path(flow)
 
     def _assert_local_snapshot_fast_path(self, flow: DockerFlow) -> None:
-        local_status, local_catalog = self._api(flow.port, flow.token, "GET", "/v1/local-assistants")
-        self.assertEqual(local_status, 200, local_catalog)
-        started = time.monotonic()
-        warm_status, warm_catalog = self._api(flow.port, flow.token, "GET", "/v1/local-assistants")
-        warm_elapsed = time.monotonic() - started
-        self.assertEqual(warm_status, 200, warm_catalog)
-        self.assertEqual(warm_catalog["assistants"], local_catalog["assistants"])
-        self.assertLess(warm_elapsed, 0.5, f"warm Local snapshot inventory took {warm_elapsed:.3f}s")
+        # A staged snapshot whose Stored Input declares no reviewed routes fails the current contract: Team still lists
+        # its identity, judges it inadmissible with the full install admission, and reuses that verdict while the
+        # exact image and its tag are unchanged.
+        reference = snapshots.canonical_reference("fixture-assistant")
+        image_id = self._stage_snapshot(reference, UNROUTED_STORED_INPUT)
+        try:
+            local_status, local_catalog = self._api(flow.port, flow.token, "GET", "/v1/local-assistants")
+            self.assertEqual(local_status, 200, local_catalog)
+            (entry,) = local_catalog["assistants"]
+            self.assertEqual(http_payload.canonical_local_assistant(entry), entry)
+            self.assertEqual(
+                (entry["assistant_id"], entry["image_id"], entry["admission"], entry["reason"]),
+                ("fixture-assistant", image_id, "inadmissible", "declaration-invalid"),
+            )
+            started = time.monotonic()
+            warm_status, warm_catalog = self._api(flow.port, flow.token, "GET", "/v1/local-assistants")
+            warm_elapsed = time.monotonic() - started
+            self.assertEqual(warm_status, 200, warm_catalog)
+            self.assertEqual(warm_catalog["assistants"], local_catalog["assistants"])
+            self.assertLess(warm_elapsed, 0.5, f"warm Local snapshot inventory took {warm_elapsed:.3f}s")
+        finally:
+            self._run("image", "rm", "--force", reference, check=False)
         log_result = self._run("logs", flow.controller)
         logs = log_result.stdout + log_result.stderr
         self.assertNotIn("Docker image event validation failed", logs)
+
+    def _stage_snapshot(self, reference: str, declaration: bytes) -> str:
+        """Stage one never-started snapshot exactly as the CLI tags it: its files, labels, and fixed runtime."""
+        package, manifest, icon = snapshot_fixtures._package(declaration)
+        files = {
+            snapshots.SOURCE_PATH: package,
+            assistant_manifest.MANIFEST_PATH: manifest,
+            assistant_manifest.CONTRACT_PATH: json.dumps(
+                snapshot_fixtures.MACHINE_CONTRACT, separators=(",", ":")
+            ).encode(),
+            assistant_language.PACK_PATH: snapshot_fixtures.PACK,
+            snapshots.ICON_PATH: icon,
+        }
+        labels = {
+            snapshots.LOCAL_STAGE_LABEL: snapshots.LOCAL_STAGE_VALUE,
+            snapshots.ASSISTANT_LABEL: "fixture-assistant",
+            snapshots.SOURCE_LABEL: f"sha256:{hashlib.sha256(package).hexdigest()}",
+            snapshots.VERSION_LABEL: "0.1.0",
+            snapshots.NAME_LABEL: "Fixture Assistant",
+            snapshots.SUMMARY_LABEL: snapshot_fixtures.SUMMARY,
+            snapshots.DECLARED_CREATORS_LABEL: "@fixture",
+            snapshots.BUILD_LABEL: snapshot_fixtures.BUILD_DIGEST,
+            snapshots.ACTIONS_LABEL: "ping",
+            snapshots.INTEGRATIONS_LABEL: "",
+        }
+        with tempfile.TemporaryDirectory() as build_root:
+            copies = []
+            for index, (path, contents) in enumerate(files.items()):
+                Path(build_root, str(index)).write_bytes(contents)
+                copies.append(f"COPY --chmod=0444 {index} {path}\n")
+            Path(build_root, "Dockerfile").write_text(
+                "FROM scratch\n"
+                + "".join(copies)
+                + "".join(f"LABEL {key}={json.dumps(value)}\n" for key, value in labels.items())
+                + f"USER {snapshots.RUNTIME_USER}\n"
+                + f"ENTRYPOINT {json.dumps(snapshots.RUNTIME_ENTRYPOINT)}\n",
+                encoding="utf-8",
+            )
+            self._run("build", "--quiet", "--tag", reference, build_root)
+        return self._run("image", "inspect", "--format", "{{.Id}}", reference).stdout.strip()
 
     def _exercise_team_storage(self, flow: DockerFlow) -> None:
         status, created = self._api(
