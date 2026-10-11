@@ -99,8 +99,8 @@ MAX_MEDIA_TYPE_CHARS = 127
 MAX_CONVERSATION_ENTRIES = 8
 MAX_CONVERSATION_TEXT_CHARS = 512
 MAX_CONVERSATION_CHARS = 4_096
-# A chat body carries what direct Routine creation binds (ADR-0092): the request identity Admin issues once per sent
-# message and keeps across a transport retry or a resend, and the user's IANA timezone, or null.
+# A chat body carries what direct Routine creation binds (ADR-0092): the fresh request identity Admin issues for every
+# send, and the user's IANA timezone, or null.
 CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation", "locale", "request", "timezone"})
 REQUEST_IDENTITY_FIELDS = frozenset({"issued_at", "nonce"})
 # How long a request identity may mutate a Routine after Admin issued it, and how far ahead of Team's clock it may be.
@@ -232,7 +232,7 @@ def request_identity_fresh(issued_at: int, now: int) -> bool:
 
     The window is exclusive at its end: an identity issued at ``t`` is fresh through ``t + 899`` and expired from
     ``t + 900``, the same second its receipt stops being live, and it may be at most 60 s ahead of the clock judging it.
-    Admin and Team judge a resend with this one predicate.
+    Team judges every send's identity with this one predicate.
     """
     return now - REQUEST_IDENTITY_SECONDS < issued_at <= now + REQUEST_IDENTITY_SKEW_SECONDS
 
