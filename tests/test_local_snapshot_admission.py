@@ -115,6 +115,16 @@ class SnapshotVerdictTests(unittest.TestCase):
 
         self.assertEqual(snapshots.admission(client, IMAGE_ID), UNAVAILABLE)
 
+    def test_an_image_whose_tag_moved_since_it_was_listed_is_unavailable_never_inadmissible(self) -> None:
+        # Only immutable content may be refused: a refusal remembered for a moved tag would outlive its restoration.
+        for tags in ([], ["shimpz-local/fixture-assistant:staged", "shimpz-local/fixture-assistant:latest"]):
+            with self.subTest(tags=tags):
+                client, image, container = _client()
+                image.attrs["RepoTags"] = tags
+
+                self.assertEqual(snapshots.admission(client, IMAGE_ID), UNAVAILABLE)
+                container.get_archive.assert_not_called()
+
 
 class AdmissionCacheTests(unittest.TestCase):
     def test_a_settled_verdict_is_reused_for_the_exact_image_and_tag_set(self) -> None:

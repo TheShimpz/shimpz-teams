@@ -177,13 +177,19 @@ def list_candidates(client, *, platform: str | None = None) -> tuple[LocalSnapsh
 
 
 def admission(client, image_id: str) -> Admission:
-    """The one verdict for an exact staged image: full install admission, which includes every preview check.
+    """The one verdict for a listed staged image: full install admission, which includes every preview check.
 
-    Docker failing to answer, the image included, is unavailable and says nothing about the image; any other refusal
-    is inadmissible with its closed reason.
+    Docker failing to answer is unavailable and says nothing about the image. So is an image that no longer carries the
+    identity it was listed with, such as a tag moved meanwhile: only its immutable content may ever be judged
+    inadmissible, with its closed reason.
     """
     try:
-        admit(client, image_id)
+        image = _exact_image(client, image_id)
+        candidate = _candidate(image, _daemon_platform(client))
+    except LocalSnapshotError:
+        return Admission(UNAVAILABLE)
+    try:
+        _admitted(client, image, candidate)
     except LocalSnapshotUnavailableError:
         return Admission(UNAVAILABLE)
     except LocalSnapshotError as exc:
@@ -199,9 +205,11 @@ def admit(client, image_id: str) -> AdmittedLocalSnapshot:
     if not isinstance(image_id, str) or http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is None:
         raise LocalSnapshotError("the Local Assistant image id is invalid")
     image = _exact_image(client, image_id)
-    platform = _daemon_platform(client)
-    candidate = _candidate(image, platform)
-    extracted = _extract_files(client, image_id)
+    return _admitted(client, image, _candidate(image, _daemon_platform(client)))
+
+
+def _admitted(client, image, candidate: LocalSnapshotCandidate) -> AdmittedLocalSnapshot:
+    extracted = _extract_files(client, candidate.image_id)
     try:
         package = source_package.admit(extracted[SOURCE_PATH])
         if package.digest != _labels(image)[SOURCE_LABEL]:
