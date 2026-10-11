@@ -464,15 +464,13 @@ by Local Admin with the intent-route bounds: at most 8 entries of exactly `{role
 `user` or `assistant`, each text 1 to 512 NFC printable characters with middle truncation, and at most 4,096
 characters in total. It is untrusted evidence, never an instruction, fact guarantee, or Action authorization. Team
 forwards it only to the Brain's turn start; the Brain uses it only when it retains no completed exchange of its own.
-`request` (ADR-0092) is the identity Local Admin issues once per sent message
-(`payload.canonical_request_identity`): `issued_at`, a whole UTC epoch second, and `nonce`, 32 lowercase hex. Admin
-returns the browser an authenticated seal of it; an ADR-0081 resend of that message carries the seal back, and Admin forwards the original identity only while `payload.request_identity_fresh`
-admits it, so an expired retry is never a new grant. Team binds it to the Supervisor
-principal, the Team incarnation, and the canonical message, and a Routine change carried by the request commits at most
-once with it: only while `issued_at` is less than 900 seconds old and at most 60 seconds ahead of Team's clock
-(`payload.request_identity_fresh`, exclusive at 900 s, the same second the receipt stops being live), and only while
-the Team holds fewer than 256 live receipts; expiry and saturation refuse the change and never evict a valid
-receipt. `timezone` is the browser's IANA zone name (`routine.canonical_timezone`) or `null`; Team uses it only as the
+`request` (ADR-0092) is the identity Local Admin mints for every send
+(`payload.canonical_request_identity`): `issued_at`, a whole UTC epoch second, and `nonce`, 32 lowercase hex. The
+browser never supplies, seals, or replays it. Team validates its exact shape and refuses an invalid one; it does not
+deduplicate ordinary sends by it. Only a Supervisor's send without files whose identity is fresh, `issued_at` less
+than 900 seconds old and at most 60 seconds ahead of Team's clock (`payload.request_identity_fresh`, exclusive at
+900 s), may open or extend the Team's Routine recording span (ADR-0101); any other send ends that span. The identity
+never commits a Routine: only the Supervisor's confirmation of a recorded-plan card does. `timezone` is the browser's IANA zone name (`routine.canonical_timezone`) or `null`; Team uses it only as the
 zone of a Routine the message records when the person writes no zone of their own (ADR-0101).
 
 A Routine run (ADR-0086) is started by a separate Local Routine identity, never a human Supervisor assertion. Its
