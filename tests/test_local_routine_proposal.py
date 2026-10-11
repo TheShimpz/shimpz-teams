@@ -470,8 +470,8 @@ class RecordedRoutineTests(LocalContractCase):
             self.chat(service, _body("Liste os registros DNS de shimpz.com"))
             self.chat(service, _body("A cada 30 segundos"))
         self.assertEqual(
-            [(context.routine_mode, context.model, context.effort) for context in runtime.contexts],
-            [(False, "gpt-6-luna", "low"), (True, local_segment.ROUTINE_OPENAI_MODEL, "low")],
+            [(context.routine_mode, context.model) for context in runtime.contexts],
+            [(False, "gpt-6-luna"), (True, local_segment.ROUTINE_OPENAI_MODEL)],
         )
         self.assertEqual({context.api_key for context in runtime.contexts}, {"sk-test-0123456789"})
 

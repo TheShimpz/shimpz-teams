@@ -99,7 +99,6 @@ class RuntimeContext:
     provider: Literal["anthropic", "openai"]
     model: str
     api_key: str = field(repr=False)
-    effort: Literal["low", "medium", "high"]
     # The Team's learned memory (ADR-0084), already validated by its store; None withholds the Brain's memory tool.
     memories: tuple[dict[str, str], ...] | None = None
     # The learned skills usable in this turn (ADR-0085); None where learning is unavailable.
@@ -325,7 +324,6 @@ class BrainRuntimeClient:
                 "provider": context.provider,
                 "model": context.model,
                 "api_key": context.api_key,
-                "effort": context.effort,
             },
             "memories": None if context.memories is None else [dict(entry) for entry in context.memories],
             "skills": None if context.skills is None else [dict(skill) for skill in context.skills],

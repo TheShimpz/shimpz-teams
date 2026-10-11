@@ -374,7 +374,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
 
         bindings, payload = local_chat_continuations.encode("human", requirement, state)
         decoded = local_chat_continuations.decode(stored_record("human", bindings, payload))
-        self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 7)
+        self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 8)
         self.assertEqual(decoded.pending.paused_batch, PAUSED_BATCH)
         self.assertEqual(decoded.pending.identity[3][0]["sha256"], "b" * 64)
         self.assertEqual(decoded.pending, state)

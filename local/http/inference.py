@@ -1,4 +1,4 @@
-"""Local Team settings routes: the model selection with its reasoning effort, and the Action confirmation policy."""
+"""Local Team settings routes: the model selection and the Action confirmation policy."""
 
 from http import HTTPStatus
 

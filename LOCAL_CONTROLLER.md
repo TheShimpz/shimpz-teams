@@ -100,8 +100,8 @@ without charging the quota again (ADR-0093).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/v1/teams/{team_id}/inference` | read the Team's provider, model, and chat reasoning effort; `409` only when none is set |
-| `PUT` | `/v1/teams/{team_id}/inference` | replace the validated provider, model, and effort (`low`, `medium`, `high`) |
+| `GET` | `/v1/teams/{team_id}/inference` | read the Team's provider and model; `409` only when none is set |
+| `PUT` | `/v1/teams/{team_id}/inference` | replace the validated provider and model |
 | `POST` | `/v1/teams/{team_id}/chat/capability-plan` | select an exact bounded subset from a public Assistant shortlist |
 | `POST` | `/v1/teams/{team_id}/chat/intent-route` | classify one Assistant lifecycle intent with bounded conversation evidence or resolve it against a closed directory |
 | `POST` | `/v1/teams/{team_id}/chat` | start one bounded Brain turn |

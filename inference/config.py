@@ -13,11 +13,8 @@ from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
 ROOT = Path(os.environ.get("SHIMPZ_TEAM_INFERENCE_DIR", "/var/lib/team/inference"))
-SCHEMA = 2
+SCHEMA = 3
 KNOWLEDGE_SCHEMA = 1
-# The reasoning effort a Team's ordinary chat turns use; a new configuration starts at the default (ADR-0074).
-EFFORTS = ("low", "medium", "high")
-DEFAULT_EFFORT = "low"
 
 
 class ProviderDefinition(TypedDict):
@@ -58,20 +55,16 @@ class InferenceConfigMissingError(InferenceConfigError):
 class InferenceConfig:
     provider: str
     model: str
-    effort: str = DEFAULT_EFFORT
 
 
-def normalize(provider: object = None, model: object = None, effort: object = None) -> InferenceConfig:
+def normalize(provider: object = None, model: object = None) -> InferenceConfig:
     selected = str(provider or DEFAULT_PROVIDER).strip().lower()
     if selected not in PROVIDERS:
         raise InferenceConfigError(f"provider must be one of {sorted(PROVIDERS)}")
     selected_model = str(model or PROVIDERS[selected]["default_model"]).strip()
     if MODEL_RE.fullmatch(selected_model) is None or selected_model not in PROVIDERS[selected]["models"]:
         raise InferenceConfigError("model is not supported by the selected provider")
-    selected_effort = DEFAULT_EFFORT if effort is None else effort
-    if selected_effort not in EFFORTS:
-        raise InferenceConfigError(f"effort must be one of {list(EFFORTS)}")
-    return InferenceConfig(provider=selected, model=selected_model, effort=selected_effort)
+    return InferenceConfig(provider=selected, model=selected_model)
 
 
 def _team_id(value: object) -> str:
@@ -137,7 +130,7 @@ class InferenceConfigStore:
 
     def save(self, team_id: object, config: InferenceConfig) -> InferenceConfig:
         team_id = _team_id(team_id)
-        validated = normalize(config.provider, config.model, config.effort)
+        validated = normalize(config.provider, config.model)
         self._write(self._path(team_id), {"schema": SCHEMA, "team_id": team_id, **asdict(validated)})
         return validated
 
@@ -199,11 +192,11 @@ class InferenceConfigStore:
             value = json.loads(raw)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise InferenceConfigError("Team inference configuration is invalid") from exc
-        if not isinstance(value, dict) or set(value) != {"schema", "team_id", "provider", "model", "effort"}:
+        if not isinstance(value, dict) or set(value) != {"schema", "team_id", "provider", "model"}:
             raise InferenceConfigError("Team inference configuration is invalid")
-        if value["schema"] != SCHEMA or value["team_id"] != team_id or not isinstance(value["effort"], str):
+        if value["schema"] != SCHEMA or value["team_id"] != team_id:
             raise InferenceConfigError("Team inference configuration is invalid")
-        return normalize(value["provider"], value["model"], value["effort"])
+        return normalize(value["provider"], value["model"])
 
     def delete(self, team_id: object) -> None:
         """Remove the Team's inference configuration, its learned knowledge, and its Action confirmation setting."""

@@ -63,7 +63,6 @@ def _context(*assistants: brain_runtime_client.RuntimeAssistant) -> brain_runtim
         provider="openai",
         model="gpt-6-luna",
         api_key="sk-journey-0123456789",
-        effort="low",
         memories=(),
         skills=(),
     )

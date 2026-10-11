@@ -1,4 +1,4 @@
-"""Local Team settings: the model selection with its chat reasoning effort, and the Action confirmation policy."""
+"""Local Team settings: the model selection and the Action confirmation policy."""
 
 from http import HTTPStatus
 from typing import NoReturn
@@ -28,21 +28,19 @@ def inference_status(self, team_id: str) -> dict[str, str]:
             raise inference_not_configured() from exc
         except inference_config.InferenceConfigError as exc:
             _raise_inference_problem(exc)
-    return {"team_id": team_id, "provider": config.provider, "model": config.model, "effort": config.effort}
+    return {"team_id": team_id, "provider": config.provider, "model": config.model}
 
 
 def configure_inference(self, team_id: str, body: object) -> dict[str, str]:
     team_id = validate_team_id(team_id)
-    if not isinstance(body, dict) or set(body) != {"provider", "model", "effort"}:
+    if not isinstance(body, dict) or set(body) != {"provider", "model"}:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "inference requires only provider, model, and effort",
+            "inference requires only provider and model",
             code="invalid-body",
         )
-    if not isinstance(body["effort"], str):
-        raise ApiProblem(HTTPStatus.BAD_REQUEST, "effort must be a string", code="invalid-inference")
     try:
-        config = inference_config.normalize(body["provider"], body["model"], body["effort"])
+        config = inference_config.normalize(body["provider"], body["model"])
     except inference_config.InferenceConfigError as exc:
         raise ApiProblem(HTTPStatus.BAD_REQUEST, str(exc), code="invalid-inference") from exc
     with self._lock(team_id):
@@ -51,7 +49,7 @@ def configure_inference(self, team_id: str, body: object) -> dict[str, str]:
             self.inference_store.save(team_id, config)
         except inference_config.InferenceConfigError as exc:
             _raise_inference_problem(exc)
-    return {"team_id": team_id, "provider": config.provider, "model": config.model, "effort": config.effort}
+    return {"team_id": team_id, "provider": config.provider, "model": config.model}
 
 
 def action_confirmation_status(self, team_id: str) -> dict[str, object]:

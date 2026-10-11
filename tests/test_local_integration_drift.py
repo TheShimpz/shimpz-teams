@@ -52,9 +52,9 @@ class LocalIntegrationDriftTests(LocalContractCase):
         return controller, paused
 
     @staticmethod
-    def _configure(controller: local_app.LocalController, provider: str, effort: str | None = None) -> None:
+    def _configure(controller: local_app.LocalController, provider: str, model: str | None = None) -> None:
         # A permitted model change while the turn is paused; the turn still names the context it paused with.
-        controller.inference_store.save("team_1", inference_config.normalize(provider, None, effort))
+        controller.inference_store.save("team_1", inference_config.normalize(provider, model))
 
     def _assert_ended(self, controller: local_app.LocalController, raised: local_app.ApiProblem) -> None:
         service = controller.chat_turn_service
@@ -107,7 +107,7 @@ class LocalIntegrationDriftTests(LocalContractCase):
     def test_resuming_after_a_model_change_ends_the_paused_turn(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, paused = self._paused(directory)
-            self._configure(controller, "openai", "high")
+            self._configure(controller, "openai", "gpt-6.1-sol")
 
             self._resume(controller, paused, "openai", OPENAI_KEY)
 
@@ -127,7 +127,7 @@ class LocalIntegrationDriftTests(LocalContractCase):
     def test_a_fresh_message_after_a_model_change_ends_the_paused_turn(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, paused = self._paused(directory)
-            self._configure(controller, "openai", "high")
+            self._configure(controller, "openai", "gpt-6.1-sol")
 
             with self.assertRaises(local_app.ApiProblem) as raised:
                 controller.chat_turn_service.chat("team_1", dict(CHAT_BODY), "openai", OPENAI_KEY)

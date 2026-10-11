@@ -659,7 +659,6 @@ class SealedStateTests(IncidentCase):
             provider="openai",
             model="gpt-test",
             api_key="",
-            effort="low",
         )
         strategy = chat_orchestrator.ChatStrategy(
             validate_action=lambda _assistant, _action, payload: payload,

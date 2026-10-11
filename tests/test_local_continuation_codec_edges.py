@@ -222,9 +222,8 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         value["inference"] = {"provider": "unknown", "model": "model"}
         mutations.append(value)
         for inference in (
-            {"provider": "openai", "model": "gpt-6.1-sol"},
-            {"provider": "openai", "model": "gpt-6.1-sol", "effort": "xhigh"},
-            {"provider": "openai", "model": "gpt-6.1-sol", "effort": 1},
+            {"provider": "openai"},
+            {"provider": "openai", "model": "gpt-6.1-sol", "api_key": "never"},
         ):
             value = copy.deepcopy(base)
             value["inference"] = inference

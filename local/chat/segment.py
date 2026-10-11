@@ -36,7 +36,7 @@ from routine import claim as routine_claim
 from routine import pin as routine_pin
 from routine import recording as routine_recording
 
-# The model a chat turn about a Routine uses on an OpenAI Team, with the Team's own key and effort; every other turn,
+# The model a chat turn about a Routine uses on an OpenAI Team, with the Team's own key; every other turn,
 # and every turn on another provider, uses the Team's configured model.
 ROUTINE_OPENAI_MODEL = "gpt-6.1-sol"
 
@@ -267,7 +267,6 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         provider=config.provider,
         model=_turn_model(self, request, config),
         api_key=request.api_key,
-        effort=config.effort,
         memories=None if routine is not None else tuple(memories),
         skills=None if routine is not None else chat_knowledge.turn_skills(skills, runtime_assistants),
         routines=_listed(self, request) if mutable else None,

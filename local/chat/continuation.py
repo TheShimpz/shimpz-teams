@@ -25,7 +25,7 @@ from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
 from routine import plan as routine_plan
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 _RECORDING_RE = re.compile(r"[0-9a-f]{32}\Z")
 MAX_INVOKED_ACTIONS = 512
 MAX_IDENTITY_ASSISTANTS = http_payload.MAX_CHAT_ASSISTANTS
@@ -289,7 +289,7 @@ def _identity_payload(identity: tuple[object, ...]) -> dict[str, object]:
         "network_id": network_id,
         "assistants": [list(item) if isinstance(item, tuple) else item for item in assistants],
         "files": _json_value(files),
-        "inference": {"provider": config.provider, "model": config.model, "effort": config.effort},
+        "inference": {"provider": config.provider, "model": config.model},
     }
 
 
@@ -553,11 +553,9 @@ def _identity(value: object) -> tuple[object, ...]:
         files.append(dict(entry))
     if len({item["id"] for item in files}) != len(files):
         raise ContinuationCodecError("continuation files are malformed")
-    inference = _mapping(raw["inference"], {"provider", "model", "effort"}, "continuation inference")
-    if not isinstance(inference["effort"], str):
-        raise ContinuationCodecError("continuation inference is malformed")
+    inference = _mapping(raw["inference"], {"provider", "model"}, "continuation inference")
     try:
-        config = inference_config.normalize(inference["provider"], inference["model"], inference["effort"])
+        config = inference_config.normalize(inference["provider"], inference["model"])
     except inference_config.InferenceConfigError as exc:
         raise ContinuationCodecError("continuation inference is malformed") from exc
     return team_name, network_id, tuple(assistants), files, config

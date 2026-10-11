@@ -301,7 +301,6 @@ def _context(*attachments: dict[str, object]) -> brain_runtime_client.RuntimeCon
         provider="openai",
         model="gpt-test",
         api_key="not-a-real-key",
-        effort="low",
         attachments=attachments,
     )
 
