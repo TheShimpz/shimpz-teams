@@ -7246,5 +7246,35 @@
       {"text": "routinely list my records", "requests": false},
       {"text": "Liste os registros DNS de shimpz.com", "requests": false}
     ]
+  },
+  "space_resources": {
+    "valid": [
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736},
+      {"services_running": 0, "services_total": 7, "memory_used_bytes": null, "memory_total_bytes": null, "storage_used_bytes": null, "storage_total_bytes": null},
+      {"services_running": 5, "services_total": 7, "memory_used_bytes": 5368709120, "memory_total_bytes": 4294967296, "storage_used_bytes": 68719476736, "storage_total_bytes": 68719476736},
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": 0, "memory_total_bytes": 4294967296, "storage_used_bytes": 0, "storage_total_bytes": 9007199254740991}
+    ],
+    "invalid": [
+      null,
+      [],
+      {},
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371},
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736, "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"services_running": 8, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736},
+      {"services_running": 0, "services_total": 0, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736},
+      {"services_running": 7, "services_total": 33, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736},
+      {"services_running": -1, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736},
+      {"services_running": true, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736},
+      {"services_running": 7.0, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736},
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": null, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736},
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": null, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736},
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 0, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736},
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": -1, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736},
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": "429496730", "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736},
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": 68719476737, "storage_total_bytes": 68719476736},
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 9007199254740992},
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": null, "storage_total_bytes": 68719476736},
+      {"services_running": 7, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296, "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736, "memory_healthy": true}
+    ]
   }
 }

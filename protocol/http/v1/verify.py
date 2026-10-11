@@ -12,6 +12,7 @@ import challenge
 import payload
 import phrase
 import progress
+import resources
 import routine_context
 import routine_notice
 import routine_proposal
@@ -215,6 +216,7 @@ for name, admit in (
     ("creator_links", payload.canonical_creator_links),
     ("routine_challenge_open", routine_run.canonical_challenge_open),
     ("turn_usage", payload.canonical_turn_usage),
+    ("space_resources", resources.canonical_space_resources),
 ):
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):

@@ -318,6 +318,11 @@ class Handler(http_deadline.DeadlineRequestHandler):
         local_audit.record_request("supervisor-key-rotate", result="ok", detail=rotated["key_sha256"][:16])
         return HTTPStatus.OK, rotated, "supervisor-key-rotate", None, None
 
+    def _space_resources_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, None, None] | None:
+        if self.command != "GET" or parts != ["v1", "space", "resources"]:
+            return None
+        return HTTPStatus.OK, self.server.controller.space_resources(), "space-resources", None, None
+
     def _machine_read_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, None, None] | None:
         if self.command == "GET" and parts == ["healthz"]:
             return HTTPStatus.OK, self.server.controller.health(), "health", None, None
@@ -336,9 +341,11 @@ class Handler(http_deadline.DeadlineRequestHandler):
             return HTTPStatus.OK, controller.list_registry(), "registry-list", None, None
         if self.command == "GET" and parts == ["v1", "teams"]:
             return HTTPStatus.OK, controller.list_teams(), "team-list", None, None
-        space_reset = self._space_reset_route(parts) or self._supervisor_key_route(parts)
-        if space_reset is not None:
-            return space_reset
+        space = (
+            self._space_reset_route(parts) or self._supervisor_key_route(parts) or self._space_resources_route(parts)
+        )
+        if space is not None:
+            return space
         if self.command == "POST" and parts == ["v1", "oauth", "cloudflare", "callback"]:
             body = self._body()
             if set(body) != {"state", "claim", "session_binding"}:

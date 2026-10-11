@@ -89,8 +89,8 @@ WORKDIR /app
 
 COPY --link --chmod=0555 local/activity.py local/healthcheck.py ./local/
 COPY --link local/__init__.py local/app.py local/audit.py local/authority.py local/composition.py local/errors.py \
-    local/inference.py local/labels.py local/lifecycle.py local/names.py local/prepare.py local/token.py \
-    local/validation.py ./local/
+    local/inference.py local/labels.py local/lifecycle.py local/names.py local/prepare.py local/resources.py \
+    local/token.py local/validation.py ./local/
 COPY --link local/install/__init__.py local/install/admission.py local/install/automatic.py \
     local/install/collector.py local/install/developers.py local/install/inventory.py local/install/preview.py \
     local/install/registry.py local/install/runtime.py local/install/service.py local/install/snapshots.py \
