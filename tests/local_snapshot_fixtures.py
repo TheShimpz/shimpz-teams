@@ -59,10 +59,9 @@ def archive(name: str, contents: bytes) -> bytes:
     return output.getvalue()
 
 
-def _package() -> tuple[bytes, bytes, bytes]:
+def _package(fixture_manifest: bytes) -> tuple[bytes, bytes, bytes]:
     raw = _packages()[0][1]
     records = list(source_package._read_records(raw))
-    fixture_manifest = manifest()
     manifest_index = next(index for index, record in enumerate(records) if record.path == "shimpz.toml")
     records[manifest_index] = source_package._Record("shimpz.toml", False, fixture_manifest)
     package = source_package._build_archive(tuple(records))
@@ -114,9 +113,12 @@ def _container(files: dict[str, bytes]):
     return container
 
 
-def client(*, source_digest: str | None = None, pack: bytes | None = PACK):
-    """A Docker double for one staged image; ``pack=None`` leaves the image without its language pack."""
-    package, fixture_manifest, icon = _package()
+def client(*, source_digest: str | None = None, pack: bytes | None = PACK, declaration: bytes | None = None):
+    """A Docker double for one staged image; ``pack=None`` leaves the image without its language pack.
+
+    ``declaration`` replaces the fixture manifest in both the source package and the image.
+    """
+    package, fixture_manifest, icon = _package(manifest() if declaration is None else declaration)
     digest = source_digest or f"sha256:{hashlib.sha256(package).hexdigest()}"
     image = _image(digest)
     raw_contract = json.dumps(MACHINE_CONTRACT, separators=(",", ":")).encode()

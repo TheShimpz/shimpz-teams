@@ -61,8 +61,27 @@ _RECORD_FIELDS = {
 }
 
 
+# A staged snapshot's admission verdict, which the Local inventory reports for every staged identity (ADR-0060): what
+# install admission (and so every preview check) accepts, what it refuses for a closed reason, and what Docker could
+# not answer this time.
+ADMISSIBLE = "admissible"
+INADMISSIBLE = "inadmissible"
+UNAVAILABLE = "unavailable"
+# The declaration fails the current contract; or the image's labels or files disagree with its own declaration.
+DECLARATION_INVALID = "declaration-invalid"
+IMAGE_INCONSISTENT = "image-inconsistent"
+
+
 class LocalSnapshotError(bindings.DynamicAssistantError):
     """A staged Local Assistant image is unavailable or violates admission."""
+
+    reason = DECLARATION_INVALID
+
+
+class InconsistentSnapshotError(LocalSnapshotError):
+    """A staged image's labels or files disagree with its own declaration."""
+
+    reason = IMAGE_INCONSISTENT
 
 
 class LocalSnapshotUnavailableError(LocalSnapshotError):
@@ -104,6 +123,14 @@ class SnapshotPreview:
 class AdmittedLocalSnapshot:
     record: dict[str, Any]
     icon: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class Admission:
+    """One staged image's admission verdict and, only when inadmissible, its closed reason; never its content."""
+
+    state: str
+    reason: str | None = None
 
 
 def canonical_reference(assistant_id: str) -> str:
@@ -149,8 +176,26 @@ def list_candidates(client, *, platform: str | None = None) -> tuple[LocalSnapsh
     return tuple(sorted(candidates, key=lambda value: (value.assistant_id, value.version, value.image_id)))
 
 
+def admission(client, image_id: str) -> Admission:
+    """The one verdict for an exact staged image: full install admission, which includes every preview check.
+
+    Docker failing to answer, the image included, is unavailable and says nothing about the image; any other refusal
+    is inadmissible with its closed reason.
+    """
+    try:
+        admit(client, image_id)
+    except LocalSnapshotUnavailableError:
+        return Admission(UNAVAILABLE)
+    except LocalSnapshotError as exc:
+        return Admission(INADMISSIBLE, exc.reason)
+    return Admission(ADMISSIBLE)
+
+
 def admit(client, image_id: str) -> AdmittedLocalSnapshot:
-    """Derive one closed local record from an exact staged image without starting it."""
+    """Derive one closed local record from an exact staged image without starting it.
+
+    Admission runs every preview check on the same extracted bytes too, so nothing a preview refuses is installable.
+    """
     if not isinstance(image_id, str) or http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is None:
         raise LocalSnapshotError("the Local Assistant image id is invalid")
     image = _exact_image(client, image_id)
@@ -160,9 +205,9 @@ def admit(client, image_id: str) -> AdmittedLocalSnapshot:
     try:
         package = source_package.admit(extracted[SOURCE_PATH])
         if package.digest != _labels(image)[SOURCE_LABEL]:
-            raise LocalSnapshotError("the Local Assistant source package digest does not match its image")
+            raise InconsistentSnapshotError("the Local Assistant source package digest does not match its image")
         if package.manifest != extracted[assistant_manifest.MANIFEST_PATH] or package.icon != extracted[ICON_PATH]:
-            raise LocalSnapshotError("the Local Assistant files do not match its source package")
+            raise InconsistentSnapshotError("the Local Assistant files do not match its source package")
         record = _record(
             candidate,
             package,
@@ -173,6 +218,7 @@ def admit(client, image_id: str) -> AdmittedLocalSnapshot:
         raise
     except (source_package.SourcePackageError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the Local Assistant declaration is invalid") from exc
+    _checked_preview(candidate, extracted)
     validate_record(record)
     return AdmittedLocalSnapshot(record=record, icon=package.icon)
 
@@ -198,7 +244,11 @@ def preview(client, image_id: str, *, platform: str | None = None) -> SnapshotPr
     the catalog text itself, and no request message is ever read.
     """
     candidate = require_candidate(client, image_id, platform=platform)
-    extracted = _extract_preview_files(client, image_id)
+    return _checked_preview(candidate, _extract_preview_files(client, image_id))
+
+
+def _checked_preview(candidate: LocalSnapshotCandidate, extracted: dict[str, bytes]) -> SnapshotPreview:
+    """Every check a preview makes, on extracted bytes: its declaration, icon, pages, and agreement with the labels."""
     try:
         manifest = extracted[assistant_manifest.MANIFEST_PATH]
         identity = assistant_manifest.parse_manifest_identity(manifest)
@@ -215,7 +265,7 @@ def preview(client, image_id: str, *, platform: str | None = None) -> SnapshotPr
         or identity.summary != candidate.summary
         or creators != candidate.declared_creators
     ):
-        raise LocalSnapshotError("the Local Assistant preview does not match its image labels")
+        raise InconsistentSnapshotError("the Local Assistant preview does not match its image labels")
     return SnapshotPreview(icon=extracted[ICON_PATH], details=details)
 
 
@@ -458,7 +508,7 @@ def _extract_paths(
             "the Local Assistant admission container could not be removed"
         ) from cleanup_failure
     if failure is not None:
-        error = LocalSnapshotUnavailableError if _unavailable(failure) else LocalSnapshotError
+        error = LocalSnapshotUnavailableError if _unavailable(failure) else InconsistentSnapshotError
         raise error("the Local Assistant files could not be admitted") from failure
     return extracted
 
@@ -492,11 +542,11 @@ def _record(
 ) -> dict[str, Any]:
     identity = assistant_manifest.parse_manifest_identity(package.manifest)
     if (identity.assistant_id, identity.version) != (candidate.assistant_id, candidate.version):
-        raise LocalSnapshotError("the Local Assistant manifest does not match its image labels")
+        raise InconsistentSnapshotError("the Local Assistant manifest does not match its image labels")
     manifest_contract = assistant_manifest.parse_manifest_contract(package.manifest)
     presentation = assistant_manifest.parse_manifest_presentation(package.manifest)
     if assistant_manifest.parse_manifest_creators(package.manifest)[:4] != candidate.declared_creators:
-        raise LocalSnapshotError("the Local Assistant manifest does not match its image labels")
+        raise InconsistentSnapshotError("the Local Assistant manifest does not match its image labels")
     machine_contract = assistant_manifest.parse_machine_contract(
         raw_contract,
         manifest_contract.integrations,
@@ -508,7 +558,7 @@ def _record(
     if candidate.actions != tuple(
         action["id"] for action in machine_contract["actions"]
     ) or candidate.integrations != tuple(value.provider for value in manifest_contract.integrations):
-        raise LocalSnapshotError("the Local Assistant capability labels do not match its contract")
+        raise InconsistentSnapshotError("the Local Assistant capability labels do not match its contract")
     # Local admission is unsigned self-consistency (ADR-0060): the pack must be complete and valid for this exact
     # catalog, and the record binds its digest so the started image must carry these exact bytes (ADR-0091).
     pack_digest = assistant_language.admit_pack(raw_pack, machine_contract["messages"], _digest(raw_pack)).pack_digest
