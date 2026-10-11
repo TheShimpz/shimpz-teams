@@ -11,7 +11,7 @@ from unittest import mock
 
 from docker.errors import APIError
 
-from local import authority, resources
+from local import authority, lifecycle
 from local.errors import ApiProblemError
 from local.http import audit as http_audit
 from local.http import server
@@ -85,16 +85,16 @@ def _statvfs(blocks: int, free: int, size: int = 4096) -> os.statvfs_result:
 class SpaceResourceTests(unittest.TestCase):
     def measure(self, api: FakeApi, statvfs: object = None) -> dict[str, object]:
         statvfs = statvfs or mock.Mock(return_value=_statvfs(16 * GIB // 4096, 12 * GIB // 4096))
-        with mock.patch.object(resources.os, "statvfs", statvfs):
-            measured = resources.space_resources(_controller(api))
+        with mock.patch.object(lifecycle.os, "statvfs", statvfs):
+            measured = lifecycle.space_resources(_controller(api))
         self.assertEqual(contract.canonical_space_resources(measured), measured)
         return measured
 
     def healthy(self, **answers: object) -> ListingApi:
-        members = [_container(name, f"id-{name}") for name in sorted(resources.SERVICES)]
+        members = [_container(name, f"id-{name}") for name in sorted(lifecycle.SERVICES)]
         answers = {
             "/info": {"MemTotal": 4 * GIB},
-            **{f"/containers/id-{name}/stats": _stats(GIB // 16) for name in resources.SERVICES},
+            **{f"/containers/id-{name}/stats": _stats(GIB // 16) for name in lifecycle.SERVICES},
             "/containers/id-assistant/stats": _stats(GIB // 4, inactive_file=GIB // 8),
             **answers,
         }
@@ -128,7 +128,7 @@ class SpaceResourceTests(unittest.TestCase):
         )
         stats = [params for url, params, _timeout in api.calls if url.endswith("/stats")]
         self.assertEqual(stats, [{"stream": "0", "one-shot": "1"}] * 8)
-        self.assertTrue(all(0 < timeout <= resources.BUDGET_SECONDS for _url, _params, timeout in api.calls))
+        self.assertTrue(all(0 < timeout <= lifecycle.BUDGET_SECONDS for _url, _params, timeout in api.calls))
 
     def test_counts_a_missing_or_stopped_service_and_ignores_foreign_containers(self) -> None:
         members = [
@@ -182,7 +182,7 @@ class SpaceResourceTests(unittest.TestCase):
 
     def test_a_spent_budget_leaves_memory_unknown(self) -> None:
         clock = iter([0.0, 0.0, 0.0, 6.0])
-        with mock.patch.object(resources.time, "monotonic", lambda: next(clock, 6.0)):
+        with mock.patch.object(lifecycle.time, "monotonic", lambda: next(clock, 6.0)):
             measured = self.measure(self.healthy())
         self.assertIsNone(measured["memory_used_bytes"])
         self.assertIsNone(measured["memory_total_bytes"])
@@ -190,7 +190,7 @@ class SpaceResourceTests(unittest.TestCase):
     def test_memory_measured_past_its_budget_is_unknown(self) -> None:
         api = ListingApi([], [], {"/info": {"MemTotal": 4 * GIB}})
         clock = iter([0.0, 0.0, 0.0, 0.0, 6.0])
-        with mock.patch.object(resources.time, "monotonic", lambda: next(clock, 6.0)):
+        with mock.patch.object(lifecycle.time, "monotonic", lambda: next(clock, 6.0)):
             measured = self.measure(api)
         self.assertIsNone(measured["memory_used_bytes"])
 
@@ -213,16 +213,16 @@ class SpaceResourceTests(unittest.TestCase):
             ("not objects", ["x"], []),
         ):
             with self.subTest(name), self.assertRaises(ApiProblemError) as caught:
-                resources.space_resources(_controller(ListingApi(members, assistants, {})))
+                lifecycle.space_resources(_controller(ListingApi(members, assistants, {})))
             self.assertEqual((caught.exception.status, caught.exception.code), (503, "docker-unavailable"))
 
     def test_a_spent_budget_before_the_listing_is_docker_unavailable(self) -> None:
         clock = iter([0.0, 6.0])
         with (
-            mock.patch.object(resources.time, "monotonic", lambda: next(clock, 6.0)),
+            mock.patch.object(lifecycle.time, "monotonic", lambda: next(clock, 6.0)),
             self.assertRaises(ApiProblemError) as caught,
         ):
-            resources.space_resources(_controller(self.healthy()))
+            lifecycle.space_resources(_controller(self.healthy()))
         self.assertEqual(caught.exception.code, "docker-unavailable")
 
 

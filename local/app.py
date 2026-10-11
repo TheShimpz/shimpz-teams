@@ -47,7 +47,6 @@ from local import inference as local_inference
 from local import labels as local_labels
 from local import lifecycle as local_team_lifecycle
 from local import names as local_names
-from local import resources as local_resources
 from local import token as local_token_store
 from local.assistant import api as local_assistant_api
 from local.assistant import egress as local_egress
@@ -295,7 +294,7 @@ class LocalController:
     list_teams = local_names.list_teams
     create_team = local_names.create_team
     rename_team = local_names.rename_team
-    space_resources = local_resources.space_resources
+    space_resources = local_team_lifecycle.space_resources
 
     def __init__(
         self,
