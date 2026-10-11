@@ -6,15 +6,20 @@ from contextvars import copy_context
 from http import HTTPStatus
 
 from install import artifact_trust, bindings, icons
+from local import audit as local_audit
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import assistant_icon_unavailable, assistant_limit_reached, invalid_locale
-from local.install import developers, preview, snapshots
+from local.install import admission, developers, preview, snapshots
 from local.install.registry import is_successor
 from local.validation import validate_team_id
 from protocol.http.v1 import payload as http_payload
 
 
 def list_local_snapshots(self) -> dict[str, object]:
+    """Every staged identity with its admission verdict (ADR-0060): only an admissible snapshot may be offered.
+
+    A refusal or an unavailable judgment is audited as metadata only, a cached refusal once per judgment.
+    """
     try:
         candidates = self.local_snapshot_inventory.candidates()
     except snapshots.LocalSnapshotUnavailableError as exc:
@@ -35,24 +40,47 @@ def list_local_snapshots(self) -> dict[str, object]:
             "Local Assistant snapshot inventory is invalid",
             code="local-assistant-snapshots-invalid",
         ) from exc
+    judged = self.local_snapshot_admissions.judge(candidates)
+    for item in judged:
+        _audit_admission(item)
+    return {"assistants": [_snapshot_entry(item) for item in judged]}
+
+
+def _audit_admission(item: admission.Judged) -> None:
+    verdict = item.admission
+    if verdict.state == snapshots.UNAVAILABLE:
+        local_audit.record_request(
+            "local-assistant-admission-unavailable",
+            result="error",
+            assistant=item.candidate.assistant_id,
+            detail=item.candidate.image_id,
+        )
+    elif verdict.state == snapshots.INADMISSIBLE and item.fresh:
+        local_audit.record_request(
+            "local-assistant-inadmissible",
+            result="denied",
+            assistant=item.candidate.assistant_id,
+            detail=f"{verdict.reason}:{item.candidate.image_id}",
+        )
+
+
+def _snapshot_entry(item: admission.Judged) -> dict[str, object]:
+    candidate = item.candidate
     return {
-        "assistants": [
-            {
-                "assistant_id": candidate.assistant_id,
-                "assistant_version": candidate.version,
-                "name": candidate.name,
-                "summary": candidate.summary,
-                "declared_creators": list(candidate.declared_creators),
-                "actions": list(candidate.actions),
-                "integrations": list(candidate.integrations),
-                "image_id": candidate.image_id,
-                "platform": candidate.platform,
-                "created_at": candidate.created_at,
-                "provenance": "local",
-                "unpublished": True,
-            }
-            for candidate in candidates
-        ]
+        "assistant_id": candidate.assistant_id,
+        "assistant_version": candidate.version,
+        "name": candidate.name,
+        "summary": candidate.summary,
+        "declared_creators": list(candidate.declared_creators),
+        "actions": list(candidate.actions),
+        "integrations": list(candidate.integrations),
+        "image_id": candidate.image_id,
+        "platform": candidate.platform,
+        "created_at": candidate.created_at,
+        "provenance": "local",
+        "unpublished": True,
+        "admission": item.admission.state,
+        "reason": item.admission.reason,
     }
 
 

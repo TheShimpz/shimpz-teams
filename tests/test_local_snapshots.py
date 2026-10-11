@@ -16,8 +16,8 @@ from install.bindings import DynamicAssistantStore
 from install.icons import AssistantIconError, AssistantIconStore
 from install.update import AssistantUpdateStore
 from local.errors import ApiProblemError
+from local.install import admission, service, snapshots, source_package
 from local.install import registry as assistant_registry
-from local.install import service, snapshots, source_package
 from protocol.http.v1 import payload as http_payload
 from tests import catalog_fixtures
 from tests.local_snapshot_fixtures import CREATED, IMAGE_ID
@@ -445,8 +445,12 @@ class LocalSnapshotTests(unittest.TestCase):
     def test_service_lists_only_public_candidate_fields(self) -> None:
         client, _image_value, _container_value = _client()
         local_snapshot_inventory = SimpleNamespace(candidates=lambda: snapshots.list_candidates(client))
+        controller = SimpleNamespace(
+            local_snapshot_inventory=local_snapshot_inventory,
+            local_snapshot_admissions=admission.LocalSnapshotAdmissions(client),
+        )
 
-        result = service.list_local_snapshots(SimpleNamespace(local_snapshot_inventory=local_snapshot_inventory))
+        result = service.list_local_snapshots(controller)
 
         self.assertEqual(
             result,
@@ -465,11 +469,13 @@ class LocalSnapshotTests(unittest.TestCase):
                         "created_at": CREATED,
                         "provenance": "local",
                         "unpublished": True,
+                        "admission": "admissible",
+                        "reason": None,
                     }
                 ]
             },
         )
-        self.assertNotIn("source_digest", result["assistants"][0])
+        self.assertIsNotNone(http_payload.canonical_local_assistant(result["assistants"][0]))
 
     def test_service_surfaces_the_canonical_invalid_stage_labeled_image(self) -> None:
         client, image, _container_value = _client()

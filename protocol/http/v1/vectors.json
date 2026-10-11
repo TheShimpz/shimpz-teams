@@ -1738,6 +1738,830 @@
       null
     ]
   },
+  "local_assistant": {
+    "valid": [
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "inadmissible",
+        "reason": "declaration-invalid"
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "inadmissible",
+        "reason": "image-inconsistent"
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "unavailable",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "summary": "Publica alterações com segurança.",
+        "declared_creators": [
+          "@fixture",
+          "@other-creator",
+          "@abc",
+          "@xyz"
+        ],
+        "actions": [
+          "list-zones",
+          "purge-cache"
+        ],
+        "integrations": [
+          "cloudflare",
+          "github"
+        ],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/arm64",
+        "created_at": "2026-08-28T17:00:00.123456789+00:00",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      }
+    ],
+    "invalid": [
+      null,
+      [],
+      {},
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible"
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null,
+        "trace_id": "0123456789abcdef0123456789abcdef"
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "inadmissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "inadmissible",
+        "reason": "restage"
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "inadmissible",
+        "reason": [
+          "declaration-invalid"
+        ]
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": "declaration-invalid"
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "unavailable",
+        "reason": "image-inconsistent"
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "pending",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": [
+          "admissible"
+        ],
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": null,
+        "reason": null
+      },
+      {
+        "assistant_id": "Fixture",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": " Fixture",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Line\nbreak",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@abc",
+          "@bcd",
+          "@cde",
+          "@def",
+          "@efg"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture",
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": "@fixture",
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping",
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "zeta",
+          "alpha"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [
+          "Cloudflare"
+        ],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "latest",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/riscv64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": [
+          "linux/amd64"
+        ],
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "yesterday",
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": 1,
+        "provenance": "local",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "published",
+        "unpublished": true,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": false,
+        "admission": "admissible",
+        "reason": null
+      },
+      {
+        "assistant_id": "fixture-assistant",
+        "assistant_version": "0.1.0",
+        "name": "Fixture Assistant",
+        "summary": "Exercise immutable admission.",
+        "declared_creators": [
+          "@fixture"
+        ],
+        "actions": [
+          "ping"
+        ],
+        "integrations": [],
+        "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "linux/amd64",
+        "created_at": "2026-08-28T17:00:00Z",
+        "provenance": "local",
+        "unpublished": 1,
+        "admission": "admissible",
+        "reason": null
+      }
+    ]
+  },
   "assistant_details": {
     "valid": [
       {

@@ -109,6 +109,34 @@ REQUEST_NONCE_RE = re.compile(r"[0-9a-f]{32}\Z")
 # The closed Admin interface languages a chat turn may name; a turn without one carries null (ADR-0090).
 CHAT_LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
 SNAPSHOT_SUMMARY_FIELDS = frozenset({"locale", "summary"})
+# One staged Local snapshot in Team's Local inventory (ADR-0060): its unverified label projection and Team's admission
+# verdict. Only an admissible snapshot may be offered; every other one still names its staged identity.
+LOCAL_ASSISTANT_FIELDS = frozenset(
+    {
+        "assistant_id",
+        "assistant_version",
+        "name",
+        "summary",
+        "declared_creators",
+        "actions",
+        "integrations",
+        "image_id",
+        "platform",
+        "created_at",
+        "provenance",
+        "unpublished",
+        "admission",
+        "reason",
+    }
+)
+LOCAL_ASSISTANT_ADMISSIONS = frozenset({"admissible", "inadmissible", "unavailable"})
+LOCAL_ASSISTANT_REASONS = frozenset({"declaration-invalid", "image-inconsistent"})
+LOCAL_ASSISTANT_PLATFORMS = frozenset({"linux/amd64", "linux/arm64"})
+LOCAL_ASSISTANT_CREATOR_RE = re.compile(r"@[a-z0-9][a-z0-9-]{1,30}[a-z0-9]\Z")
+LOCAL_ASSISTANT_CREATED_RE = re.compile(r"[0-9TZ:+.-]{20,64}\Z")
+MAX_LOCAL_ASSISTANTS = 50
+MAX_LOCAL_ASSISTANT_CREATORS = 4
+MAX_LOCAL_ASSISTANT_TEXT_CHARS = 80
 MAX_SNAPSHOT_SUMMARY_CHARS = 80
 # An Assistant page in one interface language: a staged Local snapshot's or an installed binding's identity, display
 # copy, and declared capabilities. Localized text is rendered text within its catalog bound (Assistant Spec v1).
@@ -274,6 +302,64 @@ def canonical_snapshot_summary(value: object) -> dict[str, object] | None:
     ):
         return None
     return value
+
+
+def canonical_local_assistant(value: object) -> dict[str, object] | None:
+    """Return one staged Local snapshot's inventory entry, or None when any member, bound, or verdict fails.
+
+    `reason` is a closed code exactly when the snapshot is inadmissible and null otherwise; the entry never carries
+    the snapshot's content. The label text is unverified Local presentation.
+    """
+    if not isinstance(value, dict) or set(value) != LOCAL_ASSISTANT_FIELDS:
+        return None
+    version = value["assistant_version"]
+    creators = value["declared_creators"]
+    created_at = value["created_at"]
+    if (
+        canonical_assistant_id(value["assistant_id"]) is None
+        or not isinstance(version, str)
+        or ASSISTANT_VERSION_RE.fullmatch(version) is None
+        or not all(_label_text(value[key]) for key in ("name", "summary"))
+        or not isinstance(creators, list)
+        or not 1 <= len(creators) <= MAX_LOCAL_ASSISTANT_CREATORS
+        or not all(isinstance(item, str) and LOCAL_ASSISTANT_CREATOR_RE.fullmatch(item) for item in creators)
+        or len(set(creators)) != len(creators)
+        or not _sorted_identifiers(value["actions"], 1, MAX_DETAILS_ACTIONS)
+        or not _sorted_identifiers(value["integrations"], 0, MAX_DETAILS_INTEGRATIONS)
+        or canonical_source_digest(value["image_id"]) is None
+        or not isinstance(value["platform"], str)
+        or value["platform"] not in LOCAL_ASSISTANT_PLATFORMS
+        or not isinstance(created_at, str)
+        or LOCAL_ASSISTANT_CREATED_RE.fullmatch(created_at) is None
+        or value["provenance"] != "local"
+        or value["unpublished"] is not True
+    ):
+        return None
+    return value if _local_admission(value["admission"], value["reason"]) else None
+
+
+def _local_admission(admission: object, reason: object) -> bool:
+    if admission == "inadmissible":
+        return isinstance(reason, str) and reason in LOCAL_ASSISTANT_REASONS
+    return isinstance(admission, str) and admission in LOCAL_ASSISTANT_ADMISSIONS and reason is None
+
+
+def _label_text(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= MAX_LOCAL_ASSISTANT_TEXT_CHARS
+        and value == value.strip()
+        and not any(ord(character) < 32 or ord(character) == 127 for character in value)
+    )
+
+
+def _sorted_identifiers(value: object, minimum: int, maximum: int) -> bool:
+    return (
+        isinstance(value, list)
+        and minimum <= len(value) <= maximum
+        and all(canonical_identifier(item) is not None for item in value)
+        and value == sorted(set(value))
+    )
 
 
 def canonical_assistant_details(value: object) -> dict[str, object] | None:

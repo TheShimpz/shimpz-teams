@@ -66,6 +66,7 @@ from local.errors import (
     team_context_changed,
 )
 from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
+from local.install import admission as local_snapshot_admission
 from local.install import automatic as local_automatic_updates
 from local.install import collector as local_snapshot_collector
 from local.install import developers as local_developers
@@ -373,6 +374,7 @@ class LocalController:
             raise RuntimeError("the Docker daemon architecture is unsupported") from exc
         self.local_snapshot_inventory = local_snapshot_inventory.LocalSnapshotInventory(client, local_platform)
         self.local_snapshot_previews = local_snapshot_preview.LocalSnapshotPreviewCache(client, local_platform)
+        self.local_snapshot_admissions = local_snapshot_admission.LocalSnapshotAdmissions(client)
         self.local_snapshot_collector = local_snapshot_collector.SupersededSnapshotCollector(client, registry)
         self._wire_collaborators()
         # Every binding the current contract refuses is taken out of service first, so the startup recovery below,

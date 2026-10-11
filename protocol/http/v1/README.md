@@ -105,6 +105,29 @@ provider identifier), and `stored_inputs` (0 to 8) are each sorted by unique ide
 link beside the help text. No catalog, pack, schema, or request copy is returned. Admin refuses an answer whose `locale` is not the one
 it asked for.
 
+Local Admin lists the staged Local snapshots at `GET /v1/local-assistants` (Local only). Team answers
+`{"assistants": [...]}` plus `trace_id`, at most 50 entries, one per staged identity (each Assistant's one
+`shimpz-local/<assistant_id>:staged` image), and each entry is exactly `payload.canonical_local_assistant`:
+
+```json
+{"assistant_id": "fixture-assistant", "assistant_version": "0.1.0", "name": "Fixture Assistant",
+ "summary": "Exercise immutable admission.", "declared_creators": ["@fixture"], "actions": ["ping"],
+ "integrations": [], "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+ "platform": "linux/amd64", "created_at": "2026-08-28T17:00:00Z", "provenance": "local", "unpublished": true,
+ "admission": "inadmissible", "reason": "declaration-invalid"}
+```
+
+The identity, `name`, `summary` (each 1 to 80 trimmed characters without a control character), the first four
+self-declared `declared_creators`, and the sorted unique `actions` (1 to 128) and Integration providers (0 to 16) are
+the image's labels: unverified Local presentation. `admission` is Team's verdict for the exact image (ADR-0060):
+`admissible` when the full install admission, which includes every preview check, accepts it; `inadmissible` when it
+refuses it, with `reason` `declaration-invalid` (the declaration fails the current contract) or `image-inconsistent`
+(the image's labels or files disagree with its own declaration); `unavailable` when Docker could not answer this time.
+`reason` is null for every other verdict, and no entry carries the snapshot's content. Only an admissible snapshot may
+be offered or installed; every other entry still names its staged identity, so a consumer never offers a publication
+of the same `assistant_id` in its place. Team reuses a settled verdict for the exact image id and tag set and never
+reuses an unavailable one.
+
 The challenge may also carry presentation fields beside the fingerprinted `request` (ADR-0090). `purpose` is the Brain's own sentence for
 why the user's task needs this Action, projected only when its recorded origin locale equals the challenge `locale`,
 so a Routine challenge shows its localized scope without a purpose. It is written in the turn's interface language
