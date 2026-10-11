@@ -1,7 +1,6 @@
 """Team-owned admission for unpublished Assistant images staged in Local Docker."""
 
 import hashlib
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -35,7 +34,6 @@ ICON_PATH = "/opt/shimpz/icon.png"
 RUNTIME_USER = "10001:10001"
 RUNTIME_ENTRYPOINT = ["/opt/shimpz/runtime/bin/python3.14", "-c", "import signal; signal.pause()"]
 MAX_CANDIDATES = 50
-_CREATED_RE = re.compile(r"^[0-9TZ:+.-]{20,64}$")
 _PLATFORMS = {"amd64": "linux/amd64", "x86_64": "linux/amd64", "arm64": "linux/arm64", "aarch64": "linux/arm64"}
 _RECORD_FIELDS = {
     "version",
@@ -197,15 +195,20 @@ def list_candidates(client, *, platform: str | None = None) -> Listing:
 
 
 def _refused(image) -> RefusedSnapshot:
-    """The staged identity of an image whose stage identity failed validation: its id, and its Assistant id label."""
-    image_id = getattr(image, "id", None)
-    if not isinstance(image_id, str) or http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is None:
-        raise LocalSnapshotError("the Local Assistant snapshot identity is invalid")
-    try:
-        assistant_id = http_payload.canonical_assistant_id(_labels(image).get(ASSISTANT_LABEL))
-    except LocalSnapshotError:
-        assistant_id = None
-    return RefusedSnapshot(image_id, assistant_id)
+    """The staged identity of an image whose stage identity failed validation: its id, and its Assistant id label.
+
+    Only the Assistant id label is read, so another invalid label never erases a valid identity. Labels that are not
+    one string map are a malformed Docker answer and fail the listing; an image without labels names no Assistant.
+    """
+    config = image.attrs.get("Config")
+    labels = config.get("Labels") if isinstance(config, dict) else None
+    if labels is None and isinstance(config, dict):
+        labels = {}
+    if not isinstance(labels, dict) or any(
+        not isinstance(key, str) or not isinstance(value, str) for key, value in labels.items()
+    ):
+        raise LocalSnapshotError("Docker answered malformed Local Assistant snapshot labels")
+    return RefusedSnapshot(image.id, http_payload.canonical_assistant_id(labels.get(ASSISTANT_LABEL)))
 
 
 def admission(client, image_id: str) -> Admission:
@@ -390,8 +393,7 @@ def _candidate(image, platform: str) -> LocalSnapshotCandidate:
         or http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is None
         or attrs.get("Id") != image_id
         or attrs.get("Architecture") != platform.rpartition("/")[2]
-        or not isinstance(created, str)
-        or _CREATED_RE.fullmatch(created) is None
+        or http_payload.canonical_created_at(created) is None
     ):
         raise LocalSnapshotError("the Local Assistant snapshot identity is invalid")
     config = attrs.get("Config")
@@ -470,11 +472,14 @@ def _summary_image(client, summary):
     if not isinstance(image_id, str) or http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is None:
         raise LocalSnapshotError("the Local Assistant snapshot identity is invalid")
     try:
-        return client.images.get(image_id)
+        image = client.images.get(image_id)
     except ImageNotFound as exc:
         raise LocalSnapshotUnavailableError("the Local Assistant snapshot is no longer available") from exc
     except DockerException as exc:
         raise LocalSnapshotUnavailableError("Docker cannot resolve the Local Assistant snapshot") from exc
+    if image.id != image_id:
+        raise LocalSnapshotError("Docker did not resolve the exact Local Assistant image id")
+    return image
 
 
 def _daemon_platform(client) -> str:

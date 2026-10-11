@@ -418,7 +418,7 @@ class RefusedStagedImageTests(unittest.TestCase):
         for change in (
             lambda labels: labels.pop(snapshots.ASSISTANT_LABEL),
             lambda labels: labels.update({snapshots.ASSISTANT_LABEL: "Not An Id"}),
-            lambda labels: labels.update({snapshots.ASSISTANT_LABEL: 7}),
+            lambda labels: labels.update({snapshots.ASSISTANT_LABEL: "a" * 41}),
         ):
             with self.subTest():
                 result, audit = self._list(self._beside_a_good_one(change))

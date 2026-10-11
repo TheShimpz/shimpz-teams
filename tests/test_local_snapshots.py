@@ -111,8 +111,30 @@ class LocalSnapshotTests(unittest.TestCase):
                 client.containers.create.assert_not_called()
 
         client, image, _container_value = _client()
-        image.attrs["Config"]["Labels"] = []
+        image.attrs["Config"]["Labels"] = None
         self.assertEqual(snapshots.list_candidates(client).refused, (unidentified,))
+
+        # Another invalid label never erases a valid id; only an impossible creation time is, here, the invalid one.
+        client, image, _container_value = _client()
+        image.attrs["Created"] = "2026-99-99T99:99:99Z"
+        self.assertEqual(snapshots.list_candidates(client).refused, (identified,))
+
+    def test_labels_docker_cannot_answer_as_one_string_map_fail_the_listing(self) -> None:
+        for change in (
+            lambda config: config.update({"Labels": []}),
+            lambda config: config["Labels"].update({snapshots.ACTIONS_LABEL: None}),
+            lambda config: config.update({"Labels": {7: "fixture-assistant"}}),
+        ):
+            with self.subTest():
+                client, image, _container_value = _client()
+                image.attrs["Config"]["User"] = "0:0"
+                change(image.attrs["Config"])
+                with self.assertRaisesRegex(snapshots.LocalSnapshotError, "malformed"):
+                    snapshots.list_candidates(client)
+        client, image, _container_value = _client()
+        image.attrs["Config"] = None
+        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "malformed"):
+            snapshots.list_candidates(client)
 
     def test_snapshot_summary_resolution_fails_closed(self) -> None:
         client, _image_value, _container_value = _client()
@@ -221,12 +243,12 @@ class LocalSnapshotTests(unittest.TestCase):
             (snapshots.RefusedSnapshot(IMAGE_ID, "fixture-assistant"),),
         )
 
-        image.id = "malformed-image-id"
-        with self.assertRaisesRegex(
-            snapshots.LocalSnapshotError,
-            "snapshot identity is invalid",
-        ):
-            snapshots.list_candidates(client)
+        # Docker answering one image id with another, malformed or not, fails the listing instead of being trusted.
+        for answered in ("malformed-image-id", "sha256:" + ("c" * 64)):
+            with self.subTest(answered=answered):
+                image.id = answered
+                with self.assertRaisesRegex(snapshots.LocalSnapshotError, "exact Local Assistant image id"):
+                    snapshots.list_candidates(client)
 
     def test_admits_exact_image_without_starting_temporary_container(self) -> None:
         client, _image_value, container = _client()

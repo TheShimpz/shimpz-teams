@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import re
 import unicodedata
@@ -352,9 +353,19 @@ def _local_labels(value: dict[str, object]) -> bool:
         and len(set(creators)) == len(creators)
         and _sorted_identifiers(value["actions"], 1, MAX_DETAILS_ACTIONS)
         and _sorted_identifiers(value["integrations"], 0, MAX_DETAILS_INTEGRATIONS)
-        and isinstance(created_at, str)
-        and LOCAL_ASSISTANT_CREATED_RE.fullmatch(created_at) is not None
+        and canonical_created_at(created_at) is not None
     )
+
+
+def canonical_created_at(value: object) -> str | None:
+    """Return one staged image's Docker creation time: a bounded, real, zone-qualified ISO 8601 instant, or None."""
+    if not isinstance(value, str) or LOCAL_ASSISTANT_CREATED_RE.fullmatch(value) is None:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return value if parsed.utcoffset() is not None else None
 
 
 def _local_admission(admission: object, reason: object) -> bool:
