@@ -359,7 +359,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         self.assertEqual(decoded.requirements, requirement)
         self.assertEqual(decoded.pending, state)
 
-    def test_schema_seven_keeps_the_paused_batch_turn_locale_usage_localized_copy_and_file_digests_together(
+    def test_the_current_schema_keeps_the_paused_batch_turn_locale_usage_localized_copy_and_file_digests_together(
         self,
     ) -> None:
         """One paused record carries its Action batch, ADR-0091 locale and copy, ADR-0082 usage, and file digests."""
@@ -374,7 +374,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
 
         bindings, payload = local_chat_continuations.encode("human", requirement, state)
         decoded = local_chat_continuations.decode(stored_record("human", bindings, payload))
-        self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 8)
+        self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 9)
         self.assertEqual(decoded.pending.paused_batch, PAUSED_BATCH)
         self.assertEqual(decoded.pending.identity[3][0]["sha256"], "b" * 64)
         self.assertEqual(decoded.pending, state)

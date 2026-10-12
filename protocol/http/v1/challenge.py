@@ -1,6 +1,6 @@
 """The presentation a Team human-required challenge carries beside its canonical request (ADR-0091, ADR-0093).
 
-The rendered copy of the request's catalog references, the one file an authorization discloses, and a confirmation's
+The rendered copy of the request's catalog references, the one file an authorization discloses, and an authorization's
 projection of the validated Action input: display values a client shows and validates, never part of the request's
 fingerprint.
 """
@@ -83,7 +83,7 @@ def canonical_file_disclosure(value: object) -> dict[str, object] | None:
     return {key: value[key] for key in ("id", "name", "media_type", "size", "sha256")}
 
 
-# The platform-rendered projection of a confirmation challenge's validated Action input (ADR-0093 file-card
+# The platform-rendered projection of an authorization challenge's validated Action input (ADR-0093 file-card
 # precedent): one row per top-level argument in name order, each the argument's escaped JSON text.
 INPUT_PROJECTION_KEYS = frozenset({"fields", "omitted"})
 INPUT_PROJECTION_FIELD_KEYS = frozenset({"name", "value", "truncated"})
@@ -94,7 +94,7 @@ INPUT_PROJECTION_MAX_OMITTED = 4096
 
 
 def canonical_input_projection(value: object) -> dict[str, object] | None:
-    r"""Return one confirmation challenge's projection of the validated Action input, or None.
+    r"""Return one authorization challenge's projection of the validated Action input, or None.
 
     ``fields`` holds at most 16 rows in strictly ascending ``name`` order. ``name`` (1 to 128 characters) is the
     argument's escaped name and ``value`` (1 to 400) its escaped canonical JSON text; both are printable, and escaping

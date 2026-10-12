@@ -9,8 +9,6 @@ from dataclasses import dataclass, field
 from http import HTTPStatus
 
 from action import challenges as action_challenges
-from action import confirmation as action_confirmation
-from action import dispatch as action_dispatch
 from action import execution as action_execution
 from action import files as action_files
 from action import human as action_human
@@ -134,8 +132,8 @@ def _human_requirement(
     """The paused request of one active Assistant, its copy rendered in the turn's language (ADR-0091).
 
     An authorization of a file-taking Action also discloses the selected file its approval delivers (ADR-0093). With
-    ``project_input``, a confirmation card (Team's policy confirmation or a declared authorization) also shows the
-    platform-rendered projection of the Action's validated input.
+    ``project_input``, a declared authorization card also shows the platform-rendered projection of the Action's
+    validated input.
     """
     active = _required_active_assistant(bindings, action_request.assistant_id)
     action = active.spec.actions.get(action_request.action)
@@ -151,9 +149,9 @@ def _human_requirement(
     except action_files.FileDeliveryError as exc:
         raise chat_orchestrator.ChatOrchestrationError("Action file is unavailable") from exc
     shown = None
-    if project_input and human_request.kind in action_challenges.CONFIRMATION_KINDS:
+    if project_input and human_request.kind in action_human.AUTHORIZATION_KINDS:
         try:
-            shown = action_confirmation.input_projection(action_request.input)
+            shown = action_challenges.input_projection(action_request.input)
         except ValueError as exc:
             raise chat_orchestrator.ChatOrchestrationError("Action input cannot be shown") from exc
     return action_challenges.HumanRequirement(
@@ -173,58 +171,16 @@ def _human_requirement(
 
 
 def _invocation_evidence(
-    self,
     request: SegmentRequest,
-    active: _ActiveAssistant,
     action_request: brain_runtime_client.ActionRequest,
     frozen: tuple[object, str],
 ) -> action_execution.ActionInvocationEvidence:
-    """The evidence one Action call runs with, once a chat Action passed Team's confirmation policy.
-
-    A compiled Routine run replays only Actions its card already granted, so the policy confirms chat Actions only.
-    """
+    """The evidence one Action call runs with: its private inputs, its replay transcript, and its operation."""
     private_inputs, operation_id = frozen
     transcript = action_human.transcript_for(request.transcripts, action_request.interrupt_id)
     if not isinstance(private_inputs, action_execution.RpcPrivateInputs):
         raise action_journal.ActionJournalConflictError("Action private input evidence is unavailable")
-    if request.routine is None:
-        _confirm_before_run(self, request.team_id, active, action_request, transcript)
     return action_execution.ActionInvocationEvidence(private_inputs, transcript, operation_id)
-
-
-def _confirm_before_run(
-    self,
-    team_id: str,
-    active: _ActiveAssistant,
-    action_request: brain_runtime_client.ActionRequest,
-    transcript: action_human.ActionTranscript,
-) -> None:
-    """Pause a chat Action the Team's policy confirms until the Supervisor confirmed exactly this call.
-
-    It runs before the workload starts. A missing confirmation suspends the Action for Team's own confirmation card;
-    a confirmation of another binding or argument is refused, and the refusal settles the attempt as never run.
-    """
-    action = active.spec.actions[action_request.action]
-    try:
-        enabled = self.inference_store.load_action_confirmation(team_id)
-    except inference_config.InferenceConfigError:
-        refused = action_dispatch.DispatchRefusedError("the Team's Action confirmation setting is unavailable")
-        raise chat_orchestrator.ChatOrchestrationError("Action confirmation setting is unavailable") from refused
-    if not action_confirmation.required(action, enabled):
-        return
-    request = action_confirmation.request(
-        team_id,
-        (active.spec.assistant_id, active.spec.image, active.container_id),
-        action_request.action,
-        action_request.interrupt_id,
-        action_request.input,
-    )
-    if transcript.confirmed(request):
-        return
-    if transcript.confirmation is not None:
-        refused = action_dispatch.DispatchRefusedError("the confirmation names another Action call")
-        raise chat_orchestrator.ChatOrchestrationError("Action confirmation does not match its call") from refused
-    raise action_human.HumanRequestSuspensionError(request)
 
 
 def _knowledge(self, team_id: str) -> tuple[object, object]:
@@ -398,7 +354,7 @@ def _run_chat_segment_with_metadata(
         action_request: brain_runtime_client.ActionRequest, private_inputs: object, operation_id: str
     ) -> object:
         active = _required_active_assistant(bindings, action_request.assistant_id)
-        evidence = _invocation_evidence(self, request, active, action_request, (private_inputs, operation_id))
+        evidence = _invocation_evidence(request, action_request, (private_inputs, operation_id))
 
         def invoke() -> object:
             return self._invoke_chat_action(

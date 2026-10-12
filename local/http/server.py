@@ -48,7 +48,6 @@ _MACHINE_ONLY_OPERATIONS = frozenset(
 _READ_METHODS = frozenset({"GET", "HEAD"})
 _JSON_BODY_LIMITS = {
     "supervisor-key-rotate": MAX_BODY_BYTES,
-    "action-confirmation-configure": MAX_BODY_BYTES,
     "assistant-install": MAX_BODY_BYTES,
     "local-assistant-fresh-install": MAX_BODY_BYTES,
     "local-assistant-install": MAX_BODY_BYTES,

@@ -8,12 +8,11 @@ from unittest import mock
 
 from test_local_chat_continuations import pending
 
-from action import challenges as action_challenges
-from action import confirmation as action_confirmation
 from action import human as action_human
 from integrations import challenges as integration_challenges
 from local.chat import continuation as continuation
 from local.chat import continuation_store
+from tests import human_request_fixtures
 
 
 def _stored(kind: str, body: dict[str, object]) -> continuation_store.StoredContinuation:
@@ -273,7 +272,6 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         transcript = {
             "interrupt_id": "duplicate",
             "responses": [],
-            "confirmation": None,
         }
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._transcripts([transcript, transcript])
@@ -313,47 +311,25 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._human_requirement(invalid_human)
 
-    def test_teams_own_confirmation_round_trips_and_its_records_are_closed(self) -> None:
-        request = action_confirmation.request("team_1", ("assistant", "image", "container"), "action", "interrupt", {})
-        confirmed = action_human.ActionTranscript("interrupt").confirm(request, True)
-        encoded = continuation._transcripts_payload((confirmed,))
-        self.assertEqual(continuation._transcripts(encoded), (confirmed,))
-        answer = encoded[0]["confirmation"]
-        for malformed in (
-            [],
-            {**answer, "kind": "approval"},
-            {**answer, "ordinal": 1},
-            {**answer, "ordinal": False},
-            {**answer, "fingerprint": 1},
-            {**answer, "fingerprint": "A" * 64},
-            {**answer, "value": 1},
-        ):
-            with self.subTest(malformed=malformed), self.assertRaises(continuation.ContinuationCodecError):
-                continuation._transcripts([{**encoded[0], "confirmation": malformed}])
-        with self.assertRaises(continuation.ContinuationCodecError):
-            continuation._human_response(answer, 0)
-
-        requirement = action_challenges.HumanRequirement(
-            "assistant",
-            "Assistant",
-            "action",
-            "Summary",
-            "interrupt",
-            request,
-            "0.4.2",
-            action_challenges.RequestCopy("en", "sha256:" + "a" * 64, "sha256:" + "b" * 64, {}),
-            input={"fields": [], "omitted": 0},
+    def test_an_authorization_keeps_its_input_projection_and_only_an_authorization_carries_one(self) -> None:
+        shown = {"fields": [{"name": "zone", "value": '"example.com"', "truncated": False}], "omitted": 0}
+        approval = human_request_fixtures.requirement(human_request_fixtures.request("approval"), input=shown)
+        recorded = continuation._requirements_payload("human", (approval,))[0]
+        self.assertEqual(continuation._human_requirement(recorded), approval)
+        unshown = continuation._requirements_payload("human", (dataclasses.replace(approval, input=None),))[0]
+        self.assertIsNone(continuation._human_requirement(unshown).input)
+        text = human_request_fixtures.requirement(
+            human_request_fixtures.request(
+                "input:text", label="Zone", required=True, placeholder=None, min_length=1, max_length=64
+            )
         )
-        recorded = continuation._requirements_payload("human", (requirement,))[0]
-        self.assertEqual(continuation._human_requirement(recorded), requirement)
-        for field, value in (
-            ("input", None),
-            ("input", {"fields": [], "omitted": 1}),
-            ("messages", [{"id": "message"}]),
-            ("request", {**request.payload(), "fingerprint": "0" * 64}),
+        for value in (
+            {**recorded, "input": {"fields": [], "omitted": 1}},
+            {**recorded, "input": {"fields": []}},
+            {**continuation._requirements_payload("human", (text,))[0], "input": shown},
         ):
-            with self.subTest(field=field), self.assertRaises(continuation.ContinuationCodecError):
-                continuation._human_requirement({**recorded, field: value})
+            with self.subTest(value=value["input"]), self.assertRaises(continuation.ContinuationCodecError):
+                continuation._human_requirement(value)
 
     def test_decode_rejects_type_contract_kind_empty_and_binding_drift(self) -> None:
         with self.assertRaises(continuation.ContinuationCodecError):

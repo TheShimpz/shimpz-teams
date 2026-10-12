@@ -1,5 +1,6 @@
 """Bounded Team-owned challenges for admitted Action human requests."""
 
+import json
 import math
 import time
 from collections.abc import Callable, Mapping
@@ -62,8 +63,8 @@ class HumanRequirement:
     purpose_locale: str | None = None
     # The one selected file an authorization of a file-taking Action discloses, and only its approval delivers.
     file: Mapping[str, object] | None = None
-    # The platform-rendered projection of the Action's validated input that a confirmation card shows: required for
-    # Team's policy confirmation, present for a chat authorization, and absent for any other request.
+    # The platform-rendered projection of the Action's validated input that a chat authorization card shows; absent
+    # for a Routine run's card and for any other request.
     input: Mapping[str, object] | None = None
 
 
@@ -187,14 +188,68 @@ def _purpose(purpose: object, locale: object) -> bool:
     return http_payload.canonical_purpose(purpose) == purpose and http_payload.canonical_locale(locale) is not None
 
 
-CONFIRMATION_KINDS = frozenset({*human.AUTHORIZATION_KINDS, human.CONFIRMATION_KIND})
+def input_projection(arguments: Mapping[str, object]) -> dict[str, object]:
+    """Render the validated input as the bounded, escaped rows a chat authorization card shows.
+
+    Each top-level argument becomes one row: its escaped name and its escaped canonical JSON value, so a string is
+    quoted and can never pass for a number, a boolean, or another argument. A row cut to its bound says so, and the
+    arguments past the last row are counted; nothing is dropped silently.
+    """
+    rows = sorted(
+        (_escaped(json.dumps(name, ensure_ascii=False))[1:-1], _value(value)) for name, value in arguments.items()
+    )
+    fields = []
+    for name, value in rows[: http_challenge.INPUT_PROJECTION_MAX_FIELDS]:
+        shown_name, name_cut = _bounded(name, http_challenge.INPUT_PROJECTION_NAME_CHARS)
+        shown_value, value_cut = _bounded(value, http_challenge.INPUT_PROJECTION_VALUE_CHARS)
+        fields.append({"name": shown_name, "value": shown_value, "truncated": name_cut or value_cut})
+    projection = {"fields": fields, "omitted": len(rows) - len(fields)}
+    if http_challenge.canonical_input_projection(projection) is None:
+        raise ValueError("Action input cannot be projected")
+    return projection
+
+
+def _value(value: object) -> str:
+    return _escaped(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(", ", ": ")))
+
+
+def _escaped(text: str) -> str:
+    """JSON text with every character that is not printable, such as a bidirectional control, made visible."""
+    return "".join(character if character.isprintable() else _escape(character) for character in text)
+
+
+def _escape(character: str) -> str:
+    code = ord(character)
+    if code <= 0xFFFF:
+        return f"\\u{code:04x}"
+    code -= 0x10000
+    return f"\\u{0xD800 + (code >> 10):04x}\\u{0xDC00 + (code & 0x3FF):04x}"
+
+
+def _bounded(text: str, maximum: int) -> tuple[str, bool]:
+    """``text`` cut to ``maximum`` characters, never inside an escape, and whether it was cut."""
+    if len(text) <= maximum:
+        return text, False
+    cut = text[:maximum]
+    escape = cut.rfind("\\u")
+    # An escape sequence the bound split is dropped whole; an escaped backslash ("\\\\u") is ordinary text.
+    if escape != -1 and len(cut) - escape < 6 and not _escaped_backslash(cut, escape):
+        cut = cut[:escape]
+    return cut, True
+
+
+def _escaped_backslash(text: str, index: int) -> bool:
+    """Whether the backslash at ``index`` is itself escaped by an odd run of backslashes before it."""
+    run = 0
+    while index - run - 1 >= 0 and text[index - run - 1] == "\\":
+        run += 1
+    return run % 2 == 1
 
 
 def _input(value: HumanRequirement) -> bool:
-    if value.input is None:
-        return value.request.kind != human.CONFIRMATION_KIND
-    return (
-        value.request.kind in CONFIRMATION_KINDS and http_challenge.canonical_input_projection(value.input) is not None
+    return value.input is None or (
+        value.request.kind in human.AUTHORIZATION_KINDS
+        and http_challenge.canonical_input_projection(value.input) is not None
     )
 
 
