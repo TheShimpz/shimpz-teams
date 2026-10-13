@@ -65,6 +65,11 @@ action_file_unavailable = _problem(
     _CONFLICT, "the attached file is unavailable for this Action; attach it again", "action-file-unavailable"
 )
 selected_file_not_found = _problem(_NOT_FOUND, "selected file not found", "file-not-found")
+file_not_found = _problem(_NOT_FOUND, "file not found", "file-not-found")
+file_preview_unsupported = _problem(_INVALID, "the file has no preview", "file-preview-unsupported")
+file_preview_busy = _problem(_UNAVAILABLE, "file preview capacity is busy", "file-preview-busy")
+file_preview_unavailable = _problem(_UNAVAILABLE, "the file preview could not be prepared", "file-preview-unavailable")
+file_preview_active = _problem(_UNAVAILABLE, "a file preview did not end in time", "file-preview-active")
 assistant_isolation_drift = _problem(
     _CONFLICT, "the installed Assistant failed its isolation profile", "assistant-isolation-drift"
 )

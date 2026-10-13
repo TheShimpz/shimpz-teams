@@ -11,6 +11,7 @@ from pathlib import Path
 import challenge
 import payload
 import phrase
+import preview
 import progress
 import routine_context
 import routine_notice
@@ -214,6 +215,7 @@ for name, admit in (
     ("creator_links", payload.canonical_creator_links),
     ("routine_challenge_open", routine_run.canonical_challenge_open),
     ("turn_usage", payload.canonical_turn_usage),
+    ("file_preview", preview.canonical_framing),
 ):
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):

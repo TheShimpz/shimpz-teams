@@ -109,11 +109,11 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         self.assertEqual(head.wfile.getvalue(), b"")
 
         icon = self.handler()
-        icon._send_icon(b"png")
+        icon._send_image(b"png", "image/png")
         self.assertEqual(icon.wfile.getvalue(), b"png")
         icon.command = "HEAD"
         icon.wfile = BytesIO()
-        icon._send_icon(b"png")
+        icon._send_image(b"png", "image/png")
         self.assertEqual(icon.wfile.getvalue(), b"")
 
     def test_captured_body_and_file_contract_fail_closed(self) -> None:
@@ -642,21 +642,21 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
 
         icon_route = self.route("assistant-icon", team_id="team_1", assistant_id="assistant")
         handler._resolved_route.return_value = ([], icon_route)
-        handler._send_icon = mock.Mock()
+        handler._send_image = mock.Mock()
         with self._assertion_admitted("d" * 32):
             self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
-        handler._send_icon.assert_called_once_with(b"png")
+        handler._send_image.assert_called_once_with(b"png", "image/png")
 
         local_icon_route = self.route(
             "local-assistant-icon",
             image_hash="a" * 64,
         )
         handler._resolved_route.return_value = ([], local_icon_route)
-        handler._send_icon.reset_mock()
+        handler._send_image.reset_mock()
         with self._assertion_admitted("d" * 32):
             self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
         controller.local_snapshot_icon.assert_called_once_with("sha256:" + "a" * 64)
-        handler._send_icon.assert_called_once_with(b"local-png")
+        handler._send_image.assert_called_once_with(b"local-png", "image/png")
 
         controller.local_snapshot_icon.side_effect = ApiProblemError(
             HTTPStatus.SERVICE_UNAVAILABLE,

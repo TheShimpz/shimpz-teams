@@ -1,6 +1,7 @@
 """Local Team destruction and the whole-Space reset lifecycle."""
 
-from contextlib import ExitStack
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from http import HTTPStatus
 
 from docker.errors import DockerException
@@ -19,6 +20,7 @@ from local.errors import (
     chat_stop_timeout,
     conversation_state_unavailable,
     docker_unavailable,
+    file_preview_active,
     space_reset_failed,
     space_resource_ownership_conflict,
     team_destroy_failed,
@@ -184,6 +186,17 @@ def _clear_team_runtime_state(self, team_id: str) -> None:
             self.chat_turn_service._cancelled_chat_tokens.discard(token)
 
 
+@contextmanager
+def previews_closed(team_id: str | None = None) -> Iterator[None]:
+    """Hold one Team's file previews, or the whole Space's, closed after every one under way has ended."""
+    with ExitStack() as closed:
+        try:
+            closed.enter_context(local_prepare.PREVIEWS.closed(team_id))
+        except local_prepare.PreviewDrainError as exc:
+            raise file_preview_active() from exc
+        yield
+
+
 def destroy_team(self, team_id: str, expected_name: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     expected_name = local_names.canonical_name(expected_name)
@@ -197,7 +210,8 @@ def destroy_team(self, team_id: str, expected_name: str) -> dict[str, object]:
                     "Team name confirmation does not match",
                     code="team-name-mismatch",
                 )
-        return _destroy_confirmed_team(self, team_id)
+        with previews_closed(team_id):
+            return _destroy_confirmed_team(self, team_id)
 
 
 def _destroy_confirmed_team(self, team_id: str) -> dict[str, object]:
@@ -359,6 +373,8 @@ def reset_space(self) -> dict[str, object]:
         locks.enter_context(self._names_lock)
         # Every running turn stops and drains first, and none registers until the reset ends.
         locks.enter_context(self.chat_turn_service._drained_chat())
+        # No file preview runs or starts a helper until the reset ends.
+        locks.enter_context(previews_closed())
         for lock in self._locks:
             locks.enter_context(lock)
         # Only with turns and every Team-locked writer excluded do the paused turns end, so none is recreated.

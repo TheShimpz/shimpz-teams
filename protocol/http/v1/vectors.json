@@ -7224,5 +7224,24 @@
       {"text": "routinely list my records", "requests": false},
       {"text": "Liste os registros DNS de shimpz.com", "requests": false}
     ]
+  },
+  "file_preview": {
+    "valid": [
+      {"media_type": "image/jpeg", "length": 1},
+      {"media_type": "image/png", "length": 524288}
+    ],
+    "invalid": [
+      {"media_type": "image/png", "length": 0},
+      {"media_type": "image/jpeg", "length": 524289},
+      {"media_type": "image/webp", "length": 2048},
+      {"media_type": "image/svg+xml", "length": 2048},
+      {"media_type": "IMAGE/PNG", "length": 2048},
+      {"media_type": "image/png", "length": 2048.0},
+      {"media_type": "image/png", "length": true},
+      {"media_type": ["image/png"], "length": 2048},
+      {"media_type": "image/png"},
+      {"media_type": "image/png", "length": 2048, "name": "photo.png"},
+      []
+    ]
   }
 }

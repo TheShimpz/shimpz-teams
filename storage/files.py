@@ -450,6 +450,25 @@ class TeamStorage:
         except StorageNotFoundError:
             return frozenset()
 
+    def listed(self, team_id: str, file_id: object) -> dict[str, object]:
+        """The metadata of one file the Team's listing still shows, without reading its bytes or renewing its grace.
+
+        A file that is absent, or unreferenced and idle past its grace period, is not found: the next sweep collects it.
+        """
+        team_id = _team_id(team_id)
+        safe_id = _file_id(file_id)
+        try:
+            with closing(self._connect(team_id, create=False, limit_bytes=self._limit(team_id))) as connection:
+                row = connection.execute(
+                    "SELECT name,media_type,size,sha256 FROM files WHERE id=? AND (referenced=1 OR idle_since>?)",
+                    (safe_id, self._now() - UNREFERENCED_GRACE_SECONDS),
+                ).fetchone()
+        except StorageNotFoundError:
+            row = None
+        if row is None:
+            raise StorageNotFoundError("file not found")
+        return {"id": safe_id, "name": row[0], "media_type": row[1], "size": row[2], "sha256": row[3]}
+
     def get(self, team_id: str, file_id: object) -> tuple[dict[str, object], bytes]:
         team_id = _team_id(team_id)
         limit_bytes = self._limit(team_id)

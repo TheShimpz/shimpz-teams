@@ -30,6 +30,7 @@ from assistant import genesis as assistant_genesis
 from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from assistant.spec import validate_action_payload
+from chat import attachments as chat_attachments
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import token as brain_runtime_token_store
@@ -47,6 +48,7 @@ from local import inference as local_inference
 from local import labels as local_labels
 from local import lifecycle as local_team_lifecycle
 from local import names as local_names
+from local import prepare as local_prepare
 from local import token as local_token_store
 from local.assistant import api as local_assistant_api
 from local.assistant import egress as local_egress
@@ -63,6 +65,10 @@ from local.errors import (
     action_file_unavailable,
     assistant_action_blocked,
     docker_unavailable,
+    file_not_found,
+    file_preview_busy,
+    file_preview_unavailable,
+    file_preview_unsupported,
     team_context_changed,
 )
 from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
@@ -93,6 +99,8 @@ from local.validation import (
     validate_space_id,
     validate_team_id,
 )
+from prepare import helper as preparation_helper
+from prepare import service as preparation
 from storage import files as team_storage
 
 IMAGE_LABEL = _LOCAL_IMAGE_LABEL
@@ -492,7 +500,11 @@ class LocalController:
         """Delete one Team file only after nothing can still deliver, read, or show it (ADR-0093)."""
         team_id = validate_team_id(team_id)
         service = self.chat_turn_service
-        with service._file_deletion_slot(team_id), self._lock(team_id):
+        with (
+            local_team_lifecycle.previews_closed(team_id),
+            service._file_deletion_slot(team_id),
+            self._lock(team_id),
+        ):
             network = self.assistant_lifecycle._network(team_id)
             try:
                 service._forget_file(team_id, team_storage.scoped_file_id(file_id), network)
@@ -501,6 +513,40 @@ class LocalController:
             except team_storage.StorageError as exc:
                 self._raise_storage_problem(exc)
         return {"team_id": team_id, **result}
+
+    def file_preview(self, team_id: str, file_id: object) -> preparation.Rendition:
+        """One listed Team file's sanitized image rendition, prepared on demand and never kept (ADR-0093).
+
+        It never reads an original beyond the image ceiling or renews the file's retention, and the file's deletion, its
+        Team's teardown, or the Space reset ends it, queued or running, before they continue.
+        """
+        team_id = validate_team_id(team_id)
+        try:
+            with local_prepare.PREVIEWS.open(team_id) as preview:
+                with self._lock(team_id):
+                    self.assistant_lifecycle._network(team_id)
+                    metadata = self.storage.listed(team_id, file_id)
+                [stored] = chat_attachments.stored_files([metadata], lambda read_id: self.storage.get(team_id, read_id))
+                rendition = local_prepare.prepare_rendition(
+                    self.client,
+                    stored,
+                    space_id=self.space_id,
+                    team_id=team_id,
+                    cpuset_cpus=self.cpuset_cpus,
+                    stop=preview.stop,
+                )
+                preview.interrupt()
+        except (local_prepare.PreviewEndedError, chat_attachments.AttachmentIntegrityError) as exc:
+            raise file_not_found() from exc
+        except preparation.AdmissionBusyError as exc:
+            raise file_preview_busy() from exc
+        except preparation_helper.HelperUnavailableError as exc:
+            raise file_preview_unavailable() from exc
+        except team_storage.StorageError as exc:
+            self._raise_storage_problem(exc)
+        if rendition is None:
+            raise file_preview_unsupported()
+        return rendition
 
     def list_registry(self) -> dict[str, list[dict[str, object]]]:
         return {

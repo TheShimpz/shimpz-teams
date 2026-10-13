@@ -11,6 +11,8 @@ definition here or in `payload.py`, never to a copied literal.
 `challenge.py` owns the presentation a human-required challenge carries beside its canonical request: the rendered
 copy, the one disclosed file, and an authorization's input projection. Only Team and Admin consume it, so `payload.py`
 never imports it.
+`preview.py` owns the framing of a Team file's preview, the one sanitized image rendition Team sends a Supervisor's
+browser; only Team and Admin consume it.
 An Assistant id (at most 40 characters) and an Assistant's Integration, provider, or Stored Input identifier
 (`canonical_identifier`, at most 64) use the Developers published-Assistant grammar; an Action id uses Team's wider
 grammar, which also admits `.` and `_` separators, within 128 characters.
@@ -502,6 +504,22 @@ An authenticated Supervisor may read the canonical PNG for one installed Assista
 `GET /v1/teams/:team_id/assistants/:assistant_id/icon`. Team resolves the current durable binding,
 verifies the icon digest again at read time, returns exactly `image/png`, and marks the response
 `no-store`. Missing bindings fail as absent; missing or tampered custody fails closed.
+
+An authenticated Supervisor may read one Team file's preview from `GET /v1/teams/:team_id/files/:file_id/preview`
+(ADR-0093), under the machine bearer and a request-bound `session` assertion, never the bearer alone. It answers only
+for a file of that Team that its listing still shows (an unreferenced file idle past its grace period is collected),
+and the read never renews the file's retention. The preview is the one sanitized rendition a chat turn would send the
+model, never the original: Team determines the kind from the bytes, never reads an original beyond the 8 MiB image
+ceiling, and decodes it only in the networkless preparation helper, so only a JPEG, PNG, or static WebP within the
+image limits has one, re-encoded from fresh pixels without metadata as a JPEG or PNG of at most a 1,568-pixel long
+edge, 1.2 megapixels, and 512 KiB (`preview.canonical_framing`). The response carries exactly that `Content-Type`,
+its exact `Content-Length`, `nosniff`, and `no-store`, and its bytes start with that type's signature. A missing,
+collected, or concurrently deleted file answers `404` `file-not-found`; a file without a preview (not such an image,
+animated, too large, or unreadable) `422` `file-preview-unsupported`; and a helper that cannot run `503`
+`file-preview-unavailable`. Team prepares a preview on demand, keeps no derivative, and admits it into its one
+serialized preparation slot within a bounded queue and deadline; beyond them it answers `503` `file-preview-busy` with
+`retry_after_ms`. The Team's file deletion, its teardown, and the Space reset end every preview of it, queued or
+running, and remove its helper before they continue.
 
 An installed Assistant's summary follows the interface language (ADR-0091). Admin reads it at
 `GET /v1/teams/:team_id/assistants/:assistant_id/summary/:locale`, where `locale` is one closed interface language,

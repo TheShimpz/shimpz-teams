@@ -324,6 +324,8 @@ CONTROLLER_ROUTES = (
     _controller_route("GET", "/v1/teams/:team_id/files", "file-list"),
     _controller_route("POST", "/v1/teams/:team_id/files", "file-upload"),
     _controller_route("DELETE", "/v1/teams/:team_id/files/:file_id", "file-delete"),
+    # One listed file's sanitized image rendition for the Supervisor's browser (ADR-0093).
+    _controller_route("GET", "/v1/teams/:team_id/files/:file_id/preview", "file-preview"),
     _controller_route("GET", "/v1/teams/:team_id/inference", "inference-status"),
     _controller_route("PUT", "/v1/teams/:team_id/inference", "inference-configure"),
     _controller_route("POST", "/v1/teams/:team_id/chat", "chat"),

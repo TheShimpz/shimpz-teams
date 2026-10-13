@@ -2,14 +2,15 @@
 
 Local serializes preparation across its whole controller, which has only 256 MiB, so at most one helper exists at a
 time. Each helper is labeled with the Space, Team, and `prepare` kind and is removed after its segment, on Stop,
-with its Team, and by Space reset.
+with its Team, and by Space reset. A file preview prepares through the same serialized slot, admitted within a bounded
+queue and deadline, and the Team's file deletion, teardown, and the Space reset end every preview of it first.
 """
 
 import secrets
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from docker.errors import DockerException
 from docker.types import LogConfig, Ulimit
@@ -21,6 +22,13 @@ from prepare import service as preparation
 
 KIND = "prepare"
 _SERIAL = threading.Lock()
+# A file preview waits for the serialized slot at most this long, and at most this many wait; beyond either it is busy.
+PREVIEW_QUEUE = 4
+PREVIEW_DEADLINE_SECONDS = 10.0
+# How long a deletion, teardown, or reset waits for the previews it ended to leave.
+PREVIEW_DRAIN_SECONDS = 30.0
+_PREVIEW_ADMISSION = preparation.BoundedAdmission(_SERIAL, queue=PREVIEW_QUEUE, deadline=PREVIEW_DEADLINE_SECONDS)
+_SPACE = "*"
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +125,132 @@ def prepare_attachments(
             stopped=stop.stopped,
         ),
         preparation.admission(_SERIAL, stop.interrupt),
+        stop.interrupt,
+    )
+
+
+class PreviewEndedError(RuntimeError):
+    """The preview was ended by its file's deletion, its Team's teardown, or the Space reset."""
+
+
+class PreviewDrainError(RuntimeError):
+    """A preview that was ended did not leave in time, or its helper could not be removed."""
+
+
+@dataclass(eq=False, slots=True)
+class _Preview:
+    team_id: str
+    book: PreviewBook
+    ended: bool = False
+    container: object | None = None
+
+    def started(self, container: object) -> None:
+        # A helper that starts once its preview was ended is refused here and removed when its segment closes.
+        with self.book.guard:
+            if self.ended:
+                raise PreviewEndedError("the preview was ended")
+            self.container = container
+
+    def stopped(self, container: object) -> None:
+        with self.book.guard:
+            if self.container is container:
+                self.container = None
+
+    def interrupt(self) -> None:
+        with self.book.guard:
+            if self.ended:
+                raise PreviewEndedError("the preview was ended")
+
+    @property
+    def stop(self) -> TurnStop:
+        return TurnStop(started=self.started, stopped=self.stopped, interrupt=self.interrupt)
+
+
+@dataclass(slots=True)
+class PreviewBook:
+    """Every file preview under way, each bound to its Team for as long as it runs.
+
+    A Team's file deletion, its teardown, and the Space reset each close it for their whole duration: no preview of it
+    opens, every queued or running preview is ended, a running preview's helper is removed, and they wait until every
+    ended preview left before they continue, so none can start a helper after they finished.
+    """
+
+    guard: threading.Condition = field(default_factory=threading.Condition)
+    _previews: set[_Preview] = field(default_factory=set)
+    _closed: dict[str, int] = field(default_factory=dict)
+
+    @contextmanager
+    def open(self, team_id: str) -> Iterator[_Preview]:
+        with self.guard:
+            if self._closed.get(team_id) or self._closed.get(_SPACE):
+                raise PreviewEndedError("the Team's previews are closed")
+            preview = _Preview(team_id, self)
+            self._previews.add(preview)
+        try:
+            yield preview
+        finally:
+            with self.guard:
+                self._previews.discard(preview)
+                self.guard.notify_all()
+
+    @contextmanager
+    def closed(self, team_id: str | None = None) -> Iterator[None]:
+        """Close one Team's previews, or the whole Space's, for the duration, after ending the ones under way."""
+        key = _SPACE if team_id is None else team_id
+        with self.guard:
+            self._closed[key] = self._closed.get(key, 0) + 1
+            ending = [preview for preview in self._previews if team_id is None or preview.team_id == team_id]
+            for preview in ending:
+                preview.ended = True
+            containers = [preview.container for preview in ending if preview.container is not None]
+        try:
+            self._drain(ending, containers)
+            yield
+        finally:
+            with self.guard:
+                self._closed[key] -= 1
+                if not self._closed[key]:
+                    del self._closed[key]
+
+    def _drain(self, ending: list[_Preview], containers: list[object]) -> None:
+        for container in containers:
+            try:
+                container.remove(force=True)
+            except DockerException as exc:
+                if getattr(getattr(exc, "response", None), "status_code", None) != 404:
+                    raise PreviewDrainError("a preview helper could not be removed") from exc
+        with self.guard:
+            if not self.guard.wait_for(
+                lambda: not any(preview in self._previews for preview in ending), PREVIEW_DRAIN_SECONDS
+            ):
+                raise PreviewDrainError("a preview did not end in time")
+
+
+# The controller's one book of previews, as its preparation slot is one: one controller runs per process.
+PREVIEWS = PreviewBook()
+
+
+def prepare_rendition(
+    client: object,
+    item: preparation.StoredFile,
+    *,
+    space_id: str,
+    team_id: str,
+    cpuset_cpus: str | None,
+    stop: TurnStop,
+) -> preparation.Rendition | None:
+    """One stored file's sanitized rendition through the controller's one preparation slot, within its bounded queue."""
+    return preparation.prepare_rendition(
+        item,
+        lambda: helper(
+            client,
+            space_id=space_id,
+            team_id=team_id,
+            cpuset_cpus=cpuset_cpus,
+            started=stop.started,
+            stopped=stop.stopped,
+        ),
+        _PREVIEW_ADMISSION.admit(stop.interrupt),
         stop.interrupt,
     )
 

@@ -139,10 +139,10 @@ COPY --link protocol/install/v1/README.md protocol/install/v1/contract-files.sha
     ./protocol/install/v1/
 COPY --link protocol/action/v1/schema.py ./protocol/action/v1/
 COPY --link protocol/http/v1/challenge.py protocol/http/v1/identifiers.py protocol/http/v1/payload.py \
-    protocol/http/v1/phrase.py protocol/http/v1/progress.py protocol/http/v1/purpose.py protocol/http/v1/routine.py \
-    protocol/http/v1/routine_context.py protocol/http/v1/routine_notice.py protocol/http/v1/routine_proposal.py \
-    protocol/http/v1/routine_run.py protocol/http/v1/strict_json.py protocol/http/v1/supervisor.py \
-    protocol/http/v1/turn.py ./protocol/http/v1/
+    protocol/http/v1/phrase.py protocol/http/v1/preview.py protocol/http/v1/progress.py protocol/http/v1/purpose.py \
+    protocol/http/v1/routine.py protocol/http/v1/routine_context.py protocol/http/v1/routine_notice.py \
+    protocol/http/v1/routine_proposal.py protocol/http/v1/routine_run.py protocol/http/v1/strict_json.py \
+    protocol/http/v1/supervisor.py protocol/http/v1/turn.py ./protocol/http/v1/
 COPY --link protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
     protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
     protocol/assistant/v1/validators/message_catalog.py protocol/assistant/v1/validators/route.py \

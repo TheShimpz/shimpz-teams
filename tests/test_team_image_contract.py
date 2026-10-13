@@ -44,6 +44,7 @@ LOCAL_PROTOCOL_DATA = {
     "protocol/http/v1/identifiers.py",
     "protocol/http/v1/payload.py",
     "protocol/http/v1/phrase.py",
+    "protocol/http/v1/preview.py",
     "protocol/http/v1/progress.py",
     "protocol/http/v1/purpose.py",
     "protocol/http/v1/routine.py",

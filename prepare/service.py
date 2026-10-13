@@ -10,6 +10,7 @@ import binascii
 import hashlib
 import json
 import threading
+import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from dataclasses import dataclass
@@ -26,6 +27,10 @@ _SOURCE_LIMITS = {
 _MAX_SOURCE_BYTES = max(_SOURCE_LIMITS.values())
 # How often a turn waiting for its controller's preparation admission notices that it was stopped.
 ADMISSION_POLL_SECONDS = 0.1
+
+
+class AdmissionBusyError(RuntimeError):
+    """The preparation slot is not free in time: too many requests already wait for it, or the wait ran out."""
 
 
 class AttachmentLimitError(ValueError):
@@ -48,6 +53,16 @@ class StoredFile:
     size: int
     sha256: str
     read: Callable[[], bytes]
+
+
+@dataclass(frozen=True, slots=True)
+class Rendition:
+    """One stored image's sanitized rendition: the bounded JPEG or PNG derivative a turn sends, never the original."""
+
+    media_type: str
+    width: int
+    height: int
+    data: bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +97,87 @@ def admission(slots: threading.Lock | threading.Semaphore, interrupt: Callable[[
         yield
     finally:
         slots.release()
+
+
+class BoundedAdmission:
+    """Admission into a controller's preparation slot for a request that must answer promptly.
+
+    At most ``queue`` requests wait at once, each at most ``deadline`` seconds; a request beyond either bound is busy
+    instead of waiting indefinitely, and ``interrupt`` leaves the wait as soon as it raises.
+    """
+
+    def __init__(
+        self,
+        slots: threading.Lock | threading.Semaphore,
+        *,
+        queue: int,
+        deadline: float,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._slots = slots
+        self._queue = queue
+        self._deadline = deadline
+        self._clock = clock
+        self._guard = threading.Lock()
+        self._waiting = 0
+
+    @contextmanager
+    def admit(self, interrupt: Callable[[], None]) -> Iterator[None]:
+        """Hold the slot, or raise AdmissionBusyError when it is not free within the bounds."""
+        with self._guard:
+            if self._waiting >= self._queue:
+                raise AdmissionBusyError("the preparation queue is full")
+            self._waiting += 1
+        try:
+            ends = self._clock() + self._deadline
+            while not self._slots.acquire(timeout=ADMISSION_POLL_SECONDS):
+                interrupt()
+                if self._clock() >= ends:
+                    raise AdmissionBusyError("the preparation slot stayed busy")
+        finally:
+            with self._guard:
+                self._waiting -= 1
+        try:
+            yield
+        finally:
+            self._slots.release()
+
+
+def prepare_rendition(
+    item: StoredFile,
+    helper: Callable[[], AbstractContextManager[PreparationHelper]],
+    admission: AbstractContextManager[object],
+    interrupt: Callable[[], None] = lambda: None,
+) -> Rendition | None:
+    """One stored file's sanitized rendition through the same boundary as a turn's images, or None when it has none.
+
+    Only a JPEG, PNG, or static WebP that the networkless helper reads within the image limits has one, and its kind
+    comes from the bytes, never the uploaded type. An original beyond the image source ceiling is never read, the slot
+    is held from before the original is read until the helper is gone, and the helper's answer is validated here as
+    a turn's is. ``interrupt`` raises once the request is ended and runs before the read, the helper, and the answer.
+    """
+    if item.size > limits.MAX_IMAGE_BYTES:
+        return None
+    with ExitStack() as stack:
+        stack.enter_context(admission)
+        interrupt()
+        data = item.read()
+        found = detect.detect(item.name, data)
+        if found.kind != detect.IMAGE or len(data) > limits.MAX_IMAGE_BYTES:
+            return None
+        interrupt()
+        answer = stack.enter_context(helper()).prepare(found.kind, data)
+        del data
+    interrupt()
+    content = _image_answer(answer)
+    if content["type"] != "image":
+        return None
+    return Rendition(
+        str(content["media_type"]),
+        int(content["width"]),
+        int(content["height"]),
+        base64.b64decode(str(content["base64"]), validate=True),
+    )
 
 
 def prepare_attachments(

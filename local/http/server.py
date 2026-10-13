@@ -33,6 +33,7 @@ from local.validation import (
     validate_model_credential_headers,
     validate_team_id,
 )
+from protocol.http.v1 import preview as http_preview
 
 MAX_BODY_BYTES = 16 * 1024
 MAX_API_RESPONSE_BYTES = 128 * 1024
@@ -125,9 +126,9 @@ class Handler(http_deadline.DeadlineRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(encoded)
 
-    def _send_icon(self, contents: bytes) -> None:
+    def _send_image(self, contents: bytes, media_type: str) -> None:
         self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Type", media_type)
         self.send_header("Content-Length", str(len(contents)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -700,12 +701,42 @@ class Handler(http_deadline.DeadlineRequestHandler):
             assistant_id = route.params["assistant_id"]
             contents = self.server.controller.assistant_icon(team_id, assistant_id)
             request_audit.record("assistant-icon", result="ok", team_id=team_id, assistant=assistant_id)
-            self._send_icon(contents)
+            self._send_image(contents, "image/png")
             return None
         if route.operation in {"local-assistant-icon", "local-assistant-summary", "local-assistant-details"}:
             self._local_assistant_preview(route, request_audit)
             return None
+        if route.operation == "file-preview":
+            self._file_preview(route, request_audit)
+            return None
         return self._route(parts, route)
+
+    def _file_preview(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
+        """Send one listed file's sanitized rendition, framed exactly; a busy preview says when to retry."""
+        team_id = validate_team_id(route.params["team_id"])
+        try:
+            rendition = self.server.controller.file_preview(team_id, route.params["file_id"])
+        except ApiProblem as exc:
+            if exc.code != "file-preview-busy":
+                raise
+            self._send_busy(route.operation, exc, request_audit)
+            return
+        framing = http_preview.canonical_framing({"media_type": rendition.media_type, "length": len(rendition.data)})
+        if framing is None or not rendition.data.startswith(http_preview.SIGNATURES[rendition.media_type]):
+            raise ApiProblem(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                "the file preview failed its framing",
+                code="file-preview-invalid",
+            )
+        request_audit.record(route.operation, result="ok", team_id=team_id)
+        self._send_image(rendition.data, rendition.media_type)
+
+    def _send_busy(self, operation: str, exc: ApiProblem, request_audit: RequestAudit) -> None:
+        trace_id = request_audit.record(operation, result="error", detail=exc.code)
+        self._send(
+            exc.status,
+            {"error": exc.message, "code": exc.code, "retry_after_ms": 250, "trace_id": trace_id},
+        )
 
     def _local_assistant_preview(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
         """Send one staged snapshot's icon, localized summary, or localized page; a busy preview says when to retry."""
@@ -721,24 +752,11 @@ class Handler(http_deadline.DeadlineRequestHandler):
         except ApiProblem as exc:
             if exc.code != "local-assistant-preview-busy":
                 raise
-            trace_id = request_audit.record(
-                route.operation,
-                result="error",
-                detail=exc.code,
-            )
-            self._send(
-                exc.status,
-                {
-                    "error": exc.message,
-                    "code": exc.code,
-                    "retry_after_ms": 250,
-                    "trace_id": trace_id,
-                },
-            )
+            self._send_busy(route.operation, exc, request_audit)
             return
         trace_id = request_audit.record(route.operation, result="ok")
         if route.operation == "local-assistant-icon":
-            self._send_icon(contents)
+            self._send_image(contents, "image/png")
         else:
             self._send(HTTPStatus.OK, {**document, "trace_id": trace_id})
 
