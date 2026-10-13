@@ -370,7 +370,6 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             reply="reply",
             routine={"op": "record"},
             clarification=None,
-            restricted_actions=None,
             memory=(),
             actions=(),
         )

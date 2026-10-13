@@ -346,11 +346,4 @@ def terminal_body(
     wire = None if usage is None else usage.joined().wire()
     if wire is not None:
         body["usage"] = wire
-    return with_restricted_actions(body, outcome)
-
-
-def with_restricted_actions(body: dict[str, object], outcome: chat_orchestrator.ChatOutcome) -> dict[str, object]:
-    """A completed terminal body, naming the Actions withheld for attachment content when there were any."""
-    if outcome.restricted_actions is not None:
-        body["restricted_actions"] = outcome.restricted_actions
     return body
