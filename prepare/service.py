@@ -285,6 +285,7 @@ def _image_answer(answer: dict[str, object]) -> dict[str, object]:
         or width * height > limits.DERIVATIVE_PIXELS
         or encoded is None
         or not encoded.startswith(_IMAGE_MAGIC[media_type])
+        or encoded_size(media_type, encoded) != (width, height)
     ):
         return _opaque("unreadable")
     return {
@@ -295,6 +296,40 @@ def _image_answer(answer: dict[str, object]) -> dict[str, object]:
         "base64": answer["base64"],
         "sha256": hashlib.sha256(encoded).hexdigest(),
     }
+
+
+# A JPEG frame header (SOF0 to SOF15, except the DHT, JPG, and DAC markers) carries the image's encoded size.
+_JPEG_FRAMES = frozenset(range(0xC0, 0xD0)) - {0xC4, 0xC8, 0xCC}
+# Markers that stand alone, without a length: TEM and RST0 to RST7.
+_JPEG_STANDALONE = frozenset({0x01, *range(0xD0, 0xD8)})
+
+
+def encoded_size(media_type: str, data: bytes) -> tuple[int, int] | None:
+    """The width and height a JPEG or PNG declares in its own header, read without decoding it, or None.
+
+    The helper's answer is untrusted, so its reported size must be the size its bytes make a decoder allocate.
+    """
+    if media_type == "image/png":
+        if len(data) < 24 or data[8:16] != b"\x00\x00\x00\x0dIHDR":
+            return None
+        return int.from_bytes(data[16:20]), int.from_bytes(data[20:24])
+    offset = 2
+    while offset + 4 <= len(data) and data[offset] == 0xFF:
+        marker = data[offset + 1]
+        if marker == 0xFF:
+            offset += 1
+            continue
+        if marker in _JPEG_STANDALONE:
+            offset += 2
+            continue
+        if marker == 0xDA:
+            return None
+        if marker in _JPEG_FRAMES:
+            if offset + 9 > len(data):
+                return None
+            return int.from_bytes(data[offset + 7 : offset + 9]), int.from_bytes(data[offset + 5 : offset + 7])
+        offset += 2 + int.from_bytes(data[offset + 2 : offset + 4])
+    return None
 
 
 def _decoded(value: object) -> bytes | None:

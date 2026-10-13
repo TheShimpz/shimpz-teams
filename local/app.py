@@ -537,6 +537,8 @@ class LocalController:
                     stop=preview.stop,
                 )
                 preview.interrupt()
+                # A sweep may have collected the file while it was prepared: only a file still listed is answered.
+                self.storage.listed(team_id, file_id)
         except (local_prepare.PreviewEndedError, chat_attachments.AttachmentIntegrityError) as exc:
             raise file_not_found() from exc
         except preparation.AdmissionBusyError as exc:

@@ -1,5 +1,6 @@
 """A Team file's preview: the sanitized rendition, its bounded admission, its lifecycle, and its route (ADR-0093)."""
 
+import base64
 import contextlib
 import hashlib
 import tempfile
@@ -142,6 +143,38 @@ class RenditionTests(unittest.TestCase):
         for answer in (lying, huge, {"type": "opaque", "reason": "animated"}, {"type": "text", "text": "x"}):
             with self.subTest(answer=answer):
                 self.assertIsNone(preparation.prepare_rendition(_stored("a.png", png), _Helper(answer), none))
+
+    def test_a_derivative_whose_bytes_declare_another_size_is_refused(self) -> None:
+        none = contextlib.nullcontext()
+        png = prepare_fixtures.image("PNG", (64, 48))
+        jpeg = prepare_fixtures.image("JPEG", (64, 48))
+        for media_type, data in (("image/png", png), ("image/jpeg", jpeg)):
+            with self.subTest(media_type=media_type):
+                encoded = base64.b64encode(data).decode("ascii")
+                honest = {"type": "image", "media_type": media_type, "width": 64, "height": 48, "base64": encoded}
+                self.assertIsNotNone(preparation.prepare_rendition(_stored("a.png", png), _Helper(honest), none))
+                # A helper that understates the size a decoder would allocate is refused.
+                lying = {**honest, "width": 1, "height": 1}
+                self.assertIsNone(preparation.prepare_rendition(_stored("a.png", png), _Helper(lying), none))
+
+    def test_the_encoded_size_is_read_from_the_header_alone(self) -> None:
+        jpeg = prepare_fixtures.image("JPEG", (640, 481))
+        self.assertEqual(preparation.encoded_size("image/jpeg", jpeg), (640, 481))
+        self.assertEqual(preparation.encoded_size("image/png", prepare_fixtures.image("PNG", (37, 21))), (37, 21))
+        # Fill bytes and standalone markers before the frame header are skipped.
+        padded = jpeg[:2] + b"\xff\xff\xd0" + jpeg[2:]
+        self.assertEqual(preparation.encoded_size("image/jpeg", padded), (640, 481))
+        refused = (
+            ("image/png", b"\x89PNG\r\n\x1a\n"),
+            ("image/png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIDAT" + b"\x00" * 8),
+            ("image/jpeg", b"\xff\xd8\xff\xda\x00\x02"),
+            ("image/jpeg", b"\xff\xd8\x00\x00\x00\x00"),
+            ("image/jpeg", b"\xff\xd8\xff\xc0\x00\x11\x08"),
+            ("image/jpeg", b"\xff\xd8\xff\xe0\x00\x10"),
+        )
+        for media_type, data in refused:
+            with self.subTest(data=data):
+                self.assertIsNone(preparation.encoded_size(media_type, data))
 
     def test_an_ended_request_reads_nothing_further_and_starts_no_helper(self) -> None:
         class EndedError(Exception):
@@ -360,6 +393,22 @@ class ControllerPreviewTests(unittest.TestCase):
         changed = (dict(stored, sha256="0" * 64), b"other")
         with (
             mock.patch.object(controller.storage, "get", return_value=changed),
+            self.assertRaises(ApiProblemError) as caught,
+        ):
+            controller.file_preview("team_1", stored["id"])
+        self.assertEqual(caught.exception.code, "file-not-found")
+
+    def test_a_file_collected_while_it_was_prepared_is_not_answered(self) -> None:
+        controller = _controller(self.directory.name)
+        png = prepare_fixtures.image("PNG", (4, 4))
+        stored = controller.storage.put("team_1", "photo.png", png, "image/png")
+
+        def collected(*_args, **_kwargs):
+            controller.storage.delete("team_1", stored["id"])
+            return preparation.Rendition("image/png", 4, 4, png)
+
+        with (
+            mock.patch.object(local_prepare, "prepare_rendition", side_effect=collected),
             self.assertRaises(ApiProblemError) as caught,
         ):
             controller.file_preview("team_1", stored["id"])
