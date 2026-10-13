@@ -209,7 +209,6 @@ class StrictHttpTest(unittest.TestCase):
     def test_route_groups_cover_every_routing_family(self) -> None:
         expected = {
             "health": "fixed",
-            "space-resources": "fixed",
             "team-create": "team",
             "file-list": "file",
             "inference-status": "inference",

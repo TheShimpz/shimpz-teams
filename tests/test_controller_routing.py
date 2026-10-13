@@ -90,11 +90,6 @@ class ControllerRoutingTests(unittest.TestCase):
             ),
             (
                 "GET",
-                "/v1/space/resources",
-                "space-resources",
-            ),
-            (
-                "GET",
                 "/v1/local-assistants",
                 "local-assistant-list",
             ),

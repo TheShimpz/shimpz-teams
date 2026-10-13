@@ -573,24 +573,6 @@ full nanosecond precision after normalizing the reported offset; only Teams crea
 ascending `team_id`. Each item keeps exactly `{"team_id", "team_name", "status"}`, and creation metadata that is not
 a valid RFC 3339 instant refuses the listing with `503` `team-metadata-invalid`.
 
-Local Admin reads the Space's resource signal at `GET /v1/space/resources` (Local only) under a Supervisor session.
-Team measures it now and answers exactly `resources.canonical_space_resources` plus `trace_id`:
-
-```json
-{"services_running": 7, "services_total": 7, "memory_used_bytes": 429496730, "memory_total_bytes": 4294967296,
- "storage_used_bytes": 1395864371, "storage_total_bytes": 68719476736}
-```
-
-`services_running` counts the Space's long-running services (1 to 32, the one-shot init job excluded) that Docker
-reports running, never "healthy", out of `services_total`, which counts a missing one too. The memory pair is the use
-of the running services and the Space's owned Assistants, each less its inactive file cache as the Docker CLI reports
-it, against the memory Docker reports. The storage pair is the filesystem that holds Team storage, its used and total
-bytes; on Linux that is the Space's sparse pool, whose size does not prove its backing filesystem's free space. Each
-pair is null together when any part of its measurement is unavailable or one five-second budget for every Docker call
-runs out, never zero; otherwise both are byte counts up to 2^53 - 1 with a positive total, and storage use never
-exceeds its total. Only the container listing failing is an error (`503` `docker-unavailable`). Only Team and Admin
-consume `resources.py`, so `payload.py` never imports it.
-
 `vectors.json` contains positive and negative cases that Team and every consumer mirror execute
 independently. Generated consumer mirrors pin the producing Teams commit, verify
 `contract-files.sha256`, and remain byte-identical to this directory.

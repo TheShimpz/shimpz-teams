@@ -292,7 +292,6 @@ class LocalController:
     list_teams = local_names.list_teams
     create_team = local_names.create_team
     rename_team = local_names.rename_team
-    space_resources = local_team_lifecycle.space_resources
 
     def __init__(
         self,

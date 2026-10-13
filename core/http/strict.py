@@ -290,7 +290,6 @@ class ControllerRouteMatch:
             "space-bootstrap-reset",
             "space-reset",
             "supervisor-key-rotate",
-            "space-resources",
             "assistant-integration-complete",
         }
         if self.operation in fixed:
@@ -453,8 +452,6 @@ CONTROLLER_ROUTES = (
     _controller_route("DELETE", "/v1/space", "space-reset"),
     # The Supervisor's key rotation, signed by the key Team pins now.
     _controller_route("POST", "/v1/space/supervisor-key", "supervisor-key-rotate"),
-    # The Space's read-only resource signal for the Supervisor: running services, memory, and storage filesystem.
-    _controller_route("GET", "/v1/space/resources", "space-resources"),
     _controller_route("GET", "/v1/teams/:team_id/assistants", "assistant-list"),
     _controller_route(
         "GET",
