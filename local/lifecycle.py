@@ -1,8 +1,4 @@
-"""Local Team destruction, whole-Space reset lifecycle, and the Space's read-only resource signal.
-
-The signal is measured now and never estimated: an unknown pair is null, never zero, and a service is counted only
-while Docker reports it running (never "healthy"). One budget bounds every Docker call of a measurement.
-"""
+"""Local Team destruction and the whole-Space reset lifecycle."""
 
 from contextlib import ExitStack
 from http import HTTPStatus
