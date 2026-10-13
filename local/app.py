@@ -522,10 +522,11 @@ class LocalController:
         """
         team_id = validate_team_id(team_id)
         try:
+            # No Team lock is held: the preview book, not a lock, orders it against deletion, teardown, and reset, so a
+            # preview never waits behind a long Team operation while one of those waits for it to end.
             with local_prepare.PREVIEWS.open(team_id) as preview:
-                with self._lock(team_id):
-                    self.assistant_lifecycle._network(team_id)
-                    metadata = self.storage.listed(team_id, file_id)
+                self.assistant_lifecycle._network(team_id)
+                metadata = self.storage.listed(team_id, file_id)
                 [stored] = chat_attachments.stored_files([metadata], lambda read_id: self.storage.get(team_id, read_id))
                 rendition = local_prepare.prepare_rendition(
                     self.client,
