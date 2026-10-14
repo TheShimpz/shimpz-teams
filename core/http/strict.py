@@ -458,6 +458,7 @@ CONTROLLER_ROUTES = (
     # The Supervisor's key rotation, signed by the key Team pins now.
     _controller_route("POST", "/v1/space/supervisor-key", "supervisor-key-rotate"),
     _controller_route("GET", "/v1/teams/:team_id/assistants", "assistant-list"),
+    _controller_route("GET", "/v1/teams/:team_id/assistant-registry", "assistant-registry"),
     _controller_route(
         "GET",
         "/v1/teams/:team_id/assistants/:assistant_id/icon",

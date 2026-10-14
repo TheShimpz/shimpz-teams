@@ -35,6 +35,7 @@ from local.validation import (
     validate_team_id,
 )
 from protocol.http.v1 import content as http_content
+from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import preview as http_preview
 
 MAX_BODY_BYTES = 16 * 1024
@@ -48,6 +49,11 @@ _MACHINE_ONLY_OPERATIONS = frozenset(
     {"health", "activity", "space-bootstrap-reset", "assistant-integration-complete"}
     | local_http_routine.MACHINE_OPERATIONS
 )
+# A route whose answer may outgrow the API cap, with its own allowance.
+_RESPONSE_LIMITS = {
+    **local_http_routine.RESPONSE_LIMITS,
+    "assistant-registry": http_payload.MAX_TEAM_REGISTRY_BYTES,
+}
 _READ_METHODS = frozenset({"GET", "HEAD"})
 _JSON_BODY_LIMITS = {
     "supervisor-key-rotate": MAX_BODY_BYTES,
@@ -570,6 +576,8 @@ class Handler(http_deadline.DeadlineRequestHandler):
         team_id = validate_team_id(route.params["team_id"])
         if operation == "assistant-list":
             return HTTPStatus.OK, controller.list_assistants(team_id), operation, team_id, None
+        if operation == "assistant-registry":
+            return HTTPStatus.OK, controller.team_registry(team_id), operation, team_id, None
         if operation == "assistant-install":
             assistant_id, source_digest = self._install_body()
             return (
@@ -631,7 +639,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         parts, route = self._resolved_route()
         request_audit.operation = route.operation
-        self._response_limit = local_http_routine.RESPONSE_LIMITS.get(route.operation, MAX_API_RESPONSE_BYTES)
+        self._response_limit = _RESPONSE_LIMITS.get(route.operation, MAX_API_RESPONSE_BYTES)
         decision = decision_binding(self._decision_key(route.operation))
         if route.operation in _MACHINE_ONLY_OPERATIONS:
             self._capture_body(route.operation)

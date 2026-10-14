@@ -432,8 +432,26 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             summary="Summary",
             actions={"b": object(), "a": object()},
         )
-        controller.registry = types.SimpleNamespace(catalog=lambda: (spec,))
-        self.assertEqual(controller.list_registry()["assistants"][0]["actions"], ["a", "b"])
+        other = types.SimpleNamespace(assistant_id="other", name="Other", summary="Other", actions={"c": object()})
+        bound = {"assistant": spec, "other": other}
+        controller.registry = types.SimpleNamespace(
+            catalog=lambda: (spec,),
+            installed=mock.Mock(return_value=(("other", "assistant"), ("refused",))),
+            spec=bound.__getitem__,
+        )
+        # The Space's registry names every Assistant; a Team's describes only its own admitted bindings.
+        self.assertEqual(controller.list_registry(), {"assistants": [{"id": "assistant", "title": "Assistant"}]})
+        self.assertEqual(
+            controller.team_registry("team_1"),
+            {
+                "assistants": [
+                    {"id": "assistant", "title": "Assistant", "summary": "Summary", "actions": ["a", "b"]},
+                    {"id": "other", "title": "Other", "summary": "Other", "actions": ["c"]},
+                ]
+            },
+        )
+        controller.registry.installed.assert_called_once_with("team_1")
+        controller.assistant_lifecycle._network.assert_called_with("team_1")
 
         controller.client.ping.return_value = False
         with self.assertRaises(local_app.ApiProblem) as caught:

@@ -76,12 +76,13 @@ metadata-only `trace_id` added at the HTTP boundary.
 | --- | --- | --- |
 | `GET` | `/healthz` | authenticated process/registry health |
 | `GET` | `/v1/activity` | machine-only `idle`/`busy` work signal for scheduled Local release reconciliation |
-| `GET` | `/v1/assistants` | trusted installable Assistant registry |
+| `GET` | `/v1/assistants` | every admissible Assistant of the Space by identity and name only |
 | `DELETE` | `/v1/space/bootstrap` | Team cleanup before Supervisor establishment; machine bearer plus independent key-absence proof |
 | `GET` | `/v1/teams` | running Team inventory |
 | `POST` | `/v1/teams/{team_id}/create` | idempotently create a named Team network/state |
 | `DELETE` | `/v1/teams/{team_id}` | idempotently remove its Assistants and owned state |
 | `GET` | `/v1/teams/{team_id}/assistants` | installed Assistant version and status inventory |
+| `GET` | `/v1/teams/{team_id}/assistant-registry` | the Team's admitted Assistants as its own bindings describe them: name, summary, and Actions, within `payload.MAX_TEAM_REGISTRY_BYTES` |
 | `POST` | `/v1/teams/{team_id}/assistants` | install one trusted Assistant ID/digest; a new Assistant beyond `payload.MAX_TEAM_ASSISTANTS` (16) refuses with `409` `assistant_limit_reached` |
 | `DELETE` | `/v1/teams/{team_id}/assistants/{assistant_id}` | uninstall one owned Assistant |
 | `POST` | `/v1/teams/{team_id}/assistants/{assistant_id}/actions/{action_id}` | invoke one declared Action directly; an Action that asks a person refuses with `409` `action-human-request-required` |

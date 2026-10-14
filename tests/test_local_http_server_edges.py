@@ -19,6 +19,7 @@ from local.http import chat as http_chat
 from local.http import inference as http_inference
 from local.http import server
 from local.http import stream as local_http_stream
+from protocol.http.v1 import payload as http_payload
 from tests import human_request_fixtures
 
 TEST_TOKEN = "t" * 32
@@ -237,6 +238,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             destroy_team=mock.Mock(return_value={"deleted": True}),
             rename_team=mock.Mock(return_value={"team_id": "team_1", "team_name": "Team"}),
             list_assistants=mock.Mock(return_value={"assistants": []}),
+            team_registry=mock.Mock(return_value={"assistants": []}),
             install_publication=mock.Mock(return_value={"installed": True}),
             install_local_snapshot=mock.Mock(return_value={"assistant": "assistant", "installed": True}),
             install_fresh_local_snapshot=mock.Mock(return_value={"assistant": "assistant", "installed": True}),
@@ -429,6 +431,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         cases = (
             ("assistant-list", {"team_id": "team_1"}),
+            ("assistant-registry", {"team_id": "team_1"}),
             ("assistant-install", {"team_id": "team_1"}),
             ("assistant-uninstall", {"team_id": "team_1", "assistant_id": "assistant"}),
             (
@@ -609,6 +612,35 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             handler.close_connection = False
             local_http_stream.respond(handler, "chat", "team_1", request_audit, chat)
         self.assertTrue(handler.close_connection)
+
+    def test_a_teams_largest_registry_is_answered_within_its_route_allowance(self) -> None:
+        # Every Assistant a Team may hold, each with the longest identity (40), name, summary, and Actions (64) its
+        # contract admits, the text in four-byte characters: more than the API cap, answered whole on its own route.
+        text = "\U0001f600" * 80
+        largest = {
+            "assistants": [
+                {
+                    "id": f"assistant-{index:02d}{'a' * 28}",
+                    "title": text,
+                    "summary": text,
+                    "actions": [f"action-{action:03d}{'a' * 54}" for action in range(128)],
+                }
+                for index in range(http_payload.MAX_TEAM_ASSISTANTS)
+            ]
+        }
+        controller = SimpleNamespace(team_registry=mock.Mock(return_value=largest))
+        handler = self.handler(controller=controller)
+        handler._resolved_route = mock.Mock(return_value=([], self.route("assistant-registry", team_id="team_1")))
+        handler._capture_body = mock.Mock(return_value={})
+        handler._model_binding = mock.Mock(return_value=None)
+        handler._expected_human_assurance = mock.Mock(return_value=None)
+        with self._assertion_admitted("d" * 32):
+            status, payload, operation, team_id, _assistant = handler._authorized_route(http_audit.RequestAudit())
+        self.assertEqual((status, operation, team_id), (HTTPStatus.OK, "assistant-registry", "team_1"))
+        controller.team_registry.assert_called_once_with("team_1")
+        handler._send(status, payload)
+        handler.send_response.assert_called_once_with(HTTPStatus.OK)
+        self.assertGreater(len(handler.wfile.getvalue()), server.MAX_API_RESPONSE_BYTES)
 
     def test_authority_unavailable_icon_and_rejected_assertion_paths(self) -> None:
         controller = SimpleNamespace(

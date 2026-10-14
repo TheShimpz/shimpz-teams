@@ -89,6 +89,9 @@ MAX_CHAT_FILES = 8
 # The most Assistants one Team may have installed; a chat turn may name every one of them.
 MAX_TEAM_ASSISTANTS = 16
 MAX_CHAT_ASSISTANTS = MAX_TEAM_ASSISTANTS
+# The largest answer of one Team's Assistant registry: its Assistants with their names, summaries, and Actions (at most
+# 128 identifiers each) come to about 149 KB at worst.
+MAX_TEAM_REGISTRY_BYTES = 256 * 1024
 MAX_TEAM_FILES = 256
 MAX_TEAM_NAME_CHARS = 80
 MAX_FILE_UPLOAD_BYTES = 25 * 1024 * 1024

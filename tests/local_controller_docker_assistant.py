@@ -37,8 +37,10 @@ class LocalAssistantLifecycleMixin:
         self.assertTrue(installed["installed"], installed)
         self.assertEqual(self._run("image", "inspect", flow.trusted_ref, check=False).returncode, 0)
         _, catalog = self._api(flow.port, flow.token, "GET", "/v1/assistants")
+        self.assertEqual(catalog["assistants"], [{"id": "shimpz-cloudflare", "title": "Shimpz Cloudflare"}])
+        _, registry = self._api(flow.port, flow.token, "GET", "/v1/teams/demo_team/assistant-registry")
         self.assertEqual(
-            catalog["assistants"],
+            registry["assistants"],
             [
                 {
                     "id": "shimpz-cloudflare",

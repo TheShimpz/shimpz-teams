@@ -587,15 +587,24 @@ class LocalController:
         return metadata
 
     def list_registry(self) -> dict[str, list[dict[str, object]]]:
+        """Every admissible Assistant of the Space by name only: what any Team's screens need to name it."""
+        return {"assistants": [{"id": spec.assistant_id, "title": spec.name} for spec in self.registry.catalog()]}
+
+    def team_registry(self, team_id: str) -> dict[str, list[dict[str, object]]]:
+        """One Team's admitted Assistants as its own bindings describe them, for planning and uninstalling there.
+
+        Another Team's binding of the same Assistant may be another version, so a Team's capabilities are read from
+        its own bindings, never from the Space's catalog.
+        """
+        team_id = validate_team_id(team_id)
+        with self._lock(team_id):
+            self.assistant_lifecycle._network(team_id)
+            admitted, _refused = self.registry.installed(team_id)
+            specs = sorted((self.registry.spec(binding) for binding in admitted), key=lambda spec: spec.assistant_id)
         return {
             "assistants": [
-                {
-                    "id": spec.assistant_id,
-                    "title": spec.name,
-                    "summary": spec.summary,
-                    "actions": sorted(spec.actions),
-                }
-                for spec in self.registry.catalog()
+                {"id": spec.assistant_id, "title": spec.name, "summary": spec.summary, "actions": sorted(spec.actions)}
+                for spec in specs
             ]
         }
 
