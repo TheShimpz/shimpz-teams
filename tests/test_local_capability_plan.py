@@ -217,6 +217,50 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         self.assertEqual(request["context"], brain_runtime_client.RuntimeLifecycleContext(locale="en"))
         self.assertEqual(subject.assistant_lifecycle._validate_network.call_count, 2)
 
+    def test_installable_assistants_reach_brain_only_with_the_decision_key_and_return_its_answer(self) -> None:
+        subject = Subject()
+        subject.brain_runtime.intent_route.return_value = brain_runtime_client.RuntimeIntentRoute(
+            "ordinary-task", capability="not-needed"
+        )
+        installable = [{"name": "Cloudflare", "summary": "Set up your domains' DNS."}] * 2
+        body = intent_body(objective="oi, tudo bem?", installable=installable)
+
+        result = capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key", "decision-test-key")
+
+        self.assertEqual(result["capability"], "not-needed")
+        sent = subject.brain_runtime.intent_route.call_args.kwargs["installable"]
+        self.assertEqual(
+            [(item.name, item.summary) for item in sent], [(item["name"], item["summary"]) for item in installable]
+        )
+        # Without installable Assistants, the answer carries no capability field.
+        plain = capabilities.intent_route(subject, "team_1", intent_body(objective="oi"), "openai", "private-model-key")
+        self.assertNotIn("capability", plain)
+        self.assertEqual(subject.brain_runtime.intent_route.call_args.kwargs["installable"], ())
+
+    def test_installable_assistants_without_the_key_or_beyond_classification_are_refused(self) -> None:
+        subject = Subject()
+        installable = [{"name": "Cloudflare", "summary": "DNS."}]
+        refused = (
+            (intent_body(objective="oi", installable=installable), None),
+            (intent_body(objective="oi", installable=[]), "decision-test-key"),
+            (intent_body(objective="oi", installable=[{"name": "Cloudflare"}]), "decision-test-key"),
+            (intent_body(objective="oi", installable="Cloudflare"), "decision-test-key"),
+            (
+                intent_body(
+                    objective="tire o cloudflare",
+                    expected_intent="assistant-uninstall",
+                    candidates=[{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
+                    installable=installable,
+                ),
+                None,
+            ),
+        )
+        for body, key in refused:
+            with self.subTest(body=body, key=key), self.assertRaises(capabilities.ApiProblem) as caught:
+                capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key", key)
+            self.assertEqual(caught.exception.code, "invalid-body")
+        subject.brain_runtime.intent_route.assert_not_called()
+
     def test_intent_route_projects_one_bounded_classification_reference(self) -> None:
         subject = Subject()
         body = intent_body(

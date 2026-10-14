@@ -183,6 +183,14 @@ class RuntimeDirectoryCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeInstallable:
+    """One Assistant the Team could install, as classification may describe it to Jev (ADR-0077 amendment)."""
+
+    name: str
+    summary: str
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeLifecycleReference:
     id: str
     name: str
@@ -210,6 +218,8 @@ class RuntimeIntentRoute:
     assistant_ids: tuple[str, ...] = ()
     reply: str = ""
     task_follows: bool = False
+    # Only a classification that described installable Assistants answers whether the task needs a capability.
+    capability: Literal["not-needed", "possible"] | None = None
 
 
 ConnectionFactory = Callable[[str, int, float], http.client.HTTPConnection]
@@ -682,13 +692,47 @@ class BrainRuntimeClient:
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
         return task, expected_intent, result, admitted_context
 
+    @classmethod
+    def validate_installable(cls, value: object) -> tuple[RuntimeInstallable, ...]:
+        """Admit the 1 to MAX_CAPABILITY_CANDIDATES Assistants a classification may describe; names may repeat."""
+        if not isinstance(value, tuple) or not 1 <= len(value) <= MAX_CAPABILITY_CANDIDATES:
+            raise BrainRuntimeError("Brain runtime intent route request is invalid")
+        if any(not isinstance(item, RuntimeInstallable) for item in value):
+            raise BrainRuntimeError("Brain runtime intent route request is invalid")
+        return tuple(
+            RuntimeInstallable(
+                cls._capability_text(item.name, MAX_CAPABILITY_NAME_CHARS),
+                cls._capability_text(item.summary, MAX_CAPABILITY_SUMMARY_CHARS),
+            )
+            for item in value
+        )
+
     @staticmethod
+    def _parse_capability(value: dict[str, object], asked: bool) -> Literal["not-needed", "possible"] | None:
+        """The capability answer exactly when it was asked, and not-needed only for an ordinary task."""
+        if not asked:
+            return None
+        capability = value.pop("capability", None)
+        if capability not in {"not-needed", "possible"} or (
+            capability == "not-needed" and value.get("intent") != "ordinary-task"
+        ):
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        return capability
+
+    @classmethod
     def _parse_intent_route(
+        cls,
         value: object,
         expected_intent: LifecycleIntent | None,
         candidates: tuple[RuntimeDirectoryCandidate, ...],
+        *,
+        capability_asked: bool = False,
     ) -> RuntimeIntentRoute:
-        if not isinstance(value, dict) or set(value) != {"intent", "query", "assistant_ids", "reply", "task_follows"}:
+        if not isinstance(value, dict):
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        value = dict(value)
+        capability = cls._parse_capability(value, capability_asked)
+        if set(value) != {"intent", "query", "assistant_ids", "reply", "task_follows"}:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         task_follows = value["task_follows"]
         continues_install = expected_intent is None and value["intent"] == "assistant-install" and bool(value["query"])
@@ -726,7 +770,7 @@ class BrainRuntimeClient:
             )
             if bool(reply) != requires_reply:
                 raise BrainRuntimeError("Brain runtime returned an invalid response")
-            return RuntimeIntentRoute(intent, query, reply=reply, task_follows=task_follows)
+            return RuntimeIntentRoute(intent, query, reply=reply, task_follows=task_follows, capability=capability)
         expected_ids = frozenset(candidate.id for candidate in candidates)
         if intent == "unresolved" and not query and not assistant_ids and reply:
             return RuntimeIntentRoute("unresolved", reply=reply)
@@ -848,6 +892,7 @@ class BrainRuntimeClient:
         expected_intent: LifecycleIntent | None,
         candidates: tuple[RuntimeDirectoryCandidate, ...],
         context: RuntimeLifecycleContext | None,
+        installable: tuple[RuntimeInstallable, ...] = (),
     ) -> RuntimeIntentRoute:
         if not isinstance(credentials, RouteCredentials):
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
@@ -868,6 +913,10 @@ class BrainRuntimeClient:
             candidates,
             context,
         )
+        # Installable Assistants describe only a classification Jev may answer (ADR-0077 amendment).
+        described = () if installable == () else self.validate_installable(installable)
+        if described and (expected is not None or decision_key is None):
+            raise BrainRuntimeError("Brain runtime intent route request is invalid")
         response = self._post(
             "/v1/intent-route",
             {
@@ -892,6 +941,16 @@ class BrainRuntimeClient:
                     if decision_key is None
                     else {"decision_provider": {"provider": "typesafe", "api_key": decision_key}}
                 ),
+                **(
+                    {"installable": [{"name": item.name, "summary": item.summary} for item in described]}
+                    if described
+                    else {}
+                ),
             },
         )
-        return self._parse_intent_route(self._metered(response, "intent-route", provider, model), expected, admitted)
+        return self._parse_intent_route(
+            self._metered(response, "intent-route", provider, model),
+            expected,
+            admitted,
+            capability_asked=bool(described),
+        )

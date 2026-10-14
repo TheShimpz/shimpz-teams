@@ -151,6 +151,23 @@ def _lifecycle_context(body: dict[str, object]) -> brain_runtime_client.RuntimeL
     return brain_runtime_client.RuntimeLifecycleContext(reference, projected, body["locale"])
 
 
+_INTENT_ROUTE_FIELDS = frozenset(
+    {"objective", "expected_intent", "candidates", "lifecycle_reference", "conversation", "locale"}
+)
+
+
+def _installable(value: object) -> tuple[brain_runtime_client.RuntimeInstallable, ...]:
+    """The installable Assistants a classification describes, each exactly a name and a summary."""
+    if not isinstance(value, list):
+        raise ValueError("invalid installable Assistants")
+    projected = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"name", "summary"}:
+            raise ValueError("invalid installable Assistant")
+        projected.append(brain_runtime_client.RuntimeInstallable(item["name"], item["summary"]))
+    return brain_runtime_client.BrainRuntimeClient.validate_installable(tuple(projected))
+
+
 def _intent_route_input(
     body: object,
 ) -> tuple[
@@ -158,15 +175,9 @@ def _intent_route_input(
     brain_runtime_client.LifecycleIntent | None,
     tuple[brain_runtime_client.RuntimeDirectoryCandidate, ...],
     brain_runtime_client.RuntimeLifecycleContext,
+    tuple[brain_runtime_client.RuntimeInstallable, ...],
 ]:
-    if not isinstance(body, dict) or set(body) != {
-        "objective",
-        "expected_intent",
-        "candidates",
-        "lifecycle_reference",
-        "conversation",
-        "locale",
-    }:
+    if not isinstance(body, dict) or set(body) - {"installable"} != _INTENT_ROUTE_FIELDS:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "intent route requires objective, expected_intent, candidates, and lifecycle context",
@@ -181,18 +192,23 @@ def _intent_route_input(
         )
     try:
         projected = tuple(_directory_candidate(value) for value in candidates)
-        return brain_runtime_client.BrainRuntimeClient.validate_intent_route_inputs(
+        objective, expected, admitted, context = brain_runtime_client.BrainRuntimeClient.validate_intent_route_inputs(
             body["objective"],
             body["expected_intent"],
             projected,
             _lifecycle_context(body),
         )
+        # Only a classification may describe the Assistants the Team could install (ADR-0077 amendment).
+        installable = _installable(body["installable"]) if "installable" in body else ()
+        if installable and expected is not None:
+            raise ValueError("installable Assistants describe only a classification")
     except (brain_runtime_client.BrainRuntimeError, TypeError, ValueError) as exc:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "intent route input is invalid",
             code="invalid-body",
         ) from exc
+    return objective, expected, admitted, context, installable
 
 
 def intent_route(
@@ -205,12 +221,18 @@ def intent_route(
 ) -> dict[str, object]:
     """Route one objective without exposing Team state or granting lifecycle authority."""
     team_id = validate_team_id(team_id)
-    objective, expected_intent, candidates, context = _intent_route_input(body)
+    objective, expected_intent, candidates, context, installable = _intent_route_input(body)
     if decision_key is not None and expected_intent is not None:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "a decision credential applies only to intent classification",
             code="invalid-decision-credential",
+        )
+    if installable and decision_key is None:
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "installable Assistants are described only to the decision provider",
+            code="invalid-body",
         )
     before = self._capability_plan_snapshot(team_id, provider)
     try:
@@ -220,6 +242,7 @@ def intent_route(
             expected_intent=expected_intent,
             candidates=candidates,
             context=context,
+            installable=installable,
         )
     except brain_runtime_client.BrainRuntimeError as exc:
         raise ApiProblem(
@@ -237,4 +260,5 @@ def intent_route(
         "assistant_ids": list(route.assistant_ids),
         "reply": route.reply,
         "task_follows": route.task_follows,
+        **({"capability": route.capability} if installable else {}),
     }

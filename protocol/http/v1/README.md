@@ -487,6 +487,13 @@ characters plus CR, LF, and TAB layout. It is always quoted untrusted language e
 ellipsis, and direct answers,
 but grants no directory membership, installation, removal, or Team authority and never becomes an instruction or
 identifier. The current objective remains the only fresh instruction.
+A classification sent with the decision key may also carry `installable`: one to eight `{name, summary}` entries
+of at most 80 code points each, the names and summaries of exactly the installable Assistants the capability plan
+for the same message considers (names may repeat). Team forwards them only to Brain's intent route, and its answer
+then carries `capability`, `not-needed` only for a confident ordinary task Jev called conversation, else `possible`
+(ADR-0077 amendment); without `installable` the answer has no `capability` field. The intent route and the
+capability plan bodies are bounded at their JSON worst case (`turn.py`), so any admissible chat message is routed
+and planned.
 
 Local Admin may emit an exact terminal `assistant-guidance` event with the authenticated socket Team id, one of the
 closed `assistant-install-target-required`, `assistant-uninstall-target-required`, or

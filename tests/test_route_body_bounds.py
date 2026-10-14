@@ -54,7 +54,8 @@ class RouteBodyBoundTests(unittest.TestCase):
         entries = http_payload.MAX_CONVERSATION_ENTRIES
         per_entry = min(http_payload.MAX_CONVERSATION_TEXT_CHARS, http_payload.MAX_CONVERSATION_CHARS // entries)
         objective = _text(http_turn.MAX_OBJECTIVE_CHARS)
-        # Classification carries the conversation and the last lifecycle Assistant; selection carries candidates.
+        # Classification carries the conversation, the last lifecycle Assistant, and the installable Assistants;
+        # selection carries candidates.
         classification = {
             "objective": objective,
             "expected_intent": None,
@@ -65,6 +66,13 @@ class RouteBodyBoundTests(unittest.TestCase):
                 for index in range(entries)
             ],
             "locale": "pt",
+            "installable": [
+                {
+                    "name": _text(http_turn.MAX_CAPABILITY_NAME_CHARS),
+                    "summary": _text(http_turn.MAX_CAPABILITY_SUMMARY_CHARS),
+                }
+            ]
+            * http_turn.MAX_CAPABILITY_CANDIDATES,
         }
         selection = {
             "objective": objective,

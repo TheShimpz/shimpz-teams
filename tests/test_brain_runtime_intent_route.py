@@ -479,5 +479,75 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
         self.assertEqual(connection.requests, [])
 
 
+DECISION_KEY = "decision-test-key"
+INSTALLABLE = (
+    brain_runtime_client.RuntimeInstallable("Cloudflare", "Set up your domains' DNS."),
+    # Different Assistants may share a display name; both are described.
+    brain_runtime_client.RuntimeInstallable("Cloudflare", "Purge a site's cache."),
+)
+ORDINARY = {"task_follows": False, "intent": "ordinary-task", "query": "", "assistant_ids": [], "reply": ""}
+
+
+class BrainRuntimeCapabilityAnswerTests(RuntimeClientCase):
+    def _classify(self, client, *, key=DECISION_KEY, installable=INSTALLABLE, expected=None, candidates=()):
+        return client.intent_route(
+            credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6.1-sol", self.secret, key),
+            objective="oi, tudo bem?",
+            expected_intent=expected,
+            candidates=candidates,
+            context=EN,
+            installable=installable,
+        )
+
+    def test_installable_assistants_ask_the_decision_provider_and_carry_its_answer(self):
+        for answer in ("not-needed", "possible"):
+            with self.subTest(answer=answer):
+                client, connection = self.client(_Response({**ORDINARY, "capability": answer}))
+                route = self._classify(client)
+                self.assertEqual(route.capability, answer)
+                payload = json.loads(connection.requests[0][2])
+                self.assertEqual(
+                    payload["installable"],
+                    [{"name": item.name, "summary": item.summary} for item in INSTALLABLE],
+                )
+        # Without installable Assistants nothing is described and no answer is admitted.
+        client, connection = self.client(_Response(ORDINARY))
+        self.assertIsNone(self._classify(client, installable=()).capability)
+        self.assertNotIn("installable", json.loads(connection.requests[0][2]))
+
+    def test_an_answer_outside_what_was_asked_is_refused(self):
+        lifecycle = {**ORDINARY, "intent": "unresolved", "reply": "Which Assistant?"}
+        for installable, response in (
+            (INSTALLABLE, ORDINARY),
+            (INSTALLABLE, {**ORDINARY, "capability": "maybe"}),
+            (INSTALLABLE, {**lifecycle, "capability": "not-needed"}),
+            ((), {**ORDINARY, "capability": "possible"}),
+        ):
+            client, _connection = self.client(_Response(response))
+            with self.subTest(response=response), self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                self._classify(client, installable=installable)
+        client, _connection = self.client(_Response({**lifecycle, "capability": "possible"}))
+        self.assertEqual(self._classify(client).capability, "possible")
+        with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+            brain_runtime_client.BrainRuntimeClient._parse_intent_route(["not", "an", "answer"], None, ())
+
+    def test_installable_assistants_describe_only_a_keyed_bounded_classification(self):
+        refused = (
+            {"key": None},
+            {"expected": "assistant-uninstall", "candidates": directory_candidates(uninstall=True), "key": None},
+            {"installable": INSTALLABLE * 5},
+            {"installable": (brain_runtime_client.RuntimeInstallable("Cloudflare", ""),)},
+            {"installable": (brain_runtime_client.RuntimeInstallable("Cloud\u0000flare", "DNS"),)},
+            {"installable": (brain_runtime_client.RuntimeInstallable("C" * 81, "DNS"),)},
+            {"installable": (("Cloudflare", "DNS"),)},
+            {"installable": ["not", "a", "tuple"]},
+        )
+        for arguments in refused:
+            client, connection = self.client(_Response({**ORDINARY, "capability": "possible"}))
+            with self.subTest(arguments=arguments), self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                self._classify(client, **arguments)
+            self.assertEqual(connection.requests, [])
+
+
 if __name__ == "__main__":
     unittest.main()
