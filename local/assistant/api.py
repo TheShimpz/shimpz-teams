@@ -1,5 +1,7 @@
 """Local Assistant inventory API operations."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from http import HTTPStatus
 
 from docker.errors import DockerException
@@ -40,38 +42,14 @@ def assistant_icon(self, team_id: str, assistant_id: str) -> bytes:
             ) from exc
 
 
-def assistant_summary(self, team_id: str, assistant_id: str, locale: object) -> dict[str, object]:
-    """One installed Assistant's summary in one closed interface language, read from its binding's pack (ADR-0091).
+@contextmanager
+def _installed_copy(
+    self, team_id: str, assistant_id: str, locale: object
+) -> Iterator[tuple[str, object, object, object]]:
+    """Hold one Team's lock over one installed, admissible Assistant's copy in one closed interface language.
 
-    English is the binding's catalog summary itself; any other language is only that message's translation from the
-    pack verified against the binding's digest, so a missing or mismatched pack fails closed instead of answering in
-    English.
-    """
-    team_id = validate_team_id(team_id)
-    assistant_id = validate_assistant_id(assistant_id)
-    canonical = http_payload.canonical_locale(locale)
-    if canonical is None:
-        raise invalid_locale()
-    with self._lock(team_id):
-        binding = self.registry.binding(team_id, assistant_id)
-        if binding is None:
-            raise assistant_not_installed()
-        if not binding.admissible:
-            raise assistant_manifest_invalid()
-        spec = self.registry.spec(binding)
-        if canonical == assistant_language.ENGLISH:
-            return {"locale": canonical, "summary": spec.summary}
-        container = self.assistant_lifecycle._assistant_container(team_id, assistant_id)
-        pack = self.assistant_lifecycle._assistant_language(ActiveAssistant(spec, container.id, container))
-        summary = pack.template(catalog_validator.message_id(spec.summary), canonical)
-    return {"locale": canonical, "summary": summary}
-
-
-def assistant_details(self, team_id: str, assistant_id: str, locale: object) -> dict[str, object]:
-    """One installed Assistant's page in one closed interface language, from its exact current binding.
-
-    Like the summary, English is the binding's own catalog copy and any other language only its translations from the
-    pack verified against the binding's digest; Team validates the closed answer before it leaves.
+    It yields the canonical language, the binding, its spec, and, for any language but English, the language pack read
+    from the binding's container and verified against its digest; English is the binding's own catalog copy.
     """
     team_id = validate_team_id(team_id)
     assistant_id = validate_assistant_id(assistant_id)
@@ -89,6 +67,30 @@ def assistant_details(self, team_id: str, assistant_id: str, locale: object) -> 
         if canonical != assistant_language.ENGLISH:
             container = self.assistant_lifecycle._assistant_container(team_id, assistant_id)
             pack = self.assistant_lifecycle._assistant_language(ActiveAssistant(spec, container.id, container))
+        yield canonical, binding, spec, pack
+
+
+def assistant_summary(self, team_id: str, assistant_id: str, locale: object) -> dict[str, object]:
+    """One installed Assistant's summary in one closed interface language, read from its binding's pack (ADR-0091).
+
+    English is the binding's catalog summary itself; any other language is only that message's translation from the
+    pack verified against the binding's digest, so a missing or mismatched pack fails closed instead of answering in
+    English.
+    """
+    with _installed_copy(self, team_id, assistant_id, locale) as (canonical, _binding, spec, pack):
+        if pack is None:
+            return {"locale": canonical, "summary": spec.summary}
+        summary = pack.template(catalog_validator.message_id(spec.summary), canonical)
+    return {"locale": canonical, "summary": summary}
+
+
+def assistant_details(self, team_id: str, assistant_id: str, locale: object) -> dict[str, object]:
+    """One installed Assistant's page in one closed interface language, from its exact current binding.
+
+    Like the summary, English is the binding's own catalog copy and any other language only its translations from the
+    pack verified against the binding's digest; Team validates the closed answer before it leaves.
+    """
+    with _installed_copy(self, team_id, assistant_id, locale) as (canonical, binding, spec, pack):
         document = binding.document
         page = assistant_page.AssistantPage(
             assistant_id=spec.assistant_id,
