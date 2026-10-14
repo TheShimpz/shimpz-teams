@@ -26,7 +26,7 @@ _CONTRACTS = ContractValidator()
 # times a turn. The digest covers the exact resolution, so a verdict is never reused for other bytes, and the registry
 # file is still read and integrity-checked on every read.
 _MAX_ADMISSIONS = 1024
-_ADMISSIONS: OrderedDict[str, bool] = OrderedDict()
+_ADMISSIONS: OrderedDict[tuple[str, LocalRecordValidator | None], bool] = OrderedDict()
 _ADMISSIONS_LOCK = threading.Lock()
 _PUBLISHED = "published"
 _LOCAL = "local"
@@ -329,28 +329,39 @@ def _decode_binding(
         raise DynamicAssistantError("the dynamic Assistant registry binding digest is invalid")
     # Admission is the current contract's verdict on one intact binding, so a refusal marks only that binding.
     if provenance == _PUBLISHED:
-        return intact if _published_admission(intact, document) else replace(intact, admissible=False)
-    try:
-        return binding_from_local_record(value["team_id"], document, local_record_validator)
-    except DynamicAssistantError:
-        return replace(intact, admissible=False)
+        admitted = _admission(intact, None, lambda: binding_from_resolution(intact.team_id, document))
+    else:
+        admitted = _admission(
+            intact,
+            local_record_validator,
+            lambda: binding_from_local_record(intact.team_id, document, local_record_validator),
+        )
+    return intact if admitted else replace(intact, admissible=False)
 
 
-def _published_admission(intact: DynamicAssistantBinding, resolution: dict[str, Any]) -> bool:
-    """Whether the current resolution schema admits one intact published binding, decided once per binding digest."""
+def _admission(
+    intact: DynamicAssistantBinding,
+    validator: LocalRecordValidator | None,
+    admit: Callable[[], object],
+) -> bool:
+    """Whether the current contract admits one intact binding, decided once per binding digest and validator.
+
+    A digest covers the binding's whole document, and each admission is a pure verdict on that document.
+    """
+    key = (intact.binding_digest, validator)
     with _ADMISSIONS_LOCK:
-        admitted = _ADMISSIONS.get(intact.binding_digest)
+        admitted = _ADMISSIONS.get(key)
         if admitted is not None:
-            _ADMISSIONS.move_to_end(intact.binding_digest)
+            _ADMISSIONS.move_to_end(key)
             return admitted
     try:
-        binding_from_resolution(intact.team_id, resolution)
+        admit()
     except DynamicAssistantError:
         admitted = False
     else:
         admitted = True
     with _ADMISSIONS_LOCK:
-        _ADMISSIONS[intact.binding_digest] = admitted
+        _ADMISSIONS[key] = admitted
         while len(_ADMISSIONS) > _MAX_ADMISSIONS:
             _ADMISSIONS.popitem(last=False)
     return admitted

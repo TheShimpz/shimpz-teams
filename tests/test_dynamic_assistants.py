@@ -75,7 +75,22 @@ class PublishedAdmissionCacheTests(unittest.TestCase):
         refused = next(iter(bindings._ADMISSIONS))
         bindings._ADMISSIONS[refused] = False
         listed = {binding.binding_digest: binding.admissible for binding in self.store.list("team_1")}
-        self.assertFalse(listed[refused])
+        self.assertFalse(listed[refused[0]])
+
+    def test_a_local_record_is_judged_once_per_binding_and_validator(self) -> None:
+        validator = mock.Mock(side_effect=validate_local_record)
+        path = Path(self.directory.name) / "bindings.json"
+        local_store = DynamicAssistantStore(path, local_record_validator=validator)
+        local_store.put_local("team_1", copy.deepcopy(LOCAL_RECORD))
+        validator.reset_mock()
+        first, second = local_store.list("team_1"), local_store.list("team_1")
+        self.assertEqual(first, second)
+        self.assertTrue(second[0].admissible)
+        self.assertEqual(validator.call_count, 1)
+        # Another validator judges the same binding afresh.
+        refusing = mock.Mock(side_effect=bindings.DynamicAssistantError("refused"))
+        listed = DynamicAssistantStore(path, local_record_validator=refusing).list("team_1")
+        self.assertFalse(listed[0].admissible)
 
     def test_the_kept_verdicts_stay_bounded(self) -> None:
         with mock.patch.object(bindings, "_MAX_ADMISSIONS", 2):
