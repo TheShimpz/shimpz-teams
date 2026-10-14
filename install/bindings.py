@@ -4,6 +4,8 @@ import builtins
 import fcntl
 import hashlib
 import json
+import threading
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -19,6 +21,13 @@ _FORMAT_VERSION = 2
 _MAX_BINDINGS = 4096
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _CONTRACTS = ContractValidator()
+# The current contract's verdict on each intact published binding, kept by its binding digest: every registry read
+# re-admitted every published binding of the Space against the resolution schema, a few milliseconds each, several
+# times a turn. The digest covers the exact resolution, so a verdict is never reused for other bytes, and the registry
+# file is still read and integrity-checked on every read.
+_MAX_ADMISSIONS = 1024
+_ADMISSIONS: OrderedDict[str, bool] = OrderedDict()
+_ADMISSIONS_LOCK = threading.Lock()
 _PUBLISHED = "published"
 _LOCAL = "local"
 _LOCK_UNAVAILABLE = "the dynamic Assistant registry lock is unavailable"
@@ -319,12 +328,32 @@ def _decode_binding(
     if value["binding_digest"] != intact.binding_digest:
         raise DynamicAssistantError("the dynamic Assistant registry binding digest is invalid")
     # Admission is the current contract's verdict on one intact binding, so a refusal marks only that binding.
+    if provenance == _PUBLISHED:
+        return intact if _published_admission(intact, document) else replace(intact, admissible=False)
     try:
-        if provenance == _PUBLISHED:
-            return binding_from_resolution(value["team_id"], document)
         return binding_from_local_record(value["team_id"], document, local_record_validator)
     except DynamicAssistantError:
         return replace(intact, admissible=False)
+
+
+def _published_admission(intact: DynamicAssistantBinding, resolution: dict[str, Any]) -> bool:
+    """Whether the current resolution schema admits one intact published binding, decided once per binding digest."""
+    with _ADMISSIONS_LOCK:
+        admitted = _ADMISSIONS.get(intact.binding_digest)
+        if admitted is not None:
+            _ADMISSIONS.move_to_end(intact.binding_digest)
+            return admitted
+    try:
+        binding_from_resolution(intact.team_id, resolution)
+    except DynamicAssistantError:
+        admitted = False
+    else:
+        admitted = True
+    with _ADMISSIONS_LOCK:
+        _ADMISSIONS[intact.binding_digest] = admitted
+        while len(_ADMISSIONS) > _MAX_ADMISSIONS:
+            _ADMISSIONS.popitem(last=False)
+    return admitted
 
 
 def _encode_binding(binding: DynamicAssistantBinding) -> dict[str, object]:

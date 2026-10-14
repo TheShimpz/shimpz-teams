@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
+from install import bindings
 from install.bindings import (
     AssistantLimitReachedError,
     DynamicAssistantConflictError,
@@ -48,6 +49,40 @@ def named_resolution(assistant_id: str) -> dict[str, object]:
     resolution = copy.deepcopy(RESOLUTION)
     resolution["assistant_id"] = assistant_id
     return resolution
+
+
+class PublishedAdmissionCacheTests(unittest.TestCase):
+    """Every registry read re-checks integrity, but the contract judges each exact published binding only once."""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.store = DynamicAssistantStore(Path(self.directory.name) / "bindings.json")
+        bindings._ADMISSIONS.clear()
+        self.addCleanup(bindings._ADMISSIONS.clear)
+
+    def test_each_exact_binding_is_admitted_once_and_its_verdict_kept(self) -> None:
+        for index in range(3):
+            self.store.put("team_1", named_resolution(f"assistant-{index}"))
+        bindings._ADMISSIONS.clear()
+        with mock.patch.object(bindings._CONTRACTS, "validate", wraps=bindings._CONTRACTS.validate) as validate:
+            first = self.store.list("team_1")
+            second = self.store.list("team_1")
+        self.assertEqual(first, second)
+        self.assertTrue(all(binding.admissible for binding in second))
+        self.assertEqual(validate.call_count, 3)
+        # A refused binding keeps its refusal without being judged again.
+        refused = next(iter(bindings._ADMISSIONS))
+        bindings._ADMISSIONS[refused] = False
+        listed = {binding.binding_digest: binding.admissible for binding in self.store.list("team_1")}
+        self.assertFalse(listed[refused])
+
+    def test_the_kept_verdicts_stay_bounded(self) -> None:
+        with mock.patch.object(bindings, "_MAX_ADMISSIONS", 2):
+            for index in range(3):
+                self.store.put("team_1", named_resolution(f"assistant-{index}"))
+            self.store.list("team_1")
+            self.assertEqual(len(bindings._ADMISSIONS), 2)
 
 
 class TeamAssistantLimitTests(unittest.TestCase):
