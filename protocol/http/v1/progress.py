@@ -22,6 +22,8 @@ PHASES = frozenset(
 )
 STATES = frozenset({"started", "finished"})
 MAX_EVENTS = 2_048
+# The most Actions one progress record may count, its own index included.
+MAX_ACTION_COUNT = 512
 MAX_ELAPSED_MS = 24 * 60 * 60 * 1_000
 # Exact compact JSON size of the largest valid finished Action progress record, including newline: a 40-character
 # Assistant id and a 128-character Action id.
@@ -75,7 +77,7 @@ def canonical_event(value: object) -> dict[str, object]:
             label="progress duration",
         )
     if phase == "action":
-        total = _integer(value["total"], minimum=1, maximum=512, label="Action count")
+        total = _integer(value["total"], minimum=1, maximum=MAX_ACTION_COUNT, label="Action count")
         event["assistant_id"] = _identifier(value["assistant_id"], identifiers.canonical_assistant_id, "Assistant id")
         event["index"] = _integer(value["index"], minimum=1, maximum=total, label="Action index")
         event["action"] = _identifier(value["action"], identifiers.canonical_action_id, "Action id")

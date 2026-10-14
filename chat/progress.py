@@ -6,18 +6,12 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import progress as progress_contract
 
-PHASES = frozenset(
-    {
-        "model",
-        "action",
-        "action-delivery",
-        "action-preparation",
-        "team-context",
-    }
-)
-MAX_SEQUENCE = 2_048
-MAX_ELAPSED_MS = 24 * 60 * 60 * 1_000
+# What a progress record may say is the protocol's own: a stream Team writes is one Admin admits.
+PHASES = progress_contract.PHASES
+MAX_SEQUENCE = progress_contract.MAX_EVENTS
+MAX_ELAPSED_MS = progress_contract.MAX_ELAPSED_MS
 
 EventSink = Callable[[dict[str, object]], None]
 Clock = Callable[[], int]
@@ -61,7 +55,7 @@ class Reporter:
             raise ValueError("invalid chat progress event")
         if (index is None) != (total is None):
             raise ValueError("incomplete chat progress position")
-        if index is not None and (phase != "action" or not 1 <= index <= total <= 512):
+        if index is not None and (phase != "action" or not 1 <= index <= total <= progress_contract.MAX_ACTION_COUNT):
             raise ValueError("invalid chat progress position")
         _validate_identity(phase, assistant_id, action)
         if state == "started" and elapsed_ms is not None:
