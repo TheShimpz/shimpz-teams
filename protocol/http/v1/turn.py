@@ -50,6 +50,11 @@ MAX_INTENT_ROUTE_QUERY_CHARS = 160
 MAX_INTENT_ROUTE_NAME_CHARS = 80
 MAX_INTENT_ROUTE_SUMMARY_CHARS = 80
 MAX_INTENT_ROUTE_REPLY_CHARS = 240
+# The largest request body Team admits, and Admin sends, for one capability plan or one intent route: every text bound
+# at its JSON worst case (6 bytes for one code point), so a message as long as a chat message admits is always routed
+# and planned. Team's tests serialize the largest admissible request of each to prove it fits.
+MAX_CAPABILITY_PLAN_BODY_BYTES = 256 * 1024
+MAX_INTENT_ROUTE_BODY_BYTES = 192 * 1024
 # The attachment content a turn carries (ADR-0093); the file count is payload.MAX_CHAT_FILES. Every ceiling applies at
 # once: one file's text, a message's text in all, and an image as its prepared derivative.
 MAX_ATTACHMENT_IMAGES = 4
