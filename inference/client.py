@@ -236,6 +236,9 @@ CONNECT_TIMEOUT_SECONDS = 5.0
 RESPONSE_TIMEOUT_SECONDS = 300.0
 # An optional purpose sentence may delay a person's prompt only this long in total, connection included (ADR-0090).
 PURPOSE_DEADLINE_SECONDS = 15.0
+# A capability plan ends within Admin's 65-second wait, with room to deliver its answer or failure; past it, the
+# closed request cancels the plan's provider I/O in Brain (ADR-0079).
+CAPABILITY_PLAN_DEADLINE_SECONDS = 55.0
 
 
 def resume_capacity(context: RuntimeContext, result_bytes: int) -> int:
@@ -881,6 +884,7 @@ class BrainRuntimeClient:
                     for candidate in admitted
                 ],
             },
+            deadline=CAPABILITY_PLAN_DEADLINE_SECONDS,
         )
         return self._parse_capability_plan(self._metered(response, "capability-plan", provider, model), admitted)
 

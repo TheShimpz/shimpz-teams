@@ -8,7 +8,7 @@ import unittest
 from dataclasses import replace
 from unittest import mock
 
-from test_brain_runtime_client import RuntimeClientCase, _Connection, _Response, context
+from test_brain_runtime_client import RuntimeClientCase, _Connection, _Response, capability_candidates, context
 
 from inference import abort as brain_abort
 from inference import client as brain_runtime_client
@@ -109,6 +109,48 @@ class PurposeTests(RuntimeClientCase):
         )
         with mock.patch.object(brain_runtime_client, "PURPOSE_DEADLINE_SECONDS", 0.05):
             self.assertIsNone(client.purpose(context(self.secret), REQUEST, "Exa", "Search the web."))
+        self.assertTrue(shutdown.is_set())
+        self.assertTrue(connection.closed)
+
+    def test_a_capability_plan_ends_at_its_deadline_inside_admins_wait(self):
+        # Past Team's deadline the closed request cancels Brain's provider I/O, inside Admin's own wait.
+        shutdown = threading.Event()
+
+        class Socket:
+            @staticmethod
+            def settimeout(_seconds):
+                return None
+
+            @staticmethod
+            def shutdown(_how):
+                shutdown.set()
+
+        class Hanging(_Connection):
+            def connect(self) -> None:
+                self.sock = Socket()
+
+            def getresponse(self):
+                if not shutdown.wait(5):
+                    raise AssertionError("the capability plan deadline never fired")
+                raise OSError("connection shut down")
+
+        connection = Hanging(_Response({"status": "not-needed", "assistant_ids": []}))
+        client = brain_runtime_client.BrainRuntimeClient(
+            base_url="http://brain-runtime:8080",
+            token_file=self.token_file,
+            connection_factory=lambda _host, _port, _timeout: connection,
+        )
+        with (
+            mock.patch.object(brain_runtime_client, "CAPABILITY_PLAN_DEADLINE_SECONDS", 0.05),
+            self.assertRaises(brain_runtime_client.BrainRuntimeError),
+        ):
+            client.capability_plan(
+                provider="openai",
+                model="gpt-6.1-sol",
+                api_key=self.secret,
+                objective="Configure example.com.",
+                candidates=capability_candidates(),
+            )
         self.assertTrue(shutdown.is_set())
         self.assertTrue(connection.closed)
 
