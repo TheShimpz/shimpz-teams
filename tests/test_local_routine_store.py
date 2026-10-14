@@ -101,6 +101,20 @@ class RoundTripTests(StoreCase):
         self.assertEqual((added, len(self.store.load("team_1").routines)), ("added", 1))
         self.assertIs(self.store.lock("team_1"), self.store.lock("team_1"))
 
+    def test_a_read_reuses_a_decoded_state_only_while_the_file_keeps_its_exact_bytes(self):
+        self.store.update("team_1", lambda state: (record.add_routine(state, routine()), None))
+        first = self.store.load("team_1")
+        self.assertIs(self.store.load("team_1"), first)
+        # Bytes changed outside the store are decoded again, and a tampered file still fails closed.
+        payload = self.state_file().read_bytes()
+        self.state_file().write_bytes(payload.replace(b'"served_at":0', b'"served_at":7'))
+        self.assertEqual(self.store.load("team_1").served_at, 7)
+        self.state_file().write_bytes(payload.replace(b'"schema":', b'"schemas":'))
+        with self.assertRaises(routine_store.RoutineStoreError):
+            self.store.load("team_1")
+        self.store.delete("team_1")
+        self.assertEqual(self.store.load("team_1"), record.TeamRoutines())
+
     def test_an_invalid_team_or_an_oversized_state_is_refused(self):
         for team in ("Team", "", 1):
             with self.subTest(team=team), self.assertRaisesRegex(routine_store.RoutineStoreError, "Team is invalid"):

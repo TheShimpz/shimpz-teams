@@ -507,6 +507,9 @@ class RoutineStore:
         # A Space reset closes the store and bumps the epoch, so a write that began before it can never land after.
         self._closed = False
         self._epoch = 0
+        # The state each Team's file last decoded to, beside its exact bytes: a read finding the same bytes reuses it,
+        # since a large state takes tens of milliseconds to decode and one run reads it many times.
+        self._decoded: dict[str, tuple[bytes, record.TeamRoutines]] = {}
 
     def lock(self, team_id: object) -> threading.RLock:
         return self._directory_lock(self._team_dir(_team_id(team_id)).name)
@@ -528,14 +531,31 @@ class RoutineStore:
         team = _team_id(team_id)
         with self.lock(team):
             payload = _PRIVATE.read_private_file(self._team_dir(team) / "state.json", MAX_STATE_BYTES, "Routine state")
-        return record.TeamRoutines() if payload is None else _decode(payload, team)
+        if payload is None:
+            return record.TeamRoutines()
+        with self._guard:
+            kept = self._decoded.get(team)
+        if kept is not None and kept[0] == payload:
+            return kept[1]
+        return self._keep(team, payload)
+
+    def _keep(self, team: str, payload: bytes) -> record.TeamRoutines:
+        state = _decode(payload, team)
+        with self._guard:
+            self._decoded[team] = (payload, state)
+        return state
 
     def _save(self, team: str, state: record.TeamRoutines) -> None:
         payload = _encode(state, team)
-        _decode(payload, team)
         if len(payload) > MAX_STATE_BYTES:
             raise RoutineStoreError("Routine state exceeds its fixed byte limit")
+        # Decoding what was encoded checks it before it replaces the file, and is the next read's state.
+        with self._guard:
+            self._decoded.pop(team, None)
+        decoded = _decode(payload, team)
         _PRIVATE.atomic_write(self._team_dir(team) / "state.json", payload, "Routine state")
+        with self._guard:
+            self._decoded[team] = (payload, decoded)
 
     def _writable(self, epoch: int) -> None:
         with self._guard:
@@ -793,11 +813,15 @@ class RoutineStore:
         team = _team_id(team_id)
         with self.lock(team):
             self._remove(self._team_dir(team).name)
+            with self._guard:
+                self._decoded.pop(team, None)
 
     def delete_all(self) -> None:
         """Remove every Team's Routine state, including a Team no network names now, and the keyring."""
         for name in self._owned_directories():
             self._remove(name)
+        with self._guard:
+            self._decoded.clear()
         try:
             self.key_path.unlink(missing_ok=True)
         except OSError as exc:
