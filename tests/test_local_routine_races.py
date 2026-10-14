@@ -224,6 +224,26 @@ class WatchdogRaceTests(RoutineServiceCase):
             self.assertEqual(self.state(service).discards, ())
 
 
+    def test_the_cleanup_pass_holds_the_routine_lock_while_it_removes_leftovers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            self.routine(service)
+            store = service.routine_store
+            listed = store.recoveries
+            claimable: list[bool] = []
+
+            def recoveries(team_id):
+                # A claim on another thread would have to wait, so it cannot seal anything the pass then removes.
+                attempt = threading.Thread(target=lambda: claimable.append(_try_lock(store.lock(team_id))))
+                attempt.start()
+                attempt.join()
+                return listed(team_id)
+
+            with mock.patch.object(store, "recoveries", side_effect=recoveries):
+                routine_watchdog.check(service)
+            self.assertEqual(claimable, [False])
+
+
 class StopBeforeRegistrationTests(FrozenCase):
     def test_deletion_ends_a_claimed_run_before_its_worker_starts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -453,3 +473,10 @@ class RoutineStoredInputAnswerTests(RoutineServiceCase):
             self.assertEqual(consumed, [])
             self.assertNotIn("seal", order)
             self.assertEqual(written, [] if refusal == "seal-failed" else ["frozen-state"])
+
+
+def _try_lock(lock) -> bool:
+    acquired = lock.acquire(blocking=False)
+    if acquired:
+        lock.release()
+    return acquired

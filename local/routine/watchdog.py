@@ -95,19 +95,21 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
     routine_incident.reconcile_team(service, team_id)
     # A continuation whose run no longer exists was left by a crash; an ended run's own is queued for removal anyway.
     # A cursor also stays while its unresolved incident may still resume the run.
-    current = service.routine_store.load(team_id)
-    runs = {item.run_id for item in current.runs}
-    for run_id in service.routine_store.continuations(team_id):
-        if run_id not in runs:
-            service.routine_store.delete_continuation(team_id, run_id)
-    for run_id in service.routine_store.recoveries(team_id):
-        if run_id not in runs:
-            service.routine_store.delete_recovery(team_id, run_id)
-    # A set-aside incident keeps its cursor until its own release, which waits for anything still executing for it.
-    kept = runs | {item.incident_id for item in current.incidents if item.status != "released"}
-    for run_id in service.routine_store.cursors(team_id):
-        if run_id not in kept:
-            service.routine_store.delete_cursor(team_id, run_id)
+    # The Team's Routine lock spans the read and the removals, so no run claimed meanwhile loses what it just sealed.
+    with service.routine_store.lock(team_id):
+        current = service.routine_store.load(team_id)
+        runs = {item.run_id for item in current.runs}
+        for run_id in service.routine_store.continuations(team_id):
+            if run_id not in runs:
+                service.routine_store.delete_continuation(team_id, run_id)
+        for run_id in service.routine_store.recoveries(team_id):
+            if run_id not in runs:
+                service.routine_store.delete_recovery(team_id, run_id)
+        # A set-aside incident keeps its cursor until its own release, which waits for anything still executing for it.
+        kept = runs | {item.incident_id for item in current.incidents if item.status != "released"}
+        for run_id in service.routine_store.cursors(team_id):
+            if run_id not in kept:
+                service.routine_store.delete_cursor(team_id, run_id)
     routine_manage.settle_team(service, team_id)
 
 
