@@ -127,7 +127,7 @@ class RecordingBookTests(unittest.TestCase):
         first = book.start("team_1", BINDING, _started(), 2)
         manifest = routine_recording.Manifest(())
         question = routine_recording.Question("routine-work-split", manifest=manifest, frontier=1)
-        intent = routine_recorder.Intent("DNS", None, None)
+        intent = routine_recorder.Intent("DNS", None, None, "Lista o DNS.")
         book.asked("team_1", first, question, intent)
         found = book.get("team_1", first)
         asked = routine_recording.Asked(question.code, 2, None, manifest, question.wire())
@@ -159,7 +159,7 @@ class RecordingBookTests(unittest.TestCase):
         )
 
     def test_only_a_composed_answer_that_binds_the_pending_question_is_recorded_without_the_brain(self) -> None:
-        intent = routine_recorder.Intent("DNS", None, None)
+        intent = routine_recorder.Intent("DNS", None, None, "Lista o DNS.")
         pending = routine_recording.Pending(("dns", "records"), "zone_id", (("a-zone", None), (123, None)))
 
         def answered(
@@ -230,7 +230,7 @@ class RecordingBookTests(unittest.TestCase):
                 self.assertIs(routine_recorder.routine_mode(book.get("team_1", send)), expected)
         book = routine_recorder.RecordingBook()
         send = book.start("team_1", BINDING, _started("Liste"), 1)
-        intent = routine_recorder.Intent("DNS", None, None)
+        intent = routine_recorder.Intent("DNS", None, None, "Lista o DNS.")
         book.asked("team_1", send, routine_recording.Question("routine-binding-unsourced"), intent)
         self.assertIs(routine_recorder.routine_mode(book.get("team_1", send)), True)
         self.assertIs(routine_recorder.routine_mode(None), False)
@@ -460,7 +460,13 @@ class CardTests(unittest.TestCase):
         recorded = routine_recording.Recorded(
             document, origins, permitted, {"kind": "daily", "time": "09:00"}, "UTC", "browser"
         )
-        view = routine_proposal.card("e" * 32, candidate, recorded, (None, 1_800_000_900))
+        view = routine_proposal.card("e" * 32, candidate, recorded, (None, 1_800_000_900), "Lista o DNS.")
+        # A confirmation binds the description the person read, like every other part of the card.
+        reworded = routine_proposal.card("e" * 32, candidate, recorded, (None, 1_800_000_900), "Lê o DNS.")
+        self.assertEqual(view["description"], "Lista o DNS.")
+        self.assertNotEqual(
+            routine_proposal._digest(candidate, view, None), routine_proposal._digest(candidate, reworded, None)
+        )
         day, zone = view["steps"][1]["inputs"]
         self.assertEqual(
             day,

@@ -44,14 +44,16 @@ _SEND_CONTEXT_BYTES = 128
 
 @dataclass(frozen=True, slots=True)
 class Intent:
-    """What the span's latest ``record`` call asked for: the Routine's name and the Routine it replaces.
+    """What the span's latest ``record`` call asked for: the Routine's name, what it replaces, and its description.
 
     The replaced Routine is bound at exactly the revision that call was shown, which admission then requires unchanged.
+    The description is kept with it, so a card Team builds from the person's answer shows what the agent wrote.
     """
 
     name: str
     replaces: str | None
     revision: int | None
+    description: str
 
 
 @dataclass(frozen=True, slots=True)

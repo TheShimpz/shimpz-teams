@@ -83,6 +83,7 @@ def _record(**changes: object) -> dict[str, object]:
     value = {
         "op": "record",
         "name": "DNS de shimpz.com",
+        "description": "A cada 30 segundos, lista as zonas da sua Cloudflare e lê os registros DNS de shimpz.com.",
         "replaces": None,
         "turn_date": time.strftime("%Y-%m-%d", time.gmtime()),
     }
@@ -240,6 +241,7 @@ class RecordedRoutineTests(LocalContractCase):
             again = self.confirm(service, card["proposal_id"])
             state = service.routine_store.load("team_1")
         self.assertEqual(http_routine_proposal.canonical_proposal(card), card)
+        self.assertEqual(card["description"], _record()["description"])
         self.assertEqual((card["schedule"], card["timezone_source"]), (CONTINUOUS, "browser"))
         zones, records = card["steps"]
         self.assertEqual((zones["action"], records["action"]), ("list-zones", "list-dns-records"))
@@ -423,6 +425,8 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(len(runtime.contexts), 1)
         self.assertEqual(response["reply"], http_routine_proposal.ANSWER_REPLIES["pt"])
         self.assertEqual(response["routine_proposal"]["schedule"], CONTINUOUS)
+        # A card Team builds from the person's answer still shows what the agent wrote when it recorded.
+        self.assertEqual(response["routine_proposal"]["description"], _record()["description"])
 
     def test_the_output_is_the_persons_to_state_and_a_composed_answer_states_it_without_the_brain(self) -> None:
         original = "Liste os registros DNS de shimpz.com a cada 30 segundos"
@@ -677,12 +681,13 @@ class RecordedRoutineTests(LocalContractCase):
                 self.assertEqual(service.routine_store.load("team_1").routines, ())
 
     def test_a_record_carrying_a_member_outside_its_shape_is_a_brain_contract_failure(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            service = self.controller(directory, Recording(_record(unexpected="")))
-            with self.assertRaises(local_app.ApiProblem) as caught:
-                self.chat(service)
-            self.assertEqual(caught.exception.code, "brain-runtime-failed")
-            self.assertEqual(service.routine_store.load("team_1").routines, ())
+        for outcome in (_record(unexpected=""), _record(description="Lista.\nDepois lê."), _record(description="")):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as directory:
+                service = self.controller(directory, Recording(outcome))
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    self.chat(service)
+                self.assertEqual(caught.exception.code, "brain-runtime-failed")
+                self.assertEqual(service.routine_store.load("team_1").routines, ())
 
     def test_a_recording_that_cannot_become_a_routine_keeps_its_reply_and_carries_its_refusal(self) -> None:
         cases = [

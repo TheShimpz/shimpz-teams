@@ -89,7 +89,8 @@ def _card_output(value: object, total: int) -> bool:
 
 def canonical_proposal(value: object) -> dict[str, object] | None:
     """One recorded Routine's confirmation card, within its byte bound."""
-    fields = {"proposal_id", "expires_at", "replaces", "name", "schedule", "timezone", "timezone_source", "next_runs"}
+    fields = {"proposal_id", "expires_at", "replaces", "name", "description", "schedule", "timezone", "timezone_source"}
+    fields |= {"next_runs"}
     rest = {"daily_cap", "output", "steps", "permitted"}
     if not isinstance(value, dict) or set(value) != fields | rest:
         return None
@@ -105,6 +106,7 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
         and routine_notice._instant(value["expires_at"])
         and routine_notice._optional(value["replaces"], routine.ROUTINE_ID_RE)
         and routine.canonical_name(value["name"]) == value["name"]
+        and routine.canonical_description(value["description"]) == value["description"]
         and routine.canonical_schedule(value["schedule"]) == value["schedule"]
         and routine.zoned(value["timezone"], value["timezone_source"])
         and isinstance(runs, list)

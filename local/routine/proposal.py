@@ -41,7 +41,7 @@ from routine import recording as routine_recording
 PROPOSAL_SECONDS = 15 * 60
 # The record call names the Routine; when it runs, in which zone, and what each run does with its result are the
 # person's own words, which Team reads (ADR-0101).
-_OUTCOME_FIELDS = frozenset({"op", "name", "replaces", "turn_date"})
+_OUTCOME_FIELDS = frozenset({"op", "name", "description", "replaces", "turn_date"})
 _DATE_TEXT = 10
 
 
@@ -127,6 +127,7 @@ def _outcome(value: object) -> dict[str, object]:
         and set(value) == _OUTCOME_FIELDS
         and value["op"] == "record"
         and http_routine.canonical_name(value["name"]) == value["name"]
+        and http_routine.canonical_description(value["description"]) == value["description"]
         and (value["replaces"] is None or http_routine.ROUTINE_ID_RE.fullmatch(str(value["replaces"])) is not None)
         and (
             value["turn_date"] is None
@@ -207,7 +208,7 @@ def _intent(self, response: object, proposed: object) -> routine_recorder.Intent
     shown = None
     if outcome["replaces"] is not None and found is not None:
         shown = dict(found.revisions).get(outcome["replaces"])
-    return routine_recorder.Intent(outcome["name"], outcome["replaces"], shown)
+    return routine_recorder.Intent(outcome["name"], outcome["replaces"], shown, outcome["description"])
 
 
 def _replaced(state: record.TeamRoutines, intent: routine_recorder.Intent) -> record.Routine | None:
@@ -352,8 +353,14 @@ def _next_runs(value: record.Routine) -> list[str]:
     return [record.instant_text(int(item)) for item in runs]
 
 
-def card(proposal_id: str, candidate: record.Routine, recorded, framing: tuple[str | None, bool, int]) -> dict:
-    """The confirmation card: every step, every input's complete value or source, the schedule, and the scope."""
+def card(
+    proposal_id: str, candidate: record.Routine, recorded, framing: tuple[str | None, bool, int], description: str
+) -> dict:
+    """The confirmation card: every step, every input's complete value or source, the schedule, and the scope.
+
+    Its description is the recording agent's plain-language account of the work, shown as the card's body; the facts
+    beside it are Team's own, so a description can never stand in for them.
+    """
     replaces, expires_at = framing
     document = candidate.plan
     positions = routine_definition.step_positions(document)
@@ -376,6 +383,7 @@ def card(proposal_id: str, candidate: record.Routine, recorded, framing: tuple[s
         "expires_at": record.instant_text(int(expires_at)),
         "replaces": replaces,
         "name": candidate.name,
+        "description": description,
         "schedule": dict(candidate.schedule),
         "timezone": candidate.timezone,
         "timezone_source": candidate.timezone_source,
@@ -421,7 +429,7 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
         proposal_id = record.new_id()
         expires_at = time.time() + PROPOSAL_SECONDS
         replaces = None if existing is None else existing.routine_id
-        view = card(proposal_id, candidate, recorded, (replaces, expires_at))
+        view = card(proposal_id, candidate, recorded, (replaces, expires_at), intent.description)
         if http_routine.encoded_bytes(view) > http_routine_proposal.MAX_PROPOSAL_BYTES:
             raise RefusedError("routine-proposal-too-large")
         if trace.exposes(view, recording.protection.values):

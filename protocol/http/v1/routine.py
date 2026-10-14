@@ -18,6 +18,8 @@ else:  # The protocol verifier runs every module of this directory flat.
 
 MAX_ROUTINES = 8
 MAX_ROUTINE_NAME_CHARS = 80
+# The plain-language paragraph the recording agent writes for the card: what each run does, for a non-technical person.
+MAX_ROUTINE_DESCRIPTION_CHARS = 600
 # The ordered Actions of a recorded plan (ADR-0092 section 3, ADR-0101): one Action may repeat.
 MAX_ROUTINE_STEPS = 256
 # A continuous Routine starts its runs this far apart, at least, and at most a day.
@@ -124,6 +126,11 @@ def continuous_cap(gap: int) -> int:
 def canonical_name(value: object) -> str | None:
     """A Routine's short name: NFC, one line, no control characters, trimmed, 1 to 80 characters."""
     return _line(value, MAX_ROUTINE_NAME_CHARS)
+
+
+def canonical_description(value: object) -> str | None:
+    """A Routine card's description: NFC, one paragraph, no control characters, trimmed, 1 to 600 characters."""
+    return _line(value, MAX_ROUTINE_DESCRIPTION_CHARS)
 
 
 def _line(value: object, maximum: int) -> str | None:
