@@ -106,6 +106,7 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
         and routine_notice._instant(value["expires_at"])
         and routine_notice._optional(value["replaces"], routine.ROUTINE_ID_RE)
         and routine.canonical_name(value["name"]) == value["name"]
+        and routine.canonical_description(value["description"]) is not None
         and routine.canonical_description(value["description"]) == value["description"]
         and routine.canonical_schedule(value["schedule"]) == value["schedule"]
         and routine.zoned(value["timezone"], value["timezone_source"])

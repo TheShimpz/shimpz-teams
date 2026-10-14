@@ -127,6 +127,7 @@ def _outcome(value: object) -> dict[str, object]:
         and set(value) == _OUTCOME_FIELDS
         and value["op"] == "record"
         and http_routine.canonical_name(value["name"]) == value["name"]
+        and http_routine.canonical_description(value["description"]) is not None
         and http_routine.canonical_description(value["description"]) == value["description"]
         and (value["replaces"] is None or http_routine.ROUTINE_ID_RE.fullmatch(str(value["replaces"])) is not None)
         and (

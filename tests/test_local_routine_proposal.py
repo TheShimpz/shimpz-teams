@@ -241,6 +241,7 @@ class RecordedRoutineTests(LocalContractCase):
             again = self.confirm(service, card["proposal_id"])
             state = service.routine_store.load("team_1")
         self.assertEqual(http_routine_proposal.canonical_proposal(card), card)
+        self.assertIsNone(http_routine_proposal.canonical_proposal({**card, "description": None}))
         self.assertEqual(card["description"], _record()["description"])
         self.assertEqual((card["schedule"], card["timezone_source"]), (CONTINUOUS, "browser"))
         zones, records = card["steps"]
@@ -681,7 +682,12 @@ class RecordedRoutineTests(LocalContractCase):
                 self.assertEqual(service.routine_store.load("team_1").routines, ())
 
     def test_a_record_carrying_a_member_outside_its_shape_is_a_brain_contract_failure(self) -> None:
-        for outcome in (_record(unexpected=""), _record(description="Lista.\nDepois lê."), _record(description="")):
+        for outcome in (
+            _record(unexpected=""),
+            _record(description="Lista.\nDepois lê."),
+            _record(description=""),
+            _record(description=None),
+        ):
             with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as directory:
                 service = self.controller(directory, Recording(outcome))
                 with self.assertRaises(local_app.ApiProblem) as caught:
