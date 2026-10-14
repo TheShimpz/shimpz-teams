@@ -1,5 +1,6 @@
 """Bounded HTTP adapter for the local Team controller."""
 
+import base64
 import contextlib
 import json
 import threading
@@ -33,6 +34,7 @@ from local.validation import (
     validate_model_credential_headers,
     validate_team_id,
 )
+from protocol.http.v1 import content as http_content
 from protocol.http.v1 import preview as http_preview
 
 MAX_BODY_BYTES = 16 * 1024
@@ -126,8 +128,10 @@ class Handler(http_deadline.DeadlineRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(encoded)
 
-    def _send_image(self, contents: bytes, media_type: str) -> None:
+    def _send_image(self, contents: bytes, media_type: str, headers: dict[str, str] | None = None) -> None:
         self.send_response(HTTPStatus.OK)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.send_header("Content-Type", media_type)
         self.send_header("Content-Length", str(len(contents)))
         self.send_header("Cache-Control", "no-store")
@@ -706,30 +710,91 @@ class Handler(http_deadline.DeadlineRequestHandler):
         if route.operation in {"local-assistant-icon", "local-assistant-summary", "local-assistant-details"}:
             self._local_assistant_preview(route, request_audit)
             return None
-        if route.operation == "file-preview":
-            self._file_preview(route, request_audit)
+        if route.operation in {"file-preview", "file-page-preview", "file-content"}:
+            self._file_bytes(route, request_audit)
             return None
         return self._route(parts, route)
 
+    def _file_bytes(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
+        """Send one listed file's bytes to the Supervisor's browser: a sanitized rendition, or the verified original."""
+        if route.operation == "file-content":
+            self._file_content(route, request_audit)
+        else:
+            self._file_preview(route, request_audit)
+
     def _file_preview(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
-        """Send one listed file's sanitized rendition, framed exactly; a busy preview says when to retry."""
+        """Send one listed file's sanitized rendition, or one PDF page's with its page count, framed exactly.
+
+        A busy preview says when to retry.
+        """
         team_id = validate_team_id(route.params["team_id"])
+        paged = route.operation == "file-page-preview"
+        page = http_preview.canonical_page(route.params.get("page")) if paged else None
+        if paged and page is None:
+            raise ApiProblem(HTTPStatus.NOT_FOUND, "page not found", code="file-not-found")
+        controller = self.server.controller
         try:
-            rendition = self.server.controller.file_preview(team_id, route.params["file_id"])
+            if paged:
+                rendition = controller.file_preview(team_id, route.params["file_id"], page)
+            else:
+                rendition = controller.file_preview(team_id, route.params["file_id"])
         except ApiProblem as exc:
             if exc.code != "file-preview-busy":
                 raise
             self._send_busy(route.operation, exc, request_audit)
             return
-        framing = http_preview.canonical_framing({"media_type": rendition.media_type, "length": len(rendition.data)})
-        if framing is None or not rendition.data.startswith(http_preview.SIGNATURES[rendition.media_type]):
+        framing = {"media_type": rendition.media_type, "length": len(rendition.data)}
+        admitted = (
+            http_preview.canonical_page_framing({**framing, "page_count": rendition.page_count})
+            if paged
+            else http_preview.canonical_framing(framing)
+        )
+        if admitted is None or not rendition.data.startswith(http_preview.SIGNATURES[rendition.media_type]):
             raise ApiProblem(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 "the file preview failed its framing",
                 code="file-preview-invalid",
             )
         request_audit.record(route.operation, result="ok", team_id=team_id)
-        self._send_image(rendition.data, rendition.media_type)
+        extra = {http_preview.PAGE_COUNT_HEADER: str(rendition.page_count)} if paged else {}
+        self._send_image(rendition.data, rendition.media_type, extra)
+
+    def _file_content(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
+        """Send one listed file's verified original as an octet stream framed by its exact length and SHA-256.
+
+        The release is audited, by file id and size only, before its first byte leaves. A busy download says when to
+        retry.
+        """
+        team_id = validate_team_id(route.params["team_id"])
+
+        def deliver(metadata: dict[str, object], content: bytes) -> None:
+            framing = http_content.canonical_framing({"length": len(content), "sha256": metadata["sha256"]})
+            if framing is None:
+                raise ApiProblem(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    "the file content failed its framing",
+                    code="file-content-invalid",
+                )
+            request_audit.record(
+                route.operation, result="ok", team_id=team_id, detail=f"file={metadata['id']} bytes={len(content)}"
+            )
+            digest = base64.b64encode(bytes.fromhex(str(metadata["sha256"]))).decode("ascii")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Repr-Digest", f"sha-256=:{digest}:")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(content)
+
+        try:
+            self.server.controller.file_content(team_id, route.params["file_id"], deliver)
+        except ApiProblem as exc:
+            if exc.code != "file-download-busy":
+                raise
+            self._send_busy(route.operation, exc, request_audit)
 
     def _send_busy(self, operation: str, exc: ApiProblem, request_audit: RequestAudit) -> None:
         trace_id = request_audit.record(operation, result="error", detail=exc.code)

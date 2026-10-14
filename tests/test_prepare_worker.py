@@ -139,9 +139,9 @@ class PreparationRefusalTests(unittest.TestCase):
     def test_an_oversized_transparent_png_falls_back_to_jpeg_or_is_refused(self) -> None:
         big = b"x" * (limits.MAX_DERIVATIVE_BYTES + 1)
         with mock.patch.object(image, "_save", side_effect=[big, big, b"small"]):
-            self.assertEqual(image._encode(Image.new("RGBA", (4, 4), (10, 20, 30, 128)))["media_type"], "image/jpeg")
+            self.assertEqual(image.encode(Image.new("RGBA", (4, 4), (10, 20, 30, 128)))["media_type"], "image/jpeg")
         with mock.patch.object(image, "_save", return_value=big), self.assertRaises(image.ImageRefusedError) as refused:
-            image._encode(Image.new("RGB", (4, 4)))
+            image.encode(Image.new("RGB", (4, 4)))
         self.assertEqual(refused.exception.reason, "too_large")
 
 

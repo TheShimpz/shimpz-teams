@@ -11,7 +11,7 @@ import os
 import signal
 import sys
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
@@ -65,6 +65,7 @@ from local.errors import (
     action_file_unavailable,
     assistant_action_blocked,
     docker_unavailable,
+    file_download_busy,
     file_not_found,
     file_preview_busy,
     file_preview_unavailable,
@@ -110,6 +111,9 @@ _brain_thread_id = _local_brain_thread_id
 log = logging.getLogger("shimpz-team-local")
 
 LISTEN_PORT = 7077
+# At most this many originals are read and sent to the Supervisor's browser at once, each within the upload bound.
+MAX_FILE_DOWNLOADS = 2
+_FILE_DOWNLOADS = threading.BoundedSemaphore(MAX_FILE_DOWNLOADS)
 # The Local Compose binds the platform Docker socket here; no environment variable or CLI context selects another.
 DOCKER_SOCKET_URL = "unix:///var/run/docker.sock"
 STORAGE_ROOT = Path("/var/lib/shimpz-local/storage")
@@ -514,11 +518,11 @@ class LocalController:
                 self._raise_storage_problem(exc)
         return {"team_id": team_id, **result}
 
-    def file_preview(self, team_id: str, file_id: object) -> preparation.Rendition:
-        """One listed Team file's sanitized image rendition, prepared on demand and never kept (ADR-0093).
+    def file_preview(self, team_id: str, file_id: object, page: int | None = None) -> preparation.Rendition:
+        """One listed Team file's sanitized image rendition, or one PDF page's, prepared on demand and never kept.
 
-        It never reads an original beyond the image ceiling or renews the file's retention, and the file's deletion, its
-        Team's teardown, or the Space reset ends it, queued or running, before they continue.
+        It never reads an original beyond its source ceiling or renews the file's retention, and the file's deletion,
+        its Team's teardown, or the Space reset ends it, queued or running, before they continue (ADR-0093).
         """
         team_id = validate_team_id(team_id)
         try:
@@ -535,6 +539,7 @@ class LocalController:
                     team_id=team_id,
                     cpuset_cpus=self.cpuset_cpus,
                     stop=preview.stop,
+                    page=page,
                 )
                 preview.interrupt()
                 # A sweep may have collected the file while it was prepared: only a file still listed is answered.
@@ -550,6 +555,36 @@ class LocalController:
         if rendition is None:
             raise file_preview_unsupported()
         return rendition
+
+    def file_content(
+        self,
+        team_id: str,
+        file_id: object,
+        deliver: Callable[[dict[str, object], bytes], None],
+    ) -> dict[str, object]:
+        """Hand one listed Team file's original, verified against its digest, to `deliver` (ADR-0093).
+
+        At most MAX_FILE_DOWNLOADS run at once, and none renews the file's retention. The download commits once its last
+        check passes, right before `deliver` runs: a deletion, Team teardown, or Space reset that closed the Team's file
+        reads before then ends it as not found, and one that closes after it waits until `deliver` returned.
+        """
+        team_id = validate_team_id(team_id)
+        if not _FILE_DOWNLOADS.acquire(blocking=False):
+            raise file_download_busy()
+        try:
+            with local_prepare.PREVIEWS.open(team_id) as reading:
+                self.assistant_lifecycle._network(team_id)
+                self.storage.listed(team_id, file_id)
+                metadata, content = self.storage.get(team_id, file_id)
+                reading.interrupt()
+                deliver(metadata, content)
+        except local_prepare.PreviewEndedError as exc:
+            raise file_not_found() from exc
+        except team_storage.StorageError as exc:
+            self._raise_storage_problem(exc)
+        finally:
+            _FILE_DOWNLOADS.release()
+        return metadata
 
     def list_registry(self) -> dict[str, list[dict[str, object]]]:
         return {

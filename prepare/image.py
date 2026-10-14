@@ -30,7 +30,7 @@ def prepare(data: bytes) -> dict[str, object]:
             _admit(source)
             source.load()
             oriented = ImageOps.exif_transpose(source)
-    return _encode(_fresh(oriented))
+    return encode(_fresh(oriented))
 
 
 def _admit(source: Image.Image) -> None:
@@ -58,7 +58,12 @@ def _fresh(oriented: Image.Image) -> Image.Image:
     return Image.frombytes(mode, resized.size, resized.tobytes())
 
 
-def _encode(fresh: Image.Image) -> dict[str, object]:
+def encode(fresh: Image.Image, *, lossless: bool = False) -> dict[str, object]:
+    """Encode fresh pixels as an admissible derivative: a fitting PNG for alpha or when `lossless` asks, else a JPEG."""
+    if lossless and fresh.mode == "RGB":
+        encoded = _save(fresh, "PNG", optimize=True)
+        if len(encoded) <= limits.MAX_DERIVATIVE_BYTES:
+            return _derivative("image/png", fresh, encoded)
     if fresh.mode == "RGBA":
         encoded = _save(fresh, "PNG", optimize=True)
         if len(encoded) <= limits.MAX_DERIVATIVE_BYTES:

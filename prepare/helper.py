@@ -97,14 +97,14 @@ class PreparationHelper:
     def __exit__(self, *_exc: object) -> None:
         self.close()
 
-    def prepare(self, kind: str, data: bytes) -> dict[str, object]:
-        """Run one fresh worker process for one file and return its unvalidated answer."""
+    def prepare(self, kind: str, data: bytes, page: int | None = None) -> dict[str, object]:
+        """Run one fresh worker process for one file, or one page of a PDF, and return its unvalidated answer."""
         container = self._running()
         try:
             answer = action_execution.rpc_exchange(
                 container.id,
                 list(WORKER_ARGV),
-                worker.encode_request(kind, data),
+                worker.encode_request(kind, data, page),
                 action_execution.RpcExchangeStrategy(
                     api=self._client.api,
                     user=HELPER_USER,

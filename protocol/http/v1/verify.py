@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 import challenge
+import content
 import payload
 import phrase
 import preview
@@ -216,6 +217,9 @@ for name, admit in (
     ("routine_challenge_open", routine_run.canonical_challenge_open),
     ("turn_usage", payload.canonical_turn_usage),
     ("file_preview", preview.canonical_framing),
+    ("file_page_preview", preview.canonical_page_framing),
+    ("file_page", lambda value: value if preview.canonical_page(value) is not None else None),
+    ("file_content", content.canonical_framing),
 ):
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):

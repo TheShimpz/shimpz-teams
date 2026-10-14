@@ -85,3 +85,22 @@ def encrypted_pdf() -> bytes:
     buffer = io.BytesIO()
     writer.write(buffer)
     return buffer.getvalue()
+
+
+def openly_encrypted_pdf() -> bytes:
+    """An encrypted PDF whose user password is empty: any reader opens it without asking for one."""
+    writer = PdfWriter(clone_from=io.BytesIO(text_pdf("Visible but encrypted")))
+    writer.encrypt("", "owner-only")
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
+def pageless_pdf() -> bytes:
+    """A well-formed PDF whose page tree holds no page."""
+    return _with_xref(
+        [
+            b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
+            b"2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\n",
+        ]
+    )

@@ -138,9 +138,9 @@ COPY --link protocol/install/v1/README.md protocol/install/v1/contract-files.sha
     protocol/install/v1/vectors.json protocol/install/v1/verify.py \
     ./protocol/install/v1/
 COPY --link protocol/action/v1/schema.py ./protocol/action/v1/
-COPY --link protocol/http/v1/challenge.py protocol/http/v1/identifiers.py protocol/http/v1/payload.py \
-    protocol/http/v1/phrase.py protocol/http/v1/preview.py protocol/http/v1/progress.py protocol/http/v1/purpose.py \
-    protocol/http/v1/routine.py protocol/http/v1/routine_context.py protocol/http/v1/routine_notice.py \
+COPY --link protocol/http/v1/challenge.py protocol/http/v1/content.py protocol/http/v1/identifiers.py \
+    protocol/http/v1/payload.py protocol/http/v1/phrase.py protocol/http/v1/preview.py protocol/http/v1/progress.py \
+    protocol/http/v1/purpose.py protocol/http/v1/routine.py protocol/http/v1/routine_context.py protocol/http/v1/routine_notice.py \
     protocol/http/v1/routine_proposal.py protocol/http/v1/routine_run.py protocol/http/v1/strict_json.py \
     protocol/http/v1/supervisor.py protocol/http/v1/turn.py ./protocol/http/v1/
 COPY --link protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
@@ -151,8 +151,8 @@ COPY --link action/__init__.py action/challenges.py action/dispatch.py action/ex
     action/frames.py action/files.py action/human.py action/journal.py action/provider.py action/result.py \
     action/stored_input.py ./action/
 COPY --link storage/__init__.py storage/files.py storage/private_state.py ./storage/
-COPY --link prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/pdf.py \
-    prepare/service.py prepare/worker.py ./prepare/
+COPY --link prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/page.py \
+    prepare/pdf.py prepare/service.py prepare/worker.py ./prepare/
 # The application is compiled like its environment, after its last copy.
 RUN PYTHONDONTWRITEBYTECODE=1 /opt/venv/bin/python -m compileall -q -f --invalidation-mode checked-hash /app
 

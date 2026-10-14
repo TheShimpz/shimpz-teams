@@ -15,6 +15,9 @@ dependencies = [
     # controller never imports them (ADR-0093).
     "pillow==12.3.0",
     "pypdf==6.20.0",
+    # A PDF page's preview is rendered by PDFium (Chromium's PDF engine), built without V8 or XFA, only inside the
+    # same helper.
+    "pypdfium2==5.14.0",
 ]
 
 [tool.uv]

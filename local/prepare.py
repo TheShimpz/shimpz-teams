@@ -168,11 +168,12 @@ class _Preview:
 
 @dataclass(slots=True)
 class PreviewBook:
-    """Every file preview under way, each bound to its Team for as long as it runs.
+    """Every file preview and download under way, each bound to its Team for as long as it runs.
 
-    A Team's file deletion, its teardown, and the Space reset each close it for their whole duration: no preview of it
-    opens, every queued or running preview is ended, a running preview's helper is removed, and they wait until every
-    ended preview left before they continue, so none can start a helper after they finished.
+    A Team's file deletion, its teardown, and the Space reset each close it for their whole duration: no preview or
+    download of it opens, every queued or running one is ended, a running preview's helper is removed, and they wait
+    until every ended one left before they continue, so none can start a helper or send a file after they finished. A
+    download whose last check passed before the close finishes sending first; its check fails after it.
     """
 
     guard: threading.Condition = field(default_factory=threading.Condition)
@@ -238,8 +239,9 @@ def prepare_rendition(
     team_id: str,
     cpuset_cpus: str | None,
     stop: TurnStop,
+    page: int | None = None,
 ) -> preparation.Rendition | None:
-    """One stored file's sanitized rendition through the controller's one preparation slot, within its bounded queue."""
+    """One stored file's, or one PDF page's, sanitized rendition through the preparation slot, within its queue."""
     return preparation.prepare_rendition(
         item,
         lambda: helper(
@@ -252,6 +254,7 @@ def prepare_rendition(
         ),
         _PREVIEW_ADMISSION.admit(stop.interrupt),
         stop.interrupt,
+        page,
     )
 
 

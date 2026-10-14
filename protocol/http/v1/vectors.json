@@ -7243,5 +7243,65 @@
       {"media_type": "image/png", "length": 2048, "name": "photo.png"},
       []
     ]
+  },
+  "file_page_preview": {
+    "valid": [
+      {"media_type": "image/png", "length": 1, "page_count": 1},
+      {"media_type": "image/jpeg", "length": 524288, "page_count": 50}
+    ],
+    "invalid": [
+      {"media_type": "image/png", "length": 2048, "page_count": 0},
+      {"media_type": "image/png", "length": 2048, "page_count": 51},
+      {"media_type": "image/png", "length": 2048, "page_count": 2.0},
+      {"media_type": "image/png", "length": 2048, "page_count": true},
+      {"media_type": "image/png", "length": 2048, "page_count": "2"},
+      {"media_type": "image/webp", "length": 2048, "page_count": 2},
+      {"media_type": "image/png", "length": 0, "page_count": 2},
+      {"media_type": "image/png", "length": 2048},
+      {"media_type": "image/png", "length": 2048, "page_count": 2, "page": 1},
+      []
+    ]
+  },
+  "file_page": {
+    "valid": [
+      "1",
+      "9",
+      "10",
+      "50"
+    ],
+    "invalid": [
+      "0",
+      "51",
+      "99",
+      "01",
+      "1.0",
+      " 1",
+      "1 ",
+      "+1",
+      "-1",
+      "a",
+      "",
+      1,
+      null
+    ]
+  },
+  "file_content": {
+    "valid": [
+      {"length": 1, "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+      {"length": 26214400, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+    ],
+    "invalid": [
+      {"length": 0, "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+      {"length": 26214401, "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+      {"length": 1.0, "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+      {"length": true, "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+      {"length": 1, "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+      {"length": 1, "sha256": "000000000000000000000000000000000000000000000000000000000000000"},
+      {"length": 1, "sha256": "00000000000000000000000000000000000000000000000000000000000000000"},
+      {"length": 1, "sha256": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"},
+      {"length": 1},
+      {"length": 1, "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "name": "brief.pdf"},
+      []
+    ]
   }
 }

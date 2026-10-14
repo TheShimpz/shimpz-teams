@@ -57,12 +57,16 @@ class StoredFile:
 
 @dataclass(frozen=True, slots=True)
 class Rendition:
-    """One stored image's sanitized rendition: the bounded JPEG or PNG derivative a turn sends, never the original."""
+    """One stored image's, or one PDF page's, sanitized rendition: a bounded JPEG or PNG derivative, never the original.
+
+    A PDF page's rendition also carries its document's page count.
+    """
 
     media_type: str
     width: int
     height: int
     data: bytes
+    page_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,27 +152,37 @@ def prepare_rendition(
     helper: Callable[[], AbstractContextManager[PreparationHelper]],
     admission: AbstractContextManager[object],
     interrupt: Callable[[], None] = lambda: None,
+    page: int | None = None,
 ) -> Rendition | None:
     """One stored file's sanitized rendition through the same boundary as a turn's images, or None when it has none.
 
-    Only a JPEG, PNG, or static WebP that the networkless helper reads within the image limits has one, and its kind
-    comes from the bytes, never the uploaded type. An original beyond the image source ceiling is never read, the slot
-    is held from before the original is read until the helper is gone, and the helper's answer is validated here as
-    a turn's is. ``interrupt`` raises once the request is ended and runs before the read, the helper, and the answer.
+    Without `page`, only a JPEG, PNG, or static WebP that the networkless helper reads within the image limits has one;
+    with `page` (from 1), only that page of a PDF the helper renders within the PDF limits, and its answer also carries
+    the document's page count. The kind comes from the bytes, never the uploaded type. An original beyond its source
+    ceiling is never read, the slot is held from before the original is read until the helper is gone, and the helper's
+    answer is validated here as a turn's is. ``interrupt`` raises once the request is ended and runs before the read,
+    the helper, and the answer.
     """
-    if item.size > limits.MAX_IMAGE_BYTES:
+    kind, ceiling = (detect.IMAGE, limits.MAX_IMAGE_BYTES) if page is None else (detect.PDF, limits.MAX_PDF_BYTES)
+    if item.size > ceiling:
         return None
     with ExitStack() as stack:
         stack.enter_context(admission)
         interrupt()
         data = item.read()
         found = detect.detect(item.name, data)
-        if found.kind != detect.IMAGE or len(data) > limits.MAX_IMAGE_BYTES:
+        if found.kind != kind or len(data) > ceiling:
             return None
         interrupt()
-        answer = stack.enter_context(helper()).prepare(found.kind, data)
+        running = stack.enter_context(helper())
+        answer = running.prepare(found.kind, data) if page is None else running.prepare("pdf-page", data, page)
         del data
     interrupt()
+    page_count = None
+    if page is not None:
+        page_count = answer.pop("page_count", None) if isinstance(answer, dict) else None
+        if type(page_count) is not int or not page <= page_count <= limits.MAX_PDF_PAGES:
+            return None
     content = _image_answer(answer)
     if content["type"] != "image":
         return None
@@ -177,6 +191,7 @@ def prepare_rendition(
         int(content["width"]),
         int(content["height"]),
         base64.b64decode(str(content["base64"]), validate=True),
+        page_count,
     )
 
 

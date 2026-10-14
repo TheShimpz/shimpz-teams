@@ -58,8 +58,8 @@ class _Helper:
         self.opened += 1
         yield self
 
-    def prepare(self, kind: str, data: bytes) -> dict[str, object]:
-        return self.answer if self.answer is not None else worker.answer(worker.encode_request(kind, data))
+    def prepare(self, kind: str, data: bytes, page: int | None = None) -> dict[str, object]:
+        return self.answer if self.answer is not None else worker.answer(worker.encode_request(kind, data, page))
 
 
 class _Container:

@@ -11,8 +11,9 @@ definition here or in `payload.py`, never to a copied literal.
 `challenge.py` owns the presentation a human-required challenge carries beside its canonical request: the rendered
 copy, the one disclosed file, and an authorization's input projection. Only Team and Admin consume it, so `payload.py`
 never imports it.
-`preview.py` owns the framing of a Team file's preview, the one sanitized image rendition Team sends a Supervisor's
-browser; only Team and Admin consume it.
+`preview.py` owns the framing of a Team file's preview, the sanitized image rendition of an image or of one PDF page
+Team sends a Supervisor's browser, and `content.py` the framing of a file's verified original Team sends it to
+download; only Team and Admin consume them.
 An Assistant id (at most 40 characters) and an Assistant's Integration, provider, or Stored Input identifier
 (`canonical_identifier`, at most 64) use the Developers published-Assistant grammar; an Action id uses Team's wider
 grammar, which also admits `.` and `_` separators, within 128 characters.

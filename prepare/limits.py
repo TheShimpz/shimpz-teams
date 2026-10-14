@@ -6,6 +6,7 @@ Brain enforces too are the Team HTTP protocol's own (``protocol/http/v1/turn.py`
 """
 
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import preview as http_preview
 from protocol.http.v1 import turn as http_turn
 
 MIB = 1024 * 1024
@@ -21,9 +22,9 @@ MAX_TEXT_BYTES = http_turn.MAX_ATTACHMENT_TEXT_BYTES
 MAX_MESSAGE_TEXT_CHARACTERS = http_turn.MAX_ATTACHED_TEXT_CHARS
 MAX_MESSAGE_TEXT_BYTES = http_turn.MAX_ATTACHED_TEXT_BYTES
 
-# PDF, text only.
+# PDF: its text for the model, and each page's rendition for the Supervisor's viewer.
 MAX_PDF_BYTES = 8 * MIB
-MAX_PDF_PAGES = 50
+MAX_PDF_PAGES = http_preview.MAX_PDF_PAGES
 MAX_PDF_PAGE_STREAM_BYTES = 4 * MIB
 MAX_PDF_FILE_STREAM_BYTES = 16 * MIB
 

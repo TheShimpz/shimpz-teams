@@ -70,6 +70,7 @@ file_preview_unsupported = _problem(_INVALID, "the file has no preview", "file-p
 file_preview_busy = _problem(_UNAVAILABLE, "file preview capacity is busy", "file-preview-busy")
 file_preview_unavailable = _problem(_UNAVAILABLE, "the file preview could not be prepared", "file-preview-unavailable")
 file_preview_active = _problem(_UNAVAILABLE, "a file preview did not end in time", "file-preview-active")
+file_download_busy = _problem(_UNAVAILABLE, "file download capacity is busy", "file-download-busy")
 assistant_isolation_drift = _problem(
     _CONFLICT, "the installed Assistant failed its isolation profile", "assistant-isolation-drift"
 )
