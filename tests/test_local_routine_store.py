@@ -115,6 +115,18 @@ class RoundTripTests(StoreCase):
         self.store.delete("team_1")
         self.assertEqual(self.store.load("team_1"), record.TeamRoutines())
 
+    def test_decoded_states_stay_within_their_byte_budget_and_leave_with_their_file(self):
+        self.store.update("team_1", lambda state: (record.add_routine(state, routine()), None))
+        budget = len(self.state_file("team_1").read_bytes())
+        with mock.patch.object(routine_store, "MAX_DECODED_STATE_BYTES", budget):
+            self.store.update("team_2", lambda state: (record.add_routine(state, routine()), None))
+            self.assertEqual(list(self.store._decoded), ["team_2"])
+            self.store.load("team_1")
+            self.assertEqual(list(self.store._decoded), ["team_1"])
+        self.state_file("team_1").unlink()
+        self.assertEqual(self.store.load("team_1"), record.TeamRoutines())
+        self.assertEqual(list(self.store._decoded), [])
+
     def test_an_invalid_team_or_an_oversized_state_is_refused(self):
         for team in ("Team", "", 1):
             with self.subTest(team=team), self.assertRaisesRegex(routine_store.RoutineStoreError, "Team is invalid"):

@@ -48,14 +48,15 @@ def _delete_team_routines(self, team_id: str) -> None:
                 "Team Action execution state could not be deleted",
                 code="action-state-unavailable",
             ) from exc
+    # The values each run protected, such as its Stored Inputs, leave memory before the state naming the runs goes,
+    # so a cleanup that fails and is retried can never strand them.
+    for run_id, _generation in held:
+        self.routine_protections.drop(run_id)
     try:
         self.routine_store.delete(team_id)
         self.routine_diagnostics.delete(team_id)
     except (routine_store.RoutineStoreError, routine_diagnostics.DiagnosticStoreError) as exc:
         raise local_errors.routine_state_delete_failed() from exc
-    # The values each run protected, such as its Stored Inputs, leave memory with the runs.
-    for run_id, _generation in held:
-        self.routine_protections.drop(run_id)
 
 
 def delete_all_routines(self) -> None:

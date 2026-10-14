@@ -15,6 +15,7 @@ import re
 import stat
 import threading
 import weakref
+from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -51,6 +52,8 @@ _NOTICES_BYTES = (record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES) *
 _RECORDS_BYTES = routine_starts.MAX_STARTS * 64 + record.MAX_DISCARDS * 256
 _ROUTINES_BYTES = routine_plan.TEAM_DEFINITION_BYTES + record.MAX_ROUTINES * 18 * 1024
 MAX_STATE_BYTES = _ROUTINES_BYTES + _NOTICES_BYTES + _RECORDS_BYTES + record.MAX_INCIDENTS * 4 * 1024 + 64 * 1024
+# The state bytes whose decoded Routine state is kept for reuse across every Team: room for one largest state.
+MAX_DECODED_STATE_BYTES = MAX_STATE_BYTES
 # Reads of one state file that may race its atomic replace before a failure is taken as real.
 UNLOCKED_READ_ATTEMPTS = 3
 # The recovery snapshot: the plan, its binding, and the Routine's name.
@@ -507,9 +510,10 @@ class RoutineStore:
         # A Space reset closes the store and bumps the epoch, so a write that began before it can never land after.
         self._closed = False
         self._epoch = 0
-        # The state each Team's file last decoded to, beside its exact bytes: a read finding the same bytes reuses it,
-        # since a large state takes tens of milliseconds to decode and one run reads it many times.
-        self._decoded: dict[str, tuple[bytes, record.TeamRoutines]] = {}
+        # The state each Team's file last decoded to, beside its exact bytes, least recently read first: a read finding
+        # the same bytes reuses it, since a large state takes tens of milliseconds to decode and one run reads it many
+        # times. Only MAX_DECODED_STATE_BYTES of state bytes are kept across every Team.
+        self._decoded: OrderedDict[str, tuple[bytes, record.TeamRoutines]] = OrderedDict()
 
     def lock(self, team_id: object) -> threading.RLock:
         return self._directory_lock(self._team_dir(_team_id(team_id)).name)
@@ -531,31 +535,39 @@ class RoutineStore:
         team = _team_id(team_id)
         with self.lock(team):
             payload = _PRIVATE.read_private_file(self._team_dir(team) / "state.json", MAX_STATE_BYTES, "Routine state")
-        if payload is None:
-            return record.TeamRoutines()
-        with self._guard:
-            kept = self._decoded.get(team)
-        if kept is not None and kept[0] == payload:
-            return kept[1]
-        return self._keep(team, payload)
+            if payload is None:
+                self._forget(team)
+                return record.TeamRoutines()
+            with self._guard:
+                kept = self._decoded.get(team)
+                if kept is not None and kept[0] == payload:
+                    self._decoded.move_to_end(team)
+                    return kept[1]
+            state = _decode(payload, team)
+            self._keep(team, payload, state)
+            return state
 
-    def _keep(self, team: str, payload: bytes) -> record.TeamRoutines:
-        state = _decode(payload, team)
+    def _keep(self, team: str, payload: bytes, state: record.TeamRoutines) -> None:
+        """Keep one Team's decoded state, leaving out the least recently read Teams beyond the byte budget."""
         with self._guard:
             self._decoded[team] = (payload, state)
-        return state
+            self._decoded.move_to_end(team)
+            while sum(len(kept) for kept, _state in self._decoded.values()) > MAX_DECODED_STATE_BYTES:
+                self._decoded.popitem(last=False)
+
+    def _forget(self, team: str) -> None:
+        with self._guard:
+            self._decoded.pop(team, None)
 
     def _save(self, team: str, state: record.TeamRoutines) -> None:
         payload = _encode(state, team)
         if len(payload) > MAX_STATE_BYTES:
             raise RoutineStoreError("Routine state exceeds its fixed byte limit")
         # Decoding what was encoded checks it before it replaces the file, and is the next read's state.
-        with self._guard:
-            self._decoded.pop(team, None)
+        self._forget(team)
         decoded = _decode(payload, team)
         _PRIVATE.atomic_write(self._team_dir(team) / "state.json", payload, "Routine state")
-        with self._guard:
-            self._decoded[team] = (payload, decoded)
+        self._keep(team, payload, decoded)
 
     def _writable(self, epoch: int) -> None:
         with self._guard:
@@ -813,8 +825,7 @@ class RoutineStore:
         team = _team_id(team_id)
         with self.lock(team):
             self._remove(self._team_dir(team).name)
-            with self._guard:
-                self._decoded.pop(team, None)
+            self._forget(team)
 
     def delete_all(self) -> None:
         """Remove every Team's Routine state, including a Team no network names now, and the keyring."""

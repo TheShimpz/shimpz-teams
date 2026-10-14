@@ -78,7 +78,8 @@ class RoutineLifecycleTests(unittest.TestCase):
         routine_fixture.put(self.subject.routine_store, "team_1", state)
         self.subject.routine_store.put_continuation("team_1", run_id, b"continuation")
         protections = self.subject.routine_protections
-        protections.bind(run_id).grow(("stored-input-value",))
+        protections.bind(run_id)
+        self.assertFalse(protections.grow(run_id, ("stored-input-value",)).lost)
         routine_lifecycle.delete_team_routines(self.subject, "team_1")
         # The values the run protected leave memory with it.
         self.assertTrue(protections.current(run_id, protections.boot).lost)
@@ -91,6 +92,21 @@ class RoutineLifecycleTests(unittest.TestCase):
         )
         # An absent Team is already clean.
         routine_lifecycle.delete_team_routines(self.subject, "team_1")
+
+    def test_a_failed_cleanup_never_strands_a_runs_protected_values(self):
+        state, run_id = two_runs()
+        routine_fixture.put(self.subject.routine_store, "team_1", state)
+        protections = self.subject.routine_protections
+        protections.bind(run_id)
+        protections.grow(run_id, ("stored-input-value",))
+        with (
+            mock.patch.object(
+                self.subject.routine_diagnostics, "delete", side_effect=routine_diagnostics.DiagnosticStoreError("down")
+            ),
+            self.assertRaises(ApiProblemError),
+        ):
+            routine_lifecycle.delete_team_routines(self.subject, "team_1")
+        self.assertTrue(protections.current(run_id, protections.boot).lost)
 
     def record_diagnostic(self, team_id: str, run_id: str) -> None:
         self.subject.routine_diagnostics.record(
