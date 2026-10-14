@@ -78,7 +78,8 @@ def read_json_body(headers: object, stream: BinaryIO, *, max_bytes: int) -> dict
         return {}
     try:
         body = json.loads(stream.read(length))
-    except json.JSONDecodeError as exc:
+    # Malformed text, bytes that are not UTF-8, and nesting too deep to decode are all the client's invalid body.
+    except (ValueError, RecursionError) as exc:
         raise HttpError(HTTPStatus.BAD_REQUEST, "invalid JSON body") from exc
     if not isinstance(body, dict):
         raise HttpError(HTTPStatus.BAD_REQUEST, "JSON body must be an object")
