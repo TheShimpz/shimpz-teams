@@ -15,7 +15,9 @@ ASSERTION_MAX_TTL_SECONDS = 15
 DECISION_PROVIDER = "typesafe"
 ASSERTION_CLOCK_SKEW_SECONDS = 5
 ASSERTION_MAX_BYTES = 4096
-MAX_JSON_BODY_BYTES = 128 * 1024
+# The largest JSON body an assertion binds: the largest any operation admits, a capability plan (turn.py). Each
+# operation still holds its own smaller HTTP body bound.
+MAX_JSON_BODY_BYTES = 256 * 1024
 JWT_HEADER = {"alg": "EdDSA", "kid": ASSERTION_KEY_ID, "typ": "JWT"}
 # A Routine run is started by a separate machine identity (ADR-0086), never under a human Supervisor assertion.
 ROUTINE_ASSERTION_HEADER = "X-Shimpz-Routine"

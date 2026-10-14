@@ -6,6 +6,7 @@ import unittest
 from local.chat import capabilities
 from local.http import chat as local_http_chat
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import supervisor as supervisor_contract
 from protocol.http.v1 import turn as http_turn
 
 # A code point an admitted text may hold whose JSON is longest in Admin's compact UTF-8 encoding.
@@ -85,6 +86,10 @@ class RouteBodyBoundTests(unittest.TestCase):
                 capabilities._intent_route_input(body)
                 self.assertLessEqual(_serialized(body), local_http_chat.MAX_INTENT_ROUTE_BODY_BYTES)
         self.assertEqual(local_http_chat.MAX_INTENT_ROUTE_BODY_BYTES, http_turn.MAX_INTENT_ROUTE_BODY_BYTES)
+
+    def test_an_assertion_binds_every_body_an_operation_admits(self) -> None:
+        self.assertLessEqual(max(local_http_chat.BODY_LIMITS.values()), supervisor_contract.MAX_JSON_BODY_BYTES)
+        self.assertEqual(supervisor_contract.MAX_JSON_BODY_BYTES, http_turn.MAX_CAPABILITY_PLAN_BODY_BYTES)
 
 
 if __name__ == "__main__":

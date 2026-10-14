@@ -14,11 +14,10 @@ from local.errors import ApiProblemError as ApiProblem
 from local.http import stream as local_http_stream
 from local.http.audit import RequestAudit
 from local.validation import validate_team_id
-from protocol.http.v1 import supervisor as supervisor_contract
 from protocol.http.v1 import turn as http_turn
 
 MAX_BODY_BYTES = 16 * 1024
-MAX_CHAT_BODY_BYTES = supervisor_contract.MAX_JSON_BODY_BYTES
+MAX_CHAT_BODY_BYTES = 128 * 1024
 MAX_CAPABILITY_PLAN_BODY_BYTES = http_turn.MAX_CAPABILITY_PLAN_BODY_BYTES
 MAX_INTENT_ROUTE_BODY_BYTES = http_turn.MAX_INTENT_ROUTE_BODY_BYTES
 MAX_HUMAN_RESPONSE_BODY_BYTES = 128 * 1024
