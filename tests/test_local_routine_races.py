@@ -223,7 +223,6 @@ class WatchdogRaceTests(RoutineServiceCase):
             self.assertEqual(self.state(service).routines, ())
             self.assertEqual(self.state(service).discards, ())
 
-
     def test_the_cleanup_pass_holds_the_routine_lock_while_it_removes_leftovers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
