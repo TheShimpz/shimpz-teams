@@ -77,7 +77,11 @@ class RoutineLifecycleTests(unittest.TestCase):
         state, run_id = two_runs()
         routine_fixture.put(self.subject.routine_store, "team_1", state)
         self.subject.routine_store.put_continuation("team_1", run_id, b"continuation")
+        protections = self.subject.routine_protections
+        protections.bind(run_id).grow(("stored-input-value",))
         routine_lifecycle.delete_team_routines(self.subject, "team_1")
+        # The values the run protected leave memory with it.
+        self.assertTrue(protections.current(run_id, protections.boot).lost)
         self.assertEqual(
             self.events,
             [("purge", f"{NETWORK}:routine:{run_id}")],

@@ -53,6 +53,9 @@ def _delete_team_routines(self, team_id: str) -> None:
         self.routine_diagnostics.delete(team_id)
     except (routine_store.RoutineStoreError, routine_diagnostics.DiagnosticStoreError) as exc:
         raise local_errors.routine_state_delete_failed() from exc
+    # The values each run protected, such as its Stored Inputs, leave memory with the runs.
+    for run_id, _generation in held:
+        self.routine_protections.drop(run_id)
 
 
 def delete_all_routines(self) -> None:
