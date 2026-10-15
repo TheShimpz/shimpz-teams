@@ -11,6 +11,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from core import identifier
 from integrations import broker as integration_broker
 from integrations import challenge_store as integration_challenge_store
 from integrations import challenges as integration_challenges
@@ -66,10 +67,7 @@ class _Selection:
 def _identifier(
     value: object, label: str, canonical: Callable[[object], str | None] = http_payload.canonical_identifier
 ) -> str:
-    identifier = canonical(value)
-    if identifier is None:
-        raise OAuthIntegrationServiceError(f"pending OAuth {label} is unavailable")
-    return identifier
+    return identifier.require(canonical, value, OAuthIntegrationServiceError, f"pending OAuth {label} is unavailable")
 
 
 def _declaration(value: object) -> tuple[str, tuple[str, ...]]:

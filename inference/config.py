@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypedDict
 
+from core import identifier
 from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
@@ -66,10 +67,7 @@ def normalize(provider: object = None, model: object = None) -> InferenceConfig:
 
 
 def _team_id(value: object) -> str:
-    team_id = http_payload.canonical_team_id(value)
-    if team_id is None:
-        raise InferenceConfigError("invalid Team id")
-    return team_id
+    return identifier.require(http_payload.canonical_team_id, value, InferenceConfigError, "invalid Team id")
 
 
 class InferenceConfigStore:

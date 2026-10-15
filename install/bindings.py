@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from core import canonical_json
+from core import canonical_json, identifier
 from install import lock
 from install.contract import ContractValidationError, ContractValidator
 from protocol.http.v1 import payload as http_payload
@@ -361,11 +361,11 @@ def _find(
 
 
 def _validate_team_id(team_id: object) -> None:
-    if http_payload.canonical_team_id(team_id) is None:
-        raise DynamicAssistantError("the Team id is invalid")
+    identifier.require(http_payload.canonical_team_id, team_id, DynamicAssistantError, "the Team id is invalid")
 
 
 def _validate_identity(team_id: object, assistant_id: object) -> None:
     _validate_team_id(team_id)
-    if http_payload.canonical_assistant_id(assistant_id) is None:
-        raise DynamicAssistantError("the Assistant id is invalid")
+    identifier.require(
+        http_payload.canonical_assistant_id, assistant_id, DynamicAssistantError, "the Assistant id is invalid"
+    )

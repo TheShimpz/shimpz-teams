@@ -20,6 +20,7 @@ from referencing.exceptions import Unresolvable
 from assistant import action_schema
 from assistant import cache as assistant_cache
 from assistant import effect as action_effect
+from core import identifier
 from integrations import providers as integration_providers
 from protocol.assistant.v1.validators import input_file as input_file_validator
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
@@ -213,10 +214,7 @@ def resembles_credential(value: str) -> bool:
 def _identifier(
     value: object, *, kind: str, canonical: Callable[[object], str | None] = http_payload.canonical_identifier
 ) -> str:
-    identifier = canonical(value)
-    if identifier is None:
-        raise ManifestError(f"Assistant {kind} identifier is invalid")
-    return identifier
+    return identifier.require(canonical, value, ManifestError, f"Assistant {kind} identifier is invalid")
 
 
 def _public_text(value: object, *, kind: str, maximum: int) -> str:
