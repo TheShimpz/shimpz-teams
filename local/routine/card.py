@@ -146,12 +146,7 @@ def _run(self, team_id: str, tagged: _Tagged) -> None:
     current = restartable(self, team_id, tagged)
     if current.needs_reconfirm:
         raise _contracts_changed()
-    pinned = dict(current.assistants)
-    try:
-        if routine_contracts.current_contracts(self, team_id, tuple(pinned)) != pinned:
-            raise _contracts_changed()
-    except routine_contracts.ContractsUnavailableError as exc:
-        raise routine_contracts.context_unavailable() from exc
+    routine_contracts.require_pinned(self, team_id, dict(current.assistants), _contracts_changed())
     now = int(time.time())
     incident_id = tagged.value.run_id
     routine_incident.set_aside(

@@ -85,13 +85,12 @@ def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str, l
     due = routine_claim.claimable(state, now, long)
     if due is None:
         return state, None
-    pinned = dict(due.assistants)
     try:
-        current = routine_contracts.current_contracts(self, team_id, tuple(pinned))
+        same = routine_contracts.still_pinned(self, team_id, dict(due.assistants))
     except routine_contracts.ContractsUnavailableError:
         # Nothing is proven: the Routine stays due, unchanged, and the next claim checks it again.
         return state, None
-    if current != pinned:
+    if not same:
         return record.mark_scope_changed(state, due.routine_id, now), None
     return routine_claim.claim(state, now, key, long)
 
@@ -432,10 +431,10 @@ def bind_run(self, team_id: str, run_id: str, lease: record.Lease) -> str:
 def context_refusal(self, team_id: str, pinned: dict[str, str]) -> str | None:
     """Why a leased run may not start under its pinned contracts, or None when they are exactly current."""
     try:
-        current = routine_contracts.current_contracts(self, team_id, tuple(pinned))
+        same = routine_contracts.still_pinned(self, team_id, pinned)
     except routine_contracts.ContractsUnavailableError:
         return "team-context-unavailable"
-    return None if current == pinned else "team-context-changed"
+    return None if same else "team-context-changed"
 
 
 def spend_time(self, team_id: str, run_id: str, lease: record.Lease, elapsed: float) -> None:

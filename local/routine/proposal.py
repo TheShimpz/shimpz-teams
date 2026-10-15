@@ -465,12 +465,7 @@ def _changed() -> ApiProblem:
 
 def _pinned(self, team_id: str, proposal: Proposal) -> None:
     """Every Assistant the card pinned still runs exactly as it was when the card was made."""
-    pinned = dict(proposal.routine.assistants)
-    try:
-        if routine_contracts.current_contracts(self, team_id, tuple(pinned)) != pinned:
-            raise _changed()
-    except routine_contracts.ContractsUnavailableError as exc:
-        raise routine_contracts.context_unavailable() from exc
+    routine_contracts.require_pinned(self, team_id, dict(proposal.routine.assistants), _changed())
 
 
 def _commit(self, proposal: Proposal, principal: str) -> str:

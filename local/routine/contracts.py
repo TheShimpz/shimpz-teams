@@ -64,3 +64,18 @@ def current_contracts(self, team_id: str, assistant_ids: tuple[str, ...]) -> dic
         }
     except (ApiProblem, bindings.DynamicAssistantError) as exc:
         raise ContractsUnavailableError from exc
+
+
+def still_pinned(self, team_id: str, pinned: dict[str, str]) -> bool:
+    """Whether every pinned Assistant still runs at exactly its pin; ContractsUnavailableError when unreadable."""
+    return current_contracts(self, team_id, tuple(pinned)) == pinned
+
+
+def require_pinned(self, team_id: str, pinned: dict[str, str], changed: ApiProblem) -> None:
+    """Refuse with ``changed`` unless every pinned Assistant still runs at its pin, retryably when unreadable."""
+    try:
+        same = still_pinned(self, team_id, pinned)
+    except ContractsUnavailableError as exc:
+        raise context_unavailable() from exc
+    if not same:
+        raise changed
