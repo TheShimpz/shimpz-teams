@@ -417,9 +417,8 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     # The logical run's answered human requests carry on; a continuation never gets a fresh allowance.
     run = routine_run.LeasedRun(team_id, incident_id, lease, token, routine, (), value.requests_used)
     with routine_run.registered(self, team_id, incident_id, token, min(seconds, value.active_seconds_left)):
-        outcome = routine_compiled.execute(self, run, value, progress)
-    routine_run.after_run(self, team_id, incident_id, routine.routine_id, outcome)
-    return outcome
+        # Its caller, the run that held, audits and settles how the whole run ended.
+        return routine_compiled.execute(self, run, value, progress)
 
 
 # The most active time the run's one recovery episode may use, within the run's own time left.
@@ -529,8 +528,6 @@ def _go_on(self, run: routine_run.LeasedRun, episode: _Episode, progress) -> str
     steps, is held again with its partial evidence while the Routine pauses as exhausted.
     """
     team_id, incident_id = run.team_id, run.run_id
-    if blocked(routine_incident.open_recovery(self, team_id, incident_id).cursor):
-        return "held"
     left = max(0, math.floor(episode.deadline - _clock()))
     if _stopped(self, run.token, episode):
         return "held"
