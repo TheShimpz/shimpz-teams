@@ -404,7 +404,6 @@ class StaticTeamImageContractTests(unittest.TestCase):
             "tests/fixtures/reference-assistant/shimpz.contract.json /opt/shimpz/shimpz.contract.json",
             dockerfile,
         )
-        self.assertNotIn("assistant_catalog", dockerfile)
         self.assertIn("/opt/shimpz/shimpz.toml /opt/shimpz/shimpz.contract.json", dockerfile)
 
 

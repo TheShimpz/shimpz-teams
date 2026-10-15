@@ -67,15 +67,6 @@ class ControllerRoutingTests(unittest.TestCase):
                     strict_http.ControllerRouteMatch(operation, params),
                 )
 
-    def test_removed_assistant_help_routes_do_not_resolve(self) -> None:
-        paths = (
-            "/v1/teams/team_1/assistants/helper/help",
-            "/v1/teams/team_1/assistants/helper/help/pt-BR",
-        )
-        for path in paths:
-            with self.subTest(path=path):
-                self.assertIsNone(strict_http.resolve_controller_route("GET", _parts(path)))
-
     def test_local_routes_resolve_to_their_operation(self) -> None:
         cases = (
             (

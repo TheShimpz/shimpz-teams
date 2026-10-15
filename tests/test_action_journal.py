@@ -691,7 +691,7 @@ class ActionJournalTests(unittest.TestCase):
             action_journal.ActionJournal(self.path)
 
         journal = self.journal()
-        journal._connection.execute("PRAGMA user_version = 1")
+        journal._connection.execute("PRAGMA user_version = 99")
         journal.close()
         with self.assertRaisesRegex(action_journal.ActionJournalCorruptionError, "schema"):
             action_journal.ActionJournal(self.path)
