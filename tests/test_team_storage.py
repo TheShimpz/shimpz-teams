@@ -55,7 +55,7 @@ class TeamStorageTests(unittest.TestCase):
         storage = team_storage.TeamStorage(self.root, limit_bytes=128)
         stored = storage.put("alpha", "brief.txt", b"confidential", "text/plain")
         projected = http_payload.project_storage_response(
-            {"team_id": "alpha", "file": stored}, kind="upload", expected_team_id="alpha", include_team_id=True
+            {"team_id": "alpha", "file": stored}, kind="upload", expected_team_id="alpha"
         )
         self.assertIsNotNone(projected)
         self.assertEqual(projected["file"]["created_at"], storage.list("alpha")["files"][0]["created_at"])

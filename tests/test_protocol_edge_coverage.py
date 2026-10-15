@@ -71,7 +71,6 @@ class PayloadEdgeCoverageTests(unittest.TestCase):
             upload,
             kind="upload",
             expected_team_id="team",
-            include_team_id=True,
         )
         self.assertEqual(projected_upload["team_id"], "team")
         self.assertEqual(projected_upload["file"]["id"], "a" * 32)
@@ -81,9 +80,8 @@ class PayloadEdgeCoverageTests(unittest.TestCase):
             listing,
             kind="list",
             expected_team_id="team",
-            include_team_id=False,
         )
-        self.assertEqual(len(projected_list["files"]), 1)
+        self.assertEqual((projected_list["team_id"], len(projected_list["files"])), ("team", 1))
 
     def test_scalar_validators_and_filename_edges(self) -> None:
         self.assertIsNone(payload.canonical_source_digest(None))
@@ -122,7 +120,7 @@ class PayloadEdgeCoverageTests(unittest.TestCase):
         )
         for value, kind in cases:
             self.assertIsNone(
-                payload.project_storage_response(value, kind=kind, expected_team_id="team", include_team_id=False)
+                payload.project_storage_response(value, kind=kind, expected_team_id="team")
             )
 
 

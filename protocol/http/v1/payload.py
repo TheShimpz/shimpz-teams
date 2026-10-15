@@ -911,7 +911,6 @@ def project_storage_response(
     *,
     kind: str,
     expected_team_id: str,
-    include_team_id: bool,
 ) -> dict[str, object] | None:
     if not isinstance(value, dict) or value.get("team_id") != expected_team_id:
         return None
@@ -938,4 +937,4 @@ def project_storage_response(
         return None
     if projected is None:
         return None
-    return {"team_id": expected_team_id, **projected} if include_team_id else projected
+    return {"team_id": expected_team_id, **projected}
