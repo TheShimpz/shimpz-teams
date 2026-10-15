@@ -452,21 +452,6 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(asked, {"code": "routine-output-unstated", "options": [], "value": None})
         self.assertEqual((len(runtime.contexts), output), (1, "changes"))
 
-    def test_a_chain_answer_reaches_the_brain_which_runs_the_chained_work(self) -> None:
-        original = "Liste as zonas de shimpz.com a cada 30 segundos"
-        runtime = Sends((("list-zones",), _record()), (("list-zones", "list-dns-records"), _record()))
-        with tempfile.TemporaryDirectory() as directory:
-            service = self.controller(directory, runtime)
-            asked = self.chat(service, _body(original))["routine_question"]
-            choice = http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"]
-            answer = http_payload.compose_clarified(original, "O que fazer com o resultado?", choice, "pt")
-            card = self.chat(service, _body(answer))["routine_proposal"]
-            output = self.candidate(service, card).plan["output"]["mode"]
-        self.assertEqual(asked["code"], "routine-output-unstated")
-        self.assertEqual(len(runtime.contexts), 2)
-        self.assertEqual([step["action"] for step in card["steps"]], ["list-zones", "list-dns-records"])
-        self.assertEqual(output, "show")
-
     def test_a_freely_typed_send_reaches_the_brain_with_the_pending_question(self) -> None:
         original = "Liste os registros DNS de shimpz.com"
         runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))
@@ -602,18 +587,6 @@ class RecordedRoutineTests(LocalContractCase):
         # The same intent recorded again keeps waiting for the verified rerun.
         self.assertEqual(again["routine_question"]["code"], "routine-work-rerun")
         self.assertEqual(continued["routine_question"]["code"], "routine-work-rerun")
-
-    def test_new_work_drops_the_chain_anchor_of_the_question_it_supersedes(self) -> None:
-        runtime = Sends(
-            (("list-zones", "list-dns-records"), _record(name="DNS")),
-            (("list-zones", "list-dns-records"), _record(name="Zonas e DNS")),
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            service = self.controller(directory, runtime)
-            asked = self.chat(service, _body("DNS de shimpz.com a cada 30 segundos"))["routine_question"]
-            card = self.chat(service, _body("Liste as zonas de shimpz.com a cada 30 segundos e use em outras ações"))
-        self.assertEqual(asked["code"], "routine-output-unstated")
-        self.assertEqual(card["routine_proposal"]["name"], "Zonas e DNS")
 
     def test_cancelling_revokes_the_card_and_it_never_confirms(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

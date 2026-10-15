@@ -414,7 +414,6 @@ def _asked(question: recording.Question, after: int) -> recording.Asked:
         question.pending,
         question.manifest,
         chosen=question.chosen,
-        chained_from=question.chained_from,
         repair_from=question.repair_from,
     )
 
@@ -509,52 +508,6 @@ class OutputTests(unittest.TestCase):
                 self.assertEqual(self.output(_send(ZONES_CALL, message=message)), expected)
         later = self.output(_send(ZONES_CALL, message="a cada hora, mostrar sempre"), _send(message="só quando mudar"))
         self.assertEqual(later["mode"], "changes")
-
-    def test_a_chain_records_only_work_that_uses_an_earlier_result(self) -> None:
-        chained = _send(ZONES_CALL, RECORDS, message="DNS de shimpz.com a cada hora, usar em outras ações")
-        self.assertEqual(self.output(chained)["mode"], "show")
-        # A lookup that nothing else consumes is no chain: the output question stands.
-        alone = _send(ZONES_CALL, message="zonas a cada hora, usar em outras ações")
-        self.assertEqual(self.output(alone), recording.Question("routine-output-unstated"))
-
-    def test_a_chain_chosen_after_the_question_uses_the_shown_action_and_gets_one_repair(self) -> None:
-        records = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID}, {"result": {"id": "rec-1234567"}})
-        work = _send(ZONES_CALL, records, message="DNS de shimpz.com a cada hora")
-        asked = _record(work, mode=None)
-        self.assertEqual(
-            (asked.code, asked.chained_from), ("routine-output-unstated", ("cloudflare", "list-dns-records"))
-        )
-        chain = _send(message=http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"])
-        # With no Action run since the question it stands, as the zones the records read are no chain of the records.
-        again = _record(work, chain, asked=_asked(asked, 1), mode=None)
-        self.assertEqual((again.code, again.chained_from, again.repair_from), (asked.code, asked.chained_from, 2))
-        # Work run again that still uses no records result ends the span instead of asking once more.
-        rerun = _send(ZONES_CALL, records)
-        code = _code(self, lambda: _record(work, chain, rerun, asked=_asked(again, 2), mode=None))
-        self.assertEqual(code, "routine-record-again")
-        # So does work that needs another repair after any question between, such as a remembered value.
-        remembered = _send(("cloudflare/list-dns-records", {"zone_id": "f" * 32}, {}))
-        code = _code(self, lambda: _record(work, chain, remembered, asked=_asked(again, 2), mode=None))
-        self.assertEqual(code, "routine-record-again")
-        # A post reading a records result is the chain, whatever words the records call was run with.
-        reworded = (
-            "cloudflare/list-dns-records",
-            {"zone_id": SHIMPZ_ID, "per_page": 5},
-            {"result": {"id": "rec-98765"}},
-        )
-        post = ("reports/post", {"record": "rec-98765"}, {})
-        chained = _recorded(work, chain, _send(ZONES_CALL, reworded, post), asked=_asked(asked, 1), mode=None)
-        self.assertEqual(_actions(chained), ["list-zones", "list-dns-records", "post"])
-        self.assertEqual(chained.document["output"]["mode"], "show")
-
-    def test_a_chain_must_use_the_shown_action_not_only_an_earlier_lookup(self) -> None:
-        alpha = ("reports/fetch", {"q": "alpha"}, {"id": "aaa-111111"})
-        work = _send(alpha, message="relatório a cada hora")
-        asked = _record(work, mode=None)
-        self.assertEqual(asked.chained_from, ("reports", "fetch"))
-        chain = _send(message=http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"])
-        right = _send(alpha, ("reports/post", {"x": "aaa-111111"}, {}))
-        self.assertIsInstance(_record(work, chain, right, asked=_asked(asked, 1), mode=None), recording.Recorded)
 
     def test_no_output_or_two_in_one_segment_are_asked_never_guessed(self) -> None:
         for message in ("a cada hora", "a cada hora. Mostrar sempre. Ou só quando mudar."):

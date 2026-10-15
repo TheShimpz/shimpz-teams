@@ -64,7 +64,7 @@ class DispositionTests(unittest.TestCase):
             {"mode": "changes", "step": 1},
             {"mode": "none", "step": "publish"},
             {"mode": "loud", "step": None},
-            {"mode": "chain", "step": None},
+            {"mode": "other", "step": None},
             {"mode": "show", "step": "share", "extra": 1},
         ):
             with self.subTest(output=output):
@@ -94,7 +94,7 @@ class DispositionTests(unittest.TestCase):
             ({"mode": "show", "step": 1}, "steps"),
             ({"mode": "show", "step": 1}, 0),
             ({"mode": "none", "step": None}, 0),
-            ({"mode": "chain", "step": 1}, steps),
+            ({"mode": "other", "step": 1}, steps),
             ({"mode": "show", "step": 1, "extra": 1}, steps),
             ({"mode": "show"}, steps),
             ([], steps),

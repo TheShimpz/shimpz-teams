@@ -226,7 +226,6 @@ class RecordingBook:
                 question.manifest,
                 question.wire(),
                 question.chosen,
-                question.chained_from,
                 question.repair_from,
             )
             return dataclasses.replace(found, asked=asked, intent=intent)
@@ -266,8 +265,7 @@ def answered(span: Span | None) -> Intent | None:
         return None
     pending = span.asked.pending
     bound = {
-        # A chain needs more work, which only the Brain can run.
-        "routine-output-unstated": bool(phrase.outputs(answer)) and "chain" not in phrase.outputs(answer),
+        "routine-output-unstated": bool(phrase.outputs(answer)),
         "routine-binding-ambiguous": pending is not None
         and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets),
     }

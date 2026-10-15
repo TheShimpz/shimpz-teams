@@ -870,7 +870,7 @@ class SelectorAndDispositionTests(unittest.TestCase):
         with self.assertRaisesRegex(routine_plan.PlanError, "plan-output-invalid"):
             routine_plan.admit(empty, CONTRACTS)
         with self.assertRaises(routine_plan.PlanError) as caught:
-            self.plan(self.selector(), {"mode": "chain", "step": None})
+            self.plan(self.selector(), {"mode": "other", "step": None})
         self.assertEqual(caught.exception.code, "plan-output-invalid")
         self.assertFalse(routine_plan.well_formed(empty))
 

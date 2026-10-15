@@ -203,7 +203,7 @@ records again with the request's stored intent without asking the Brain, and the
 
 What a person's own words state about a Routine is read here too, with no model, so Team and the Brain read the
 same words alike (`phrase.py`, ADR-0101): `phrase.stated` reads the canonical schedules a text states,
-`phrase.outputs` the output choices (`show`, `changes`, `none`, `chain`), and `phrase.zones` the exact IANA zones it
+`phrase.outputs` the output choices (`show`, `changes`, `none`), and `phrase.zones` the exact IANA zones it
 names. `phrase.team_asks(text)` is true when one clarification question or option label asks or states a schedule,
 an interval, an output choice, or how many times a Routine may run, which Team asks itself and the Brain never does.
 `phrase.requests_routine(text)` is true when the text names a Routine affirmatively ("cria uma rotina", "create a

@@ -217,8 +217,8 @@ _TIMES = (
     r"(\d{1,2})[点點](?:(\d{1,2})分)?()",
     r"(?:\bàs|\bas|\bat|\ba\s+las|\ba\s+la|\bà|\bum|الساعة)\s+(\d{1,2})(?::(\d{2}))?()(?!\s*\d)",
 )
-# What each run does with its result, by language: show it every run, only when it changes, nothing, or use it in
-# other Actions. Each interface language's choice labels (``routine_proposal.OUTPUT_CHOICES``) are among these
+# What each run does with its result, by language: show it every run, only when it changes, or nothing. Each interface
+# language's choice labels (``routine_proposal.OUTPUT_CHOICES``) are among these
 # phrases. A plain "show the result" reads as showing it every run, unless its own clause says only when it changes.
 _PT_SHOW = r"\b(?:mostrar|mostre|exibir|exiba)\s+"
 _ES_SHOW = r"\b(?:mostrar|muestra|muéstrame)\s+"
@@ -228,42 +228,34 @@ _OUTPUTS = (
     ("result", "pt", _PT_SHOW + r"os?\s+resultados?\b"),
     ("changes", "pt", r"\b(?:só|somente|apenas)\s+(?:quando|se)\s+(?:mudar|alterar|houver\s+mudança)"),
     ("none", "pt", r"\b(?:não|sem)\s+(?:precisa\s+)?(?:mostrar|exibir)\b"),
-    ("chain", "pt", r"\b(?:usar|use)\s+(?:o\s+resultado\s+)?(?:em|para)\s+(?:executar\s+)?outras?\s+ações\b"),
     ("show", "en", r"\b(?:show|display)\s+(?:me\s+)?(?:it\s+)?(?:every\s+(?:run|time)|always)\b"),
     ("result", "en", r"\b(?:show|display)\s+(?:me\s+)?the\s+results?\b"),
     ("changes", "en", r"\bonly\s+(?:(?:when|if)\s+(?:it\s+)?changes|on\s+changes?)\b"),
     ("none", "en", r"\b(?:don't|do\s+not|no\s+need\s+to)\s+show\b|\bshow\s+nothing\b"),
-    ("chain", "en", r"\buse\s+(?:it|the\s+result)\s+(?:in|to\s+run)\s+other\s+actions\b"),
     ("show", "es", _ES_SHOW + r"(?:siempre|en\s+cada\s+ejecución)"),
     ("result", "es", _ES_SHOW + r"(?:el\s+resultado|los\s+resultados)"),
     ("changes", "es", r"\bsolo\s+(?:cuando\s+cambie|si\s+cambia)\b"),
     ("none", "es", r"\b(?:no|sin)\s+mostrar\b"),
-    ("chain", "es", r"\busar(?:lo)?\s+en\s+otras\s+acciones\b"),
     ("show", "fr", _FR_SHOW + r"(?:toujours|à\s+chaque\s+exécution)"),
     ("result", "fr", _FR_SHOW + r"les?\s+résultats?"),
     ("changes", "fr", r"\b(?:seulement|uniquement)\s+(?:en\s+cas\s+de\s+changement|quand\s+(?:ça|il|elle)\s+change)"),
     ("none", "fr", r"\bne\s+(?:pas|rien)\s+afficher\b|\bsans\s+afficher\b"),
-    ("chain", "fr", r"\butiliser\s+dans\s+d'autres\s+actions\b"),
     ("show", "de", r"\b(?:immer|bei\s+jedem\s+lauf)\s+anzeigen\b"),
     ("result", "de", r"\bzeig\s+mir\s+das\s+ergebnis\b"),
     ("changes", "de", r"\bnur\s+(?:bei\s+änderung|wenn\s+(?:es\s+)?sich\s+(?:etwas\s+)?ändert)"),
     ("none", "de", r"\b(?:nicht|nichts)\s+anzeigen\b"),
-    ("chain", "de", r"\bin\s+anderen\s+aktionen\s+verwenden\b"),
     ("show", "ja", r"毎回表示"),
     ("result", "ja", r"結果を表示"),
     ("changes", "ja", r"(?:変更|変化)(?:時|したとき)のみ|変わったときだけ"),
     ("none", "ja", r"表示しない|表示不要"),
-    ("chain", "ja", r"他のアクションで使"),
     ("show", "zh", r"每次(?:运行都)?显示"),
     ("result", "zh", r"显示结果"),
     ("changes", "zh", r"(?:仅|只)在变化时"),
     ("none", "zh", r"不(?:用)?显示"),
-    ("chain", "zh", r"用于其他操作"),
     ("show", "ar", r"اعرض\s+(?:في\s+كل\s+تشغيل|دائم)"),
     ("result", "ar", r"اعرض\s+النتيجة"),
     ("changes", "ar", r"فقط\s+عند\s+التغيير"),
     ("none", "ar", r"لا\s+تعرض|بدون\s+عرض"),
-    ("chain", "ar", r"استخدمه\s+في\s+إجراءات\s+أخرى"),
 )
 # A whole zone token: never part of a longer word, path, or offset ("UTC+3" names no zone), though it may close a
 # sentence or sit inside brackets or quotes.

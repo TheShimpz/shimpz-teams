@@ -26,15 +26,15 @@ def record(
     """The plan a recording span defines, or the question to ask first; raises RecordingError when it cannot be one.
 
     The work is the calls of the latest send that ran any Action. A span gets one repair: once it asked for work to run
-    again (a rerun, or a chosen chain the work lacks) and a later send ran Actions, work that needs another repair
-    refuses ``routine-record-again`` instead of asking again, whatever was asked between. No card ever records work
-    that calls an Action a person's choice is about without sending the target they chose.
+    again and a later send ran Actions, work that needs another repair refuses ``routine-record-again`` instead of
+    asking again, whatever was asked between. No card ever records work that calls an Action a person's choice is
+    about without sending the target they chose.
     """
     if protection.lost:
         raise routine_recording.RecordingError("routine-recording-unavailable")
     # The person's output, or show while the work is planned and its own questions come first; unstated, it is asked.
     stated = _output(sends, existing)
-    mode = _OUTPUT_MODES[stated or "show"]
+    mode = stated or "show"
     calls = routine_recording._calls(sends, contracts)
     texts = [line for send in sends for line in (*routine_recording._lines(send.person), *send.window)]
     latest = [call for call in calls if call.send == calls[-1].send] if calls else []
@@ -53,14 +53,10 @@ def record(
             kept = None
             document, origins = _plan(context, mode, work)
             when = _schedule(sends, existing)
-        planned = kept.document if kept is not None else document
-        chained_from = asked.chained_from if asked is not None else None
-        if stated is None or (stated == "chain" and not _chained(planned, chained_from)):
-            # Asked first, the question keeps the Action the work would show, whose result a chain chosen then uses.
-            shown = chained_from or _shown_action(planned)
-            raise routine_recording._AskError(routine_recording.Question("routine-output-unstated", chained_from=shown))
+        if stated is None:
+            raise routine_recording._AskError(routine_recording.Question("routine-output-unstated"))
     except routine_recording._AskError as asking:
-        repairing = _repairing(asking.question, stated)
+        repairing = asking.question.code == routine_recording.RERUN
         if repaired and repairing:
             raise routine_recording.RecordingError("routine-record-again") from asking
         if repairing and repair_from is None:
@@ -74,13 +70,6 @@ def record(
     document["timezone"] = timezone
     permitted = _permitted([(step["assistant"], step["action"]) for step in document["steps"]], contracts)
     return routine_recording.Recorded(document, origins, permitted, when, source)
-
-
-def _repairing(question: routine_recording.Question, stated: str | None) -> bool:
-    """Whether a question asks for work to run again: a rerun, or the chain the person chose and the work lacks."""
-    return question.code == routine_recording.RERUN or (
-        question.code == "routine-output-unstated" and stated == "chain"
-    )
 
 
 def _chosen_used(context: routine_recording._Context, work: list[routine_recording._Call]) -> bool:
@@ -118,10 +107,7 @@ def _asked(
     manifest = question.manifest
     if manifest is None and question.code == routine_recording.RERUN:
         manifest = routine_rerun._manifest(context, work, tuple(kept.values()))
-    chained_from = question.chained_from or (context.asked.chained_from if context.asked is not None else None)
-    return dataclasses.replace(
-        question, pending=pending, manifest=manifest, chosen=tuple(kept.values()), chained_from=chained_from
-    )
+    return dataclasses.replace(question, pending=pending, manifest=manifest, chosen=tuple(kept.values()))
 
 
 def _permitted(
@@ -155,33 +141,6 @@ def _schedule(
     if not latest and existing is not None:
         return dict(existing.schedule)
     raise routine_recording._AskError(routine_recording.Question("routine-schedule-unstated"))
-
-
-# How each output choice the person states runs: a chain uses the result in other Actions, which the recorded work then
-# runs, and shows it. A chain whose work has no step reading an earlier step's result is no chain yet: the output
-# question stands, and the Brain runs the chained work when the person answers it, once.
-_OUTPUT_MODES = {**{mode: mode for mode in http_routine.OUTPUT_MODES}, "chain": "show"}
-
-
-def _chained(document: Mapping[str, object], chained_from: tuple[str, str] | None) -> bool:
-    """Whether a plan's work uses an earlier result, as a chain does: a later step reads it.
-
-    Chosen when Team asked for the output, the chain must use a result of the Action the work would then have shown,
-    whatever its input; stated with the request, any earlier result some step reads.
-    """
-    steps = document["steps"]
-    read = {source["step"] for step in steps for source in step["input"].values() if source["kind"] == "step_output"}
-    return any(
-        step["id"] in read and (chained_from is None or (step["assistant"], step["action"]) == chained_from)
-        for step in steps
-    )
-
-
-def _shown_action(document: Mapping[str, object]) -> tuple[str, str] | None:
-    """The Assistant and Action of the step a plan shows, or None when it shows none."""
-    shown = document["output"]["step"]
-    step = next((step for step in document["steps"] if step["id"] == shown), None)
-    return None if step is None else (step["assistant"], step["action"])
 
 
 def _output(sends: Sequence[routine_recording.Send], existing: routine_recording.Existing | None) -> str | None:

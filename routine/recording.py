@@ -184,8 +184,6 @@ class Asked:
     wire: dict[str, object] | None = None
     # Every target choice the person already answered, each bound until the span ends.
     chosen: tuple[Pending, ...] = ()
-    # The Assistant and Action whose result the work showed when Team asked for the output, which a chain must use.
-    chained_from: tuple[str, str] | None = None
     # How many sends the span held when it first asked for work to run again; later sends that ran Actions repaired it.
     repair_from: int | None = None
 
@@ -201,7 +199,6 @@ class Question:
     pending: Pending | None = field(default=None, compare=False)
     manifest: Manifest | None = field(default=None, compare=False)
     chosen: tuple[Pending, ...] = field(default=(), compare=False)
-    chained_from: tuple[str, str] | None = field(default=None, compare=False)
     repair_from: int | None = field(default=None, compare=False)
 
     def wire(self) -> dict[str, object]:
