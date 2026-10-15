@@ -436,7 +436,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         bound = {"assistant": spec, "other": other}
         controller.registry = types.SimpleNamespace(
             catalog=lambda: (spec,),
-            installed=mock.Mock(return_value=(("other", "assistant"), ("refused",))),
+            team_bindings=mock.Mock(return_value=("other", "assistant")),
             spec=bound.__getitem__,
         )
         # The Space's registry names every Assistant; a Team's describes only its own admitted bindings.
@@ -450,7 +450,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
                 ]
             },
         )
-        controller.registry.installed.assert_called_once_with("team_1")
+        controller.registry.team_bindings.assert_called_once_with("team_1")
         controller.assistant_lifecycle._network.assert_called_with("team_1")
 
         controller.client.ping.return_value = False

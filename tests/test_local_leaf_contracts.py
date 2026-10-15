@@ -232,7 +232,7 @@ class LocalLeafContractTests(unittest.TestCase):
         )
         spec = types.SimpleNamespace(summary=summary)
         container = types.SimpleNamespace(id="container-id")
-        binding = types.SimpleNamespace(admissible=True)
+        binding = types.SimpleNamespace()
         lifecycle = types.SimpleNamespace(
             _assistant_container=mock.Mock(return_value=container),
             _assistant_language=mock.Mock(return_value=pack),
@@ -310,7 +310,7 @@ class LocalLeafContractTests(unittest.TestCase):
             assistant_lifecycle=lifecycle,
             client=types.SimpleNamespace(containers=types.SimpleNamespace(list=mock.Mock())),
             registry=types.SimpleNamespace(
-                installed=mock.Mock(return_value=((), ())),
+                team_bindings=mock.Mock(return_value=()),
                 versioned=mock.Mock(),
             ),
         )
@@ -324,9 +324,9 @@ class LocalLeafContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ApiProblemError, "no longer allowlisted"):
             assistant_api.list_assistants(controller, "team_1")
 
-        controller.registry.installed.return_value = ((types.SimpleNamespace(assistant_id="helper"),), ())
+        controller.registry.team_bindings.return_value = (types.SimpleNamespace(assistant_id="helper"),)
         controller.registry.versioned.return_value = (
-            types.SimpleNamespace(admissible=True, provenance="published"),
+            types.SimpleNamespace(provenance="published"),
             "0.1.0",
         )
         lifecycle._validate_container_egress_environment = mock.Mock(

@@ -7,7 +7,7 @@ import json
 import threading
 from collections import OrderedDict
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -21,12 +21,12 @@ _FORMAT_VERSION = 2
 _MAX_BINDINGS = 4096
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _CONTRACTS = ContractValidator()
-# The current contract's verdict on each intact published binding, kept by its binding digest: every registry read
-# re-admitted every published binding of the Space against the resolution schema, a few milliseconds each, several
-# times a turn. The digest covers the exact resolution, so a verdict is never reused for other bytes, and the registry
-# file is still read and integrity-checked on every read.
+# Every intact binding the current contract admitted, kept by its binding digest: every registry read re-admitted every
+# published binding of the Space against the resolution schema, a few milliseconds each, several times a turn. The
+# digest covers the exact resolution, so an admission is never reused for other bytes, and the registry file is still
+# read and integrity-checked on every read.
 _MAX_ADMISSIONS = 1024
-_ADMISSIONS: OrderedDict[tuple[str, LocalRecordValidator | None], bool] = OrderedDict()
+_ADMISSIONS: OrderedDict[tuple[str, LocalRecordValidator | None], None] = OrderedDict()
 _ADMISSIONS_LOCK = threading.Lock()
 _PUBLISHED = "published"
 _LOCAL = "local"
@@ -49,20 +49,12 @@ class AssistantLimitReachedError(DynamicAssistantError):
     """The Team already has the most Assistants one Team may have installed."""
 
 
-class InadmissibleAssistantBindingError(DynamicAssistantError):
-    """An intact installed binding that the current Assistant contract refuses; it must be replaced or uninstalled."""
-
-
 @dataclass(frozen=True, slots=True)
 class DynamicAssistantBinding:
     team_id: str
     binding_digest: str
     provenance: AssistantProvenance
     document: dict[str, Any]
-    # False for an intact, digest-verified binding admitted under an earlier contract that the current one refuses,
-    # such as one staged with an older SDK: it stays owned so it can be listed, replaced, or uninstalled, and every
-    # runtime use of it is refused (ADR-0033's 2026-10-08 amendment).
-    admissible: bool = True
 
     @property
     def assistant_id(self) -> str:
@@ -72,19 +64,13 @@ class DynamicAssistantBinding:
     def resolution(self) -> dict[str, Any]:
         if self.provenance != _PUBLISHED:
             raise DynamicAssistantError("the Assistant binding is not a publication")
-        self.require_admissible()
         return self.document
 
     @property
     def local_record(self) -> dict[str, Any]:
         if self.provenance != _LOCAL:
             raise DynamicAssistantError("the Assistant binding is not a local snapshot")
-        self.require_admissible()
         return self.document
-
-    def require_admissible(self) -> None:
-        if not self.admissible:
-            raise InadmissibleAssistantBindingError("the installed Assistant must be replaced under the current terms")
 
 
 class DynamicAssistantStore:
@@ -127,7 +113,7 @@ class DynamicAssistantStore:
                 if existing == binding:
                     return existing, False
                 raise DynamicAssistantConflictError("the Team already binds this Assistant id to another artifact")
-            # Every installed binding counts, whatever its runtime state or admissibility; a replacement goes through
+            # Every installed binding counts, whatever its runtime state; a replacement goes through
             # _replace and an identical reinstall returned above, so only a new Assistant id can reach the limit.
             if sum(current.team_id == binding.team_id for current in bindings) >= http_payload.MAX_TEAM_ASSISTANTS:
                 raise AssistantLimitReachedError("the Team already has the maximum number of Assistants")
@@ -327,44 +313,30 @@ def _decode_binding(
     intact = _binding(value["team_id"], provenance, document_name, document)
     if value["binding_digest"] != intact.binding_digest:
         raise DynamicAssistantError("the dynamic Assistant registry binding digest is invalid")
-    # Admission is the current contract's verdict on one intact binding, so a refusal marks only that binding.
-    if provenance == _PUBLISHED:
-        admitted = _admission(intact, None, lambda: binding_from_resolution(intact.team_id, document))
-    else:
-        admitted = _admission(
-            intact,
-            local_record_validator,
-            lambda: binding_from_local_record(intact.team_id, document, local_record_validator),
-        )
-    return intact if admitted else replace(intact, admissible=False)
+    # Admission is the current contract's verdict on one intact binding; a refused binding fails the whole read.
+    _admit(intact, local_record_validator)
+    return intact
 
 
-def _admission(
-    intact: DynamicAssistantBinding,
-    validator: LocalRecordValidator | None,
-    admit: Callable[[], object],
-) -> bool:
-    """Whether the current contract admits one intact binding, decided once per binding digest and validator.
+def _admit(intact: DynamicAssistantBinding, validator: LocalRecordValidator | None) -> None:
+    """Admit one intact binding under the current contract, once per binding digest and validator.
 
-    A digest covers the binding's whole document, and each admission is a pure verdict on that document.
+    A digest covers the binding's whole document, and each admission is a pure verdict on that document, so only an
+    admitted one is remembered and a refusal is raised on every read.
     """
     key = (intact.binding_digest, validator)
     with _ADMISSIONS_LOCK:
-        admitted = _ADMISSIONS.get(key)
-        if admitted is not None:
+        if key in _ADMISSIONS:
             _ADMISSIONS.move_to_end(key)
-            return admitted
-    try:
-        admit()
-    except DynamicAssistantError:
-        admitted = False
+            return
+    if intact.provenance == _PUBLISHED:
+        binding_from_resolution(intact.team_id, intact.document)
     else:
-        admitted = True
+        binding_from_local_record(intact.team_id, intact.document, validator)
     with _ADMISSIONS_LOCK:
-        _ADMISSIONS[key] = admitted
+        _ADMISSIONS[key] = None
         while len(_ADMISSIONS) > _MAX_ADMISSIONS:
             _ADMISSIONS.popitem(last=False)
-    return admitted
 
 
 def _encode_binding(binding: DynamicAssistantBinding) -> dict[str, object]:

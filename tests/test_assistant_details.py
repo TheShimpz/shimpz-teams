@@ -152,7 +152,7 @@ class LocalInstalledDetailsTests(unittest.TestCase):
             [{"id": "ping", "effect": "read_only", "description": "JA Run one reviewed test Action."}],
         )
 
-    def test_absent_refused_and_inadmissible_bindings_and_bad_requests_fail_closed(self) -> None:
+    def test_absent_bindings_and_bad_requests_fail_closed(self) -> None:
         controller, registry, lifecycle = _local_controller(self.directory)
         for locale, code in (("pt-BR", "invalid-locale"), ("pt", "assistant-not-installed")):
             with self.subTest(locale=locale), self.assertRaises(ApiProblemError) as caught:
@@ -160,13 +160,6 @@ class LocalInstalledDetailsTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, code)
 
         registry.put("team_1", copy.deepcopy(RESOLUTION))
-        refused = SimpleNamespace(admissible=False)
-        with (
-            mock.patch.object(registry, "binding", return_value=refused),
-            self.assertRaises(ApiProblemError) as caught,
-        ):
-            assistant_api.assistant_details(controller, "team_1", "hello-world", "pt")
-        self.assertEqual(caught.exception.code, "assistant-manifest-invalid")
 
         # A pack translation the protocol refuses is never sent.
         broken = SimpleNamespace(template=lambda _identifier, _locale: "Quebrado\nem duas linhas.")

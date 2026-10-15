@@ -184,14 +184,8 @@ def _install_local_snapshot(self, team_id: str, image_id: str, *, fresh_only: bo
         with self.assistant_icons.retained_local(admitted.record, admitted.icon, self.registry.bindings):
             if fresh_only and existing is not None:
                 raise bindings.DynamicAssistantConflictError("automatic Local install requires an unbound Assistant")
-            if existing is not None and (not existing.admissible or existing.provenance == "published"):
-                # A binding the current contract refuses is replaced fresh; an admitted publication keeps its state.
-                replace = (
-                    self.assistant_lifecycle.replace_inadmissible
-                    if not existing.admissible
-                    else self.assistant_lifecycle.replace_published_with_local
-                )
-                result = replace(
+            if existing is not None and existing.provenance == "published":
+                result = self.assistant_lifecycle.replace_published_with_local(
                     team_id,
                     existing,
                     lambda install_assistant: _apply_local_snapshot(
@@ -311,9 +305,7 @@ def install_publication(
 ) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     existing = self.registry.binding(team_id, assistant_id)
-    if expected_binding_digest is not None and (
-        existing is None or existing.binding_digest != expected_binding_digest or not existing.admissible
-    ):
+    if expected_binding_digest is not None and (existing is None or existing.binding_digest != expected_binding_digest):
         raise ApiProblem(
             HTTPStatus.CONFLICT,
             "Assistant binding changed before automatic update",
@@ -343,7 +335,7 @@ def install_publication(
         ) from exc
     except icons.AssistantIconError as exc:
         raise assistant_icon_unavailable() from exc
-    if existing is not None and existing.admissible:
+    if existing is not None:
         _discard_icon(self, str(existing.resolution["source_digest"]))
     return result
 
@@ -406,19 +398,18 @@ def _apply_publication(self, team_id, assistant_id, source_digest, existing, res
         except developers.DevelopersError as exc:
             raise _developers_problem(exc) from exc
 
-    def install_fresh(install_assistant: Callable[..., dict[str, object]]) -> dict[str, object]:
+    if existing is None:
         spec, binding, created = self.registry.put_with_status(team_id, resolution)
         try:
-            return install_assistant(team_id, spec.assistant_id, authorize_start=authorize_start)
+            return self.assistant_lifecycle.install_assistant(
+                team_id,
+                spec.assistant_id,
+                authorize_start=authorize_start,
+            )
         except (ApiProblem, bindings.DynamicAssistantError) as exc:
             if created and not (isinstance(exc, ApiProblem) and exc.code == "assistant-install-rollback-incomplete"):
                 self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
             raise
-
-    if existing is None:
-        return install_fresh(self.assistant_lifecycle.install_assistant)
-    if not existing.admissible:
-        return self.assistant_lifecycle.replace_inadmissible(team_id, existing, install_fresh)
     return self._install_bound_publication(
         team_id,
         assistant_id,

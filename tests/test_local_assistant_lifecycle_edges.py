@@ -38,7 +38,7 @@ def _retire_into(controller: object, binding: object) -> None:
 
 def _local_binding(image_id: str) -> types.SimpleNamespace:
     return types.SimpleNamespace(
-        admissible=True, assistant_id="shimpz-cloudflare", provenance="local", local_record={"image_id": image_id}
+        assistant_id="shimpz-cloudflare", provenance="local", local_record={"image_id": image_id}
     )
 
 
@@ -470,8 +470,8 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
             commit_local_replacement=mock.Mock(),
         )
         subject = types.SimpleNamespace(registry=registry, _queue_residue=mock.Mock())
-        published = types.SimpleNamespace(admissible=True, provenance="published", binding_digest="published-binding")
-        local = types.SimpleNamespace(admissible=True, provenance="local", binding_digest="local-binding")
+        published = types.SimpleNamespace(provenance="published", binding_digest="published-binding")
+        local = types.SimpleNamespace(provenance="local", binding_digest="local-binding")
 
         assistant_lifecycle._commit_replacement(subject, "team_1", published, {"kind": "published"})
         assistant_lifecycle._commit_replacement(subject, "team_1", local, {"kind": "local"})
@@ -493,7 +493,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
             assistant_lifecycle._commit_replacement(
                 subject,
                 "team_1",
-                types.SimpleNamespace(admissible=True, provenance="unknown", binding_digest="invalid"),
+                types.SimpleNamespace(provenance="unknown", binding_digest="invalid"),
                 {},
             )
 
@@ -595,8 +595,8 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         subject._create_assistant_container.assert_called_once()
 
     def test_recover_updates_handles_previous_successor_and_mismatched_bindings(self) -> None:
-        previous = types.SimpleNamespace(admissible=True, provenance="published", digest="previous")
-        successor = types.SimpleNamespace(admissible=True, provenance="published", digest="successor")
+        previous = types.SimpleNamespace(provenance="published", digest="previous")
+        successor = types.SimpleNamespace(provenance="published", digest="successor")
         updates = (
             types.SimpleNamespace(
                 team_id="team_1",
@@ -661,7 +661,6 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                     ("team_1", "failed"),
                     ("team_1", "first"),
                 },
-                inadmissible=lambda: (),
             ),
             install_assistant=mock.Mock(side_effect=[problem, None, None]),
         )
@@ -787,7 +786,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
 
     def test_uninstall_without_container_releases_residual_egress_and_icon(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
-        binding = types.SimpleNamespace(admissible=True, provenance="published")
+        binding = types.SimpleNamespace(provenance="published")
         _retire_into(controller, binding)
         controller.assistant_lifecycle._assistant_container = lambda *_args, **_kwargs: None
         controller.assistant_lifecycle._egress_token = mock.Mock(return_value="token")
@@ -801,7 +800,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
 
     def test_uninstall_existing_container_discards_unreferenced_icon(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
-        binding = types.SimpleNamespace(admissible=True, provenance="published")
+        binding = types.SimpleNamespace(provenance="published")
         _retire_into(controller, binding)
 
         result = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")

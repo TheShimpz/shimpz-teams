@@ -69,13 +69,7 @@ class PublishedAdmissionCacheTests(unittest.TestCase):
             first = self.store.list("team_1")
             second = self.store.list("team_1")
         self.assertEqual(first, second)
-        self.assertTrue(all(binding.admissible for binding in second))
         self.assertEqual(validate.call_count, 3)
-        # A refused binding keeps its refusal without being judged again.
-        refused = next(iter(bindings._ADMISSIONS))
-        bindings._ADMISSIONS[refused] = False
-        listed = {binding.binding_digest: binding.admissible for binding in self.store.list("team_1")}
-        self.assertFalse(listed[refused[0]])
 
     def test_a_local_record_is_judged_once_per_binding_and_validator(self) -> None:
         validator = mock.Mock(side_effect=validate_local_record)
@@ -85,12 +79,11 @@ class PublishedAdmissionCacheTests(unittest.TestCase):
         validator.reset_mock()
         first, second = local_store.list("team_1"), local_store.list("team_1")
         self.assertEqual(first, second)
-        self.assertTrue(second[0].admissible)
         self.assertEqual(validator.call_count, 1)
-        # Another validator judges the same binding afresh.
+        # Another validator judges the same binding afresh, and its refusal fails the whole read.
         refusing = mock.Mock(side_effect=bindings.DynamicAssistantError("refused"))
-        listed = DynamicAssistantStore(path, local_record_validator=refusing).list("team_1")
-        self.assertFalse(listed[0].admissible)
+        with self.assertRaisesRegex(DynamicAssistantError, "refused"):
+            DynamicAssistantStore(path, local_record_validator=refusing).list("team_1")
 
     def test_the_kept_verdicts_stay_bounded(self) -> None:
         with mock.patch.object(bindings, "_MAX_ADMISSIONS", 2):
@@ -123,17 +116,6 @@ class TeamAssistantLimitTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), before)
         # The limit is per Team.
         self.store.put("team_2", named_resolution("one-more"))
-
-    def test_every_installed_binding_counts_even_one_the_current_contract_refuses(self) -> None:
-        DynamicAssistantStore(self.path, local_record_validator=validate_local_record).put_local(
-            "team_1", copy.deepcopy(LOCAL_RECORD)
-        )
-        self._fill(http_payload.MAX_TEAM_ASSISTANTS - 1)
-        (refused,) = [binding for binding in self.store.list("team_1") if not binding.admissible]
-        self.assertEqual(refused.assistant_id, "local-example")
-
-        with self.assertRaises(AssistantLimitReachedError):
-            self.store.put("team_1", named_resolution("one-more"))
 
     def test_an_identical_reinstall_or_a_replacement_at_the_limit_is_admitted(self) -> None:
         self._fill(http_payload.MAX_TEAM_ASSISTANTS)
@@ -207,12 +189,6 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.assertEqual(local_store.get("team_1", "local-example"), binding)
         with self.assertRaisesRegex(DynamicAssistantError, "not a publication"):
             _ = binding.resolution
-        # A profile that cannot admit a local record keeps the intact binding but refuses every use of it.
-        (unadmitted,) = DynamicAssistantStore(self.path).snapshot()
-        self.assertFalse(unadmitted.admissible)
-        self.assertEqual(unadmitted.binding_digest, binding.binding_digest)
-        with self.assertRaisesRegex(DynamicAssistantError, "must be replaced"):
-            _ = unadmitted.local_record
 
     def test_binding_identity_and_replacement_never_cross_provenance(self) -> None:
         local_store = DynamicAssistantStore(self.path, local_record_validator=validate_local_record)

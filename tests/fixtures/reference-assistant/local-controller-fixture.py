@@ -170,7 +170,7 @@ def _install_inventory_spans() -> None:
     targets = (
         (app.AssistantLifecycle, ("_network", "_validate_container_profile")),
         (app.AssistantLifecycle, ("_validate_container_egress_environment", "_admit_assistant_allowed_hosts")),
-        (local_registry.AssistantRegistry, ("installed",)),
+        (local_registry.AssistantRegistry, ("team_bindings",)),
         (assistant_manifest.ManifestContractCache, ("get",)),
         (assistant_manifest.MachineContractCache, ("get",)),
         (ContainerCollection, ("list", "get")),

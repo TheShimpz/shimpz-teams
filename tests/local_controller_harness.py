@@ -110,13 +110,6 @@ class TestAssistantRegistry(dict):
     def team_bindings(self, _team_id):
         return tuple(self.values())
 
-    def installed(self, team_id):
-        return self.team_bindings(team_id), ()
-
-    @staticmethod
-    def inadmissible():
-        return ()
-
     @staticmethod
     def spec(binding):
         return binding

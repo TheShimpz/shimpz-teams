@@ -545,8 +545,8 @@ An installed Assistant's page reads the same way at `GET /v1/teams/:team_id/assi
 and Team answers the same closed Assistant details object plus `trace_id`, from the exact current
 binding: its admitted name, declared Creators (a published resolution's creators, a Local record's declared ones),
 description, links, Actions, Integrations, and Stored Input labels, help texts, and help links, localized from the pack verified against the
-binding's `pack_digest`. A missing binding fails as absent, a binding needing replacement or a missing or mismatched
-pack fails closed, and Team validates its own answer before sending it.
+binding's `pack_digest`. A missing binding fails as absent, a missing or mismatched pack fails closed, and Team
+validates its own answer before sending it.
 
 The internal Team bearer is machine authority only for the one-use OAuth callback continuation, the Local bootstrap
 reset, health and activity reads, and Admin's Routine scheduler (claim, notices, and their acknowledgement). The bootstrap reset is admitted only while Team independently verifies

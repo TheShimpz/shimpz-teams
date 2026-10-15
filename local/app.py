@@ -186,8 +186,6 @@ class AssistantLifecycle:
     _recover_update_target = local_assistant_lifecycle._recover_update_target
     recover_updates = local_assistant_lifecycle.recover_updates
     resume_assistants = local_assistant_lifecycle.resume_assistants
-    quarantine_inadmissible = local_assistant_lifecycle.quarantine_inadmissible
-    replace_inadmissible = local_assistant_lifecycle.replace_inadmissible
     uninstall_assistant = local_assistant_lifecycle.uninstall_assistant
     install_fresh_local = local_assistant_lifecycle.install_fresh_local
     replace_published_with_local = local_assistant_lifecycle.replace_published_with_local
@@ -387,9 +385,6 @@ class LocalController:
         self.local_snapshot_admissions = local_snapshot_admission.LocalSnapshotAdmissions(client)
         self.local_snapshot_collector = local_snapshot_collector.SupersededSnapshotCollector(client, registry)
         self._wire_collaborators()
-        # Every binding the current contract refuses is taken out of service first, so the startup recovery below,
-        # and every later request, sees only admissible Assistants and the Team always starts.
-        self.assistant_lifecycle.quarantine_inadmissible()
         self.assistant_lifecycle.recover_updates()
         self.assistant_lifecycle.resume_assistants()
         self.chat_turn_service._restore_all_chat_continuations()
@@ -587,7 +582,7 @@ class LocalController:
         return metadata
 
     def list_registry(self) -> dict[str, list[dict[str, object]]]:
-        """Every admissible Assistant of the Space by name only: what any Team's screens need to name it."""
+        """Every installed Assistant of the Space by name only: what any Team's screens need to name it."""
         return {"assistants": [{"id": spec.assistant_id, "title": spec.name} for spec in self.registry.catalog()]}
 
     def team_registry(self, team_id: str) -> dict[str, list[dict[str, object]]]:
@@ -599,8 +594,10 @@ class LocalController:
         team_id = validate_team_id(team_id)
         with self._lock(team_id):
             self.assistant_lifecycle._network(team_id)
-            admitted, _refused = self.registry.installed(team_id)
-            specs = sorted((self.registry.spec(binding) for binding in admitted), key=lambda spec: spec.assistant_id)
+            specs = sorted(
+                (self.registry.spec(binding) for binding in self.registry.team_bindings(team_id)),
+                key=lambda spec: spec.assistant_id,
+            )
         return {
             "assistants": [
                 {"id": spec.assistant_id, "title": spec.name, "summary": spec.summary, "actions": sorted(spec.actions)}

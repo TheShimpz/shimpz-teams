@@ -122,16 +122,11 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
     for bound_team_id, assistant_id in sorted(self.registry.identities()):
         if bound_team_id != team_id:
             continue
-        binding = self.registry.binding(team_id, assistant_id)
-        if binding is not None and not binding.admissible:
-            # A binding the current contract refuses has no admitted declarations to consult: remove any policy.
+        spec = self.registry.get(team_id, assistant_id)
+        if spec is None:
+            raise team_resources_ownership_conflict()
+        if spec.allowed_hosts:
             self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)
-        else:
-            spec = self.registry.get(team_id, assistant_id)
-            if spec is None:
-                raise team_resources_ownership_conflict()
-            if spec.allowed_hosts:
-                self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)
         _retire_team_binding(self, team_id, assistant_id)
     self.assistant_lifecycle.sweep_residues()
     return len(containers)

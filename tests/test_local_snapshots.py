@@ -442,7 +442,7 @@ class LocalSnapshotTests(unittest.TestCase):
                 replacement["image_id"],
             )
 
-    def test_local_replacement_transaction_is_durable_and_profile_scoped(self) -> None:
+    def test_local_replacement_transaction_is_durable(self) -> None:
         client, _image_value, _container_value = _client()
         admitted = snapshots.admit(client, IMAGE_ID)
         replacement = {**admitted.record, "image_id": "sha256:" + ("c" * 64)}
@@ -464,9 +464,6 @@ class LocalSnapshotTests(unittest.TestCase):
             self.assertEqual(transaction.successor.provenance, "local")
             self.assertEqual(transaction.successor.local_record, replacement)
             self.assertEqual(updates.get("team_1", "fixture-assistant"), transaction)
-            (unadmitted,) = AssistantUpdateStore(root / "updates").list()
-            self.assertFalse(unadmitted.previous.admissible)
-            self.assertFalse(unadmitted.successor.admissible)
 
     def test_service_lists_only_public_candidate_fields(self) -> None:
         client, _image_value, _container_value = _client()
@@ -583,7 +580,6 @@ class LocalSnapshotTests(unittest.TestCase):
         admitted = snapshots.admit(client, IMAGE_ID)
         registry = mock.Mock()
         registry.binding.return_value = SimpleNamespace(
-            admissible=True,
             provenance="published",
             assistant_id="fixture-assistant",
         )
@@ -827,7 +823,7 @@ class LocalSnapshotTests(unittest.TestCase):
             with self.assertRaisesRegex(bindings.DynamicAssistantConflictError, "provenance"):
                 registry.local_replacement("team_1", published_binding.binding_digest, record)
 
-        invalid = SimpleNamespace(admissible=True, provenance="unknown", document={}, assistant_id="fixture-assistant")
+        invalid = SimpleNamespace(provenance="unknown", document={}, assistant_id="fixture-assistant")
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "provenance is invalid"):
             assistant_registry._runtime_identity(invalid)
 

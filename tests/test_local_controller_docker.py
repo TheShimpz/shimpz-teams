@@ -852,7 +852,6 @@ class DockerFlowTests(
                 assistant_id = "local-retirement-proof"
                 spec = SimpleNamespace(assistant_id=assistant_id, allowed_hosts=())
                 binding = SimpleNamespace(
-                    admissible=True,
                     assistant_id=assistant_id,
                     provenance="local",
                     local_record={"image_id": image_id},
@@ -914,7 +913,6 @@ class DockerFlowTests(
             self._exercise_team_storage(flow)
             self._exercise_assistant(flow)
             self._exercise_assistant_recovery(flow)
-            self._exercise_inadmissible_binding(flow)
             self._exercise_teardown(flow)
             self._exercise_reset(flow)
         finally:

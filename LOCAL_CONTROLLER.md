@@ -76,7 +76,7 @@ metadata-only `trace_id` added at the HTTP boundary.
 | --- | --- | --- |
 | `GET` | `/healthz` | authenticated process/registry health |
 | `GET` | `/v1/activity` | machine-only `idle`/`busy` work signal for scheduled Local release reconciliation |
-| `GET` | `/v1/assistants` | every admissible Assistant of the Space by identity and name only |
+| `GET` | `/v1/assistants` | every installed Assistant of the Space by identity and name only |
 | `DELETE` | `/v1/space/bootstrap` | Team cleanup before Supervisor establishment; machine bearer plus independent key-absence proof |
 | `GET` | `/v1/teams` | running Team inventory |
 | `POST` | `/v1/teams/{team_id}/create` | idempotently create a named Team network/state |

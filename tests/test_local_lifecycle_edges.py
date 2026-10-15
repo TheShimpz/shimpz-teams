@@ -73,7 +73,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
         subject.registry = TestAssistantRegistry(
-            {"assistant": types.SimpleNamespace(admissible=True, provenance="local", allowed_hosts=())}
+            {"assistant": types.SimpleNamespace(provenance="local", allowed_hosts=())}
         )
         lifecycle._retired_image_id = lambda _container: "sha256:" + "a" * 64
         container.remove.side_effect = DockerException("unavailable")
@@ -89,7 +89,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         lifecycle._queue_residue.assert_not_called()
 
         subject.registry = TestAssistantRegistry(
-            {"assistant": types.SimpleNamespace(admissible=True, provenance="published", allowed_hosts=())}
+            {"assistant": types.SimpleNamespace(provenance="published", allowed_hosts=())}
         )
         self.assertEqual(
             local_lifecycle._remove_team_assistants(subject, "team_1", [container]),
@@ -100,11 +100,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
 
         # An Assistant with declared egress has its policy removed with its workload (ADR-0106).
         subject.registry = TestAssistantRegistry(
-            {
-                "assistant": types.SimpleNamespace(
-                    admissible=True, provenance="local", allowed_hosts=("api.example.com",)
-                )
-            }
+            {"assistant": types.SimpleNamespace(provenance="local", allowed_hosts=("api.example.com",))}
         )
         local_lifecycle._remove_team_assistants(subject, "team_1", [container])
         lifecycle._remove_egress_policy.assert_called_once_with("team_1", "assistant")
@@ -270,7 +266,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
                 _remove_egress_policy=lambda *_args: events.append("policy-delete"),
                 sweep_residues=lambda: events.append("residue-sweep"),
             ),
-            registry=TestAssistantRegistry({"assistant": types.SimpleNamespace(admissible=True, provenance="local")}),
+            registry=TestAssistantRegistry({"assistant": types.SimpleNamespace(provenance="local")}),
             storage=types.SimpleNamespace(destroy_all=lambda: True),
             inference_store=types.SimpleNamespace(delete_all=lambda: events.append("inference-delete")),
             team_names=types.SimpleNamespace(delete_all=lambda: events.append("names-delete")),
