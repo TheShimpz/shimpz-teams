@@ -93,7 +93,8 @@ def _expire_human_challenges(self, team_id: str | None = None) -> None:
         self._purge_human_pending(challenge.payload)
 
 
-def _resume_body(body: object) -> tuple[object, str, object | None]:
+def resume_body(body: object) -> tuple[object, str, object | None]:
+    """A person's answer to a chat or Routine human request: its challenge, ``submit`` or ``deny``, and value."""
     if not isinstance(body, dict) or body.get("decision") not in {"submit", "deny"}:
         raise human_response_invalid()
     decision = body["decision"]
@@ -214,7 +215,7 @@ def resume_chat_human(
 ) -> dict[str, object]:
     """Consume one exact Supervisor decision and deterministically replay its Action."""
     team_id = validate_team_id(team_id)
-    challenge_id, decision, value = _resume_body(body)
+    challenge_id, decision, value = resume_body(body)
     with self._exclusive_chat_turn(team_id) as token:
         with self._lock(team_id):
             challenge = _pending_challenge(self, team_id, challenge_id)

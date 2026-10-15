@@ -196,14 +196,6 @@ def cancel_routine_challenge(self, team_id: str, run_id: str) -> None:
             self.routine_human_challenges.claim(team_id, challenge.id)
 
 
-def _body(body: object) -> tuple[object, str, object | None]:
-    decision = body.get("decision") if isinstance(body, dict) else None
-    expected = {"challenge_id", "decision", "value"} if decision == "submit" else {"challenge_id", "decision"}
-    if decision not in {"submit", "deny"} or set(body) != expected:
-        raise local_errors.human_response_invalid()
-    return body["challenge_id"], decision, body.get("value")
-
-
 def _challenge(self, team_id: str, challenge_id: object, run_id: str) -> action_challenges.PendingHumanChallenge:
     """Read, without consuming, the run's own live challenge."""
     try:
@@ -251,7 +243,7 @@ def resume_routine_human(
     refused for a busy Team, an unreadable context, or a run that cannot resume can be sent again.
     """
     team_id = validate_team_id(team_id)
-    challenge_id, decision, answer = _body(body)
+    challenge_id, decision, answer = local_chat_human.resume_body(body)
     value, routine = _frozen(self, team_id, run_id)
     challenge = _challenge(self, team_id, challenge_id, value.run_id)
     if decision == "deny":

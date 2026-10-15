@@ -84,7 +84,7 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
         )
         for body in invalid:
             with self.subTest(body=body), self.assertRaises(local_app.ApiProblem) as caught:
-                local_chat_human._resume_body(body)
+                local_chat_human.resume_body(body)
             self.assertEqual(caught.exception.code, "invalid-body")
 
     def test_pending_challenge_maps_expiration_and_rejects_foreign_payload(self) -> None:
