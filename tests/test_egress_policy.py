@@ -7,6 +7,7 @@ from unittest import mock
 
 from egress import policy as egress_policy
 from storage import private_state
+from tests import private_state_fixtures
 
 
 class SharedEgressPolicyTests(unittest.TestCase):
@@ -33,13 +34,7 @@ class SharedEgressPolicyTests(unittest.TestCase):
 
     def test_token_and_policy_writes_commit_their_directory_entry(self) -> None:
         real_fsync = os.fsync
-        synced: list[str] = []
-
-        def observe(descriptor: int) -> None:
-            real_fsync(descriptor)
-            synced.append("directory" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "file")
-
-        with mock.patch.object(os, "fsync", side_effect=observe):
+        with private_state_fixtures.observed_fsyncs() as synced:
             token = self.store.token("identity", create=True)
             assert token is not None
             self.store.write(token, ("example.com",))
@@ -62,8 +57,7 @@ class SharedEgressPolicyTests(unittest.TestCase):
         token = self.store.token("identity", create=True)
         assert token is not None
         self.store.write(token, ("example.com",))
-        synced.clear()
-        with mock.patch.object(os, "fsync", side_effect=observe):
+        with private_state_fixtures.observed_fsyncs() as synced:
             self.store.remove("identity")
         self.assertEqual(synced, ["directory"] * 2)
 

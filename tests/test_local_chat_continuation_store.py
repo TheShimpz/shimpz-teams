@@ -1,16 +1,15 @@
 import hashlib
 import json
-import stat
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
 from local.chat import continuation_store as local_chat_continuation_store
+from tests import private_state_fixtures
 
 
 class EncryptedContinuationStoreTests(unittest.TestCase):
@@ -26,12 +25,9 @@ class EncryptedContinuationStoreTests(unittest.TestCase):
         # Existing Local state holds exactly these bytes; a format change must be a deliberate contract change.
         with tempfile.TemporaryDirectory() as directory:
             state_path, key_path = self._paths(directory)
-            key_path.parent.mkdir(mode=0o700, parents=True)
-            key_path.write_bytes(bytes(range(32)))
-            key_path.chmod(0o600)
+            private_state_fixtures.install_key(key_path)
             store = local_chat_continuation_store.EncryptedContinuationStore(state_path, key_path, now=lambda: 1_000)
-            nonces = iter((b"\x01" * 12, b"\x02" * 12))
-            with mock.patch("os.urandom", side_effect=lambda _size: next(nonces)):
+            with private_state_fixtures.pinned_nonces(b"\x01" * 12, b"\x02" * 12):
                 store.put("team_1", "integrations", "a" * 32, 1_300, ("b-binding", "a-binding ✓"), b"\x00private\xff")
                 store.put("team_2", "human", "b" * 32, 1_400, ("one",), b"second")
 
@@ -68,10 +64,7 @@ class EncryptedContinuationStoreTests(unittest.TestCase):
 
             self.assertEqual(reopened.current("team_1"), saved)
             self.assertNotIn(b"private integration state", state_path.read_bytes())
-            self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o600)
-            self.assertEqual(stat.S_IMODE(key_path.stat().st_mode), 0o600)
-            self.assertEqual(stat.S_IMODE(state_path.parent.stat().st_mode), 0o700)
-            self.assertEqual(stat.S_IMODE(key_path.parent.stat().st_mode), 0o700)
+            private_state_fixtures.assert_private_modes(self, state_path, key_path)
 
     def test_generation_and_aad_bind_every_routing_dimension(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

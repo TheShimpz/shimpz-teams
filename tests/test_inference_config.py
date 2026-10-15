@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from inference import config as inference_config
+from tests import private_state_fixtures
 
 
 class InferenceConfigTests(unittest.TestCase):
@@ -86,13 +87,7 @@ class InferenceConfigTests(unittest.TestCase):
 
     def test_saved_records_commit_their_directory_entry(self):
         real_fsync = os.fsync
-        synced: list[str] = []
-
-        def observe(descriptor: int) -> None:
-            real_fsync(descriptor)
-            synced.append("directory" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "file")
-
-        with mock.patch.object(os, "fsync", side_effect=observe):
+        with private_state_fixtures.observed_fsyncs() as synced:
             self.store.save("team_1", inference_config.normalize())
         self.assertEqual(synced, ["file", "directory"])
 
@@ -195,21 +190,13 @@ class InferenceConfigTests(unittest.TestCase):
         self.store.delete_all()
         self.assertFalse(self.root.exists())
         self.store.save("team_1", inference_config.normalize())
-        real_fsync = os.fsync
-        synced: list[bool] = []
-
-        def observe(descriptor: int) -> None:
-            real_fsync(descriptor)
-            synced.append(stat.S_ISDIR(os.fstat(descriptor).st_mode))
-
-        with mock.patch.object(os, "fsync", side_effect=observe):
+        with private_state_fixtures.observed_fsyncs() as synced:
             self.store.delete("team_1")
-        self.assertEqual(synced, [True, True])
+        self.assertEqual(synced, ["directory", "directory"])
         self.store.save("team_1", inference_config.normalize())
-        synced.clear()
-        with mock.patch.object(os, "fsync", side_effect=observe):
+        with private_state_fixtures.observed_fsyncs() as synced:
             self.store.delete_all()
-        self.assertEqual(synced, [True])
+        self.assertEqual(synced, ["directory"])
         self.assertEqual(list(self.root.iterdir()), [])
         self.store.save("team_1", inference_config.normalize())
         for operation in (lambda: self.store.delete("team_1"), self.store.delete_all):

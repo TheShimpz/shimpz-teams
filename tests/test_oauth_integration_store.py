@@ -1,7 +1,6 @@
 import hashlib
 import json
 import os
-import stat
 import tempfile
 import threading
 import unittest
@@ -13,6 +12,7 @@ from unittest import mock
 
 from integrations import store as integration_store
 from integrations.http import OAuthTokenSet
+from tests import private_state_fixtures
 from tests.integration_store_fixtures import (
     ACCESS,
     ACCOUNT,
@@ -31,12 +31,9 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
         # Existing Local state holds exactly these bytes; a format change must be a deliberate contract change.
         with tempfile.TemporaryDirectory() as directory:
             store = open_store(Path(directory))
-            store.key_path.parent.mkdir(mode=0o700)
-            store.key_path.write_bytes(bytes(range(32)))
-            store.key_path.chmod(0o600)
-            nonces = iter((b"\x01" * 12, b"\x02" * 12))
+            private_state_fixtures.install_key(store.key_path)
             with (
-                mock.patch("os.urandom", side_effect=lambda _size: next(nonces)),
+                private_state_fixtures.pinned_nonces(b"\x01" * 12, b"\x02" * 12),
                 mock.patch.object(integration_store.private_state, "timestamp", return_value="2026-10-05T00:00:00Z"),
             ):
                 put(store)
@@ -85,10 +82,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             self.assertNotIn("access_token", state)
             self.assertNotIn("refresh_token", state)
             self.assertNotIn(ACCESS, repr(stored))
-            self.assertEqual(stat.S_IMODE(store.state_path.stat().st_mode), 0o600)
-            self.assertEqual(stat.S_IMODE(store.key_path.stat().st_mode), 0o600)
-            self.assertEqual(stat.S_IMODE(store.state_path.parent.stat().st_mode), 0o700)
-            self.assertEqual(stat.S_IMODE(store.key_path.parent.stat().st_mode), 0o700)
+            private_state_fixtures.assert_private_modes(self, store.state_path, store.key_path)
 
     def test_resolve_reuses_only_the_validated_state_shape(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

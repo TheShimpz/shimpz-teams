@@ -1,6 +1,5 @@
 import hashlib
 import json
-import stat
 import tempfile
 import unittest
 from dataclasses import replace
@@ -9,6 +8,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from action import stored_input
+from tests import private_state_fixtures
 
 TOKEN = "whatsapp-token-private-material-123456789"
 ORIGIN = "a" * 64
@@ -33,12 +33,9 @@ class StoredInputStoreTests(unittest.TestCase):
         # Existing Local state holds exactly these bytes; a format change must be a deliberate contract change.
         with tempfile.TemporaryDirectory() as directory:
             store = self._store(Path(directory))
-            store.key_path.parent.mkdir(mode=0o700)
-            store.key_path.write_bytes(bytes(range(32)))
-            store.key_path.chmod(0o600)
-            nonces = iter((b"\x01" * 12, b"\x02" * 12))
+            private_state_fixtures.install_key(store.key_path)
             with (
-                mock.patch("os.urandom", side_effect=lambda _size: next(nonces)),
+                private_state_fixtures.pinned_nonces(b"\x01" * 12, b"\x02" * 12),
                 mock.patch.object(stored_input.private_state, "timestamp", return_value="2026-10-05T00:00:00Z"),
             ):
                 store.seal("team_1", "whatsapp", "whatsapp-token", "password", "pässwörd ✓", ORIGIN)
@@ -81,10 +78,7 @@ class StoredInputStoreTests(unittest.TestCase):
             self.assertNotIn(TOKEN.encode(), encoded_state)
             self.assertNotIn(TOKEN.encode(), key)
             self.assertNotIn(b'"value"', encoded_state)
-            self.assertEqual(stat.S_IMODE(store.state_path.stat().st_mode), 0o600)
-            self.assertEqual(stat.S_IMODE(store.key_path.stat().st_mode), 0o600)
-            self.assertEqual(stat.S_IMODE(store.state_path.parent.stat().st_mode), 0o700)
-            self.assertEqual(stat.S_IMODE(store.key_path.parent.stat().st_mode), 0o700)
+            private_state_fixtures.assert_private_modes(self, store.state_path, store.key_path)
             inventory = store.inventory(
                 "team_1",
                 (SimpleNamespace(assistant_id="whatsapp", stored_inputs=DECLARATIONS),),
