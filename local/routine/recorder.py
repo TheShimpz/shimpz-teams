@@ -31,7 +31,6 @@ from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import phrase
 from protocol.http.v1 import routine_context as http_routine_context
 from protocol.http.v1 import routine_proposal as http_routine_proposal
-from routine import compose as routine_compose
 from routine import pin as routine_pin
 from routine import recording as routine_recording
 from routine import trace
@@ -300,7 +299,7 @@ def stated_schedule(span: Span | None) -> dict[str, object] | None:
 
 def stated_output(span: Span | None) -> str | None:
     """The one output mode the span's person states, as Team will record it, for the Brain's description; else None."""
-    return None if span is None else routine_compose.stated_output(span.sends)
+    return None if span is None else routine_recording.stated_output(span.sends)
 
 
 def routine_mode(span: Span | None) -> bool:

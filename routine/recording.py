@@ -37,7 +37,7 @@ cannot be read is asked, never guessed.
 
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from protocol.http.v1 import payload as http_payload
@@ -78,13 +78,29 @@ def clarified_answer(message: str) -> tuple[str, str, str] | None:
     return None
 
 
-def stated_schedules(sends: Sequence[Send]) -> tuple[dict[str, object], ...]:
-    """Every schedule the latest authored segment stating any states; none when no segment does."""
-    latest: tuple[dict[str, object], ...] = ()
+def latest_reading[T](sends: Sequence[Send], read: Callable[[str], tuple[T, ...]]) -> tuple[T, ...]:
+    """Every reading of the latest authored segment that ``read`` finds any in; none when no segment has one."""
+    latest: tuple[T, ...] = ()
     for send in sends:
         for segment in send.person:
-            latest = phrase.stated(segment) or latest
+            latest = read(segment) or latest
     return latest
+
+
+def stated_schedules(sends: Sequence[Send]) -> tuple[dict[str, object], ...]:
+    """Every schedule the latest authored segment stating any states; none when no segment does."""
+    return latest_reading(sends, phrase.stated)
+
+
+def stated_outputs(sends: Sequence[Send]) -> tuple[str, ...]:
+    """Every output choice the latest authored segment stating one states; empty when none does."""
+    return latest_reading(sends, phrase.outputs)
+
+
+def stated_output(sends: Sequence[Send]) -> str | None:
+    """The one output choice the latest authored segment stating one states, or None."""
+    latest = stated_outputs(sends)
+    return latest[0] if len(latest) == 1 else None
 
 
 def zone(sends: Sequence[Send]) -> tuple[str, str]:
