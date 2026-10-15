@@ -196,12 +196,11 @@ def seal_stored_input_answer(
         raise human_response_mismatch() from exc
     except action_stored_input.StoredInputStoreError as exc:
         raise stored_input_unavailable() from exc
-    local_audit.record_request(
-        "assistant-action",
-        result="ok",
-        team_id=team_id,
-        assistant=requirement.assistant_id,
-        detail=f"stored-input-sealed:{requirement.action_id}:{submission.stored_input}",
+    local_audit.record_action(
+        "ok",
+        team_id,
+        requirement.assistant_id,
+        f"stored-input-sealed:{requirement.action_id}:{submission.stored_input}",
     )
 
 

@@ -205,13 +205,6 @@ class AssistantLifecycle:
     _network = local_egress.team_network
 
 
-def _audit_action(result: str, team_id: str, assistant_id: str, detail: str) -> None:
-    """One direct Action invocation's metadata-only audit record."""
-    local_audit.record_request(
-        "assistant-action", result=result, team_id=team_id, assistant=assistant_id, detail=detail
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class LocalControllerDependencies:
     inference_store: inference_config.InferenceConfigStore | None = None
@@ -620,7 +613,7 @@ class LocalController:
                 ),
             )
             files = self._action_files(team_id, action_spec, private, safe_payload)
-            _audit_action("ok", team_id, assistant_id, f"started:{action}")
+            local_audit.record_action("ok", team_id, assistant_id, f"started:{action}")
             rpc_payload = {
                 "input": safe_payload,
                 "stored_inputs": tuple(private.stored_inputs),
@@ -635,15 +628,15 @@ class LocalController:
         try:
             raw_result = self.assistant_lifecycle._rpc(container, action, rpc_payload, broker)
         except ApiProblem:
-            _audit_action("error", team_id, assistant_id, f"failed:{action}")
+            local_audit.record_action("error", team_id, assistant_id, f"failed:{action}")
             if sent is not None:
                 # The exchange failed, so whether the workload received the bytes is unknown.
-                _audit_action(
+                local_audit.record_action(
                     "error", team_id, assistant_id, f"file-delivery-unconfirmed:{action}:{sent.id}:{sent.size}"
                 )
             raise
         if sent is not None:
-            _audit_action("ok", team_id, assistant_id, f"file-delivered:{action}:{sent.id}:{sent.size}")
+            local_audit.record_action("ok", team_id, assistant_id, f"file-delivered:{action}:{sent.id}:{sent.size}")
         projected = local_chat_execution.project_invocation(
             self.assistant_stored_inputs,
             local_chat_execution.Invocation(team_id, assistant_id, action, action_spec, spec),
@@ -651,7 +644,7 @@ class LocalController:
             private,
             validate_action_payload,
         )
-        _audit_action("ok", team_id, assistant_id, f"completed:{action}")
+        local_audit.record_action("ok", team_id, assistant_id, f"completed:{action}")
         return {"assistant": assistant_id, "action": action, "result": projected}
 
     def _provider_broker(

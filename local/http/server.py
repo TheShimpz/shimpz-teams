@@ -271,13 +271,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
         try:
             return self.server.controller.invoke(team_id, assistant_id, action, self.body())
         except action_human.HumanRequestSuspensionError as exc:
-            local_audit.record_request(
-                "assistant-action",
-                result="denied",
-                team_id=team_id,
-                assistant=assistant_id,
-                detail=f"human-request-required:{action}",
-            )
+            local_audit.record_action("denied", team_id, assistant_id, f"human-request-required:{action}")
             raise ApiProblem(
                 HTTPStatus.CONFLICT,
                 "the Action asks a person to answer, which only a Team chat can collect",

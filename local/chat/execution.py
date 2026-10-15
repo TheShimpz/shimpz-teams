@@ -107,13 +107,7 @@ def project_invocation(
         action_execution.RpcInvalidResultError,
     ) as exc:
         reason, message, code = next(row[1:] for row in _REFUSED_PROJECTIONS if isinstance(exc, row[0]))
-        local_audit.record_request(
-            "assistant-action",
-            result="error",
-            team_id=invocation.team_id,
-            assistant=invocation.assistant_id,
-            detail=f"{reason}:{invocation.action}",
-        )
+        local_audit.record_action("error", invocation.team_id, invocation.assistant_id, f"{reason}:{invocation.action}")
         # A secret echo never travels as a cause; a handled failure keeps its sanitized diagnostic as one.
         cause = None if isinstance(exc, action_execution.RpcSecretExposureError) else exc
         raise ApiProblem(HTTPStatus.BAD_GATEWAY, message, code=code) from cause
@@ -126,13 +120,7 @@ def clear_rejected_stored_input(
     action_id: str,
     stored_input_id: str,
 ) -> NoReturn:
-    local_audit.record_request(
-        "assistant-action",
-        result="error",
-        team_id=team_id,
-        assistant=assistant_id,
-        detail=f"stored-input-rejected:{action_id}:{stored_input_id}",
-    )
+    local_audit.record_action("error", team_id, assistant_id, f"stored-input-rejected:{action_id}:{stored_input_id}")
     try:
         store.delete(team_id, assistant_id, stored_input_id)
     except action_stored_input.StoredInputStoreError as exc:
