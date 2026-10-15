@@ -196,7 +196,9 @@ for no run at all the recording is refused as `routine-step-budget`), which item
 targets `{value, label}`: `value` is the exact compact JSON text of the string or integer the input would take, so
 no client rounds a large integer, and `label` the item's name, or `null`), and work to run again
 (`routine-work-rerun`), for a value that no earlier result provides or a target the person chose instead. Only `routine-binding-ambiguous` has options, and only
-`routine-interval-over-budget` has a value. When the person's next send is Admin's composed answer to an ambiguous
+`routine-interval-over-budget` has a value. The schedule, over-budget, and output questions are the settings
+questions (`routine_proposal.SETTINGS_QUESTION_CODES`): an answer to one runs no work again unless it also changes the
+work. When the person's next send is Admin's composed answer to an ambiguous
 binding and its latest answer is exactly one target's JSON text that states no schedule, Team records again with the
 request's stored intent without asking the Brain, and its reply is empty. Every other answer goes to the Brain, which
 records again with a description that says it; an output answer runs no Action again, so the span's latest work stays

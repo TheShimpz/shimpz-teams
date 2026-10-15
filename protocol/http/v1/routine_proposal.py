@@ -90,6 +90,11 @@ QUESTION_CODES = (
     "routine-binding-ambiguous",
     "routine-work-rerun",
 )
+# The questions about how often the Routine runs and what each run does with its result, never about its work: an
+# answer to one runs no work again unless it also changes the work.
+SETTINGS_QUESTION_CODES = frozenset(
+    {"routine-schedule-unstated", "routine-interval-over-budget", "routine-output-unstated"}
+)
 MAX_QUESTION_OPTIONS = 8
 MAX_QUESTION_OPTION_CHARS = 120
 
