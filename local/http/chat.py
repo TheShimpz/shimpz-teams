@@ -43,7 +43,7 @@ def _status(payload: dict[str, object]) -> HTTPStatus:
 
 
 def _start(handler, team_id: str, progress: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
-    provider, api_key = handler._model_credential_headers()
+    provider, api_key = handler.model_credential_headers()
     body = handler._body(max_bytes=MAX_CHAT_BODY_BYTES)
     payload = handler.server.controller.chat_turn_service.chat(team_id, body, provider, api_key, progress)
     return _status(payload), payload
@@ -57,7 +57,7 @@ def _submit(
     handler, operation: str, team_id: str, progress: chat_progress.Reporter
 ) -> tuple[HTTPStatus, dict[str, object]]:
     resume = getattr(handler.server.controller.chat_turn_service, _SUBMISSIONS[operation])
-    provider, api_key = handler._model_credential_headers()
+    provider, api_key = handler.model_credential_headers()
     payload = resume(team_id, handler._body(max_bytes=BODY_LIMITS[operation]), provider, api_key, progress)
     return _status(payload), payload
 
@@ -75,14 +75,14 @@ def _stop(handler, team_id: str) -> dict[str, object]:
 
 
 def _capability_plan(handler, team_id: str) -> dict[str, object]:
-    provider, api_key = handler._model_credential_headers()
+    provider, api_key = handler.model_credential_headers()
     body = handler._body(max_bytes=BODY_LIMITS["chat-capability-plan"])
     return handler.server.controller.chat_turn_service.capability_plan(team_id, body, provider, api_key)
 
 
 def _intent_route(handler, team_id: str) -> dict[str, object]:
-    provider, api_key = handler._model_credential_headers()
-    decision_key = handler._decision_key("chat-intent-route")
+    provider, api_key = handler.model_credential_headers()
+    decision_key = handler.decision_key("chat-intent-route")
     body = handler._body(max_bytes=BODY_LIMITS["chat-intent-route"])
     return handler.server.controller.chat_turn_service.intent_route(team_id, body, provider, api_key, decision_key)
 

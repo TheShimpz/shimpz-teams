@@ -579,7 +579,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         )
         handler = object.__new__(local_app.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=chat_turn_service))
-        handler._model_credential_headers = lambda: ("openai", "test-api-key")
+        handler.model_credential_headers = lambda: ("openai", "test-api-key")
         handler._body = lambda **_kwargs: {"challenge_id": "a" * 32}
 
         self.assertEqual(

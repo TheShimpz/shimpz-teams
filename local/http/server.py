@@ -222,12 +222,12 @@ class Handler(http_deadline.DeadlineRequestHandler):
             )
         return body["image_id"]
 
-    def _decision_key(self, operation: str) -> str | None:
+    def decision_key(self, operation: str) -> str | None:
         return validate_decision_credential_header(
             self.headers.get_all("X-Shimpz-Decision-Api-Key", failobj=[]), operation
         )
 
-    def _model_credential_headers(self) -> tuple[str, str]:
+    def model_credential_headers(self) -> tuple[str, str]:
         return validate_model_credential_headers(
             self.headers.get_all("X-Shimpz-Model-Provider", failobj=[]),
             self.headers.get_all("X-Shimpz-Model-Api-Key", failobj=[]),
@@ -258,7 +258,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
     def _model_binding(self, operation: str) -> dict[str, str] | None:
         if operation not in MODEL_BOUND_OPERATIONS:
             return None
-        return credential_binding(*self._model_credential_headers())
+        return credential_binding(*self.model_credential_headers())
 
     def _route(self, route: strict_http.ControllerRouteMatch) -> Result:
         """Dispatch one resolved, authorized operation; the route table and this operation table name the same set."""
@@ -289,7 +289,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
         parts, route = self._resolved_route()
         request_audit.operation = route.operation
         self._response_limit = _RESPONSE_LIMITS.get(route.operation, MAX_API_RESPONSE_BYTES)
-        decision = decision_binding(self._decision_key(route.operation))
+        decision = decision_binding(self.decision_key(route.operation))
         if route.operation in _MACHINE_ONLY_OPERATIONS:
             self._capture_body(route.operation)
             request_audit.machine()

@@ -28,7 +28,7 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
         )
         handler = object.__new__(server.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=service))
-        handler._model_credential_headers = lambda: ("openai", "test-api-key")
+        handler.model_credential_headers = lambda: ("openai", "test-api-key")
         handler._body = lambda **_kwargs: {
             "challenge_id": "a" * 32,
             "decision": "submit",

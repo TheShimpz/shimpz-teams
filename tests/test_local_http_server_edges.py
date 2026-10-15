@@ -322,7 +322,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
 
     def test_chat_route_variants_and_validation(self) -> None:
         handler = self.handler(controller=self.controller())
-        handler._model_credential_headers = mock.Mock(return_value=("openai", "key"))
+        handler.model_credential_headers = mock.Mock(return_value=("openai", "key"))
         handler._body = mock.Mock(return_value={})
         for operation, pending in (
             ("chat-integration-pending", {"pending": "integration"}),
@@ -406,7 +406,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler._install_body = mock.Mock(return_value=("assistant", "sha256:" + "a" * 64))
         handler._local_install_body = mock.Mock(return_value="sha256:" + "b" * 64)
         handler._body = mock.Mock(return_value={"input": "ok"})
-        handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
+        handler.model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         cases = (
             ("assistant-list", {"team_id": "team_1"}),
             ("assistant-registry", {"team_id": "team_1"}),
@@ -495,7 +495,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler = self.handler(controller=controller)
         exact_body = {"objective": "Configure DNS.", "candidates": []}
         handler._body = mock.Mock(return_value=exact_body)
-        handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
+        handler.model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         handler.command = "POST"
 
         result = handler._route(self.route("chat-capability-plan", team_id="team_1"))
@@ -522,7 +522,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             "locale": "en",
         }
         handler._body = mock.Mock(return_value=exact_body)
-        handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
+        handler.model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         handler.command = "POST"
 
         result = handler._route(self.route("chat-intent-route", team_id="team_1"))
