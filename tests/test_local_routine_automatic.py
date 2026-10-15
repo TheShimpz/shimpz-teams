@@ -204,6 +204,27 @@ class RunBalanceTests(BalanceCase):
         self.assertEqual((active, held.active_seconds_left), (5, 5))
         self.assertTrue(0 < left <= 5)
 
+    def test_verification_time_leaves_the_held_runs_balance(self) -> None:
+        assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
+        elapsed = [0.0]
+        real_verify = routine_recovery.verify
+
+        def slow(service, team_id, incident_id, token, protected=None):
+            elapsed[0] = 3.0
+            return real_verify(service, team_id, incident_id, token, protected)
+
+        with tempfile.TemporaryDirectory() as directory:
+            service, _value, run_id = self.held_with_balance(directory, 50, assistant)
+            run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
+            with (
+                mock.patch.object(routine_recovery, "verify", side_effect=slow),
+                mock.patch.object(routine_recovery, "_clock", side_effect=lambda: 1000.0 + elapsed[0]),
+            ):
+                self.assertEqual(routine_recovery.automatic(service, run), "held")
+            held = routine_hold.incident(self.state(service), run_id)
+        # A person's later resume of the held run starts from what verification left.
+        self.assertEqual(held.active_seconds_left, 47)
+
     def test_a_run_with_no_time_left_is_exhausted_before_any_work(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:

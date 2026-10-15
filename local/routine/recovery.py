@@ -506,6 +506,10 @@ def _episode(self, run: routine_run.LeasedRun, episode: _Episode) -> bool:
 
     # Nothing is dispatched once the episode's time has run out, not even the verifier.
     verdict = "exhausted" if expired() else verify(self, team_id, incident_id, run.token, run.protected)
+    # Verification runs outside any segment: its whole seconds leave the run's balance, as a segment's do, so neither
+    # the continuation nor a person's later resume reuses them.
+    spent = int(_clock() - episode.started)
+    routine_state.update(self, team_id, lambda state: (routine_hold.spend_incident(state, incident_id, spent), None))
     if _stopped(self, run.token, episode):
         # A person's Stop is no failure and outranks anything later: a deadline passing afterwards is not exhaustion,
         # nothing is published, and the incident stays for the card.

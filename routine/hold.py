@@ -59,6 +59,14 @@ def incident(state: record.TeamRoutines, incident_id: str) -> record.Run:
     raise record.RoutineStateError("incident-not-found")
 
 
+def spend_incident(state: record.TeamRoutines, incident_id: str, seconds: int) -> record.TeamRoutines:
+    """Charge time a held run's recovery spent outside any segment, such as verification, to its active time left."""
+    value = incident(state, incident_id)
+    return record.replace_run(
+        state, dataclasses.replace(value, active_seconds_left=max(0, value.active_seconds_left - seconds))
+    )
+
+
 def reopen_incident(
     state: record.TeamRoutines, incident_id: str, now: int, generation: str
 ) -> tuple[record.TeamRoutines, str]:
