@@ -1,4 +1,4 @@
-"""A recorded Routine's card and its one-tap confirmation, the only standing authority (ADR-0101 section 5).
+"""A recorded Routine's card and its one-tap confirmation, the only standing authority (ADR-0101).
 
 When a recording turn ends with the chat agent's ``record`` call, Team builds the plan from its own trace of that turn
 (``routine/recording.py``), admits it against the Team's exact current contracts and budgets, and keeps a proposal in

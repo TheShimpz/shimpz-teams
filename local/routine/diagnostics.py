@@ -520,7 +520,7 @@ def evidence(exc: BaseException, protection: object) -> tuple[dict[str, object] 
 
     Only Team's own admitted failure document or a closed transport condition is ever kept, never a message. A failure
     is re-redacted against the run's whole ``protection`` before anything keeps it, and after the run lost its
-    protection only its status is kept (ADR-0101 section 6.2).
+    protection only its status is kept (ADR-0101).
     """
     failure = action_failure.failure_of(exc)
     if failure is not None:

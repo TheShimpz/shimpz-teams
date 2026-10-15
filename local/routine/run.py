@@ -316,7 +316,7 @@ def _withheld(request: dict[str, object], protection: trace.Protection) -> set[s
 def public_challenge(descriptor: dict[str, object], protection: trace.Protection) -> dict[str, object] | None:
     """A frozen run's human request as the person may see it, or None when nothing shown can hide what it protects.
 
-    Only this public copy changes; the sealed request and its challenge stay exact (ADR-0101 section 6). A copy
+    Only this public copy changes; the sealed request and its challenge stay exact (ADR-0101). A copy
     parameter holding a protected value is withheld, as is every text parameter once the run lost its protection, and
     the rendered copy shows ``[redacted]`` in its place; the request's fingerprint is that of what is shown. A value
     still shown anywhere else, such as an option's value, or copy the marker pushes past its bound, cannot be shown;
@@ -352,7 +352,7 @@ def _freeze(self, run: LeasedRun, pending: PendingLocalChat, segment, step: int)
     team_id, run_id = run.team_id, run.run_id
     frozen = _frozen_request(segment)
     # A request the person would be shown is checked against the run's protection now, while it is known: one with no
-    # public copy hiding every protected value is never shown (ADR-0101 section 6).
+    # public copy hiding every protected value is never shown (ADR-0101).
     if frozen is None or _unshowable(self, run_id, segment):
         self._commit_chat_terminal(team_id, run.token)
         return end_run(self, team_id, run_id, "failed", {"code": "request-unavailable"})

@@ -318,7 +318,7 @@ keeps its title after the Routine is renamed or deleted, and carries `usage` and
 no model, so it reports no tokens. A Routine outcome carries `usage` `null`, except `healthy`, which carries its runs'
 summed duration.
 `protection_lost` is true on a run's notice versions written after the run lost the protection of its secret values
-(ADR-0101 section 6.2), so nothing it produced afterwards was shown anywhere; it is always false on a Routine outcome.
+(ADR-0101), so nothing it produced afterwards was shown anywhere; it is always false on a Routine outcome.
 The Routine outcome `deleted` (detail `{}`) closes a Routine's timeline once its confirmed deletion completes.
 The Routine outcome `streak-paused` (detail `{failures}`, 1 to `routine.MAX_FAILURE_STREAK`) says its consecutive
 failed runs paused it, in the write that ended the run whose failure did.

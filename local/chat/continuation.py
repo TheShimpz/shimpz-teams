@@ -77,7 +77,7 @@ class PendingLocalChat:
     # Integration pause holds no batch.
     paused_batch: str | None = None
     # The memory-only recording a new turn may define a Routine from, by id; it carries no message and no secret, and
-    # a Team restart leaves it naming nothing (ADR-0101 section 4.1).
+    # a Team restart leaves it naming nothing (ADR-0101).
     recording: str | None = None
     # The model the turn's start ran on, of its provider, which every resume runs and is metered on; a Routine run,
     # which asks no model, carries none.

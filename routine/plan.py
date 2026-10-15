@@ -682,7 +682,7 @@ def output_safe(result: object, schema: object, protected: frozenset[str] = froz
     """The complete safe form of one validated result under its Action's reviewed output schema.
 
     It keeps every key, text, and number exactly as the result has them, apart from what it redacts: also every string
-    or key that holds a value the run protects (ADR-0101 section 6.2). A change is compared on the complete data;
+    or key that holds a value the run protects (ADR-0101). A change is compared on the complete data;
     escaping, shortening, and every cut belong to the shown form alone.
     """
     root = schema if isinstance(schema, dict) else {}

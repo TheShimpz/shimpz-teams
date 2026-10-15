@@ -1,4 +1,4 @@
-"""The cursor of one Routine run, without I/O (ADR-0092 sections 3 and 5, ADR-0101 section 6).
+"""The cursor of one Routine run, without I/O (ADR-0092 sections 3 and 5, ADR-0101).
 
 A cursor binds the Team incarnation, the Routine and its revision, the run, the exact plan (whose digest covers every
 step's complete pin), the run's one start instant, the current step, that step's logical ``operation_id``, attempts,
@@ -106,7 +106,7 @@ class Cursor:
     # The shown step's result as its notice shows it, and the keyed digest of its safe form, or None when no step
     # shown so far: {"step", "output", "digest"}; it outlives later steps, holds, and continuations.
     shown: dict[str, object] | None = None
-    # The Team boot the run's protection was bound in (ADR-0101 section 6.2), and whether it was lost; never regained.
+    # The Team boot the run's protection was bound in (ADR-0101), and whether it was lost; never regained.
     boot: str = ""
     protection_lost: bool = False
 
@@ -128,7 +128,7 @@ def start(plan: routine_plan.Plan, binding: Binding, started_at: int, boot: str)
 
 
 def lose_protection(cursor: Cursor) -> Cursor:
-    """Record that the run's protection was lost; it is never regained (ADR-0101 section 6.2)."""
+    """Record that the run's protection was lost; it is never regained (ADR-0101)."""
     return _checked(dataclasses.replace(cursor, protection_lost=True))
 
 

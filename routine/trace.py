@@ -24,7 +24,7 @@ MAX_OCCURRENCES = routine_plan.MAX_STEPS
 MAX_KEPT_BYTES = 256 * 1024
 # Every kept input and result of one recording span, together.
 MAX_TRACE_BYTES = 1024 * 1024
-# The protection set of one turn or run: past either bound it is lost, never evicted (ADR-0101 section 6.2).
+# The protection set of one turn or run: past either bound it is lost, never evicted (ADR-0101).
 MAX_PROTECTED_VALUES = 128
 MAX_PROTECTED_BYTES = 64 * 1024
 

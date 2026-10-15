@@ -189,7 +189,7 @@ def matches(value: object, pattern: re.Pattern[str]) -> bool:
     return isinstance(value, str) and pattern.fullmatch(value) is not None
 
 
-# Where one Action call stands in a run (ADR-0101 section 10): its step's 1-based position among its plan's steps.
+# Where one Action call stands in a run (ADR-0101): its step's 1-based position among its plan's steps.
 # Notices, incidents, freezes, cards, and run records use it.
 def _position(value: object, maximum: int = MAX_ROUTINE_STEPS) -> bool:
     return type(value) is int and 1 <= value <= maximum

@@ -88,7 +88,7 @@ class Routine:
     timezone_source: str = "browser"
     # Pausar: no dispatch until resumed; an unresolved incident still holds the Routine after that.
     paused: bool = False
-    # The person's authenticated confirmation of the card that defined this revision (ADR-0101 section 5.3):
+    # The person's authenticated confirmation of the card that defined this revision (ADR-0101):
     # {proposal_id, proposal_digest, principal, incarnation, confirmed_at}.
     confirmation: dict[str, object] | None = None
     # Every Action the Routine may call at its pin: {assistant, action, pin, read_only, stored_inputs}, sorted.
@@ -98,7 +98,7 @@ class Routine:
     # A continuous Routine's healthy runs rolled up into the notice of the minute starting at ``rollup_minute``.
     rollup_minute: int = 0
     rollup_runs: int = 0
-    # The summed usage of that minute's runs, which the rollup notice carries (ADR-0101 section 10).
+    # The summed usage of that minute's runs, which the rollup notice carries (ADR-0101).
     rollup_usage: dict[str, object] | None = None
     # A person's Rodar: when they asked for one fresh run of a fixed schedule, kept until a claim starts it, so neither
     # a cap nor a late scheduler turns it into a missed firing; 0 when none is pending. It never moves the cadence.

@@ -90,7 +90,7 @@ MAX_NOTICE_BATCH = 1024
 # largest notice, a completed run's shown output of at most MAX_OUTPUT_BYTES beside its plan summary, fits many times.
 MAX_NOTICE_BATCH_BYTES = 112 * 1024
 RUN_STATUSES = frozenset({"leased", "frozen", "held"})
-# A Routine's state (ADR-0101 section 5.5): it runs, or a person paused it.
+# A Routine's state (ADR-0101): it runs, or a person paused it.
 ROUTINE_STATES = ("active", "paused")
 LEASE_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 _INSTANT_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
@@ -190,7 +190,7 @@ def canonical_notice(value: object) -> dict[str, object] | None:
     Every version names the Routine as it was when Team wrote that version, so a row keeps its own title after the
     Routine is renamed or deleted. A run notice carries the run's usage; a Routine outcome carries none, except the
     healthy rollup, which carries its runs' summed duration. ``protection_lost`` says the run lost the protection of its
-    secret values, so nothing it produced after the loss was shown anywhere (ADR-0101 section 6.2); a Routine outcome
+    secret values, so nothing it produced after the loss was shown anywhere (ADR-0101); a Routine outcome
     never says so.
     """
     fields = {"team_id", "notice_id", "version", "routine_id", "name", "run_id", "outcome", "created_at"}

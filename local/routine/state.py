@@ -18,7 +18,7 @@ def load(service, team_id: str) -> record.TeamRoutines:
 def reconciled[T](
     service, team_id: str, change: Callable[[record.TeamRoutines], tuple[record.TeamRoutines, T]]
 ) -> Callable[[record.TeamRoutines], tuple[record.TeamRoutines, T]]:
-    """``change`` after every run that lost its protection is marked so, in the same write (ADR-0101 section 6).
+    """``change`` after every run that lost its protection is marked so, in the same write (ADR-0101).
 
     Every Routine state write goes through this one rule, so whatever ends a run (its worker, a person's Stop, denial,
     or deletion, or the watchdog) records the loss in that run's notice and shows nothing the run produced. It runs

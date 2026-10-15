@@ -61,7 +61,7 @@ def pending_chat_continuation(self, team_id: str, locale: str | None = None) -> 
 def _routine_outcome(self, response: _ResponseRequest, routine: object, body: dict):
     """A recording turn's ``record``: the write that keeps its card, and the terminal fields its reply carries.
 
-    The card is refused, never cut, when the whole terminal line would outgrow its bound (ADR-0101 section 5.2).
+    The card is refused, never cut, when the whole terminal line would outgrow its bound (ADR-0101).
     """
     write, fields = self._routine_record(response, routine)
     line = {"type": "terminal", "status": 200, "body": {**body, **fields}}
@@ -129,7 +129,7 @@ def segment_response(
         if routine is None:
             return self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal)), {}
         # A recorded Routine's card is kept with the reply, under the lifecycle lock and the Stop guard: when Stop wins,
-        # no card exists (ADR-0101 section 5.1).
+        # no card exists (ADR-0101).
         with self._lock(team_id):
             write, fields = _routine_outcome(self, response, routine, body)
             return self._commit_chat_terminal(team_id, token, lambda: (write(), save_knowledge(terminal))), fields

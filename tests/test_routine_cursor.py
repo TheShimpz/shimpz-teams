@@ -205,7 +205,7 @@ class FaultTests(unittest.TestCase):
 
 
 class ProtectionTests(unittest.TestCase):
-    """A run's protection is bound in its Team boot, and its loss is sealed (ADR-0101 section 6.2)."""
+    """A run's protection is bound in its Team boot, and its loss is sealed (ADR-0101)."""
 
     def setUp(self) -> None:
         self.plan = routine_plan.admit(_document(output=NONE), CONTRACTS)

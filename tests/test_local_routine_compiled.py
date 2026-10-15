@@ -264,7 +264,7 @@ class SelectorFailureTests(CompiledRunCase):
         return result, self.state(service), actions
 
     def test_an_input_no_read_only_result_resolves_fails_the_run_before_its_step(self) -> None:
-        # ADR-0101 section 6: a selector that matches nothing fails the run; read-only steps before it settle nothing.
+        # ADR-0101: a selector that matches nothing fails the run; read-only steps before it settle nothing.
         with tempfile.TemporaryDirectory() as directory:
             result, state, actions = self.run_with(directory, "/zones/9/id", True)
         self.assertEqual((result["status"], actions), ("failed", ["list-zones"]))

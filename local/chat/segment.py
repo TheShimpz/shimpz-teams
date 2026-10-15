@@ -80,7 +80,7 @@ class SegmentRequest:
     # A compiled Routine run (ADR-0092) runs in its own journal generation in the Team's current network,
     # and holds an uncertain batch for a human instead of abandoning it.
     routine: RoutineSegment | None = None
-    # The recording of a new logical chat turn that may define a Routine, by id (ADR-0101 section 4.1): only its start
+    # The recording of a new logical chat turn that may define a Routine, by id (ADR-0101): only its start
     # offers the Brain the Team's Routines and its Routine tool, and every segment of it keeps its Action calls.
     recording: str | None = None
     # The model a chat turn's start ran on; a continuation carries it, so every resume runs and is metered on it.
@@ -504,7 +504,7 @@ def _run_chat_segment_with_metadata(
         locale: str,
     ) -> action_challenges.HumanRequirement:
         scope = scopes[-1]
-        # A Routine run's card shows no argument: its values may be protected (ADR-0101 section 6).
+        # A Routine run's card shows no argument: its values may be protected (ADR-0101).
         return _human_requirement(
             self,
             scope.bindings,

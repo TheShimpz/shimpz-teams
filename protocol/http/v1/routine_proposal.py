@@ -13,7 +13,7 @@ else:  # The protocol verifier runs every module of this directory flat.
     import routine
 
 
-# The confirmation card of a recorded Routine (ADR-0101 section 5.2, amended 2026-10-15): the recording agent's
+# The confirmation card of a recorded Routine (ADR-0101, amended 2026-10-15): the recording agent's
 # description, which states the schedule and the output in the person's own words, and every step with its effect and
 # every literal complete and escaped, every source and selector described completely. It is the one thing a person
 # confirms, so nothing in it is paged or cut; a recording whose card does not fit is refused.

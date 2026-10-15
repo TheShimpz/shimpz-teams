@@ -228,7 +228,7 @@ def canonical_diagnostics(value: object) -> dict[str, object] | None:
     return {**value, "diagnostics": admitted} if unique and keys == sorted(keys) else None
 
 
-# What one run did, step by step (ADR-0092 amendment, 2026-10-05, scale; ADR-0101 section 7): each replay step's
+# What one run did, step by step (ADR-0092 amendment, 2026-10-05, scale; ADR-0101): each replay step's
 # status, attempt, duration, and inputs as redacted previews (null when a source's secrecy is unknown). A missing step
 # is ``not_run`` only when the run's terminal record proves it, else ``unavailable``. Pages bind the run's revision and
 # one records snapshot.
