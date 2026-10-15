@@ -46,7 +46,6 @@ from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
 from routine import trace
 
-MODES = ("show", "changes", "none")
 MIN_REF_STRING = 6
 MIN_REF_INTEGER_DIGITS = 6
 MIN_SELECTOR_CHARS = 2
@@ -108,16 +107,6 @@ class RecordingError(ValueError):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
-
-
-@dataclass(frozen=True, slots=True)
-class Recording:
-    """How each run handles its result: the output mode.
-
-    A mode of None is the person's to state: Team reads it from their own words, and asks when they state none.
-    """
-
-    mode: str | None
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,9 +6,11 @@ from that one occurrence, and anything else is a literal the assistant chose; wh
 guessed.
 """
 
+import contextlib
 import datetime
 import json
 import unittest
+from unittest import mock
 
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine_proposal as http_routine_proposal
@@ -113,16 +115,22 @@ def _then_hourly(text: str) -> str:
     return http_payload.compose_clarified(text, "Com que frequência?", EVERY_HOUR, "pt")
 
 
-def _record(*sends: recording.Send, mode: str = "show", **options) -> recording.Recorded | recording.Question:
-    """Record a span; options are ``protection``, ``contracts``, ``asked``, and the rest."""
-    return routine_compose.record(
-        sends,
-        recording.Recording(mode),
-        options.get("protection") or trace.Protection(),
-        options.get("contracts", CONTRACTS),
-        asked=options.get("asked"),
-        existing=options.get("existing"),
+def _record(*sends: recording.Send, mode: str | None = "show", **options) -> recording.Recorded | recording.Question:
+    """Record a span; options are ``protection``, ``contracts``, ``asked``, and the rest.
+
+    A ``mode`` stands for the output the person stated; None reads it from the sends' own words.
+    """
+    stated = (
+        contextlib.nullcontext() if mode is None else mock.patch.object(routine_compose, "_output", return_value=mode)
     )
+    with stated:
+        return routine_compose.record(
+            sends,
+            options.get("protection") or trace.Protection(),
+            options.get("contracts", CONTRACTS),
+            asked=options.get("asked"),
+            existing=options.get("existing"),
+        )
 
 
 def _recorded(*sends: recording.Send, **options) -> recording.Recorded:
@@ -637,10 +645,6 @@ class BoundaryTests(unittest.TestCase):
 
     def test_a_recording_needs_a_call(self) -> None:
         self.assertEqual(_code(self, lambda: _record(_send())), "routine-recording-empty")
-
-    def test_the_output_mode_is_closed(self) -> None:
-        send = _send(("reports/fetch", {}, {}))
-        self.assertEqual(_code(self, lambda: _record(send, mode="chain")), "routine-recording-invalid")
 
     def test_a_drifted_or_unknown_contract_fails_closed(self) -> None:
         drifted = {

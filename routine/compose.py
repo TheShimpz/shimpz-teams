@@ -17,7 +17,6 @@ from routine import trace
 
 def record(
     sends: Sequence[routine_recording.Send],
-    recording: routine_recording.Recording,
     protection: trace.Protection,
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract],
     *,
@@ -31,12 +30,11 @@ def record(
     refuses ``routine-record-again`` instead of asking again, whatever was asked between. No card ever records work
     that calls an Action a person's choice is about without sending the target they chose.
     """
-    _admit(recording, contracts)
     if protection.lost:
         raise routine_recording.RecordingError("routine-recording-unavailable")
     # The person's output, or show while the work is planned and its own questions come first; unstated, it is asked.
-    stated = recording.mode or _output(sends, existing)
-    recording = dataclasses.replace(recording, mode=_OUTPUT_MODES.get(stated or "show", stated))
+    stated = _output(sends, existing)
+    mode = _OUTPUT_MODES[stated or "show"]
     calls = routine_recording._calls(sends, contracts)
     texts = [line for send in sends for line in (*routine_recording._lines(send.person), *send.window)]
     latest = [call for call in calls if call.send == calls[-1].send] if calls else []
@@ -50,10 +48,10 @@ def record(
     repaired = repair_from is not None and any(send.occurrences for send in sends[repair_from:])
     try:
         if not latest and existing is not None:
-            kept = _kept(context, recording, existing)
+            kept = _kept(context, mode, existing)
         else:
             kept = None
-            document, origins = _plan(context, recording, work)
+            document, origins = _plan(context, mode, work)
             when = _schedule(sends, existing)
         planned = kept.document if kept is not None else document
         chained_from = asked.chained_from if asked is not None else None
@@ -126,13 +124,6 @@ def _asked(
     return dataclasses.replace(
         question, pending=pending, manifest=manifest, chosen=tuple(kept.values()), chained_from=chained_from
     )
-
-
-def _admit(
-    recording: routine_recording.Recording, contracts: Mapping[tuple[str, str], routine_plan.ActionContract]
-) -> None:
-    if recording.mode not in (*routine_recording.MODES, None):
-        raise routine_recording.RecordingError("routine-recording-invalid")
 
 
 def _permitted(
@@ -217,7 +208,7 @@ def _output(sends: Sequence[routine_recording.Send], existing: routine_recording
 
 
 def _kept(
-    context: routine_recording._Context, recording: routine_recording.Recording, existing: routine_recording.Existing
+    context: routine_recording._Context, mode: str, existing: routine_recording.Existing
 ) -> routine_recording.Recorded:
     """A replacement that ran no Action: the replaced plan's steps exactly, on a new schedule, zone, or output."""
     steps = [dict(step) for step in existing.plan["steps"]]
@@ -229,7 +220,7 @@ def _kept(
         step["id"]: {member: _kept_origin(source, context.known) for member, source in step["input"].items()}
         for step in steps
     }
-    document = _document(steps, steps[-1]["id"], recording)
+    document = _document(steps, steps[-1]["id"], mode)
     when = _schedule(context.sends, existing)
     timezone, source = context.zone
     document["timezone"] = timezone
@@ -237,17 +228,12 @@ def _kept(
     return routine_recording.Recorded(document, origins, _permitted(actions, context.contracts), when, timezone, source)
 
 
-def _document(
-    steps: list[dict[str, object]], last: str | None, recording: routine_recording.Recording
-) -> dict[str, object]:
+def _document(steps: list[dict[str, object]], last: str | None, mode: str) -> dict[str, object]:
     return {
         "version": routine_plan.VERSION,
         "timezone": http_routine.CONVENTIONAL_TIMEZONE,
         "steps": steps,
-        "output": {
-            "mode": recording.mode,
-            "step": last if recording.mode in routine_plan.SHOWN_MODES else None,
-        },
+        "output": {"mode": mode, "step": last if mode in routine_plan.SHOWN_MODES else None},
     }
 
 
@@ -261,7 +247,7 @@ def _kept_origin(source: Mapping[str, object], known: routine_recording._Known) 
 
 
 def _plan(
-    context: routine_recording._Context, recording: routine_recording.Recording, work: list[routine_recording._Call]
+    context: routine_recording._Context, mode: str, work: list[routine_recording._Call]
 ) -> tuple[dict[str, object], dict]:
     """The plan document and each step's input origins, from the work and every source it needs."""
     if not work:
@@ -276,7 +262,7 @@ def _plan(
     work_nodes = {context.classes[call.index] for call in work}
     shown = next((names[node] for node in reversed(order) if node in work_nodes), None)
     _verify(context, nodes, steps, names)
-    return _document(steps, shown, recording), origins
+    return _document(steps, shown, mode), origins
 
 
 def _closure(

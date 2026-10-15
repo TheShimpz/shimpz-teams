@@ -227,7 +227,6 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
 
     What each run does with its result is the person's to state, as its schedule is.
     """
-    choice = routine_recording.Recording(None)
     kept = None
     if existing is not None:
         kept = routine_recording.Existing(existing.plan, existing.schedule)
@@ -240,7 +239,6 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
     try:
         return routine_compose.record(
             recording.sends,
-            choice,
             recording.protection,
             contracts,
             asked=asked,
