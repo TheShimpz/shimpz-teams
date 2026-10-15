@@ -40,22 +40,19 @@ def _slot_input(
     given: tuple[str, object],
     chosen: Sequence[routine_recording.Pending],
 ) -> tuple[str, str, object]:
-    """What a rerun must send for one input member: the chosen target, a date, a fresh value, or this exact one."""
+    """What a rerun must send for one input member: the chosen target, a date, a fresh value, or this exact one.
+
+    It names each value by the recorder's own classifier (``provenance.origin``): a value the recorder copies from a
+    result, or asks about as an identifier no result holds, needs fresh provenance; the run date stays the run date;
+    anything else, a dated text included, is kept exactly as the recorder keeps it.
+    """
     member, value = given
     binding = routine_provenance._binding_for(chosen, (call, member), value)
     if binding is not None:
         return member, "value", binding.chosen
-    # As the recorder classifies it: what the person named stays exactly that, before any date is the run date.
-    if context.known.names(value):
-        return member, "value", value
-    clock = routine_provenance._clock(context, call, value)
-    if clock is not None:
-        # The recorder's own decision: the run date, or the UTC date of another local day as a fixed literal.
-        return (member, "clock", None) if clock[1] == "clock" else (member, "value", value)
-    # A value the recorder copies from a result, or asks about as an unsourced identifier, needs fresh provenance;
-    # free text or a container no result holds stays the assistant's own literal, as the recorder keeps it.
-    if routine_provenance._referable(value) and (
-        routine_provenance._identifier(value) or routine_provenance._holders(context, call, value)
-    ):
+    kind = routine_provenance.origin(context, (call, member), value)
+    if kind == "clock":
+        return member, "clock", None
+    if kind in ("sourced", "unsourced"):
         return member, "fresh", value
     return member, "value", value

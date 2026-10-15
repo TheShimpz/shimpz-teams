@@ -185,6 +185,14 @@ class ManifestTests(unittest.TestCase):
         named = _record(_send(dated, message="Relatório de 2026-10-05 a cada hora")).manifest.slots[0].inputs
         self.assertEqual(named, (("day", "value", "2026-10-05"), ("id", "fresh", "remembered-1")))
 
+    def test_a_one_word_dated_text_is_named_as_the_recorder_keeps_it(self) -> None:
+        # The recorder writes its date for each run; work run again sends it as it is, never a value to look up.
+        dated = ("reports/fetch", {"name": "relatorio_2026-10-05", "id": "remembered-1"}, {})
+        inputs = _record(_send(dated, message="relatório a cada hora")).manifest.slots[0].inputs
+        self.assertEqual(inputs, (("id", "fresh", "remembered-1"), ("name", "value", "relatorio_2026-10-05")))
+        recorded = _recorded(_send(("reports/post", {"text": "relatorio_2026-10-05"}, {})))
+        self.assertEqual((_input(recorded)["text"]["kind"], recorded.origins["s1"]["text"]), ("run_clock", "clock"))
+
     def test_the_utc_date_of_another_local_day_is_named_as_that_literal(self) -> None:
         # At 01:00 UTC it is still the day before in São Paulo, so the recorder keeps the UTC date as a literal.
         early = int(datetime.datetime(2026, 10, 5, 1, tzinfo=datetime.UTC).timestamp())

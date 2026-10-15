@@ -37,23 +37,51 @@ def _classify_call(context: routine_recording._Context, call: routine_recording.
     context.inputs[call.index] = (inputs, origins)
 
 
+# Where one recorded input value comes from (``origin``): the person named it; it is the run date in the Routine's
+# zone, or the UTC date of another local day, a fixed literal; the assistant chose it; a text whose dates each run
+# writes; a value one earlier result holds; or an identifier no result holds, which only work run again can source.
+
+
+def origin(
+    context: routine_recording._Context,
+    input_: tuple[routine_recording._Call, str],
+    value: object,
+    pending: routine_recording.Pending | None = None,
+) -> str:
+    """Where one input value comes from, by the first of the recording's rules that applies (ADR-0101).
+
+    It is the one classifier the recorder plans from and a rerun names its work by, so the two never disagree.
+    ``pending`` is the target choice this value belongs to, if any, which only the person's exact answer names.
+    """
+    call, _member = input_
+    if _person_named(context, pending, value):
+        return "request"
+    dated = _date_origin(context, call, value)
+    if dated is not None:
+        return dated
+    if not _referable(value):
+        return "assistant"
+    if _holders(context, call, value):
+        return "sourced"
+    if isinstance(value, str) and _dated(context, call, value) is not None:
+        return "template"
+    return "unsourced" if _identifier(value) else "assistant"
+
+
 def _classified(
     context: routine_recording._Context, input_: tuple[routine_recording._Call, str], value: object
 ) -> tuple[dict[str, object], str]:
-    call, _member = input_
     pending = _binding_for(_bindings(context), input_, value)
-    if _person_named(context, pending, value):
+    kind = origin(context, input_, value, pending)
+    if kind == "request":
         return {"kind": "literal", "value": value}, "request"
-    clock = _clock(context, call, value)
-    if clock is not None:
-        return clock
-    if not _referable(value):
-        return {"kind": "literal", "value": value}, "assistant"
-    if isinstance(value, str) and not _holders(context, call, value):
-        dated = _dated(context, call, value)
-        if dated is not None:
-            return dated
-    return _bound(context, input_, value, pending)
+    if kind == "clock":
+        return {"kind": "run_clock", "format": "date"}, "clock"
+    if kind == "template":
+        return _dated(context, input_[0], value)
+    if kind in ("sourced", "unsourced"):
+        return _bound(context, input_, value, pending)
+    return {"kind": "literal", "value": value}, "assistant"
 
 
 def _person_named(
@@ -75,7 +103,7 @@ def _bound(
     value: object,
     pending: routine_recording.Pending | None,
 ) -> tuple[dict[str, object], str]:
-    """A referable value's source, or the assistant's own; the question about it again until the person answers it.
+    """A referable value's source, or the question about it again until the person answers it.
 
     Once the person chose another of the targets of the choice this value belongs to, the work must run again with it.
     """
@@ -87,27 +115,23 @@ def _bound(
                 routine_recording.Question(routine_recording.RERUN, pending=pending)
             ) from asking
         raise
-    if source is None:
-        return {"kind": "literal", "value": value}, "assistant"
     _unexposed(source, context.known)
     return source, "selector" if "where" in source else "step"
 
 
-def _clock(
-    context: routine_recording._Context, call: routine_recording._Call, value: object
-) -> tuple[dict[str, object], str] | None:
-    """The run date, when the value is the date its own send started on in the Routine's zone, as each run reads it.
+def _date_origin(context: routine_recording._Context, call: routine_recording._Call, value: object) -> str | None:
+    """``clock`` when the value is the date its own send started on in the Routine's zone, which each run reads there.
 
-    The UTC date of a send that started on another date in that zone is the assistant's fixed literal; anything else
-    is no date of the send, None.
+    The UTC date of a send that started on another date in that zone is the assistant's fixed literal,
+    ``utc_literal``; anything else is no date of the send, None.
     """
     started = context.sends[call.send].started_at
     if not isinstance(value, str):
         return None
     if value == _date_at(started, context.zone[0]).isoformat():
-        return {"kind": "run_clock", "format": "date"}, "clock"
+        return "clock"
     if value == _date_at(started, "UTC").isoformat():
-        return {"kind": "literal", "value": value}, "assistant"
+        return "utc_literal"
     return None
 
 
@@ -287,18 +311,15 @@ def _selection(context: routine_recording._Context, pending: routine_recording.P
 
 def _sourced(
     context: routine_recording._Context, input_: tuple[routine_recording._Call, str], value: object
-) -> dict[str, object] | None:
-    """The one source occurrence and position holding ``value``, or None for text nothing holds; else it asks.
+) -> dict[str, object]:
+    """The one source occurrence and position holding ``value``; else it asks.
 
-    An identifier nothing returned is asked about, since freezing one would replay a remembered id; free text or a
-    container the assistant wrote and nothing returned is its own choice, the same on every run.
+    An identifier nothing returned is asked about, since freezing one would replay a remembered id.
     """
     consumer, _member = input_
     found = _holders(context, consumer, value)
     if not found:
-        if not _identifier(value):
-            return None
-        # Only work run again finds where it comes from.
+        # An identifier no result holds: only work run again finds where it comes from.
         raise routine_recording._AskError(routine_recording.Question(routine_recording.RERUN))
     if len(found) > 1:
         found = _from_work(context, consumer, found)
