@@ -531,13 +531,13 @@ model, never the original: Team determines the kind from the bytes, never reads 
 ceiling, and decodes it only in the networkless preparation helper, so only a JPEG, PNG, or static WebP within the
 image limits has one, re-encoded from fresh pixels without metadata as a JPEG or PNG of at most a 1,568-pixel long
 edge, 1.2 megapixels, and 512 KiB (`preview.canonical_framing`). The response carries exactly that `Content-Type`,
-its exact `Content-Length`, `nosniff`, and `no-store`, and its bytes start with that type's signature. A missing,
-collected, or concurrently deleted file answers `404` `file-not-found`; a file without a preview (not such an image,
+its exact `Content-Length`, `nosniff`, and `no-store`, and its bytes start with that type's signature. A missing or
+collected file answers `404` `file-not-found`; a file without a preview (not such an image,
 animated, too large, or unreadable) `422` `file-preview-unsupported`; and a helper that cannot run `503`
 `file-preview-unavailable`. Team prepares a preview on demand, keeps no derivative, and admits it into its one
 serialized preparation slot within a bounded queue and deadline; beyond them it answers `503` `file-preview-busy` with
-`retry_after_ms`. The Team's file deletion, its teardown, and the Space reset end every preview of it, queued or
-running, and remove its helper before they continue.
+`retry_after_ms`. Its Team's teardown and the Space reset end every preview of it, queued or running, and remove its
+helper before they continue.
 
 An installed Assistant's summary follows the interface language (ADR-0091). Admin reads it at
 `GET /v1/teams/:team_id/assistants/:assistant_id/summary/:locale`, where `locale` is one closed interface language,
