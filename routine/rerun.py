@@ -107,13 +107,17 @@ def _slot_input(
 def kept_latest(sends: Sequence[routine_recording.Send], asked: routine_recording.Asked) -> int | None:
     """The send whose work alone the person kept by answering a split question so, or None while they did not.
 
-    Every call before that send stays a possible source but no longer counts as split work.
+    Only the person's latest answer counts: the final segment of the span's last send, which ran no Action, so an
+    earlier answer quoted again or replayed never narrows the work. The kept send is the latest one that ran any
+    Action, which is then both the work and the frontier; every call before it stays a possible source but no longer
+    counts as split work.
     """
-    if asked.code != "routine-work-split" or not any(
-        http_routine_proposal.keeps_latest_work(segment) for send in sends[asked.after :] for segment in send.person
-    ):
+    if asked.code != "routine-work-split" or len(sends) <= asked.after:
         return None
-    worked = [position for position, send in enumerate(sends[: asked.after]) if send.occurrences]
+    answer = sends[-1]
+    if answer.occurrences or not answer.person or not http_routine_proposal.keeps_latest_work(answer.person[-1]):
+        return None
+    worked = [position for position, send in enumerate(sends) if send.occurrences]
     return worked[-1] if worked else None
 
 

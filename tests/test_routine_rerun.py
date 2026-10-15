@@ -170,6 +170,25 @@ class RerunTests(unittest.TestCase):
                     (_actions(recorded), _input(recorded)["zone_id"]), (["list-zones", "list-dns-records"], SELECTED)
                 )
 
+    def test_only_the_latest_answer_keeps_the_latest_work_and_that_work_is_the_one_recorded(self) -> None:
+        other = "9a7806061c88ada191ed06f989cc3dac"
+        earlier = _send(("cloudflare/list-dns-records", {"zone_id": other}, RECORDS[2]), message="DNS de example.com")
+        latest = _send(ZONES_CALL, RECORDS, message="Faça isso a cada hora para shimpz.com")
+        pending = _pending(_record(earlier, latest), 2)
+        label = http_routine_proposal.SPLIT_LATEST["pt"]
+        # An earlier answer quoted again inside a later composition never narrows the work.
+        replayed = http_payload.compose_clarified(
+            http_payload.compose_clarified("Liste", "Dividido?", label, "pt"), "Dividido?", "Rodar tudo de novo", "pt"
+        )
+        self.assertEqual(_record(earlier, latest, _send(message=replayed), asked=pending).code, "routine-work-split")
+        # A send that answers and also runs work is the Brain's, never the person's choice of the latest work.
+        answered_with_work = _send(RECORDS, message=label)
+        self.assertEqual(_record(earlier, latest, answered_with_work, asked=pending).code, "routine-work-split")
+        # Work run after the question, then kept: that later work is what the Routine records.
+        later = _send(ZONES_CALL, RECORDS, message="De novo para shimpz.com")
+        recorded = _recorded(earlier, latest, later, _send(message=label), asked=pending)
+        self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
+
     def test_work_split_with_a_withheld_input_is_never_frozen(self) -> None:
         for action in ("reports/post", "reports/fetch"):
             with self.subTest(action=action):
