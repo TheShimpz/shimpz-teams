@@ -5,6 +5,8 @@ proxy and the reviewed hosts the proxy admits for it. No Assistant workload hold
 """
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from http import HTTPStatus
 from pathlib import Path
 from typing import NoReturn
@@ -63,88 +65,44 @@ def _egress_policy_identity(self, team_id: str, assistant_id: str) -> str:
     return f"{self.space_id}\0{team_id}\0{assistant_id}"
 
 
-def _egress_token(
-    self,
-    team_id: str,
-    assistant_id: str,
-    *,
-    create: bool,
-    store: egress_policy.EgressPolicyStore | None = None,
-) -> str | None:
+@contextmanager
+def _egress_problems() -> Iterator[None]:
+    """Report an egress policy store failure as its public problem."""
     try:
-        current_store = store if store is not None else _egress_store()
-        return current_store.token(
-            self._egress_policy_identity(team_id, assistant_id),
-            create=create,
-        )
+        yield
     except egress_policy.EgressPolicyError as exc:
         _raise_egress_problem(exc)
 
 
-def _write_egress_policy(
-    self,
-    team_id: str,
-    spec: AssistantSpec,
-    allowed_hosts: tuple[str, ...],
-    store: egress_policy.EgressPolicyStore | None = None,
-) -> None:
-    try:
-        current_store = store if store is not None else _egress_store()
-        token = current_store.token(
-            self._egress_policy_identity(team_id, spec.assistant_id),
-            create=True,
-        )
+def _egress_token(self, team_id: str, assistant_id: str, *, create: bool) -> str | None:
+    with _egress_problems():
+        return _egress_store().token(self._egress_policy_identity(team_id, assistant_id), create=create)
+
+
+def _write_egress_policy(self, team_id: str, spec: AssistantSpec, allowed_hosts: tuple[str, ...]) -> None:
+    with _egress_problems():
+        store = _egress_store()
+        token = store.token(self._egress_policy_identity(team_id, spec.assistant_id), create=True)
         if token is None:
             raise egress_policy.EgressPolicyUnavailableError("egress token was not created")
-        current_store.write(token, allowed_hosts)
-    except egress_policy.EgressPolicyError as exc:
-        _raise_egress_problem(exc)
+        store.write(token, allowed_hosts)
 
 
-def _validate_egress_policy(
-    self,
-    team_id: str,
-    spec: AssistantSpec,
-    allowed_hosts: tuple[str, ...],
-    store: egress_policy.EgressPolicyStore | None = None,
-) -> None:
-    try:
-        current_store = store if store is not None else _egress_store()
-        admitted = self._read_admitted_egress_policy(team_id, spec.assistant_id, current_store)
-        current_store.validate_admitted(admitted, allowed_hosts)
-    except egress_policy.EgressPolicyError as exc:
-        _raise_egress_problem(exc)
+def _validate_egress_policy(self, team_id: str, spec: AssistantSpec, allowed_hosts: tuple[str, ...]) -> None:
+    admitted = self._read_admitted_egress_policy(team_id, spec.assistant_id)
+    with _egress_problems():
+        _egress_store().validate_admitted(admitted, allowed_hosts)
 
 
-def _read_admitted_egress_policy(
-    self,
-    team_id: str,
-    assistant_id: str,
-    store: egress_policy.EgressPolicyStore | None = None,
-) -> tuple[str, tuple[str, ...]] | None:
+def _read_admitted_egress_policy(self, team_id: str, assistant_id: str) -> tuple[str, tuple[str, ...]] | None:
     """Read only a canonical policy previously admitted and owned by this controller."""
-    try:
-        current_store = store if store is not None else _egress_store()
-        return current_store.admitted(
-            self._egress_policy_identity(team_id, assistant_id),
-        )
-    except egress_policy.EgressPolicyError as exc:
-        _raise_egress_problem(exc)
+    with _egress_problems():
+        return _egress_store().admitted(self._egress_policy_identity(team_id, assistant_id))
 
 
-def _remove_egress_policy(
-    self,
-    team_id: str,
-    assistant_id: str,
-    store: egress_policy.EgressPolicyStore | None = None,
-) -> None:
-    try:
-        current_store = store if store is not None else _egress_store()
-        current_store.remove(
-            self._egress_policy_identity(team_id, assistant_id),
-        )
-    except egress_policy.EgressPolicyError as exc:
-        _raise_egress_problem(exc)
+def _remove_egress_policy(self, team_id: str, assistant_id: str) -> None:
+    with _egress_problems():
+        _egress_store().remove(self._egress_policy_identity(team_id, assistant_id))
 
 
 def _managed_team_networks(self) -> list:

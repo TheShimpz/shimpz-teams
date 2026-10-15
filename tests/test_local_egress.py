@@ -100,16 +100,23 @@ class LocalAssistantEgressTests(unittest.TestCase):
         )
         lifecycle = self.controller.assistant_lifecycle
         for operation in (
-            lambda: lifecycle._egress_token("team_1", self.spec.assistant_id, create=False, store=unavailable),
-            lambda: lifecycle._remove_egress_policy("team_1", self.spec.assistant_id, unavailable),
+            lambda: lifecycle._egress_token("team_1", self.spec.assistant_id, create=False),
+            lambda: lifecycle._remove_egress_policy("team_1", self.spec.assistant_id),
         ):
-            with self.subTest(operation=operation), self.assertRaises(local_app.ApiProblem) as caught:
+            with (
+                self.subTest(operation=operation),
+                mock.patch.object(local_egress, "_egress_store", return_value=unavailable),
+                self.assertRaises(local_app.ApiProblem) as caught,
+            ):
                 operation()
             self.assertEqual(caught.exception.code, "egress-policy-unavailable")
 
         missing_token = types.SimpleNamespace(token=lambda *_args, **_kwargs: None)
-        with self.assertRaises(local_app.ApiProblem) as caught:
-            lifecycle._write_egress_policy("team_1", self.spec, self.spec.allowed_hosts, missing_token)
+        with (
+            mock.patch.object(local_egress, "_egress_store", return_value=missing_token),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            lifecycle._write_egress_policy("team_1", self.spec, self.spec.allowed_hosts)
         self.assertEqual(caught.exception.code, "egress-policy-unavailable")
 
     def test_network_validation_and_optional_lookup_fail_closed(self) -> None:
