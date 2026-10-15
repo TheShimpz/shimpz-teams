@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from assistant.manifest import (
+    ManifestContract,
     ManifestError,
     canonical_machine_contract,
     canonical_stored_input_declarations,
@@ -93,10 +94,9 @@ class AssistantProtocolTests(unittest.TestCase):
                 try:
                     canonical_machine_contract(
                         {"version": 1, "actions": [action], "messages": catalog_fixtures.messages()},
-                        (),
+                        ManifestContract((), (), ()),
                         summary=catalog_fixtures.SUMMARY,
                         description=catalog_fixtures.ASSISTANT_DESCRIPTION,
-                        allowed_hosts=(),
                     )
                 except ManifestError:
                     valid = False

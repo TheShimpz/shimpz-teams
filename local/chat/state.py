@@ -176,13 +176,7 @@ def _admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tupl
         )
         declared = self._assistant_allowed_hosts_cache.get(container, reviewed)
         self._assistant_machine_contract_cache.get(
-            container,
-            declared.integrations,
-            declared.stored_inputs,
-            spec.machine_contract,
-            summary=spec.summary,
-            description=spec.description,
-            allowed_hosts=declared.allowed_hosts,
+            container, declared, spec.machine_contract, summary=spec.summary, description=spec.description
         )
         self._assistant_language_cache.get(container, spec.machine_contract, spec.pack_digest)
     except assistant_manifest.ManifestUnavailableError as exc:

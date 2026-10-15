@@ -86,11 +86,9 @@ def _admit(contract: dict[str, object], allowed_hosts: tuple[str, ...] = ()) -> 
     actions = contract["actions"]
     return assistant_manifest.canonical_machine_contract(
         contract,
-        (),
-        _stored_inputs(actions),
+        assistant_manifest.ManifestContract(allowed_hosts, (), _stored_inputs(actions)),
         summary=catalog_fixtures.SUMMARY,
         description=catalog_fixtures.ASSISTANT_DESCRIPTION,
-        allowed_hosts=allowed_hosts,
     )
 
 

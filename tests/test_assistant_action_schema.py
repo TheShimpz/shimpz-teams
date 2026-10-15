@@ -37,10 +37,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
             ):
                 assistant_manifest.parse_machine_contract(
                     json.dumps(contract).encode(),
-                    reviewed.integrations,
+                    assistant_manifest.ManifestContract((), reviewed.integrations, ()),
                     summary=FIXTURE_SUMMARY,
                     description=FIXTURE_DESCRIPTION,
-                    allowed_hosts=(),
                 )
 
     def test_machine_schema_closes_typeless_objects_and_rejects_boolean_subschemas(self) -> None:
@@ -51,10 +50,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "must close every object"):
             assistant_manifest.parse_machine_contract(
                 json.dumps(typeless).encode(),
-                reviewed.integrations,
+                assistant_manifest.ManifestContract((), reviewed.integrations, ()),
                 summary=FIXTURE_SUMMARY,
                 description=FIXTURE_DESCRIPTION,
-                allowed_hosts=(),
             )
 
         boolean = json.loads(json.dumps(reviewed.machine_contract))
@@ -62,10 +60,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
         with self.assertRaises(assistant_manifest.ManifestError):
             assistant_manifest.parse_machine_contract(
                 json.dumps(boolean).encode(),
-                reviewed.integrations,
+                assistant_manifest.ManifestContract((), reviewed.integrations, ()),
                 summary=FIXTURE_SUMMARY,
                 description=FIXTURE_DESCRIPTION,
-                allowed_hosts=(),
             )
 
         literals = json.loads(json.dumps(reviewed.machine_contract))
@@ -78,10 +75,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
         )
         parsed = assistant_manifest.parse_machine_contract(
             json.dumps(literals).encode(),
-            reviewed.integrations,
+            assistant_manifest.ManifestContract((), reviewed.integrations, ()),
             summary=FIXTURE_SUMMARY,
             description=FIXTURE_DESCRIPTION,
-            allowed_hosts=(),
         )
 
         self.assertEqual(
@@ -116,10 +112,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
                 ):
                     assistant_manifest.parse_machine_contract(
                         json.dumps(external).encode(),
-                        reviewed.integrations,
+                        assistant_manifest.ManifestContract((), reviewed.integrations, ()),
                         summary=FIXTURE_SUMMARY,
                         description=FIXTURE_DESCRIPTION,
-                        allowed_hosts=(),
                     )
 
         for definitions, reference in (
@@ -134,10 +129,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
             with self.subTest(reference=reference):
                 parsed = assistant_manifest.parse_machine_contract(
                     json.dumps(local).encode(),
-                    reviewed.integrations,
+                    assistant_manifest.ManifestContract((), reviewed.integrations, ()),
                     summary=FIXTURE_SUMMARY,
                     description=FIXTURE_DESCRIPTION,
-                    allowed_hosts=(),
                 )
                 self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["page"], {"$ref": reference})
 
@@ -160,10 +154,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
             ):
                 assistant_manifest.parse_machine_contract(
                     json.dumps(switched).encode(),
-                    reviewed.integrations,
+                    assistant_manifest.ManifestContract((), reviewed.integrations, ()),
                     summary=FIXTURE_SUMMARY,
                     description=FIXTURE_DESCRIPTION,
-                    allowed_hosts=(),
                 )
 
         rebound = json.loads(json.dumps(reviewed.machine_contract))
@@ -174,10 +167,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "nested identifier"):
             assistant_manifest.parse_machine_contract(
                 json.dumps(rebound).encode(),
-                reviewed.integrations,
+                assistant_manifest.ManifestContract((), reviewed.integrations, ()),
                 summary=FIXTURE_SUMMARY,
                 description=FIXTURE_DESCRIPTION,
-                allowed_hosts=(),
             )
 
         current = json.loads(json.dumps(reviewed.machine_contract))
@@ -186,10 +178,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
         schema["properties"]["page"] = {"$schema": action_protocol.DRAFT_2020_12, "type": "integer"}
         parsed = assistant_manifest.parse_machine_contract(
             json.dumps(current).encode(),
-            reviewed.integrations,
+            assistant_manifest.ManifestContract((), reviewed.integrations, ()),
             summary=FIXTURE_SUMMARY,
             description=FIXTURE_DESCRIPTION,
-            allowed_hosts=(),
         )
         self.assertEqual(parsed["actions"][0]["input_schema"]["$id"], "https://example.test/action.json")
 
@@ -203,10 +194,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
         schema["properties"]["mode"] = {"const": remote, "enum": [remote], "default": remote, "examples": [remote]}
         parsed = assistant_manifest.parse_machine_contract(
             json.dumps(data).encode(),
-            reviewed.integrations,
+            assistant_manifest.ManifestContract((), reviewed.integrations, ()),
             summary=FIXTURE_SUMMARY,
             description=FIXTURE_DESCRIPTION,
-            allowed_hosts=(),
         )
         self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["$ref"], {"type": "string"})
         self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["mode"]["const"], remote)
@@ -219,10 +209,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "root or a named definition"):
             assistant_manifest.parse_machine_contract(
                 json.dumps(nested).encode(),
-                reviewed.integrations,
+                assistant_manifest.ManifestContract((), reviewed.integrations, ()),
                 summary=FIXTURE_SUMMARY,
                 description=FIXTURE_DESCRIPTION,
-                allowed_hosts=(),
             )
 
     def test_action_schema_validators_never_retrieve_a_uri(self) -> None:

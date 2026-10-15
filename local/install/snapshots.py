@@ -322,11 +322,9 @@ def _preview_details(
     contract = assistant_manifest.parse_manifest_contract(manifest)
     machine_contract = assistant_manifest.parse_machine_contract(
         extracted[assistant_manifest.CONTRACT_PATH],
-        contract.integrations,
-        contract.stored_inputs,
+        contract,
         summary=identity.summary,
         description=presentation.description,
-        allowed_hosts=contract.allowed_hosts,
     )
     raw_pack = extracted[assistant_language.PACK_PATH]
     pack = assistant_language.admit_pack(raw_pack, machine_contract["messages"], _digest(raw_pack))
@@ -372,11 +370,9 @@ def validate_record(record: dict[str, Any]) -> None:
         )
         machine_contract = assistant_manifest.canonical_machine_contract(
             record["machine_contract"],
-            declarations,
-            stored_inputs,
+            assistant_manifest.ManifestContract(contract.allowed_hosts, declarations, stored_inputs),
             summary=identity.summary,
             description=presentation.description,
-            allowed_hosts=contract.allowed_hosts,
         )
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the local Assistant record is invalid") from exc
@@ -594,11 +590,9 @@ def _record(
         raise InconsistentSnapshotError("the Local Assistant manifest does not match its image labels")
     machine_contract = assistant_manifest.parse_machine_contract(
         raw_contract,
-        manifest_contract.integrations,
-        manifest_contract.stored_inputs,
+        manifest_contract,
         summary=identity.summary,
         description=presentation.description,
-        allowed_hosts=manifest_contract.allowed_hosts,
     )
     if candidate.actions != tuple(
         action["id"] for action in machine_contract["actions"]

@@ -96,11 +96,9 @@ def runtime_contract(document: Mapping[str, Any]) -> RuntimeContract:
     )
     machine_contract = assistant_manifest.canonical_machine_contract(
         document["machine_contract"],
-        declarations,
-        stored_input_declarations,
+        assistant_manifest.ManifestContract(allowed_hosts, declarations, stored_input_declarations),
         summary=document["summary"],
         description=presentation.description,
-        allowed_hosts=allowed_hosts,
     )
     if machine_contract != document["machine_contract"]:
         raise assistant_manifest.ManifestError("machine contract is not canonical")

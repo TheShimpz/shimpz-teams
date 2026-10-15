@@ -33,7 +33,7 @@ def _reviewed_contract() -> SimpleNamespace:
         integrations=integrations,
         stored_inputs=stored_inputs,
         machine_contract=assistant_manifest.canonical_machine_contract(
-            contract, integrations, stored_inputs, **FIXTURE_COPY, allowed_hosts=allowed_hosts
+            contract, assistant_manifest.ManifestContract(allowed_hosts, integrations, stored_inputs), **FIXTURE_COPY
         ),
     )
 
@@ -261,22 +261,14 @@ class AssistantManifestTests(unittest.TestCase):
         }
         self.assertEqual(
             assistant_manifest.canonical_machine_contract(
-                contract,
-                (),
-                declarations,
-                **catalog_fixtures.COPY,
-                allowed_hosts=(),
+                contract, assistant_manifest.ManifestContract((), (), declarations), **catalog_fixtures.COPY
             ),
             contract,
         )
         contract["actions"][0]["human_requests"] = []
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "request is undeclared"):
             assistant_manifest.canonical_machine_contract(
-                contract,
-                (),
-                declarations,
-                **catalog_fixtures.COPY,
-                allowed_hosts=(),
+                contract, assistant_manifest.ManifestContract((), (), declarations), **catalog_fixtures.COPY
             )
 
     def test_an_action_declaring_a_proof_also_declares_the_stored_input_it_signs(self) -> None:
@@ -301,14 +293,20 @@ class AssistantManifestTests(unittest.TestCase):
         messages = catalog_fixtures.display_messages(labels=("Token", "Secret"))
         contract = {"version": 1, "actions": [action], "messages": messages}
         copy = catalog_fixtures.COPY
-        assistant_manifest.canonical_machine_contract(contract, (), declarations, **copy, allowed_hosts=())
+        assistant_manifest.canonical_machine_contract(
+            contract, assistant_manifest.ManifestContract((), (), declarations), **copy
+        )
         for slots in (["secret"], ["token"]):
             contract["actions"] = [{**action, "stored_inputs": slots}]
             if slots == ["token"]:
-                assistant_manifest.canonical_machine_contract(contract, (), declarations, **copy, allowed_hosts=())
+                assistant_manifest.canonical_machine_contract(
+                    contract, assistant_manifest.ManifestContract((), (), declarations), **copy
+                )
                 continue
             with self.subTest(slots=slots), self.assertRaisesRegex(assistant_manifest.ManifestError, "proof"):
-                assistant_manifest.canonical_machine_contract(contract, (), declarations, **copy, allowed_hosts=())
+                assistant_manifest.canonical_machine_contract(
+                    contract, assistant_manifest.ManifestContract((), (), declarations), **copy
+                )
 
     def test_an_action_may_use_several_declared_stored_inputs_as_one_sorted_list(self) -> None:
         declarations = assistant_manifest.canonical_stored_input_declarations(
@@ -341,10 +339,8 @@ class AssistantManifestTests(unittest.TestCase):
         def admit(stored_inputs: list[str]) -> dict[str, object]:
             return assistant_manifest.canonical_machine_contract(
                 contract(stored_inputs),
-                (),
-                declarations,
+                assistant_manifest.ManifestContract((), (), declarations),
                 **catalog_fixtures.COPY,
-                allowed_hosts=(),
             )
 
         for admitted in (["key-1", "key-2"], [f"key-{index}" for index in range(1, 9)]):
@@ -621,7 +617,9 @@ class AssistantManifestTests(unittest.TestCase):
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
 
         self.assertEqual(
-            assistant_manifest.parse_machine_contract(raw, reviewed.integrations, **FIXTURE_COPY, allowed_hosts=()),
+            assistant_manifest.parse_machine_contract(
+                raw, assistant_manifest.ManifestContract((), reviewed.integrations, ()), **FIXTURE_COPY
+            ),
             reviewed.machine_contract,
         )
         self.assertEqual(
@@ -644,9 +642,8 @@ class AssistantManifestTests(unittest.TestCase):
         with self.assertRaises(assistant_manifest.ManifestError):
             assistant_manifest.parse_machine_contract(
                 json.dumps(foreign).encode(),
-                reviewed.integrations,
+                assistant_manifest.ManifestContract((), reviewed.integrations, ()),
                 **FIXTURE_COPY,
-                allowed_hosts=(),
             )
 
     def test_a_compiled_payload_validator_is_reused_without_recompiling(self) -> None:
@@ -678,10 +675,7 @@ class AssistantManifestTests(unittest.TestCase):
         ):
             with self.subTest(size=len(raw)), self.assertRaises(assistant_manifest.ManifestError):
                 assistant_manifest.parse_machine_contract(
-                    raw,
-                    reviewed.integrations,
-                    **FIXTURE_COPY,
-                    allowed_hosts=(),
+                    raw, assistant_manifest.ManifestContract((), reviewed.integrations, ()), **FIXTURE_COPY
                 )
 
     def test_machine_contract_cache_reads_once_and_requires_exact_review(self) -> None:
@@ -693,11 +687,9 @@ class AssistantManifestTests(unittest.TestCase):
         self.assertEqual(
             cache.get(
                 container,
-                reviewed.integrations,
-                reviewed.stored_inputs,
+                assistant_manifest.ManifestContract((), reviewed.integrations, reviewed.stored_inputs),
                 reviewed.machine_contract,
                 **FIXTURE_COPY,
-                allowed_hosts=(),
             ),
             reviewed.machine_contract,
         )
@@ -709,11 +701,9 @@ class AssistantManifestTests(unittest.TestCase):
             self.assertEqual(
                 cache.get(
                     container,
-                    reviewed.integrations,
-                    reviewed.stored_inputs,
+                    assistant_manifest.ManifestContract((), reviewed.integrations, reviewed.stored_inputs),
                     reviewed.machine_contract,
                     **FIXTURE_COPY,
-                    allowed_hosts=(),
                 ),
                 reviewed.machine_contract,
             )
@@ -725,11 +715,9 @@ class AssistantManifestTests(unittest.TestCase):
         with self.assertRaises(assistant_manifest.ManifestError):
             cache.get(
                 container,
-                reviewed.integrations,
-                reviewed.stored_inputs,
+                assistant_manifest.ManifestContract((), reviewed.integrations, reviewed.stored_inputs),
                 drifted,
                 **FIXTURE_COPY,
-                allowed_hosts=(),
             )
 
     def test_public_contract_helpers_reject_wrong_shapes_and_secret_like_text(self) -> None:
@@ -791,10 +779,7 @@ class AssistantManifestTests(unittest.TestCase):
         for contract in variants:
             with self.subTest(contract=contract), self.assertRaises(assistant_manifest.ManifestError):
                 assistant_manifest.canonical_machine_contract(
-                    contract,
-                    reviewed.integrations,
-                    **FIXTURE_COPY,
-                    allowed_hosts=(),
+                    contract, assistant_manifest.ManifestContract((), reviewed.integrations, ()), **FIXTURE_COPY
                 )
 
         with self.assertRaisesRegex(action_schema.ActionSchemaError, "subschema"):
@@ -970,27 +955,21 @@ class AssistantManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "identity"):
             machine.get(
                 object(),
-                reviewed.integrations,
-                reviewed.stored_inputs,
+                assistant_manifest.ManifestContract((), reviewed.integrations, reviewed.stored_inputs),
                 reviewed.machine_contract,
                 **FIXTURE_COPY,
-                allowed_hosts=(),
             )
         machine.get(
             ContractContainer("first", raw),
-            reviewed.integrations,
-            reviewed.stored_inputs,
+            assistant_manifest.ManifestContract((), reviewed.integrations, reviewed.stored_inputs),
             reviewed.machine_contract,
             **FIXTURE_COPY,
-            allowed_hosts=(),
         )
         machine.get(
             ContractContainer("second", raw),
-            reviewed.integrations,
-            reviewed.stored_inputs,
+            assistant_manifest.ManifestContract((), reviewed.integrations, reviewed.stored_inputs),
             reviewed.machine_contract,
             **FIXTURE_COPY,
-            allowed_hosts=(),
         )
         self.assertEqual(tuple(machine._cache._entries), ("second",))
         machine.discard(None)

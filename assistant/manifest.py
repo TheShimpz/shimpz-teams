@@ -107,7 +107,9 @@ _QUERY_RE = re.compile(r"[A-Za-z0-9._~-]{1,64}\Z")
 _SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,31}\Z")
 _PLACEMENT_FIELDS = ("host", "header", "query", "scheme", "hmac", "routes")
 _STORED_INPUT_REQUIRED = frozenset({"kind", "label", "description", "help_url", "host", "routes"})
-_STORED_INPUT_FIELDS = frozenset({"kind", "label", "description", "help_url", *_PLACEMENT_FIELDS})
+# A Stored Input declaration's fields after its id, in the order its metadata lists them.
+_STORED_INPUT_METADATA = ("kind", "label", "description", "help_url", *_PLACEMENT_FIELDS)
+_STORED_INPUT_FIELDS = frozenset(_STORED_INPUT_METADATA)
 
 
 class ManifestError(RuntimeError):
@@ -414,9 +416,7 @@ def reviewed_manifest_contract(
         }
         stored_input_declarations = {
             stored_input_id: {
-                name: value
-                for name in ("kind", "label", "description", "help_url", *_PLACEMENT_FIELDS)
-                if (value := getattr(metadata, name)) is not None
+                name: value for name in _STORED_INPUT_METADATA if (value := getattr(metadata, name)) is not None
             }
             for stored_input_id, metadata in stored_inputs.items()
         }
@@ -470,21 +470,20 @@ _ACTION_OPTIONAL = frozenset({"verifier", "idempotency"})
 
 def canonical_machine_contract(
     value: object,
-    declared_integrations: tuple[IntegrationDeclaration, ...],
-    declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
+    contract: ManifestContract,
     *,
     summary: str,
     description: str,
-    allowed_hosts: tuple[str, ...],
 ) -> dict[str, Any]:
     """Validate and canonicalize an untrusted SDK-generated Action contract and its English message catalog.
 
     The published summary must be one catalog message (ADR-0091), and so must every other displayed static text: the
     Assistant description, each Action description, and each Stored Input label and help text, within its catalog
     bound. The caller
-    supplies the summary and description it admitted. An idempotency provider must be one of the manifest's exact
-    outbound hosts (ADR-0092), so the caller supplies those too.
+    supplies the summary and description it admitted. The Actions may use only the manifest ``contract``'s declared
+    Integrations and Stored Inputs, and an idempotency provider must be one of its exact outbound hosts (ADR-0092).
     """
+    declared_integrations, declared_stored_inputs = contract.integrations, contract.stored_inputs
     if not isinstance(value, dict) or set(value) != {"version", "actions", "messages"} or value["version"] != 1:
         raise ManifestError("Assistant machine contract has an unsupported shape")
     if not action_schema.json_nodes_within(value, MAX_CONTRACT_NODES):
@@ -504,7 +503,7 @@ def canonical_machine_contract(
         raise ManifestError("Assistant machine contract must use every declared integration")
     if not proofs_signed(actions, declared_stored_inputs):
         raise ManifestError("Assistant machine contract Action declares a proof without the Stored Input it signs")
-    refused = action_effect.refusal(actions, allowed_hosts)
+    refused = action_effect.refusal(actions, contract.allowed_hosts)
     if refused is not None:
         raise ManifestError(f"Assistant machine contract Action effect is invalid: {refused}")
     displayed = catalog_validator.display_uses(
@@ -596,21 +595,17 @@ def _canonical_action(
 
 def parse_machine_contract(
     raw: bytes,
-    declared_integrations: tuple[IntegrationDeclaration, ...],
-    declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
+    contract: ManifestContract,
     *,
     summary: str,
     description: str,
-    allowed_hosts: tuple[str, ...],
 ) -> dict[str, Any]:
     """Parse a bounded SDK artifact without executing Assistant code."""
     return canonical_machine_contract(
         _strict_json(raw, maximum=MAX_CONTRACT_BYTES, kind="machine contract"),
-        declared_integrations,
-        declared_stored_inputs,
+        contract,
         summary=summary,
         description=description,
-        allowed_hosts=allowed_hosts,
     )
 
 
@@ -898,12 +893,10 @@ def read_container_manifest_genesis(container) -> str:
 
 def read_container_machine_contract(
     container,
-    declared_integrations: tuple[IntegrationDeclaration, ...],
-    declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
+    contract: ManifestContract,
     *,
     summary: str,
     description: str,
-    allowed_hosts: tuple[str, ...],
 ) -> dict[str, Any]:
     """Read and validate the fixed SDK contract artifact from an immutable image."""
     raw = read_container_file(
@@ -912,14 +905,7 @@ def read_container_machine_contract(
         name="shimpz.contract.json",
         maximum=MAX_CONTRACT_BYTES,
     )
-    return parse_machine_contract(
-        raw,
-        declared_integrations,
-        declared_stored_inputs,
-        summary=summary,
-        description=description,
-        allowed_hosts=allowed_hosts,
-    )
+    return parse_machine_contract(raw, contract, summary=summary, description=description)
 
 
 class ManifestContractCache:
@@ -962,13 +948,11 @@ class MachineContractCache:
     def get(
         self,
         container,
-        declared_integrations: tuple[IntegrationDeclaration, ...],
-        declared_stored_inputs: tuple[StoredInputDeclaration, ...],
+        contract: ManifestContract,
         reviewed: object,
         *,
         summary: str,
         description: str,
-        allowed_hosts: tuple[str, ...],
     ) -> dict[str, Any]:
         """Return the machine contract only after exact semantic equality."""
         container_id = assistant_cache.container_id(container)
@@ -976,14 +960,7 @@ class MachineContractCache:
             raise ManifestError("Assistant container identity is invalid")
         declared = self._cache.get(
             container_id,
-            lambda: read_container_machine_contract(
-                container,
-                declared_integrations,
-                declared_stored_inputs,
-                summary=summary,
-                description=description,
-                allowed_hosts=allowed_hosts,
-            ),
+            lambda: read_container_machine_contract(container, contract, summary=summary, description=description),
         )
         if declared != reviewed:
             raise ManifestError("Assistant machine contract does not match controller review")

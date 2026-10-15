@@ -47,11 +47,9 @@ def _admit(
     messages = catalog_fixtures.messages(catalog_fixtures.SUMMARY, *label, *extra)
     return assistant_manifest.canonical_machine_contract(
         {"version": 1, "actions": [action], "messages": messages},
-        (),
-        STORED_INPUT,
+        assistant_manifest.ManifestContract((), (), STORED_INPUT),
         summary=catalog_fixtures.SUMMARY,
         description=catalog_fixtures.ASSISTANT_DESCRIPTION if description is None else description,
-        allowed_hosts=(),
     )
 
 
@@ -145,10 +143,8 @@ class DisplayCatalogTests(unittest.TestCase):
             messages = catalog_fixtures.messages(catalog_fixtures.SUMMARY, catalog_fixtures.message(LABEL, 120), *extra)
             return assistant_manifest.canonical_machine_contract(
                 {"version": 1, "actions": [labeled], "messages": messages},
-                (),
-                declared,
+                assistant_manifest.ManifestContract((), (), declared),
                 **catalog_fixtures.COPY,
-                allowed_hosts=(),
             )
 
         self.assertEqual(len(admit(catalog_fixtures.message(help_text, 500))["actions"]), 1)

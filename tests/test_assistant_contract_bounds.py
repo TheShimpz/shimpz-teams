@@ -52,18 +52,16 @@ class MachineContractBoundTests(unittest.TestCase):
         for input_nodes, output_nodes in ((limit, 5), (5, limit)):
             admitted = assistant_manifest.canonical_machine_contract(
                 contract(input_nodes, output_nodes),
-                (),
+                assistant_manifest.ManifestContract((), (), ()),
                 **catalog_fixtures.COPY,
-                allowed_hosts=(),
             )
             self.assertEqual(len(admitted["actions"]), 1)
         for input_nodes, output_nodes, kind in ((limit + 1, 5, "input"), (5, limit + 1, "output")):
             with self.assertRaisesRegex(assistant_manifest.ManifestError, f"{kind} schema is too large"):
                 assistant_manifest.canonical_machine_contract(
                     contract(input_nodes, output_nodes),
-                    (),
+                    assistant_manifest.ManifestContract((), (), ()),
                     **catalog_fixtures.COPY,
-                    allowed_hosts=(),
                 )
         # The bound is checked before any metaschema work, so excess data in an otherwise invalid schema is refused
         # as too large.
@@ -84,15 +82,17 @@ class MachineContractBoundTests(unittest.TestCase):
         self.assertEqual(4 + 3 * 5 + 8 * 8 + 13 * 2043 + 3 * 2042, 32_768)
         self.assertEqual(
             len(
-                assistant_manifest.canonical_machine_contract(whole, (), **catalog_fixtures.COPY, allowed_hosts=())[
-                    "actions"
-                ]
+                assistant_manifest.canonical_machine_contract(
+                    whole, assistant_manifest.ManifestContract((), (), ()), **catalog_fixtures.COPY
+                )["actions"]
             ),
             8,
         )
         whole["actions"][0]["output_schema"]["const"].append(0)
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "machine contract is too large"):
-            assistant_manifest.canonical_machine_contract(whole, (), **catalog_fixtures.COPY, allowed_hosts=())
+            assistant_manifest.canonical_machine_contract(
+                whole, assistant_manifest.ManifestContract((), (), ()), **catalog_fixtures.COPY
+            )
 
         self.assertTrue(action_schema.json_nodes_within({"a": [1, ("b",)]}, 5))
         self.assertFalse(action_schema.json_nodes_within({"a": [1, ("b",)]}, 4))
