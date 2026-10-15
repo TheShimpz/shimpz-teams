@@ -1,8 +1,10 @@
 """Immutable container reads are cached without one cold read holding back any other container."""
 
+import contextlib
 import dataclasses
 import threading
 import unittest
+from collections.abc import Iterator
 from unittest import mock
 
 from test_assistant_genesis import manifest
@@ -52,6 +54,22 @@ class ArrivalEvent(threading.Event):
     def wait(self, timeout: float | None = None) -> bool:
         self._arrived.release()
         return super().wait(timeout)
+
+
+@contextlib.contextmanager
+def observed_flights() -> Iterator[threading.Semaphore]:
+    """Release the yielded semaphore each time a concurrent miss waits on the read in flight."""
+    arrived = threading.Semaphore(0)
+
+    class Observed(assistant_cache._Flight):
+        __slots__ = ()
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.done = ArrivalEvent(arrived)
+
+    with mock.patch.object(assistant_cache, "_Flight", Observed):
+        yield arrived
 
 
 class Calls:
@@ -119,17 +137,8 @@ class ContainerCacheTests(unittest.TestCase):
         drifted = dataclasses.replace(contract, allowed_hosts=("api.example.com",))
         cache = assistant_manifest.ManifestContractCache()
         container = BlockedContainer("shared", content)
-        arrived = threading.Semaphore(0)
-
-        class Observed(assistant_cache._Flight):
-            __slots__ = ()
-
-            def __init__(self) -> None:
-                super().__init__()
-                self.done = ArrivalEvent(arrived)
-
         calls = Calls()
-        with mock.patch.object(assistant_cache, "_Flight", Observed):
+        with observed_flights() as arrived:
             calls.start("leader", lambda: cache.get(container, contract))
             self.assertTrue(container.entered.acquire(timeout=WAIT))
             for index in range(3):
@@ -152,17 +161,8 @@ class ContainerCacheTests(unittest.TestCase):
         content = manifest("Cached guidance.")
         cache = assistant_genesis.GenesisCache()
         container = BlockedContainer("failing", content, fail=True)
-        arrived = threading.Semaphore(0)
-
-        class Observed(assistant_cache._Flight):
-            __slots__ = ()
-
-            def __init__(self) -> None:
-                super().__init__()
-                self.done = ArrivalEvent(arrived)
-
         calls = Calls()
-        with mock.patch.object(assistant_cache, "_Flight", Observed):
+        with observed_flights() as arrived:
             calls.start("leader", lambda: cache.get(container))
             self.assertTrue(container.entered.acquire(timeout=WAIT))
             calls.start("follower", lambda: cache.get(container))
