@@ -427,16 +427,18 @@ class RecordedRoutineTests(LocalContractCase):
     def test_a_schedule_answer_reaches_the_brain_which_records_again_saying_how_often(self) -> None:
         original = "Liste os registros DNS de shimpz.com e mostre o resultado"
         work = ("list-zones", "list-dns-records")
-        runtime = Sends((work, _record()), (work, _record()))
+        # The offered answer is a settings answer: the Brain runs nothing again and records the work that already ran.
+        runtime = Sends((work, _record()), ((), _record()))
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
             asked = self.chat(service, _body(original))["routine_question"]
             answer = http_payload.compose_clarified(original, "Com que frequência?", "A cada 30 segundos", "pt")
             response = self.chat(service, _body(answer))
-            schedule = self.candidate(service, response["routine_proposal"]).schedule
+            candidate = self.candidate(service, response["routine_proposal"])
         self.assertEqual(asked["code"], "routine-schedule-unstated")
-        self.assertEqual(len(runtime.contexts), 2)
-        self.assertEqual(schedule, CONTINUOUS)
+        self.assertEqual([context.routine_settings_answer for context in runtime.contexts], [False, True])
+        self.assertEqual(candidate.schedule, CONTINUOUS)
+        self.assertEqual([step["action"] for step in candidate.plan["steps"]], list(work))
 
     def test_an_output_answer_reaches_the_brain_which_records_the_earlier_work_saying_it(self) -> None:
         original = "Liste os registros DNS de shimpz.com a cada 30 segundos"
@@ -452,6 +454,7 @@ class RecordedRoutineTests(LocalContractCase):
             candidate = self.candidate(service, card)
         self.assertEqual(asked, {"code": "routine-output-unstated", "options": [], "value": None})
         self.assertEqual([context.routine_output for context in runtime.contexts], [None, "changes"])
+        self.assertEqual([context.routine_settings_answer for context in runtime.contexts], [False, True])
         self.assertEqual(runtime.contexts[1].routine_question, asked)
         self.assertEqual((candidate.plan["output"]["mode"], card["description"]), ("changes", said))
         self.assertEqual([step["action"] for step in candidate.plan["steps"]], ["list-zones", "list-dns-records"])

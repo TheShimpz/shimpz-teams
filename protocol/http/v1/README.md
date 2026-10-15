@@ -232,7 +232,13 @@ bounds. `routine_mode`, whether the chat is about a Routine, is a plain advisory
 schedule Team reads from the person's sends (`routine.canonical_schedule`) and `routine_output` the one output mode it
 reads (`routine.OUTPUT_MODES`), each `null` when it reads none; the Brain refuses a record whose description states
 another than Team read, or a schedule the person did not give, except a replacement's own listed schedule or output. A
-new Routine's output the person has not chosen yet is not checked: Team asks for it before any card. `routine_proposal` is
+new Routine's output the person has not chosen yet is not checked: Team asks for it before any card.
+`routine_settings_answer` is true exactly when the person's send is Admin's composed answer whose answer is one fixed
+label Admin offers to Team's schedule, over-budget, or output question (`routine_proposal.SCHEDULE_CHOICES`,
+`routine_proposal.OVER_BUDGET_ANSWERS` filled with the question's interval, or `routine_proposal.OUTPUT_CHOICES`, in
+any interface language); the Brain is then offered no Action and only records again, keeping the work its record
+intent selected. Any other answer, typed, mixed with other work, or to a target or rerun question, keeps every
+Action. `routine_proposal` is
 the Routine's confirmation card (`routine_proposal.canonical_proposal`), at most 160 KiB, which Team checks against the whole
 terminal line bound before publishing: exactly `{proposal_id, expires_at, replaces, name, description, steps}` (ADR-0101
 amendment, 2026-10-15). `replaces` is `null` for a new Routine or the id of the Routine it changes; `description` is the

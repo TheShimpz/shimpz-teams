@@ -165,6 +165,32 @@ OUTPUT_CHOICES = {
 }
 
 
+# The schedules Admin offers, in the interface language, when Team asks how often a Routine runs, and the interval it
+# offers when the stated one outgrows the Team's budget, its seconds being the question's value. Each states exactly
+# one schedule as Team reads it, and a send that is exactly one of them answering that question is a settings answer:
+# the Brain then records again and runs nothing (ADR-0101).
+SCHEDULE_CHOICES = {
+    "ar": ("كل 30 ثانية", "كل ساعة", "كل يوم الساعة 09:00"),
+    "de": ("Alle 30 Sekunden", "Jede Stunde", "Jeden Tag um 09:00"),
+    "en": ("Every 30 seconds", "Every hour", "Every day at 09:00"),
+    "es": ("Cada 30 segundos", "Cada hora", "Todos los días a las 09:00"),
+    "fr": ("Toutes les 30 secondes", "Toutes les heures", "Tous les jours à 09:00"),
+    "ja": ("30 秒ごと", "1 時間ごと", "毎日 09:00"),
+    "pt": ("A cada 30 segundos", "A cada hora", "Todo dia às 09:00"),
+    "zh": ("每 30 秒", "每小时", "每天 09:00"),
+}
+OVER_BUDGET_ANSWERS = {
+    "ar": "كل {seconds} ثانية",
+    "de": "Alle {seconds} Sekunden",
+    "en": "Every {seconds} seconds",
+    "es": "Cada {seconds} segundos",
+    "fr": "Toutes les {seconds} secondes",
+    "ja": "{seconds} 秒ごと",
+    "pt": "A cada {seconds} segundos",
+    "zh": "每 {seconds} 秒",
+}
+
+
 def canonical_question(value: object) -> dict[str, object] | None:
     """One question Team asks before a card: its code, its targets for an ambiguous binding, and a fitting interval."""
     if not isinstance(value, dict) or set(value) != {"code", "options", "value"} or value["code"] not in QUESTION_CODES:

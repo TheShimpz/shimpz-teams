@@ -381,6 +381,20 @@ if set(choices) != set(routine.LOCALES) or any(
     for labels in choices.values()
 ):
     fail("the Routine output choices do not name each output once in every interface language")
+schedules, intervals = routine_proposal.SCHEDULE_CHOICES, routine_proposal.OVER_BUDGET_ANSWERS
+shortest = ({"kind": "continuous", "gap": routine.MIN_CONTINUOUS_GAP_SECONDS},)
+if (
+    set(schedules) != set(routine.LOCALES)
+    or set(intervals) != set(routine.LOCALES)
+    or any(
+        len(set(labels)) != 3 or any(len(phrase.stated(label)) != 1 for label in labels)
+        for labels in schedules.values()
+    )
+    or any(
+        phrase.stated(answer.replace("{seconds}", str(shortest[0]["gap"]))) != shortest for answer in intervals.values()
+    )
+):
+    fail("the Routine schedule answers do not each state one schedule in every interface language")
 
 readings = vectors.get("routine_phrase", {})
 if not all(readings.get(name) for name in ("stated", "outputs", "zones", "team_asks", "requests_routine")):

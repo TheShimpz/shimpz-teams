@@ -121,9 +121,9 @@ class RuntimeContext:
     # The one output mode the recording span's person states, which the record call's description must say; None when
     # the person states none or several (ADR-0101). Only beside ``routines``.
     routine_output: str | None = None
-    # Whether the latest send is exactly the person's choice of one output answering Team's output question (ADR-0101):
-    # the Brain then only records again, offered no Action. Only beside ``routines``.
-    routine_output_answer: bool = False
+    # Whether the latest send is exactly the person's pick of one fixed answer to Team's schedule, over-budget, or
+    # output question (ADR-0101): the Brain then only records again, offered no Action. Only beside ``routines``.
+    routine_settings_answer: bool = False
     # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
     # the start, so only a start sends it.
     locale: str | None = None
@@ -345,7 +345,7 @@ class BrainRuntimeClient:
             "routine_rerun": None if context.routine_rerun is None else [dict(item) for item in context.routine_rerun],
             "routine_schedule": None if context.routine_schedule is None else dict(context.routine_schedule),
             "routine_output": context.routine_output,
-            "routine_output_answer": context.routine_output_answer,
+            "routine_settings_answer": context.routine_settings_answer,
             "attachments": [dict(item) for item in context.attachments],
         }
 

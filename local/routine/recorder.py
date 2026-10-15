@@ -255,7 +255,7 @@ def answered(span: Span | None) -> Intent | None:
     """The intent to record again when the span's latest send is Admin's composed answer that binds its question.
 
     Only a target question binds, when the answer is exactly one target's JSON text and states no schedule. Any other
-    answer is the Brain's to read: it records again with a description that says it, and an output answer runs no
+    answer is the Brain's to read: it records again with a description that says it, and a settings answer runs no
     Action again.
     """
     if span is None or span.intent is None or span.asked is None or span.refused:
@@ -291,22 +291,39 @@ def selected_work(span: Span, name: str, replaces: str | None) -> str | None:
     return None if index is None else span.send_ids[index]
 
 
-def output_answer(span: Span | None) -> bool:
-    """Whether the span's latest send is exactly the person's choice of one output answering Team's output question.
+def settings_answer(span: Span | None) -> bool:
+    """Whether the span's latest send is exactly the person's pick of one fixed answer to a settings question.
 
-    Only Admin's composed answer whose answer is one output choice's label, in any interface language, qualifies; an
-    answer that also asks for anything else is a new request the Brain reads with every Action.
+    A settings question is Team's question about how often the Routine runs, its interval over the Team's budget, or
+    what is done with each run's result. Only Admin's composed answer whose answer is one of that question's fixed
+    labels, in any interface language, qualifies: the Brain then only records again. A typed answer, one that also asks
+    for anything else, and an answer to a target or rerun question are the Brain's to read with every Action, so new
+    work they name still runs.
     """
-    if span is None or span.asked is None or span.asked.code != "routine-output-unstated":
+    if span is None or span.asked is None or span.asked.code not in _SETTINGS_QUESTIONS:
         return False
     parsed = routine_recording.clarified_answer(span.sends[-1].message)
-    return parsed is not None and parsed[2] in _OUTPUT_LABELS
+    if parsed is None:
+        return False
+    if span.asked.code == "routine-interval-over-budget":
+        seconds = str((span.asked.wire or {}).get("value"))
+        offered = {
+            answer.replace("{seconds}", seconds) for answer in http_routine_proposal.OVER_BUDGET_ANSWERS.values()
+        }
+        return parsed[2] in offered
+    return parsed[2] in _SETTINGS_QUESTIONS[span.asked.code]
 
 
-# Every interface language's label of every output choice, which the person picks in the question.
-_OUTPUT_LABELS = frozenset(
-    label for choices in http_routine_proposal.OUTPUT_CHOICES.values() for label in choices.values()
-)
+# Every interface language's fixed answers to each settings question; the over-budget one is filled with its interval.
+_SETTINGS_QUESTIONS = {
+    "routine-schedule-unstated": frozenset(
+        label for labels in http_routine_proposal.SCHEDULE_CHOICES.values() for label in labels
+    ),
+    "routine-interval-over-budget": frozenset(),
+    "routine-output-unstated": frozenset(
+        label for choices in http_routine_proposal.OUTPUT_CHOICES.values() for label in choices.values()
+    ),
+}
 
 
 def stated_schedule(span: Span | None) -> dict[str, object] | None:

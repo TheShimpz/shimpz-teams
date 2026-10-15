@@ -239,7 +239,7 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         routine_rerun=routine_recorder.rerun_work(recorded) if mutable else None,
         routine_schedule=routine_recorder.stated_schedule(recorded) if mutable else None,
         routine_output=routine_recorder.stated_output(recorded) if mutable else None,
-        routine_output_answer=mutable and routine_recorder.output_answer(recorded),
+        routine_settings_answer=mutable and routine_recorder.settings_answer(recorded),
         locale=request.locale,
         turn_clock=_turn_clock(recorded),
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),

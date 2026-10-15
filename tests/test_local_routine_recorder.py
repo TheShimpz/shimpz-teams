@@ -261,22 +261,41 @@ class RecordingBookTests(unittest.TestCase):
         self.assertIsNone(answered("routine-schedule-unstated", "a cada hora", kept=None))
         self.assertIsNone(routine_recorder.answered(None))
 
-    def test_only_a_bare_output_choice_answering_the_output_question_records_alone(self) -> None:
-        def output_answer(code: str, answer: str, *, composed: bool = True) -> bool:
+    def test_only_a_fixed_answer_to_a_settings_question_records_alone(self) -> None:
+        def settings_answer(code: str, answer: str, *, composed: bool = True, value: int | None = None) -> bool:
             book = routine_recorder.RecordingBook()
             send = book.start("team_1", BINDING, _started("Liste"), 1)
-            book.asked("team_1", send, routine_recording.Question(code), None)
-            message = http_payload.compose_clarified("Liste", "E o resultado?", answer, "pt") if composed else answer
+            book.asked("team_1", send, routine_recording.Question(code, value=value), None)
+            message = http_payload.compose_clarified("Liste", "Qual?", answer, "pt") if composed else answer
             send = book.start("team_1", BINDING, _started(message), 2)
-            return routine_recorder.output_answer(book.get("team_1", send))
+            return routine_recorder.settings_answer(book.get("team_1", send))
 
-        self.assertTrue(output_answer("routine-output-unstated", "Mostrar somente quando mudar"))
-        self.assertTrue(output_answer("routine-output-unstated", "Show only when it changes"))
-        # An answer that also asks for other work, or answers another question, keeps every Action.
-        self.assertFalse(output_answer("routine-output-unstated", "Mostrar somente quando mudar e liste example.com"))
-        self.assertFalse(output_answer("routine-schedule-unstated", "Mostrar somente quando mudar"))
-        self.assertFalse(output_answer("routine-output-unstated", "Mostrar somente quando mudar", composed=False))
-        self.assertFalse(routine_recorder.output_answer(None))
+        over = "routine-interval-over-budget"
+        for code, answer, value in (
+            ("routine-output-unstated", "Mostrar somente quando mudar", None),
+            ("routine-output-unstated", "Show only when it changes", None),
+            ("routine-schedule-unstated", "A cada hora", None),
+            ("routine-schedule-unstated", "毎日 09:00", None),
+            (over, "A cada 120 segundos", 120),
+            (over, "Every 120 seconds", 120),
+        ):
+            with self.subTest(code=code, answer=answer):
+                self.assertTrue(settings_answer(code, answer, value=value))
+        # A typed or mixed answer, a label of another question or interval, and a target or rerun answer keep Actions.
+        for code, answer, value, composed in (
+            ("routine-output-unstated", "Mostrar somente quando mudar e liste example.com", None, True),
+            ("routine-output-unstated", "A cada hora", None, True),
+            ("routine-schedule-unstated", "A cada hora; e apague o registro www", None, True),
+            ("routine-schedule-unstated", "A cada 2 horas", None, True),
+            ("routine-schedule-unstated", "Mostrar somente quando mudar", None, True),
+            ("routine-schedule-unstated", "A cada hora", None, False),
+            (over, "A cada 60 segundos", 120, True),
+            ("routine-binding-ambiguous", '"shimpz.com"', None, True),
+            ("routine-work-rerun", "Executar de novo", None, True),
+        ):
+            with self.subTest(code=code, answer=answer, composed=composed):
+                self.assertFalse(settings_answer(code, answer, value=value, composed=composed))
+        self.assertFalse(routine_recorder.settings_answer(None))
 
     def test_routine_mode_follows_schedule_words_an_intent_or_a_pending_question(self) -> None:
         owner = http_payload.compose_clarified(
