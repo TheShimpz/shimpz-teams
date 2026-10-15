@@ -2,7 +2,6 @@
 
 import datetime
 import unittest
-from fractions import Fraction
 
 from protocol.http.v1 import routine as http_routine
 from routine import schedule
@@ -58,13 +57,11 @@ class ScheduleContractTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(schedule.ScheduleError):
                 schedule.zone(name)
 
-    def test_daily_rates_bound_a_teams_schedule(self):
-        self.assertEqual(http_routine.daily_rate({"kind": "continuous", "gap": 21600}), 4)
-        self.assertEqual(http_routine.daily_rate({"kind": "daily", "time": "09:00"}), 1)
-        self.assertEqual(http_routine.daily_rate({"kind": "weekly", "weekday": 0, "time": "09:00"}), Fraction(1, 7))
-        self.assertEqual(http_routine.daily_rate({"kind": "monthly", "day": 1, "time": "09:00"}), Fraction(1, 28))
-        continuous = {"kind": "continuous", "gap": 30}
-        self.assertEqual((http_routine.daily_rate(continuous), http_routine.daily_cap(continuous)), (2880, 2880))
+    def test_daily_caps_bound_a_teams_schedule(self):
+        self.assertEqual(http_routine.daily_cap({"kind": "continuous", "gap": 21600}), 4)
+        self.assertEqual(http_routine.daily_cap({"kind": "daily", "time": "09:00"}), 1)
+        self.assertEqual(http_routine.daily_cap({"kind": "monthly", "day": 1, "time": "09:00"}), 1)
+        self.assertEqual(http_routine.daily_cap({"kind": "continuous", "gap": 30}), 2880)
         self.assertEqual(http_routine.daily_cap({"kind": "weekly", "weekday": 0, "time": "09:00"}), 1)
         self.assertEqual(http_routine.daily_cap({"kind": "continuous", "gap": 18000}), 5)
 

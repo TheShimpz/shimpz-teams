@@ -279,7 +279,7 @@ states, hours included): exactly `{kind, gap}`, its first run right after confir
 seconds (5 to 31,622,400, 366 days) after the previous one started, never overlapping. Its rolling 24-hour cap is
 derived, never carried: `routine.continuous_cap(gap)`, `ceil(86400 / gap)` (at most `routine.MAX_CONTINUOUS_CAP`,
 17,280), so the interval a person stated runs all day and no cap ever rewrites it (ADR-0101).
-`routine.daily_rate` is a schedule's runs per day and `routine.daily_cap` its whole rolling 24-hour cap; the Team's
+`routine.daily_cap` is a schedule's rolling 24-hour cap, that cap for a continuous one and one otherwise; the Team's
 daily Action-step budget alone bounds what its Routines' caps may start together. A Routine is recorded from the work the ordinary chat agent did in one turn and exists only once a person
 confirms its card (ADR-0101). Its notice then has the Routine outcome `created` or `changed`, no run id, and the empty
 detail `{}`: the notice's own `name` says which Routine. A Routine view (`routine_notice.canonical_routine_view`) carries

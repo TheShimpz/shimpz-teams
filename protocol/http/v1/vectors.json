@@ -6471,11 +6471,11 @@
       {"kind": "continuous", "gap": 30, "every": 1},
       {"kind": "continuous"}
     ],
-    "daily_rate": [
-      {"schedule": {"kind": "continuous", "gap": 21600}, "rate": "4"},
-      {"schedule": {"kind": "weekly", "weekday": 0, "time": "09:00"}, "rate": "1/7"},
-      {"schedule": {"kind": "monthly", "day": 1, "time": "09:00"}, "rate": "1/28"},
-      {"schedule": {"kind": "continuous", "gap": 5}, "rate": "17280"}
+    "daily_cap": [
+      {"schedule": {"kind": "continuous", "gap": 21600}, "cap": 4},
+      {"schedule": {"kind": "weekly", "weekday": 0, "time": "09:00"}, "cap": 1},
+      {"schedule": {"kind": "monthly", "day": 1, "time": "09:00"}, "cap": 1},
+      {"schedule": {"kind": "continuous", "gap": 5}, "cap": 17280}
     ]
   },
   "routine_timezone": {

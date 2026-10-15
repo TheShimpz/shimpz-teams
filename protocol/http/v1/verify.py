@@ -242,14 +242,14 @@ if any(
     fail("Team HTTP rendered copy negative vector differs")
 
 schedules = vectors.get("routine_schedule", {})
-if not schedules.get("valid") or not schedules.get("invalid") or not schedules.get("daily_rate"):
+if not schedules.get("valid") or not schedules.get("invalid") or not schedules.get("daily_cap"):
     fail("routine schedule vectors are missing")
 if any(routine.canonical_schedule(value) != value for value in schedules["valid"]):
     fail("a valid routine schedule vector was not admitted exactly")
 if any(routine.canonical_schedule(value) is not None for value in schedules["invalid"]):
     fail("an invalid routine schedule vector was admitted")
-if any(str(routine.daily_rate(case["schedule"])) != case["rate"] for case in schedules["daily_rate"]):
-    fail("a routine daily rate vector differs")
+if any(routine.daily_cap(case["schedule"]) != case["cap"] for case in schedules["daily_cap"]):
+    fail("a routine daily cap vector differs")
 timezones = vectors.get("routine_timezone", {})
 if not timezones.get("valid") or not timezones.get("invalid"):
     fail("routine timezone vectors are missing")

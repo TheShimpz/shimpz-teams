@@ -234,7 +234,7 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
 
     def test_rejects_missing_or_drifted_routine_vectors(self) -> None:
         def missing_schedules(value: dict[str, object]) -> None:
-            value["routine_schedule"]["daily_rate"] = []
+            value["routine_schedule"]["daily_cap"] = []
 
         def rejected_schedule(value: dict[str, object]) -> None:
             value["routine_schedule"]["valid"] = [{"kind": "daily", "time": "25:00"}]
@@ -242,8 +242,8 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def accepted_schedule(value: dict[str, object]) -> None:
             value["routine_schedule"]["invalid"] = [{"kind": "daily", "time": "09:00"}]
 
-        def drifted_rate(value: dict[str, object]) -> None:
-            value["routine_schedule"]["daily_rate"][0]["rate"] = "5"
+        def drifted_cap(value: dict[str, object]) -> None:
+            value["routine_schedule"]["daily_cap"][0]["cap"] = 5
 
         def missing_timezones(value: dict[str, object]) -> None:
             value["routine_timezone"]["valid"] = []
@@ -279,7 +279,7 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             missing_schedules,
             rejected_schedule,
             accepted_schedule,
-            drifted_rate,
+            drifted_cap,
             missing_timezones,
             rejected_timezone,
             accepted_timezone,
