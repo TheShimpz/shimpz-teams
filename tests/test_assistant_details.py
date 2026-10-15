@@ -1,4 +1,4 @@
-"""An installed Assistant's page in one interface language, on both profiles, from its exact current binding."""
+"""An installed Assistant's page in one interface language, from its exact current binding."""
 
 import copy
 import json

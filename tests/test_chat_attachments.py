@@ -1,4 +1,4 @@
-"""Chat attachment rules shared by both profiles (ADR-0093)."""
+"""Chat attachment rules for every Team turn (ADR-0093)."""
 
 import dataclasses
 import tempfile

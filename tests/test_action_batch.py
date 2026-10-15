@@ -332,7 +332,7 @@ class NeverDispatchedTests(unittest.TestCase):
             try:
                 action_execution.rpc_exchange("container", ["command"], b"request", _rpc_strategy(api))
             except action_execution.RpcExchangeError as exc:
-                # Each profile raises its own public problem from the exchange error.
+                # The controller raises its public problem from the exchange error.
                 raise RuntimeError("Assistant Action timed out") from exc
 
         with tempfile.TemporaryDirectory() as directory:

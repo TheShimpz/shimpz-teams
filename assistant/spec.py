@@ -26,7 +26,7 @@ class ActionSpec:
 
 
 def action_spec(action: Mapping[str, Any]) -> ActionSpec:
-    """One admitted machine-contract Action as both Controllers hold it."""
+    """One admitted machine-contract Action as the Team holds it."""
     return ActionSpec(
         summary=action_summary(action["id"]),
         input_schema=action["input_schema"],
@@ -56,7 +56,7 @@ class RuntimeContract:
 def runtime_contract(document: Mapping[str, Any]) -> RuntimeContract:
     """Admit a binding document's declarations and its exactly canonical machine contract.
 
-    Raises KeyError, TypeError, or ManifestError; each profile maps them to its own binding error.
+    Raises KeyError, TypeError, or ManifestError; the caller maps them to its binding error.
     """
     declarations = tuple(
         assistant_manifest.IntegrationDeclaration(

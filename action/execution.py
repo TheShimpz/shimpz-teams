@@ -24,7 +24,7 @@ from protocol.assistant.v1.validators import input_file as input_file_validator
 from protocol.http.v1 import strict_json
 
 # A missing manifest Action is a missing resource; an unavailable connected integration is an unmet
-# request precondition. Both Controllers use these statuses so their public contracts cannot drift.
+# request precondition. Every Action entry point answers with these statuses so its public contract cannot drift.
 UNDECLARED_ACTION_STATUS = HTTPStatus.NOT_FOUND
 INTEGRATION_PRECONDITION_STATUS = HTTPStatus.PRECONDITION_REQUIRED
 RPC_FAILURE_STATUSES = {
@@ -342,7 +342,7 @@ class HeldActionBatch(ActionBatch):
 
 
 class RpcExchangeError(RuntimeError):
-    """One stable failure kind translated into each Controller's public error shape.
+    """One stable failure kind the Local controller translates into its public error shape.
 
     ``condition`` is the actual safe transport condition, such as ``exit-status:1`` or ``stderr-output``, recorded
     in place of any unverifiable raw child output (ADR-0092).

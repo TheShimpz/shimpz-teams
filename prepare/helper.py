@@ -39,7 +39,7 @@ def own_image_id(client: object, transport_errors: tuple[type[BaseException], ..
 
 
 def base_kwargs(image: str, name: str, labels: dict[str, str]) -> dict[str, object]:
-    """The profile-neutral helper envelope; a profile adds only its runtime, CPU set, and accounting labels."""
+    """The helper envelope; the Local controller adds only its runtime, CPU set, and accounting labels."""
     return {
         "image": image,
         "name": name,

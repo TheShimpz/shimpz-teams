@@ -173,7 +173,7 @@ def run_segment(
     chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension,
     SegmentRequirements,
 ]:
-    """Apply the same continuation, identity and suspension decisions on both Controllers."""
+    """Apply the turn's continuation, identity and suspension decisions."""
     if (message is None) == (continuation is None) or (conversation and message is None):
         strategy.raise_problem("invalid-continuation", None)
     with strategy.progress.span("team-context"):
@@ -219,7 +219,7 @@ def drive(
     requirements: SegmentRequirements,
     conversation: tuple[brain_runtime_client.RuntimeConversationEntry, ...] = (),
 ) -> chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension:
-    """Run or resume one turn with the same durable Action hooks on both Controllers."""
+    """Run or resume one turn with its durable Action hooks."""
 
     def pause_before_batch(requests: tuple[object, ...]) -> bool:
         return strategy.pause_for_private_inputs(requests, requirements)
