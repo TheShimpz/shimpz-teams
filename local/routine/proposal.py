@@ -269,10 +269,6 @@ def _candidate(self, response: object, intent: routine_recorder.Intent) -> tuple
     recorded = _recorded(intent, recording, contracts, existing)
     if isinstance(recorded, routine_recording.Question):
         raise _AskedError(recorded, recording.protection.values)
-    try:
-        routine_plan.admit(recorded.document, contracts)
-    except routine_plan.PlanError as exc:
-        raise RefusedError(exc.code) from exc
     scopes = dict(response.segment.contracts)
     routine_id = record.new_id() if existing is None else existing.routine_id
     others = tuple(item for item in state.routines if item.routine_id != routine_id)

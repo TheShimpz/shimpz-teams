@@ -33,13 +33,13 @@ class ClassificationTests(unittest.TestCase):
     def classify(self, value: object, known: str, *earlier: object, **send) -> tuple[object, str]:
         # Each earlier read is a distinct call, so none is the same source as another.
         calls = [("reports/fetch", {"call": index}, item) for index, item in enumerate(earlier)]
-        calls.append(("cloudflare/list-dns-records", {"zone_id": "z", "per_page": value}, {}))
+        calls.append(("cloudflare/list-dns-records", {"zone_id": "z", "match": value}, {}))
         recorded = _recorded(_send(*calls, message=_then_hourly(known), **send))
-        return _input(recorded)["per_page"], recorded.origins[recorded.document["steps"][-1]["id"]]["per_page"]
+        return _input(recorded)["match"], recorded.origins[recorded.document["steps"][-1]["id"]]["match"]
 
     def asked(self, value: object, known: str, *earlier: object) -> object:
         calls = [("reports/fetch", {"call": index}, item) for index, item in enumerate(earlier)]
-        calls.append(("cloudflare/list-dns-records", {"zone_id": "z", "per_page": value}, {}))
+        calls.append(("cloudflare/list-dns-records", {"zone_id": "z", "match": value}, {}))
         return _record(_send(*calls, message=_then_hourly(known)))
 
     def test_a_value_named_in_the_request_is_a_literal_even_when_it_could_be_copied(self) -> None:
@@ -123,9 +123,9 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(_input(sourced)["query"]["kind"], "step_output")
 
     def test_with_no_zone_known_the_run_date_is_the_utc_date(self) -> None:
-        calls = [("cloudflare/list-dns-records", {"zone_id": "z", "per_page": "2026-10-05"}, {})]
+        calls = [("cloudflare/list-dns-records", {"zone_id": "z", "match": "2026-10-05"}, {})]
         recorded = _recorded(_send(*calls, timezone=None))
-        self.assertEqual(_input(recorded)["per_page"], {"kind": "run_clock", "format": "date"})
+        self.assertEqual(_input(recorded)["match"], {"kind": "run_clock", "format": "date"})
         self.assertEqual((recorded.document["timezone"], recorded.timezone_source), ("UTC", "none"))
 
     def test_a_value_at_one_position_is_copied_by_pointer(self) -> None:
@@ -342,7 +342,7 @@ class SourceTests(unittest.TestCase):
                 ),
             )
         self.assertEqual(code, "routine-recording-unverified")
-        with mock.patch.object(routine_compose, "_resolved", return_value="other"):
+        with mock.patch.object(routine_plan, "resolve", return_value={"other": 1}):
             code = _code(self, lambda: _record(_send(ZONES_CALL, RECORDS, message=OWNER)))
         self.assertEqual(code, "routine-recording-unverified")
 

@@ -21,6 +21,7 @@ from test_routine_recording import (
     _send,
 )
 
+from routine import provenance as routine_provenance
 from routine import recording, trace
 
 
@@ -83,6 +84,15 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
         self.assertEqual({step["input"]["zone_id"]["value"] for step in recorded.document["steps"][1:]}, {chosen["id"]})
 
+    def test_a_call_that_sends_nothing_or_a_withheld_value_never_sends_a_chosen_target(self) -> None:
+        sent_nothing = _send(("reports/post", {}, {})).occurrences[0]
+        withheld = _send(
+            ("reports/post", {"text": "x"}, {}, trace.Kept({"text": None}, frozenset({"/text"})))
+        ).occurrences[0]
+        for occurrence in (sent_nothing, withheld):
+            with self.subTest(occurrence=occurrence):
+                self.assertIsNone(routine_provenance._sent_value(recording._Call(0, 0, occurrence), "text"))
+
     def test_a_repair_that_drops_the_chosen_target_ends_the_span(self) -> None:
         chosen, others = ZONES["result"][3], ZONES["result"][:2]
         calls = [("cloudflare/list-dns-records", {"zone_id": zone["id"]}, {"result": []}) for zone in (*others, chosen)]
@@ -92,7 +102,7 @@ class RepairTests(unittest.TestCase):
         # Neither a listing without a zone nor a zone another lookup returned is the zone the person chose.
         lookup = ("reports/fetch", {"q": "zone"}, {"id": "zone-from-lookup"})
         for later in (
-            _send(ZONES_CALL, ("cloudflare/list-dns-records", {"per_page": 5}, {})),
+            _send(ZONES_CALL, ("cloudflare/list-dns-records", {"zone_id": "z", "per_page": 5}, {})),
             _send(lookup, ("cloudflare/list-dns-records", {"zone_id": "zone-from-lookup"}, {})),
         ):
             with self.subTest(later=later):

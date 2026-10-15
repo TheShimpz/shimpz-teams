@@ -1,13 +1,11 @@
 """Composing a confirmable Routine plan from a recording span, without a model (ADR-0101)."""
 
 import dataclasses
-import datetime
 import heapq
 from collections.abc import Mapping, Sequence
 
 from protocol.http.v1 import phrase
 from protocol.http.v1 import routine as http_routine
-from routine import dates as routine_dates
 from routine import plan as routine_plan
 from routine import provenance as routine_provenance
 from routine import recording as routine_recording
@@ -66,10 +64,8 @@ def record(
         raise routine_recording.RecordingError("routine-record-again")
     if kept is not None:
         return kept
-    timezone, source = context.zone
-    document["timezone"] = timezone
     permitted = _permitted([(step["assistant"], step["action"]) for step in document["steps"]], contracts)
-    return routine_recording.Recorded(document, origins, permitted, when, source)
+    return routine_recording.Recorded(document, origins, permitted, when, context.zone[1])
 
 
 def _chosen_used(context: routine_recording._Context, work: list[routine_recording._Call]) -> bool:
@@ -167,31 +163,40 @@ def _output(sends: Sequence[routine_recording.Send], existing: routine_recording
 def _kept(
     context: routine_recording._Context, mode: str, existing: routine_recording.Existing
 ) -> routine_recording.Recorded:
-    """A replacement that ran no Action: the replaced plan's steps exactly, on a new schedule, zone, or output."""
+    """A replacement that ran no Action: the replaced plan's steps exactly, on a new schedule, zone, or output.
+
+    It is admitted again against the Team's exact current contracts, so a pin that drifted refuses.
+    """
     steps = [dict(step) for step in existing.plan["steps"]]
-    for step in steps:
-        contract = context.contracts.get((step["assistant"], step["action"]))
-        if contract is None or contract.pin != step["pin"]:
-            raise routine_recording.RecordingError("plan-pin-drift")
     origins = {
         step["id"]: {member: _kept_origin(source, context.known) for member, source in step["input"].items()}
         for step in steps
     }
-    document = _document(steps, steps[-1]["id"], mode)
+    document = _document(steps, steps[-1]["id"], mode, context.zone[0])
+    _admitted(document, context.contracts)
     when = _schedule(context.sends, existing)
-    timezone, source = context.zone
-    document["timezone"] = timezone
     actions = [(step["assistant"], step["action"]) for step in steps]
-    return routine_recording.Recorded(document, origins, _permitted(actions, context.contracts), when, source)
+    return routine_recording.Recorded(document, origins, _permitted(actions, context.contracts), when, context.zone[1])
 
 
-def _document(steps: list[dict[str, object]], last: str | None, mode: str) -> dict[str, object]:
+def _document(steps: list[dict[str, object]], last: str | None, mode: str, timezone: str) -> dict[str, object]:
+    """The plan document of these steps, in the zone each run reads its dates in."""
     return {
         "version": routine_plan.VERSION,
-        "timezone": http_routine.CONVENTIONAL_TIMEZONE,
+        "timezone": timezone,
         "steps": steps,
         "output": {"mode": mode, "step": last if mode in http_routine.SHOWN_MODES else None},
     }
+
+
+def _admitted(
+    document: dict[str, object], contracts: Mapping[tuple[str, str], routine_plan.ActionContract]
+) -> routine_plan.Plan:
+    """The plan as every run admits it, against the exact current contracts; a refusal keeps the plan's own code."""
+    try:
+        return routine_plan.admit(document, contracts)
+    except routine_plan.PlanError as exc:
+        raise routine_recording.RecordingError(exc.code) from exc
 
 
 def _kept_origin(source: Mapping[str, object], known: routine_recording._Known) -> str:
@@ -218,8 +223,9 @@ def _plan(
     origins = {names[node]: context.inputs[node][1] for node in order}
     work_nodes = {context.classes[call.index] for call in work}
     shown = next((names[node] for node in reversed(order) if node in work_nodes), None)
-    _verify(context, nodes, steps, names)
-    return _document(steps, shown, mode), origins
+    document = _document(steps, shown, mode, context.zone[0])
+    _verify(context, nodes, document, names)
+    return document, origins
 
 
 def _closure(
@@ -333,42 +339,33 @@ def _ordered(context: routine_recording._Context, nodes: dict[int, routine_recor
 def _verify(
     context: routine_recording._Context,
     nodes: dict[int, routine_recording._Call],
-    steps: list[dict[str, object]],
+    document: dict[str, object],
     names: dict[int, str],
 ) -> None:
-    """Every step, resolved against the recorded results, reproduces what each call it stands for sent."""
-    results = {names[node]: call.occurrence.result.value for node, call in nodes.items()}
-    by_name = {step["id"]: step for step in steps}
-    for call in context.calls:
-        node = context.classes[call.index]
-        if node not in nodes:
-            continue
-        step = by_name[names[node]]
-        sent = call.occurrence.input.value
-        if not isinstance(sent, dict) or set(sent) != set(step["input"]):
-            raise routine_recording.RecordingError("routine-recording-unverified")
-        started = context.sends[call.send].started_at
-        for member, source in step["input"].items():
-            if not routine_plan.same(_resolved(context, source, results, started), sent[member]):
-                raise routine_recording.RecordingError("routine-recording-unverified")
+    """Every call a step stands for, replayed through a run's own admission and resolver, sends exactly what it sent.
 
-
-def _resolved(
-    context: routine_recording._Context, source: Mapping[str, object], results: Mapping[str, object], started: int
-) -> object:
-    if source["kind"] == "literal":
-        return source["value"]
-    if source["kind"] == "run_clock":
-        instant = datetime.datetime.fromtimestamp(started, datetime.UTC)
-        return routine_dates.clock_value(source, instant, context.zone[0])
+    The plan is admitted against the exact contracts, each step's selections from its recorded result are kept as a
+    run keeps them and within their bound, and each call's input is resolved as a run resolves it on that call's own
+    start, so a card never shows a plan that fails every run, such as an input past the bound a run dispatches.
+    """
+    plan = _admitted(document, context.contracts)
+    recorded = {names[node]: call.occurrence.result.value for node, call in nodes.items()}
+    steps = {step.step_id: step for step in plan.steps}
+    selected: dict[routine_plan.Key, object] = {}
     try:
-        if "where" in source:
-            return routine_plan.select_where(
-                results[source["step"]], source["pointer"], source["where"], source["item"]
-            )
-        return routine_plan.select(results[source["step"]], source["pointer"])
-    except routine_plan.PlanError:
-        return _UNRESOLVED
-
-
-_UNRESOLVED = object()
+        for step in plan.steps:
+            chosen = routine_plan.selections(plan, step.step_id, recorded[step.step_id])
+            selected.update({(step.step_id, *key): value for key, value in chosen.items()})
+        if not routine_plan.retained_within(selected):
+            raise routine_recording.RecordingError("routine-recording-too-large")
+        for call in context.calls:
+            node = context.classes[call.index]
+            if node not in nodes:
+                continue
+            started = context.sends[call.send].started_at
+            resolved = routine_plan.resolve(plan, steps[names[node]], selected, started, lambda value: value)
+            if not routine_plan.same(resolved, call.occurrence.input.value):
+                raise routine_recording.RecordingError("routine-recording-unverified")
+    except routine_plan.PlanError as exc:
+        code = "routine-recording-too-large" if exc.code == "plan-input-too-large" else "routine-recording-unverified"
+        raise routine_recording.RecordingError(code) from exc

@@ -28,14 +28,27 @@ ZONE_ITEM = {
 ZONES_OUT = {"type": "object", "properties": {"result": {"type": "array", "items": ZONE_ITEM}}}
 RECORDS_IN = {
     "type": "object",
-    "properties": {"zone_id": {"type": "string"}, "type": {"type": "string"}, "per_page": {"type": "integer"}},
+    "properties": {
+        "zone_id": {"type": "string"},
+        "type": {"type": "string"},
+        "per_page": {"type": "integer"},
+        "day": {"type": "string"},
+        # A member of any type, whose recorded value each classification test chooses.
+        "match": {},
+    },
     "required": ["zone_id"],
 }
 DELETE_IN = {
     "type": "object",
     "properties": {"zone_id": {"type": "string"}, "record_id": {"type": "string"}, "api_token": {"type": "string"}},
 }
-OPEN_IN = {"type": "object"}
+# The members the recorded work of these tests sends to an Action that declares no other input.
+OPEN_IN = {
+    "type": "object",
+    "properties": {
+        name: {} for name in ("a", "b", "call", "num_results", "page", "port", "q", "query", "site", "t", "text", "z")
+    },
+}
 CONTRACTS = {
     ("cloudflare", "list-zones"): routine_plan.ActionContract(PIN, OPEN_IN, read_only=True),
     ("cloudflare", "list-dns-records"): routine_plan.ActionContract(PIN, RECORDS_IN, read_only=True),
@@ -637,6 +650,34 @@ KEPT_PLAN = {
     ],
     "output": {"mode": "show", "step": "s2"},
 }
+
+
+class RunVerificationTests(unittest.TestCase):
+    """A recorded plan is verified through a run's own admission and resolver, within every bound a run enforces."""
+
+    def test_an_input_past_the_dispatch_bound_refuses_instead_of_failing_every_run(self) -> None:
+        # Within what a recording keeps (256 KiB), past what a run dispatches (128 KiB): no card, never a dead Routine.
+        text = "word " * (routine_plan.MAX_RESOLVED_INPUT_BYTES // 5 + 1)
+        self.assertLess(len(text), trace.MAX_KEPT_BYTES)
+        post = ("reports/post", {"text": text}, {})
+        self.assertEqual(_code(self, lambda: _record(_send(post))), "routine-recording-too-large")
+        fits = ("reports/post", {"text": "word " * (routine_plan.MAX_RESOLVED_INPUT_BYTES // 10)}, {})
+        self.assertEqual(_actions(_recorded(_send(fits))), ["post"])
+
+    def test_selections_past_what_a_run_retains_refuse(self) -> None:
+        # Each input alone dispatches, but together a run could not keep what later steps select.
+        half = routine_plan.MAX_RETAINED_BYTES // 2 + 1024
+        fetch = ("reports/fetch", {}, {"first": "a" * half, "second": "b" * half})
+        posts = (("reports/post", {"a": "a" * half}, {}), ("reports/post", {"b": "b" * half}, {}))
+        self.assertEqual(_code(self, lambda: _record(_send(fetch, *posts))), "routine-recording-too-large")
+
+    def test_a_dated_text_is_verified_in_the_routines_own_zone(self) -> None:
+        # 01:00 UTC on 6 October is still 5 October in Sao Paulo, where the send wrote its date and each run reads it.
+        started = int(datetime.datetime(2026, 10, 6, 1, tzinfo=datetime.UTC).timestamp())
+        post = ("reports/post", {"text": "Resumo de 05/10/2026"}, {})
+        recorded = _recorded(_send(post, started_at=started))
+        self.assertEqual(recorded.document["timezone"], "America/Sao_Paulo")
+        self.assertEqual(_input(recorded)["text"]["kind"], "run_clock")
 
 
 class KeptTests(unittest.TestCase):
