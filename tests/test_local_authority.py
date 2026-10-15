@@ -111,8 +111,6 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         )
 
         self.assertEqual(evidence.supervisor_id, "a" * 32)
-        self.assertEqual(evidence.authority_kind, "session")
-        self.assertEqual(evidence.authority_digest, hashlib.sha256(b"local-session").hexdigest())
         with self.assertRaisesRegex(authority.SupervisorDeniedError, "replayed"):
             authority.verify(
                 headers,
@@ -241,7 +239,7 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
             replay_guard=guard,
             now=NOW,
         )
-        self.assertEqual(evidence.assertion_id, "b" * 32)
+        self.assertEqual(evidence.supervisor_id, "a" * 32)
 
     def test_model_binding_and_time_are_fail_closed(self) -> None:
         model = {"provider": "openai", "key_sha256": "d" * 64}
@@ -300,7 +298,7 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
             replay_guard=authority.ReplayGuard(),
             now=NOW,
         )
-        self.assertEqual(evidence.authority_kind, "host-reset")
+        self.assertEqual(evidence.supervisor_id, "a" * 32)
 
     def test_replay_capacity_and_public_key_metadata_fail_closed(self) -> None:
         guard = authority.ReplayGuard(capacity=1)
@@ -361,7 +359,7 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
             replay_guard=guard,
             now=NOW,
         )
-        self.assertEqual(evidence.assertion_id, "b" * 32)
+        self.assertEqual(evidence.supervisor_id, "a" * 32)
 
     def test_replay_and_assertion_shapes_are_bounded(self) -> None:
         for capacity in (0, authority.MAX_REPLAY_ENTRIES + 1):

@@ -105,13 +105,7 @@ class SupervisorQuietWindowTests(unittest.TestCase):
         verify = mock.patch.object(
             server.local_authority,
             "verify",
-            return_value=local_authority.Evidence(
-                supervisor_id="a" * 32,
-                authority_kind="session",
-                authority_digest="b" * 64,
-                assertion_id="c" * 32,
-                expires_at=2_200_000_015,
-            ),
+            return_value=local_authority.Evidence(supervisor_id="a" * 32),
         )
         verify.start()
         self.addCleanup(verify.stop)

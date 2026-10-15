@@ -186,7 +186,7 @@ class RoutineServiceCase(LocalContractCase):
     def run_claim(self, service, claim: dict[str, object]) -> dict[str, object]:
         """Run a claimed run under its lease."""
         lease = record.lease_sha256(claim["lease_token"])
-        evidence = local_authority.RoutineEvidence(self.fingerprint, lease, "a" * 32, 0)
+        evidence = local_authority.RoutineEvidence(self.fingerprint, lease)
         return service.run_routine("team_1", claim["run_id"], evidence, (claim["revision"], claim["plan_digest"]))
 
     def asking(self, directory: str, request: action_human.HumanRequest | None = None, *turns):

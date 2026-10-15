@@ -55,10 +55,6 @@ class Evidence:
     """Attributable human evidence accepted for one exact Local request."""
 
     supervisor_id: str
-    authority_kind: str
-    authority_digest: str
-    assertion_id: str
-    expires_at: int
     # The SHA-256 of the raw pinned key that verified the assertion.
     key_sha256: str = ""
 
@@ -82,8 +78,6 @@ class RoutineEvidence:
 
     key_fingerprint: str
     lease_sha256: str
-    assertion_id: str
-    expires_at: int
 
 
 class ReplayGuard:
@@ -357,15 +351,8 @@ def verify(
     encoded = _one_assertion(headers)
     key = supervisor_key()
     claims = _verified_claims(encoded, key)
-    assertion_id, expires_at = _bound(claims, request, replay_guard, now)
-    return Evidence(
-        supervisor_id=str(claims["sub"]),
-        authority_kind=str(claims["authority"]),
-        authority_digest=str(claims["authority_sha256"]),
-        assertion_id=assertion_id,
-        expires_at=expires_at,
-        key_sha256=key_sha256(key),
-    )
+    _bound(claims, request, replay_guard, now)
+    return Evidence(supervisor_id=str(claims["sub"]), key_sha256=key_sha256(key))
 
 
 def routine_key_fingerprint() -> str:
@@ -396,18 +383,13 @@ def verify_routine(
         None,
         frozenset({contract.ROUTINE_AUTHORITY}),
     )
-    assertion_id, expires_at = _bound(claims, routine_request, replay_guard, now)
-    return RoutineEvidence(
-        key_fingerprint=key_sha256(key),
-        lease_sha256=str(claims["authority_sha256"]),
-        assertion_id=assertion_id,
-        expires_at=expires_at,
-    )
+    _bound(claims, routine_request, replay_guard, now)
+    return RoutineEvidence(key_fingerprint=key_sha256(key), lease_sha256=str(claims["authority_sha256"]))
 
 
 def _bound(
     claims: dict[str, object], request: RequestBinding, replay_guard: ReplayGuard | None, now: int | None
-) -> tuple[str, int]:
+) -> None:
     """Check the assertion's time and exact request binding, then consume its one-use nonce."""
     current = int(time.time()) if now is None else now
     issued_at = claims["iat"]
@@ -438,4 +420,3 @@ def _bound(
     if not isinstance(assertion_id, str):
         raise SupervisorDeniedError("Local Supervisor assertion is invalid")
     guard.consume(assertion_id, expires_at, now=current)
-    return assertion_id, expires_at

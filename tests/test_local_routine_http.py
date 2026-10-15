@@ -58,7 +58,7 @@ class RoutineHttpCase(RoutineServiceCase):
         path.write_bytes(public.public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo))
         path.chmod(0o440)
         self.fingerprint = fingerprint = hashlib.sha256(public.public_bytes(Encoding.Raw, PublicFormat.Raw)).hexdigest()
-        self.session = local_authority.Evidence("a" * 32, "session", "b" * 64, "c" * 32, 2_200_000_000)
+        self.session = local_authority.Evidence("a" * 32)
         for patch in (
             mock.patch.object(local_authority, "ROUTINE_PUBLIC_KEY_FILE", path),
             mock.patch.object(local_authority.grp, "getgrnam", return_value=types.SimpleNamespace(gr_gid=os.getgid())),

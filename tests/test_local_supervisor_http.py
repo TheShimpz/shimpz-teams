@@ -82,13 +82,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
 
     @staticmethod
     def _evidence() -> authority.Evidence:
-        return authority.Evidence(
-            supervisor_id="a" * 32,
-            authority_kind="session",
-            authority_digest="b" * 64,
-            assertion_id="c" * 32,
-            expires_at=2_200_000_015,
-        )
+        return authority.Evidence(supervisor_id="a" * 32)
 
     def test_a_machine_route_refuses_a_decision_key_before_running(self) -> None:
         health = mock.Mock(return_value={"status": "ok"})

@@ -728,7 +728,7 @@ class RecordedRoutineTests(LocalContractCase):
                 ),
             )
             claim = service.claim_routine_run()
-            evidence = local_authority.RoutineEvidence(KEY, record.lease_sha256(claim["lease_token"]), "a" * 32, 0)
+            evidence = local_authority.RoutineEvidence(KEY, record.lease_sha256(claim["lease_token"]))
             claimed = (claim["revision"], claim["plan_digest"])
             return claim["run_id"], service.run_routine("team_1", claim["run_id"], evidence, claimed)
 
