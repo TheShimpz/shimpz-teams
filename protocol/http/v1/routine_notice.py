@@ -141,7 +141,7 @@ def canonical_routine_view(value: object) -> dict[str, object] | None:
     summary = routine.canonical_summary(value["plan"])
     valid = (
         routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
-        and routine.canonical_name(value["name"]) == value["name"]
+        and routine.exact_name(value["name"])
         and summary is not None
         and _disposed(value["output"], summary["steps"])
         and value["schedule"] is not None
@@ -227,7 +227,7 @@ def canonical_notice(value: object) -> dict[str, object] | None:
         and type(value["version"]) is int
         and value["version"] >= 1
         and routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
-        and routine.canonical_name(value["name"]) == value["name"]
+        and routine.exact_name(value["name"])
         and optional(value["run_id"], routine.ROUTINE_ID_RE)
         and (value["run_id"] is None) == (outcome in routine.ROUTINE_OUTCOMES)
         # A run's one notice is keyed by its run id.

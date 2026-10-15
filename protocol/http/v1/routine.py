@@ -128,6 +128,16 @@ def canonical_description(value: object) -> str | None:
     return _line(value, MAX_ROUTINE_DESCRIPTION_CHARS)
 
 
+def exact_name(value: object) -> bool:
+    """Whether a value is a Routine name exactly in its canonical form."""
+    return value is not None and canonical_name(value) == value
+
+
+def exact_description(value: object) -> bool:
+    """Whether a value is a Routine card's description exactly in its canonical form."""
+    return value is not None and canonical_description(value) == value
+
+
 def _line(value: object, maximum: int) -> str | None:
     if (
         not isinstance(value, str)

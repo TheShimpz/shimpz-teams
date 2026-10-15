@@ -92,7 +92,7 @@ def read_recovery(value: object, run_id: str) -> Recovery:
     if (
         not routine_cursor.binding_valid(snapshot.binding)
         or snapshot.binding.run_id != run_id
-        or http_routine.canonical_name(snapshot.name) != snapshot.name
+        or not http_routine.exact_name(snapshot.name)
         or not isinstance(snapshot.plan, dict)
     ):
         raise local_errors.routine_state_unavailable()

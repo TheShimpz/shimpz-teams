@@ -70,9 +70,8 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
         routine.matches(value["proposal_id"], routine.ROUTINE_ID_RE)
         and routine_notice.instant(value["expires_at"])
         and routine_notice.optional(value["replaces"], routine.ROUTINE_ID_RE)
-        and routine.canonical_name(value["name"]) == value["name"]
-        and routine.canonical_description(value["description"]) is not None
-        and routine.canonical_description(value["description"]) == value["description"]
+        and routine.exact_name(value["name"])
+        and routine.exact_description(value["description"])
         and isinstance(steps, list)
         and 0 < len(steps) <= routine.MAX_ROUTINE_STEPS
         and all(_card_step(item, index) for index, item in enumerate(steps, start=1))
