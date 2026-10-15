@@ -47,7 +47,7 @@ BODY_LIMITS = {
 
 
 def _empty(handler, operation: str) -> None:
-    if handler._body(max_bytes=BODY_LIMITS[operation]) != {}:
+    if handler.body(max_bytes=BODY_LIMITS[operation]) != {}:
         raise local_errors.empty_body_required()
 
 
@@ -61,21 +61,21 @@ def _run_id(route: strict_http.ControllerRouteMatch) -> str:
 def _machine(handler, operation: str) -> dict[str, object]:
     service = handler.server.controller.chat_turn_service
     if operation == "routine-claim":
-        request = http_routine_run.canonical_claim_request(handler._body(max_bytes=BODY_LIMITS[operation]))
+        request = http_routine_run.canonical_claim_request(handler.body(max_bytes=BODY_LIMITS[operation]))
         if request is None:
             raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "Routine claim is invalid", code="invalid-body")
         run = service.claim_routine_run(request["long"])
         return {"run": run, "next_due_at": None if run is not None else service.next_routine_due()}
     if operation == "routine-notices":
         return service.routine_notices()
-    return service.acknowledge_routine_notices(handler._body(max_bytes=BODY_LIMITS[operation]))
+    return service.acknowledge_routine_notices(handler.body(max_bytes=BODY_LIMITS[operation]))
 
 
 def _challenge(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
     """A Supervisor's opening of one frozen run's challenge, rendered in the Admin interface language (ADR-0091)."""
     service = handler.server.controller.chat_turn_service
     run_id = _run_id(route)
-    opening = http_routine_run.canonical_challenge_open(handler._body(max_bytes=BODY_LIMITS[route.operation]))
+    opening = http_routine_run.canonical_challenge_open(handler.body(max_bytes=BODY_LIMITS[route.operation]))
     if opening is None:
         raise local_errors.challenge_locale_only()
     return service.open_routine_challenge(team_id, run_id, opening["locale"])
@@ -109,21 +109,21 @@ def _run_steps(handler, route: strict_http.ControllerRouteMatch, team_id: str) -
     return service.routine_run_steps(team_id, run_id, snapshot, int(offset), int(time.time()))
 
 
-def _incident_id(route: strict_http.ControllerRouteMatch) -> str:
-    incident_id = route.params["incident_id"]
-    if http_routine.ROUTINE_ID_RE.fullmatch(incident_id) is None:
+def _held_run_id(route: strict_http.ControllerRouteMatch) -> str:
+    run_id = route.params["run_id"]
+    if http_routine.ROUTINE_ID_RE.fullmatch(run_id) is None:
         raise local_errors.routine_incident_unavailable()
-    return incident_id
+    return run_id
 
 
 def _card(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
     """A person's recovery card of one held run: open it with an empty body, or answer it once with Rodar."""
     service = handler.server.controller.chat_turn_service
-    incident_id = _incident_id(route)
+    run_id = _held_run_id(route)
     if route.operation == "routine-card-open":
         _empty(handler, route.operation)
-        return service.open_routine_card(team_id, incident_id)
-    return service.answer_routine_card(team_id, incident_id, handler._body(max_bytes=BODY_LIMITS[route.operation]))
+        return service.open_routine_card(team_id, run_id)
+    return service.answer_routine_card(team_id, run_id, handler.body(max_bytes=BODY_LIMITS[route.operation]))
 
 
 def _pause(handler, route: strict_http.ControllerRouteMatch, team_id: str, paused: bool) -> dict[str, object]:
@@ -187,7 +187,7 @@ def stream(handler, route: strict_http.ControllerRouteMatch, request_audit: Requ
     def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
         run_id = _run_id(route)
         if route.operation == "routine-human-submit":
-            body = handler._body(max_bytes=BODY_LIMITS[route.operation])
+            body = handler.body(max_bytes=BODY_LIMITS[route.operation])
             return HTTPStatus.OK, service.resume_routine_human(team_id, run_id, body, reporter)
         _empty(handler, route.operation)
         return HTTPStatus.OK, service.resume_routine_integrations(team_id, run_id, reporter)
@@ -220,12 +220,12 @@ def expected_assurance(handler, params: dict[str, str]) -> dict[str, str] | None
         team_id = validate_team_id(params.get("team_id"))
         return handler.server.controller.chat_turn_service.current_routine_challenge(team_id)
 
-    return human_assurance(handler._body(max_bytes=MAX_HUMAN_RESPONSE_BODY_BYTES), current)
+    return human_assurance(handler.body(max_bytes=MAX_HUMAN_RESPONSE_BODY_BYTES), current)
 
 
 def run(handler, parts: list[str], route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
     """One segment of a leased run under Admin's routine identity; its lease is checked by the run itself."""
-    body = handler._capture_body(route.operation)
+    body = handler.capture_body(route.operation)
     try:
         evidence = local_authority.verify_routine(
             handler.headers,
@@ -250,7 +250,7 @@ def run(handler, parts: list[str], route: strict_http.ControllerRouteMatch, requ
     request_audit.record("routine-authority", result="ok")
     team_id = validate_team_id(route.params["team_id"])
     run_id = _run_id(route)
-    claimed = http_routine_run.canonical_segment_request(handler._body(max_bytes=BODY_LIMITS[route.operation]))
+    claimed = http_routine_run.canonical_segment_request(handler.body(max_bytes=BODY_LIMITS[route.operation]))
     if claimed is None:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY, "a segment names the claimed revision and plan", code="invalid-body"

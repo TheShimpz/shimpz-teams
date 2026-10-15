@@ -38,7 +38,7 @@ class StrictHttpTest(unittest.TestCase):
             headers = (("Content-Length", str(len(body))), *extra_headers)
             local = self._handler(local_app.Handler, body, headers)
             with self.subTest(body=body), self.assertRaises(local_app.ApiProblem) as local_error:
-                local._capture_body("team-create")
+                local.capture_body("team-create")
             self.assertEqual(local_error.exception.status, expected)
 
     def test_the_local_wrapper_rejects_an_encoded_route(self) -> None:
@@ -59,7 +59,7 @@ class StrictHttpTest(unittest.TestCase):
         local = self._handler(local_app.Handler, body, headers)
 
         expected = ("brief ✓.txt", body, "text/plain")
-        local._capture_body("file-upload")
+        local.capture_body("file-upload")
         self.assertEqual(local._file_body(), expected)
 
     def test_file_size_is_rejected_from_content_length_before_body_read(self) -> None:

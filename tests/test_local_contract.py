@@ -521,7 +521,7 @@ class LocalContractTests(LocalContractCase):
         handler.rfile = BytesIO(body)
 
         self.assertTrue(handler._authorized())
-        handler._capture_body("chat")
+        handler.capture_body("chat")
         status, response = http_chat._start(handler, "team_1", None)
 
         self.assertEqual(status, HTTPStatus.OK)

@@ -119,12 +119,12 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
     def test_captured_body_and_file_contract_fail_closed(self) -> None:
         handler = self.handler()
         with self.assertRaises(ApiProblemError):
-            handler._body()
+            handler.body()
         handler._captured_json_raw = b"{}"
         handler._captured_json_body = {}
-        self.assertEqual(handler._body(), {})
+        self.assertEqual(handler.body(), {})
         with self.assertRaises(ApiProblemError):
-            handler._body(max_bytes=1)
+            handler.body(max_bytes=1)
 
         with self.assertRaises(ApiProblemError):
             handler._file_body()
@@ -146,29 +146,29 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
 
         handler.headers["Content-Length"] = "invalid"
         with self.assertRaises(ApiProblemError) as caught:
-            handler._capture_body("chat")
+            handler.capture_body("chat")
         self.assertEqual(caught.exception.code, "content-length")
 
     def test_body_shapes_and_request_target_validation(self) -> None:
         handler = self.handler()
-        handler._body = mock.Mock(return_value={})
+        handler.body = mock.Mock(return_value={})
         with self.assertRaises(ApiProblemError):
             handler._team_name_body()
-        handler._body.return_value = {"team_name": "Team"}
+        handler.body.return_value = {"team_name": "Team"}
         self.assertEqual(handler._team_name_body(), "Team")
 
         for body in ({}, {"assistant_id": 1, "source_digest": "sha256:" + "a" * 64}):
-            handler._body.return_value = body
+            handler.body.return_value = body
             with self.subTest(body=body), self.assertRaises(ApiProblemError):
                 handler._install_body()
         digest = "sha256:" + "a" * 64
-        handler._body.return_value = {"assistant_id": "assistant", "source_digest": digest}
+        handler.body.return_value = {"assistant_id": "assistant", "source_digest": digest}
         self.assertEqual(handler._install_body(), ("assistant", digest))
         for body in ({}, {"image_id": 1}, {"image_id": digest, "extra": True}):
-            handler._body.return_value = body
+            handler.body.return_value = body
             with self.subTest(body=body), self.assertRaises(ApiProblemError):
                 handler._local_install_body()
-        handler._body.return_value = {"image_id": digest}
+        handler.body.return_value = {"image_id": digest}
         self.assertEqual(handler._local_install_body(), digest)
 
         handler.path = "/v1//teams"
@@ -249,7 +249,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         self.assertEqual(handler._route(self.route("registry-list"))[2], "registry-list")
         self.assertEqual(handler._route(self.route("local-assistant-list"))[2], "local-assistant-list")
         handler.command = "POST"
-        handler._body = mock.Mock(return_value={"image_id": "sha256:" + ("a" * 64)})
+        handler.body = mock.Mock(return_value={"image_id": "sha256:" + ("a" * 64)})
         self.assertEqual(
             handler._route(self.route("local-assistant-fresh-install", team_id="team_1")),
             (
@@ -266,11 +266,11 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             self.assertEqual(handler._route(self.route("space-bootstrap-reset"))[2], "space-bootstrap-reset")
         self.assertEqual(handler._route(self.route("space-reset"))[2], "space-reset")
         handler.command = "POST"
-        handler._body = mock.Mock(return_value={})
+        handler.body = mock.Mock(return_value={})
         callback = self.route("assistant-integration-complete")
         with self.assertRaises(ApiProblemError):
             handler._route(callback)
-        handler._body.return_value = {"state": "s", "claim": "c", "session_binding": "b"}
+        handler.body.return_value = {"state": "s", "claim": "c", "session_binding": "b"}
         self.assertEqual(handler._route(callback)[1], {"connected": True})
 
     def test_fresh_local_install_resolves_and_dispatches_through_the_public_route(self) -> None:
@@ -316,14 +316,14 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         slots.release.assert_called_once_with()
 
         self.assertEqual(handler._route(self.route("inference-status", team_id="team_1"))[2], "inference-status")
-        handler._body = mock.Mock(return_value={"provider": "openai"})
+        handler.body = mock.Mock(return_value={"provider": "openai"})
         self.assertEqual(handler._route(self.route("inference-configure", team_id="team_1"))[2], "inference-configure")
         controller.configure_inference.assert_called_once_with("team_1", {"provider": "openai"})
 
     def test_chat_route_variants_and_validation(self) -> None:
         handler = self.handler(controller=self.controller())
         handler.model_credential_headers = mock.Mock(return_value=("openai", "key"))
-        handler._body = mock.Mock(return_value={})
+        handler.body = mock.Mock(return_value={})
         for operation, pending in (
             ("chat-integration-pending", {"pending": "integration"}),
             ("chat-human-pending", {"pending": "human"}),
@@ -337,21 +337,21 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             http_chat._submit(handler, "chat-integration-submit", "team_1", None), (HTTPStatus.OK, {"status": "ok"})
         )
         stop = self.route("chat-stop", team_id="team_1")
-        handler._body.return_value = {"unexpected": True}
+        handler.body.return_value = {"unexpected": True}
         with self.assertRaises(ApiProblemError):
             handler._route(stop)
-        handler._body.return_value = {}
+        handler.body.return_value = {}
         self.assertEqual(handler._route(stop), (HTTPStatus.OK, {"stopped": True}, "chat-stop", "team_1", None))
 
     def test_integration_and_team_routes_cover_exact_shapes(self) -> None:
         handler = self.handler(controller=self.controller())
-        handler._body = mock.Mock(return_value={})
+        handler.body = mock.Mock(return_value={})
         listed = self.route("assistant-integration-list", team_id="team_1")
         self.assertEqual(handler._route(listed)[2], "assistant-integration-list")
         authorize = self.route("assistant-integration-authorize", team_id="team_1", challenge_id="a" * 32)
         with self.assertRaises(ApiProblemError):
             handler._route(authorize)
-        handler._body.return_value = {
+        handler.body.return_value = {
             "assistant_id": "assistant",
             "integration_id": "cloudflare",
             "callback_mode": "invalid",
@@ -360,7 +360,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         with self.assertRaises(ApiProblemError):
             handler._route(authorize)
         callback_mode = next(iter(integration_broker.CALLBACK_MODES))
-        handler._body.return_value = {
+        handler.body.return_value = {
             "assistant_id": "assistant",
             "integration_id": "cloudflare",
             "callback_mode": callback_mode,
@@ -371,10 +371,10 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             "team_1", "a" * 32, "assistant", "cloudflare", "b", callback_mode
         )
         cancel = self.route("assistant-integration-cancel", team_id="team_1", challenge_id="a" * 32)
-        handler._body.return_value = {}
+        handler.body.return_value = {}
         with self.assertRaises(ApiProblemError):
             handler._route(cancel)
-        handler._body.return_value = {"session_binding": "b"}
+        handler.body.return_value = {"session_binding": "b"}
         self.assertEqual(handler._route(cancel)[2], "assistant-integration-cancel")
 
         stored_inputs = self.route("assistant-stored-input-list", team_id="team_1")
@@ -405,7 +405,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler = self.handler(controller=controller)
         handler._install_body = mock.Mock(return_value=("assistant", "sha256:" + "a" * 64))
         handler._local_install_body = mock.Mock(return_value="sha256:" + "b" * 64)
-        handler._body = mock.Mock(return_value={"input": "ok"})
+        handler.body = mock.Mock(return_value={"input": "ok"})
         handler.model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         cases = (
             ("assistant-list", {"team_id": "team_1"}),
@@ -467,7 +467,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         suspension = action_human.HumanRequestSuspensionError(human_request_fixtures.request("approval"))
         controller.invoke = mock.Mock(side_effect=suspension)
         handler = self.handler(controller=controller)
-        handler._body = mock.Mock(return_value={"name": "World"})
+        handler.body = mock.Mock(return_value={"name": "World"})
         invoke = self.route("assistant-invoke", team_id="team_1", assistant_id="assistant", action_id="hello")
 
         with (
@@ -494,7 +494,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         controller = self.controller()
         handler = self.handler(controller=controller)
         exact_body = {"objective": "Configure DNS.", "candidates": []}
-        handler._body = mock.Mock(return_value=exact_body)
+        handler.body = mock.Mock(return_value=exact_body)
         handler.model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         handler.command = "POST"
 
@@ -521,7 +521,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             "timezone": None,
             "locale": "en",
         }
-        handler._body = mock.Mock(return_value=exact_body)
+        handler.body = mock.Mock(return_value=exact_body)
         handler.model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         handler.command = "POST"
 
@@ -615,7 +615,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         controller = SimpleNamespace(team_registry=mock.Mock(return_value=largest))
         handler = self.handler(controller=controller)
         handler._resolved_route = mock.Mock(return_value=([], self.route("assistant-registry", team_id="team_1")))
-        handler._capture_body = mock.Mock(return_value={})
+        handler.capture_body = mock.Mock(return_value={})
         handler._model_binding = mock.Mock(return_value=None)
         handler._expected_human_assurance = mock.Mock(return_value=None)
         with self._assertion_admitted("d" * 32):
@@ -634,7 +634,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         )
         handler = self.handler(controller=controller)
         handler._resolved_route = mock.Mock(return_value=([], self.route("team-list")))
-        handler._capture_body = mock.Mock(return_value={})
+        handler.capture_body = mock.Mock(return_value={})
         handler._model_binding = mock.Mock(return_value=None)
         handler._expected_human_assurance = mock.Mock(return_value=None)
         audit = http_audit.RequestAudit()
@@ -737,7 +737,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         handler._resolved_route = mock.Mock(
             return_value=([], self.route("local-assistant-details", image_hash="a" * 64, locale="pt"))
         )
-        handler._capture_body = mock.Mock(return_value={})
+        handler.capture_body = mock.Mock(return_value={})
         handler._model_binding = mock.Mock(return_value=None)
         handler._expected_human_assurance = mock.Mock(return_value=None)
         handler._send = mock.Mock()
@@ -758,7 +758,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
     def test_supervisor_key_rotation_route_maps_every_outcome(self) -> None:
         controller = HandlerRouteEdgeTests.controller()
         handler = self.handler(method="POST", controller=controller)
-        handler._body = mock.Mock(return_value={"public_key": "A" * 43})
+        handler.body = mock.Mock(return_value={"public_key": "A" * 43})
         rotate_route = self.route("supervisor-key-rotate")
         rotated = {"rotated": True, "key_sha256": "a" * 64}
         with (
@@ -812,7 +812,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
                 self.route("space-bootstrap-reset"),
             )
         )
-        handler._capture_body = mock.Mock(return_value={"kind": "none"})
+        handler.capture_body = mock.Mock(return_value={"kind": "none"})
         with (
             mock.patch.object(authority, "require_supervisor_absent"),
             mock.patch.object(authority, "verify") as verify,
@@ -826,7 +826,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
 
     def test_human_assurance_rejects_every_mismatch(self) -> None:
         handler = self.handler(controller=SimpleNamespace())
-        handler._body = mock.Mock(return_value={})
+        handler.body = mock.Mock(return_value={})
         self.assertIsNone(handler._expected_human_assurance("other", {}))
         self.assertIsNone(handler._expected_human_assurance("chat-human-submit", {"team_id": "team_1"}))
 
@@ -839,12 +839,12 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             human_challenges=SimpleNamespace(current=mock.Mock(return_value=None)),
         )
         handler.server.controller = SimpleNamespace(chat_turn_service=service)
-        handler._body.return_value = {"challenge_id": "a" * 32, "decision": "submit", "value": True}
+        handler.body.return_value = {"challenge_id": "a" * 32, "decision": "submit", "value": True}
         self.assertIsNone(handler._expected_human_assurance("chat-human-submit", {"team_id": "team_1"}))
         service.human_challenges.current.return_value = challenge
-        handler._body.return_value["challenge_id"] = "b" * 32
+        handler.body.return_value["challenge_id"] = "b" * 32
         self.assertIsNone(handler._expected_human_assurance("chat-human-submit", {"team_id": "team_1"}))
-        handler._body.return_value["challenge_id"] = "a" * 32
+        handler.body.return_value["challenge_id"] = "a" * 32
         challenge.requirement.request.kind = "approval"
         self.assertIsNone(handler._expected_human_assurance("chat-human-submit", {"team_id": "team_1"}))
 

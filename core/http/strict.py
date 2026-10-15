@@ -358,12 +358,12 @@ CONTROLLER_ROUTES = (
     # A held run's recovery card (ADR-0092, ADR-0101): open it, then answer it once with Rodar.
     _controller_route(
         "POST",
-        "/v1/teams/:team_id/routines/incidents/:incident_id/card",
+        "/v1/teams/:team_id/routines/incidents/:run_id/card",
         "routine-card-open",
     ),
     _controller_route(
         "POST",
-        "/v1/teams/:team_id/routines/incidents/:incident_id/answer",
+        "/v1/teams/:team_id/routines/incidents/:run_id/answer",
         "routine-card-answer",
     ),
     _controller_route("POST", "/v1/teams/:team_id/routines/:routine_id/resume", "routine-resume"),

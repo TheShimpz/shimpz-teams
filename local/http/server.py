@@ -147,7 +147,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(contents)
 
-    def _body(self, *, max_bytes: int = MAX_BODY_BYTES) -> dict[str, object]:
+    def body(self, *, max_bytes: int = MAX_BODY_BYTES) -> dict[str, object]:
         raw = getattr(self, "_captured_json_raw", None)
         body = getattr(self, "_captured_json_body", None)
         if not isinstance(raw, bytes) or not isinstance(body, dict) or len(raw) > max_bytes:
@@ -172,7 +172,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
             raise ApiProblem(exc.status, exc.message, code=exc.code) from exc
         return metadata.filename, content, metadata.media_type
 
-    def _capture_body(self, operation: str) -> dict[str, object]:
+    def capture_body(self, operation: str) -> dict[str, object]:
         self._captured_json_raw = None
         self._captured_json_body = None
         self._captured_file_metadata = None
@@ -189,7 +189,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
 
     def _team_name_body(self) -> object:
         """Team create, rename, and delete each carry exactly one Team name; Team validates it."""
-        body = self._body()
+        body = self.body()
         if set(body) != {"team_name"}:
             raise ApiProblem(
                 HTTPStatus.UNPROCESSABLE_ENTITY,
@@ -199,7 +199,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
         return body["team_name"]
 
     def _install_body(self) -> tuple[str, str]:
-        body = self._body()
+        body = self.body()
         if (
             set(body) != {"assistant_id", "source_digest"}
             or not isinstance(body["assistant_id"], str)
@@ -213,7 +213,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
         return body["assistant_id"], body["source_digest"]
 
     def _local_install_body(self) -> str:
-        body = self._body()
+        body = self.body()
         if set(body) != {"image_id"} or not isinstance(body["image_id"], str):
             raise ApiProblem(
                 HTTPStatus.UNPROCESSABLE_ENTITY,
@@ -267,7 +267,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
     def _invoke_directly(self, team_id: str, assistant_id: str, action: str) -> dict[str, object]:
         """Run one Action outside a turn; a human request it raises has no chat to answer it (ADR-0038)."""
         try:
-            return self.server.controller.invoke(team_id, assistant_id, action, self._body())
+            return self.server.controller.invoke(team_id, assistant_id, action, self.body())
         except action_human.HumanRequestSuspensionError as exc:
             local_audit.record_request(
                 "assistant-action",
@@ -291,7 +291,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
         self._response_limit = _RESPONSE_LIMITS.get(route.operation, MAX_API_RESPONSE_BYTES)
         decision = decision_binding(self.decision_key(route.operation))
         if route.operation in _MACHINE_ONLY_OPERATIONS:
-            self._capture_body(route.operation)
+            self.capture_body(route.operation)
             request_audit.machine()
             request_audit.record("machine-authority", result="ok")
             with local_audit.bind_request_principal(request_audit.principal()):
@@ -302,7 +302,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
 
         assertion_state = local_authority.credential_state(self.headers)
         request_audit.absent(assertion_state)
-        body = self._capture_body(route.operation)
+        body = self.capture_body(route.operation)
         model = self._model_binding(route.operation)
         assurance = self._expected_human_assurance(route.operation, route.params)
         try:
@@ -497,7 +497,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
             service.expire_human_challenges()
             return service.human_challenges.current(team_id)
 
-        body = self._body(max_bytes=local_http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES)
+        body = self.body(max_bytes=local_http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES)
         return local_http_routine.human_assurance(body, current)
 
     def _handle(self) -> None:
@@ -581,7 +581,7 @@ def _space_bootstrap_reset(handler: Handler, route: strict_http.ControllerRouteM
 def _supervisor_key_rotate(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
     try:
         signed_by = "" if handler._supervisor_evidence is None else handler._supervisor_evidence.key_sha256
-        rotated = local_authority.rotate_supervisor_key(handler._body(), signed_by)
+        rotated = local_authority.rotate_supervisor_key(handler.body(), signed_by)
     except local_authority.SupervisorDeniedError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
@@ -595,7 +595,7 @@ def _supervisor_key_rotate(handler: Handler, route: strict_http.ControllerRouteM
 
 
 def _oauth_callback(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
-    body = handler._body()
+    body = handler.body()
     if set(body) != {"state", "claim", "session_binding"}:
         raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "OAuth callback is invalid", code="invalid-body")
     result = handler.server.controller.chat_turn_service.complete_cloudflare_oauth_callback(
@@ -633,7 +633,7 @@ def _file_upload(handler: Handler, team_id: str) -> dict[str, object]:
 
 def _integration_authorize(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
     team_id = validate_team_id(route.params["team_id"])
-    body = handler._body()
+    body = handler.body()
     if set(body) != {"assistant_id", "integration_id", "callback_mode", "session_binding"}:
         raise oauth_authorization_invalid()
     if body["callback_mode"] not in integration_broker.CALLBACK_MODES:
@@ -650,7 +650,7 @@ def _integration_authorize(handler: Handler, route: strict_http.ControllerRouteM
 
 
 def _integration_cancel(handler: Handler, team_id: str) -> dict[str, object]:
-    body = handler._body()
+    body = handler.body()
     if set(body) != {"session_binding"}:
         raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "OAuth cancellation is invalid", code="invalid-body")
     return handler.server.controller.chat_turn_service.cancel_assistant_integration_authorization(

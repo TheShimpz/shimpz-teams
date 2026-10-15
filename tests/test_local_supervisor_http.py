@@ -174,7 +174,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             "/v1/oauth/cloudflare/callback",
             SimpleNamespace(),
         )
-        handler._capture_body = mock.Mock()
+        handler.capture_body = mock.Mock()
 
         def route(resolved):
             http_audit.local_audit.record_request(
@@ -343,7 +343,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
                 ("Content-Length", "84"),
             ),
         )
-        handler._capture_body("chat-human-submit")
+        handler.capture_body("chat-human-submit")
 
         self.assertIsNone(handler._expected_human_assurance("chat-human-submit", {"team_id": "team_1"}))
 

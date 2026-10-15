@@ -29,7 +29,7 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
         handler = object.__new__(server.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=service))
         handler.model_credential_headers = lambda: ("openai", "test-api-key")
-        handler._body = lambda **_kwargs: {
+        handler.body = lambda **_kwargs: {
             "challenge_id": "a" * 32,
             "decision": "submit",
             "value": True,
@@ -48,7 +48,7 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
         service = SimpleNamespace(open_chat_human=lambda team_id, body: bodies.append(body) or opened)
         handler = object.__new__(server.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=service))
-        handler._body = lambda **_kwargs: {"locale": "pt"}
+        handler.body = lambda **_kwargs: {"locale": "pt"}
         path = ["v1", "teams", "team_1", "chat", "human", "challenge"]
 
         opening = strict_http.resolve_controller_route("POST", tuple(path))

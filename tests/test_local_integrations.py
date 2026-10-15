@@ -387,7 +387,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         )
         handler = object.__new__(local_app.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=chat_turn_service))
-        handler._body = lambda **_kwargs: {
+        handler.body = lambda **_kwargs: {
             "assistant_id": "shimpz-cloudflare",
             "integration_id": "cloudflare",
             "callback_mode": "out-of-band",
@@ -400,18 +400,18 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         self.assertEqual(authorize[0], HTTPStatus.OK)
         self.assertEqual(authorize[2], "assistant-integration-authorize")
 
-        handler._body = lambda **_kwargs: {"session_binding": "browser-session-private-123456789"}
+        handler.body = lambda **_kwargs: {"session_binding": "browser-session-private-123456789"}
         cancelled = handler._route(strict_http.ControllerRouteMatch("assistant-integration-cancel", challenge))
         self.assertEqual(cancelled[:3], (HTTPStatus.OK, {"cancelled": True}, "assistant-integration-cancel"))
 
-        handler._body = lambda **_kwargs: {
+        handler.body = lambda **_kwargs: {
             "callback_mode": "https://attacker.example",
             "session_binding": "browser-session-private-123456789",
         }
         with self.assertRaisesRegex(local_app.ApiProblem, "OAuth authorization is invalid"):
             handler._route(authorize_route)
 
-        handler._body = lambda **_kwargs: {
+        handler.body = lambda **_kwargs: {
             "state": "s" * 43,
             "claim": "a" * 64,
             "session_binding": "browser-session-private-123456789",
@@ -580,7 +580,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         handler = object.__new__(local_app.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=chat_turn_service))
         handler.model_credential_headers = lambda: ("openai", "test-api-key")
-        handler._body = lambda **_kwargs: {"challenge_id": "a" * 32}
+        handler.body = lambda **_kwargs: {"challenge_id": "a" * 32}
 
         self.assertEqual(
             handler._route(strict_http.ControllerRouteMatch("chat-integration-pending", {"team_id": "team_1"})),
