@@ -177,9 +177,11 @@ def hold(self, team_id: str, run_id: str, lease: record.Lease) -> None:
 
 def reconcile(self, team_id: str, run_id: str) -> bool:
     """Finish one held run's hold from its last durable step; False when the run is no longer held."""
-    value = next((item for item in routine_state.load(self, team_id).runs if item.run_id == run_id), None)
+    state = routine_state.load(self, team_id)
+    value = next((item for item in state.runs if item.run_id == run_id), None)
     if value is None or value.status != "held":
         return False
+    deleting = any(item.routine_id == value.routine_id and item.deleting for item in state.routines)
     try:
         current = self.action_state.current_batch(value.generation)
         sealed = routine_state.call(lambda: self.routine_store.incident(team_id, run_id))
@@ -204,19 +206,26 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
         raise local_errors.action_state_unavailable() from exc
     now = int(time.time())
 
-    step = _held_step(self, team_id, held["recovery"])
+    step = _held_step(self, team_id, held["recovery"], deleting=deleting)
     return routine_state.applied(self, team_id, lambda state: routine_hold.settle_hold(state, run_id, now, step))
 
 
-def _held_step(self, team_id: str, snapshot: Recovery | None) -> routine_hold.HeldStep:
+def _held_step(self, team_id: str, snapshot: Recovery | None, *, deleting: bool) -> routine_hold.HeldStep:
     """The Assistant Action the held run's sealed cursor stopped at; none when the run sealed no snapshot or cursor.
 
     A cursor that cannot be read now fails the hold's step, so the run stays held and the watchdog's next pass
-    indexes it with its call; it is never indexed without the call its card must name.
+    indexes it with its call; it is never indexed without the call its card must name. A run of a Routine being
+    deleted is set aside as it is indexed, so no card ever names its call: it is indexed without one rather than keep
+    the deletion waiting on a cursor that may never be read again.
     """
     if snapshot is None:
         return routine_hold.UNKNOWN_STEP
-    cursor = routine_state.call(lambda: self.routine_store.cursor(team_id, snapshot.binding))
+    try:
+        cursor = routine_state.call(lambda: self.routine_store.cursor(team_id, snapshot.binding))
+    except ApiProblem:
+        if deleting:
+            return routine_hold.UNKNOWN_STEP
+        raise
     if cursor is None:
         return routine_hold.UNKNOWN_STEP
     return held_call(cursor, snapshot.plan["steps"])
@@ -228,15 +237,29 @@ def held_call(cursor: routine_cursor.Cursor, steps: list) -> routine_hold.HeldSt
     return steps[index]["assistant"], steps[index]["action"], index + 1, len(steps)
 
 
-def reconcile_team(self, team_id: str) -> None:
-    """Release what every set-aside incident still keeps once nothing executes for it, then finish every held run."""
+def reconcile_team(self, team_id: str) -> tuple[str, ...]:
+    """Release what every set-aside incident still keeps once nothing executes for it, then finish every held run.
+
+    Each run is its own: one whose release or hold fails stays as it is for the next pass while the others go on, so
+    a run whose state cannot be read never holds back the Team's. The ids of the runs that failed are returned.
+    """
     state = routine_state.load(self, team_id)
+    failed: list[str] = []
     for item in record.incidents(state):
         if item.status == "skipped":
-            release(self, team_id, item)
+            _isolated(failed, item.run_id, lambda item=item: release(self, team_id, item))
     for value in state.runs:
         if value.status == "held":
-            reconcile(self, team_id, value.run_id)
+            _isolated(failed, value.run_id, lambda value=value: reconcile(self, team_id, value.run_id))
+    return tuple(failed)
+
+
+def _isolated(failed: list[str], run_id: str, step: Callable[[], object]) -> None:
+    """Run one run's step, noting its id when its state cannot be read or written now."""
+    try:
+        step()
+    except ApiProblem, record.RoutineStateError:
+        failed.append(run_id)
 
 
 def _transition_problem(code: str) -> ApiProblem:

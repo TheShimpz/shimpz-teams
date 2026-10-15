@@ -89,8 +89,10 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
         outcome = _recover(service, team_id, value)
         if outcome is not None:
             _audit("routine-recover", outcome, team_id)
-    # A held run finishes its hold from its last durable step, without dispatching anything (ADR-0092).
-    routine_incident.reconcile_team(service, team_id)
+    # A held run finishes its hold from its last durable step, without dispatching anything (ADR-0092); one that
+    # fails is audited and retried by the next pass, never holding back the rest of the Team's check.
+    for run_id in routine_incident.reconcile_team(service, team_id):
+        _audit("routine-hold", run_id, team_id)
     # A continuation whose run no longer exists was left by a crash; an ended run's own is queued for removal anyway.
     # A cursor also stays while its unresolved incident may still resume the run.
     # The Team's Routine lock spans the read and the removals, so no run claimed meanwhile loses what it just sealed.

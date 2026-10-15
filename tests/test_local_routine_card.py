@@ -103,11 +103,11 @@ class CardViewTests(CardCase):
             claim = service.claim_routine_run()
             held_step = routine_incident._held_step
 
-            def unreadable(owner, team_id, snapshot):
+            def unreadable(owner, team_id, snapshot, **held):
                 # The store fails transiently exactly while the hold reads the sealed cursor for its call.
                 down = routine_store.RoutineStoreError("down")
                 with mock.patch.object(owner.routine_store, "cursor", side_effect=down):
-                    return held_step(owner, team_id, snapshot)
+                    return held_step(owner, team_id, snapshot, **held)
 
             with mock.patch.object(routine_incident, "_held_step", unreadable), contextlib.suppress(Exception):
                 self.run_claim(service, claim)
@@ -121,6 +121,42 @@ class CardViewTests(CardCase):
             (card["assistant_id"], card["action"], card["revision"], card["position"], card["steps"]),
             (ASSISTANT, "create-record", value.revision, 2, 2),
         )
+
+    def test_a_cursor_never_readable_again_neither_strands_deletion_nor_stalls_the_watchdog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.mutating(directory, Brain(), Assistant([failed()], []))
+            service._recover_routine_run = lambda _run, _progress=None: "held"
+            value = self.zone_record_routine(service)
+            claim = service.claim_routine_run()
+            run_id = claim["run_id"]
+            held_step = routine_incident._held_step
+
+            def unreadable(owner, team_id, snapshot, **held):
+                with mock.patch.object(owner.routine_store, "cursor", side_effect=routine_store.RoutineStoreError):
+                    return held_step(owner, team_id, snapshot, **held)
+
+            with mock.patch.object(routine_incident, "_held_step", unreadable), contextlib.suppress(Exception):
+                self.run_claim(service, claim)
+            # From here on the run's cursor is never read again.
+            mock.patch.object(service.routine_store, "cursor", side_effect=routine_store.RoutineStoreError).start()
+            self.addCleanup(mock.patch.stopall)
+            # A crash's leftover snapshot shows the rest of each pass still runs, at startup too, past the failed hold.
+            service.routine_store.put_recovery("team_1", "e" * 32, b"{}")
+            with mock.patch.object(routine_watchdog, "_audit") as audited:
+                routine_watchdog.check(service, startup=True)
+                routine_watchdog.check(service)
+            self.assertEqual([item.status for item in self.state(service).runs], ["held"])
+            self.assertEqual(audited.call_args_list, [mock.call("routine-hold", run_id, "team_1")] * 2)
+            self.assertEqual(service.routine_store.recoveries("team_1"), (run_id,))
+            # Deleting its Routine sets it aside as it is indexed, without its call, and the deletion completes.
+            with self.as_person():
+                self.assertFalse(service.delete_routine("team_1", value.routine_id)["deleted"])
+            routine_watchdog.check(service)
+            routine_watchdog.check(service)
+            state = self.state(service)
+        self.assertEqual((state.routines, state.runs), ((), ()))
+        notice = next(item for item in state.notices if item.notice_id == run_id)
+        self.assertEqual(notice.outcome, "user-skipped")
 
     def test_an_answer_must_name_the_tag_of_the_state_it_finds(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

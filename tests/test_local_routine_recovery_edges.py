@@ -206,7 +206,9 @@ class CardEdgeTests(RecoveryCase):
             self.assertEqual(caught.exception.code, "routine-incident-unavailable")
             snapshot = mock.Mock()
             with mock.patch.object(service.routine_store, "cursor", return_value=None):
-                self.assertEqual(routine_incident._held_step(service, "team_1", snapshot), ("", "", None, 0))
+                self.assertEqual(
+                    routine_incident._held_step(service, "team_1", snapshot, deleting=False), ("", "", None, 0)
+                )
 
     def as_card(self, service, run_id: str) -> dict[str, object]:
         from local import audit as local_audit

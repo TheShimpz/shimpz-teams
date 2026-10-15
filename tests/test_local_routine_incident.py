@@ -196,14 +196,12 @@ class ResolutionTests(IncidentCase):
             _controller, service, _value, run_id, lease, generation, _batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
             service.routine_store.update("team_1", lambda state: (routine_hold.skip_incident(state, run_id, 0), None))
-            with (
-                mock.patch.object(
-                    service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("down")
-                ),
-                self.assertRaises(local_app.ApiProblem) as caught,
+            with mock.patch.object(
+                service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("down")
             ):
-                routine_incident.reconcile_team(service, "team_1")
-            self.assertEqual(caught.exception.code, "action-state-unavailable")
+                # The failed release leaves the incident for the next pass, which the watchdog audits.
+                self.assertEqual(routine_incident.reconcile_team(service, "team_1"), (run_id,))
+            self.assertEqual([item.run_id for item in record.incidents(self.state(service))], [run_id])
             routine_watchdog.check(service)
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertIsNone(service.routine_store.incident("team_1", run_id))
