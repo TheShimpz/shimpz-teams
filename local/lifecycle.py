@@ -136,8 +136,7 @@ def _delete_team_persistence(self, team_id: str) -> bool:
 
 
 def _delete_team_private_state(self, team_id: str) -> None:
-    self.chat_turn_service._delete_team_integration_state(team_id)
-    self.chat_turn_service._delete_team_stored_input_state(team_id)
+    self.chat_turn_service._delete_team_private_state(team_id)
 
 
 def _remove_team_network(self, network) -> bool:
@@ -296,8 +295,7 @@ def _remove_space_resources(
     owned_assistants: set[tuple[str, str]],
 ) -> tuple[bool, set[str]]:
     absent = {"integration_credentials", "stored_inputs"}
-    self.chat_turn_service._delete_all_integration_state()
-    self.chat_turn_service._delete_all_stored_input_state()
+    self.chat_turn_service._delete_all_private_state()
     for network in networks:
         team_id = network.attrs["Labels"][TEAM_LABEL]
         self._delete_team_conversation(team_id, network)

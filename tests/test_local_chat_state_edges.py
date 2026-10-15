@@ -187,83 +187,61 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             local_chat_state._active_chat_assistants(subject, "team_1", "network")
         self.assertEqual(caught.exception.code, "assistant-registry-drift")
 
-    def test_integration_state_mutations_map_store_failures_and_pruning(self) -> None:
-        failure = integration_store.OAuthIntegrationStoreError("unavailable")
+    def test_private_state_mutations_map_each_store_failure(self) -> None:
+        integration_failure = integration_store.OAuthIntegrationStoreError("unavailable")
+        stored_input_failure = action_stored_input.StoredInputStoreError("unavailable")
+        spec = types.SimpleNamespace(assistant_id="assistant", integrations={}, stored_inputs={})
         operations = (
-            (local_chat_state._delete_assistant_integration_state, "delete_assistant", ("team_1", "assistant")),
-            (local_chat_state._delete_team_integration_state, "delete_team", ("team_1",)),
-            (local_chat_state._delete_all_integration_state, "delete_all", ()),
+            (local_chat_state._delete_assistant_private_state, "delete_assistant", ("team_1", "assistant")),
+            (local_chat_state._delete_team_private_state, "delete_team", ("team_1",)),
+            (local_chat_state._delete_all_private_state, "delete_all", ()),
+            (local_chat_state._retain_declared_private_state, "retain_declared", ("team_1", spec)),
         )
         for operation, method, arguments in operations:
-            with self.subTest(operation=operation.__name__):
-                subject = types.SimpleNamespace(
-                    assistant_integrations=types.SimpleNamespace(**{method: mock.Mock(side_effect=failure)}),
-                    _raise_integration_problem=mock.Mock(
-                        side_effect=local_app.ApiProblem(
-                            HTTPStatus.SERVICE_UNAVAILABLE,
-                            "unavailable",
-                            code="assistant-integration-state-unavailable",
-                        )
-                    ),
-                )
+            # The Integration store fails first and the Stored Input store is never reached.
+            stored_inputs = types.SimpleNamespace(**{method: mock.Mock()})
+            subject = types.SimpleNamespace(
+                assistant_integrations=types.SimpleNamespace(**{method: mock.Mock(side_effect=integration_failure)}),
+                assistant_stored_inputs=stored_inputs,
+                _raise_integration_problem=mock.Mock(
+                    side_effect=local_app.ApiProblem(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        "unavailable",
+                        code="assistant-integration-state-unavailable",
+                    )
+                ),
+            )
+            with self.subTest(operation=operation.__name__, failing="integrations"):
                 with self.assertRaises(local_app.ApiProblem) as caught:
                     operation(subject, *arguments)
-                self.assertEqual(
-                    caught.exception.code,
-                    "assistant-integration-state-unavailable",
-                )
+                self.assertEqual(caught.exception.code, "assistant-integration-state-unavailable")
+                getattr(stored_inputs, method).assert_not_called()
+            subject.assistant_integrations = types.SimpleNamespace(**{method: mock.Mock(return_value=False)})
+            subject.assistant_stored_inputs = types.SimpleNamespace(
+                **{method: mock.Mock(side_effect=stored_input_failure)}
+            )
+            with self.subTest(operation=operation.__name__, failing="stored-inputs"):
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    operation(subject, *arguments)
+                self.assertEqual(caught.exception.code, "assistant-stored-input-state-unavailable")
 
-        spec = types.SimpleNamespace(assistant_id="assistant", integrations={})
+    def test_pruning_a_token_ends_the_challenge_and_paused_chat_before_stored_inputs(self) -> None:
+        events: list[str] = []
+        spec = types.SimpleNamespace(assistant_id="assistant", integrations={"b": 1, "a": 2}, stored_inputs={"k": 3})
         subject = types.SimpleNamespace(
-            assistant_integrations=types.SimpleNamespace(retain_declared=mock.Mock(side_effect=failure)),
-            _raise_integration_problem=mock.Mock(
-                side_effect=local_app.ApiProblem(
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                    "unavailable",
-                    code="assistant-integration-state-unavailable",
-                )
+            assistant_integrations=types.SimpleNamespace(
+                retain_declared=mock.Mock(side_effect=lambda *_args: events.append("integrations") or True)
             ),
+            assistant_stored_inputs=types.SimpleNamespace(
+                retain_declared=mock.Mock(side_effect=lambda *_args: events.append("stored-inputs") or False)
+            ),
+            integration_challenges=types.SimpleNamespace(cancel_team=lambda _team_id: events.append("challenge")),
+            _delete_chat_continuation=lambda _team_id: events.append("continuation"),
         )
-        with self.assertRaises(local_app.ApiProblem):
-            local_chat_state._retain_declared_assistant_integration_state(
-                subject,
-                "team_1",
-                spec,
-            )
-
-        subject.assistant_integrations.retain_declared.side_effect = None
-        subject.assistant_integrations.retain_declared.return_value = True
-        subject.integration_challenges = types.SimpleNamespace(cancel_team=mock.Mock())
-        subject._delete_chat_continuation = mock.Mock()
-        local_chat_state._retain_declared_assistant_integration_state(
-            subject,
-            "team_1",
-            spec,
-        )
-        subject.integration_challenges.cancel_team.assert_called_once_with("team_1")
-
-    def test_stored_input_state_mutations_map_store_failures(self) -> None:
-        failure = action_stored_input.StoredInputStoreError("unavailable")
-        operations = (
-            (local_chat_state._delete_assistant_stored_input_state, "delete_assistant", ("team_1", "assistant")),
-            (local_chat_state._delete_team_stored_input_state, "delete_team", ("team_1",)),
-            (local_chat_state._delete_all_stored_input_state, "delete_all", ()),
-        )
-        for operation, method, arguments in operations:
-            subject = types.SimpleNamespace(
-                assistant_stored_inputs=types.SimpleNamespace(**{method: mock.Mock(side_effect=failure)})
-            )
-            with self.subTest(operation=operation.__name__), self.assertRaises(local_app.ApiProblem) as caught:
-                operation(subject, *arguments)
-            self.assertEqual(caught.exception.code, "assistant-stored-input-state-unavailable")
-
-        spec = types.SimpleNamespace(assistant_id="assistant", stored_inputs={})
-        subject = types.SimpleNamespace(
-            assistant_stored_inputs=types.SimpleNamespace(retain_declared=mock.Mock(side_effect=failure))
-        )
-        with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._retain_declared_assistant_stored_input_state(subject, "team_1", spec)
-        self.assertEqual(caught.exception.code, "assistant-stored-input-state-unavailable")
+        local_chat_state._retain_declared_private_state(subject, "team_1", spec)
+        self.assertEqual(events, ["integrations", "challenge", "continuation", "stored-inputs"])
+        subject.assistant_integrations.retain_declared.assert_called_once_with("team_1", "assistant", ("a", "b"))
+        subject.assistant_stored_inputs.retain_declared.assert_called_once_with("team_1", "assistant", ("k",))
 
     def test_persistence_validates_lifetime_and_maps_codec_or_store_failures(self) -> None:
         with self.assertRaises(local_app.ApiProblem) as caught:

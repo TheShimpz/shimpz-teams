@@ -49,8 +49,7 @@ class LocalSpaceResetTests(LocalContractCase):
         controller.assistant_lifecycle._validate_network = lambda _network, team_id, **_kwargs: events.append(
             ("validate-network", team_id)
         )
-        controller.chat_turn_service._delete_all_integration_state = lambda: events.append("delete-integrations")
-        controller.chat_turn_service._delete_all_stored_input_state = lambda: events.append("delete-stored-inputs")
+        controller.chat_turn_service._delete_all_private_state = lambda: events.append("delete-private-state")
         controller.assistant_lifecycle._remove_egress_policy = lambda team_id, assistant_id: events.append(
             ("remove-policy", team_id, assistant_id)
         )
@@ -76,8 +75,7 @@ class LocalSpaceResetTests(LocalContractCase):
         self.assertIn(("purge-action", "a" * 64), events)
         self.assertIn("residue-sweep", events)
         self.assertEqual(controller.registry.identities(), set())
-        self.assertLess(events.index("delete-integrations"), events.index("network-remove"))
-        self.assertLess(events.index("delete-stored-inputs"), events.index("network-remove"))
+        self.assertLess(events.index("delete-private-state"), events.index("network-remove"))
         # Display names go only after the networks, so a failed removal keeps a surviving Team's name (ADR-0088).
         self.assertLess(events.index("network-remove"), events.index("delete-names"))
 
@@ -118,8 +116,7 @@ class LocalSpaceResetTests(LocalContractCase):
             remove=lambda *, force: events.append(("container-remove", force)),
         )
         controller.client.containers.list = lambda **_kwargs: [container]
-        controller.chat_turn_service._delete_all_integration_state = lambda: events.append("delete-integrations")
-        controller.chat_turn_service._delete_all_stored_input_state = lambda: events.append("delete-stored-inputs")
+        controller.chat_turn_service._delete_all_private_state = lambda: events.append("delete-private-state")
         controller.assistant_lifecycle._remove_egress_policy = lambda team_id, assistant_id: events.append(
             ("remove-policy", team_id, assistant_id)
         )

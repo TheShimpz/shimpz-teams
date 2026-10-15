@@ -137,8 +137,8 @@ class LocalLifecycleTests(LocalContractCase):
             add=lambda image_id: events.append(("residue-add", image_id))
         )
         controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
-        controller.chat_turn_service._retain_declared_assistant_integration_state = lambda _team_id, spec: (
-            events.append(("retain", spec.image))
+        controller.chat_turn_service._retain_declared_private_state = lambda _team_id, spec: events.append(
+            ("retain", spec.image)
         )
         controller.registry = SimpleNamespace(commit_replacement=lambda *_args: events.append("commit"))
         controller.assistant_lifecycle.registry = controller.registry

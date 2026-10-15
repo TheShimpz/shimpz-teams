@@ -168,9 +168,10 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                     expires_in=3600,
                 ),
             )
+            controller.assistant_stored_inputs = SimpleNamespace(delete_team=lambda _team_id: False)
             controller._wire_collaborators()
 
-            controller.chat_turn_service._delete_team_integration_state("team_1")
+            controller.chat_turn_service._delete_team_private_state("team_1")
             recreated = controller.assistant_integrations.metadata(
                 "team_1",
                 "shimpz-cloudflare",

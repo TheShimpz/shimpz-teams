@@ -168,8 +168,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             _create_assistant_container=mock.Mock(),
             _remove_egress_policy=mock.Mock(),
             chat_turn_service=types.SimpleNamespace(
-                _retain_declared_assistant_integration_state=mock.Mock(),
-                _retain_declared_assistant_stored_input_state=mock.Mock(),
+                _retain_declared_private_state=mock.Mock(),
             ),
         )
 
@@ -634,8 +633,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
             ),
             _recover_update_target=mock.Mock(),
             chat_turn_service=types.SimpleNamespace(
-                _retain_declared_assistant_integration_state=mock.Mock(),
-                _retain_declared_assistant_stored_input_state=mock.Mock(),
+                _retain_declared_private_state=mock.Mock(),
             ),
             _queue_published_residue=mock.Mock(),
             _clear_update=mock.Mock(),
@@ -643,8 +641,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         )
         assistant_lifecycle.recover_updates(subject)
         self.assertEqual(subject._recover_update_target.call_count, 2)
-        subject.chat_turn_service._retain_declared_assistant_integration_state.assert_called_once()
-        subject.chat_turn_service._retain_declared_assistant_stored_input_state.assert_called_once()
+        subject.chat_turn_service._retain_declared_private_state.assert_called_once()
         subject._queue_published_residue.assert_called_once_with(previous, "image-2")
         subject.sweep_residues.assert_called_once_with()
 

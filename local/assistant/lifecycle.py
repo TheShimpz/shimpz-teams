@@ -251,8 +251,7 @@ def _replace_outdated_assistant(
             "the installed Assistant changed during update",
             code="assistant-update-conflict",
         )
-    self.chat_turn_service._retain_declared_assistant_integration_state(team_id, spec)
-    self.chat_turn_service._retain_declared_assistant_stored_input_state(team_id, spec)
+    self.chat_turn_service._retain_declared_private_state(team_id, spec)
     try:
         _forget_container_review(self, existing.id)
         existing.remove(force=True)
@@ -479,8 +478,7 @@ def update_assistant(
                 "Assistant binding changed during update",
                 code="assistant-update-conflict",
             ) from exc
-        self.chat_turn_service._retain_declared_assistant_integration_state(team_id, successor)
-        self.chat_turn_service._retain_declared_assistant_stored_input_state(team_id, successor)
+        self.chat_turn_service._retain_declared_private_state(team_id, successor)
         self._queue_published_residue(previous_binding, transaction.previous_image_id)
         self._clear_update(transaction)
         self.sweep_residues()
@@ -552,8 +550,7 @@ def recover_updates(self) -> None:
                     raise RuntimeError("Assistant update transaction does not match its binding")
                 self._recover_update_target(update, target)
                 if binding == update.successor:
-                    self.chat_turn_service._retain_declared_assistant_integration_state(update.team_id, target)
-                    self.chat_turn_service._retain_declared_assistant_stored_input_state(update.team_id, target)
+                    self.chat_turn_service._retain_declared_private_state(update.team_id, target)
                     self._queue_published_residue(update.previous, update.previous_image_id)
                 self._clear_update(update)
             except ApiProblem, RuntimeError, DockerException, bindings.DynamicAssistantError:
@@ -680,8 +677,7 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
                 ) from exc
             if spec.allowed_hosts:
                 self._remove_egress_policy(team_id, assistant_id)
-        self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
-        self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
+        self.chat_turn_service._delete_assistant_private_state(team_id, assistant_id)
         _retire_binding(self, team_id, assistant_id, binding)
         self.sweep_residues()
         return {"assistant": assistant_id, "uninstalled": container is not None}

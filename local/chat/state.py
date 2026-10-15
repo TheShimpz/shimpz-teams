@@ -3,6 +3,7 @@
 import logging
 import math
 import time
+from collections.abc import Callable
 from http import HTTPStatus
 from typing import NoReturn
 
@@ -216,71 +217,51 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
     return tuple(active)
 
 
-def _delete_assistant_integration_state(self, team_id: str, assistant_id: str) -> None:
+def _integration_state[T](self, change: Callable[[integration_store.OAuthIntegrationStore], T]) -> T:
+    """Apply ``change`` to the Integration token store, reporting its failure as the Integration problem."""
     try:
-        self.assistant_integrations.delete_assistant(team_id, assistant_id)
+        return change(self.assistant_integrations)
     except integration_store.OAuthIntegrationStoreError as exc:
         self._raise_integration_problem(exc)
 
 
-def _delete_assistant_stored_input_state(self, team_id: str, assistant_id: str) -> None:
+def _stored_input_state[T](self, change: Callable[[action_stored_input.StoredInputStore], T]) -> T:
+    """Apply ``change`` to the Stored Input store, reporting its failure as Stored Input state unavailable."""
     try:
-        self.assistant_stored_inputs.delete_assistant(team_id, assistant_id)
+        return change(self.assistant_stored_inputs)
     except action_stored_input.StoredInputStoreError as exc:
         raise stored_input_unavailable() from exc
 
 
-def _delete_team_integration_state(self, team_id: str) -> None:
-    try:
-        self.assistant_integrations.delete_team(team_id)
-    except integration_store.OAuthIntegrationStoreError as exc:
-        self._raise_integration_problem(exc)
+def _delete_assistant_private_state(self, team_id: str, assistant_id: str) -> None:
+    """Delete one Assistant's Integration tokens, then its Stored Inputs."""
+    _integration_state(self, lambda store: store.delete_assistant(team_id, assistant_id))
+    _stored_input_state(self, lambda store: store.delete_assistant(team_id, assistant_id))
 
 
-def _delete_team_stored_input_state(self, team_id: str) -> None:
-    try:
-        self.assistant_stored_inputs.delete_team(team_id)
-    except action_stored_input.StoredInputStoreError as exc:
-        raise stored_input_unavailable() from exc
+def _delete_team_private_state(self, team_id: str) -> None:
+    """Delete one Team's Integration tokens, then its Stored Inputs."""
+    _integration_state(self, lambda store: store.delete_team(team_id))
+    _stored_input_state(self, lambda store: store.delete_team(team_id))
 
 
-def _delete_all_integration_state(self) -> None:
-    try:
-        self.assistant_integrations.delete_all()
-    except integration_store.OAuthIntegrationStoreError as exc:
-        self._raise_integration_problem(exc)
+def _delete_all_private_state(self) -> None:
+    """Delete every Integration token, then every Stored Input, during an owned Space reset."""
+    _integration_state(self, lambda store: store.delete_all())
+    _stored_input_state(self, lambda store: store.delete_all())
 
 
-def _delete_all_stored_input_state(self) -> None:
-    try:
-        self.assistant_stored_inputs.delete_all()
-    except action_stored_input.StoredInputStoreError as exc:
-        raise stored_input_unavailable() from exc
+def _retain_declared_private_state(self, team_id: str, spec: AssistantSpec) -> None:
+    """Keep only the Integrations and Stored Inputs the Assistant's current release declares.
 
-
-def _retain_declared_assistant_integration_state(self, team_id: str, spec: AssistantSpec) -> None:
-    try:
-        pruned = self.assistant_integrations.retain_declared(
-            team_id,
-            spec.assistant_id,
-            tuple(sorted(spec.integrations)),
-        )
-    except integration_store.OAuthIntegrationStoreError as exc:
-        self._raise_integration_problem(exc)
-    if pruned:
+    Pruning a token ends the Team's Integration challenge and its paused chat, which may have waited on that token.
+    """
+    integrations = tuple(sorted(spec.integrations))
+    if _integration_state(self, lambda store: store.retain_declared(team_id, spec.assistant_id, integrations)):
         self.integration_challenges.cancel_team(team_id)
         self._delete_chat_continuation(team_id)
-
-
-def _retain_declared_assistant_stored_input_state(self, team_id: str, spec: AssistantSpec) -> None:
-    try:
-        self.assistant_stored_inputs.retain_declared(
-            team_id,
-            spec.assistant_id,
-            tuple(sorted(spec.stored_inputs)),
-        )
-    except action_stored_input.StoredInputStoreError as exc:
-        raise stored_input_unavailable() from exc
+    stored_inputs = tuple(sorted(spec.stored_inputs))
+    _stored_input_state(self, lambda store: store.retain_declared(team_id, spec.assistant_id, stored_inputs))
 
 
 def _raise_chat_continuation_problem(exc: Exception) -> NoReturn:

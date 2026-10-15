@@ -318,14 +318,10 @@ class ChatTurnService:
         return self.assistant_lifecycle._admit_assistant_allowed_hosts(container, spec)
 
     _active_chat_assistants = local_chat_state._active_chat_assistants
-    _delete_assistant_integration_state = local_chat_state._delete_assistant_integration_state
-    _delete_assistant_stored_input_state = local_chat_state._delete_assistant_stored_input_state
-    _delete_team_integration_state = local_chat_state._delete_team_integration_state
-    _delete_team_stored_input_state = local_chat_state._delete_team_stored_input_state
-    _delete_all_integration_state = local_chat_state._delete_all_integration_state
-    _delete_all_stored_input_state = local_chat_state._delete_all_stored_input_state
-    _retain_declared_assistant_integration_state = local_chat_state._retain_declared_assistant_integration_state
-    _retain_declared_assistant_stored_input_state = local_chat_state._retain_declared_assistant_stored_input_state
+    _delete_assistant_private_state = local_chat_state._delete_assistant_private_state
+    _delete_team_private_state = local_chat_state._delete_team_private_state
+    _delete_all_private_state = local_chat_state._delete_all_private_state
+    _retain_declared_private_state = local_chat_state._retain_declared_private_state
     _raise_chat_continuation_problem = staticmethod(local_chat_state._raise_chat_continuation_problem)
     _persist_chat_continuation = local_chat_state._persist_chat_continuation
     _restore_chat_continuation = local_chat_state._restore_chat_continuation

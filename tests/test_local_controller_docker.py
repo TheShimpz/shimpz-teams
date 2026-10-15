@@ -882,8 +882,7 @@ class DockerFlowTests(
                 lifecycle.chat_turn_service = SimpleNamespace(
                     _chat_lock=lambda _team_id: threading.Lock(),
                     _delete_chat_continuation=lambda _team_id: None,
-                    _delete_assistant_integration_state=lambda _team_id, _assistant_id: None,
-                    _delete_assistant_stored_input_state=lambda _team_id, _assistant_id: None,
+                    _delete_assistant_private_state=lambda _team_id, _assistant_id: None,
                 )
 
                 result = lifecycle.uninstall_assistant("team_1", assistant_id)
