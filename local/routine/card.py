@@ -98,9 +98,10 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
     _principal()
     tagged = _tagged(self, team_id, incident_id)
     opened, value = tagged.opened, tagged.value
-    assistant_id, action, position, steps = routine_incident.held_call(opened.cursor, opened.recovery.plan["steps"])
+    # The call the hold indexed, the one its notice and incident view name too.
+    assistant_id, action, position, steps = routine_hold.held_step(value)
     if not assistant_id:
-        raise ApiProblem(HTTPStatus.CONFLICT, "the held run named no call", code="routine-incident-unavailable")
+        raise local_errors.routine_incident_not_unresolved()
     incarnation = opened.recovery.binding.incarnation
     evidence = _evidence(self, team_id, incarnation, incident_id, opened.cursor.operation_id)
     if evidence["diagnostic"] is not None and (

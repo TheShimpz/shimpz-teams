@@ -84,11 +84,20 @@ class CardViewTests(CardCase):
         self.assertEqual((unavailable["evidence"], unavailable["diagnostic"]), ("unavailable", None))
         self.assertEqual((absent["evidence"], absent["diagnostic"]), ("absent", None))
 
-    def test_a_held_run_whose_cursor_names_no_call_opens_no_card(self) -> None:
+    def test_the_card_names_the_call_its_hold_indexed_even_once_the_cursor_moved_on(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
+            indexed = routine_hold.held_step(routine_hold.incident(self.state(service), run_id))
+            # A cursor sealed past the held call, as after a verified occurrence, never renames the card's call.
+            with mock.patch.object(routine_incident, "held_call", return_value=("other", "other-action", 9, 9)):
+                card = self.card(service, run_id)
+        self.assertEqual((card["assistant_id"], card["action"], card["position"], card["steps"]), indexed)
+
+    def test_a_held_run_whose_hold_named_no_call_opens_no_card(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
             with (
-                mock.patch.object(routine_incident, "held_call", return_value=routine_hold.UNKNOWN_STEP),
+                mock.patch.object(routine_hold, "held_step", return_value=routine_hold.UNKNOWN_STEP),
                 self.as_person(),
                 self.assertRaises(local_app.ApiProblem) as caught,
             ):
