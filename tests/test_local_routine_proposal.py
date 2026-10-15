@@ -971,17 +971,25 @@ class RecordedRoutineTests(LocalContractCase):
             busy = self.chat(service)["routine_refusal"]["code"]
         self.assertEqual(busy, "routine-busy")
 
-    def test_a_record_whose_selected_work_left_the_span_refuses_to_record_again(self) -> None:
-        span = SimpleNamespace(revisions=())
-        service = SimpleNamespace(routine_recordings=SimpleNamespace(get=lambda _team, _send: span))
-        response = SimpleNamespace(team_id="team_1", recording="a" * 32)
-        left = routine_proposal.routine_recording.RecordingError("routine-record-again")
-        with (
-            mock.patch.object(routine_proposal.routine_recorder, "selected_work", side_effect=left),
-            self.assertRaises(routine_proposal.RefusedError) as refused,
-        ):
-            routine_proposal._intent(service, response, _record())
-        self.assertEqual(refused.exception.code, "routine-record-again")
+    def test_an_answer_whose_selected_work_left_the_span_refuses_to_record_again(self) -> None:
+        """Neither a target answer Team records itself nor the Brain's record falls back to other steps."""
+        original = "Liste os registros DNS a cada 30 segundos e mostre o resultado"
+        for brain in (False, True):
+            # Between the question and its answer, sends that list the zones push the selected work out of the span.
+            later = [(("list-zones",), None)] * local_routine_recorder.MAX_SENDS
+            answered = ((), _record()) if brain else ((), None)
+            runtime = Sends((("list-zones", "list-dns-records"), _record()), *later, answered)
+            with self.subTest(brain=brain), tempfile.TemporaryDirectory() as directory:
+                service = self.controller(directory, runtime)
+                asked = self.chat(service, _body(original))["routine_question"]
+                for _ in later:
+                    self.chat(service, _body("Liste as zonas."))
+                answer = "shimpz.com" if brain else json.dumps(SHIMPZ)
+                composed = http_payload.compose_clarified(original, "Qual zona?", answer, "pt")
+                response = self.chat(service, _body(composed))
+                self.assertEqual(asked["code"], "routine-binding-ambiguous")
+                self.assertEqual(len(runtime.contexts), len(later) + 1 + brain)
+                self.assertEqual(response["routine_refusal"], {"code": "routine-record-again"})
 
     def test_a_card_its_own_contract_refuses_is_an_internal_error_never_shown(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

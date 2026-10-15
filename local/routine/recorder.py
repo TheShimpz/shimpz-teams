@@ -279,17 +279,15 @@ def selected_work(span: Span, name: str, replaces: str | None) -> str | None:
     """The send whose calls a record call's work is, by id, which its intent then keeps.
 
     A send that ran Actions selects itself. A send that ran none keeps the work the same intent already selected, so
-    the person's answers and any unrelated send between them never replace it. A first record call that ran nothing
-    selects the latest send that ran any Action, except that a replacement then keeps its steps (None).
+    the person's answers and any unrelated send between them never replace it, even once it left the bounded span,
+    which admission then refuses. A first record call that ran nothing selects the latest send that ran any Action,
+    except that a replacement then keeps its steps (None).
     """
     if span.sends[-1].occurrences:
         return span.recording_id
     stored = span.intent
     if stored is not None and (stored.name, stored.replaces) == (name, replaces):
-        if stored.work is None or stored.work in span.send_ids:
-            return stored.work
-        # The selected work left the span: recording other steps under this description would be silent, so ask again.
-        raise routine_recording.RecordingError("routine-record-again")
+        return stored.work
     index = None if replaces is not None else routine_recording.latest_work(span.sends)
     return None if index is None else span.send_ids[index]
 

@@ -192,10 +192,7 @@ def _intent(self, response: object, proposed: object) -> routine_recorder.Intent
     if found is not None:
         if outcome["replaces"] is not None:
             shown = dict(found.revisions).get(outcome["replaces"])
-        try:
-            work = routine_recorder.selected_work(found, outcome["name"], outcome["replaces"])
-        except routine_recording.RecordingError as exc:
-            raise RefusedError(exc.code) from exc
+        work = routine_recorder.selected_work(found, outcome["name"], outcome["replaces"])
     return routine_recorder.Intent(outcome["name"], outcome["replaces"], shown, outcome["description"], work)
 
 
@@ -226,12 +223,16 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
     stored, asked = recording.intent, recording.asked
     if stored is not None and asked is not None and _work(stored) != _work(intent):
         asked = dataclasses.replace(asked, pending=None, manifest=None)
+    if intent.work is not None and intent.work not in recording.send_ids:
+        # The selected work left the bounded span: recording other steps under its description would be silent, and
+        # no answer that runs nothing may fall back to them, so the person records again.
+        raise RefusedError("routine-record-again")
     try:
         return routine_compose.record(
             recording.sends,
             recording.protection,
             contracts,
-            work=recording.send_ids.index(intent.work) if intent.work in recording.send_ids else None,
+            work=None if intent.work is None else recording.send_ids.index(intent.work),
             asked=asked,
             existing=kept,
         )
