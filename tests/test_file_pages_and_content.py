@@ -159,9 +159,6 @@ class ControllerContentTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.controller = _controller(self.directory.name)
-        self.controller.chat_turn_service = types.SimpleNamespace(
-            _file_deletion_slot=lambda _team_id: contextlib.nullcontext(), _forget_file=mock.Mock()
-        )
 
     def test_a_listed_file_is_delivered_whole_and_verified_to_its_own_team_only(self) -> None:
         stored = self.controller.storage.put("team_1", "brief.pdf", b"%PDF-1.7 original", "application/pdf")
@@ -199,7 +196,7 @@ class ControllerContentTests(unittest.TestCase):
             with self.assertRaises(BrokenPipeError):
                 self.controller.file_content("team_1", stored["id"], mock.Mock(side_effect=BrokenPipeError))
 
-    def test_a_deletion_before_the_commit_ends_the_download_and_after_it_waits_for_it(self) -> None:
+    def test_a_teardown_before_the_commit_ends_the_download_and_after_it_waits_for_it(self) -> None:
         stored = self.controller.storage.put("team_1", "notes.md", b"original", "text/markdown")
         # Closed before its last check: the download ends as not found and sends nothing.
         with local_lifecycle.previews_closed("team_1"), self.assertRaises(ApiProblemError) as caught:
@@ -219,19 +216,19 @@ class ControllerContentTests(unittest.TestCase):
         download.start()
         self.assertTrue(sending.wait(5))
 
-        def delete() -> None:
-            self.controller.delete_file("team_1", stored["id"])
-            order.append("deleted")
+        def teardown() -> None:
+            with local_lifecycle.previews_closed("team_1"):
+                order.append("closed")
 
-        deletion = threading.Thread(target=delete)
-        deletion.start()
-        # The deletion waits while the committed download is still sending.
-        deletion.join(0.1)
-        self.assertTrue(deletion.is_alive())
+        closing = threading.Thread(target=teardown)
+        closing.start()
+        # The teardown waits while the committed download is still sending.
+        closing.join(0.1)
+        self.assertTrue(closing.is_alive())
         finish.set()
         download.join(5)
-        deletion.join(5)
-        self.assertEqual(order, ["sent", "deleted"])
+        closing.join(5)
+        self.assertEqual(order, ["sent", "closed"])
 
     def test_a_pdf_page_is_previewed_through_the_helper_with_its_page(self) -> None:
         stored = self.controller.storage.put(

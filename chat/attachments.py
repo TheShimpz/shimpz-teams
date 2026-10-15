@@ -103,21 +103,3 @@ def settle_completed_turn(
     """
     with contextlib.suppress(team_storage.StorageError):
         storage().settle(team_id, file_ids)
-
-
-def paused_files(team_id: str, challenge_stores: Iterable[object]) -> tuple[str, ...] | None:
-    """The files the Team's paused turn selected, from the first store holding one, or None when none is paused."""
-    for store in challenge_stores:
-        current = store.current(team_id)
-        if current is not None:
-            # A paused turn whose state is unreadable is treated as referencing every file.
-            return tuple(getattr(current.payload, "file_ids", ("*",)))
-    return None
-
-
-def forget_required(
-    storage: team_storage.TeamStorage, team_id: str, file_id: str, pending: tuple[str, ...] | None
-) -> bool:
-    """Whether deleting a file must first purge the Brain thread or a paused turn that may still deliver it."""
-    referenced = file_id in storage.referenced(team_id)
-    return referenced or (pending is not None and ("*" in pending or file_id in pending))

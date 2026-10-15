@@ -230,7 +230,6 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             reset_space=mock.Mock(return_value={"reset": True}),
             list_files=mock.Mock(return_value={"files": []}),
             put_file=mock.Mock(return_value={"file": {}}),
-            delete_file=mock.Mock(return_value={"deleted": True}),
             inference_status=mock.Mock(return_value={"configured": True}),
             configure_inference=mock.Mock(return_value={"configured": True}),
             create_team=mock.Mock(return_value={"created": True}),
@@ -316,10 +315,6 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         with mock.patch.object(server, "_FILE_UPLOAD_SLOTS", slots):
             self.assertEqual(handler._route(upload)[2], "file-upload")
         slots.release.assert_called_once_with()
-        self.assertEqual(
-            handler._route(self.route("file-delete", team_id="team_1", file_id="a" * 32))[2], "file-delete"
-        )
-        controller.delete_file.assert_called_once_with("team_1", "a" * 32)
 
         self.assertEqual(handler._route(self.route("inference-status", team_id="team_1"))[2], "inference-status")
         handler._body = mock.Mock(return_value={"provider": "openai"})

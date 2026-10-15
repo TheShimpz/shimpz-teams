@@ -636,12 +636,6 @@ def _file_upload(handler: Handler, team_id: str) -> dict[str, object]:
         _FILE_UPLOAD_SLOTS.release()
 
 
-def _file_delete(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
-    team_id = validate_team_id(route.params["team_id"])
-    result = handler.server.controller.delete_file(team_id, route.params["file_id"])
-    return HTTPStatus.OK, result, route.operation, team_id, None
-
-
 def _integration_authorize(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
     team_id = validate_team_id(route.params["team_id"])
     body = handler._body()
@@ -712,7 +706,6 @@ _SERVER_OPERATIONS: dict[str, Operation] = {
     "local-assistant-fresh-install": _local_install("install_fresh_local_snapshot"),
     "file-list": team_operation(lambda handler, team_id: handler.server.controller.list_files(team_id)),
     "file-upload": team_operation(_file_upload),
-    "file-delete": _file_delete,
     "assistant-integration-list": team_operation(
         lambda handler, team_id: handler.server.controller.chat_turn_service.list_assistant_integrations(team_id)
     ),

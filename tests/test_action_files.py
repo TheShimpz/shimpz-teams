@@ -109,7 +109,8 @@ class DeliveryTests(unittest.TestCase):
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.storage = team_storage.TeamStorage(Path(temporary.name) / "teams")
+        self.now = 1_000_000.0
+        self.storage = team_storage.TeamStorage(Path(temporary.name) / "teams", clock=lambda: self.now)
         stored = self.storage.put("team_1", "Relatório de março.pdf", DATA, "application/pdf")
         self.file = action_files.action_file(
             UPLOAD.input_files,
@@ -135,7 +136,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual((content["type"], base64.b64decode(content["base64"])), ("delivered", DATA))
         self.assertEqual(action_files.delivered(files), self.file)
 
-    def test_changed_deleted_or_unselected_bytes_are_never_delivered(self) -> None:
+    def test_changed_collected_or_unselected_bytes_are_never_delivered(self) -> None:
         def changed(_file_id: str) -> tuple[dict[str, object], bytes]:
             return {"sha256": self.file.sha256, "size": self.file.size}, b"x" * self.file.size
 
@@ -145,7 +146,8 @@ class DeliveryTests(unittest.TestCase):
         for read in (changed, resized):
             with self.subTest(read=read.__name__), self.assertRaises(action_files.FileDeliveryError):
                 action_files.deliver(UPLOAD, self.file, _approved(), self.input, read)
-        self.storage.delete("team_1", self.file.id)
+        self.now += team_storage.UNREFERENCED_GRACE_SECONDS
+        self.assertEqual(self.storage.sweep("team_1"), 1)
         with self.assertRaises(team_storage.StorageNotFoundError):
             action_files.deliver(UPLOAD, self.file, _approved(), self.input, self.read)
         # A file-taking Action outside a turn that selected its file never runs, even before authorization.

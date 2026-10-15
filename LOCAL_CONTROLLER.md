@@ -88,7 +88,6 @@ metadata-only `trace_id` added at the HTTP boundary.
 | `POST` | `/v1/teams/{team_id}/assistants/{assistant_id}/actions/{action_id}` | invoke one declared Action directly; an Action that asks a person refuses with `409` `action-human-request-required` |
 | `GET` | `/v1/teams/{team_id}/files` | list opaque Team file metadata and quota |
 | `POST` | `/v1/teams/{team_id}/files` | upload one bounded base64 object |
-| `DELETE` | `/v1/teams/{team_id}/files/{opaque_id}` | delete one Team-owned object |
 | `GET` | `/v1/teams/{team_id}/files/{opaque_id}/preview` | one listed file's sanitized JPEG or PNG image rendition, prepared on demand in the networkless helper (ADR-0093) |
 | `DELETE` | `/v1/space` | Team cleanup for an authenticated Space reset |
 

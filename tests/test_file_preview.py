@@ -401,11 +401,14 @@ class ControllerPreviewTests(unittest.TestCase):
 
     def test_a_file_collected_while_it_was_prepared_is_not_answered(self) -> None:
         controller = _controller(self.directory.name)
+        now = [1_000_000.0]
+        controller.storage = team_storage.TeamStorage(Path(self.directory.name) / "teams", clock=lambda: now[0])
         png = prepare_fixtures.image("PNG", (4, 4))
         stored = controller.storage.put("team_1", "photo.png", png, "image/png")
 
         def collected(*_args, **_kwargs):
-            controller.storage.delete("team_1", stored["id"])
+            now[0] += team_storage.UNREFERENCED_GRACE_SECONDS
+            self.assertEqual(controller.storage.sweep("team_1"), 1)
             return preparation.Rendition("image/png", 4, 4, png)
 
         with (
@@ -415,12 +418,9 @@ class ControllerPreviewTests(unittest.TestCase):
             controller.file_preview("team_1", stored["id"])
         self.assertEqual(caught.exception.code, "file-not-found")
 
-    def test_a_queued_preview_ended_by_the_deletion_leaves_before_it_and_never_starts_a_helper(self) -> None:
+    def test_a_queued_preview_ended_by_teardown_leaves_before_it_and_never_starts_a_helper(self) -> None:
         client = _Client()
         controller = _controller(self.directory.name, client)
-        controller.chat_turn_service = types.SimpleNamespace(
-            _file_deletion_slot=lambda _team_id: contextlib.nullcontext(), _forget_file=mock.Mock()
-        )
         stored = controller.storage.put("team_1", "photo.png", prepare_fixtures.image("PNG", (4, 4)), "image/png")
         outcome: list[BaseException] = []
 
@@ -439,10 +439,9 @@ class ControllerPreviewTests(unittest.TestCase):
                     break
                 threading.Event().wait(0.01)
             self.assertEqual(local_prepare._PREVIEW_ADMISSION._waiting, 1)
-            self.assertTrue(controller.delete_file("team_1", stored["id"])["deleted"])
-            # The deletion returned only once the queued preview had left.
-            waiter.join(0.01)
-            self.assertFalse(waiter.is_alive())
+            with local_lifecycle.previews_closed("team_1"):
+                # Teardown proceeds only once the queued preview had left.
+                self.assertFalse(waiter.is_alive())
         self.assertEqual(outcome[0].code, "file-not-found")
         self.assertEqual(client.events, [])
 

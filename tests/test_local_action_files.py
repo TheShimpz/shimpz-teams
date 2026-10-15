@@ -29,7 +29,8 @@ class LocalFileDeliveryTests(unittest.TestCase):
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.storage = team_storage.TeamStorage(Path(temporary.name) / "teams")
+        self.now = 1_000_000.0
+        self.storage = team_storage.TeamStorage(Path(temporary.name) / "teams", clock=lambda: self.now)
         stored = self.storage.put("team_1", "Relatório de março.pdf", DATA, "application/pdf")
         self.file_id = stored["id"]
         self.file = action_files.selected([{**stored, "media_type": "application/pdf"}])[self.file_id]
@@ -99,8 +100,9 @@ class LocalFileDeliveryTests(unittest.TestCase):
         self.assertIn(f"file-delivery-unconfirmed:upload:{self.file_id}:{len(DATA)}", details)
         self.assertFalse(any(str(detail).startswith("file-delivered") for detail in details))
 
-    def test_a_deleted_file_or_a_direct_invocation_never_reaches_the_workload(self) -> None:
-        self.storage.delete("team_1", self.file_id)
+    def test_a_collected_file_or_a_direct_invocation_never_reaches_the_workload(self) -> None:
+        self.now += team_storage.UNREFERENCED_GRACE_SECONDS
+        self.assertEqual(self.storage.sweep("team_1"), 1)
         with self.assertRaises(local_app.ApiProblem) as caught:
             self.invoke(_approved())
         self.assertEqual(caught.exception.code, "action-file-unavailable")

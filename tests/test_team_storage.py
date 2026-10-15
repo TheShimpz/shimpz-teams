@@ -13,6 +13,7 @@ sys.path.insert(0, str(TEAM))
 
 from protocol.http.v1 import payload as http_payload
 from storage import files as team_storage
+from tests import storage_fixtures
 
 
 class TeamStorageTests(unittest.TestCase):
@@ -83,8 +84,9 @@ class TeamStorageTests(unittest.TestCase):
 
     def test_plan_downgrade_blocks_writes_but_keeps_cleanup_available(self) -> None:
         limits = {"alpha": 8}
-        storage = team_storage.TeamStorage(self.root, quota_for=limits.__getitem__)
-        stored = storage.put("alpha", "before-downgrade.bin", b"12345678")
+        now = [1_000_000.0]
+        storage = team_storage.TeamStorage(self.root, quota_for=limits.__getitem__, clock=lambda: now[0])
+        storage.put("alpha", "before-downgrade.bin", b"12345678")
 
         limits["alpha"] = 4
         listing = storage.list("alpha")
@@ -93,7 +95,8 @@ class TeamStorageTests(unittest.TestCase):
         with self.assertRaises(team_storage.StorageQuotaError):
             storage.put("alpha", "blocked.bin", b"x")
 
-        self.assertTrue(storage.delete("alpha", stored["id"])["deleted"])
+        # Collection still frees the quota under the smaller plan.
+        now[0] += team_storage.UNREFERENCED_GRACE_SECONDS
         replacement = storage.put("alpha", "within-new-plan.bin", b"1234")
         self.assertEqual(replacement["remaining_bytes"], 0)
 
@@ -113,15 +116,10 @@ class TeamStorageTests(unittest.TestCase):
         self.assertEqual(sorted(results), [False, True])
         self.assertEqual(storage.list("alpha")["used_bytes"], 6)
 
-    def test_delete_releases_logical_quota_and_destroy_is_scoped(self) -> None:
+    def test_destroy_is_scoped(self) -> None:
         storage = team_storage.TeamStorage(self.root, limit_bytes=8)
-        alpha = storage.put("alpha", "alpha.bin", b"12345678")
+        storage.put("alpha", "alpha.bin", b"12345678")
         beta = storage.put("beta", "beta.bin", b"abcdefgh")
-
-        deleted = storage.delete("alpha", alpha["id"])
-        self.assertTrue(deleted["deleted"])
-        self.assertEqual(deleted["used_bytes"], 0)
-        storage.put("alpha", "replacement.bin", b"87654321")
 
         self.assertTrue(storage.destroy("alpha"))
         self.assertFalse(storage.destroy("alpha"))
@@ -301,7 +299,7 @@ class TeamStorageTests(unittest.TestCase):
                     storage.put("alpha", "safe.bin", b"safe")
                 connection.close.assert_called_once_with()
 
-    def test_missing_storage_metadata_bounds_and_delete_rollback(self) -> None:
+    def test_missing_storage_metadata_bounds_and_write_rollback(self) -> None:
         storage = team_storage.TeamStorage(self.root, limit_bytes=64)
         missing_id = "0" * 32
         with self.assertRaises(team_storage.StorageNotFoundError):
@@ -313,15 +311,14 @@ class TeamStorageTests(unittest.TestCase):
             storage.metadata("alpha", [missing_id] * 9)
         with self.assertRaises(team_storage.StorageInputError):
             storage.metadata("alpha", [missing_id, missing_id])
-        self.assertFalse(storage.delete("alpha", missing_id)["deleted"])
 
         stored = storage.put("alpha", "safe.bin", b"safe")
         with (
             mock.patch.object(storage, "_usage", side_effect=RuntimeError("usage failed")),
             self.assertRaisesRegex(RuntimeError, "usage failed"),
         ):
-            storage.delete("alpha", stored["id"])
-        self.assertEqual(storage.get("alpha", stored["id"])[1], b"safe")
+            storage.put("alpha", "rolled-back.bin", b"rolled back")
+        self.assertEqual([item["id"] for item in storage.list("alpha")["files"]], [stored["id"]])
 
     def test_destroy_all_counts_only_successful_current_directories(self) -> None:
         storage = team_storage.TeamStorage(self.root, limit_bytes=64)
@@ -368,7 +365,7 @@ class TeamStorageRetentionTests(unittest.TestCase):
         # A reference names only the Team's own files.
         with self.assertRaises(team_storage.StorageNotFoundError):
             self.storage.reference("alpha", [beta["id"]])
-        self.assertEqual(self.storage.referenced("alpha"), frozenset())
+        self.assertEqual(storage_fixtures.referenced(self.storage, "alpha"), frozenset())
 
     def test_a_referenced_file_stays_until_a_later_turn_releases_it_and_then_its_grace(self) -> None:
         sent = self.storage.put("alpha", "sent.txt", b"sent", "text/plain")
@@ -376,10 +373,10 @@ class TeamStorageRetentionTests(unittest.TestCase):
         self.storage.settle("alpha", [sent["id"]])
         self.now += 10 * team_storage.UNREFERENCED_GRACE_SECONDS
         self.assertEqual(self._ids(), [sent["id"]])
-        self.assertEqual(self.storage.referenced("alpha"), frozenset({sent["id"]}))
+        self.assertEqual(storage_fixtures.referenced(self.storage, "alpha"), frozenset({sent["id"]}))
         # A later turn without the file releases it; its grace starts at that release, not at its upload.
         self.storage.settle("alpha", [])
-        self.assertEqual(self.storage.referenced("alpha"), frozenset())
+        self.assertEqual(storage_fixtures.referenced(self.storage, "alpha"), frozenset())
         self.now += team_storage.UNREFERENCED_GRACE_SECONDS - 1
         self.assertEqual(self._ids(), [sent["id"]])
         self.now += 1
@@ -392,12 +389,11 @@ class TeamStorageRetentionTests(unittest.TestCase):
         self.storage.reference("alpha", [first["id"]])
         self.storage.settle("alpha", [first["id"]])
         self.storage.reference("alpha", [second["id"]])
-        self.assertEqual(self.storage.referenced("alpha"), frozenset({first["id"], second["id"]}))
+        self.assertEqual(storage_fixtures.referenced(self.storage, "alpha"), frozenset({first["id"], second["id"]}))
         self.storage.settle("alpha", [second["id"]])
-        self.assertEqual(self.storage.referenced("alpha"), frozenset({second["id"]}))
+        self.assertEqual(storage_fixtures.referenced(self.storage, "alpha"), frozenset({second["id"]}))
         self.storage.reference("alpha", [])
         self.storage.settle("absent", [])
-        self.assertEqual(self.storage.referenced("absent"), frozenset())
 
     def test_reference_reports_what_it_added_and_release_returns_only_that(self) -> None:
         held = self.storage.put("alpha", "held.txt", b"1", "text/plain")["id"]
@@ -408,7 +404,7 @@ class TeamStorageRetentionTests(unittest.TestCase):
         self.storage.release("alpha", [fresh])
         self.storage.release("alpha", [])
         self.storage.release("absent", [fresh])
-        self.assertEqual(self.storage.referenced("alpha"), frozenset({held}))
+        self.assertEqual(storage_fixtures.referenced(self.storage, "alpha"), frozenset({held}))
         # The released file's grace starts at its release.
         self.now += team_storage.UNREFERENCED_GRACE_SECONDS - 1
         self.assertEqual(sorted(self._ids()), sorted([held, fresh]))
@@ -440,7 +436,7 @@ class TeamStorageRetentionTests(unittest.TestCase):
         stored = self.storage.put("alpha", "full.bin", b"1234567890")
         self.storage.reference("alpha", [stored["id"]])
         self.assertEqual(self.storage.put("alpha", "full.bin", b"1234567890")["id"], stored["id"])
-        self.assertEqual(self.storage.referenced("alpha"), frozenset({stored["id"]}))
+        self.assertEqual(storage_fixtures.referenced(self.storage, "alpha"), frozenset({stored["id"]}))
 
     def test_quota_freed_by_collection_admits_the_next_upload(self) -> None:
         self.storage.put("alpha", "old.bin", b"1234567890")
@@ -492,7 +488,6 @@ class TeamStorageRetentionTests(unittest.TestCase):
             lambda: self.storage.reference("alpha", ["0" * 32]),
             lambda: self.storage.sweep("alpha"),
             lambda: self.storage.release("alpha", ["0" * 32]),
-            lambda: self.storage.delete("alpha", "0" * 32),
         ):
             with (
                 self.subTest(operation=operation),

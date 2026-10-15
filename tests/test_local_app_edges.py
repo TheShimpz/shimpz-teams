@@ -158,11 +158,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             destroy=mock.Mock(),
             put=mock.Mock(return_value={"id": "file"}),
             list=mock.Mock(return_value={"files": []}),
-            delete=mock.Mock(return_value={"deleted": True}),
             metadata=mock.Mock(return_value=[{"id": "a" * 32}]),
-        )
-        controller.chat_turn_service = types.SimpleNamespace(
-            _file_deletion_slot=lambda _team_id: nullcontext(), _forget_file=mock.Mock()
         )
         controller.routine_proposals = types.SimpleNamespace(drop=mock.Mock())
         controller.routine_recordings = types.SimpleNamespace(drop=mock.Mock())
@@ -386,7 +382,6 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         operations = (
             (controller.put_file, controller.storage.put, ("team_1", "file", b"x", "text/plain")),
             (controller.list_files, controller.storage.list, ("team_1",)),
-            (controller.delete_file, controller.storage.delete, ("team_1", "a" * 32)),
         )
         for operation, storage_operation, arguments in operations:
             with self.subTest(operation=operation.__name__):
@@ -397,7 +392,6 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
 
         self.assertEqual(controller.put_file("team_1", "file", b"x", "text/plain")["file"], {"id": "file"})
         self.assertEqual(controller.list_files("team_1"), {"team_id": "team_1", "files": []})
-        self.assertTrue(controller.delete_file("team_1", "a" * 32)["deleted"])
 
     def test_inference_registry_and_health_cover_failure_and_success(self) -> None:
         controller = self.controller()

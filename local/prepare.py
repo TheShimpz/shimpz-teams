@@ -3,7 +3,7 @@
 Local serializes preparation across its whole controller, which has only 256 MiB, so at most one helper exists at a
 time. Each helper is labeled with the Space, Team, and `prepare` kind and is removed after its segment, on Stop,
 with its Team, and by Space reset. A file preview prepares through the same serialized slot, admitted within a bounded
-queue and deadline, and the Team's file deletion, teardown, and the Space reset end every preview of it first.
+queue and deadline, and the Team's teardown and the Space reset end every preview of it first.
 """
 
 import secrets
@@ -24,7 +24,7 @@ _SERIAL = threading.Lock()
 # A file preview waits for the serialized slot at most this long, and at most this many wait; beyond either it is busy.
 PREVIEW_QUEUE = 4
 PREVIEW_DEADLINE_SECONDS = 10.0
-# How long a deletion, teardown, or reset waits for the previews it ended to leave.
+# How long a teardown or reset waits for the previews it ended to leave.
 PREVIEW_DRAIN_SECONDS = 30.0
 _PREVIEW_ADMISSION = preparation.BoundedAdmission(_SERIAL, queue=PREVIEW_QUEUE, deadline=PREVIEW_DEADLINE_SECONDS)
 _SPACE = "*"
@@ -123,7 +123,7 @@ def prepare_attachments(
 
 
 class PreviewEndedError(RuntimeError):
-    """The preview was ended by its file's deletion, its Team's teardown, or the Space reset."""
+    """The preview was ended by its Team's teardown or the Space reset."""
 
 
 class PreviewDrainError(RuntimeError):
@@ -163,8 +163,8 @@ class _Preview:
 class PreviewBook:
     """Every file preview and download under way, each bound to its Team for as long as it runs.
 
-    A Team's file deletion, its teardown, and the Space reset each close it for their whole duration: no preview or
-    download of it opens, every queued or running one is ended, a running preview's helper is removed, and they wait
+    A Team's teardown and the Space reset each close it for their whole duration: no preview or download of it
+    opens, every queued or running one is ended, a running preview's helper is removed, and they wait
     until every ended one left before they continue, so none can start a helper or send a file after they finished. A
     download whose last check passed before the close finishes sending first; its check fails after it.
     """

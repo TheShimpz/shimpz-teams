@@ -78,13 +78,6 @@ def _file_id(value: object) -> str:
     return value
 
 
-def scoped_file_id(value: object) -> str:
-    """One well-formed Team file id, present or not; a malformed id is invalid input, never an absent file."""
-    if not isinstance(value, str) or http_payload.FILE_ID_RE.fullmatch(value) is None:
-        raise StorageInputError("file id is invalid")
-    return value
-
-
 def _filename(value: object) -> str:
     if not isinstance(value, str) or not value or value.strip() != value:
         raise StorageInputError("filename must be non-empty and trimmed")
@@ -436,15 +429,6 @@ class TeamStorage:
         except StorageNotFoundError:
             return
 
-    def referenced(self, team_id: str) -> frozenset[str]:
-        """The files the Team's conversation may still reference."""
-        team_id = _team_id(team_id)
-        try:
-            with closing(self._connect(team_id, create=False)) as connection:
-                return frozenset(row[0] for row in connection.execute("SELECT id FROM files WHERE referenced=1"))
-        except StorageNotFoundError:
-            return frozenset()
-
     def listed(self, team_id: str, file_id: object) -> dict[str, object]:
         """The metadata of one file the Team's listing still shows, without reading its bytes or renewing its grace.
 
@@ -552,25 +536,6 @@ class TeamStorage:
             return [by_id[file_id] for file_id in safe_ids]
         except KeyError as exc:
             raise StorageNotFoundError("file not found") from exc
-
-    def delete(self, team_id: str, file_id: object) -> dict[str, object]:
-        team_id = _team_id(team_id)
-        limit_bytes = self._limit(team_id)
-        safe_id = _file_id(file_id)
-        try:
-            with self._transaction(team_id, create=False, limit_bytes=limit_bytes) as connection:
-                cursor = connection.execute("DELETE FROM files WHERE id=?", (safe_id,))
-                _count, used = self._usage(connection)
-        except StorageNotFoundError:
-            cursor = None
-            used = 0
-        return {
-            "id": safe_id,
-            "deleted": cursor is not None and cursor.rowcount == 1,
-            "used_bytes": used,
-            "limit_bytes": limit_bytes,
-            "remaining_bytes": max(0, limit_bytes - used),
-        }
 
     def destroy(self, team_id: str) -> bool:
         team_id = _team_id(team_id)

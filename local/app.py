@@ -469,34 +469,16 @@ class LocalController:
                 self._raise_storage_problem(exc)
         return {"team_id": team_id, **listing}
 
-    def delete_file(self, team_id: str, file_id: object) -> dict[str, object]:
-        """Delete one Team file only after nothing can still deliver, read, or show it (ADR-0093)."""
-        team_id = validate_team_id(team_id)
-        service = self.chat_turn_service
-        with (
-            local_team_lifecycle.previews_closed(team_id),
-            service._file_deletion_slot(team_id),
-            self._lock(team_id),
-        ):
-            network = self.assistant_lifecycle._network(team_id)
-            try:
-                service._forget_file(team_id, team_storage.scoped_file_id(file_id), network)
-                # Deletion is idempotent: a file already gone is reported as absent, after the same cleanup.
-                result = self.storage.delete(team_id, file_id)
-            except team_storage.StorageError as exc:
-                self._raise_storage_problem(exc)
-        return {"team_id": team_id, **result}
-
     def file_preview(self, team_id: str, file_id: object, page: int | None = None) -> preparation.Rendition:
         """One listed Team file's sanitized image rendition, or one PDF page's, prepared on demand and never kept.
 
-        It never reads an original beyond its source ceiling or renews the file's retention, and the file's deletion,
-        its Team's teardown, or the Space reset ends it, queued or running, before they continue (ADR-0093).
+        It never reads an original beyond its source ceiling or renews the file's retention, and its Team's teardown or
+        the Space reset ends it, queued or running, before they continue (ADR-0093).
         """
         team_id = validate_team_id(team_id)
         try:
-            # No Team lock is held: the preview book, not a lock, orders it against deletion, teardown, and reset, so a
-            # preview never waits behind a long Team operation while one of those waits for it to end.
+            # No Team lock is held: the preview book, not a lock, orders it against teardown and reset, so a preview
+            # never waits behind a long Team operation while one of those waits for it to end.
             with local_prepare.PREVIEWS.open(team_id) as preview:
                 self.assistant_lifecycle._network(team_id)
                 metadata = self.storage.listed(team_id, file_id)
@@ -534,8 +516,8 @@ class LocalController:
         """Hand one listed Team file's original, verified against its digest, to `deliver` (ADR-0093).
 
         At most MAX_FILE_DOWNLOADS run at once, and none renews the file's retention. The download commits once its last
-        check passes, right before `deliver` runs: a deletion, Team teardown, or Space reset that closed the Team's file
-        reads before then ends it as not found, and one that closes after it waits until `deliver` returned.
+        check passes, right before `deliver` runs: a Team teardown or Space reset that closed the Team's file reads
+        before then ends it as not found, and one that closes after it waits until `deliver` returned.
         """
         team_id = validate_team_id(team_id)
         if not _FILE_DOWNLOADS.acquire(blocking=False):

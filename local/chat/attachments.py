@@ -1,24 +1,13 @@
-"""Local custody of a turn's selected files: Brain hydration and deletion linearized with their use (ADR-0093)."""
+"""Local custody of a turn's selected files: Brain hydration and the references a turn holds (ADR-0093)."""
 
-from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Mapping, Sequence
 from http import HTTPStatus
 
-from action import journal as action_journal
 from chat import attachments as chat_attachments
 from chat import orchestrator as chat_orchestrator
-from inference import client as brain_runtime_client
 from local import prepare as local_prepare
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import (
-    action_state_unavailable,
-    chat_active,
-    conversation_state_unavailable,
-    routine_active,
-    selected_file_not_found,
-    team_context_changed,
-)
-from local.validation import brain_thread_id as _brain_thread_id
+from local.errors import selected_file_not_found, team_context_changed
 from prepare import helper as preparation_helper
 from prepare import service as preparation
 from storage import files as team_storage
@@ -105,56 +94,3 @@ def turn_failed(self, team_id: str, added: Sequence[str]) -> None:
 
 def turn_completed(self, team_id: str, file_ids: Sequence[str]) -> None:
     chat_attachments.settle_completed_turn(lambda: self.storage, team_id, file_ids)
-
-
-@contextmanager
-def deletion_slot(self, team_id: str) -> Iterator[None]:
-    """Hold the Team's one execution slot, so no turn delivers or reads a file while one is deleted."""
-    lock = self._chat_lock(team_id)
-    if not lock.acquire(blocking=False):
-        with self._active_chat_guard:
-            routine = team_id in self._routine_holders
-        if routine:
-            raise routine_active()
-        raise chat_active()
-    try:
-        yield
-    finally:
-        lock.release()
-
-
-def _pending_files(self, team_id: str) -> tuple[str, ...] | None:
-    """The files a paused turn of the Team selected, or None when no turn is paused."""
-    pending = chat_attachments.paused_files(team_id, (self.human_challenges, self.integration_challenges))
-    if pending is None and self.chat_continuations.current(team_id) is not None:
-        # Only a durable continuation survives a restart; its turn is treated as referencing every file.
-        return ("*",)
-    return pending
-
-
-def forget_file(self, team_id: str, file_id: str, network: object) -> None:
-    """Invalidate everything that could still deliver or show a file about to be deleted (ADR-0093).
-
-    Held under the Team's execution slot: a paused turn that selected the file, or any paused turn when the Brain
-    thread must be purged, is cancelled with its challenges and continuation, keeping uncertain Action evidence; the
-    Brain thread is deleted when it may reference the file, which releases every file it referenced.
-    """
-    pending = _pending_files(self, team_id)
-    if not chat_attachments.forget_required(self.storage, team_id, file_id, pending):
-        return
-    if pending is not None:
-        self.integration_challenges.cancel_team(team_id)
-        self.human_challenges.cancel_team(team_id)
-        self.oauth_pkce.cancel_team(team_id)
-        self._delete_chat_continuation(team_id)
-        try:
-            # The caller holds the Team's one execution slot throughout, so no turn can own a batch of this generation
-            # but the paused one (or settled residue a restart left); ending the generation's settled state is exact.
-            self.action_state.end_settled(network.id)
-        except action_journal.ActionJournalError as exc:
-            raise action_state_unavailable() from exc
-    try:
-        self.brain_runtime.delete_thread(_brain_thread_id(self.space_id, team_id, network.id))
-    except brain_runtime_client.BrainRuntimeError as exc:
-        raise conversation_state_unavailable() from exc
-    self.storage.settle(team_id, ())
