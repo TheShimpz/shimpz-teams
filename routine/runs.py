@@ -22,9 +22,9 @@ def spend(
     seconds, milliseconds = elapsed
     if type(seconds) is not int or seconds < 0 or type(milliseconds) is not int or milliseconds < 0:
         raise record.RoutineStateError("invalid-duration")
-    value = routine_claim._live(state, run_id, lease, now)
+    value = routine_claim.live_lease(state, run_id, lease, now)
     usage = {**value.usage, "duration_ms": min(value.usage["duration_ms"] + milliseconds, MAX_USAGE_MS)}
-    return record._replace_run(
+    return record.replace_run(
         state, dataclasses.replace(value, active_seconds_left=value.active_seconds_left - seconds, usage=usage)
     )
 
@@ -41,7 +41,7 @@ def joined_usage(first: dict[str, object], second: dict[str, object]) -> dict[st
 def lose_protection(state: record.TeamRoutines, run_id: str) -> record.TeamRoutines:
     """The run lost the protection of its secret values; every later version of its notice says so, for good."""
     value = record.run(state, run_id)
-    return record._replace_run(state, dataclasses.replace(value, protection_lost=True))
+    return record.replace_run(state, dataclasses.replace(value, protection_lost=True))
 
 
 def freeze(
@@ -58,7 +58,7 @@ def freeze(
     frozen runs it saw.
     """
     request_kind, assistant_id, action, position = request
-    value = routine_claim._live(state, run_id, lease, now)
+    value = routine_claim.live_lease(state, run_id, lease, now)
     current = record.routine(state, value.routine_id)
     if current.deleting:
         raise record.RoutineStateError("routine-deleting")
@@ -75,9 +75,9 @@ def freeze(
     if sum(item.status == "frozen" for item in state.runs) >= record.MAX_FROZEN_RUNS:
         raise record.RoutineStateError("frozen-limit")
     fields = {"request_kind": request_kind, "assistant_id": assistant_id, "action": action, "position": placed}
-    state, value = record._run_notice(state, value, "frozen", now, {**fields, "steps": len(steps)})
+    state, value = record.run_notice(state, value, "frozen", now, {**fields, "steps": len(steps)})
     unleased = {"lease_sha256": "", "lease_key": "", "lease_expires_at": 0}
-    return record._replace_run(
+    return record.replace_run(
         state, dataclasses.replace(value, status="frozen", **unleased, **fields, steps=len(steps))
     )
 
@@ -105,7 +105,7 @@ def thaw(state: record.TeamRoutines, run_id: str, now: int, requests_used: int) 
         steps=0,
         requests_used=max(value.requests_used, requests_used),
     )
-    return record._replace_run(state, resumed), token
+    return record.replace_run(state, resumed), token
 
 
 def finish(
@@ -121,8 +121,8 @@ def finish(
 
     A completed run ends by its Routine's output disposition with ``shown``; any other outcome publishes ``detail``.
     """
-    value = routine_claim._live(state, run_id, lease, now)
-    if outcome not in record._RUN_OUTCOMES:
+    value = routine_claim.live_lease(state, run_id, lease, now)
+    if outcome not in record.RUN_OUTCOMES:
         raise record.RoutineStateError("invalid-outcome")
     return _ended(state, value, outcome, now, detail, shown)
 
@@ -139,8 +139,8 @@ def _ended(
     if outcome in {"done", "recovered"}:
         state = _completion(state, value, outcome, now, shown)
     else:
-        state = record._run_notice(state, value, outcome, now, detail)[0]
-    return record._without_run(state, value.run_id, now)
+        state = record.run_notice(state, value, outcome, now, detail)[0]
+    return record.without_run(state, value.run_id, now)
 
 
 def _completion(
@@ -172,17 +172,17 @@ def _completion(
                     return _quiet(state, current)
                 output = routine_plan.output_state(position, "unchanged")
             else:
-                state = record._replace_routine(state, dataclasses.replace(current, output_digest=digest or ""))
-        return record._run_notice(state, value, outcome, now, {**detail, "output": output})[0]
+                state = record.replace_routine(state, dataclasses.replace(current, output_digest=digest or ""))
+        return record.run_notice(state, value, outcome, now, {**detail, "output": output})[0]
     if not value.notice_version and not value.protection_lost:
         rolled = _healthy(state, value, now) if outcome == "done" else None
         return _quiet(state, current) if rolled is None else rolled
-    return record._run_notice(state, value, outcome, now, detail)[0]
+    return record.run_notice(state, value, outcome, now, detail)[0]
 
 
 def _quiet(state: record.TeamRoutines, current: record.Routine) -> record.TeamRoutines:
     """A completed run that tells the person nothing still resets its Routine's failure streak."""
-    return record._replace_routine(state, dataclasses.replace(current, failures=0))
+    return record.replace_routine(state, dataclasses.replace(current, failures=0))
 
 
 def _healthy(state: record.TeamRoutines, value: record.Run, now: int) -> record.TeamRoutines | None:
@@ -203,10 +203,10 @@ def _healthy(state: record.TeamRoutines, value: record.Run, now: int) -> record.
         return None
     usage = joined_usage(current.rollup_usage, value.usage) if same and current.rollup_usage else value.usage
     rolled = dataclasses.replace(current, rollup_minute=minute, rollup_runs=runs, rollup_usage=usage, failures=0)
-    state = record._replace_routine(state, rolled)
+    state = record.replace_routine(state, rolled)
     notice_id = hashlib.sha256(f"healthy:{current.routine_id}:{minute}".encode()).hexdigest()[:32]
     notice = record.Notice(notice_id, current.routine_id, "", "healthy", minute, {"runs": runs}, runs)
-    return record._notice(state, dataclasses.replace(notice, usage=copy.deepcopy(usage)))
+    return record.put_notice(state, dataclasses.replace(notice, usage=copy.deepcopy(usage)))
 
 
 def end(
@@ -226,20 +226,20 @@ def end(
     value = record.run(state, run_id)
     if status and value.status != status:
         raise record.RoutineStateError("run-changed")
-    allowed = {"leased": frozenset({"stopped", "failed"}), "frozen": record._FROZEN_OUTCOMES}.get(
+    allowed = {"leased": frozenset({"stopped", "failed"}), "frozen": record.FROZEN_OUTCOMES}.get(
         value.status, frozenset()
     )
     if outcome not in allowed:
         raise record.RoutineStateError("invalid-outcome")
-    state, _value = record._run_notice(state, value, outcome, now, detail)
-    return record._without_run(state, run_id, now)
+    state, _value = record.run_notice(state, value, outcome, now, detail)
+    return record.without_run(state, run_id, now)
 
 
 def complete_recovered(
     state: record.TeamRoutines, run_id: str, lease_sha256: str, now: int, shown: dict[str, object] | None = None
 ) -> record.TeamRoutines:
     """Team's watchdog ends a leased run whose sealed cursor completed every step, as the worker would have."""
-    value = routine_claim._read_lease(state, run_id, lease_sha256)
+    value = routine_claim.read_lease(state, run_id, lease_sha256)
     return _ended(state, value, completed(value), now, {}, shown)
 
 

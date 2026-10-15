@@ -572,7 +572,7 @@ class WatchdogRecoveryTests(CompiledRunCase):
             service.routine_store.update(
                 "team_1",
                 lambda state: (
-                    record._replace_run(state, dataclasses.replace(record.run(state, run_id), generation=generation)),
+                    record.replace_run(state, dataclasses.replace(record.run(state, run_id), generation=generation)),
                     None,
                 ),
             )

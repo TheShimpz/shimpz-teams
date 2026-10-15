@@ -541,7 +541,7 @@ class ContinuationDeadlineTests(BalanceCase):
                     box[0].routine_store.update(
                         "team_1",
                         lambda state: (
-                            record._replace_run(state, dataclasses.replace(record.run(state, run_id), **changes)),
+                            record.replace_run(state, dataclasses.replace(record.run(state, run_id), **changes)),
                             None,
                         ),
                     )
@@ -624,7 +624,7 @@ class ContinuationDeadlineTests(BalanceCase):
     def test_a_sealed_completion_never_touches_a_run_whose_lease_changed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
-            run = routine_recovery.routine_run._Run(
+            run = routine_recovery.routine_run.LeasedRun(
                 "team_1", run_id, record.Lease("0" * 64, "k"), "token", "openai", value
             )
             with self.assertRaises(routine_recovery.ApiProblem) as caught:

@@ -141,7 +141,7 @@ class RunLifecycleTests(unittest.TestCase):
         actions[0][1] = "replace-dns-record"
         self.assertEqual(state.notices[0].detail, {"actions": [["dns", "list-zones"]]})
         with self.assertRaisesRegex(record.RoutineStateError, "notice-invalid"):
-            record._notice(state, record.Notice("n" * 32, "a" * 32, "", "skipped", NINE, {"missed": 1}, 0))
+            record.put_notice(state, record.Notice("n" * 32, "a" * 32, "", "skipped", NINE, {"missed": 1}, 0))
 
     def test_in_flight_outcomes_always_fit_above_the_claim_bound(self):
         state, claim, lease = claimed()

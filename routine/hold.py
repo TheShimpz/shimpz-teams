@@ -38,7 +38,7 @@ def settle_hold(
     executed = current.revision if revision is None else revision
     if type(executed) is not int or executed < 1:
         raise record.RoutineStateError("incident-invalid")
-    state, value = record._run_notice(state, value, "held", now, step_detail(step))
+    state, value = record.run_notice(state, value, "held", now, step_detail(step))
     incident = record.Incident(
         run_id,
         value.routine_id,
@@ -62,7 +62,7 @@ def settle_hold(
         if released is None:
             raise record.RoutineStateError("incident-limit")
         kept.remove(released)
-    state = record._without_run(dataclasses.replace(state, incidents=(*kept, incident)), run_id, now)
+    state = record.without_run(dataclasses.replace(state, incidents=(*kept, incident)), run_id, now)
     # A Routine being deleted keeps no incident for a person to settle: its run is set aside as it is indexed.
     return skip_incident(state, run_id, now, choice="delete") if current.deleting else state
 
@@ -140,7 +140,7 @@ def _incident_notice(
     state: record.TeamRoutines, value: record.Incident, outcome: str, now: int, detail: dict[str, object]
 ) -> tuple[record.TeamRoutines, record.Incident]:
     """Publish the next version of the held run's one notice, which outlives a deleted Routine with the incident."""
-    state = record._next_run_notice(state, value.incident_id, value, outcome, now, detail, value.name)
+    state = record.next_run_notice(state, value.incident_id, value, outcome, now, detail, value.name)
     return state, dataclasses.replace(value, notice_version=value.notice_version + 1)
 
 
@@ -204,7 +204,7 @@ def run_incident(state: record.TeamRoutines, incident_id: str, now: int, expecte
     current = record.routine(state, value.routine_id)
     if record.continuous(current):
         return state
-    return record._replace_routine(state, dataclasses.replace(current, run_requested=now))
+    return record.replace_routine(state, dataclasses.replace(current, run_requested=now))
 
 
 def pause_incident(state: record.TeamRoutines, incident_id: str, now: int, reason: str) -> record.TeamRoutines:
@@ -260,17 +260,17 @@ def _held(state: record.TeamRoutines, value: record.Run) -> record.TeamRoutines:
     if not value.generation:
         raise record.RoutineStateError("generation-invalid")
     held = dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
-    return record._replace_run(state, held)
+    return record.replace_run(state, held)
 
 
 def fence(state: record.TeamRoutines, run_id: str, lease: record.Lease, now: int) -> record.TeamRoutines:
     """Stop the live lease of a run that must be held (ADR-0092)."""
-    return _held(state, routine_claim._live(state, run_id, lease, now))
+    return _held(state, routine_claim.live_lease(state, run_id, lease, now))
 
 
 def hold_recovered(state: record.TeamRoutines, run_id: str, lease_sha256: str) -> record.TeamRoutines:
     """Team's watchdog holds a leased run nothing runs any more whose durable state shows it may have acted."""
-    return _held(state, routine_claim._read_lease(state, run_id, lease_sha256))
+    return _held(state, routine_claim.read_lease(state, run_id, lease_sha256))
 
 
 # What Team's watchdog fences or ends: runs nothing may drive any more.

@@ -98,7 +98,7 @@ def at(state, routine_id: str, next_run_at: int):
     """The state with one Routine next due at ``next_run_at``."""
     from routine import record
 
-    return record._replace_routine(
+    return record.replace_routine(
         state, dataclasses.replace(record.routine(state, routine_id), next_run_at=next_run_at)
     )
 
@@ -160,7 +160,7 @@ def update_routine(service, routine_id: str, *, confirm: bool = False, **changes
 
     def changed(state):
         value = dataclasses.replace(record.routine(state, routine_id), **changes)
-        return record._replace_routine(state, confirmed(value) if confirm else value), None
+        return record.replace_routine(state, confirmed(value) if confirm else value), None
 
     service.routine_store.update("team_1", changed)
 

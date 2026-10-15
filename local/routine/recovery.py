@@ -442,13 +442,13 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, incident_id))
     lease = record.lease_of(lease_token, record.HUMAN_LEASE)
     # The logical run's answered human requests carry on; a continuation never gets a fresh allowance.
-    run = routine_run._Run(
+    run = routine_run.LeasedRun(
         team_id, incident_id, lease, token, _provider(self, team_id), routine, (), value.requests_used
     )
     active = value.active_seconds_left if seconds is None else min(seconds, value.active_seconds_left)
     with routine_run.registered(self, team_id, incident_id, token, active):
         outcome = routine_compiled.execute(self, run, value, progress)
-    routine_run._after_run(self, team_id, incident_id, routine.routine_id, outcome)
+    routine_run.after_run(self, team_id, incident_id, routine.routine_id, outcome)
     return outcome
 
 
@@ -552,7 +552,7 @@ def _stopped(self, token: str, reservation: _Reservation) -> bool:
     return self._chat_cancelled(token) and not reservation.expired.is_set()
 
 
-def _episode(self, run: routine_run._Run, reservation: _Reservation) -> bool:
+def _episode(self, run: routine_run.LeasedRun, reservation: _Reservation) -> bool:
     """Verify first; True when the run may go on: a proven occurrence, or a proven absence that retries once.
 
     Exhaustion is judged on the reservation's own clock, never on what the episode found: once its deadline passed,
@@ -578,7 +578,7 @@ def _episode(self, run: routine_run._Run, reservation: _Reservation) -> bool:
     return verdict in _GO_ON and not self._chat_cancelled(run.token)
 
 
-def _go_on(self, run: routine_run._Run, reservation: _Reservation, progress) -> str:
+def _go_on(self, run: routine_run.LeasedRun, reservation: _Reservation, progress) -> str:
     """Continue the already-authorized run inside what is left of the reservation, or hold it.
 
     The retry is never dispatched without time left for it, and a continuation the deadline cuts, even between
@@ -604,7 +604,7 @@ def _go_on(self, run: routine_run._Run, reservation: _Reservation, progress) -> 
     return continue_run(self, team_id, incident_id, run.token, progress, seconds=left)
 
 
-def _publish(self, run: routine_run._Run, reservation: _Reservation, reason: str) -> None:
+def _publish(self, run: routine_run.LeasedRun, reservation: _Reservation, reason: str) -> None:
     """Pause the Routine the held run belongs to and say why, once per episode, unless a person stopped it first."""
     if routine_run.unstopped(
         self,
@@ -615,7 +615,7 @@ def _publish(self, run: routine_run._Run, reservation: _Reservation, reason: str
         reservation.published.set()
 
 
-def _finish(self, run: routine_run._Run, reservation: _Reservation, outcome: str) -> str:
+def _finish(self, run: routine_run.LeasedRun, reservation: _Reservation, outcome: str) -> str:
     """End the episode: a held run its deadline cut, however it got there, pauses the Routine as exhausted.
 
     Its evidence stays held either way. A failure to publish leaves the incident for the card.
@@ -626,7 +626,7 @@ def _finish(self, run: routine_run._Run, reservation: _Reservation, outcome: str
     return outcome
 
 
-def automatic(self, run: routine_run._Run, progress=None) -> str:
+def automatic(self, run: routine_run.LeasedRun, progress=None) -> str:
     """The run's one automatic recovery episode, right after its hold, in the same execution slot (ADR-0092).
 
     The episode and its time are reserved durably from both the recovery budget and the run's active time first, and

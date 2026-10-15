@@ -32,7 +32,7 @@ from routine import runs as routine_runs
 
 
 @dataclass(frozen=True, slots=True)
-class _Run:
+class LeasedRun:
     """One leased run's segment: its Team, lease, execution-slot token, provider, and Routine."""
 
     team_id: str
@@ -182,13 +182,13 @@ def next_routine_due(self) -> int | None:
     return min((item for item in due if item is not None), default=None)
 
 
-def _end(self, team_id: str, run_id: str, outcome: str, detail: dict[str, object]) -> str:
+def end_run(self, team_id: str, run_id: str, outcome: str, detail: dict[str, object]) -> str:
     now = int(time.time())
     routine_state.update(self, team_id, lambda state: (routine_runs.end(state, run_id, now, outcome, detail), None))
     return outcome
 
 
-def _finish(self, run: _Run, outcome: str, detail: dict[str, object], shown: dict[str, object] | None) -> str:
+def _finish(self, run: LeasedRun, outcome: str, detail: dict[str, object], shown: dict[str, object] | None) -> str:
     """A worker's own ending; when its lease or time ran out meanwhile, Team records the run as failed instead."""
     now = int(time.time())
 
@@ -213,7 +213,7 @@ def _finish(self, run: _Run, outcome: str, detail: dict[str, object], shown: dic
 
 
 def finished(
-    self, run: _Run, value: record.Run, sealed_done: Callable[[], bool], shown: dict[str, object] | None = None
+    self, run: LeasedRun, value: record.Run, sealed_done: Callable[[], bool], shown: dict[str, object] | None = None
 ) -> str:
     """A compiled run completed every step: commit its end exactly when Stop did not win it; no model is asked.
 
@@ -225,11 +225,11 @@ def finished(
     if not self._commit_chat_terminal(run.team_id, run.token):
         if _deadline_cut(self, run) and sealed_done():
             return complete_sealed(self, run, shown)
-        return _end(self, run.team_id, run.run_id, "stopped", {"actions": []})
+        return end_run(self, run.team_id, run.run_id, "stopped", {"actions": []})
     return complete(self, run, value, shown)
 
 
-def complete_sealed(self, run: _Run, shown: dict[str, object] | None) -> str:
+def complete_sealed(self, run: LeasedRun, shown: dict[str, object] | None) -> str:
     """Record a run its own deadline cut after its sealed cursor completed every step, as complete.
 
     It uses the Team-authoritative transition the watchdog uses, bound to this run's exact lease but not to time left
@@ -252,19 +252,19 @@ def complete_sealed(self, run: _Run, shown: dict[str, object] | None) -> str:
     return outcome
 
 
-def complete(self, run: _Run, value: record.Run, shown: dict[str, object] | None) -> str:
+def complete(self, run: LeasedRun, value: record.Run, shown: dict[str, object] | None) -> str:
     """Record a run whose every step completed: done, or recovered for a continuation, by its output disposition."""
     return _finish(self, run, routine_runs.completed(value), {}, shown)
 
 
-def _deadline_cut(self, run: _Run) -> bool:
+def _deadline_cut(self, run: LeasedRun) -> bool:
     """Whether this execution was cancelled by its own deadline, not by a person."""
     with self._active_chat_guard:
         registration = self._routine_runs.get(run.run_id)
         return registration is not None and registration.token == run.token and registration.overdue
 
 
-def suspended(self, run: _Run, segment, step: int) -> str:
+def suspended(self, run: LeasedRun, segment, step: int) -> str:
     """A run paused for a person or an Integration at the call ``step``: keep its continuation, freeze it."""
     outcome = segment.outcome
     pending = PendingLocalChat(
@@ -366,7 +366,7 @@ def _unshowable(self, run_id: str, segment) -> bool:
     )
 
 
-def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: int) -> str:
+def _freeze(self, run: LeasedRun, pending: PendingLocalChat, segment, step: int) -> str:
     """Keep a paused run for a human: its continuation first, then the frozen record commits the freeze."""
     team_id, run_id = run.team_id, run.run_id
     frozen = _frozen_request(segment)
@@ -375,7 +375,7 @@ def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: int) -> s
     if frozen is None or _unshowable(self, run_id, segment):
         self._commit_chat_terminal(team_id, run.token)
         placed = {"position": step, "steps": len(run.routine.plan["steps"])}
-        return _end(self, team_id, run_id, "failed", {"code": "request-unavailable", "actions": [], **placed})
+        return end_run(self, team_id, run_id, "failed", {"code": "request-unavailable", "actions": [], **placed})
     kind, requirements, assistant_id, action = frozen
     bindings, payload = local_chat_continuations.encode(
         kind, requirements, pending, limit=local_chat_continuations.MAX_ROUTINE_PLAINTEXT_BYTES
@@ -406,11 +406,11 @@ def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: int) -> s
     if not self._commit_chat_terminal(
         team_id, run.token, lambda: outcome.append(routine_state.update(self, team_id, freeze))
     ):
-        return _end(self, team_id, run_id, "stopped", {"actions": []})
+        return end_run(self, team_id, run_id, "stopped", {"actions": []})
     return outcome[0]
 
 
-def _live_run(self, team_id: str, run_id: str, lease: record.Lease) -> tuple[record.Run, record.Routine]:
+def live_run(self, team_id: str, run_id: str, lease: record.Lease) -> tuple[record.Run, record.Routine]:
     state = routine_state.load(self, team_id)
     try:
         value = record.run(state, run_id)
@@ -434,7 +434,7 @@ def registered(self, team_id: str, run_id: str, token: str, active_seconds: int)
         unregister_routine_run(self, run_id)
 
 
-def _bind(self, team_id: str, run_id: str, lease: record.Lease) -> str:
+def bind_run(self, team_id: str, run_id: str, lease: record.Lease) -> str:
     """Bind the run's own journal generation under its live lease."""
     network_id = self.assistant_lifecycle._network(team_id).id
     now = int(time.time())
@@ -452,7 +452,7 @@ def _bind(self, team_id: str, run_id: str, lease: record.Lease) -> str:
     return generation
 
 
-def _context_refusal(self, team_id: str, pinned: dict[str, str]) -> str | None:
+def context_refusal(self, team_id: str, pinned: dict[str, str]) -> str | None:
     """Why a leased run may not start under its pinned contracts, or None when they are exactly current."""
     try:
         current = routine_contracts.current_contracts(self, team_id, tuple(pinned))
@@ -461,7 +461,7 @@ def _context_refusal(self, team_id: str, pinned: dict[str, str]) -> str | None:
     return None if current == pinned else "team-context-changed"
 
 
-def _spend(self, team_id: str, run_id: str, lease: record.Lease, elapsed: float) -> None:
+def spend_time(self, team_id: str, run_id: str, lease: record.Lease, elapsed: float) -> None:
     """Charge one segment's active time: whole seconds to its budget, milliseconds to its usage."""
     now = int(time.time())
 
@@ -474,7 +474,7 @@ def _spend(self, team_id: str, run_id: str, lease: record.Lease, elapsed: float)
     routine_state.update(self, team_id, spend)
 
 
-def _after_run(self, team_id: str, run_id: str, routine_id: str, outcome: str) -> None:
+def after_run(self, team_id: str, run_id: str, routine_id: str, outcome: str) -> None:
     """Remove what an ended run held and finish a deletion the run was blocking; audit how it ended."""
     local_audit.record_request(
         "routine-run", result="ok" if outcome in {"done", "recovered"} else "error", team_id=team_id, detail=outcome

@@ -187,7 +187,7 @@ class ServiceLoadTests(RoutineHttpCase):
             minute = int(time.time()) // 60 * 60
             usage = {"duration_ms": 3600}
             rollup = record.Notice("c" * 32, value.routine_id, "", "healthy", minute, {"runs": 3}, 3, usage=usage)
-            service.routine_store.update("team_1", lambda state: (record._notice(state, rollup), None))
+            service.routine_store.update("team_1", lambda state: (record.put_notice(state, rollup), None))
             batch = service.routine_notices()
         self.assertEqual(http_routine_notice.canonical_notice_batch(batch), batch)
         (notice,) = [item for item in batch["notices"] if item["outcome"] == "healthy"]

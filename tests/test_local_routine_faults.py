@@ -329,7 +329,9 @@ class RunFaultTests(RoutineServiceCase):
                 self.run_claim(service, claim)
             self.assertEqual(lost.exception.code, "routine-lease-invalid")
             with mock.patch.object(routine_runs, "spend", side_effect=record.RoutineStateError("run-not-running")):
-                routine_run._spend(service, "team_1", claim["run_id"], record.lease_of(claim["lease_token"], KEY), 1)
+                routine_run.spend_time(
+                    service, "team_1", claim["run_id"], record.lease_of(claim["lease_token"], KEY), 1
+                )
 
     def test_a_team_without_a_model_configuration_is_never_claimed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

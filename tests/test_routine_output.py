@@ -384,10 +384,10 @@ def _completed(mode: str, *, notice_version: int = 0, digest: str = "", shown: d
     state = routine_fixture.at(routine_fixture.added(value), value.routine_id, routine_fixture.NINE)
     current = dataclasses.replace(record.routine(state, value.routine_id), output_digest=digest, failures=2)
     state, claim = routine_claim.claim(
-        record._replace_routine(state, current), routine_fixture.NINE, routine_fixture.KEY
+        record.replace_routine(state, current), routine_fixture.NINE, routine_fixture.KEY
     )
     if notice_version:
-        state = record._replace_run(state, dataclasses.replace(record.run(state, claim.run.run_id), notice_version=1))
+        state = record.replace_run(state, dataclasses.replace(record.run(state, claim.run.run_id), notice_version=1))
     if lost:
         state = routine_runs.lose_protection(state, claim.run.run_id)
     lease = record.lease_of(claim.lease_token, routine_fixture.KEY)

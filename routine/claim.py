@@ -42,10 +42,10 @@ def _report_gap(
         return state
     # The count only grows within a gap, so it doubles as the notice version Admin acknowledges.
     missed = routine_value.missed
-    state = record._notice(
+    state = record.put_notice(
         state, record.Notice(notice_id, routine_value.routine_id, "", "skipped", now, {"missed": missed}, missed)
     )
-    return record._replace_routine(state, dataclasses.replace(routine_value, reported_missed=routine_value.missed))
+    return record.replace_routine(state, dataclasses.replace(routine_value, reported_missed=routine_value.missed))
 
 
 def _miss(routine_value: record.Routine, first: int, count: int, next_run_at: int) -> record.Routine:
@@ -67,7 +67,7 @@ def sweep(state: record.TeamRoutines, now: int) -> record.TeamRoutines:
         if item.next_run_at < cutoff:
             count, next_run_at = _count_before(item, item.next_run_at, cutoff)
             item = _miss(item, item.next_run_at, count, next_run_at)
-            state = record._replace_routine(state, item)
+            state = record.replace_routine(state, item)
         state = _report_gap(state, item, now)
     return state
 
@@ -187,7 +187,7 @@ def claim(
         following = record.next_after(due, scheduled_at)
         extra, next_run_at = _count_before(due, following, now + 1)
         due = _miss(due, following, extra, next_run_at) if extra else dataclasses.replace(due, next_run_at=next_run_at)
-    state = _report_gap(record._replace_routine(state, due), due, now, in_flight=True)
+    state = _report_gap(record.replace_routine(state, due), due, now, in_flight=True)
     ended = dataclasses.replace(record.routine(state, due.routine_id), gap_started_at=0, missed=0, reported_missed=0)
     return _lease(state, ended, scheduled_at, now, key_fingerprint)
 
@@ -209,7 +209,7 @@ def _lease(
         active_seconds_left=routine_plan.active_seconds(units),
     )
     state = dataclasses.replace(
-        record._replace_routine(state, due),
+        record.replace_routine(state, due),
         runs=(*state.runs, leased),
         served_at=now,
         starts=routine_starts.started(state.starts, due.routine_id, now, units),
@@ -242,14 +242,14 @@ def _leased(state: record.TeamRoutines, run_id: str) -> record.Run:
     return value
 
 
-def _live(state: record.TeamRoutines, run_id: str, lease: record.Lease, now: int) -> record.Run:
+def live_lease(state: record.TeamRoutines, run_id: str, lease: record.Lease, now: int) -> record.Run:
     """A worker transition: only the live lease of that exact run may make it."""
     value = _leased(state, run_id)
     require_lease(value, lease, now)
     return value
 
 
-def _read_lease(state: record.TeamRoutines, run_id: str, lease_sha256: str) -> record.Run:
+def read_lease(state: record.TeamRoutines, run_id: str, lease_sha256: str) -> record.Run:
     """A watchdog transition: only the exact lease the watchdog read, so a run claimed again meanwhile is untouched."""
     value = _leased(state, run_id)
     if not secrets.compare_digest(value.lease_sha256, lease_sha256):
@@ -262,14 +262,14 @@ def generation_for(network_id: str, run_id: str, suffix: str = "") -> str:
 
     A continuation (``s<n>``) or verification (``v<n>``) after a hold gets its own: the held one is archived.
     """
-    if suffix and record._SUFFIX_RE.fullmatch(suffix) is None:
+    if suffix and record.SUFFIX_RE.fullmatch(suffix) is None:
         raise record.RoutineStateError("generation-invalid")
     return f"{network_id}:routine:{run_id}" + (f":{suffix}" if suffix else "")
 
 
 def network_of(generation: object, run_id: str) -> str | None:
     """The Team network a run's generation, or one of its continuation or verification generations, belongs to."""
-    match = record._GENERATION_RE.fullmatch(generation) if isinstance(generation, str) else None
+    match = record.GENERATION_RE.fullmatch(generation) if isinstance(generation, str) else None
     return match["network"] if match is not None and match["run"] == run_id else None
 
 
@@ -280,11 +280,11 @@ def bind_generation(
 
     A continuation after a hold already names its own generation, which must belong to the same network.
     """
-    value = _live(state, run_id, lease, now)
+    value = live_lease(state, run_id, lease, now)
     generation = value.generation or generation_for(network_id, run_id)
     if action_journal.SAFE_ID_RE.fullmatch(generation) is None or network_of(generation, run_id) != network_id:
         raise record.RoutineStateError("generation-invalid")
     # The claimed run's segment has started: its lease now covers the run's active time left, once; a later bind of the
     # same run (a retried request) never renews it.
     extended = value.lease_expires_at if value.generation else max(value.lease_expires_at, lease_until(value, now))
-    return record._replace_run(state, dataclasses.replace(value, generation=generation, lease_expires_at=extended))
+    return record.replace_run(state, dataclasses.replace(value, generation=generation, lease_expires_at=extended))

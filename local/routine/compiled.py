@@ -480,7 +480,7 @@ def runtime(
 
 def request(
     self,
-    run: routine_run._Run,
+    run: routine_run.LeasedRun,
     value: record.Run,
     progress: chat_progress.Reporter | None,
     pending: object | None = None,
@@ -575,7 +575,11 @@ def _uncertain(self, value: record.Run, batches: list) -> bool:
 
 
 def _ended(
-    self, run: routine_run._Run, value: record.Run, segment: RoutineSegment | None, exc: ApiProblem | CompiledRunError
+    self,
+    run: routine_run.LeasedRun,
+    value: record.Run,
+    segment: RoutineSegment | None,
+    exc: ApiProblem | CompiledRunError,
 ) -> str:
     """How a segment that raised ends: stopped, failed with nothing dispatched, or held for recovery.
 
@@ -596,12 +600,14 @@ def _ended(
                 # Out of time, not stopped by a person, after its sealed cursor completed every step: it is complete.
                 return routine_run.complete_sealed(self, run, sealed_shown(self, run.team_id, value))
         elif not uncertain:
-            return routine_run._end(self, run.team_id, run.run_id, "stopped", {"actions": []})
+            return routine_run.end_run(self, run.team_id, run.run_id, "stopped", {"actions": []})
     if not uncertain and (
         progress(self, run.team_id, value) == "none"
         or (code in UNRESOLVED_INPUTS and _read_only_prefix(self, run.team_id, value))
     ):
-        return routine_run._end(self, run.team_id, run.run_id, "failed", {"code": code, "actions": [], **_at(segment)})
+        return routine_run.end_run(
+            self, run.team_id, run.run_id, "failed", {"code": code, "actions": [], **_at(segment)}
+        )
     routine_incident.hold(self, run.team_id, run.run_id, run.lease)
     return "held"
 
@@ -637,7 +643,7 @@ def _at(segment: RoutineSegment | None) -> dict[str, object]:
 
 
 def execute(
-    self, run: routine_run._Run, value: record.Run, progress: chat_progress.Reporter | None, pending: object = None
+    self, run: routine_run.LeasedRun, value: record.Run, progress: chat_progress.Reporter | None, pending: object = None
 ) -> str:
     """Run one registered segment of a compiled run in the held execution slot and record exactly how it ended."""
     started = time.monotonic()
@@ -649,9 +655,9 @@ def execute(
     except (ApiProblem, CompiledRunError) as exc:
         # A failed segment's active time is charged under its live lease before it is fenced, so a hold carries the
         # balance the run really has left.
-        routine_run._spend(self, run.team_id, run.run_id, run.lease, time.monotonic() - started)
+        routine_run.spend_time(self, run.team_id, run.run_id, run.lease, time.monotonic() - started)
         return _ended(self, run, value, segment, exc)
-    routine_run._spend(self, run.team_id, run.run_id, run.lease, time.monotonic() - started)
+    routine_run.spend_time(self, run.team_id, run.run_id, run.lease, time.monotonic() - started)
     if isinstance(outcome.outcome, chat_orchestrator.ChatOutcome):
         shown = segment.runtime.cursor.shown
         return routine_run.finished(self, run, value, lambda: _sealed_done(self, run.team_id, value), shown)
@@ -676,7 +682,7 @@ def run_routine(
     team_id = validate_team_id(team_id)
     provider = routine_run.team_provider(self, team_id) or ""
     lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
-    value, routine = routine_run._live_run(self, team_id, run_id, lease)
+    value, routine = routine_run.live_run(self, team_id, run_id, lease)
     if claimed != (routine.revision, routine_definition.plan_digest(routine.plan)):
         raise ApiProblem(409, "Routine revision changed since the claim", code="routine-revision-stale")
     with (
@@ -684,17 +690,17 @@ def run_routine(
         routine_run.registered(self, team_id, run_id, token, value.active_seconds_left),
     ):
         # Rechecked in the slot: an Assistant changed since the claim never runs under a contract nobody pinned.
-        refused = routine_run._context_refusal(self, team_id, dict(routine.assistants))
+        refused = routine_run.context_refusal(self, team_id, dict(routine.assistants))
         if refused is not None:
-            outcome = routine_run._end(
+            outcome = routine_run.end_run(
                 self, team_id, run_id, "failed", {"code": refused, "actions": [], "position": None, "steps": None}
             )
         else:
-            generation = routine_run._bind(self, team_id, run_id, lease)
+            generation = routine_run.bind_run(self, team_id, run_id, lease)
             bound = dataclasses.replace(value, generation=generation)
-            run = routine_run._Run(team_id, run_id, lease, token, provider, routine)
+            run = routine_run.LeasedRun(team_id, run_id, lease, token, provider, routine)
             outcome = execute(self, run, bound, progress)
             if outcome == "held":
                 outcome = self._recover_routine_run(run, progress)
-    routine_run._after_run(self, team_id, run_id, routine.routine_id, outcome)
+    routine_run.after_run(self, team_id, run_id, routine.routine_id, outcome)
     return {"team_id": team_id, "run_id": run_id, "status": outcome}

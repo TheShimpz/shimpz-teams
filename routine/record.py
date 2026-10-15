@@ -34,14 +34,14 @@ MAX_GRACE_SECONDS = 12 * 3600
 MAX_COUNTED_MISSES = 24 * 400
 HUMAN_LEASE = "human"
 _PERIOD_SECONDS = {"daily": 86_400, "weekly": 7 * 86_400, "monthly": 28 * 86_400}
-_SUFFIX_RE = re.compile(r"[sv][1-9][0-9]{0,2}\Z")
-_GENERATION_RE = re.compile(
+SUFFIX_RE = re.compile(r"[sv][1-9][0-9]{0,2}\Z")
+GENERATION_RE = re.compile(
     r"(?P<network>[A-Za-z0-9][A-Za-z0-9._/-]{0,127}):routine:(?P<run>[0-9a-f]{32})(?::[sv][1-9][0-9]{0,2})?\Z"
 )
 # From a frozen run only these outcomes are possible: nobody answered it, or someone refused or stopped it.
-_FROZEN_OUTCOMES = frozenset({"denied", "stopped", "failed"})
+FROZEN_OUTCOMES = frozenset({"denied", "stopped", "failed"})
 # A worker ends its run done or failed; a completed continuation after a hold ends recovered.
-_RUN_OUTCOMES = frozenset({"done", "recovered", "failed", "denied", "stopped"})
+RUN_OUTCOMES = frozenset({"done", "recovered", "failed", "denied", "stopped"})
 # Why recovery paused a held run's Routine; each is published on the run's notice.
 PAUSE_REASONS = http_routine.PAUSE_REASONS
 # Ended runs whose journal generation, continuation, and cursor Team has yet to remove. Claims stop while any
@@ -417,7 +417,7 @@ def create(state: TeamRoutines, value: Routine, now: int) -> TeamRoutines:
     state = add_routine(state, value)
     admitted = routine(state, value.routine_id)
     detail = routine_definition.detail(admitted)
-    return _notice(state, Notice(new_id(), admitted.routine_id, "", "created", now, detail))
+    return put_notice(state, Notice(new_id(), admitted.routine_id, "", "created", now, detail))
 
 
 def update(state: TeamRoutines, value: Routine, expected_revision: int, now: int) -> TeamRoutines:
@@ -444,8 +444,10 @@ def update(state: TeamRoutines, value: Routine, expected_revision: int, now: int
         rollup_runs=current.rollup_runs,
         rollup_usage=current.rollup_usage,
     )
-    state = _replace_routine(state, changed)
-    return _notice(state, Notice(new_id(), changed.routine_id, "", "changed", now, routine_definition.detail(changed)))
+    state = replace_routine(state, changed)
+    return put_notice(
+        state, Notice(new_id(), changed.routine_id, "", "changed", now, routine_definition.detail(changed))
+    )
 
 
 def add_routine(state: TeamRoutines, value: Routine) -> TeamRoutines:
@@ -472,19 +474,19 @@ def run(state: TeamRoutines, run_id: str) -> Run:
     raise RoutineStateError("run-not-found")
 
 
-def _replace_routine(state: TeamRoutines, updated: Routine) -> TeamRoutines:
+def replace_routine(state: TeamRoutines, updated: Routine) -> TeamRoutines:
     return dataclasses.replace(
         state, routines=tuple(updated if item.routine_id == updated.routine_id else item for item in state.routines)
     )
 
 
-def _replace_run(state: TeamRoutines, updated: Run) -> TeamRoutines:
+def replace_run(state: TeamRoutines, updated: Run) -> TeamRoutines:
     return dataclasses.replace(
         state, runs=tuple(updated if item.run_id == updated.run_id else item for item in state.runs)
     )
 
 
-def _without_run(state: TeamRoutines, run_id: str, now: int) -> TeamRoutines:
+def without_run(state: TeamRoutines, run_id: str, now: int) -> TeamRoutines:
     """Remove an ended run and, in the same write, queue the removal of everything it held.
 
     A continuous Routine keeps its cadence from this run's start, so its runs never overlap or drift.
@@ -508,7 +510,7 @@ def rebase_continuous(state: TeamRoutines, routine_id: str, now: int, *, cadence
     if current is None or not continuous(current):
         return state
     next_run_at = max(now, current.next_run_at) if cadence else now + current.schedule["gap"]
-    return _replace_routine(state, dataclasses.replace(current, next_run_at=next_run_at))
+    return replace_routine(state, dataclasses.replace(current, next_run_at=next_run_at))
 
 
 def discarded(state: TeamRoutines, run_id: str, generation: str) -> TeamRoutines:
@@ -516,7 +518,7 @@ def discarded(state: TeamRoutines, run_id: str, generation: str) -> TeamRoutines
     return dataclasses.replace(state, discards=tuple(item for item in state.discards if item != (run_id, generation)))
 
 
-def _next_run_notice(
+def next_run_notice(
     state: TeamRoutines,
     run_id: str,
     value: Run | Incident,
@@ -543,21 +545,21 @@ def _next_run_notice(
         copy.deepcopy(value.usage),
         value.protection_lost,
     )
-    return _notice(state, notice)
+    return put_notice(state, notice)
 
 
-def _run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail: dict[str, object]):
+def run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail: dict[str, object]):
     """Publish the next version of the run's one notice; returns the state and the run carrying that version.
 
     A completed or recovered run resets its Routine's failure streak; a failed one extends it, the third pausing it.
     """
     version = value.notice_version + 1
-    state = _next_run_notice(state, value.run_id, value, outcome, now, detail)
+    state = next_run_notice(state, value.run_id, value, outcome, now, detail)
     if outcome in {"done", "recovered", "failed"}:
         current = routine(state, value.routine_id)
         failures = current.failures + 1 if outcome == "failed" else 0
         paused = current.paused or failures >= MAX_FAILURE_STREAK
-        state = _replace_routine(state, dataclasses.replace(current, failures=failures, paused=paused))
+        state = replace_routine(state, dataclasses.replace(current, failures=failures, paused=paused))
     return state, dataclasses.replace(value, notice_version=version)
 
 
@@ -565,7 +567,7 @@ def undelivered(state: TeamRoutines) -> int:
     return len(state.notices)
 
 
-def _notice(state: TeamRoutines, notice: Notice) -> TeamRoutines:
+def put_notice(state: TeamRoutines, notice: Notice) -> TeamRoutines:
     """Add or update an undelivered notice, which is never evicted.
 
     Claims and new skip reports stop at MAX_UNDELIVERED_NOTICES, so every run in flight's outcome always fits above.
@@ -591,7 +593,7 @@ def set_paused(state: TeamRoutines, routine_id: str, paused: bool) -> TeamRoutin
     value = routine(state, routine_id)
     if value.deleting:
         raise RoutineStateError("routine-not-found")
-    return _replace_routine(state, dataclasses.replace(value, paused=paused, failures=value.failures if paused else 0))
+    return replace_routine(state, dataclasses.replace(value, paused=paused, failures=value.failures if paused else 0))
 
 
 def acknowledge(state: TeamRoutines, delivered: frozenset[tuple[str, int]]) -> TeamRoutines:
@@ -608,7 +610,7 @@ def begin_delete(state: TeamRoutines, routine_id: str) -> tuple[TeamRoutines, tu
     """
     value = routine(state, routine_id)
     runs = tuple(item for item in state.runs if item.routine_id == routine_id)
-    return _replace_routine(state, dataclasses.replace(value, deleting=True)), runs
+    return replace_routine(state, dataclasses.replace(value, deleting=True)), runs
 
 
 def complete_delete(state: TeamRoutines, routine_id: str, now: int) -> TeamRoutines:
@@ -619,12 +621,12 @@ def complete_delete(state: TeamRoutines, routine_id: str, now: int) -> TeamRouti
     value = routine(state, routine_id)
     if not value.deleting or any(item.routine_id == routine_id for item in state.runs):
         raise RoutineStateError("routine-busy")
-    state = _notice(state, Notice(new_id(), routine_id, "", "deleted", now, {}))
+    state = put_notice(state, Notice(new_id(), routine_id, "", "deleted", now, {}))
     return dataclasses.replace(state, routines=tuple(item for item in state.routines if item.routine_id != routine_id))
 
 
 def mark_scope_changed(state: TeamRoutines, routine_id: str, now: int, assistants: list[str]) -> TeamRoutines:
     """The Routine's Assistants no longer match its pins: no claim until an authenticated update."""
     value = routine(state, routine_id)
-    state = _notice(state, Notice(new_id(), routine_id, "", "scope-changed", now, {"assistants": assistants}))
-    return _replace_routine(state, dataclasses.replace(value, needs_reconfirm=True))
+    state = put_notice(state, Notice(new_id(), routine_id, "", "scope-changed", now, {"assistants": assistants}))
+    return replace_routine(state, dataclasses.replace(value, needs_reconfirm=True))

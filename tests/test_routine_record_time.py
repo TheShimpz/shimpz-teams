@@ -106,7 +106,7 @@ class HoldTimeTests(unittest.TestCase):
     def test_a_runs_answered_human_requests_carry_through_a_hold_and_its_continuation(self):
         state, claim, lease = bound()
         run_id = claim.run.run_id
-        state = record._replace_run(state, dataclasses.replace(record.run(state, run_id), requests_used=15))
+        state = record.replace_run(state, dataclasses.replace(record.run(state, run_id), requests_used=15))
         state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
         self.assertEqual(routine_hold.incident(state, run_id).requests_used, 15)
         reopened, _token = routine_hold.reopen_incident(
@@ -114,7 +114,7 @@ class HoldTimeTests(unittest.TestCase):
         )
         self.assertEqual(record.run(reopened, run_id).requests_used, 15)
         # A thaw keeps the larger count: an answer only ever adds to it.
-        frozen = record._replace_run(
+        frozen = record.replace_run(
             reopened,
             dataclasses.replace(
                 record.run(reopened, run_id),
@@ -140,7 +140,7 @@ class HoldTimeTests(unittest.TestCase):
         generation = routine_hold.incident(state, run_id).generation
         gone = dataclasses.replace(charged, routines=())
         self.assertIs(routine_hold.refund_incident(gone, run_id, generation, 10_000), gone)
-        changed = record._replace_routine(charged, dataclasses.replace(charged.routines[0], revision=2))
+        changed = record.replace_routine(charged, dataclasses.replace(charged.routines[0], revision=2))
         self.assertIs(routine_hold.refund_incident(changed, run_id, generation, 10_000), changed)
 
     def test_recovery_time_is_charged_and_refunded_only_against_the_same_held_run(self):
