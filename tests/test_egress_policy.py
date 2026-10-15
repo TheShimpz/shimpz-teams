@@ -58,6 +58,10 @@ class SharedEgressPolicyTests(unittest.TestCase):
             # A removal is reported only once both directory entries are committed.
             with self.assertRaises(egress_policy.EgressPolicyUnavailableError):
                 self.store.remove("identity")
+        self.assertIsNone(self.store.token("identity", create=False))
+        token = self.store.token("identity", create=True)
+        assert token is not None
+        self.store.write(token, ("example.com",))
         synced.clear()
         with mock.patch.object(os, "fsync", side_effect=observe):
             self.store.remove("identity")
