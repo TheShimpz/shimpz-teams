@@ -1,3 +1,4 @@
+import functools
 import types
 import unittest
 from http import HTTPStatus
@@ -11,7 +12,42 @@ from inference import config as inference_config
 from local import app as local_app
 from local import labels as local_labels
 from local import lifecycle as local_lifecycle
+from local.assistant import lifecycle as local_assistant_lifecycle
 from storage import files as team_storage
+
+IMAGE_ID = "sha256:" + "a" * 64
+
+
+def _bound_registry(specs: dict[str, object]) -> TestAssistantRegistry:
+    """A registry whose bindings are its specs, so a removal reads each Assistant's provenance from its binding."""
+    registry = TestAssistantRegistry(specs)
+    registry.binding = lambda _team_id, assistant_id: registry.get(assistant_id)
+    registry.bindings = lambda: ()
+    return registry
+
+
+def _assistant_lifecycle(registry: TestAssistantRegistry, **members: object) -> types.SimpleNamespace:
+    """An Assistant lifecycle stub whose container removal and binding retirement are the real ones."""
+    lifecycle = types.SimpleNamespace(
+        **{
+            "registry": registry,
+            "icons": types.SimpleNamespace(retire=lambda _binding, _references, delete: delete()),
+            "_blocked_action_workloads": set(),
+            "_assistant_genesis_cache": set(),
+            "_assistant_allowed_hosts_cache": set(),
+            "_assistant_machine_contract_cache": set(),
+            "_assistant_language_cache": set(),
+            "_remove_egress_policy": mock.Mock(),
+            "_queue_residue": mock.Mock(),
+            "sweep_residues": mock.Mock(),
+            **members,
+        }
+    )
+    lifecycle._remove_assistant_container = functools.partial(
+        local_assistant_lifecycle._remove_assistant_container, lifecycle
+    )
+    lifecycle._retire_binding = functools.partial(local_assistant_lifecycle._retire_binding, lifecycle)
+    return lifecycle
 
 
 class LocalLifecycleEdgeTests(LocalContractCase):
@@ -54,28 +90,19 @@ class LocalLifecycleEdgeTests(LocalContractCase):
     def test_assistant_removal_rejects_registry_and_docker_drift(self) -> None:
         container = types.SimpleNamespace(
             id="container",
+            attrs={"Image": IMAGE_ID},
             labels={local_app.ASSISTANT_LABEL: "assistant"},
             remove=mock.Mock(),
         )
-        lifecycle = types.SimpleNamespace(
-            _retired_image_id=lambda _container: None,
-            _blocked_action_workloads=set(),
-            _remove_egress_policy=mock.Mock(),
-            _queue_residue=mock.Mock(),
-            sweep_residues=mock.Mock(),
-        )
-        subject = types.SimpleNamespace(
-            registry=TestAssistantRegistry({}),
-            assistant_lifecycle=lifecycle,
-        )
+        lifecycle = _assistant_lifecycle(TestAssistantRegistry({}))
+        subject = types.SimpleNamespace(registry=lifecycle.registry, assistant_lifecycle=lifecycle)
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_lifecycle._remove_team_assistants(subject, "team_1", [container])
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
-        subject.registry = TestAssistantRegistry(
+        subject.registry = lifecycle.registry = _bound_registry(
             {"assistant": types.SimpleNamespace(provenance="local", allowed_hosts=())}
         )
-        lifecycle._retired_image_id = lambda _container: "sha256:" + "a" * 64
         container.remove.side_effect = DockerException("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_lifecycle._remove_team_assistants(subject, "team_1", [container])
@@ -88,18 +115,22 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         )
         lifecycle._queue_residue.assert_not_called()
 
-        subject.registry = TestAssistantRegistry(
+        subject.registry = lifecycle.registry = _bound_registry(
             {"assistant": types.SimpleNamespace(provenance="published", allowed_hosts=())}
         )
+        lifecycle._assistant_language_cache.add("container")
         self.assertEqual(
             local_lifecycle._remove_team_assistants(subject, "team_1", [container]),
             1,
         )
-        lifecycle._queue_residue.assert_called_once_with("sha256:" + "a" * 64)
+        lifecycle._queue_residue.assert_called_once_with(IMAGE_ID)
         lifecycle._remove_egress_policy.assert_not_called()
+        # A destroyed Team's container is forgotten like an uninstalled one: its next use is reviewed afresh.
+        self.assertNotIn("container", lifecycle._assistant_language_cache)
+        self.assertIsNone(subject.registry.get("team_1", "assistant"))
 
         # An Assistant with declared egress has its policy removed with its workload (ADR-0106).
-        subject.registry = TestAssistantRegistry(
+        subject.registry = lifecycle.registry = _bound_registry(
             {"assistant": types.SimpleNamespace(provenance="local", allowed_hosts=("api.example.com",))}
         )
         local_lifecycle._remove_team_assistants(subject, "team_1", [container])
@@ -115,11 +146,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             }
         )
         registry.identities = lambda: {("other_team", "other"), ("team_1", "own"), ("team_1", "plain")}
-        lifecycle = types.SimpleNamespace(
-            _blocked_action_workloads=set(),
-            _remove_egress_policy=mock.Mock(),
-            sweep_residues=mock.Mock(),
-        )
+        lifecycle = _assistant_lifecycle(registry)
         subject = types.SimpleNamespace(registry=registry, assistant_lifecycle=lifecycle)
 
         self.assertEqual(local_lifecycle._remove_team_assistants(subject, "team_1", []), 0)
@@ -259,23 +286,18 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             ),
             _delete_team_conversation=lambda *_args: events.append("conversation-delete"),
             _delete_all_routines=lambda: events.append("routines-delete"),
-            assistant_lifecycle=types.SimpleNamespace(
-                _retired_image_id=lambda _container: "sha256:" + "a" * 64,
-                _blocked_action_workloads=set(),
-                _queue_residue=mock.Mock(),
+            assistant_lifecycle=_assistant_lifecycle(
+                _bound_registry({"assistant": types.SimpleNamespace(provenance="local")}),
                 _remove_egress_policy=lambda *_args: events.append("policy-delete"),
                 sweep_residues=lambda: events.append("residue-sweep"),
             ),
-            registry=TestAssistantRegistry({"assistant": types.SimpleNamespace(provenance="local")}),
             storage=types.SimpleNamespace(destroy_all=lambda: True),
             inference_store=types.SimpleNamespace(delete_all=lambda: events.append("inference-delete")),
             team_names=types.SimpleNamespace(delete_all=lambda: events.append("names-delete")),
             _clear_team_runtime_state=lambda team_id: events.append(("runtime-clear", team_id)),
         )
 
-        subject.registry.binding = lambda _team_id, assistant_id: subject.registry.get(assistant_id)
-        subject.registry.bindings = lambda: ()
-        subject.assistant_icons = types.SimpleNamespace(retire=lambda _binding, _references, delete: delete())
+        subject.registry = subject.assistant_lifecycle.registry
         storage_removed, absent = local_lifecycle._remove_space_resources(
             subject,
             [container],

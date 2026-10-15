@@ -1,3 +1,4 @@
+import functools
 import sys
 import tempfile
 import unittest
@@ -23,6 +24,7 @@ from install.icons import AssistantIconError, AssistantIconStore
 from local import app as local_app
 from local import labels as local_labels
 from local import lifecycle as local_team_lifecycle
+from local.assistant import lifecycle as local_assistant_lifecycle
 from local.install import runtime as local_runtime
 from local.install import snapshots
 from local.install.registry import AssistantRegistry
@@ -205,7 +207,9 @@ class LocalLifecycleTeardownTests(LocalContractCase):
             for resolution in (own, shared):
                 with icon_store.retained(resolution, ICON, registry.bindings):
                     pass
-            controller = SimpleNamespace(registry=registry, assistant_icons=icon_store, assistant_lifecycle=mock.Mock())
+            lifecycle = mock.Mock(registry=registry, icons=icon_store)
+            lifecycle._retire_binding = functools.partial(local_assistant_lifecycle._retire_binding, lifecycle)
+            controller = SimpleNamespace(registry=registry, assistant_lifecycle=lifecycle)
             assistant_id = str(own["assistant_id"])
 
             with (

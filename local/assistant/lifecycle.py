@@ -47,6 +47,20 @@ def _retired_image_id(container) -> str | None:
     return image_id
 
 
+def _remove_assistant_container(self, container, binding: bindings.DynamicAssistantBinding | None) -> None:
+    """Remove one validated Assistant container and forget all this controller holds for it.
+
+    Unless the binding proves the container ran a Local image, its retired image is queued for cleanup. A Docker
+    failure raises ``DockerException``, so each caller reports its own problem.
+    """
+    retired_image_id = _retired_image_id(container)
+    container.remove(force=True)
+    self._blocked_action_workloads.discard(container.id)
+    _forget_container_review(self, container.id)
+    if retired_image_id is not None and (binding is None or binding.provenance == "published"):
+        self._queue_residue(retired_image_id)
+
+
 def _serialize_against_local_team_chat(
     operation: Callable[..., dict[str, object]],
 ) -> Callable[..., dict[str, object]]:
@@ -650,36 +664,27 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
         if container is None:
             if self._egress_token(team_id, assistant_id, create=False) is not None:
                 self._remove_egress_policy(team_id, assistant_id)
-            self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
-            self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
-            _retire_binding(self, team_id, assistant_id, binding)
-            self.sweep_residues()
-            return {"assistant": assistant_id, "uninstalled": False}
-        spec = self.registry.get(team_id, assistant_id)
-        if spec is None:
-            # A container without its binding cannot be validated, so it is never removed as if it were owned.
-            raise assistant_registry_drift()
-        self._validate_container_profile(container, team_id, spec, network.name)
-        retired_image_id = _retired_image_id(container)
-        try:
-            container.remove(force=True)
-        except DockerException as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Docker could not uninstall the Assistant",
-                code="docker-remove-failed",
-            ) from exc
-        self._blocked_action_workloads.discard(container.id)
-        _forget_container_review(self, container.id)
-        if retired_image_id is not None and (binding is None or binding.provenance == "published"):
-            self._queue_residue(retired_image_id)
-        if spec.allowed_hosts:
-            self._remove_egress_policy(team_id, assistant_id)
+        else:
+            spec = self.registry.get(team_id, assistant_id)
+            if spec is None:
+                # A container without its binding cannot be validated, so it is never removed as if it were owned.
+                raise assistant_registry_drift()
+            self._validate_container_profile(container, team_id, spec, network.name)
+            try:
+                _remove_assistant_container(self, container, binding)
+            except DockerException as exc:
+                raise ApiProblem(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    "Docker could not uninstall the Assistant",
+                    code="docker-remove-failed",
+                ) from exc
+            if spec.allowed_hosts:
+                self._remove_egress_policy(team_id, assistant_id)
         self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
         self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
         _retire_binding(self, team_id, assistant_id, binding)
         self.sweep_residues()
-        return {"assistant": assistant_id, "uninstalled": True}
+        return {"assistant": assistant_id, "uninstalled": container is not None}
 
 
 def _retire_binding(self, team_id: str, assistant_id: str, binding) -> None:

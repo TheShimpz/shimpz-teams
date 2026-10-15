@@ -9,14 +9,12 @@ from docker.errors import DockerException
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 from inference import config as inference_config
-from install import icons
 from local import names as local_names
 from local import prepare as local_prepare
 from local.assistant.egress import PROFILE
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
     action_state_unavailable,
-    assistant_icon_unavailable,
     chat_stop_timeout,
     conversation_state_unavailable,
     docker_unavailable,
@@ -108,17 +106,14 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
         spec = self.registry.get(team_id, assistant_id)
         if spec is None:
             raise team_resources_ownership_conflict()
-        retired_image_id = self.assistant_lifecycle._retired_image_id(container)
+        binding = self.registry.binding(team_id, assistant_id)
         try:
-            container.remove(force=True)
+            self.assistant_lifecycle._remove_assistant_container(container, binding)
         except DockerException as exc:
             raise team_destroy_failed() from exc
-        if retired_image_id is not None and spec.provenance == "published":
-            self.assistant_lifecycle._queue_residue(retired_image_id)
-        self.assistant_lifecycle._blocked_action_workloads.discard(container.id)
         if spec.allowed_hosts:
             self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)
-        _retire_team_binding(self, team_id, assistant_id)
+        self.assistant_lifecycle._retire_binding(team_id, assistant_id, binding)
     for bound_team_id, assistant_id in sorted(self.registry.identities()):
         if bound_team_id != team_id:
             continue
@@ -127,23 +122,9 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
             raise team_resources_ownership_conflict()
         if spec.allowed_hosts:
             self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)
-        _retire_team_binding(self, team_id, assistant_id)
+        self.assistant_lifecycle._retire_binding(team_id, assistant_id, self.registry.binding(team_id, assistant_id))
     self.assistant_lifecycle.sweep_residues()
     return len(containers)
-
-
-def _retire_team_binding(self, team_id: str, assistant_id: str) -> None:
-    """Retire the binding and its unreferenced icon together; a failed icon removal keeps the binding to retry."""
-    binding = self.registry.binding(team_id, assistant_id)
-    if binding is None:
-        self.registry.delete(team_id, assistant_id)
-        return
-    try:
-        self.assistant_icons.retire(
-            binding, self.registry.bindings, lambda: self.registry.delete(team_id, assistant_id)
-        )
-    except icons.AssistantIconError as exc:
-        raise assistant_icon_unavailable() from exc
 
 
 def _delete_team_persistence(self, team_id: str) -> bool:
@@ -333,15 +314,11 @@ def _remove_space_resources(
     for container in containers:
         labels = container.attrs["Config"]["Labels"]
         binding = self.registry.binding(labels[TEAM_LABEL], labels[ASSISTANT_LABEL])
-        retired_image_id = self.assistant_lifecycle._retired_image_id(container)
-        container.remove(force=True)
-        if retired_image_id is not None and (binding is None or binding.provenance == "published"):
-            self.assistant_lifecycle._queue_residue(retired_image_id)
-        self.assistant_lifecycle._blocked_action_workloads.discard(container.id)
+        self.assistant_lifecycle._remove_assistant_container(container, binding)
     absent.add("assistant_containers")
     for team_id, assistant_id in sorted(owned_assistants):
         self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)
-        _retire_team_binding(self, team_id, assistant_id)
+        self.assistant_lifecycle._retire_binding(team_id, assistant_id, self.registry.binding(team_id, assistant_id))
     self.assistant_lifecycle.sweep_residues()
     absent.update(("egress_policies", "publication_bindings"))
     storage_removed = self.storage.destroy_all()
