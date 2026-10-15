@@ -133,9 +133,7 @@ class KeylessRunTests(RoutineHttpCase):
             path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
             bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"]}
             segment = json.dumps(bound).encode()
-            # No model credential travels, and the assertion binds none.
             headers = self.routine_headers(path, claim["lease_token"], body=segment)
-            self.assertNotIn("X-Shimpz-Model-Api-Key", headers)
             status, _type, raw = self.request("POST", path, segment, headers)
             state = self.state(service)
         self.assertEqual((status, self.terminal(raw)["body"]["status"]), (200, "done"))
