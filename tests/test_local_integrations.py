@@ -13,7 +13,12 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
 from local_assistant_fixture import assistant_spec
-from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase, TestAssistantRegistry
+from local_controller_harness import (
+    CURRENT_ASSISTANT_IMAGE,
+    LocalContractCase,
+    TestAssistantRegistry,
+    constructed_controller,
+)
 
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
@@ -124,28 +129,8 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
     def test_controller_accepts_injected_integration_state(self) -> None:
         injected_store = SimpleNamespace()
         injected_challenges = integration_challenges.IntegrationChallengeStore()
-        controller = local_app.LocalController(
-            SimpleNamespace(
-                info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2, "Architecture": "x86_64"},
-                networks=SimpleNamespace(list=lambda **_kwargs: []),
-            ),
-            "local-space",
-            TestAssistantRegistry(),
-            SimpleNamespace(),
-            local_app.LocalControllerDependencies(
-                inference_store=SimpleNamespace(),
-                brain_runtime=SimpleNamespace(),
-                action_state=SimpleNamespace(),
-                assistant_integrations=injected_store,
-                integration_challenges=injected_challenges,
-                oauth_broker=SimpleNamespace(),
-                oauth_service=SimpleNamespace(),
-                developers=SimpleNamespace(),
-                artifact_trust=SimpleNamespace(),
-                assistant_updates=SimpleNamespace(list=lambda: ()),
-                assistant_residues=SimpleNamespace(list=lambda: ()),
-                assistant_icons=SimpleNamespace(),
-            ),
+        controller = constructed_controller(
+            assistant_integrations=injected_store, integration_challenges=injected_challenges
         )
 
         self.assertIs(controller.assistant_integrations, injected_store)
@@ -262,27 +247,12 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 return_value=service,
             ) as service_type,
         ):
-            controller = local_app.LocalController(
-                SimpleNamespace(
-                    info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2, "Architecture": "x86_64"},
-                    networks=SimpleNamespace(list=lambda **_kwargs: []),
-                ),
-                "local-space",
-                TestAssistantRegistry(),
-                SimpleNamespace(),
-                local_app.LocalControllerDependencies(
-                    inference_store=SimpleNamespace(),
-                    brain_runtime=SimpleNamespace(),
-                    action_state=SimpleNamespace(),
-                    assistant_integrations=integrations,
-                    integration_challenges=SimpleNamespace(),
-                    oauth_pkce=pkce,
-                    developers=SimpleNamespace(),
-                    artifact_trust=SimpleNamespace(),
-                    assistant_updates=SimpleNamespace(list=lambda: ()),
-                    assistant_residues=SimpleNamespace(list=lambda: ()),
-                    assistant_icons=SimpleNamespace(),
-                ),
+            controller = constructed_controller(
+                assistant_integrations=integrations,
+                integration_challenges=SimpleNamespace(),
+                oauth_pkce=pkce,
+                oauth_broker=None,
+                oauth_service=None,
             )
 
         transport_type.assert_called_once_with(

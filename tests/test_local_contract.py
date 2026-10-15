@@ -17,8 +17,8 @@ from local_controller_harness import (
     LOOKUP_RESULT,
     TEST_ACCOUNT_ACCESS_TOKEN,
     LocalContractCase,
-    TestAssistantRegistry,
     chat_body,
+    constructed_controller,
 )
 
 from assistant import spec as assistant_registry
@@ -295,28 +295,7 @@ class LocalContractTests(LocalContractCase):
 
     def test_local_controller_accepts_an_injected_action_journal(self) -> None:
         injected = SimpleNamespace()
-        client = SimpleNamespace(
-            info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2, "Architecture": "x86_64"},
-            networks=SimpleNamespace(list=lambda **_kwargs: []),
-        )
-
-        controller = local_app.LocalController(
-            client,
-            "local-space",
-            TestAssistantRegistry(),
-            SimpleNamespace(),
-            local_app.LocalControllerDependencies(
-                brain_runtime=SimpleNamespace(),
-                action_state=injected,
-                oauth_broker=SimpleNamespace(),
-                oauth_service=SimpleNamespace(),
-                developers=SimpleNamespace(),
-                artifact_trust=SimpleNamespace(),
-                assistant_updates=SimpleNamespace(list=lambda: ()),
-                assistant_residues=SimpleNamespace(list=lambda: ()),
-                assistant_icons=SimpleNamespace(),
-            ),
-        )
+        controller = constructed_controller(action_state=injected)
 
         self.assertIs(controller.action_state, injected)
         self.assertIsInstance(controller.assistant_lifecycle, local_app.AssistantLifecycle)

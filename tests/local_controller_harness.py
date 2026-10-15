@@ -138,6 +138,36 @@ class TestAssistantRegistry(dict):
         return binding
 
 
+def constructed_controller(**dependencies: object) -> local_app.LocalController:
+    """A controller built by its real constructor over a seccomp-ready Docker fake and stub dependencies.
+
+    ``dependencies`` replace the stubs; one passed as None is left for the controller to build itself.
+    """
+    stubs = {
+        "inference_store": SimpleNamespace(),
+        "brain_runtime": SimpleNamespace(),
+        "action_state": SimpleNamespace(),
+        "oauth_broker": SimpleNamespace(),
+        "oauth_service": SimpleNamespace(),
+        "developers": SimpleNamespace(),
+        "artifact_trust": SimpleNamespace(),
+        "assistant_updates": SimpleNamespace(list=lambda: ()),
+        "assistant_residues": SimpleNamespace(list=lambda: ()),
+        "assistant_icons": SimpleNamespace(),
+    }
+    client = SimpleNamespace(
+        info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2, "Architecture": "x86_64"},
+        networks=SimpleNamespace(list=lambda **_kwargs: []),
+    )
+    return local_app.LocalController(
+        client,
+        "local-space",
+        TestAssistantRegistry(),
+        SimpleNamespace(),
+        local_app.LocalControllerDependencies(**(stubs | dependencies)),
+    )
+
+
 class LocalContractCase(unittest.TestCase):
     def _registry(self, image: str) -> dict[str, AssistantSpec]:
         return TestAssistantRegistry({"shimpz-cloudflare": assistant_spec(image)})
