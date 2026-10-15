@@ -17,12 +17,20 @@ class InferenceConfigTests(unittest.TestCase):
         self.root = Path(self.directory.name) / "inference"
         self.store = inference_config.InferenceConfigStore(self.root)
 
-    def test_defaults_are_provider_metadata_not_a_team_image(self):
-        config = inference_config.normalize()
-
-        self.assertEqual(config.provider, "openai")
-        self.assertEqual(config.model, "gpt-6-luna")
-        self.assertNotIn("image", inference_config.PROVIDERS[config.provider])
+    def test_only_exact_catalog_values_are_admitted_without_defaults(self):
+        for provider, model in (
+            (None, "gpt-6-luna"),
+            ("", "gpt-6-luna"),
+            ("OpenAI", "gpt-6-luna"),
+            (" openai", "gpt-6-luna"),
+            ("openai", None),
+            ("openai", ""),
+            ("openai", "gpt-6-luna "),
+            ("openai", 7),
+        ):
+            with self.subTest(provider=provider, model=model), self.assertRaises(inference_config.InferenceConfigError):
+                inference_config.normalize(provider, model)
+        self.assertNotIn("image", inference_config.PROVIDERS["openai"])
 
     def test_exact_provider_catalog_is_accepted(self):
         expected = {
@@ -62,7 +70,7 @@ class InferenceConfigTests(unittest.TestCase):
         )
 
     def test_team_ids_follow_the_team_protocol_grammar(self) -> None:
-        config = inference_config.normalize()
+        config = inference_config.normalize("openai", "gpt-6-luna")
         for team_id in ("Team_1", "team-1", "t" * 41, "", None, 1):
             for operation in (
                 lambda value: self.store.save(value, config),
@@ -88,7 +96,7 @@ class InferenceConfigTests(unittest.TestCase):
     def test_saved_records_commit_their_directory_entry(self):
         real_fsync = os.fsync
         with private_state_fixtures.observed_fsyncs() as synced:
-            self.store.save("team_1", inference_config.normalize())
+            self.store.save("team_1", inference_config.normalize("openai", "gpt-6-luna"))
         self.assertEqual(synced, ["file", "directory"])
 
         def fail_directory(descriptor: int) -> None:
@@ -115,7 +123,7 @@ class InferenceConfigTests(unittest.TestCase):
             with self.subTest(provider=provider, model=model), self.assertRaises(inference_config.InferenceConfigError):
                 inference_config.normalize(provider, model)
         with self.assertRaises(inference_config.InferenceConfigError):
-            self.store.save("../team", inference_config.normalize())
+            self.store.save("../team", inference_config.normalize("openai", "gpt-6-luna"))
 
     def test_persisted_model_outside_the_catalog_fails_closed(self):
         self.root.mkdir(parents=True)
@@ -161,7 +169,7 @@ class InferenceConfigTests(unittest.TestCase):
     def test_only_absent_configuration_is_reported_as_missing(self) -> None:
         with self.assertRaises(inference_config.InferenceConfigMissingError):
             self.store.load("team_1")
-        self.store.save("team_1", inference_config.normalize())
+        self.store.save("team_1", inference_config.normalize("openai", "gpt-6-luna"))
         path = next(self.root.iterdir())
         for payload in (
             {"schema": inference_config.SCHEMA, "team_id": "team_1", "provider": "openai"},
@@ -189,16 +197,16 @@ class InferenceConfigTests(unittest.TestCase):
         self.store.delete("team_1")
         self.store.delete_all()
         self.assertFalse(self.root.exists())
-        self.store.save("team_1", inference_config.normalize())
+        self.store.save("team_1", inference_config.normalize("openai", "gpt-6-luna"))
         with private_state_fixtures.observed_fsyncs() as synced:
             self.store.delete("team_1")
         self.assertEqual(synced, ["directory", "directory"])
-        self.store.save("team_1", inference_config.normalize())
+        self.store.save("team_1", inference_config.normalize("openai", "gpt-6-luna"))
         with private_state_fixtures.observed_fsyncs() as synced:
             self.store.delete_all()
         self.assertEqual(synced, ["directory"])
         self.assertEqual(list(self.root.iterdir()), [])
-        self.store.save("team_1", inference_config.normalize())
+        self.store.save("team_1", inference_config.normalize("openai", "gpt-6-luna"))
         for operation in (lambda: self.store.delete("team_1"), self.store.delete_all):
             with (
                 self.subTest(operation=operation),
@@ -206,7 +214,7 @@ class InferenceConfigTests(unittest.TestCase):
                 self.assertRaisesRegex(inference_config.InferenceConfigError, "could not be removed"),
             ):
                 operation()
-            self.store.save("team_1", inference_config.normalize())
+            self.store.save("team_1", inference_config.normalize("openai", "gpt-6-luna"))
 
     def test_delete_wraps_filesystem_failure(self) -> None:
         with (

@@ -20,20 +20,14 @@ MAX_KNOWLEDGE_BYTES = 1024 * 1024
 
 
 class ProviderDefinition(TypedDict):
-    default_model: str
     models: frozenset[str]
 
 
 _MODEL_CATALOG = json.loads(Path(__file__).with_name("model_catalog.json").read_text(encoding="utf-8"))
 PROVIDERS: dict[str, ProviderDefinition] = {
-    provider["id"]: {
-        "default_model": provider["default_model"],
-        "models": frozenset(model["id"] for model in provider["models"]),
-    }
+    provider["id"]: {"models": frozenset(model["id"] for model in provider["models"])}
     for provider in _MODEL_CATALOG["providers"]
 }
-DEFAULT_PROVIDER = _MODEL_CATALOG["default_provider"]
-MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 # Every name this store writes: a Team's configuration, its learned knowledge, and their interrupted temp files.
 OWNED_NAME_RE = re.compile(
     r"(?:[0-9a-f]{64}(?:\.knowledge)?\.json|\.[0-9a-f]{64}(?:\.knowledge)?\.json\.[0-9a-f]{16}\.tmp)\Z"
@@ -45,7 +39,7 @@ class InferenceConfigError(ValueError):
 
 
 class InferenceConfigMissingError(InferenceConfigError):
-    """The Team has no inference configuration yet; only this state may be initialized with defaults."""
+    """The Team has no inference configuration yet."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,14 +48,13 @@ class InferenceConfig:
     model: str
 
 
-def normalize(provider: object = None, model: object = None) -> InferenceConfig:
-    selected = str(provider or DEFAULT_PROVIDER).strip().lower()
-    if selected not in PROVIDERS:
+def normalize(provider: object, model: object) -> InferenceConfig:
+    """Admit exactly one catalog provider and one of its catalog models; nothing is defaulted or coerced."""
+    if not isinstance(provider, str) or provider not in PROVIDERS:
         raise InferenceConfigError(f"provider must be one of {sorted(PROVIDERS)}")
-    selected_model = str(model or PROVIDERS[selected]["default_model"]).strip()
-    if MODEL_RE.fullmatch(selected_model) is None or selected_model not in PROVIDERS[selected]["models"]:
+    if not isinstance(model, str) or model not in PROVIDERS[provider]["models"]:
         raise InferenceConfigError("model is not supported by the selected provider")
-    return InferenceConfig(provider=selected, model=selected_model)
+    return InferenceConfig(provider=provider, model=model)
 
 
 def _team_id(value: object) -> str:
