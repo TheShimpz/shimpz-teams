@@ -66,6 +66,18 @@ class AssistantUpdateStoreTests(unittest.TestCase):
         with self.assertRaises(DynamicAssistantError):
             self.updates.get("team_1", "../assistant")
 
+    def test_a_transaction_filed_under_another_identity_is_refused(self) -> None:
+        previous = self.bindings.put("team_1", copy.deepcopy(RESOLUTION))
+        successor = copy.deepcopy(RESOLUTION)
+        successor["assistant_version"] = "0.2.0"
+        successor["source_digest"] = f"sha256:{'9' * 64}"
+        self.updates.begin(previous, successor, f"sha256:{'a' * 64}")
+        filed = next((Path(self.directory.name) / "updates").glob("*.json"))
+        filed.rename(filed.with_name(f"team_2--{previous.assistant_id}.json"))
+
+        with self.assertRaisesRegex(DynamicAssistantError, "filename is invalid"):
+            self.updates.get("team_2", previous.assistant_id)
+
     def test_residue_queue_is_idempotent_and_independent_from_transactions(self) -> None:
         image_id = f"sha256:{'a' * 64}"
         second_image_id = f"sha256:{'b' * 64}"
