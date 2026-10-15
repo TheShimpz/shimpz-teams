@@ -7,8 +7,9 @@ controller process. Admin reads the file again when Team answers 401.
 import grp
 import os
 import secrets
-import stat
 from pathlib import Path
+
+from storage import private_state
 
 TOKEN_PATH = Path("/run/shimpz-local/token")
 LOCAL_ACCESS_GROUP = "shimpzteam-token"
@@ -17,13 +18,12 @@ TOKEN_BYTES = 32
 
 def _read_checked(path: Path, expected_gid: int) -> str:
     metadata = path.lstat()
-    if (
-        not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_nlink != 1
-        or metadata.st_uid != os.geteuid()
-        or metadata.st_gid != expected_gid
-        or stat.S_IMODE(metadata.st_mode) != 0o440
-        or metadata.st_size != TOKEN_BYTES * 2
+    if not private_state.file_custody_holds(
+        metadata,
+        uid=os.geteuid(),
+        gid=expected_gid,
+        mode=0o440,
+        size=(TOKEN_BYTES * 2, TOKEN_BYTES * 2),
     ):
         raise RuntimeError("the local controller token has unsafe metadata")
     token = path.read_text(encoding="ascii")

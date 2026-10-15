@@ -2,7 +2,6 @@
 
 import os
 import secrets
-import stat
 from pathlib import Path
 
 from storage import private_state
@@ -19,12 +18,7 @@ class RuntimeTokenError(RuntimeError):
 
 
 def _check_directory(metadata: os.stat_result, group_id: int) -> None:
-    if (
-        not stat.S_ISDIR(metadata.st_mode)
-        or metadata.st_uid != os.geteuid()
-        or metadata.st_gid != group_id
-        or stat.S_IMODE(metadata.st_mode) != DIRECTORY_MODE
-    ):
+    if not private_state.directory_custody_holds(metadata, uid=os.geteuid(), gid=group_id, mode=DIRECTORY_MODE):
         raise RuntimeTokenError("the Brain runtime token directory has unsafe metadata")
 
 
@@ -43,13 +37,12 @@ def _prepare_directory(path: Path, group_id: int) -> None:
 
 
 def _check_token(metadata: os.stat_result, group_id: int) -> None:
-    if (
-        not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_nlink != 1
-        or metadata.st_uid != os.geteuid()
-        or metadata.st_gid != group_id
-        or stat.S_IMODE(metadata.st_mode) != TOKEN_MODE
-        or metadata.st_size != TOKEN_BYTES * 2
+    if not private_state.file_custody_holds(
+        metadata,
+        uid=os.geteuid(),
+        gid=group_id,
+        mode=TOKEN_MODE,
+        size=(TOKEN_BYTES * 2, TOKEN_BYTES * 2),
     ):
         raise RuntimeTokenError("the Brain runtime token has unsafe metadata")
 

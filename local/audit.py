@@ -16,7 +16,6 @@ import hashlib
 import json
 import os
 import re
-import stat
 import threading
 import time
 import uuid
@@ -25,6 +24,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
+
+from storage import private_state
 
 AUDIT_PATH = Path("/var/log/shimpz-local/audit.jsonl")
 MAX_BYTES = 1024 * 1024
@@ -112,12 +113,7 @@ def _safe_file(path: Path) -> None:
     if not path.exists():
         return
     metadata = path.lstat()
-    if (
-        not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_nlink != 1
-        or metadata.st_uid != os.geteuid()
-        or stat.S_IMODE(metadata.st_mode) != 0o600
-    ):
+    if not private_state.file_custody_holds(metadata, uid=os.geteuid(), gid=None, mode=0o600, size=None):
         raise RuntimeError("the local audit journal has unsafe metadata")
 
 

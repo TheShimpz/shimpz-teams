@@ -3,8 +3,9 @@
 import grp
 import os
 import re
-import stat
 from pathlib import Path
+
+from storage import private_state
 
 CAPABILITY_PATH = Path("/run/shimpz-account-egress/token")
 CAPABILITY_GROUP = "shimpzaccount-egress-token"
@@ -22,14 +23,7 @@ def _identity(
     expected_gid: int,
     owner_uid: int,
 ) -> tuple[int, int, int, int, int]:
-    if (
-        not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_nlink != 1
-        or stat.S_IMODE(metadata.st_mode) != 0o440
-        or metadata.st_uid != owner_uid
-        or metadata.st_gid != expected_gid
-        or metadata.st_size != 64
-    ):
+    if not private_state.file_custody_holds(metadata, uid=owner_uid, gid=expected_gid, mode=0o440, size=(64, 64)):
         raise AccountEgressCapabilityError("Account egress capability metadata is unsafe")
     return (
         metadata.st_dev,

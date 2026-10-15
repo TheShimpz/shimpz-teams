@@ -10,7 +10,6 @@ import json
 import os
 import re
 import secrets
-import stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -59,13 +58,12 @@ def _read_exact_private_file(
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
         metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_uid != os.geteuid()
-            or (group is not None and metadata.st_gid != group)
-            or metadata.st_nlink != 1
-            or stat.S_IMODE(metadata.st_mode) != mode
-            or not minimum_bytes <= metadata.st_size <= maximum_bytes
+        if not private_state.file_custody_holds(
+            metadata,
+            uid=os.geteuid(),
+            gid=group,
+            mode=mode,
+            size=(minimum_bytes, maximum_bytes),
         ):
             raise EgressPolicyDriftError("egress policy file metadata drifted")
         raw = bytearray()
@@ -96,11 +94,7 @@ class EgressPolicyStore:
             metadata = self.root.stat(follow_symlinks=False)
         except OSError as exc:
             raise EgressPolicyUnavailableError("egress policy storage is unavailable") from exc
-        if (
-            not stat.S_ISDIR(metadata.st_mode)
-            or metadata.st_gid != self.policy_gid
-            or stat.S_IMODE(metadata.st_mode) != 0o750
-        ):
+        if not private_state.directory_custody_holds(metadata, uid=None, gid=self.policy_gid, mode=0o750):
             raise EgressPolicyDriftError("egress policy storage metadata drifted")
         return self.root
 
@@ -117,11 +111,7 @@ class EgressPolicyStore:
             metadata = token_dir.stat(follow_symlinks=False)
         except OSError as exc:
             raise EgressPolicyUnavailableError("egress token storage is unavailable") from exc
-        if (
-            not stat.S_ISDIR(metadata.st_mode)
-            or metadata.st_uid != os.geteuid()
-            or stat.S_IMODE(metadata.st_mode) != 0o700
-        ):
+        if not private_state.directory_custody_holds(metadata, uid=os.geteuid(), gid=None, mode=0o700):
             raise EgressPolicyDriftError("egress token storage metadata drifted")
         return token_dir / f"{self._key(identity)}.token"
 
@@ -180,14 +170,11 @@ class EgressPolicyStore:
             metadata = policy_path.stat(follow_symlinks=False)
         except OSError as exc:
             raise EgressPolicyUnavailableError("egress policy could not be saved") from exc
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_uid != os.geteuid()
-            or metadata.st_gid != self.policy_gid
-            or metadata.st_nlink != 1
-            or stat.S_IMODE(metadata.st_mode) != 0o640
-        ):
+        if not self._policy_custody_holds(metadata):
             raise EgressPolicyDriftError("egress policy metadata drifted")
+
+    def _policy_custody_holds(self, metadata: os.stat_result) -> bool:
+        return private_state.file_custody_holds(metadata, uid=os.geteuid(), gid=self.policy_gid, mode=0o640, size=None)
 
     def admitted(self, identity: str) -> tuple[str, tuple[str, ...]] | None:
         token = self.token(identity, create=False)
@@ -244,13 +231,7 @@ class EgressPolicyStore:
             except FileNotFoundError:
                 metadata = None
             if metadata is not None:
-                if (
-                    not stat.S_ISREG(metadata.st_mode)
-                    or metadata.st_uid != os.geteuid()
-                    or metadata.st_gid != self.policy_gid
-                    or metadata.st_nlink != 1
-                    or stat.S_IMODE(metadata.st_mode) != 0o640
-                ):
+                if not self._policy_custody_holds(metadata):
                     raise EgressPolicyDriftError("egress policy metadata drifted")
                 policy_path.unlink()
             token_path.unlink()

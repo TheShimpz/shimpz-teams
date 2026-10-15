@@ -27,7 +27,6 @@ import json
 import os
 import re
 import sqlite3
-import stat
 import threading
 import uuid
 from collections.abc import Iterable, Iterator, Sequence
@@ -37,6 +36,7 @@ from pathlib import Path
 
 from action import result as action_result
 from protocol.http.v1 import payload as http_payload
+from storage import private_state
 
 SCHEMA_VERSION = 3
 APPLICATION_ID = 0x53484A31  # SHJ1
@@ -222,7 +222,8 @@ class ActionJournal:
         try:
             self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
             parent = self.path.parent.lstat()
-            if not stat.S_ISDIR(parent.st_mode) or stat.S_ISLNK(parent.st_mode) or parent.st_uid != os.geteuid():
+            # The mode is not checked here: the owned directory is made 0700 next.
+            if not private_state.directory_custody_holds(parent, uid=os.geteuid(), gid=None, mode=None):
                 raise ActionJournalCorruptionError("Action journal parent is not a private directory")
             self.path.parent.chmod(0o700)
             try:
@@ -258,12 +259,8 @@ class ActionJournal:
 
     @staticmethod
     def _validate_file_metadata(metadata: os.stat_result) -> None:
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or stat.S_ISLNK(metadata.st_mode)
-            or metadata.st_uid != os.geteuid()
-            or metadata.st_nlink != 1
-        ):
+        # The mode is checked apart, so a non-private file reports its permissions.
+        if not private_state.file_custody_holds(metadata, uid=os.geteuid(), gid=None, mode=None, size=None):
             raise ActionJournalCorruptionError("Action journal path has unsafe ownership or links")
 
     def _configure(self) -> None:

@@ -38,6 +38,52 @@ class PrivateFileRead:
     unchanged: bool
 
 
+# A custody ``mode`` that admits any owner permission bits but no group or other bits.
+OWNER_ONLY = -1
+
+
+def _mode_holds(metadata: os.stat_result, mode: int | None) -> bool:
+    permissions = stat.S_IMODE(metadata.st_mode)
+    if mode is None:
+        return True
+    if mode == OWNER_ONLY:
+        return not permissions & 0o077
+    return permissions == mode
+
+
+def file_custody_holds(
+    metadata: os.stat_result,
+    *,
+    uid: int | None,
+    gid: int | None,
+    mode: int | None,
+    size: tuple[int, int] | None,
+) -> bool:
+    """Whether ``metadata`` is a single-link regular file in exactly the stated custody.
+
+    ``uid`` and ``gid`` are the required owner and group, ``mode`` the exact permission bits or ``OWNER_ONLY``, and
+    ``size`` an inclusive byte range. Each caller states every field; None deliberately leaves that field unchecked.
+    """
+    return (
+        stat.S_ISREG(metadata.st_mode)
+        and metadata.st_nlink == 1
+        and (uid is None or metadata.st_uid == uid)
+        and (gid is None or metadata.st_gid == gid)
+        and _mode_holds(metadata, mode)
+        and (size is None or size[0] <= metadata.st_size <= size[1])
+    )
+
+
+def directory_custody_holds(metadata: os.stat_result, *, uid: int | None, gid: int | None, mode: int | None) -> bool:
+    """Whether ``metadata`` is a directory in exactly the stated custody; None leaves that field unchecked."""
+    return (
+        stat.S_ISDIR(metadata.st_mode)
+        and (uid is None or metadata.st_uid == uid)
+        and (gid is None or metadata.st_gid == gid)
+        and _mode_holds(metadata, mode)
+    )
+
+
 def timestamp() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -186,13 +232,7 @@ class PrivateState:
             raise self.error_class(f"{label} is unavailable") from exc
         try:
             metadata = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(metadata.st_mode)
-                or metadata.st_uid != os.geteuid()
-                or metadata.st_nlink != 1
-                or stat.S_IMODE(metadata.st_mode) != 0o600
-                or metadata.st_size > maximum
-            ):
+            if not file_custody_holds(metadata, uid=os.geteuid(), gid=None, mode=0o600, size=(0, maximum)):
                 raise self.error_class(f"{label} failed its ownership contract")
             identity = PrivateFileIdentity(
                 metadata.st_dev,
@@ -403,11 +443,7 @@ class PrivateState:
             metadata = path.stat(follow_symlinks=False)
         except OSError as exc:
             raise self.error_class(f"{label} directory is unavailable") from exc
-        if (
-            not stat.S_ISDIR(metadata.st_mode)
-            or metadata.st_uid != os.geteuid()
-            or stat.S_IMODE(metadata.st_mode) != 0o700
-        ):
+        if not directory_custody_holds(metadata, uid=os.geteuid(), gid=None, mode=0o700):
             raise self.error_class(f"{label} directory failed its ownership contract")
 
     def _teams(self, state: Mapping[str, object]) -> dict[str, object]:

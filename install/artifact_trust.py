@@ -7,7 +7,6 @@ import http.client
 import os
 import re
 import ssl
-import stat
 import tempfile
 import time
 import urllib.parse
@@ -18,6 +17,7 @@ import docker
 
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
+from storage import private_state
 
 SIGNER_IDENTITY = "https://github.com/TheShimpz/shimpz-developers/.github/workflows/build-assistant.yml@refs/heads/main"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
@@ -305,14 +305,9 @@ def _ensure_private_directory(path: Path) -> Path:
         path.mkdir(parents=True, mode=0o700, exist_ok=True)
         metadata = path.lstat()
     except OSError as exc:
-        raise RuntimeError("Cosign trust cache is unavailable") from exc
-    if (
-        not stat.S_ISDIR(metadata.st_mode)
-        or path.is_symlink()
-        or metadata.st_uid != os.geteuid()
-        or stat.S_IMODE(metadata.st_mode) != 0o700
-    ):
-        raise RuntimeError("Cosign trust cache is not a private controller directory")
+        raise ArtifactTrustError("Cosign trust cache is unavailable") from exc
+    if not private_state.directory_custody_holds(metadata, uid=os.geteuid(), gid=None, mode=0o700):
+        raise ArtifactTrustError("Cosign trust cache is not a private controller directory")
     return path
 
 

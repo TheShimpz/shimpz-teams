@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import json
 import os
-import stat
 import threading
 import time
 from contextlib import suppress
@@ -138,13 +137,8 @@ def credential_state(headers: Message) -> str:
 
 def _read_public_key(descriptor: int, expected_gid: int) -> bytes:
     metadata = os.fstat(descriptor)
-    if (
-        not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_nlink != 1
-        or metadata.st_gid != expected_gid
-        or stat.S_IMODE(metadata.st_mode) != 0o440
-        or not 1 <= metadata.st_size <= 512
-    ):
+    # Admin publishes this key, so its owner is not the Team controller; the group and mode are still exact.
+    if not private_state.file_custody_holds(metadata, uid=None, gid=expected_gid, mode=0o440, size=(1, 512)):
         raise OSError("invalid Local Supervisor public-key metadata")
     raw = os.read(descriptor, 513)
     if len(raw) != metadata.st_size:
@@ -191,13 +185,7 @@ def _read_pin() -> Ed25519PublicKey | None:
         raise SupervisorUnavailableError("Team's Supervisor key is unavailable") from exc
     try:
         metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-            or metadata.st_uid != os.geteuid()
-            or stat.S_IMODE(metadata.st_mode) != 0o600
-            or not 1 <= metadata.st_size <= 512
-        ):
+        if not private_state.file_custody_holds(metadata, uid=os.geteuid(), gid=None, mode=0o600, size=(1, 512)):
             raise SupervisorUnavailableError("Team's Supervisor key has unsafe metadata")
         raw = os.read(descriptor, 513)
     except OSError as exc:
@@ -274,11 +262,7 @@ def _public_key_directory(expected_gid: int) -> int:
     )
     try:
         metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISDIR(metadata.st_mode)
-            or metadata.st_gid != expected_gid
-            or stat.S_IMODE(metadata.st_mode) != 0o2770
-        ):
+        if not private_state.directory_custody_holds(metadata, uid=None, gid=expected_gid, mode=0o2770):
             raise OSError("invalid Local Supervisor public-key directory")
     except OSError:
         with suppress(OSError):

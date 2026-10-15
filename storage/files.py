@@ -16,7 +16,6 @@ import os
 import secrets
 import shutil
 import sqlite3
-import stat
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing, contextmanager
@@ -25,6 +24,7 @@ from pathlib import Path
 
 from core import identifier
 from protocol.http.v1 import payload as http_payload
+from storage import private_state
 
 DEFAULT_LIMIT_BYTES = 100 * 1024 * 1024
 # How long an unreferenced file stays after its upload, an identical upload, or the turn that last referenced it.
@@ -147,10 +147,8 @@ class TeamStorage:
         except OSError as exc:
             raise StorageError("storage root is unavailable") from exc
         if (
-            not stat.S_ISDIR(info.st_mode)
-            or info.st_uid != os.geteuid()
+            not private_state.directory_custody_holds(info, uid=os.geteuid(), gid=None, mode=private_state.OWNER_ONLY)
             or info.st_nlink < 2
-            or stat.S_IMODE(info.st_mode) & 0o077
         ):
             raise StorageError("storage root has unsafe ownership or permissions")
 
@@ -163,7 +161,7 @@ class TeamStorage:
             info = directory.lstat()
         except FileNotFoundError as exc:
             raise StorageNotFoundError("Team storage not found") from exc
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) & 0o077:
+        if not private_state.directory_custody_holds(info, uid=os.geteuid(), gid=None, mode=private_state.OWNER_ONLY):
             raise StorageError("Team storage has unsafe ownership or permissions")
         return directory
 
@@ -180,11 +178,8 @@ class TeamStorage:
                 os.close(descriptor)
         if path.exists() or path.is_symlink():
             info = path.lstat()
-            if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_uid != os.geteuid()
-                or info.st_nlink != 1
-                or stat.S_IMODE(info.st_mode) & 0o077
+            if not private_state.file_custody_holds(
+                info, uid=os.geteuid(), gid=None, mode=private_state.OWNER_ONLY, size=None
             ):
                 raise StorageError("Team storage database has an unsafe shape")
         return path
@@ -584,7 +579,7 @@ class TeamStorage:
             info = directory.lstat()
         except FileNotFoundError:
             return False
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) & 0o077:
+        if not private_state.directory_custody_holds(info, uid=os.geteuid(), gid=None, mode=private_state.OWNER_ONLY):
             raise StorageError("Team storage has unsafe ownership or permissions")
         shutil.rmtree(directory)
         return True
