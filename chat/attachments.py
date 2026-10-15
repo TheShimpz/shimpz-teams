@@ -6,14 +6,12 @@ only Actions that declare an authorization capability are admitted, so file cont
 person authorizes.
 """
 
-import contextlib
 from collections.abc import Callable, Iterable, Mapping, Sequence
 
 from assistant.spec import ActionSpec
 from inference import client as brain_runtime_client
 from prepare import service as preparation
 from protocol.assistant.v1.validators import input_file as input_file_validator
-from storage import files as team_storage
 
 READABLE = frozenset({"text", "image"})
 
@@ -78,25 +76,3 @@ def admitted_actions(
         for action in assistant.actions
         if not restricted or action.authorization
     }
-
-
-# A selected file's retention follows the turns that reference it (ADR-0093).
-def release_failed_turn(storage: team_storage.TeamStorage, team_id: str, added: Sequence[str]) -> None:
-    """A turn that ended without an outcome leaves no continuation to read its files: release what it added.
-
-    The files earlier turns referenced stay referenced. A release that fails keeps them referenced, which never
-    collects one early; the next completed turn releases them.
-    """
-    if added:
-        with contextlib.suppress(team_storage.StorageError):
-            storage.release(team_id, added)
-
-
-def settle_completed_turn(storage: team_storage.TeamStorage, team_id: str, file_ids: Sequence[str]) -> None:
-    """A completed turn leaves its Brain thread referencing only this turn's files; the others start their grace.
-
-    The reply is already committed, so a release that fails keeps every file referenced, which never collects one
-    early, and the next completed turn releases them.
-    """
-    with contextlib.suppress(team_storage.StorageError):
-        storage.settle(team_id, file_ids)

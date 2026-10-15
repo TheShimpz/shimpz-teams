@@ -1,17 +1,12 @@
 """Chat attachment rules for every Team turn (ADR-0093)."""
 
 import dataclasses
-import tempfile
 import unittest
-from pathlib import Path
-from unittest import mock
 
 from assistant.spec import ActionSpec
 from chat import attachments as chat_attachments
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
-from storage import files as team_storage
-from tests import storage_fixtures
 from tests.test_chat_orchestrator import FakeRuntime, accept_input, completed, context, strategy, suspended
 
 TEXT = {"id": "a" * 32, "content": {"type": "text", "text": "notes", "pdf": False}}
@@ -99,30 +94,6 @@ class AuthorizationGateTests(unittest.TestCase):
             strategy(accept_input, lambda request: invoked.append(request.action) or {"ok": True}),
         )
         self.assertEqual(invoked, ["hello"])
-
-
-class RetentionRuleTests(unittest.TestCase):
-    def test_turn_references_settle_and_release_without_failing_the_turn(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            storage = team_storage.TeamStorage(Path(directory) / "teams")
-            first = storage.put("team_1", "a.txt", b"a", "text/plain")["id"]
-            second = storage.put("team_1", "b.txt", b"b", "text/plain")["id"]
-            storage.reference("team_1", [first, second])
-            chat_attachments.release_failed_turn(storage, "team_1", (second,))
-            self.assertEqual(storage_fixtures.referenced(storage, "team_1"), frozenset({first}))
-            chat_attachments.settle_completed_turn(storage, "team_1", [second])
-            self.assertEqual(storage_fixtures.referenced(storage, "team_1"), frozenset({second}))
-        unavailable = mock.Mock(
-            release=mock.Mock(side_effect=team_storage.StorageError("unavailable")),
-            settle=mock.Mock(side_effect=team_storage.StorageError("unavailable")),
-        )
-        # Nothing newly referenced releases nothing; a failing release or settle leaves the turn standing.
-        chat_attachments.release_failed_turn(unavailable, "team_1", ())
-        unavailable.release.assert_not_called()
-        chat_attachments.release_failed_turn(unavailable, "team_1", ("a",))
-        unavailable.release.assert_called_once_with("team_1", ("a",))
-        chat_attachments.settle_completed_turn(unavailable, "team_1", ())
-        unavailable.settle.assert_called_once_with("team_1", ())
 
 
 if __name__ == "__main__":

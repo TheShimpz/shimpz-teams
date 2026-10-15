@@ -73,10 +73,12 @@ class LocalTurnFileTests(unittest.TestCase):
             service._turn_completed.assert_not_called()
             clock[0] += team_storage.UNREFERENCED_GRACE_SECONDS
             self.assertEqual([item["id"] for item in storage.list("team_1")["files"]], [earlier])
-            # Nothing newly referenced, or a release that fails, changes nothing.
-            local_attachments.turn_failed(service, "team_1", ())
+            # Nothing newly referenced releases nothing, and a release that fails leaves the turn's failure standing.
             service.storage = mock.Mock(release=mock.Mock(side_effect=team_storage.StorageError("unavailable")))
+            local_attachments.turn_failed(service, "team_1", ())
+            service.storage.release.assert_not_called()
             local_attachments.turn_failed(service, "team_1", (earlier,))
+            service.storage.release.assert_called_once_with("team_1", (earlier,))
 
     def test_a_turn_naming_a_collected_file_fails_before_its_brain_start(self) -> None:
         service = _service()

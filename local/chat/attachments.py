@@ -1,5 +1,9 @@
-"""Local custody of a turn's selected files: Brain hydration and the references a turn holds (ADR-0093)."""
+"""Local custody of a turn's selected files: Brain hydration and the references a turn holds (ADR-0093).
 
+A selected file's retention follows the turns that reference it.
+"""
+
+import contextlib
 from collections.abc import Mapping, Sequence
 from http import HTTPStatus
 
@@ -89,8 +93,21 @@ def turn_started(self, team_id: str, file_ids: Sequence[str]) -> tuple[str, ...]
 
 
 def turn_failed(self, team_id: str, added: Sequence[str]) -> None:
-    chat_attachments.release_failed_turn(self.storage, team_id, added)
+    """A turn that ended without an outcome leaves no continuation to read its files: release what it added.
+
+    The files earlier turns referenced stay referenced. A release that fails keeps them referenced, which never
+    collects one early; the next completed turn releases them.
+    """
+    if added:
+        with contextlib.suppress(team_storage.StorageError):
+            self.storage.release(team_id, added)
 
 
 def turn_completed(self, team_id: str, file_ids: Sequence[str]) -> None:
-    chat_attachments.settle_completed_turn(self.storage, team_id, file_ids)
+    """A completed turn leaves its Brain thread referencing only this turn's files; the others start their grace.
+
+    The reply is already committed, so a release that fails keeps every file referenced, which never collects one
+    early, and the next completed turn releases them.
+    """
+    with contextlib.suppress(team_storage.StorageError):
+        self.storage.settle(team_id, file_ids)
