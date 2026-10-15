@@ -11,14 +11,8 @@ def stop_chat(self, team_id: str) -> dict[str, object]:
         self.assistant_lifecycle._network(team_id)
         # The token is cancelled before any challenge is withdrawn: a pause commits only while its token is current, so
         # it either committed already and its challenge is withdrawn below, or its commit fails and rolls it back.
-        with self._active_chat_guard:
-            # A Routine run holding the Team's slot has its own exact Stop; chat Stop never reaches it (ADR-0086).
-            token = None if team_id in self._routine_holders else self._active_chat_tokens.get(team_id)
-            if token is not None:
-                self._cancelled_chat_tokens.add(token)
-            active = self._active_action_containers.get(team_id)
-            active_action = active[1] if token is not None and active is not None and active[0] == token else None
-            brain_abort = self._brain_aborts.get(token) if token is not None else None
+        # A Routine run holding the Team's slot has its own exact Stop; chat Stop never reaches it (ADR-0086).
+        token, brain_abort, active_action = cancel_active_turn(self, team_id, spare_routine=True)
         integration = self.integration_challenges.withdraw_team(team_id)
         human = self.human_challenges.withdraw_team(team_id)
         self.oauth_pkce.cancel_team(team_id)
@@ -27,7 +21,7 @@ def stop_chat(self, team_id: str) -> dict[str, object]:
     try:
         continuation_cancelled = _end_withdrawn(self, team_id, integration, human)
     finally:
-        _interrupt_turn(self, brain_abort, active_action)
+        interrupt_turn(self, brain_abort, active_action)
     accepted = token is not None or integration is not None or human is not None or continuation_cancelled
     return {
         "team_id": team_id,
@@ -48,7 +42,26 @@ def _end_withdrawn(self, team_id: str, integration: object | None, human: object
     return True in deleted
 
 
-def _interrupt_turn(self, brain_abort: object | None, active_action: object | None) -> None:
+def cancel_active_turn(
+    self, team_id: str, *, spare_routine: bool
+) -> tuple[object | None, object | None, object | None]:
+    """Cancel the Team's running turn; return its token, its Brain request, and the Action executing under it.
+
+    ``spare_routine`` leaves a Routine run holding the Team's slot running. Nothing is interrupted here: the caller
+    interrupts what this returns once its own cleanup is decided.
+    """
+    with self._active_chat_guard:
+        token = None if spare_routine and team_id in self._routine_holders else self._active_chat_tokens.get(team_id)
+        if token is None:
+            return None, None, None
+        self._cancelled_chat_tokens.add(token)
+        active = self._active_action_containers.get(team_id)
+        active_action = active[1] if active is not None and active[0] == token else None
+        return token, self._brain_aborts.get(token), active_action
+
+
+def interrupt_turn(self, brain_abort: object | None, active_action: object | None) -> None:
+    """Abort the cancelled turn's Brain request and fail-stop its executing Action."""
     # The token is already cancelled, so the aborted Brain request resolves as a stopped turn, never a failure.
     if brain_abort is not None:
         brain_abort.abort()

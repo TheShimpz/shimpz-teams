@@ -118,18 +118,9 @@ class ChatTurnService:
             return True
 
     def _cancel_chat_for_destroy(self, team_id: str) -> None:
-        """Prevent another Action and synchronously stop one already executing."""
-        with self._active_chat_guard:
-            token = self._active_chat_tokens.get(team_id)
-            if token is not None:
-                self._cancelled_chat_tokens.add(token)
-            active = self._active_action_containers.get(team_id)
-            active_action = active[1] if token is not None and active is not None and active[0] == token else None
-            brain_abort = self._brain_aborts.get(token) if token is not None else None
-        if brain_abort is not None:
-            brain_abort.abort()
-        if active_action is not None:
-            self.assistant_lifecycle._fail_stop_action(active_action)
+        """Prevent another Action and synchronously stop one already executing, a Routine run's included."""
+        _token, brain_abort, active_action = local_chat_resume.cancel_active_turn(self, team_id, spare_routine=False)
+        local_chat_resume.interrupt_turn(self, brain_abort, active_action)
 
     @contextmanager
     def _drained_chat(self):
