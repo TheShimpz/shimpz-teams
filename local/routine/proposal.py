@@ -183,11 +183,16 @@ def _intent(self, response: object, proposed: object) -> routine_recorder.Intent
     """What a record call asks for, with the replaced Routine's revision as that call's turn was shown it, and its work.
 
     An answer Team records itself carries the intent the span stored, so its replaced revision stays the one shown.
+    So does a settings answer, whatever its record call names: the person only said how often the Routine runs or
+    what each run does with its result, so its work, its replacement, and the revision shown stay the stored intent's,
+    and only the description, which says the answer, is the call's.
     """
     if isinstance(proposed, routine_recorder.Intent):
         return proposed
     outcome = _outcome(proposed)
     found = self.routine_recordings.get(response.team_id, response.recording)
+    if found is not None and found.intent is not None and routine_recorder.settings_answer(found):
+        return dataclasses.replace(found.intent, description=outcome["description"])
     shown, work = None, None
     if found is not None:
         if outcome["replaces"] is not None:

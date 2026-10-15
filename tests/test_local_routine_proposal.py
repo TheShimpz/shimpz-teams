@@ -476,6 +476,22 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(asked["code"], "routine-output-unstated")
         self.assertEqual([step["action"] for step in candidate.plan["steps"]], ["list-zones", "list-dns-records"])
 
+    def test_a_settings_answer_keeps_the_stored_work_even_when_the_brain_renames_the_routine(self) -> None:
+        original = "Liste os registros DNS de shimpz.com a cada 30 segundos"
+        said = "A cada 30 segundos, lista os registros DNS de shimpz.com. Mostrar somente quando mudar."
+        # An unrelated send lists the zones; the settings answer's record call then names the Routine otherwise.
+        renamed = _record(name="Registros DNS", description=said)
+        runtime = Sends((("list-zones", "list-dns-records"), _record()), (("list-zones",), None), ((), renamed))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            self.chat(service, _body(original))
+            self.chat(service, _body("Agora só liste as zonas uma vez."))
+            choice = http_routine_proposal.OUTPUT_CHOICES["pt"]["changes"]
+            answer = http_payload.compose_clarified(original, "O que fazer com o resultado?", choice, "pt")
+            card = self.chat(service, _body(answer))["routine_proposal"]
+        self.assertEqual((card["name"], card["replaces"], card["description"]), (_record()["name"], None, said))
+        self.assertEqual([step["action"] for step in card["steps"]], ["list-zones", "list-dns-records"])
+
     def test_a_freely_typed_send_reaches_the_brain_with_the_pending_question(self) -> None:
         original = "Liste os registros DNS de shimpz.com"
         runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))
