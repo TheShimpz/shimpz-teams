@@ -221,7 +221,7 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
     mutable = _routine_mutable(request)
     routines = _listed(self, request) if mutable else None
     # The recording span, read once after the listing kept the Routines this send's Brain is shown.
-    span = self.routine_recordings.live(request.team_id, request.recording)
+    span = None if request.recording is None else self.routine_recordings.live(request.team_id, request.recording)
     recorded = span if mutable else None
     return brain_runtime_client.RuntimeContext(
         thread_id=scope.thread_id,
