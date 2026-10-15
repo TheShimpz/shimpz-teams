@@ -16,16 +16,16 @@ from urllib.parse import urlparse
 from action import journal as action_journal
 from core import canonical_json
 from inference import abort as brain_abort
+from inference import token as inference_token
 from inference import usage as brain_usage
 from inference.errors import BrainRuntimeError
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
 from protocol.http.v1 import turn as http_turn
 
-RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8080")
-TOKEN_FILE = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))
-# A turn's whole response: a Routine outcome Brain bounds at 768 KiB (its change or question, reply, and clarification)
-# beside the turn's reply, usage, and envelope (ADR-0092 amendment, 2026-10-05, scale).
+RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain:8080")
+TOKEN_FILE = inference_token.TOKEN_PATH
+# A turn's whole response: its reply, Action requests, clarification, memory, Routine record, usage, and envelope.
 MAX_RESPONSE_BYTES = 1024 * 1024
 # The chat-turn bounds this client admits are the Team HTTP protocol's own, which the Brain and Admin read too.
 MAX_REPLY_CHARS = http_turn.MAX_REPLY_CHARS
@@ -60,8 +60,8 @@ class RuntimeAction:
     authorization: bool = False
     # The input properties that carry one Team file id each (ADR-0093).
     input_files: tuple[str, ...] = ()
-    # The reviewed output schema, which only the Routine compiler reads to relate one step's result to a later step's
-    # input (ADR-0092 amendment, 2026-10-05, scale); the chat agent's tools never carry it.
+    # The reviewed output schema. The Brain reads none of it, yet it stays in the contract digest that a Routine's scope
+    # pin keeps, so a changed output schema reads as a changed Assistant.
     output_schema: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -232,8 +232,8 @@ MAX_REQUEST_BYTES = 4 * 1024 * 1024
 # A resume keys each result by its interrupt id: at most 256 characters, quoted, plus a colon and a comma.
 _RESULT_KEY_BYTES = 256 + 4
 CONNECT_TIMEOUT_SECONDS = 5.0
-# Brain answers a turn only when it ends, and compiling a Routine of hundreds of steps may take its model up to four
-# minutes (ADR-0092 amendment, 2026-10-05, scale); Stop still aborts at once.
+# Brain answers a turn only when it ends, and a turn's model may legitimately work for minutes; Stop still aborts at
+# once.
 RESPONSE_TIMEOUT_SECONDS = 300.0
 # An optional purpose sentence may delay a person's prompt only this long in total, connection included (ADR-0090).
 PURPOSE_DEADLINE_SECONDS = 15.0
