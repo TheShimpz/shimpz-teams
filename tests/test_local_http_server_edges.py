@@ -123,8 +123,6 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler._captured_json_raw = b"{}"
         handler._captured_json_body = {}
         self.assertEqual(handler.body(), {})
-        with self.assertRaises(ApiProblemError):
-            handler.body(max_bytes=1)
 
         with self.assertRaises(ApiProblemError):
             handler._file_body()

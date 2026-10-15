@@ -13,11 +13,10 @@ from core.http import strict as strict_http
 from local.errors import ApiProblemError as ApiProblem
 from local.http import stream as local_http_stream
 from local.http.audit import RequestAudit
-from local.http.dispatch import Operation, team_operation
+from local.http.dispatch import MAX_BODY_BYTES, Operation, team_operation
 from local.validation import validate_team_id
 from protocol.http.v1 import turn as http_turn
 
-MAX_BODY_BYTES = 16 * 1024
 MAX_CHAT_BODY_BYTES = 128 * 1024
 MAX_CAPABILITY_PLAN_BODY_BYTES = http_turn.MAX_CAPABILITY_PLAN_BODY_BYTES
 MAX_INTENT_ROUTE_BODY_BYTES = http_turn.MAX_INTENT_ROUTE_BODY_BYTES
@@ -44,7 +43,7 @@ def _status(payload: dict[str, object]) -> HTTPStatus:
 
 def _start(handler, team_id: str, progress: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
     provider, api_key = handler.model_credential_headers()
-    body = handler.body(max_bytes=MAX_CHAT_BODY_BYTES)
+    body = handler.body()
     payload = handler.server.controller.chat_turn_service.chat(team_id, body, provider, api_key, progress)
     return _status(payload), payload
 
@@ -58,32 +57,32 @@ def _submit(
 ) -> tuple[HTTPStatus, dict[str, object]]:
     resume = getattr(handler.server.controller.chat_turn_service, _SUBMISSIONS[operation])
     provider, api_key = handler.model_credential_headers()
-    payload = resume(team_id, handler.body(max_bytes=BODY_LIMITS[operation]), provider, api_key, progress)
+    payload = resume(team_id, handler.body(), provider, api_key, progress)
     return _status(payload), payload
 
 
 def _open(handler, team_id: str) -> dict[str, object]:
     """Open the pending human challenge in the Admin interface language its request copy renders in (ADR-0091)."""
     service = handler.server.controller.chat_turn_service
-    return service.open_chat_human(team_id, handler.body(max_bytes=BODY_LIMITS["chat-human-open"]))
+    return service.open_chat_human(team_id, handler.body())
 
 
 def _stop(handler, team_id: str) -> dict[str, object]:
-    if handler.body(max_bytes=BODY_LIMITS["chat-stop"]) != {}:
+    if handler.body() != {}:
         raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "chat stop requires an empty object", code="invalid-body")
     return handler.server.controller.chat_turn_service.stop_chat(team_id)
 
 
 def _capability_plan(handler, team_id: str) -> dict[str, object]:
     provider, api_key = handler.model_credential_headers()
-    body = handler.body(max_bytes=BODY_LIMITS["chat-capability-plan"])
+    body = handler.body()
     return handler.server.controller.chat_turn_service.capability_plan(team_id, body, provider, api_key)
 
 
 def _intent_route(handler, team_id: str) -> dict[str, object]:
     provider, api_key = handler.model_credential_headers()
     decision_key = handler.decision_key("chat-intent-route")
-    body = handler.body(max_bytes=BODY_LIMITS["chat-intent-route"])
+    body = handler.body()
     return handler.server.controller.chat_turn_service.intent_route(team_id, body, provider, api_key, decision_key)
 
 

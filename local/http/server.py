@@ -26,7 +26,7 @@ from local.http import dispatch as local
 from local.http import inference as local_http_inference
 from local.http import routine as local_http_routine
 from local.http.audit import RequestAudit
-from local.http.dispatch import Operation, Result, team_operation
+from local.http.dispatch import MAX_BODY_BYTES, Operation, Result, team_operation
 from local.validation import (
     MODEL_BOUND_OPERATIONS,
     credential_binding,
@@ -39,7 +39,6 @@ from protocol.http.v1 import content as http_content
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import preview as http_preview
 
-MAX_BODY_BYTES = 16 * 1024
 MAX_API_RESPONSE_BYTES = 128 * 1024
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_FILE_BODY_BYTES = MAX_UPLOAD_BYTES
@@ -147,10 +146,11 @@ class Handler(http_deadline.DeadlineRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(contents)
 
-    def body(self, *, max_bytes: int = MAX_BODY_BYTES) -> dict[str, object]:
+    def body(self) -> dict[str, object]:
+        """The JSON document capture_body already bounded by its operation's limit."""
         raw = getattr(self, "_captured_json_raw", None)
         body = getattr(self, "_captured_json_body", None)
-        if not isinstance(raw, bytes) or not isinstance(body, dict) or len(raw) > max_bytes:
+        if not isinstance(raw, bytes) or not isinstance(body, dict):
             raise ApiProblem(
                 HTTPStatus.BAD_REQUEST,
                 "request body is unavailable",
@@ -497,7 +497,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
             service.expire_human_challenges()
             return service.human_challenges.current(team_id)
 
-        body = self.body(max_bytes=local_http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES)
+        body = self.body()
         return local_http_routine.human_assurance(body, current)
 
     def _handle(self) -> None:
