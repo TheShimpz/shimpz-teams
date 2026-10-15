@@ -37,7 +37,7 @@ def pending_chat_continuation(self, team_id: str, locale: str | None = None) -> 
 
     Either challenge is validated against the context the turn left before it is returned; a drifted one ends its turn.
     """
-    self._expire_human_challenges()
+    self.expire_human_challenges()
     # The live challenge is read and validated under one Team lock, so an opening cannot reissue it in between.
     with self._lock(team_id):
         existing_human = self.human_challenges.current(team_id)
@@ -46,11 +46,11 @@ def pending_chat_continuation(self, team_id: str, locale: str | None = None) -> 
             existing_human = self._relocalized_human(existing_human, locale or existing_human.requirement.copy.locale)
         existing_integration = None if existing_human is not None else self.integration_challenges.current(team_id)
         if existing_integration is not None:
-            pending, current = local_chat_pause._paused_setup(
+            pending, current = local_chat_pause.paused_setup(
                 self, team_id, existing_integration.payload.provider, existing_integration
             )
             if self._chat_identity(*current) != pending.identity:
-                local_chat_pause._end_drifted_turn(self, team_id, existing_integration)
+                local_chat_pause.end_drifted_turn(self, team_id, existing_integration)
     if existing_human is not None:
         return self._human_response(existing_human)
     if existing_integration is not None:
@@ -298,7 +298,7 @@ def resume_chat_integrations(
         with self._lock(team_id):
 
             def inspect(challenge: object) -> chat_turn_engine.IntegrationResumeContext:
-                pending, current = local_chat_pause._paused_setup(self, team_id, provider, challenge)
+                pending, current = local_chat_pause.paused_setup(self, team_id, provider, challenge)
                 bindings = {active.spec.assistant_id: active for active in current[2]}
                 return chat_turn_engine.IntegrationResumeContext(
                     self._chat_identity(*current),
@@ -319,7 +319,7 @@ def resume_chat_integrations(
                     expired_error=integration_challenge_expired,
                     context_error=team_context_changed,
                     contract_error=integration_contract_unavailable,
-                    end_drifted=lambda challenge: local_chat_pause._end_drifted_turn(self, team_id, challenge),
+                    end_drifted=lambda challenge: local_chat_pause.end_drifted_turn(self, team_id, challenge),
                 )
             )
             if admission.response is not None:
@@ -327,4 +327,4 @@ def resume_chat_integrations(
             pending = admission.pending
             if not isinstance(pending, _PendingLocalChat):
                 raise AssertionError("shared integration resume returned invalid state")
-        return local_chat_pause._continue_paused(self, team_id, token, pending, pending, (provider, api_key), progress)
+        return local_chat_pause.continue_paused(self, team_id, token, pending, pending, (provider, api_key), progress)

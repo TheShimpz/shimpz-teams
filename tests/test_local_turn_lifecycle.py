@@ -413,7 +413,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             self.assertIsNotNone(challenge)
 
             controller.chat_turn_service.human_challenges._clock = lambda: challenge.expires_at
-            controller.chat_turn_service._expire_human_challenges()
+            controller.chat_turn_service.expire_human_challenges()
 
             batches = _batch_count(controller)
             next_batch = controller.action_state.prepare_batch(

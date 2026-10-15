@@ -25,7 +25,7 @@ def pending_chat_human(self, team_id: str) -> dict[str, object]:
     """Return public metadata for the Team's active human challenge, if any."""
     team_id = validate_team_id(team_id)
     self.assistant_lifecycle._network(team_id)
-    _expire_human_challenges(self)
+    expire_human_challenges(self)
     challenge = self.human_challenges.current(team_id)
     return self._human_response(challenge) if challenge is not None else {"team_id": team_id, "status": "none"}
 
@@ -41,7 +41,7 @@ def open_chat_human(self, team_id: str, body: object) -> dict[str, object]:
     if opening is None:
         raise challenge_locale_only()
     self.assistant_lifecycle._network(team_id)
-    _expire_human_challenges(self)
+    expire_human_challenges(self)
     with self._lock(team_id):
         challenge = self.human_challenges.current(team_id)
         if challenge is None:
@@ -84,7 +84,7 @@ def relocalized(
     return fresh
 
 
-def _expire_human_challenges(self, team_id: str | None = None) -> None:
+def expire_human_challenges(self, team_id: str | None = None) -> None:
     """Delete what expired continuations, every Team's or only one Team's, left behind."""
     for challenge in self.human_challenges.drain_expired(team_id):
         if not isinstance(challenge.payload, PendingLocalChat):
@@ -108,7 +108,7 @@ def _pending_challenge(self, team_id: str, challenge_id: object) -> action_chall
     try:
         challenge = self.human_challenges.get(team_id, challenge_id)
     except action_challenges.HumanChallengeNotFoundError as exc:
-        _expire_human_challenges(self)
+        expire_human_challenges(self)
         raise human_request_expired() from exc
     if not isinstance(challenge.payload, PendingLocalChat):
         raise AssertionError("invalid local human continuation")
@@ -121,9 +121,9 @@ def _validate_pending_context(
     """The challenge's continuation and the Team's running Assistants, which must be exactly as the turn left them."""
     if not isinstance(challenge, action_challenges.PendingHumanChallenge):
         raise AssertionError("invalid local human continuation")
-    pending, current = local_chat_pause._paused_setup(self, team_id, provider, challenge)
+    pending, current = local_chat_pause.paused_setup(self, team_id, provider, challenge)
     if self._chat_identity(*current) != pending.identity or not copy_binding_current(challenge.requirement, current[2]):
-        local_chat_pause._end_drifted_turn(self, team_id, challenge)
+        local_chat_pause.end_drifted_turn(self, team_id, challenge)
     return pending, current[2]
 
 
@@ -223,6 +223,4 @@ def resume_chat_human(
             admission = _admit_human_response(self, team_id, challenge, pending, (decision, value), assistants)
             if admission is None:
                 return self._terminal_human_failure(team_id, token, pending, "denied")
-        return local_chat_pause._continue_paused(
-            self, team_id, token, pending, admission, (provider, api_key), progress
-        )
+        return local_chat_pause.continue_paused(self, team_id, token, pending, admission, (provider, api_key), progress)

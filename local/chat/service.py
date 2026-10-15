@@ -227,7 +227,7 @@ class ChatTurnService:
     pending_chat_human = local_chat_human.pending_chat_human
     open_chat_human = local_chat_human.open_chat_human
     _relocalized_human = local_chat_human.relocalized
-    _expire_human_challenges = local_chat_human._expire_human_challenges
+    expire_human_challenges = local_chat_human.expire_human_challenges
     _chat_routines = local_routine_proposal.chat_routines
     _routine_record = local_routine_proposal.admit
     confirm_routine_proposal = local_routine_proposal.confirm
@@ -255,12 +255,12 @@ class ChatTurnService:
     routine_run_diagnostics = local_routine_diagnostics.run_diagnostics
     routine_run_steps = local_routine_diagnostics.run_steps
 
-    _invoke_chat_action = local_chat_execution._invoke_chat_action
-    _chat_identity = staticmethod(local_chat_execution._chat_identity)
-    _raise_chat_problem = staticmethod(local_chat_execution._raise_chat_problem)
-    _validate_chat_action = staticmethod(local_chat_execution._validate_chat_action)
-    _require_chat_private_inputs = local_chat_execution._require_chat_private_inputs
-    _validate_chat_context = local_chat_execution._validate_chat_context
+    _invoke_chat_action = local_chat_execution.invoke_chat_action
+    _chat_identity = staticmethod(local_chat_execution.chat_identity)
+    _raise_chat_problem = staticmethod(local_chat_execution.raise_chat_problem)
+    _validate_chat_action = staticmethod(local_chat_execution.validate_chat_action)
+    _require_chat_private_inputs = local_chat_execution.require_chat_private_inputs
+    _validate_chat_context = local_chat_execution.validate_chat_context
 
     _commit_suspension = local_chat_pause.commit_suspension
     _integration_response = local_chat_pause.integration_response

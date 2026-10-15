@@ -363,7 +363,7 @@ class LocalHumanPurgeRaceTests(LocalContractCase):
             race = self._race(controller)
             service.human_challenges._clock = lambda: challenge.expires_at
 
-            service._expire_human_challenges()
+            service.expire_human_challenges()
 
             self._assert_newer_turn_kept(race, paused_batch)
 

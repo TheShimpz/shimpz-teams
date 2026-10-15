@@ -299,7 +299,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             requirement=SimpleNamespace(request=SimpleNamespace(kind="auth:password")),
         )
         service = SimpleNamespace(
-            _expire_human_challenges=mock.Mock(),
+            expire_human_challenges=mock.Mock(),
             human_challenges=SimpleNamespace(current=mock.Mock(return_value=challenge)),
         )
         handler = self._handler(
@@ -317,7 +317,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             verify.call_args.kwargs["request"].assurance,
             {"kind": "auth:password", "challenge_id": challenge_id},
         )
-        service._expire_human_challenges.assert_called_once_with()
+        service.expire_human_challenges.assert_called_once_with()
 
     def test_non_auth_human_resume_has_no_assurance_binding(self) -> None:
         challenge_id = "e" * 32
@@ -326,7 +326,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             "/v1/teams/team_1/chat/human",
             SimpleNamespace(
                 chat_turn_service=SimpleNamespace(
-                    _expire_human_challenges=mock.Mock(),
+                    expire_human_challenges=mock.Mock(),
                     human_challenges=SimpleNamespace(
                         current=mock.Mock(
                             return_value=SimpleNamespace(

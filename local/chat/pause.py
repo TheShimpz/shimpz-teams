@@ -164,7 +164,7 @@ def pause_integration(
     return self._integration_response(challenge)
 
 
-def _end_drifted_turn(self, team_id: str, challenge: object) -> NoReturn:
+def end_drifted_turn(self, team_id: str, challenge: object) -> NoReturn:
     """End exactly the paused turn whose context drifted: its live challenge, its continuation, and what it holds.
 
     The caller holds the Team lock, so no other turn can replace the live challenge between the check and the
@@ -190,7 +190,7 @@ def _end_drifted_turn(self, team_id: str, challenge: object) -> NoReturn:
     raise team_context_changed()
 
 
-def _paused_setup(self, team_id: str, provider: str, challenge: object) -> tuple[_PendingLocalChat, tuple[object, ...]]:
+def paused_setup(self, team_id: str, provider: str, challenge: object) -> tuple[_PendingLocalChat, tuple[object, ...]]:
     """The paused turn's continuation and the Team's chat setup, ending the turn when its provider changed.
 
     A provider other than the one the turn paused with is proven drift, whether it is the request's or the Team's
@@ -201,17 +201,17 @@ def _paused_setup(self, team_id: str, provider: str, challenge: object) -> tuple
     if not isinstance(pending, _PendingLocalChat):
         raise AssertionError("invalid local paused continuation")
     if pending.provider != provider:
-        _end_drifted_turn(self, team_id, challenge)
+        end_drifted_turn(self, team_id, challenge)
     try:
         current = self._chat_setup(team_id, list(pending.file_ids), provider, pending.assistant_ids)
     except ApiProblem as exc:
         if exc.code != "inference-provider-mismatch":
             raise
-        _end_drifted_turn(self, team_id, challenge)
+        end_drifted_turn(self, team_id, challenge)
     return pending, current
 
 
-def _continue_paused(
+def continue_paused(
     self,
     team_id: str,
     token: str,

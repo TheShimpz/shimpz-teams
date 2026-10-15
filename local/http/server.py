@@ -494,7 +494,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
         def current() -> object:
             team_id = validate_team_id(params.get("team_id"))
             service = self.server.controller.chat_turn_service
-            service._expire_human_challenges()
+            service.expire_human_challenges()
             return service.human_challenges.current(team_id)
 
         body = self._body(max_bytes=local_http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES)

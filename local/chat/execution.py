@@ -144,7 +144,7 @@ def clear_rejected_stored_input(
     )
 
 
-def _invoke_chat_action(
+def invoke_chat_action(
     self,
     team_id: str,
     token: str,
@@ -217,7 +217,7 @@ def routine_identity(network_id: str, assistants: tuple[_ActiveAssistant, ...]) 
     return (network_id, tuple((item.spec.assistant_id, item.spec.image, item.container_id) for item in assistants))
 
 
-def _chat_identity(
+def chat_identity(
     team_name: str,
     network_id: str,
     assistants: tuple[_ActiveAssistant, ...],
@@ -233,7 +233,7 @@ def _chat_identity(
     )
 
 
-def _raise_chat_problem(reason: str, exc: BaseException | None) -> NoReturn:
+def raise_chat_problem(reason: str, exc: BaseException | None) -> NoReturn:
     if reason == "invalid-continuation" or reason == "invalid-suspension":
         raise ApiProblem(
             HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -257,7 +257,7 @@ def _raise_chat_problem(reason: str, exc: BaseException | None) -> NoReturn:
     raise AssertionError(f"unknown local chat failure: {reason}")
 
 
-def _validate_chat_action(
+def validate_chat_action(
     bindings: dict[str, _ActiveAssistant],
     assistant_id: str,
     action: str,
@@ -281,7 +281,7 @@ def _validate_chat_action(
         ) from exc
 
 
-def _require_chat_private_inputs(
+def require_chat_private_inputs(
     self,
     team_id: str,
     bindings: dict[str, _ActiveAssistant],
@@ -303,7 +303,7 @@ def _require_chat_private_inputs(
     return bool(requirements.integrations)
 
 
-def _validate_chat_context(
+def validate_chat_context(
     self,
     team_id: str,
     file_ids: list[str],

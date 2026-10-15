@@ -835,7 +835,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             requirement=SimpleNamespace(request=SimpleNamespace(kind="auth:password")),
         )
         service = SimpleNamespace(
-            _expire_human_challenges=mock.Mock(),
+            expire_human_challenges=mock.Mock(),
             human_challenges=SimpleNamespace(current=mock.Mock(return_value=None)),
         )
         handler.server.controller = SimpleNamespace(chat_turn_service=service)
