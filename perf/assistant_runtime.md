@@ -48,8 +48,8 @@ columns. gVisor adds about 0.9 s to every Action and leaves less of the fixed 8 
   clean EAGAIN after 62. Threads inside the sandbox are not bounded at all (100 started, where runc allows 62).
 - The memory limit holds under both runtimes (OOMKilled). An exec exceeding it exits 137 under runc and 128 under runsc.
 - `HostConfig` does not record whether a workload actually runs under gVisor. `inspect_profile` does not check
-  `Runtime`, so opting in would need new fail-closed runtime admission and readiness checks. That is the
-  machinery ADR-0108 retired with the Hosted profile. Docker Desktop has no runsc, so the option would be Linux-only.
+  `Runtime`, so opting in would need new fail-closed runtime admission and readiness checks. Docker Desktop has no
+  runsc, so the option would be Linux-only.
 
 ## Decision
 

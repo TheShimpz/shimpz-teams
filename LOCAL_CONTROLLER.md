@@ -146,10 +146,6 @@ object and remains the only operation result. Progress carries no messages, sche
 data, traces, or credentials. A disconnected progress consumer cannot change the admitted turn's outcome.
 `protocol/http/v1/progress.py` owns the exact framing and bounds.
 
-The former 1.2–1.6k twin-Controller LOC reduction target is intentionally dropped: security-sensitive
-decisions are now shared, while extracting the remaining runtime-preparation wiring would add more
-abstraction and total code without improving either Controller's safety contract.
-
 ### Assistant integration administration
 
 | Method | Path | Purpose |
