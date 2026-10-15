@@ -20,12 +20,7 @@ from core import base64url
 from protocol.http.v1 import supervisor as contract
 from storage import private_state
 
-PUBLIC_KEY_FILE = Path(
-    os.environ.get(
-        "SHIMPZ_LOCAL_SUPERVISOR_PUBLIC_KEY_FILE",
-        "/run/shimpz-local-supervisor/public.pem",
-    )
-)
+PUBLIC_KEY_FILE = Path("/run/shimpz-local-supervisor/public.pem")
 # The Routine identity's public key sits beside the Supervisor's, in the same Admin-owned directory (ADR-0086).
 ROUTINE_PUBLIC_KEY_FILE = PUBLIC_KEY_FILE.with_name("routine.pem")
 PUBLIC_KEY_GROUP = "shimpzsupervisor-key"
