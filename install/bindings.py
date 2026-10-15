@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from assistant import manifest as assistant_manifest
 from core import canonical_json, identifier
 from install import lock
 from install.contract import ContractValidationError, ContractValidator
@@ -30,8 +31,6 @@ _ADMISSIONS_LOCK = threading.Lock()
 _PUBLISHED = "published"
 _LOCAL = "local"
 _LOCK_UNAVAILABLE = "the dynamic Assistant registry lock is unavailable"
-# Team infrastructure names an Assistant id may never take.
-RESERVED_SERVICE_ALIASES = frozenset({"postgres", "assistant-egress", "shimpz-assistant-egress"})
 type AssistantProvenance = Literal["published", "local"]
 type LocalRecordValidator = Callable[[dict[str, Any]], None]
 
@@ -275,7 +274,7 @@ def _binding(
 ) -> DynamicAssistantBinding:
     assistant_id = document.get("assistant_id")
     _validate_identity(team_id, assistant_id)
-    if assistant_id in RESERVED_SERVICE_ALIASES:
+    if assistant_id in assistant_manifest.RESERVED_ASSISTANT_IDS:
         raise DynamicAssistantError("the Assistant id is reserved for Team infrastructure")
     digest_value = {
         "version": _FORMAT_VERSION,

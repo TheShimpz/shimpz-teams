@@ -86,6 +86,8 @@ _NON_PUBLIC_HOST_SUFFIXES = (
 )
 
 
+# Team infrastructure names an Assistant id may never take.
+RESERVED_ASSISTANT_IDS = frozenset({"postgres", "assistant-egress", "shimpz-assistant-egress"})
 # Fields Team owns in every provider call, so no Stored Input is ever placed in one (ADR-0106).
 RESERVED_HEADERS = frozenset(
     {
@@ -689,7 +691,7 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
     if metadata["spec"] != 1:
         raise ManifestError("Assistant spec is unsupported")
     assistant_id = _identifier(metadata["id"], kind="id", canonical=http_payload.canonical_assistant_id)
-    if assistant_id in {"postgres", "assistant-egress", "shimpz-assistant-egress"}:
+    if assistant_id in RESERVED_ASSISTANT_IDS:
         raise ManifestError("Assistant id is reserved")
     version = metadata["version"]
     if not isinstance(version, str) or VERSION_RE.fullmatch(version) is None:
