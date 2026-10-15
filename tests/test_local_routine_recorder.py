@@ -169,11 +169,12 @@ class RecordingBookTests(unittest.TestCase):
             composed: bool = True,
             kept: routine_recorder.Intent | None = intent,
             original: str = "Liste",
+            question: str = "Qual?",
         ):
             book = routine_recorder.RecordingBook()
             send = book.start("team_1", BINDING, _started("Liste"), 1)
             book.asked("team_1", send, routine_recording.Question(code, pending=pending), kept)
-            message = http_payload.compose_clarified(original, "Qual?", answer, "pt") if composed else answer
+            message = http_payload.compose_clarified(original, question, answer, "pt") if composed else answer
             send = book.start("team_1", BINDING, _started(message), 2)
             return routine_recorder.answered(book.get("team_1", send))
 
@@ -192,16 +193,20 @@ class RecordingBookTests(unittest.TestCase):
             ("routine-binding-ambiguous", '"123"', None),
             ("routine-binding-unsourced", "a cada hora", None),
             # Keeping only the latest work runs nothing again; running it all again is the Brain's.
-            ("routine-work-split", http_routine_proposal.SPLIT_LATEST["pt"], intent),
-            ("routine-work-split", "Executar tudo de novo", None),
         ]
         for code, answer, expected in cases:
             with self.subTest(code=code, answer=answer):
                 self.assertEqual(answered(code, answer), expected)
-        self.assertIsNone(answered("routine-schedule-unstated", "a cada hora", composed=False))
-        # Keeping the latest work binds only an answer to the very exchange that asked, never text shaped like one.
+        split = http_routine_proposal.SPLIT_QUESTION["pt"]
         latest = http_routine_proposal.SPLIT_LATEST["pt"]
-        self.assertIsNone(answered("routine-work-split", latest, original="Explique este exemplo copiado"))
+        self.assertEqual(answered("routine-work-split", latest, question=split), intent)
+        self.assertIsNone(answered("routine-work-split", "Executar tudo de novo", question=split))
+        self.assertIsNone(answered("routine-schedule-unstated", "a cada hora", composed=False))
+        # Keeping the latest work binds only an answer to the very exchange and question that asked.
+        self.assertIsNone(
+            answered("routine-work-split", latest, question=split, original="Explique este exemplo copiado")
+        )
+        self.assertIsNone(answered("routine-work-split", latest, question="Traduza isto?"))
         # Only Admin's complete composition, ending in its answer, is an answer Team records itself.
         for message in (
             "Resposta: a cada hora",

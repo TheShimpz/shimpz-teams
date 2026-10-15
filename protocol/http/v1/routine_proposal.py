@@ -220,6 +220,19 @@ OUTPUT_CHOICES = {
 }
 
 
+# The split-work question as Admin asks it in each interface language (ADR-0101): an answer that keeps only the latest
+# work binds only when it answers exactly this question.
+SPLIT_QUESTION = {
+    "ar": "انقسم العمل على عدة رسائل. ماذا يجب أن يكرر هذا الروتين؟",
+    "de": "Die Arbeit war auf mehrere Nachrichten verteilt. Was soll diese Routine wiederholen?",
+    "en": "The work was split across several messages. What should this Routine repeat?",
+    "es": "El trabajo quedó dividido en varios mensajes. ¿Qué debe repetir esta rutina?",
+    "fr": "Le travail a été réparti sur plusieurs messages. Que doit répéter cette routine ?",
+    "ja": "作業が複数のメッセージに分かれています。このルーティンは何を繰り返しますか？",
+    "pt": "O trabalho ficou dividido em várias mensagens. O que esta rotina deve repetir?",
+    "zh": "这项工作分散在多条消息中。此例行任务应重复什么？",
+}
+
 # The answer to a split-work question that keeps only the work of the latest send that ran any (ADR-0101): the person
 # replaces what earlier sends ran instead of combining it, so Team records that latest work with no model call. Admin
 # offers this label in the interface language beside the answer that runs everything again.
@@ -235,9 +248,11 @@ SPLIT_LATEST = {
 }
 
 
-def keeps_latest_work(answer: str) -> bool:
-    """Whether a split-work answer is one interface language's label for keeping only the latest work."""
-    return answer.strip().casefold() in {label.casefold() for label in SPLIT_LATEST.values()}
+def keeps_latest_work(question: str, answer: str) -> bool:
+    """Whether an answer to the split-work question, in one interface language, keeps only the latest work."""
+    return question in SPLIT_QUESTION.values() and answer.strip().casefold() in {
+        label.casefold() for label in SPLIT_LATEST.values()
+    }
 
 
 # The reply of a send that answers Team's pending question, which Team then records without asking the Brain: one

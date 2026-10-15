@@ -264,7 +264,7 @@ def answered(span: Span | None) -> Intent | None:
     parsed = routine_recording.clarified_answer(span.sends[-1].message)
     if parsed is None:
         return None
-    original, answer = parsed
+    original, question, answer = parsed
     asked = span.asked
     stated = phrase.stated(answer)
     pending = asked.pending
@@ -276,7 +276,7 @@ def answered(span: Span | None) -> Intent | None:
         "routine-binding-ambiguous": pending is not None
         and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets),
         # Keeping only the latest work needs nothing run again; only an answer to the exchange that asked binds it.
-        "routine-work-split": http_routine_proposal.keeps_latest_work(answer)
+        "routine-work-split": http_routine_proposal.keeps_latest_work(question, answer)
         and 0 < asked.after <= len(span.sends)
         and original == span.sends[asked.after - 1].message.strip(),
     }

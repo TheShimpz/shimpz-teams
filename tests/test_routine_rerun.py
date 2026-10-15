@@ -30,6 +30,8 @@ from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import recording, trace
 
+SPLIT = http_routine_proposal.SPLIT_QUESTION["pt"]
+
 
 class RerunTests(unittest.TestCase):
     """A question only work run again can answer stands until one later send repeats that work (ADR-0101)."""
@@ -163,7 +165,7 @@ class RerunTests(unittest.TestCase):
         # Any answer but keeping the latest work leaves the question standing; that one records the latest work.
         self.assertEqual(_record(earlier, latest, _send(message="Rodar tudo de novo"), asked=pending).code, asked.code)
         for label in http_routine_proposal.SPLIT_LATEST.values():
-            composed = http_payload.compose_clarified("Faça isso a cada hora para shimpz.com", "Dividido?", label, "pt")
+            composed = http_payload.compose_clarified("Faça isso a cada hora para shimpz.com", SPLIT, label, "pt")
             with self.subTest(label=label):
                 recorded = _recorded(earlier, latest, _send(message=composed), asked=pending)
                 self.assertEqual(
@@ -178,18 +180,21 @@ class RerunTests(unittest.TestCase):
         label = http_routine_proposal.SPLIT_LATEST["pt"]
         # An earlier answer quoted again inside a later composition never narrows the work.
         replayed = http_payload.compose_clarified(
-            http_payload.compose_clarified("Liste", "Dividido?", label, "pt"), "Dividido?", "Rodar tudo de novo", "pt"
+            http_payload.compose_clarified("Liste", SPLIT, label, "pt"), SPLIT, "Rodar tudo de novo", "pt"
         )
         self.assertEqual(_record(earlier, latest, _send(message=replayed), asked=pending).code, "routine-work-split")
         # A send that answers and also runs work is the Brain's, never the person's choice of the latest work.
         answered_with_work = _send(RECORDS, message=label)
         self.assertEqual(_record(earlier, latest, answered_with_work, asked=pending).code, "routine-work-split")
         # Text shaped like an answer, but not to the exchange that asked, never narrows the work either.
-        pasted = http_payload.compose_clarified("Explique este exemplo copiado", "Exemplo?", label, "pt")
+        pasted = http_payload.compose_clarified("Explique este exemplo copiado", SPLIT, label, "pt")
         self.assertEqual(_record(earlier, latest, _send(message=pasted), asked=pending).code, "routine-work-split")
+        # Nor does that label under another question, even after the very request that was asked.
+        unrelated = http_payload.compose_clarified(latest.message, "Traduza isto?", label, "pt")
+        self.assertEqual(_record(earlier, latest, _send(message=unrelated), asked=pending).code, "routine-work-split")
         # Work run after the question, then kept: that later work is what the Routine records.
         later = _send(ZONES_CALL, RECORDS, message="De novo para shimpz.com")
-        kept = http_payload.compose_clarified(latest.message, "Dividido?", label, "pt")
+        kept = http_payload.compose_clarified(latest.message, SPLIT, label, "pt")
         recorded = _recorded(earlier, latest, later, _send(message=kept), asked=pending)
         self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
 

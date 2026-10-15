@@ -118,7 +118,7 @@ def kept_latest(sends: Sequence[routine_recording.Send], asked: routine_recordin
     if (
         parsed is None
         or parsed[0] != sends[asked.after - 1].message.strip()
-        or not http_routine_proposal.keeps_latest_work(parsed[1])
+        or not http_routine_proposal.keeps_latest_work(parsed[1], parsed[2])
     ):
         return None
     worked = [position for position, send in enumerate(sends) if send.occurrences]

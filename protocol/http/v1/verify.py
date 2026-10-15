@@ -383,6 +383,11 @@ if routine_proposal.answer_reply(None) != routine_proposal.ANSWER_REPLIES["en"]:
 latest = routine_proposal.SPLIT_LATEST
 if set(latest) != set(routine.LOCALES) or any(routine.canonical_name(label) != label for label in latest.values()):
     fail("the Routine split answer that keeps the latest work does not cover every interface language")
+asked = routine_proposal.SPLIT_QUESTION
+if set(asked) != set(routine.LOCALES) or any(
+    not text or text.strip() != text or "\n" in text for text in asked.values()
+):
+    fail("the Routine split question does not cover every interface language in one line")
 
 choices = routine_proposal.OUTPUT_CHOICES
 if set(choices) != set(routine.LOCALES) or any(

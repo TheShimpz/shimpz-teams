@@ -52,8 +52,8 @@ MIN_SELECTOR_CHARS = 2
 _NUMBER_RE = re.compile(r"(?<![\w.,+-])[-+]?\d+(?:[.,]\d+)*(?:[eE][-+]?\d+)?(?!\w|[.,]\d)")
 
 
-def clarified_answer(message: str) -> tuple[str, str] | None:
-    """The original request and the answer of a message that is exactly Admin's composed clarification answer.
+def clarified_answer(message: str) -> tuple[str, str, str] | None:
+    """The original request, question, and answer of a message that is exactly Admin's composed clarification answer.
 
     The message must be the composition ``payload.compose_clarified`` makes of an original request, one question, and
     one answer in one interface language, so the answer is its last authored segment and nothing follows it.
@@ -71,7 +71,7 @@ def clarified_answer(message: str) -> tuple[str, str] | None:
             and given.strip()
             and http_payload.compose_clarified(original, asked, given, locale) == message
         ):
-            return original.strip(), given
+            return original.strip(), asked, given
     return None
 
 
