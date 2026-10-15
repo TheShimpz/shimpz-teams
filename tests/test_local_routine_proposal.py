@@ -85,7 +85,6 @@ def _record(**changes: object) -> dict[str, object]:
         "name": "DNS de shimpz.com",
         "description": "A cada 30 segundos, lista as zonas da sua Cloudflare e lê os registros DNS de shimpz.com.",
         "replaces": None,
-        "turn_date": time.strftime("%Y-%m-%d", time.gmtime()),
     }
     value.update(changes)
     return value

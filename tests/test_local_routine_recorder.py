@@ -399,7 +399,6 @@ class OutcomeTests(unittest.TestCase):
             {"name": "a\nb"},
             {"schedule": {"kind": "hourly", "every": 1}},
             {"output": {"mode": "show"}},
-            {"turn_date": "2026"},
         ):
             with self.subTest(change=change), self.assertRaises(local_app.ApiProblem) as caught:
                 routine_proposal._outcome({**_record(), **change})
