@@ -12,8 +12,6 @@ from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
 
 MAX_REQUEST_TARGET_BYTES = 512
-MAX_FILENAME_BYTES = 255
-MAX_MEDIA_TYPE_CHARS = 127
 FILE_NAME_HEADER = "X-Shimpz-Filename"
 _EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 
@@ -149,7 +147,7 @@ def file_upload_metadata(
     if (
         not media_type
         or media_type != media_type.lower()
-        or len(media_type) > MAX_MEDIA_TYPE_CHARS
+        or len(media_type) > http_payload.MAX_MEDIA_TYPE_CHARS
         or http_payload.MEDIA_TYPE_RE.fullmatch(media_type) is None
     ):
         raise HttpContractError(
@@ -170,7 +168,7 @@ def file_upload_metadata(
         ) from exc
     if (
         not filename
-        or len(filename.encode("utf-8")) > MAX_FILENAME_BYTES
+        or len(filename.encode("utf-8")) > http_payload.MAX_FILENAME_BYTES
         or quote(filename, safe="") != encoded_filename
         or filename in {".", ".."}
         or "/" in filename

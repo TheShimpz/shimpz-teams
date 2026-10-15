@@ -32,8 +32,6 @@ UNREFERENCED_GRACE_SECONDS = 24 * 60 * 60
 SCHEMA_VERSION = 1
 DATABASE_HEADROOM_BYTES = 8 * 1024 * 1024
 MAX_FILES = 256
-MAX_FILENAME_BYTES = 255
-MAX_MEDIA_TYPE_BYTES = 127
 _METADATA_SELECTS = (
     "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?)",
     "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?)",
@@ -81,7 +79,7 @@ def _file_id(value: object) -> str:
 def _filename(value: object) -> str:
     if not isinstance(value, str) or not value or value.strip() != value:
         raise StorageInputError("filename must be non-empty and trimmed")
-    if len(value.encode("utf-8")) > MAX_FILENAME_BYTES:
+    if len(value.encode("utf-8")) > http_payload.MAX_FILENAME_BYTES:
         raise StorageInputError("filename is too long")
     if value in {".", ".."} or "/" in value or "\\" in value:
         raise StorageInputError("filename must not contain a path")
@@ -96,7 +94,7 @@ def _media_type(value: object) -> str:
     if (
         not isinstance(value, str)
         or len(value.encode("ascii", "ignore")) != len(value)
-        or len(value) > MAX_MEDIA_TYPE_BYTES
+        or len(value) > http_payload.MAX_MEDIA_TYPE_CHARS
         or http_payload.MEDIA_TYPE_RE.fullmatch(value.lower()) is None
     ):
         raise StorageInputError("invalid media type")

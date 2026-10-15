@@ -211,7 +211,7 @@ class TeamStorageTests(unittest.TestCase):
         with self.assertRaises(team_storage.StorageNotFoundError):
             storage.get("alpha", "not-an-id")
         with self.assertRaises(team_storage.StorageInputError):
-            storage.put("alpha", "x" * (team_storage.MAX_FILENAME_BYTES + 1), b"x")
+            storage.put("alpha", "x" * (http_payload.MAX_FILENAME_BYTES + 1), b"x")
         with self.assertRaises(team_storage.StorageInputError):
             storage.put("alpha", "empty.bin", b"")
         with self.assertRaises(team_storage.StorageInputError):
