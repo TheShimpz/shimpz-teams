@@ -313,6 +313,8 @@ def _release(self, team_id: str, item: record.Run) -> None:
     routine_state.call(lambda: self.routine_store.delete_cursor(team_id, item.run_id))
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, item.run_id))
     routine_state.update(self, team_id, lambda state: (routine_hold.release_incident(state, item.run_id), None))
+    # Nothing of the released run can show anything any more, so the values it protected leave memory with it.
+    self.routine_protections.drop(item.run_id)
 
 
 def seal_terminal(self, team_id: str, run_id: str, snapshot: Recovery | None) -> None:

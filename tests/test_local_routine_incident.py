@@ -167,6 +167,7 @@ class ResolutionTests(IncidentCase):
             binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
             service.routine_store.put_cursor("team_1", routine_cursor.start(plan, binding, 0, BOOT))
             routine_incident.hold(service, "team_1", run_id, lease)
+            service.routine_protections.grow(run_id, ("tok-protected-1",))
             routine_manage.drain(service, "team_1")
             routine_watchdog.check(service)
             # The run's discard and every pass keep the cursor and archive marker its unresolved incident needs.
@@ -179,6 +180,8 @@ class ResolutionTests(IncidentCase):
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertIsNone(service.routine_store.cursor("team_1", binding))
             self.assertIsNone(service.routine_store.incident("team_1", run_id))
+            # The values the released run protected leave memory with it.
+            self.assertNotIn(run_id, service.routine_protections._runs)
             routine_incident.reconcile_team(service, "team_1")
             with self.assertRaises(local_app.ApiProblem) as again:
                 routine_fixture.set_aside(service, "team_1", run_id)
