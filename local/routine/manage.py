@@ -220,9 +220,9 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
     for incident_id in held:
         # A verification or recovery episode still in progress is stopped; it changes nothing after this.
         self._stop_routine_run(team_id, incident_id)
-    for item in record.incidents(routine_state.load(self, team_id)):
-        if item.run_id in held and item.status == "skipped":
-            routine_incident.settled(self, team_id, item)
+    # Each one set aside here is skipped until its release removes it.
+    for item in [item for item in record.incidents(routine_state.load(self, team_id)) if item.run_id in held]:
+        routine_incident.settled(self, team_id, item)
     return {"team_id": team_id, "routine_id": routine_id, "deleted": settle(self, team_id, routine_id)}
 
 
