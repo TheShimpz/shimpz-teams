@@ -221,63 +221,57 @@ class HelperSessionTests(unittest.TestCase):
         preparation_helper._close_stream(object())
 
 
+class _Reads:
+    """Text files that record the order of their reads; a waiting file's read holds until it is released."""
+
+    def __init__(self) -> None:
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.order: list[str] = []
+
+    def text_file(self, label: str, *, wait: bool) -> preparation.StoredFile:
+        def read() -> bytes:
+            self.order.append(f"{label}-read")
+            if wait:
+                self.entered.set()
+                self.release.wait(5)
+            return b"plain text"
+
+        return preparation.StoredFile(label * 32, "a.txt", 10, "0" * 64, read)
+
+
 class LocalAdapterTests(unittest.TestCase):
     def test_local_admission_is_held_before_any_original_is_read_even_for_text(self) -> None:
         client = _Client()
-        entered = threading.Event()
-        release = threading.Event()
-        order: list[str] = []
-
-        def text_file(label: str, *, wait: bool) -> preparation.StoredFile:
-            def read() -> bytes:
-                order.append(f"{label}-read")
-                if wait:
-                    entered.set()
-                    release.wait(5)
-                return b"plain text"
-
-            return preparation.StoredFile(label * 32, "a.txt", 10, "0" * 64, read)
-
+        reads = _Reads()
         first = threading.Thread(
             target=local_prepare.prepare_attachments,
-            args=(client, [text_file("a", wait=True)]),
+            args=(client, [reads.text_file("a", wait=True)]),
             kwargs={"space_id": "s", "team_id": "team_1", "cpuset_cpus": None},
         )
         second = threading.Thread(
             target=local_prepare.prepare_attachments,
-            args=(client, [text_file("b", wait=False)]),
+            args=(client, [reads.text_file("b", wait=False)]),
             kwargs={"space_id": "s", "team_id": "team_2", "cpuset_cpus": None},
         )
         first.start()
-        entered.wait(5)
+        reads.entered.wait(5)
         second.start()
         second.join(0.2)
-        self.assertEqual(order, ["a-read"])
-        release.set()
+        self.assertEqual(reads.order, ["a-read"])
+        reads.release.set()
         first.join(5)
         second.join(5)
-        self.assertEqual(order, ["a-read", "b-read"])
+        self.assertEqual(reads.order, ["a-read", "b-read"])
 
     def test_a_turn_stopped_while_waiting_for_admission_leaves_at_once_and_reads_nothing(self) -> None:
         client = _Client()
-        entered = threading.Event()
-        release = threading.Event()
+        reads = _Reads()
         stop = threading.Event()
-        order: list[str] = []
         outcome: list[BaseException] = []
 
         class StoppedError(Exception):
             pass
-
-        def text_file(label: str, *, wait: bool) -> preparation.StoredFile:
-            def read() -> bytes:
-                order.append(f"{label}-read")
-                if wait:
-                    entered.set()
-                    release.wait(5)
-                return b"plain text"
-
-            return preparation.StoredFile(label * 32, "a.txt", 10, "0" * 64, read)
 
         def interrupt() -> None:
             if stop.is_set():
@@ -287,7 +281,7 @@ class LocalAdapterTests(unittest.TestCase):
             try:
                 local_prepare.prepare_attachments(
                     client,
-                    [text_file("b", wait=False)],
+                    [reads.text_file("b", wait=False)],
                     space_id="s",
                     team_id="team_2",
                     cpuset_cpus=None,
@@ -298,12 +292,12 @@ class LocalAdapterTests(unittest.TestCase):
 
         slow = threading.Thread(
             target=local_prepare.prepare_attachments,
-            args=(client, [text_file("a", wait=True)]),
+            args=(client, [reads.text_file("a", wait=True)]),
             kwargs={"space_id": "s", "team_id": "team_1", "cpuset_cpus": None},
         )
         waiting = threading.Thread(target=stopped_turn)
         slow.start()
-        entered.wait(5)
+        reads.entered.wait(5)
         waiting.start()
         waiting.join(0.2)
         self.assertTrue(waiting.is_alive())
@@ -312,14 +306,14 @@ class LocalAdapterTests(unittest.TestCase):
         # Team 2 left while Team 1 still held the admission, and never read its file.
         self.assertFalse(waiting.is_alive())
         self.assertTrue(slow.is_alive())
-        self.assertEqual((order, len(outcome)), (["a-read"], 1))
-        release.set()
+        self.assertEqual((reads.order, len(outcome)), (["a-read"], 1))
+        reads.release.set()
         slow.join(5)
         # The admission is free again for the next turn.
         local_prepare.prepare_attachments(
-            client, [text_file("c", wait=False)], space_id="s", team_id="team_3", cpuset_cpus=None
+            client, [reads.text_file("c", wait=False)], space_id="s", team_id="team_3", cpuset_cpus=None
         )
-        self.assertEqual(order, ["a-read", "c-read"])
+        self.assertEqual(reads.order, ["a-read", "c-read"])
 
     def test_helpers_are_removed_per_team_or_for_the_whole_space(self) -> None:
         client = _Client()
