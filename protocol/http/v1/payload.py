@@ -491,30 +491,29 @@ def canonical_turn_usage(value: object) -> dict[str, object] | None:
     It is presentation metadata only: a duration and, per provider and model, the input and output tokens the
     provider responses reported. Models are distinct, sorted by provider then model, and at least one is present.
     """
-    return _usage(value, 1)
-
-
-def canonical_run_usage(value: object) -> dict[str, object] | None:
-    """Return one exact Routine run usage, or None: a chat turn's shape, whose models may be none (ADR-0101).
-
-    A run that called no model, a replay-only one, reports its active duration alone.
-    """
-    return _usage(value, 0)
-
-
-def _usage(value: object, minimum: int) -> dict[str, object] | None:
     if (
         not isinstance(value, dict)
         or set(value) != {"duration_ms", "models"}
         or not _turn_usage_count(value["duration_ms"], MAX_TURN_DURATION_MS)
         or not isinstance(value["models"], list)
-        or not minimum <= len(value["models"]) <= MAX_TURN_USAGE_MODELS
+        or not 1 <= len(value["models"]) <= MAX_TURN_USAGE_MODELS
     ):
         return None
     keys = [_turn_usage_model(model) for model in value["models"]]
     if None in keys or keys != sorted(set(keys)):
         return None
     return {"duration_ms": value["duration_ms"], "models": [dict(model) for model in value["models"]]}
+
+
+def canonical_run_usage(value: object) -> dict[str, object] | None:
+    """Return one exact Routine run usage, or None: its active duration alone, since a run asks no model (ADR-0101)."""
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"duration_ms"}
+        or not _turn_usage_count(value["duration_ms"], MAX_TURN_DURATION_MS)
+    ):
+        return None
+    return {"duration_ms": value["duration_ms"]}
 
 
 class _ClarificationShapeError(ValueError):

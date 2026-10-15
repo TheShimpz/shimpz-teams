@@ -310,8 +310,9 @@ response cap.
 
 Every notice (`routine_notice.canonical_notice`) names its Routine by the `name` it had when Team wrote that version, so a row
 keeps its title after the Routine is renamed or deleted, and carries `usage` and `protection_lost`. A run notice's
-`usage` (`routine.canonical_run_usage`) has a chat reply's shape, `{duration_ms, models}`, its active time excluding
-frozen time; a Routine run asks no model, so it lists none. A Routine outcome carries `usage` `null`, except `healthy`, which carries its runs' summed usage.
+`usage` (`routine.canonical_run_usage`) is `{duration_ms}`, its active time excluding frozen time; a Routine run asks
+no model, so it reports no tokens. A Routine outcome carries `usage` `null`, except `healthy`, which carries its runs'
+summed duration.
 `protection_lost` is true on a run's notice versions written after the run lost the protection of its secret values
 (ADR-0101 section 6.2), so nothing it produced afterwards was shown anywhere; it is always false on a Routine outcome.
 The Routine outcome `deleted` (detail `{}`) closes a Routine's timeline once its confirmed deletion completes.

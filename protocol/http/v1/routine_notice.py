@@ -237,7 +237,7 @@ def canonical_notice(value: object) -> dict[str, object] | None:
 
     Every version names the Routine as it was when Team wrote that version, so a row keeps its own title after the
     Routine is renamed or deleted. A run notice carries the run's usage; a Routine outcome carries none, except the
-    healthy rollup, which carries its runs' summed usage. ``protection_lost`` says the run lost the protection of its
+    healthy rollup, which carries its runs' summed duration. ``protection_lost`` says the run lost the protection of its
     secret values, so nothing it produced after the loss was shown anywhere (ADR-0101 section 6.2); a Routine outcome
     never says so.
     """

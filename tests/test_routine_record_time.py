@@ -91,7 +91,7 @@ class HoldTimeTests(unittest.TestCase):
         state = routine_runs.spend(state, run_id, lease, NINE, (250, 250_400))
         state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
         self.assertEqual(routine_hold.incident(state, run_id).active_seconds_left, ONE_STEP - 250)
-        self.assertEqual(routine_hold.incident(state, run_id).usage, {"duration_ms": 250_400, "models": []})
+        self.assertEqual(routine_hold.incident(state, run_id).usage, {"duration_ms": 250_400})
         reopened, _token = routine_hold.reopen_incident(
             state, run_id, NINE + 2, routine_claim.generation_for("net_1", run_id, "s1")
         )
@@ -235,40 +235,17 @@ if __name__ == "__main__":
     unittest.main()
 
 
-MODEL = {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 10, "output_tokens": 2}
-
-
 class UsageAndProtectionTests(unittest.TestCase):
     """A run's usage and lost protection go on through every hold and continuation (ADR-0101)."""
 
-    def test_usage_sums_active_time_and_each_models_tokens_within_their_bounds(self):
+    def test_usage_sums_active_time_within_its_bound(self):
         state, claim, lease = bound()
         run_id = claim.run.run_id
         state = routine_runs.spend(state, run_id, lease, NINE, (1, 1500))
-        self.assertEqual(record.run(state, run_id).usage, {"duration_ms": 1500, "models": []})
-        joined = routine_runs.joined_usage(
-            {"duration_ms": 1, "models": [MODEL]},
-            {"duration_ms": 2, "models": [MODEL, {**MODEL, "provider": "anthropic", "model": "claude-sonnet-5-5"}]},
-        )
-        self.assertEqual(joined["duration_ms"], 3)
-        self.assertEqual(
-            [(item["provider"], item["input_tokens"]) for item in joined["models"]], [("anthropic", 10), ("openai", 20)]
-        )
-        capped = routine_runs.joined_usage(
-            {"duration_ms": routine_runs.MAX_USAGE_MS, "models": [{**MODEL, "input_tokens": 999_999_999}]},
-            {"duration_ms": 5, "models": [{**MODEL, "input_tokens": 9}]},
-        )
-        self.assertEqual(capped["duration_ms"], routine_runs.MAX_USAGE_MS)
-        self.assertEqual(capped["models"][0]["input_tokens"], 1_000_000_000)
-        many = [{**MODEL, "model": f"m{index:02d}"} for index in range(20)]
-        self.assertEqual(
-            len(
-                routine_runs.joined_usage({"duration_ms": 0, "models": []}, {"duration_ms": 0, "models": many})[
-                    "models"
-                ]
-            ),
-            16,
-        )
+        self.assertEqual(record.run(state, run_id).usage, {"duration_ms": 1500})
+        self.assertEqual(routine_runs.joined_usage({"duration_ms": 1}, {"duration_ms": 2}), {"duration_ms": 3})
+        capped = routine_runs.joined_usage({"duration_ms": routine_runs.MAX_USAGE_MS}, {"duration_ms": 5})
+        self.assertEqual(capped, {"duration_ms": routine_runs.MAX_USAGE_MS})
 
     def test_a_run_notice_carries_its_usage_and_a_lost_protection_for_good(self):
         state, claim, lease = bound()

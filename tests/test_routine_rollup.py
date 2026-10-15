@@ -119,7 +119,7 @@ class DeliveryTests(unittest.TestCase):
         (first,), (last,) = deliveries
         self.assertEqual((last["notice_id"], last["version"], last["detail"]), (first["notice_id"], 3, {"runs": 3}))
         # The minute's usage sums every run of it, across the change and the restart.
-        self.assertEqual(last["usage"], {"duration_ms": 3 * RUN_MS, "models": []})
+        self.assertEqual(last["usage"], {"duration_ms": 3 * RUN_MS})
         self.assertEqual(record.routine(state, ROUTINE_ID).revision, 2)
         self.assertEqual([item.outcome for item in state.notices], ["changed"])
 

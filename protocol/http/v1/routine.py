@@ -519,7 +519,7 @@ def canonical_output(value: object) -> dict[str, object] | None:
     return copy.deepcopy(value) if valid else None
 
 
-# A run's usage, in the shape of a chat reply's (ADR-0082, ADR-0101): its active duration; a Routine run asks no model.
+# A run's usage (ADR-0101): its active duration alone, since a Routine run asks no model.
 canonical_run_usage = payload.canonical_run_usage
 
 

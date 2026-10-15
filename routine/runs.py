@@ -34,18 +34,8 @@ MAX_USAGE_MS = http_payload.MAX_TURN_DURATION_MS
 
 
 def joined_usage(first: dict[str, object], second: dict[str, object]) -> dict[str, object]:
-    """Two usages summed: their durations, and each provider and model's tokens, models sorted and distinct."""
-    totals: dict[tuple[str, str], list[int]] = {}
-    for model in [*first["models"], *second["models"]]:
-        counts = totals.setdefault((model["provider"], model["model"]), [0, 0])
-        counts[0] = min(counts[0] + model["input_tokens"], http_payload.MAX_TURN_USAGE_TOKENS)
-        counts[1] = min(counts[1] + model["output_tokens"], http_payload.MAX_TURN_USAGE_TOKENS)
-    models = [
-        {"provider": provider, "model": model, "input_tokens": counts[0], "output_tokens": counts[1]}
-        for (provider, model), counts in sorted(totals.items())
-    ]
-    duration = min(first["duration_ms"] + second["duration_ms"], MAX_USAGE_MS)
-    return {"duration_ms": duration, "models": models[: http_payload.MAX_TURN_USAGE_MODELS]}
+    """Two usages summed: their active durations, within the bound."""
+    return {"duration_ms": min(first["duration_ms"] + second["duration_ms"], MAX_USAGE_MS)}
 
 
 def lose_protection(state: record.TeamRoutines, run_id: str) -> record.TeamRoutines:

@@ -27,13 +27,7 @@ def routine(routine_id: str = "a" * 32) -> record.Routine:
     return routine_fixture.routine(routine_id, name="Resumo de DNS", anchor=NINE - 86_400, timezone="America/Sao_Paulo")
 
 
-USAGE = {
-    "duration_ms": 1200,
-    "models": [
-        {"provider": "openai", "model": f"gpt-{index:02d}", "input_tokens": 10**9, "output_tokens": 10**9}
-        for index in range(16)
-    ],
-}
+USAGE = {"duration_ms": 1200}
 
 
 def changes_routine(routine_id: str = "d" * 32) -> record.Routine:
@@ -43,7 +37,7 @@ def changes_routine(routine_id: str = "d" * 32) -> record.Routine:
         routine(routine_id),
         plan=plan,
         schedule={"kind": "continuous", "gap": 3600},
-        rollup_usage={"duration_ms": 5, "models": []},
+        rollup_usage={"duration_ms": 5},
     )
     return dataclasses.replace(value, next_run_at=record.first_run(value))
 
@@ -247,7 +241,7 @@ class TamperTests(StoreCase):
             "permitted read-only type": lambda value: value["routines"][0]["permitted"][0].update(read_only=1),
             "routine member outside its shape": lambda value: value["routines"][0].update(unexpected=None),
             "paused type": lambda value: value["routines"][0].update(paused=1),
-            "rollup usage": lambda value: value["routines"][0].update(rollup_usage={"duration_ms": 1}),
+            "rollup usage": lambda value: value["routines"][0].update(rollup_usage={"duration_ms": -1}),
             "assistants beyond the permitted": lambda value: value["routines"][0].update(
                 assistants=[*value["routines"][0]["assistants"], ["web", "sha256:" + "a" * 64]]
             ),
@@ -281,7 +275,7 @@ class TamperTests(StoreCase):
             "notice name": lambda value: value["notices"][0].update(name=""),
             "notice usage": lambda value: value["notices"][0].update(usage=None),
             "notice protection type": lambda value: value["notices"][0].update(protection_lost=1),
-            "run usage": lambda value: value["runs"][0].update(usage={"duration_ms": 1}),
+            "run usage": lambda value: value["runs"][0].update(usage={"duration_ms": -1}),
             "run protection type": lambda value: value["runs"][0].update(protection_lost=0),
             "frozen position past its plan": lambda value: value["runs"][frozen].update(position=2),
             "frozen without a position": lambda value: value["runs"][frozen].update(position=None),
@@ -350,7 +344,7 @@ class TamperTests(StoreCase):
             "no call but a position": {"assistant_id": "", "action": "", "steps": 1},
             "no call with a boolean count": {"assistant_id": "", "action": "", "position": None, "steps": False},
             "no call with a float count": {"assistant_id": "", "action": "", "position": None, "steps": 0.0},
-            "usage": {"usage": {"duration_ms": 1}},
+            "usage": {"usage": {"duration_ms": -1}},
             "member outside its shape": {"unexpected": None},
             "protection type": {"protection_lost": "no"},
         }

@@ -483,7 +483,7 @@ class NoticeBacklogTests(RoutineHttpCase):
                     large,
                     1,
                     value.name,
-                    {"duration_ms": 1, "models": []},
+                    {"duration_ms": 1},
                 )
                 for index in range(20)
             )

@@ -410,7 +410,7 @@ class CompletionTests(unittest.TestCase):
         state = _completed("show", shown=self.shown)
         (notice,) = state.notices
         self.assertEqual(notice.detail, {"plan": _summary(state), "output": self.output})
-        self.assertEqual((notice.usage, notice.protection_lost), ({"duration_ms": 0, "models": []}, False))
+        self.assertEqual((notice.usage, notice.protection_lost), ({"duration_ms": 0}, False))
         self.assertEqual(state.routines[0].failures, 0)
         self.assertEqual(state.routines[0].output_digest, "")
         (missing,) = _completed("show").notices

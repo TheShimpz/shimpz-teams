@@ -233,10 +233,6 @@ class RoutineListBoundTests(unittest.TestCase):
             room -= routine.encoded_bytes([label, node]) + 1
         output["value"]["fields"] = fields
         self.assertIsNotNone(routine.canonical_output(output))
-        models = [
-            {"provider": f"p{index:02d}" + "p" * 61, "model": "m" * 64, "input_tokens": 10**9, "output_tokens": 10**9}
-            for index in range(payload.MAX_TURN_USAGE_MODELS)
-        ]
         notice = {
             "team_id": "t" * 40,
             "notice_id": "0" * 32,
@@ -250,7 +246,7 @@ class RoutineListBoundTests(unittest.TestCase):
                 "plan": _largest_summary(),
                 "output": output,
             },
-            "usage": {"duration_ms": payload.MAX_TURN_DURATION_MS, "models": models},
+            "usage": {"duration_ms": payload.MAX_TURN_DURATION_MS},
             "protection_lost": True,
         }
         batch = {"notices": [notice], "more": True}

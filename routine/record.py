@@ -135,8 +135,8 @@ class Run:
     # A frozen run's call by its 1-based step position and its plan's step count; None and 0 otherwise.
     position: int | None = None
     steps: int = 0
-    # The run's active time and model usage so far, through every freeze, hold, and continuation (ADR-0101 §10).
-    usage: dict[str, object] = dataclasses.field(default_factory=lambda: {"duration_ms": 0, "models": []})
+    # The run's active time so far, through every freeze, hold, and continuation (ADR-0101 §10).
+    usage: dict[str, object] = dataclasses.field(default_factory=lambda: {"duration_ms": 0})
     # The run lost the protection of its secret values, so nothing it produced since may be shown (section 6.2).
     protection_lost: bool = False
 
@@ -189,7 +189,7 @@ class Incident:
     steps: int = 0
     # The held run's answered human requests, usage, and protection, which its continuation goes on from.
     requests_used: int = 0
-    usage: dict[str, object] = dataclasses.field(default_factory=lambda: {"duration_ms": 0, "models": []})
+    usage: dict[str, object] = dataclasses.field(default_factory=lambda: {"duration_ms": 0})
     protection_lost: bool = False
 
 
