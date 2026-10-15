@@ -83,6 +83,50 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
         self.assertEqual({step["input"]["zone_id"]["value"] for step in recorded.document["steps"][1:]}, {chosen["id"]})
 
+    def test_a_repair_that_drops_the_chosen_target_ends_the_span(self) -> None:
+        chosen, others = ZONES["result"][3], ZONES["result"][:2]
+        calls = [("cloudflare/list-dns-records", {"zone_id": zone["id"]}, {"result": []}) for zone in (*others, chosen)]
+        first = _send(ZONES_CALL, *calls[:2], message="A cada 5 segundos, liste minhas zonas")
+        answer = _send(message=json.dumps(chosen["id"]))
+        rerun = _record(first, answer, asked=_asked(_record(first), 1))
+        # Neither a listing without a zone nor a zone another lookup returned is the zone the person chose.
+        lookup = ("reports/fetch", {"q": "zone"}, {"id": "zone-from-lookup"})
+        for later in (
+            _send(ZONES_CALL, ("cloudflare/list-dns-records", {"per_page": 5}, {})),
+            _send(lookup, ("cloudflare/list-dns-records", {"zone_id": "zone-from-lookup"}, {})),
+        ):
+            with self.subTest(later=later):
+                code = _code(self, lambda later=later: _record(first, answer, later, asked=_asked(rerun, 2)))
+                self.assertEqual(code, "routine-record-again")
+
+    def test_a_target_question_left_open_does_not_hold_back_other_work(self) -> None:
+        twins = (
+            "cloudflare/list-zones",
+            {},
+            {"result": [{"id": "zone-aaaa-1", "name": "a"}, {"id": "zone-bbbb-2", "name": "a"}]},
+        )
+        first = _send(
+            twins, ("cloudflare/list-dns-records", {"zone_id": "zone-aaaa-1"}, {}), message="DNS de a a cada hora"
+        )
+        asked = _record(first)
+        self.assertEqual(asked.code, "routine-binding-ambiguous")
+        # The person typed no target, and the agent ran other work: the question it left open binds nothing.
+        recorded = _recorded(first, _send(ZONES_CALL, message="na verdade, só as zonas"), asked=_asked(asked, 1))
+        self.assertEqual(_actions(recorded), ["list-zones"])
+
+    def test_an_earlier_dependency_of_the_work_keeps_its_own_ambiguity(self) -> None:
+        zone = "zone-identifier-1"
+        lookup = ("reports/fetch", {"q": "zones"}, {"zone": zone})
+        report = ("reports/fetch", {"zone": zone}, {"report": "report-identifier-1"})
+        read = ("reports/fetch", {"report": "report-identifier-1"}, {"meta": {"zone": zone}})
+        asked = _record(_send(lookup, report, message="relatório"), _send(read, message="a cada hora"))
+        self.assertEqual(asked.code, "routine-binding-ambiguous")
+
+    def test_a_withheld_call_beside_a_rerun_question_is_never_named(self) -> None:
+        hidden = ("reports/post", {"t": "x"}, {}, trace.Kept({"t": None}, frozenset({"/t"})))
+        code = _code(self, lambda: _record(_send(hidden, RECORDS, message="DNS de shimpz.com a cada hora")))
+        self.assertEqual(code, "routine-secret-literal")
+
     def test_a_withheld_input_is_never_frozen(self) -> None:
         for action in ("reports/post", "reports/fetch"):
             with self.subTest(action=action):

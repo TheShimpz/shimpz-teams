@@ -60,6 +60,10 @@ class RecognitionTests(unittest.TestCase):
         self.assertEqual(dates.template("15 de agosto", near_august, "es", lambda _day: False)[0]["lang"], "es")
         self.assertIsNone(dates.template("15 de agosto", near_august, "fr", lambda _day: False))
 
+    def test_overlapping_forms_read_the_first_form_once(self) -> None:
+        parts = _template("news 15 October 15, 2026", "en")
+        self.assertEqual(dates.render(parts, TOMORROW), "news 16 October 15, 2026")
+
     def test_a_date_the_person_wrote_stays_as_written(self) -> None:
         named = frozenset({datetime.date(2026, 10, 20)})
         parts = _template("jogos 15/10/2026 e 20/10/2026", named=named)

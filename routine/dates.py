@@ -170,7 +170,6 @@ def template(
         cursor = end
     if cursor < len(text):
         parts.append(text[cursor:])
-    parts = _joined(parts)
     if not any(isinstance(part, dict) for part in parts) or not admitted(parts):
         return None
     return parts if render(parts, recorded_on) == text else None
@@ -180,16 +179,6 @@ def dates(text: str, recorded_on: datetime.date, locale: str | None) -> set[date
     """Every date a text writes in a form the table reads, as it reads it near ``recorded_on``."""
     found = _found(text, recorded_on, locale)
     return set() if found is None else {day for _start, _end, _part, day in found}
-
-
-def _joined(parts: list[object]) -> list[object]:
-    joined: list[object] = []
-    for part in parts:
-        if isinstance(part, str) and joined and isinstance(joined[-1], str):
-            joined[-1] += part
-        else:
-            joined.append(part)
-    return joined
 
 
 def _found(

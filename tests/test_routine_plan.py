@@ -218,6 +218,11 @@ class PlanAdmissionTests(unittest.TestCase):
             document["steps"][step]["input"][name] = {"kind": "literal", "value": value}
             return document
 
+        def dated(name: str, parts: list[object]) -> dict[str, object]:
+            document = _document()
+            document["steps"][0]["input"][name] = {"kind": "run_clock", "format": "text", "parts": parts}
+            return document
+
         for document in (
             literal("api_token", "plain"),
             literal("secret_note", "plain"),
@@ -226,6 +231,7 @@ class PlanAdmissionTests(unittest.TestCase):
             literal("title", "api_key=abc", 0),
             literal("tags", ["ok", "sk-abcdefghijklmnop"]),
             literal("note", "eyJhbGciOiJIUzI1.eyJzdWIiOjEyMzQ1.c2lnbmF0dXJlMTIz", 0),
+            dated("title", ["Bearer abcdefghijklmnop ", DATED]),
         ):
             with self.subTest(document=json.dumps(document)[:200]):
                 self.assert_refused(document, "plan-secret-literal")
