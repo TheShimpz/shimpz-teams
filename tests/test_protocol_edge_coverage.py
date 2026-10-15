@@ -102,7 +102,7 @@ class PayloadEdgeCoverageTests(unittest.TestCase):
         self.assertIsNone(payload.canonical_filename(_Unencodable("name")))
         self.assertEqual(payload.canonical_media_type(None), "application/octet-stream")
         self.assertIsNone(payload.canonical_media_type(1))
-        self.assertIsNone(payload._integer(True))
+        self.assertIsNone(payload.integer(True))
         self.assertEqual(payload.canonical_action_id("send-message"), "send-message")
         for value in (None, "x" * 129, "Bad"):
             self.assertIsNone(payload.canonical_action_id(value))

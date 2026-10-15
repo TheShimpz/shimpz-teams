@@ -264,7 +264,7 @@ def canonical_help_url(value: object) -> str | None:
 
 def canonical_stored_input_help(value: object) -> str | None:
     """Return one Stored Input help text rendered in one interface language: printable NFC public text, or None."""
-    return value if _rendered(value, value, MAX_STORED_INPUT_HELP_CHARS, nullable=False) else None
+    return value if rendered_text(value, value, MAX_STORED_INPUT_HELP_CHARS, nullable=False) else None
 
 
 def canonical_creator_links(value: object) -> dict[str, str] | None:
@@ -288,7 +288,7 @@ def canonical_pack_digest(value: object) -> str | None:
     return value if isinstance(value, str) and SOURCE_DIGEST_RE.fullmatch(value) else None
 
 
-def _rendered(text: object, reference: object, maximum: int, *, nullable: bool) -> bool:
+def rendered_text(text: object, reference: object, maximum: int, *, nullable: bool) -> bool:
     """A nullable field renders to null exactly when its reference is null; anything else is bounded public text."""
     if nullable and reference is None:
         return text is None
@@ -311,7 +311,7 @@ def canonical_snapshot_summary(value: object) -> dict[str, object] | None:
         not isinstance(value, dict)
         or set(value) != SNAPSHOT_SUMMARY_FIELDS
         or canonical_locale(value["locale"]) is None
-        or not _rendered(value["summary"], value["summary"], MAX_SNAPSHOT_SUMMARY_CHARS, nullable=False)
+        or not rendered_text(value["summary"], value["summary"], MAX_SNAPSHOT_SUMMARY_CHARS, nullable=False)
     ):
         return None
     return value
@@ -417,7 +417,7 @@ def canonical_assistant_details(value: object) -> dict[str, object] | None:
         (value["summary"], MAX_SNAPSHOT_SUMMARY_CHARS),
         (value["description"], MAX_DETAILS_DESCRIPTION_CHARS),
     )
-    if not all(_rendered(text, text, maximum, nullable=False) for text, maximum in texts):
+    if not all(rendered_text(text, text, maximum, nullable=False) for text, maximum in texts):
         return None
     return value if _details_capabilities(value) else None
 
@@ -438,7 +438,7 @@ def _details_capabilities(value: dict[str, object]) -> bool:
         and all(
             isinstance(action["effect"], str)
             and action["effect"] in ACTION_EFFECTS
-            and _rendered(action["description"], action["description"], MAX_DETAILS_LINE_CHARS, nullable=False)
+            and rendered_text(action["description"], action["description"], MAX_DETAILS_LINE_CHARS, nullable=False)
             for action in value["actions"]
         )
         and _details_items(value["integrations"], 0, MAX_DETAILS_INTEGRATIONS, {"id", "provider"})
@@ -447,7 +447,7 @@ def _details_capabilities(value: dict[str, object]) -> bool:
             value["stored_inputs"], 0, MAX_DETAILS_STORED_INPUTS, {"id", "label", "description", "help_url"}
         )
         and all(
-            _rendered(item["label"], item["label"], MAX_DETAILS_LINE_CHARS, nullable=False)
+            rendered_text(item["label"], item["label"], MAX_DETAILS_LINE_CHARS, nullable=False)
             and canonical_stored_input_help(item["description"]) is not None
             and canonical_help_url(item["help_url"]) is not None
             for item in value["stored_inputs"]
@@ -848,7 +848,7 @@ def canonical_media_type(value: object) -> str | None:
     return media_type if MEDIA_TYPE_RE.fullmatch(media_type) is not None else None
 
 
-def _integer(value: object, *, minimum: int = 0) -> int | None:
+def integer(value: object, *, minimum: int = 0) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
         return None
     return value
@@ -858,9 +858,9 @@ def project_storage_usage(value: object) -> dict[str, int] | None:
     """Accept exact usage arithmetic, including cleanup after a quota reduction."""
     if not isinstance(value, dict):
         return None
-    used = _integer(value.get("used_bytes"))
-    limit = _integer(value.get("limit_bytes"), minimum=1)
-    remaining = _integer(value.get("remaining_bytes"))
+    used = integer(value.get("used_bytes"))
+    limit = integer(value.get("limit_bytes"), minimum=1)
+    remaining = integer(value.get("remaining_bytes"))
     if used is None or limit is None or remaining is None:
         return None
     within_quota = used <= limit and remaining == limit - used
@@ -876,9 +876,9 @@ def project_file_metadata(value: object, *, include_usage: bool) -> dict[str, ob
     file_id = canonical_file_id(value.get("id"))
     name = canonical_filename(value.get("name"))
     media_type = canonical_media_type(value.get("media_type"))
-    size = _integer(value.get("size"), minimum=1)
+    size = integer(value.get("size"), minimum=1)
     sha256 = value.get("sha256")
-    created_at = _integer(value.get("created_at"), minimum=1)
+    created_at = integer(value.get("created_at"), minimum=1)
     if (
         file_id is None
         or name is None

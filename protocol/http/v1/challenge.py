@@ -28,7 +28,9 @@ def canonical_rendered(value: object, request: object) -> dict[str, object] | No
     fields = [field for field in RENDERED_FIELD_CHARS if field in request]
     expected = {*fields, *(("options",) if "options" in request else ())}
     if set(value) != expected or not all(
-        payload._rendered(value[field], request[field], RENDERED_FIELD_CHARS[field], nullable=field == "placeholder")
+        payload.rendered_text(
+            value[field], request[field], RENDERED_FIELD_CHARS[field], nullable=field == "placeholder"
+        )
         for field in fields
     ):
         return None
@@ -46,8 +48,10 @@ def _rendered_options(values: object, options: object) -> bool:
             isinstance(item, dict)
             and isinstance(option, dict)
             and set(item) == {"label", "description"}
-            and payload._rendered(item["label"], option.get("label"), RENDERED_OPTION_CHARS["label"], nullable=False)
-            and payload._rendered(
+            and payload.rendered_text(
+                item["label"], option.get("label"), RENDERED_OPTION_CHARS["label"], nullable=False
+            )
+            and payload.rendered_text(
                 item["description"], option.get("description"), RENDERED_OPTION_CHARS["description"], nullable=True
             )
             for item, option in zip(values, options, strict=True)
@@ -68,7 +72,7 @@ def canonical_file_disclosure(value: object) -> dict[str, object] | None:
     """
     if not isinstance(value, dict) or set(value) != FILE_DISCLOSURE_KEYS:
         return None
-    size = payload._integer(value["size"], minimum=1)
+    size = payload.integer(value["size"], minimum=1)
     if (
         payload.canonical_file_id(value["id"]) is None
         or payload.canonical_filename(value["name"]) is None
