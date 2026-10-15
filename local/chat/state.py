@@ -17,6 +17,7 @@ from assistant import manifest as assistant_manifest
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from integrations import store as integration_store
+from local.assistant import resources as local_assistant_resources
 from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant as _ActiveAssistant
@@ -26,8 +27,6 @@ from local.errors import (
     assistant_action_blocked,
     assistant_manifest_invalid,
     assistant_manifest_unavailable,
-    assistant_registry_drift,
-    docker_unavailable,
     inference_not_configured,
     inference_provider_mismatch,
     ownership_conflict,
@@ -35,7 +34,6 @@ from local.errors import (
     stored_input_unavailable,
 )
 from local.install.runtime import AssistantSpec
-from local.labels import ASSISTANT_LABEL
 from protocol.http.v1 import payload as http_payload
 from storage import files as team_storage
 
@@ -191,22 +189,12 @@ def _admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tupl
 
 
 def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_ActiveAssistant, ...]:
-    try:
-        containers = self.assistant_lifecycle.client.containers.list(
-            **self.assistant_lifecycle._assistant_filters(team_id)
-        )
-    except DockerException as exc:
-        raise docker_unavailable() from exc
     active: list[_ActiveAssistant] = []
-    bindings_by_id = (
-        {binding.assistant_id: binding for binding in self.registry.team_bindings(team_id)} if containers else {}
-    )
-
-    for container in containers:
-        assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
-        binding = bindings_by_id.get(assistant_id)
-        if binding is None:
-            raise assistant_registry_drift()
+    lifecycle = self.assistant_lifecycle
+    filters = lifecycle._assistant_filters(team_id)
+    for container, binding in local_assistant_resources.bound_containers(
+        lifecycle.client, self.registry, filters, team_id
+    ):
         spec = self.registry.spec(binding)
         self.assistant_lifecycle._validate_container(container, team_id, spec, network_name, refresh=False)
         if container.id in self.assistant_lifecycle._blocked_action_workloads:

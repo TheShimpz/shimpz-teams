@@ -15,6 +15,7 @@ from chat import orchestrator as chat_orchestrator
 from inference import config as inference_config
 from install import icons
 from local import healthcheck as local_healthcheck
+from local import labels as local_labels
 from local import validation
 from local.assistant import api as assistant_api
 from local.assistant import rpc as assistant_rpc
@@ -318,7 +319,7 @@ class LocalLeafContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
             assistant_api.list_assistants(controller, "team_1")
 
-        container = types.SimpleNamespace(labels={assistant_api.ASSISTANT_LABEL: "helper"}, status="running")
+        container = types.SimpleNamespace(labels={local_labels.ASSISTANT_LABEL: "helper"}, status="running")
         controller.client.containers.list.side_effect = None
         controller.client.containers.list.return_value = [container]
         with self.assertRaisesRegex(ApiProblemError, "no longer allowlisted"):

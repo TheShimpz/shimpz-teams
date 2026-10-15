@@ -150,7 +150,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             ),
             _assistant_filters=lambda _team_id: {},
         )
-        subject = types.SimpleNamespace(assistant_lifecycle=lifecycle)
+        subject = types.SimpleNamespace(assistant_lifecycle=lifecycle, registry=TestAssistantRegistry())
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_state._active_chat_assistants(subject, "team_1", "network")
         self.assertEqual(caught.exception.code, "docker-unavailable")

@@ -1,10 +1,12 @@
 """Local Assistant resolution, image trust, and isolation validation."""
 
+from collections.abc import Mapping
 from http import HTTPStatus
 
 from docker.errors import DockerException, ImageNotFound, NotFound
 
 from assistant import manifest as assistant_manifest
+from install.bindings import DynamicAssistantBinding
 from local import labels as local_labels
 from local.assistant import isolation as local_container_policy
 from local.errors import ApiProblemError as ApiProblem
@@ -41,24 +43,39 @@ def _assistant_container(self, team_id: str, assistant_id: str, *, required: boo
     return container
 
 
-def _assistant_specs(self, team_id: str, *, running_only: bool = False) -> tuple[AssistantSpec, ...]:
-    """Return Team specs after ownership, label, and uniqueness gates; no deep container or artifact admission."""
-    self._network(team_id)
+def bound_containers(
+    client, registry, filters: Mapping[str, object], team_id: str
+) -> list[tuple[object, DynamicAssistantBinding]]:
+    """The Team's Assistant containers ``filters`` select, each with the binding its Assistant label names.
+
+    The Team's bindings are read once, and only when it has a container. A container whose label names no binding of
+    this Team is registry drift, never an Assistant to trust.
+    """
     try:
-        containers = self.client.containers.list(**self._assistant_filters(team_id))
+        containers = client.containers.list(**filters)
     except DockerException as exc:
         raise docker_unavailable() from exc
     bindings_by_id = (
-        {binding.assistant_id: binding for binding in self.registry.team_bindings(team_id)} if containers else {}
+        {binding.assistant_id: binding for binding in registry.team_bindings(team_id)} if containers else {}
     )
-    seen: set[str] = set()
-    specs: list[AssistantSpec] = []
+    bound: list[tuple[object, DynamicAssistantBinding]] = []
     for container in containers:
         labels = container.labels
         assistant_id = labels.get(ASSISTANT_LABEL) if isinstance(labels, dict) else None
         binding = bindings_by_id.get(assistant_id) if isinstance(assistant_id, str) else None
         if binding is None:
             raise assistant_registry_drift()
+        bound.append((container, binding))
+    return bound
+
+
+def _assistant_specs(self, team_id: str, *, running_only: bool = False) -> tuple[AssistantSpec, ...]:
+    """Return Team specs after ownership, label, and uniqueness gates; no deep container or artifact admission."""
+    self._network(team_id)
+    seen: set[str] = set()
+    specs: list[AssistantSpec] = []
+    for container, binding in bound_containers(self.client, self.registry, self._assistant_filters(team_id), team_id):
+        labels, assistant_id = container.labels, binding.assistant_id
         # Convert before accepting container labels so every matched runtime contract is validated.
         spec = self.registry.spec(binding)
         expected_labels = self._base_labels(team_id, "assistant")

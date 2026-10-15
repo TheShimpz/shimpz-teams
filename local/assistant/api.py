@@ -4,22 +4,18 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from http import HTTPStatus
 
-from docker.errors import DockerException
-
 from assistant import details as assistant_page
 from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from install import icons
+from local.assistant import resources as local_assistant_resources
 from local.chat.types import ActiveAssistant
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
     assistant_manifest_invalid,
     assistant_not_installed,
-    assistant_registry_drift,
-    docker_unavailable,
     invalid_locale,
 )
-from local.labels import ASSISTANT_LABEL
 from local.validation import validate_assistant_id, validate_team_id
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
@@ -115,19 +111,10 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
         self.assistant_lifecycle._network(team_id)
         output: list[dict[str, str]] = []
 
-        try:
-            containers = self.client.containers.list(**self.assistant_lifecycle._assistant_filters(team_id))
-        except DockerException as exc:
-            raise docker_unavailable() from exc
-        bindings_by_id = (
-            {binding.assistant_id: binding for binding in self.registry.team_bindings(team_id)} if containers else {}
-        )
-        for container in containers:
-            labels = container.labels or {}
-            assistant_id = labels.get(ASSISTANT_LABEL)
-            binding = bindings_by_id.get(assistant_id)
-            if binding is None:
-                raise assistant_registry_drift()
+        filters = self.assistant_lifecycle._assistant_filters(team_id)
+        for container, binding in local_assistant_resources.bound_containers(
+            self.client, self.registry, filters, team_id
+        ):
             spec, version = self.registry.versioned(binding)
             config, environment = self.assistant_lifecycle._validate_container_profile(
                 container,
@@ -157,7 +144,7 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
                 status = "outdated"
             output.append(
                 {
-                    "assistant": assistant_id,
+                    "assistant": binding.assistant_id,
                     "assistant_version": version,
                     "status": status,
                     "provenance": spec.provenance,
