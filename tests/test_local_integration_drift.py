@@ -52,7 +52,7 @@ class LocalIntegrationDriftTests(LocalContractCase):
         return controller, paused
 
     @staticmethod
-    def _configure(controller: local_app.LocalController, provider: str, model: str | None = None) -> None:
+    def _configure(controller: local_app.LocalController, provider: str, model: str) -> None:
         # A permitted model change while the turn is paused; the turn still names the context it paused with.
         controller.inference_store.save("team_1", inference_config.normalize(provider, model))
 
@@ -89,7 +89,7 @@ class LocalIntegrationDriftTests(LocalContractCase):
     def test_resuming_with_the_changed_provider_ends_the_paused_turn(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, paused = self._paused(directory)
-            self._configure(controller, "anthropic")
+            self._configure(controller, "anthropic", "claude-sonnet-5-5")
 
             self._resume(controller, paused, "anthropic", ANTHROPIC_KEY)
 
@@ -98,7 +98,7 @@ class LocalIntegrationDriftTests(LocalContractCase):
     def test_resuming_with_the_paused_provider_after_a_change_ends_the_paused_turn(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, paused = self._paused(directory)
-            self._configure(controller, "anthropic")
+            self._configure(controller, "anthropic", "claude-sonnet-5-5")
 
             self._resume(controller, paused, "openai", OPENAI_KEY)
 
@@ -116,7 +116,7 @@ class LocalIntegrationDriftTests(LocalContractCase):
     def test_a_fresh_message_after_a_provider_change_ends_the_paused_turn(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, paused = self._paused(directory)
-            self._configure(controller, "anthropic")
+            self._configure(controller, "anthropic", "claude-sonnet-5-5")
 
             with self.assertRaises(local_app.ApiProblem) as raised:
                 controller.chat_turn_service.chat("team_1", dict(CHAT_BODY), "anthropic", ANTHROPIC_KEY)
@@ -139,7 +139,7 @@ class LocalIntegrationDriftTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             controller, paused = self._paused(directory)
             service = controller.chat_turn_service
-            self._configure(controller, "anthropic")
+            self._configure(controller, "anthropic", "claude-sonnet-5-5")
             unavailable = local_app.local_chat_continuation_store.ContinuationStoreError("state is unavailable")
 
             with (
