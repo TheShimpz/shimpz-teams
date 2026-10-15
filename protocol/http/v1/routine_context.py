@@ -7,10 +7,8 @@ import json
 import re
 
 if __package__:
-    from . import routine, routine_proposal
+    from . import routine
 else:  # The protocol verifier runs every module of this directory flat.
-    import routine_proposal
-
     import routine
 
 
@@ -32,6 +30,14 @@ def _members_listed(value: object, limit: int, maximum: int) -> bool:
         and all(routine._plain(item, maximum) for item in value)
         and value == sorted(set(value))
     )
+
+
+def _listed_output(value: object, total: int) -> bool:
+    """A listed Routine's output: its mode; a shown mode shows the last step."""
+    if not isinstance(value, dict) or set(value) != {"mode"}:
+        return False
+    shown = total if value["mode"] in routine.SHOWN_MODES else None
+    return routine.canonical_disposition({**value, "step": shown}, total) is not None
 
 
 def _listed_step(value: object) -> bool:
@@ -60,7 +66,7 @@ def canonical_routine_listing(value: object) -> dict[str, object] | None:
         and routine._whole(value["daily_steps"], 1, MAX_LISTED_DAILY_STEPS)
         and isinstance(steps, list)
         and len(steps) <= routine.MAX_ROUTINE_STEPS
-        and routine_proposal._card_output(value["output"], len(steps))
+        and _listed_output(value["output"], len(steps))
         and all(_listed_step(item) for item in steps)
     )
     return copy.deepcopy(value) if valid else None

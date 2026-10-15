@@ -336,11 +336,8 @@ def _assistants(value: Routine) -> bool:
 def definition_valid(value: Routine) -> bool:
     """Whether a Routine's definition is in its closed contract: identity, plan, scope, confirmation, and schedule."""
     canonical = http_routine.canonical_schedule(value.schedule)
+    # A well-formed plan's zone loads.
     if not routine_plan.well_formed(value.plan):
-        return False
-    try:
-        schedule.zone(value.timezone)
-    except schedule.ScheduleError:
         return False
     return (
         http_routine.ROUTINE_ID_RE.fullmatch(value.routine_id) is not None

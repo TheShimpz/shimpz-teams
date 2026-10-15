@@ -60,14 +60,6 @@ def _card_step(value: object, position: int) -> bool:
     )
 
 
-def _card_output(value: object, total: int) -> bool:
-    """A listed Routine's output: its mode; a shown mode shows the last step."""
-    if not isinstance(value, dict) or set(value) != {"mode"}:
-        return False
-    shown = total if value["mode"] in routine.SHOWN_MODES else None
-    return routine.canonical_disposition({**value, "step": shown}, total) is not None
-
-
 def canonical_proposal(value: object) -> dict[str, object] | None:
     """One recorded Routine's confirmation card, within its byte bound."""
     fields = {"proposal_id", "expires_at", "replaces", "name", "description", "steps"}
