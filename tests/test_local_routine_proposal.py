@@ -476,15 +476,16 @@ class RecordedRoutineTests(LocalContractCase):
             self.chat(service, _body("A cada 30 segundos"))
         self.assertEqual(
             [(context.routine_mode, context.model) for context in runtime.contexts],
-            [(False, "gpt-6-luna"), (True, local_segment.ROUTINE_OPENAI_MODEL)],
+            [(False, "gpt-6-luna"), (True, local_segment.ROUTINE_MODELS["openai"])],
         )
         self.assertEqual({context.api_key for context in runtime.contexts}, {"sk-test-0123456789"})
 
-    def test_the_routine_model_is_one_openai_offers(self) -> None:
-        self.assertEqual(local_segment.ROUTINE_OPENAI_MODEL, "gpt-6.1-sol")
-        self.assertIn(local_segment.ROUTINE_OPENAI_MODEL, inference_config.PROVIDERS["openai"]["models"])
+    def test_each_routine_model_is_one_its_provider_offers(self) -> None:
+        self.assertEqual(local_segment.ROUTINE_MODELS, {"openai": "gpt-6.1-sol", "anthropic": "claude-opus-5-5"})
+        for provider, model in local_segment.ROUTINE_MODELS.items():
+            self.assertIn(model, inference_config.PROVIDERS[provider]["models"])
 
-    def test_a_routine_mode_turn_on_anthropic_keeps_the_team_model(self) -> None:
+    def test_a_routine_mode_turn_on_anthropic_reasons_with_the_routine_model(self) -> None:
         runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
@@ -494,7 +495,7 @@ class RecordedRoutineTests(LocalContractCase):
                     service.chat("team_1", _body(message), "anthropic", "sk-ant-test-0123456789")
         self.assertEqual(
             [(context.routine_mode, context.model) for context in runtime.contexts],
-            [(False, "claude-sonnet-5-5"), (True, "claude-sonnet-5-5")],
+            [(False, "claude-sonnet-5-5"), (True, "claude-opus-5-5")],
         )
 
     def test_a_turn_outside_routine_mode_keeps_the_team_model(self) -> None:
@@ -514,7 +515,7 @@ class RecordedRoutineTests(LocalContractCase):
         recording = book.start("team_1", (PRINCIPAL, "i"), started, int(time.time()))
         controller = SimpleNamespace(routine_recordings=book)
         config = inference_config.normalize("openai", "gpt-6-luna")
-        sol = local_segment.ROUTINE_OPENAI_MODEL
+        sol = local_segment.ROUTINE_MODELS["openai"]
         cases = (
             (None, None, sol),
             (None, object(), "gpt-6-luna"),

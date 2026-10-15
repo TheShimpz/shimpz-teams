@@ -256,7 +256,7 @@ class LocalTurnUsageTests(LocalContractCase):
             ):
                 completed = service.resume_chat_human("team_1", answer, "openai", "sk-test-0123456789")
 
-        sol = local_segment.ROUTINE_OPENAI_MODEL
+        sol = local_segment.ROUTINE_MODELS["openai"]
         self.assertEqual(models, [("openai", sol), ("openai", sol)])
         expected = {"provider": "openai", "model": sol, "input_tokens": 300, "output_tokens": 30}
         self.assertEqual(completed["usage"], {"duration_ms": 49_000, "models": [expected]})

@@ -34,9 +34,9 @@ from routine import claim as routine_claim
 from routine import pin as routine_pin
 from routine import recording as routine_recording
 
-# The model a chat turn about a Routine uses on an OpenAI Team, with the Team's own key; every other turn,
-# and every turn on another provider, uses the Team's configured model.
-ROUTINE_OPENAI_MODEL = "gpt-6.1-sol"
+# The model a chat turn about a Routine uses on an OpenAI or an Anthropic Team, with the Team's own key; every other
+# turn uses the Team's configured model.
+ROUTINE_MODELS = {"openai": "gpt-6.1-sol", "anthropic": "claude-opus-5-5"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,16 +246,16 @@ def _turn_clock(span: routine_recorder.Span | None) -> tuple[str, str] | None:
 
 
 def _turn_model(self, request: SegmentRequest, config: inference_config.InferenceConfig) -> str:
-    """The model a turn's start pinned, or for a start the Team's, except a chat turn about a Routine on OpenAI."""
+    """The model a turn's start pinned, or for a start the Team's, except a chat turn about a Routine."""
     if request.model is not None:
         return request.model
     routed = (
         request.routine is None
         and request.recording is not None
-        and config.provider == "openai"
+        and config.provider in ROUTINE_MODELS
         and routine_recorder.routine_mode(_span(self, request))
     )
-    return ROUTINE_OPENAI_MODEL if routed else config.model
+    return ROUTINE_MODELS[config.provider] if routed else config.model
 
 
 def _listed(self, request: SegmentRequest) -> tuple[dict[str, object], ...]:
