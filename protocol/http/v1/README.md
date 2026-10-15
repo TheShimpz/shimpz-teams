@@ -221,7 +221,7 @@ timezone, timezone_source, revision, daily_steps, output, steps}`, where `daily_
 `routine_context.MAX_LISTED_DAILY_STEPS`, `output` is `{mode}` (a shown mode shows the last step), and each of at most 256 steps is `{id,
 assistant, action, inputs}` with its plan id (`routine_context.ROUTINE_STEP_ID_RE`) and at most 64 sorted input member names,
 never a value. The pending question the Brain sees is `routine_proposal.canonical_question`, exactly as the reply carried it.
-`routine_context.canonical_rerun` admits the work a pending unsourced or rerun question asks the Brain to repeat: 1 to
+`routine_context.canonical_rerun` admits the work a pending rerun question asks the Brain to repeat: 1 to
 `routine_context.MAX_RERUN_ENTRIES` entries `{assistant, action, count, inputs}` in order, whose counts sum to at most
 `routine_context.MAX_RERUN_CALLS`; each has at most `routine_context.MAX_RERUN_INPUTS` inputs in member order, each `{member, kind,
 value, chosen, source}` with a plain member of at most `routine_context.MAX_RERUN_MEMBER_CHARS` characters. A `value` input
@@ -231,7 +231,8 @@ and names the `{assistant, action}` whose earlier result held it, or `null`. Tea
 bounds. `routine_mode`, whether the chat is about a Routine, is a plain advisory boolean. `routine_schedule` is the one
 schedule Team reads from the person's sends (`routine.canonical_schedule`) and `routine_output` the one output mode it
 reads (`routine.OUTPUT_MODES`), each `null` when it reads none; the Brain refuses a record whose description states
-another, or states one the person did not give, except a replacement's own listed one. `routine_proposal` is
+another than Team read, or a schedule the person did not give, except a replacement's own listed schedule or output. A
+new Routine's output the person has not chosen yet is not checked: Team asks for it before any card. `routine_proposal` is
 the Routine's confirmation card (`routine_proposal.canonical_proposal`), at most 160 KiB, which Team checks against the whole
 terminal line bound before publishing: exactly `{proposal_id, expires_at, replaces, name, description, steps}` (ADR-0101
 amendment, 2026-10-15). `replaces` is `null` for a new Routine or the id of the Routine it changes; `description` is the
