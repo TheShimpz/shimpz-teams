@@ -288,6 +288,11 @@ class JsonRecordTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(self.path.parent.stat().st_mode), 0o700)
         self.assertEqual(private_state.read_json_record(self.path, 64), {"count": 1, "name": "Équipe"})
 
+    def test_a_null_record_is_never_written(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no document"):
+            private_state.write_json_record(self.path, None, 64)
+        self.assertFalse(self.path.parent.exists())
+
     def test_an_oversized_record_is_neither_written_nor_read(self) -> None:
         with self.assertRaisesRegex(ValueError, "byte limit"):
             private_state.write_json_record(self.path, {"name": "x" * 64}, 16)
@@ -299,7 +304,7 @@ class JsonRecordTests(unittest.TestCase):
 
     def test_only_a_strict_json_document_in_a_regular_file_is_read(self) -> None:
         self.path.parent.mkdir()
-        for raw in (b"", b"\xff", b'{"a":1,"a":2}', b"NaN", b"1e999", b"[" * 100_000):
+        for raw in (b"", b"null", b"\xff", b'{"a":1,"a":2}', b"NaN", b"1e999", b"[" * 100_000):
             with self.subTest(raw=raw[:16]):
                 self.path.write_bytes(raw)
                 with self.assertRaises(ValueError):

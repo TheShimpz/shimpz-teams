@@ -180,7 +180,8 @@ def read_json_record(path: Path, maximum: int) -> object | None:
     """The strict JSON document in the regular file ``path`` of at most ``maximum`` bytes, or None when absent.
 
     No link is followed and a special file never blocks the read. An unreadable or non-regular file raises ``OSError``;
-    an oversized file or a document with duplicate fields, non-finite numbers, or invalid UTF-8 raises ``ValueError``.
+    an oversized file, a null document (None means only "absent"), or a document with duplicate fields, non-finite
+    numbers, or invalid UTF-8 raises ``ValueError``.
     """
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
@@ -195,9 +196,12 @@ def read_json_record(path: Path, maximum: int) -> object | None:
     if len(payload) > maximum:
         raise ValueError(f"{path.name} exceeds its byte limit")
     try:
-        return strict_json.loads(payload)
+        document = strict_json.loads(payload)
     except RecursionError as exc:
         raise ValueError(f"{path.name} is nested too deeply") from exc
+    if document is None:
+        raise ValueError(f"{path.name} holds no document")
+    return document
 
 
 def write_json_record(path: Path, value: object, maximum: int) -> None:
@@ -206,6 +210,8 @@ def write_json_record(path: Path, value: object, maximum: int) -> None:
     The parent directory is created owner-only when absent. Oversized or unencodable content raises ``ValueError``
     before anything is written; a persistence failure raises ``OSError``.
     """
+    if value is None:
+        raise ValueError(f"{path.name} would hold no document")
     payload = canonical_json.encode(value)
     if len(payload) > maximum:
         raise ValueError(f"{path.name} exceeds its byte limit")
