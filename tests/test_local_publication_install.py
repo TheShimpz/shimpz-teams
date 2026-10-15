@@ -21,6 +21,7 @@ from install.contract import CONTRACT_ROOT
 from install.icons import AssistantIconStore
 from integrations import store as integration_store
 from local import app as local_app
+from local import labels as local_labels
 from local.assistant import api as assistant_api
 from local.assistant import resources as local_resources
 from local.chat import private as local_chat_private
@@ -110,7 +111,7 @@ def _spec_lifecycle(store: DynamicAssistantStore, list_containers) -> SimpleName
 
 
 def _spec_container(assistant_id: str) -> SimpleNamespace:
-    labels = {"team": "team_1", "kind": "assistant", local_app.ASSISTANT_LABEL: assistant_id}
+    labels = {"team": "team_1", "kind": "assistant", local_labels.ASSISTANT_LABEL: assistant_id}
     return SimpleNamespace(labels=labels, name=f"team_1-{assistant_id}", status="running")
 
 
@@ -289,7 +290,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
             )
             containers = [
                 SimpleNamespace(
-                    id=f"container-{index}", labels={local_app.ASSISTANT_LABEL: assistant_id}, status="running"
+                    id=f"container-{index}", labels={local_labels.ASSISTANT_LABEL: assistant_id}, status="running"
                 )
                 for index, assistant_id in enumerate(_bind_helpers(store))
             ]
@@ -362,7 +363,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
                     labels={
                         "team": "team_1",
                         "kind": "assistant",
-                        local_app.ASSISTANT_LABEL: "foreign-only",
+                        local_labels.ASSISTANT_LABEL: "foreign-only",
                     },
                     name="team_1-foreign-only",
                     status="running",
@@ -372,7 +373,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 local_resources.assistant_specs(lifecycle, "team_1")
             self.assertEqual((caught.exception.status, caught.exception.code), (409, "assistant-registry-drift"))
 
-            containers[0].labels[local_app.ASSISTANT_LABEL] = "Bad_Id"
+            containers[0].labels[local_labels.ASSISTANT_LABEL] = "Bad_Id"
             with self.assertRaises(ApiProblemError) as caught:
                 local_resources.assistant_specs(lifecycle, "team_1")
             self.assertEqual((caught.exception.status, caught.exception.code), (409, "assistant-registry-drift"))
@@ -443,7 +444,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record
             )
             containers = [
-                SimpleNamespace(labels={local_app.ASSISTANT_LABEL: assistant_id}, status="running")
+                SimpleNamespace(labels={local_labels.ASSISTANT_LABEL: assistant_id}, status="running")
                 for assistant_id in _bind_helpers(store)
             ]
             _bind_foreign(store, assistant_version="9.9.9")

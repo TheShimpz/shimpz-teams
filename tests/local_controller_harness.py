@@ -21,6 +21,7 @@ from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from integrations import store as integration_store
 from local import app as local_app
+from local import labels as local_labels
 from local import names as local_names
 from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
@@ -339,7 +340,7 @@ class LocalContractCase(unittest.TestCase):
         network = SimpleNamespace(name=network_name)
         controller.assistant_lifecycle._network = lambda _team_id: network
         labels = controller.assistant_lifecycle._assistant_labels("team_1", spec)
-        labels[local_app.IMAGE_LABEL] = OUTDATED_ASSISTANT_IMAGE
+        labels[local_labels.IMAGE_LABEL] = OUTDATED_ASSISTANT_IMAGE
         container = SimpleNamespace(
             id="assistant-container",
             name=controller.assistant_lifecycle._container_name("team_1", spec.assistant_id),

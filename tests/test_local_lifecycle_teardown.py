@@ -382,7 +382,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
     def test_list_marks_an_invalid_manifest_for_removal(self) -> None:
         controller, container, _events = self._lifecycle_controller()
-        container.labels[local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
+        container.labels[local_labels.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
         container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
 
         def reject(*_args):
@@ -408,12 +408,12 @@ class LocalLifecycleTeardownTests(LocalContractCase):
             with self.subTest(drift=drift):
                 controller, container, events = self._lifecycle_controller()
                 if drift == "missing-label":
-                    container.labels.pop(local_app.IMAGE_LABEL)
+                    container.labels.pop(local_labels.IMAGE_LABEL)
                 elif drift == "image-label-mismatch":
                     container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
                 elif drift == "foreign-repository":
                     foreign = "evil.example/shimpz-assistant@sha256:" + "c" * 64
-                    container.labels[local_app.IMAGE_LABEL] = foreign
+                    container.labels[local_labels.IMAGE_LABEL] = foreign
                     container.attrs["Config"]["Image"] = foreign
                 else:
                     container.name = "foreign-container"

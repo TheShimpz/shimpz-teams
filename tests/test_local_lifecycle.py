@@ -19,6 +19,7 @@ from local_controller_harness import (
 )
 
 from local import app as local_app
+from local import labels as local_labels
 
 
 def _second_assistant(controller: object, first: object) -> object:
@@ -29,15 +30,15 @@ def _second_assistant(controller: object, first: object) -> object:
     second_spec.assistant_id = "future-assistant"
     controller.registry[second_spec.assistant_id] = second_spec
     second = copy.deepcopy(first)
-    second.labels[local_app.ASSISTANT_LABEL] = second_spec.assistant_id
-    second.attrs["Config"]["Labels"][local_app.ASSISTANT_LABEL] = second_spec.assistant_id
+    second.labels[local_labels.ASSISTANT_LABEL] = second_spec.assistant_id
+    second.attrs["Config"]["Labels"][local_labels.ASSISTANT_LABEL] = second_spec.assistant_id
     second.name = controller.assistant_lifecycle._container_name("team_1", second_spec.assistant_id)
     return second
 
 
 def _on_current_image(container) -> None:
     container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
-    container.attrs["Config"]["Labels"][local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
+    container.attrs["Config"]["Labels"][local_labels.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
 
 
 class LocalLifecycleTests(LocalContractCase):
@@ -320,7 +321,7 @@ class LocalLifecycleTests(LocalContractCase):
         spec.assistant_id = "future-assistant"
         controller.registry[spec.assistant_id] = spec
         labels = container.attrs["Config"]["Labels"]
-        labels[local_app.ASSISTANT_LABEL] = spec.assistant_id
+        labels[local_labels.ASSISTANT_LABEL] = spec.assistant_id
         container.name = controller.assistant_lifecycle._container_name("team_1", spec.assistant_id)
         controller.assistant_lifecycle._trusted_image = lambda _spec: events.append("trusted") or object()
         controller.assistant_lifecycle._create_assistant_container = lambda *_args, **_: events.append("create")

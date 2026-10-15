@@ -83,9 +83,6 @@ from local.install import service as local_install_service
 from local.install import snapshots as local_snapshots
 from local.install.registry import AssistantRegistry
 from local.install.runtime import AssistantSpec
-from local.labels import (
-    IMAGE_LABEL as _LOCAL_IMAGE_LABEL,
-)
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import lifecycle as local_routine_lifecycle
 from local.routine import proposal as local_routine_proposal
@@ -101,9 +98,6 @@ from local.validation import (
 from prepare import helper as preparation_helper
 from prepare import service as preparation
 from storage import files as team_storage
-
-IMAGE_LABEL = _LOCAL_IMAGE_LABEL
-ASSISTANT_LABEL = local_labels.ASSISTANT_LABEL
 
 log = logging.getLogger("shimpz-team-local")
 
@@ -159,7 +153,6 @@ class AssistantLifecycle:
     _queue_residue = local_assistant_lifecycle.queue_residue
     _queue_published_residue = local_assistant_lifecycle.queue_published_residue
     _commit_replacement = local_assistant_lifecycle.commit_replacement
-    _run_against_local_team_chat = local_assistant_lifecycle.run_against_local_team_chat
     _install_assistant_unguarded = local_assistant_lifecycle.install_assistant_unguarded
     _uninstall_assistant_unguarded = local_assistant_lifecycle.uninstall_assistant_unguarded
     install_assistant = local_assistant_lifecycle.install_assistant

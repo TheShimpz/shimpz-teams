@@ -31,6 +31,7 @@ from integrations import challenges as integration_challenges
 from integrations import service as integration_service
 from integrations import store as integration_store
 from local import app as local_app
+from local import labels as local_labels
 from local.chat.segment import SegmentRequest
 from local.chat.types import ActiveAssistant, PendingLocalChat
 from local.http import chat as http_chat
@@ -108,7 +109,7 @@ class LocalOAuthArtifactCurrencyTests(LocalContractCase):
 
         config = container.attrs["Config"]
         config["Image"] = CURRENT_ASSISTANT_IMAGE
-        config["Labels"][local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
+        config["Labels"][local_labels.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
         self.assertEqual(
             controller.chat_turn_service.complete_cloudflare_oauth_callback(**callback),
             {

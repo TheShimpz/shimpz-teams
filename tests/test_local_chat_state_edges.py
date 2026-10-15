@@ -13,6 +13,7 @@ from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from integrations import store as integration_store
 from local import app as local_app
+from local import labels as local_labels
 from local.chat import continuation as local_continuation
 from local.chat import continuation_store
 from local.chat import state as local_chat_state
@@ -157,7 +158,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
 
         container = types.SimpleNamespace(
             id="container",
-            labels={local_app.ASSISTANT_LABEL: "assistant"},
+            labels={local_labels.ASSISTANT_LABEL: "assistant"},
             status="running",
         )
         lifecycle.client.containers.list.side_effect = None
@@ -182,7 +183,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             (),
         )
 
-        container.labels = {local_app.ASSISTANT_LABEL: "Malformed!"}
+        container.labels = {local_labels.ASSISTANT_LABEL: "Malformed!"}
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_state.active_chat_assistants(subject, "team_1", "network")
         self.assertEqual(caught.exception.code, "assistant-registry-drift")

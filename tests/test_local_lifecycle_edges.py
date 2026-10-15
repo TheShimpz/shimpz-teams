@@ -62,7 +62,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             local_lifecycle.team_assistant_containers(subject, "team_1")
         self.assertEqual(caught.exception.code, "docker-unavailable")
 
-        container = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: "assistant"})
+        container = types.SimpleNamespace(labels={local_labels.ASSISTANT_LABEL: "assistant"})
         subject.registry = TestAssistantRegistry({})
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_lifecycle.validate_destroy_containers(subject, [container], "team_1", object())
@@ -91,7 +91,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         container = types.SimpleNamespace(
             id="container",
             attrs={"Image": IMAGE_ID},
-            labels={local_app.ASSISTANT_LABEL: "assistant"},
+            labels={local_labels.ASSISTANT_LABEL: "assistant"},
             remove=mock.Mock(),
         )
         lifecycle = _assistant_lifecycle(TestAssistantRegistry({}))
@@ -269,7 +269,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
                 "Config": {
                     "Labels": {
                         local_labels.TEAM_LABEL: "team_1",
-                        local_app.ASSISTANT_LABEL: "assistant",
+                        local_labels.ASSISTANT_LABEL: "assistant",
                     }
                 }
             },

@@ -20,6 +20,7 @@ from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from local import app as local_app
+from local import labels as local_labels
 from local import validation as local_validation
 from local.chat.types import PendingLocalChat
 from routine import record as routine_record
@@ -64,7 +65,7 @@ def _destroy_controller(
     )
     container = SimpleNamespace(
         id="assistant-container",
-        labels={local_app.ASSISTANT_LABEL: "shimpz-cloudflare"},
+        labels={local_labels.ASSISTANT_LABEL: "shimpz-cloudflare"},
         remove=lambda *, force: events.append(("container-remove", force)),
     )
     controller._lock = lambda _team_id: threading.RLock()
@@ -128,7 +129,7 @@ class LocalTeamDestroyTests(LocalContractCase):
         )
         container = SimpleNamespace(
             id="assistant-container",
-            labels={local_app.ASSISTANT_LABEL: "shimpz-cloudflare"},
+            labels={local_labels.ASSISTANT_LABEL: "shimpz-cloudflare"},
             attrs={"Image": "sha256:" + "a" * 64},
             remove=lambda *, force: events.append(("container-remove", force)),
         )
