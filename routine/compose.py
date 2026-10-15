@@ -25,9 +25,10 @@ def record(
 ) -> routine_recording.Recorded | routine_recording.Question:
     """The plan a recording span defines, or the question to ask first; raises RecordingError when it cannot be one.
 
-    The work is the calls of the latest send that ran any Action. A question only work run again can answer gets one
-    repair: once a later send ran Actions, work that still needs the same repair, or that does not use the target the
-    person chose, refuses ``routine-record-again`` instead of asking again.
+    The work is the calls of the latest send that ran any Action. A span gets one repair: once it asked for work to run
+    again (a rerun, or a chosen chain the work lacks) and a later send ran Actions, work that needs another repair
+    refuses ``routine-record-again`` instead of asking again, whatever was asked between. No card ever records work
+    that calls an Action a person's choice is about without sending the target they chose.
     """
     _admit(recording, contracts)
     if protection.lost:
@@ -43,7 +44,9 @@ def record(
     )
     work = routine_provenance._narrowed(context, latest)
     context.work = tuple(call.index for call in work)
-    repaired = asked is not None and any(send.occurrences for send in sends[asked.after :])
+    # The send count when the span first asked for a repair, which it keeps across later questions until a card.
+    repair_from = asked.repair_from if asked is not None else None
+    repaired = repair_from is not None and any(send.occurrences for send in sends[repair_from:])
     try:
         if not latest and existing is not None:
             kept = _kept(context, recording, existing)
@@ -58,10 +61,13 @@ def record(
             shown = chained_from or _shown_action(planned)
             raise routine_recording._AskError(routine_recording.Question("routine-output-unstated", chained_from=shown))
     except routine_recording._AskError as asking:
-        if repaired and _repair(asked, asking.question, stated):
+        repairing = _repairing(asking.question, stated)
+        if repaired and repairing:
             raise routine_recording.RecordingError("routine-record-again") from asking
-        return _asked(context, work, asking.question)
-    if repaired and not _chosen_used(context, work):
+        if repairing and repair_from is None:
+            repair_from = len(sends)
+        return dataclasses.replace(_asked(context, work, asking.question), repair_from=repair_from)
+    if kept is None and not _chosen_used(context, work):
         raise routine_recording.RecordingError("routine-record-again")
     if kept is not None:
         return kept
@@ -71,21 +77,19 @@ def record(
     return routine_recording.Recorded(document, origins, permitted, when, timezone, source)
 
 
-def _repair(asked: routine_recording.Asked, question: routine_recording.Question, stated: str | None) -> bool:
-    """Whether work run again after a question still needs repairing: the same rerun, or the chain asked for."""
-    if asked.code in _RERUN_CODES:
-        return question.code in _RERUN_CODES
-    return asked.code == "routine-output-unstated" and stated == "chain" and question.code == asked.code
+def _repairing(question: routine_recording.Question, stated: str | None) -> bool:
+    """Whether a question asks for work to run again: a rerun, or the chain the person chose and the work lacks."""
+    return question.code in _RERUN_CODES or (question.code == "routine-output-unstated" and stated == "chain")
 
 
 def _chosen_used(context: routine_recording._Context, work: list[routine_recording._Call]) -> bool:
-    """Whether the work sends every target the person chose, wherever it calls the Action that choice is about."""
+    """Whether the work sends every target the person chose wherever it calls the Action that choice is about."""
     for binding in routine_provenance._bindings(context):
         if binding.chosen is None:
             continue
         chosen = routine_recording._json_text(binding.chosen)
         calls = [call for call in work if call.action == binding.action]
-        if not any(routine_provenance._sent_value(call, binding.member) == chosen for call in calls):
+        if calls and not any(routine_provenance._sent_value(call, binding.member) == chosen for call in calls):
             return False
     return True
 

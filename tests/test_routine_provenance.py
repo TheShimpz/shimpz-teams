@@ -115,6 +115,8 @@ class ClassificationTests(unittest.TestCase):
         # The day the person wrote stays that day, and a result that holds the text is still its source.
         named = _recorded(_send(search, message="Notícias de 5 outubro 2026 a cada hora"))
         self.assertEqual(_input(named)["query"]["kind"], "literal")
+        beside_range = _recorded(_send(search, message="A cada hora, IA de 5/10/2026 comparada com 1 a 5/11/2026"))
+        self.assertEqual(_input(beside_range)["query"]["kind"], "literal")
         lookup = ("reports/fetch", {"q": "ideas"}, {"query": search[1]["query"]})
         sourced = _recorded(_send(lookup, search, message=EVERY_HOUR))
         self.assertEqual(_input(sourced)["query"]["kind"], "step_output")

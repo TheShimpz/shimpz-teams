@@ -121,7 +121,7 @@ def _dated(
     """
     send = context.sends[call.send]
     day = _date_at(send.started_at, context.zone[0])
-    named = {found for text in context.known.texts for found in routine_dates.dates(text, day, send.locale)}
+    named = {found for text in context.known.texts for found in routine_dates.dates(text, day)}
     parts = routine_dates.template(value, day, send.locale, named.__contains__)
     return None if parts is None else ({"kind": "run_clock", "format": "text", "parts": parts}, "clock")
 

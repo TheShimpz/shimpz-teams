@@ -99,6 +99,19 @@ class RepairTests(unittest.TestCase):
                 code = _code(self, lambda later=later: _record(first, answer, later, asked=_asked(rerun, 2)))
                 self.assertEqual(code, "routine-record-again")
 
+    def test_no_card_records_another_target_than_the_chosen_one_whatever_is_asked_between(self) -> None:
+        chosen, others = ZONES["result"][3], ZONES["result"][:2]
+        calls = [("cloudflare/list-dns-records", {"zone_id": zone["id"]}, {"result": []}) for zone in (*others, chosen)]
+        first = _send(ZONES_CALL, *calls[:2], message="Liste minhas zonas")
+        answer = _send(message=json.dumps(chosen["id"]))
+        rerun = _record(first, answer, asked=_asked(_record(first), 1))
+        lookup = ("reports/fetch", {"q": "zone"}, {"id": "zone-from-lookup"})
+        other = _send(lookup, ("cloudflare/list-dns-records", {"zone_id": "zone-from-lookup"}, {}))
+        schedule = _send(message="a cada hora")
+        asked = recording.Asked("routine-schedule-unstated", 3, chosen=rerun.chosen, repair_from=rerun.repair_from)
+        code = _code(self, lambda: _record(first, answer, other, schedule, asked=asked))
+        self.assertEqual(code, "routine-record-again")
+
     def test_a_target_question_left_open_does_not_hold_back_other_work(self) -> None:
         twins = (
             "cloudflare/list-zones",

@@ -125,8 +125,10 @@ def _bounded(span: Span) -> Span:
     gone = len(span.sends) - len(sends)
     # The question counted the sends before it; those that went leave the count too.
     if gone and bounded.asked is not None:
-        after = max(bounded.asked.after - gone, 0)
-        bounded = dataclasses.replace(bounded, asked=dataclasses.replace(bounded.asked, after=after))
+        asked = bounded.asked
+        repair_from = None if asked.repair_from is None else max(asked.repair_from - gone, 0)
+        asked = dataclasses.replace(asked, after=max(asked.after - gone, 0), repair_from=repair_from)
+        bounded = dataclasses.replace(bounded, asked=asked)
     return bounded
 
 
@@ -225,6 +227,7 @@ class RecordingBook:
                 question.wire(),
                 question.chosen,
                 question.chained_from,
+                question.repair_from,
             )
             return dataclasses.replace(found, asked=asked, intent=intent)
 

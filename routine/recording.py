@@ -186,6 +186,8 @@ class Asked:
     chosen: tuple[Pending, ...] = ()
     # The Assistant and Action whose result the work showed when Team asked for the output, which a chain must use.
     chained_from: tuple[str, str] | None = None
+    # How many sends the span held when it first asked for work to run again; later sends that ran Actions repaired it.
+    repair_from: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +202,7 @@ class Question:
     manifest: Manifest | None = field(default=None, compare=False)
     chosen: tuple[Pending, ...] = field(default=(), compare=False)
     chained_from: tuple[str, str] | None = field(default=None, compare=False)
+    repair_from: int | None = field(default=None, compare=False)
 
     def wire(self) -> dict[str, object]:
         """The question as the chat reply carries it: each target as its exact JSON text, which no client rounds."""

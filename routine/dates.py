@@ -175,26 +175,42 @@ def template(
     return parts if render(parts, recorded_on) == text else None
 
 
-def dates(text: str, recorded_on: datetime.date, locale: str | None) -> set[datetime.date]:
-    """Every date a text writes in a form the table reads, as it reads it near ``recorded_on``."""
-    found = _found(text, recorded_on, locale)
-    return set() if found is None else {day for _start, _end, _part, day in found}
+def dates(text: str, recorded_on: datetime.date) -> set[datetime.date]:
+    """Every date a text may write in a form the table reads near ``recorded_on``, in any order or language.
+
+    It reads the person's own words, so it keeps every reading, an undecided one or one beside a range included: a
+    date it may name stays as written.
+    """
+    return {
+        day
+        for kind, pattern in _FORMS
+        for match in pattern.finditer(text)
+        for _part, day, _writer in _readings(kind, match, recorded_on)
+    }
 
 
 def _found(
     text: str, recorded_on: datetime.date, locale: str | None
 ) -> list[tuple[int, int, dict[str, object], datetime.date]] | None:
-    """Each date the text writes, longest forms first and never overlapping, or None when one is undecidable."""
+    """Each date the text writes, or None when one is undecidable.
+
+    The longest written date wins wherever two would overlap, whatever its form, and the shorter one stays text.
+    """
+    matches = sorted(
+        ((kind, match) for kind, pattern in _FORMS for match in pattern.finditer(text)),
+        key=lambda item: (item[1].start() - item[1].end(), item[1].start()),
+    )
     spans: list[tuple[int, int, list[tuple[dict[str, object], datetime.date]]]] = []
-    for kind, pattern in _FORMS:
-        for match in pattern.finditer(text):
-            if any(match.start() < end and start < match.end() for start, end, _readings in spans):
-                continue
-            readings = _decided(_readings(kind, match, recorded_on), locale)
-            if readings is None:
-                return None
-            if readings:
-                spans.append((match.start(), match.end(), readings))
+    taken: list[tuple[int, int]] = []
+    for kind, match in matches:
+        if any(match.start() < end and start < match.end() for start, end in taken):
+            continue
+        taken.append(match.span())
+        readings = _decided(_readings(kind, match, recorded_on), locale)
+        if readings is None:
+            return None
+        if readings:
+            spans.append((match.start(), match.end(), readings))
     found = []
     ordered = sorted(spans, key=lambda item: item[0])
     for position, (start, end, readings) in enumerate(ordered):

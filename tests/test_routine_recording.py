@@ -407,12 +407,13 @@ def _asked(question: recording.Question, after: int) -> recording.Asked:
         question.manifest,
         chosen=question.chosen,
         chained_from=question.chained_from,
+        repair_from=question.repair_from,
     )
 
 
 def _pending(question: recording.Question, after: int) -> recording.Asked:
     """The span's record of a question asked after ``after`` sends."""
-    return recording.Asked(question.code, after, question.pending, question.manifest)
+    return recording.Asked(question.code, after, question.pending, question.manifest, repair_from=question.repair_from)
 
 
 def _post(text: str) -> tuple:
@@ -518,9 +519,14 @@ class OutputTests(unittest.TestCase):
         chain = _send(message=http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"])
         # With no Action run since the question it stands, as the zones the records read are no chain of the records.
         again = _record(work, chain, asked=_asked(asked, 1), mode=None)
-        self.assertEqual((again.code, again.chained_from), (asked.code, asked.chained_from))
+        self.assertEqual((again.code, again.chained_from, again.repair_from), (asked.code, asked.chained_from, 2))
         # Work run again that still uses no records result ends the span instead of asking once more.
-        code = _code(self, lambda: _record(work, chain, _send(ZONES_CALL, records), asked=_asked(asked, 1), mode=None))
+        rerun = _send(ZONES_CALL, records)
+        code = _code(self, lambda: _record(work, chain, rerun, asked=_asked(again, 2), mode=None))
+        self.assertEqual(code, "routine-record-again")
+        # So does work that needs another repair after any question between, such as a remembered value.
+        remembered = _send(("cloudflare/list-dns-records", {"zone_id": "f" * 32}, {}))
+        code = _code(self, lambda: _record(work, chain, remembered, asked=_asked(again, 2), mode=None))
         self.assertEqual(code, "routine-record-again")
         # A post reading a records result is the chain, whatever words the records call was run with.
         reworded = (

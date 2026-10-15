@@ -60,16 +60,22 @@ class RecognitionTests(unittest.TestCase):
         self.assertEqual(dates.template("15 de agosto", near_august, "es", lambda _day: False)[0]["lang"], "es")
         self.assertIsNone(dates.template("15 de agosto", near_august, "fr", lambda _day: False))
 
-    def test_overlapping_forms_read_the_first_form_once(self) -> None:
-        parts = _template("news 15 October 15, 2026", "en")
-        self.assertEqual(dates.render(parts, TOMORROW), "news 16 October 15, 2026")
+    def test_the_longest_overlapping_date_wins_and_the_shorter_stays_text(self) -> None:
+        parts = _template("top 10 October 15, 2026 news", "en")
+        self.assertEqual(dates.render(parts, TOMORROW), "top 10 October 16, 2026 news")
+        # A longer date out of reach still covers its text: the shorter date inside it never moves.
+        self.assertIsNone(_template("top 10 October 15, 2025 news", "en"))
 
     def test_a_date_the_person_wrote_stays_as_written(self) -> None:
         named = frozenset({datetime.date(2026, 10, 20)})
         parts = _template("jogos 15/10/2026 e 20/10/2026", named=named)
         self.assertEqual(dates.render(parts, TOMORROW), "jogos 16/10/2026 e 20/10/2026")
         self.assertIsNone(_template("jogo 20/10/2026", named=named))
-        self.assertEqual(dates.dates("o jogo de 20/10", RECORDED_ON, "pt"), {datetime.date(2026, 10, 20)})
+        self.assertEqual(dates.dates("o jogo de 20/10", RECORDED_ON), {datetime.date(2026, 10, 20)})
+        # The person's words keep every date they may name, beside a range or in either order.
+        wide = dates.dates("IA de 15/10/2026 e de 1 a 5/11/2026, ou 10/11", RECORDED_ON)
+        expected = {datetime.date(2026, 10, 15), datetime.date(2026, 11, 5), datetime.date(2026, 10, 11)}
+        self.assertEqual(wide, expected | {datetime.date(2026, 11, 10)})
 
 
 class ShapeTests(unittest.TestCase):
