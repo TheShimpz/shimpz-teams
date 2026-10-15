@@ -98,7 +98,7 @@ class RoutineSegmentTests(LocalContractCase):
             (expected_thread, None, None, None, ""),
         )
         # Only a recorded new turn sees the Team's Routines and the Routine tool.
-        self.assertEqual((chat.routines, chat.routine_capacity, chat.knowledge_writable), ((), 20_000, True))
+        self.assertEqual(chat.routines, ())
         self.assertEqual((run.outcome.reply, len(routine.batches)), ("Done.", 1))
 
     def test_a_turn_that_records_nothing_never_sees_the_routines(self) -> None:
@@ -107,7 +107,7 @@ class RoutineSegmentTests(LocalContractCase):
             controller = self._chat_controller(directory, brain)
             controller.chat_turn_service._run_chat_segment(self.request(None))
         (chat,) = brain.contexts
-        self.assertEqual((chat.routines, chat.routine_capacity), (None, None))
+        self.assertIsNone(chat.routines)
 
     def test_a_routine_segment_never_runs_in_another_network_or_as_another_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

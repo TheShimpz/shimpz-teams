@@ -105,9 +105,6 @@ class RuntimeContext:
     skills: tuple[dict[str, object], ...] | None = None
     # The Team's Routines as data (ADR-0086); None withholds the Brain's Routine tool.
     routines: tuple[dict[str, object], ...] | None = None
-    # The daily Action units the Team leaves a new Routine: advisory, as Team clamps a continuous cap at recording
-    # (ADR-0101). Only beside ``routines``.
-    routine_capacity: int | None = None
     # The question Team asked about the recording this chat continues (ADR-0101), ``{code, options, value}``, which
     # the person may answer in their own words; None when none is pending. Only beside ``routines``.
     routine_question: Mapping[str, object] | None = None
@@ -119,8 +116,6 @@ class RuntimeContext:
     # The one schedule the recording span's person states, which the record call's description must say; None when the
     # person states none or several (ADR-0101). Only beside ``routines``.
     routine_schedule: Mapping[str, object] | None = None
-    # False in a Routine run, whose memory and skills the Brain may read but never change.
-    knowledge_writable: bool = True
     # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
     # the start, so only a start sends it.
     locale: str | None = None
@@ -344,12 +339,10 @@ class BrainRuntimeClient:
             "memories": None if context.memories is None else [dict(entry) for entry in context.memories],
             "skills": None if context.skills is None else [dict(skill) for skill in context.skills],
             "routines": None if context.routines is None else [dict(item) for item in context.routines],
-            "routine_capacity": context.routine_capacity,
             "routine_question": None if context.routine_question is None else dict(context.routine_question),
             "routine_mode": context.routine_mode,
             "routine_rerun": None if context.routine_rerun is None else [dict(item) for item in context.routine_rerun],
             "routine_schedule": None if context.routine_schedule is None else dict(context.routine_schedule),
-            "knowledge_writable": context.knowledge_writable,
             "attachments": [dict(item) for item in context.attachments],
         }
 

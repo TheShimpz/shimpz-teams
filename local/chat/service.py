@@ -241,7 +241,6 @@ class ChatTurnService:
     _relocalized_human = local_chat_human.relocalized
     _expire_human_challenges = local_chat_human._expire_human_challenges
     _chat_routines = local_routine_proposal.chat_routines
-    _routine_capacity = local_routine_proposal.routine_capacity
     _routine_record = local_routine_proposal.admit
     confirm_routine_proposal = local_routine_proposal.confirm
     revoke_routine_proposal = local_routine_proposal.revoke

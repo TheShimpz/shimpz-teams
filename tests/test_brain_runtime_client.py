@@ -244,8 +244,8 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         client.start(base, "Hello", conversation=())
         self.assertEqual(json.loads(connection.requests[0][2])["attachments"], [])
 
-    def test_the_brain_gets_output_schemas_and_the_teams_advisory_routine_capacity(self):
-        """A changed output schema is a new contract; the capacity only advises a continuous cap (ADR-0101)."""
+    def test_the_brain_gets_output_schemas(self):
+        """A changed output schema is a new contract."""
         base = context(self.secret)
         output = {"type": "object", "properties": {"id": {"type": "string"}}}
         action = brain_runtime_client.RuntimeAction("publish", "Publish.", {"type": "object"}, output_schema=output)
@@ -253,11 +253,9 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         client, connection = self.client(
             _Response({"status": "completed", "clarification": None, "reply": "Done.", "actions": []})
         )
-        client.start(dataclasses.replace(base, assistants=(assistant,), routine_capacity=123), "Hi", conversation=())
+        client.start(dataclasses.replace(base, assistants=(assistant,)), "Hi", conversation=())
         payload = json.loads(connection.requests[0][2])
-        self.assertEqual(
-            (payload["routine_capacity"], payload["assistants"][0]["actions"][0]["output_schema"]), (123, output)
-        )
+        self.assertEqual(payload["assistants"][0]["actions"][0]["output_schema"], output)
         bare = dataclasses.replace(assistant, actions=(dataclasses.replace(action, output_schema={}),))
         self.assertNotEqual(brain_runtime_client.contract_digest(assistant), brain_runtime_client.contract_digest(bare))
 
@@ -535,7 +533,6 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         chat = dataclasses.replace(
             context(self.secret),
             routines=routines,
-            routine_capacity=19_999,
             routine_mode=True,
             routine_question=question,
             routine_rerun=rerun,
@@ -544,10 +541,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         # Local Team admits the record's closed shape; the client only bounds where it may appear.
         self.assertEqual(client.start(chat, "Toda segunda às 9h, confira o DNS", conversation=()).routine, recorded)
         sent = json.loads(connection.requests[0][2])
-        self.assertEqual(
-            (sent["routines"], sent["routine_capacity"], sent["knowledge_writable"]),
-            ([dict(routines[0])], 19_999, True),
-        )
+        self.assertEqual(sent["routines"], [dict(routines[0])])
         self.assertEqual(
             (sent["routine_mode"], sent["routine_question"], sent["routine_rerun"]), (True, question, [dict(rerun[0])])
         )

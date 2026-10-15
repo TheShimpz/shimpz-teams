@@ -779,7 +779,6 @@ class RecordedRoutineTests(LocalContractCase):
             with self.subTest(body=body):
                 self.assertEqual(self.refusal(runtime, body), "routine-recording-unavailable")
                 self.assertIsNone(runtime.contexts[0].routines)
-                self.assertIsNone(runtime.contexts[0].routine_capacity)
 
     def test_a_card_too_large_for_its_bound_or_its_terminal_line_is_refused_whole(self) -> None:
         for target, name in ((http_routine_proposal, "MAX_PROPOSAL_BYTES"), (http_progress, "MAX_LINE_BYTES")):

@@ -171,11 +171,6 @@ def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
     return listed
 
 
-def routine_capacity(self, team_id: str) -> int:
-    """The daily Action units the Team leaves a new Routine, after every Routine's allocation, paused ones included."""
-    return routine_definition.capacity(routine_state.load(self, team_id).routines)
-
-
 def _recording(self, response: object):
     """The turn's recording span, still live, the same person's, usable, and still protected."""
     found = self.routine_recordings.live(response.team_id, response.recording)
