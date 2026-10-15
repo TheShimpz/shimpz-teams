@@ -13,6 +13,7 @@ sys.path.insert(0, str(TEAM))
 from local_assistant_fixture import PACK as FIXTURE_PACK
 from local_assistant_fixture import assistant_spec
 
+from action import challenges as action_challenges
 from action import execution as action_execution
 from action import stored_input as action_stored_input
 from inference import config as inference_config
@@ -25,6 +26,7 @@ from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
+from local.routine import card as local_routine_card
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import proposal as local_routine_proposal
 from local.routine import protection as local_routine_protection
@@ -38,11 +40,32 @@ OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 
 TEST_ASSISTANT_VERSION = "0.1.0"
 
 
-def _routine_books(controller) -> None:
-    """The recording turns, cards, and run protection a controller shares with its chat service (ADR-0101)."""
+def routine_books(controller) -> None:
+    """A controller's in-memory Routine books (ADR-0101): challenges, recordings, cards, protection, recovery cards."""
+    controller.routine_human_challenges = action_challenges.HumanChallengeStore()
     controller.routine_recordings = local_routine_recorder.RecordingBook()
     controller.routine_proposals = local_routine_proposal.ProposalBook()
     controller.routine_protections = local_routine_protection.RunProtections()
+    controller.routine_cards = local_routine_card.CardBook()
+
+
+def open_recording_and_card(controller) -> str:
+    """Open a recording turn and a card for team_1, as a person's turn would; returns the recording id."""
+    recording = controller.routine_recordings.start(
+        "team_1", ("f" * 32, "a" * 64), local_routine_recorder.Started("list", (), None), 1
+    )
+    controller.routine_proposals.put(
+        SimpleNamespace(team_id="team_1", principal="f" * 32, proposal_id="e" * 32, expires_at=float("inf"))
+    )
+    return recording
+
+
+def recording_or_card(controller, recording: str) -> tuple[object, object]:
+    """What is left of that recording turn and card."""
+    return (
+        controller.routine_recordings.get("team_1", recording),
+        controller.routine_proposals.take("team_1", "e" * 32, "f" * 32),
+    )
 
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
@@ -186,7 +209,7 @@ class LocalContractCase(unittest.TestCase):
         controller._locks = tuple(threading.RLock() for _ in range(64))
         controller._names_lock = threading.RLock()
         controller.team_names = local_names.TeamNameStore(Path(directory) / "inference")
-        _routine_books(controller)
+        routine_books(controller)
         controller._wire_collaborators()
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)
@@ -237,7 +260,7 @@ class LocalContractCase(unittest.TestCase):
             stored_inputs={},
         )
         controller.registry = TestAssistantRegistry({spec.assistant_id: spec})
-        _routine_books(controller)
+        routine_books(controller)
         controller._wire_collaborators()
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)

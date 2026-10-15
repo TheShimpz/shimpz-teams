@@ -5,7 +5,13 @@ import threading
 from http import HTTPStatus
 from types import SimpleNamespace
 
-from local_controller_harness import LocalContractCase, TestAssistantRegistry
+from local_controller_harness import (
+    LocalContractCase,
+    TestAssistantRegistry,
+    open_recording_and_card,
+    recording_or_card,
+    routine_books,
+)
 from test_local_turn_lifecycle import LOCAL_TEAM_RESIDUES
 
 from action import challenges as action_challenges
@@ -15,44 +21,12 @@ from integrations import pkce as integration_pkce
 from local import app as local_app
 from local import validation as local_validation
 from local.chat.types import PendingLocalChat
-from local.routine import card as routine_card
-from local.routine import proposal as routine_proposal
-from local.routine import protection as routine_protection
-from local.routine import recorder as routine_recorder
 from routine import record as routine_record
 
 
 def _expired_human(team_id: str, generation: str) -> action_challenges.PendingHumanChallenge:
     pending = PendingLocalChat(object(), (), (), "openai", ("identity", generation, "", "", ""), paused_batch="f" * 64)
     return action_challenges.PendingHumanChallenge("e" * 32, team_id, 0.0, SimpleNamespace(), pending)
-
-
-def _routine_books(controller: local_app.LocalController) -> None:
-    """The Team's in-memory Routine books a destroy must empty: challenges, recordings, cards, and recovery cards."""
-    controller.routine_human_challenges = action_challenges.HumanChallengeStore()
-    controller.routine_recordings = routine_recorder.RecordingBook()
-    controller.routine_proposals = routine_proposal.ProposalBook()
-    controller.routine_protections = routine_protection.RunProtections()
-    controller.routine_cards = routine_card.CardBook()
-
-
-def _open_recording_and_card(controller: local_app.LocalController) -> str:
-    """Open a recording turn and a card for team_1, as a person's turn would; returns the recording id."""
-    recording = controller.routine_recordings.start(
-        "team_1", ("f" * 32, "a" * 64), routine_recorder.Started("list", (), None), 1
-    )
-    controller.routine_proposals.put(
-        SimpleNamespace(team_id="team_1", principal="f" * 32, proposal_id="e" * 32, expires_at=float("inf"))
-    )
-    return recording
-
-
-def _recording_or_card(controller: local_app.LocalController, recording: str) -> tuple[object, object]:
-    """What is left of that recording turn and card."""
-    return (
-        controller.routine_recordings.get("team_1", recording),
-        controller.routine_proposals.take("team_1", "e" * 32, "f" * 32),
-    )
 
 
 def _record_routine_state(controller: local_app.LocalController, events: list[object]) -> None:
@@ -100,7 +74,7 @@ def _destroy_controller(
     controller.action_state = action_state
     controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
     controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-    _routine_books(controller)
+    routine_books(controller)
     _record_routine_state(controller, events)
     controller._wire_collaborators()
     controller.chat_turn_service._chat_lock = lambda _team_id: lock
@@ -185,7 +159,7 @@ class LocalTeamDestroyTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy") or True)
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-        _routine_books(controller)
+        routine_books(controller)
         _record_routine_state(controller, events)
         controller._wire_collaborators()
         # Human continuations that already expired, one of this Team's earlier generation and one of another Team.
@@ -208,10 +182,10 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller.assistant_lifecycle._queue_residue = lambda image_id: events.append(("residue-add", image_id))
         controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
         # The Team's recording turn and its open card are memory only; destroying it drops both.
-        recording = _open_recording_and_card(controller)
+        recording = open_recording_and_card(controller)
 
         result = controller.destroy_team("team_1", "Team One")
-        self.assertEqual(_recording_or_card(controller, recording), (None, None))
+        self.assertEqual(recording_or_card(controller, recording), (None, None))
 
         expected_thread = local_validation.brain_thread_id("local-space", "team_1", "a" * 64)
         self.assertEqual(

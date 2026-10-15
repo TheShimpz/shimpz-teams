@@ -5,15 +5,21 @@ from types import SimpleNamespace
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase, TestAssistantRegistry
-from test_local_team_destroy import _record_routine_state, _routine_books
+from local_controller_harness import (
+    CURRENT_ASSISTANT_IMAGE,
+    LocalContractCase,
+    TestAssistantRegistry,
+    open_recording_and_card,
+    recording_or_card,
+    routine_books,
+)
+from test_local_team_destroy import _record_routine_state
 from test_local_turn_lifecycle import LOCAL_TEAM_RESIDUES
 
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from local import app as local_app
 from local import labels as local_labels
-from local.routine import recorder as routine_recorder
 
 
 class LocalSpaceResetTests(LocalContractCase):
@@ -39,7 +45,7 @@ class LocalSpaceResetTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(delete_all=lambda: events.append("delete-inference"))
-        _routine_books(controller)
+        routine_books(controller)
         _record_routine_state(controller, events)
         controller.brain_runtime = SimpleNamespace(
             delete_thread=lambda thread_id: events.append(("delete-thread", thread_id))
@@ -55,18 +61,12 @@ class LocalSpaceResetTests(LocalContractCase):
         )
         controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
         # Recording turns, cards, and run protection live in memory only; a reset forgets every one.
-        recording = controller.routine_recordings.start(
-            "team_1", ("f" * 32, "a" * 64), routine_recorder.Started("list", (), None), 1
-        )
-        controller.routine_proposals.put(
-            SimpleNamespace(team_id="team_1", principal="f" * 32, proposal_id="e" * 32, expires_at=float("inf"))
-        )
+        recording = open_recording_and_card(controller)
         bound = controller.routine_protections.bind("b" * 32).grow(("protected-value",))
         controller.routine_protections.grow("b" * 32, bound.values)
         result = controller.reset_space()
 
-        self.assertIsNone(controller.routine_recordings.get("team_1", recording))
-        self.assertIsNone(controller.routine_proposals.take("team_1", "e" * 32, "f" * 32))
+        self.assertEqual(recording_or_card(controller, recording), (None, None))
         self.assertTrue(controller.routine_protections.grow("b" * 32, ()).lost)
         self.assertEqual(result["assistants_removed"], 0)
         self.assertEqual(result["teams_removed"], 1)
@@ -102,7 +102,7 @@ class LocalSpaceResetTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(delete_all=lambda: None)
-        _routine_books(controller)
+        routine_books(controller)
         _record_routine_state(controller, events)
         controller.brain_runtime = SimpleNamespace(delete_thread=lambda _thread_id: None)
         controller.action_state = SimpleNamespace(purge=lambda _generation: None)
