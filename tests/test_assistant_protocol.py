@@ -17,7 +17,6 @@ from tests import catalog_fixtures
 
 VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "vectors" / "manifest.json"
 PROTOCOL = VECTORS.parents[1]
-CLOSED_OBJECT = {"type": "object", "additionalProperties": False}
 EXPECTED_UPSTREAM = {
     "repository": "https://github.com/TheShimpz/shimpz-developers",
     "commit": "35f92a09afe39f17c79833ca33d0578b6b13cf18",
@@ -79,17 +78,7 @@ class AssistantProtocolTests(unittest.TestCase):
         self.assertEqual(vectors["version"], 1)
         for case in vectors["cases"]:
             for position in ("input_schema", "output_schema"):
-                action = {
-                    "id": "run",
-                    "description": catalog_fixtures.ACTION_DESCRIPTION,
-                    "input_schema": CLOSED_OBJECT,
-                    "output_schema": CLOSED_OBJECT,
-                    "integrations": [],
-                    "stored_inputs": [],
-                    "input_files": [],
-                    "human_requests": [],
-                    "effect": "read_only",
-                }
+                action = catalog_fixtures.action()
                 action[position] = case["schema"]
                 try:
                     canonical_machine_contract(

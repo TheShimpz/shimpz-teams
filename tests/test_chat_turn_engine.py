@@ -464,17 +464,11 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             machine_contract={
                 "version": 1,
                 "actions": [
-                    {
-                        "id": "list-zones",
-                        "description": catalog_fixtures.ACTION_DESCRIPTION,
-                        "input_schema": dict(declared_action.input_schema),
-                        "output_schema": dict(declared_action.output_schema),
-                        "integrations": [],
-                        "stored_inputs": [],
-                        "input_files": [],
-                        "human_requests": [],
-                        "effect": "read_only",
-                    }
+                    catalog_fixtures.action(
+                        "list-zones",
+                        input_schema=dict(declared_action.input_schema),
+                        output_schema=dict(declared_action.output_schema),
+                    )
                 ],
                 "messages": [],
             },

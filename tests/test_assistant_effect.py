@@ -12,7 +12,6 @@ from assistant import spec as assistant_spec
 from tests import catalog_fixtures
 
 VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "vectors" / "action-effect.json"
-CLOSED = {"type": "object", "properties": {}, "additionalProperties": False}
 OUTCOME = {"type": "string", "enum": ["occurred", "not_occurred", "inconclusive"]}
 IDEMPOTENCY = {
     "provider": "api.example.com",
@@ -68,18 +67,7 @@ def _contract(*actions: dict[str, object]) -> dict[str, object]:
 
 
 def _action(action_id: str, effect: str, **members: object) -> dict[str, object]:
-    return {
-        "id": action_id,
-        "description": catalog_fixtures.ACTION_DESCRIPTION,
-        "input_schema": copy.deepcopy(CLOSED),
-        "output_schema": copy.deepcopy(CLOSED),
-        "integrations": [],
-        "stored_inputs": [],
-        "input_files": [],
-        "human_requests": [],
-        "effect": effect,
-        **members,
-    }
+    return catalog_fixtures.action(action_id, effect=effect, **members)
 
 
 def _admit(contract: dict[str, object], allowed_hosts: tuple[str, ...] = ()) -> dict[str, object]:

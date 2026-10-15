@@ -25,17 +25,9 @@ class MachineContractBoundTests(unittest.TestCase):
             return {
                 "version": 1,
                 "actions": [
-                    {
-                        "id": f"run-{index}",
-                        "description": catalog_fixtures.ACTION_DESCRIPTION,
-                        "input_schema": schema(input_nodes),
-                        "output_schema": schema(output_nodes),
-                        "integrations": [],
-                        "stored_inputs": [],
-                        "input_files": [],
-                        "human_requests": [],
-                        "effect": "read_only",
-                    }
+                    catalog_fixtures.action(
+                        f"run-{index}", input_schema=schema(input_nodes), output_schema=schema(output_nodes)
+                    )
                     for index in range(actions)
                 ],
                 "messages": sorted(

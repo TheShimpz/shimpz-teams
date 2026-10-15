@@ -22,18 +22,7 @@ STORED_INPUT = assistant_manifest.canonical_stored_input_declarations({"api-key"
 
 
 def _action(description: object = catalog_fixtures.ACTION_DESCRIPTION, **members: object) -> dict[str, object]:
-    action = {
-        "id": "run",
-        "description": description,
-        "input_schema": {"type": "object", "additionalProperties": False},
-        "output_schema": {"type": "object", "additionalProperties": False},
-        "integrations": [],
-        "stored_inputs": [],
-        "input_files": [],
-        "human_requests": [],
-        "effect": "read_only",
-        **members,
-    }
+    action = catalog_fixtures.action(description=description, **members)
     if description is None:
         del action["description"]
     return action

@@ -245,17 +245,12 @@ class AssistantManifestTests(unittest.TestCase):
         contract = {
             "version": 1,
             "actions": [
-                {
-                    "id": "send-message",
-                    "description": catalog_fixtures.ACTION_DESCRIPTION,
-                    "input_schema": {"type": "object", "additionalProperties": False},
-                    "output_schema": {"type": "object", "additionalProperties": False},
-                    "integrations": [],
-                    "stored_inputs": ["whatsapp-token"],
-                    "input_files": [],
-                    "human_requests": ["input:password"],
-                    "effect": "mutating",
-                }
+                catalog_fixtures.action(
+                    "send-message",
+                    effect="mutating",
+                    stored_inputs=["whatsapp-token"],
+                    human_requests=["input:password"],
+                )
             ],
             "messages": catalog_fixtures.display_messages(labels=("WhatsApp token",)),
         }
@@ -279,17 +274,9 @@ class AssistantManifestTests(unittest.TestCase):
             },
             ("api.example.com",),
         )
-        action = {
-            "id": "list-items",
-            "description": catalog_fixtures.ACTION_DESCRIPTION,
-            "input_schema": {"type": "object", "additionalProperties": False},
-            "output_schema": {"type": "object", "additionalProperties": False},
-            "integrations": [],
-            "stored_inputs": ["secret", "token"],
-            "input_files": [],
-            "human_requests": ["input:password"],
-            "effect": "read_only",
-        }
+        action = catalog_fixtures.action(
+            "list-items", stored_inputs=["secret", "token"], human_requests=["input:password"]
+        )
         messages = catalog_fixtures.display_messages(labels=("Token", "Secret"))
         contract = {"version": 1, "actions": [action], "messages": messages}
         copy = catalog_fixtures.COPY
@@ -321,17 +308,12 @@ class AssistantManifestTests(unittest.TestCase):
             return {
                 "version": 1,
                 "actions": [
-                    {
-                        "id": "send-message",
-                        "description": catalog_fixtures.ACTION_DESCRIPTION,
-                        "input_schema": {"type": "object", "additionalProperties": False},
-                        "output_schema": {"type": "object", "additionalProperties": False},
-                        "integrations": [],
-                        "stored_inputs": stored_inputs,
-                        "input_files": [],
-                        "human_requests": ["input:password"],
-                        "effect": "mutating",
-                    }
+                    catalog_fixtures.action(
+                        "send-message",
+                        effect="mutating",
+                        stored_inputs=stored_inputs,
+                        human_requests=["input:password"],
+                    )
                 ],
                 "messages": catalog_fixtures.display_messages(labels=("Key",)),
             }

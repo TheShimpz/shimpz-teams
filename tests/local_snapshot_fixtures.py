@@ -25,17 +25,11 @@ PACK = catalog_fixtures.pack_bytes(MESSAGES)
 MACHINE_CONTRACT = {
     "version": 1,
     "actions": [
-        {
-            "id": "ping",
-            "description": catalog_fixtures.ACTION_DESCRIPTION,
-            "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
-            "output_schema": {"type": "object", "properties": {}, "additionalProperties": False},
-            "integrations": [],
-            "stored_inputs": [],
-            "input_files": [],
-            "human_requests": [],
-            "effect": "read_only",
-        }
+        catalog_fixtures.action(
+            "ping",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            output_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        )
     ],
     "messages": MESSAGES,
 }

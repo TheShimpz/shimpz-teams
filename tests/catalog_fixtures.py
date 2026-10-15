@@ -44,6 +44,25 @@ ZONE_PARAMS = [
     {"name": "zone", "kind": "domain", "max_length": 30},
 ]
 
+# The closed object schema a fixture Action takes and returns unless a test gives it another.
+CLOSED_SCHEMA = {"type": "object", "additionalProperties": False}
+
+
+def action(action_id: str = "run", *, effect: str = "read_only", **members: object) -> dict[str, object]:
+    """One closed machine-contract Action document; ``members`` replace its empty defaults or add optional members."""
+    return {
+        "id": action_id,
+        "description": ACTION_DESCRIPTION,
+        "input_schema": copy.deepcopy(CLOSED_SCHEMA),
+        "output_schema": copy.deepcopy(CLOSED_SCHEMA),
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [],
+        "human_requests": [],
+        "effect": effect,
+        **members,
+    }
+
 
 def message(msgid: str, max_length: int = 160, params: list[dict[str, object]] | None = None) -> dict[str, object]:
     """One catalog entry whose id is the SHA-256 of its exact template."""

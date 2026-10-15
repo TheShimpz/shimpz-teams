@@ -92,24 +92,28 @@ def assistant_spec(image: str) -> AssistantSpec:
         integrations=integrations,
         machine_contract={
             "version": 1,
-            "actions": [
-                {
-                    "id": action_id,
-                    "description": catalog_fixtures.ACTION_DESCRIPTION,
-                    "input_schema": dict(action.input_schema),
-                    "output_schema": dict(action.output_schema),
-                    "integrations": list(action.integrations),
-                    "stored_inputs": list(action.stored_inputs),
-                    "input_files": [],
-                    "human_requests": list(action.human_requests),
-                    "effect": action.effect,
-                }
-                for action_id, action in sorted(actions.items())
-            ],
+            "actions": _contract_actions(actions),
             "messages": human_request_fixtures.harness_messages(SUMMARY),
         },
         pack_digest=PACK.pack_digest,
     )
+
+
+def _contract_actions(actions: dict[str, assistant_registry.ActionSpec]) -> list[dict[str, object]]:
+    """The machine-contract Actions these registry Actions project to, in id order."""
+    return [
+        catalog_fixtures.action(
+            action_id,
+            effect=action.effect,
+            input_schema=dict(action.input_schema),
+            output_schema=dict(action.output_schema),
+            integrations=list(action.integrations),
+            stored_inputs=list(action.stored_inputs),
+            human_requests=list(action.human_requests),
+            **({} if action.verifier is None else {"verifier": dict(action.verifier)}),
+        )
+        for action_id, action in sorted(actions.items())
+    ]
 
 
 _CREATE_OUTPUT = {
@@ -164,19 +168,5 @@ def mutating_spec(image: str) -> AssistantSpec:
     )
     actions = {**base.actions, "create-record": create, "find-record": find}
     contract = dict(base.machine_contract)
-    contract["actions"] = [
-        {
-            "id": action_id,
-            "description": catalog_fixtures.ACTION_DESCRIPTION,
-            "input_schema": dict(action.input_schema),
-            "output_schema": dict(action.output_schema),
-            "integrations": list(action.integrations),
-            "stored_inputs": list(action.stored_inputs),
-            "input_files": [],
-            "human_requests": list(action.human_requests),
-            "effect": action.effect,
-            **({} if action.verifier is None else {"verifier": dict(action.verifier)}),
-        }
-        for action_id, action in sorted(actions.items())
-    ]
+    contract["actions"] = _contract_actions(actions)
     return dataclasses.replace(base, actions=actions, machine_contract=contract)
