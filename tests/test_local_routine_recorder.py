@@ -121,24 +121,20 @@ class RecordingBookTests(unittest.TestCase):
         alone = book.start("team_4", BINDING, _started("y" * routine_recorder.MAX_TEXT_BYTES), 1)
         self.assertEqual(book.get("team_4", alone).refused, "routine-recording-too-large")
 
-    def test_a_question_is_kept_with_its_frontier_and_both_count_sends_as_old_ones_go(self) -> None:
+    def test_a_question_is_kept_and_counts_sends_as_old_ones_go(self) -> None:
         book = routine_recorder.RecordingBook()
         book.start("team_1", BINDING, _started(), 1)
         first = book.start("team_1", BINDING, _started(), 2)
         manifest = routine_recording.Manifest(())
-        question = routine_recording.Question("routine-work-split", manifest=manifest, frontier=1)
+        question = routine_recording.Question("routine-binding-unsourced", manifest=manifest)
         intent = routine_recorder.Intent("DNS", None, None, "Lista o DNS.")
         book.asked("team_1", first, question, intent)
         found = book.get("team_1", first)
         asked = routine_recording.Asked(question.code, 2, None, manifest, question.wire())
-        self.assertEqual((found.asked, found.frontier, found.intent), (asked, 1, intent))
-        # A later question never moves the frontier back.
-        book.asked("team_1", first, routine_recording.Question("routine-schedule-unstated"), intent)
-        self.assertEqual(book.get("team_1", first).frontier, 1)
+        self.assertEqual((found.asked, found.intent), (asked, intent))
         for index in range(routine_recorder.MAX_SENDS):
             send = book.start("team_1", BINDING, _started(), 3 + index)
-        found = book.get("team_1", send)
-        self.assertEqual((found.asked.after, found.frontier), (0, 0))
+        self.assertEqual(book.get("team_1", send).asked.after, 0)
 
     def test_only_the_persons_own_untruncated_earlier_lines_join_the_send(self) -> None:
         conversation = (
@@ -168,13 +164,11 @@ class RecordingBookTests(unittest.TestCase):
             *,
             composed: bool = True,
             kept: routine_recorder.Intent | None = intent,
-            original: str = "Liste",
-            question: str = "Qual?",
         ):
             book = routine_recorder.RecordingBook()
             send = book.start("team_1", BINDING, _started("Liste"), 1)
             book.asked("team_1", send, routine_recording.Question(code, pending=pending), kept)
-            message = http_payload.compose_clarified(original, question, answer, "pt") if composed else answer
+            message = http_payload.compose_clarified("Liste", "Qual?", answer, "pt") if composed else answer
             send = book.start("team_1", BINDING, _started(message), 2)
             return routine_recorder.answered(book.get("team_1", send))
 
@@ -192,21 +186,12 @@ class RecordingBookTests(unittest.TestCase):
             ("routine-binding-ambiguous", "a-zone", None),
             ("routine-binding-ambiguous", '"123"', None),
             ("routine-binding-unsourced", "a cada hora", None),
-            # Keeping only the latest work runs nothing again; running it all again is the Brain's.
+            ("routine-schedule-unstated", "a cada 30 dias", intent),
         ]
         for code, answer, expected in cases:
             with self.subTest(code=code, answer=answer):
                 self.assertEqual(answered(code, answer), expected)
-        split = http_routine_proposal.SPLIT_QUESTION["pt"]
-        latest = http_routine_proposal.SPLIT_LATEST["pt"]
-        self.assertEqual(answered("routine-work-split", latest, question=split), intent)
-        self.assertIsNone(answered("routine-work-split", "Executar tudo de novo", question=split))
         self.assertIsNone(answered("routine-schedule-unstated", "a cada hora", composed=False))
-        # Keeping the latest work binds only an answer to the very exchange and question that asked.
-        self.assertIsNone(
-            answered("routine-work-split", latest, question=split, original="Explique este exemplo copiado")
-        )
-        self.assertIsNone(answered("routine-work-split", latest, question="Traduza isto?"))
         # Only Admin's complete composition, ending in its answer, is an answer Team records itself.
         for message in (
             "Resposta: a cada hora",
@@ -298,7 +283,7 @@ class RecordingBookTests(unittest.TestCase):
         )
         self.assertEqual((shown[3]["count"], shown[3]["inputs"][0]["value"]), (2, None))
         self.assertIsNone(
-            routine_recorder.rerun_work(self.span((work,), routine_recording.Question("routine-work-split")))
+            routine_recorder.rerun_work(self.span((work,), routine_recording.Question("routine-output-unstated")))
         )
         self.assertIsNone(routine_recorder.rerun_work(None))
 

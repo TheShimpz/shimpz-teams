@@ -123,8 +123,8 @@ COPY --link local/routine/__init__.py local/routine/card.py local/routine/compil
     local/routine/manage.py local/routine/notices.py local/routine/proposal.py local/routine/protection.py \
     local/routine/recorder.py local/routine/recovery.py local/routine/run.py local/routine/state.py \
     local/routine/store.py local/routine/watchdog.py ./local/routine/
-COPY --link routine/__init__.py routine/claim.py routine/compose.py routine/cursor.py routine/definition.py \
-    routine/hold.py routine/pin.py routine/plan.py routine/provenance.py routine/record.py \
+COPY --link routine/__init__.py routine/claim.py routine/compose.py routine/cursor.py routine/dates.py \
+    routine/definition.py routine/hold.py routine/pin.py routine/plan.py routine/provenance.py routine/record.py \
     routine/recording.py routine/rerun.py routine/runs.py routine/schedule.py routine/starts.py routine/trace.py \
     ./routine/
 COPY --link local/http/__init__.py local/http/audit.py local/http/chat.py local/http/deadline.py local/http/dispatch.py \

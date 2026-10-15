@@ -127,11 +127,6 @@ def _segment_response(
     def commit(terminal: chat_orchestrator.ChatOutcome, body: dict[str, object]) -> tuple[bool, dict]:
         routine = terminal.routine
         if routine is None:
-            # A send that repeated the work a pending question asked for records the stored intent, even when the
-            # Brain ended in prose without recording (ADR-0101).
-            span = self.routine_recordings.live(team_id, response.recording)
-            routine = local_routine_recorder.settled(span)
-        if routine is None:
             return self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal)), {}
         # A recorded Routine's card is kept with the reply, under the lifecycle lock and the Stop guard: when Stop wins,
         # no card exists (ADR-0101 section 5.1).
@@ -182,21 +177,21 @@ def _timezone(value: object) -> str | None:
 
 
 def _recording(
-    self, team_id: str, identity: dict[str, object], send: tuple[str, list, str | None, tuple]
+    self, team_id: str, identity: dict[str, object], send: tuple[str, list, str | None, tuple, str | None]
 ) -> str | None:
     """Open the send of a new turn in the Team's recording span, or None, which ends any span.
 
     Only a person's fresh request without files records, in the Team incarnation it starts in (ADR-0101); the person's
     earlier sends in the request's conversation window join the text whose names it matches.
     """
-    message, file_ids, timezone, conversation = send
+    message, file_ids, timezone, conversation, locale = send
     principal = local_audit.human_principal()
     now = int(time.time())
     if principal is None or file_ids or not http_payload.request_identity_fresh(identity["issued_at"], now):
         self.routine_recordings.drop(team_id)
         return None
     incarnation = self.assistant_lifecycle._network(team_id).id
-    started = local_routine_recorder.Started(message, tuple(conversation), timezone)
+    started = local_routine_recorder.Started(message, tuple(conversation), timezone, locale)
     return self.routine_recordings.start(team_id, (principal, incarnation), started, now)
 
 
@@ -252,7 +247,7 @@ def chat(
             return pending
         # The turn is admitted: its duration runs from here to its terminal, across every resume.
         usage = brain_usage.TurnUsage.start()
-        recording = _recording(self, team_id, identity, (message, file_ids, timezone, conversation))
+        recording = _recording(self, team_id, identity, (message, file_ids, timezone, conversation, locale))
         segment = self._run_chat_segment(
             _ChatSegmentRequest(
                 team_id=team_id,

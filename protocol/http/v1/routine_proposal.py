@@ -23,7 +23,7 @@ _PROPOSAL_INPUT_FIELDS = frozenset({"member", "origin", "value", "step", "pointe
 
 
 def _card_input(value: object, position: int) -> bool:
-    """One input as the card shows it: a literal's complete JSON text, the run date, or its source step and path."""
+    """One input as the card shows it: a literal's complete JSON text, the run date or a dated text, or its source."""
     if not isinstance(value, dict) or set(value) != _PROPOSAL_INPUT_FIELDS or value["origin"] not in INPUT_ORIGINS:
         return False
     origin = value["origin"]
@@ -33,7 +33,13 @@ def _card_input(value: object, position: int) -> bool:
         literal = isinstance(value["value"], str) and routine._PLAN_UNSAFE_RE.search(value["value"]) is None
         return literal and all(value[key] is None for key in ("step", "pointer", "where", "item"))
     if origin == "clock":
-        return all(value[key] is None for key in ("value", "step", "pointer", "where", "item"))
+        # The run date alone, or a text template complete, each of its dates in braces.
+        template = value["value"] is None or (
+            isinstance(value["value"], str)
+            and "{" in value["value"]
+            and routine._PLAN_UNSAFE_RE.search(value["value"]) is None
+        )
+        return template and all(value[key] is None for key in ("step", "pointer", "where", "item"))
     return (
         value["value"] is None
         and (value["where"] is not None) == (origin == "selector")
@@ -133,7 +139,6 @@ QUESTION_CODES = (
     "routine-interval-over-budget",
     "routine-binding-ambiguous",
     "routine-binding-unsourced",
-    "routine-work-split",
     "routine-work-rerun",
 )
 MAX_QUESTION_OPTIONS = 8
@@ -218,41 +223,6 @@ OUTPUT_CHOICES = {
     },
     "zh": {"show": "每次运行都显示", "changes": "仅在变化时显示", "none": "不显示", "chain": "用于其他操作"},
 }
-
-
-# The split-work question as Admin asks it in each interface language (ADR-0101): an answer that keeps only the latest
-# work binds only when it answers exactly this question.
-SPLIT_QUESTION = {
-    "ar": "انقسم العمل على عدة رسائل. ماذا يجب أن يكرر هذا الروتين؟",
-    "de": "Die Arbeit war auf mehrere Nachrichten verteilt. Was soll diese Routine wiederholen?",
-    "en": "The work was split across several messages. What should this Routine repeat?",
-    "es": "El trabajo quedó dividido en varios mensajes. ¿Qué debe repetir esta rutina?",
-    "fr": "Le travail a été réparti sur plusieurs messages. Que doit répéter cette routine ?",
-    "ja": "作業が複数のメッセージに分かれています。このルーティンは何を繰り返しますか？",
-    "pt": "O trabalho ficou dividido em várias mensagens. O que esta rotina deve repetir?",
-    "zh": "这项工作分散在多条消息中。此例行任务应重复什么？",
-}
-
-# The answer to a split-work question that keeps only the work of the latest send that ran any (ADR-0101): the person
-# replaces what earlier sends ran instead of combining it, so Team records that latest work with no model call. Admin
-# offers this label in the interface language beside the answer that runs everything again.
-SPLIT_LATEST = {
-    "ar": "استخدم عمل الرسالة الأخيرة فقط",
-    "de": "Nur die Arbeit der letzten Nachricht verwenden",
-    "en": "Use only the latest message's work",
-    "es": "Usar solo el trabajo del último mensaje",
-    "fr": "Utiliser seulement le travail du dernier message",
-    "ja": "最後のメッセージの作業だけを使う",
-    "pt": "Usar só o trabalho da última mensagem",
-    "zh": "只使用最后一条消息的工作",
-}
-
-
-def keeps_latest_work(question: str, answer: str) -> bool:
-    """Whether an answer to the split-work question, in one interface language, keeps only the latest work."""
-    return question in SPLIT_QUESTION.values() and answer.strip().casefold() in {
-        label.casefold() for label in SPLIT_LATEST.values()
-    }
 
 
 # The reply of a send that answers Team's pending question, which Team then records without asking the Brain: one

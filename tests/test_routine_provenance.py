@@ -11,6 +11,7 @@ from test_routine_recording import (
     PIN,
     RECORDS,
     SHIMPZ_ID,
+    STARTED,
     ZONES,
     ZONES_CALL,
     _actions,
@@ -98,6 +99,25 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(origin, "request")
         source, _origin = self.classify("2026-10-04", "relatório", {"day": "2026-10-04"})
         self.assertEqual(source["kind"], "step_output")
+
+    def test_dates_inside_text_the_assistant_wrote_follow_each_run(self) -> None:
+        """The owner's news Routine: its search named the day it was recorded on."""
+        search = ("reports/fetch", {"query": "notícias inteligência artificial hoje 5 outubro 2026"}, {"items": []})
+        recorded = _recorded(_send(search, message="Cria uma rotina que faz isso a cada 1 minuto"))
+        query = _input(recorded)["query"]
+        self.assertEqual((query["kind"], query["format"]), ("run_clock", "text"))
+        self.assertEqual(recorded.origins["s1"]["query"], "clock")
+        later = datetime.datetime.fromtimestamp(STARTED + 86_400, datetime.UTC)
+        self.assertEqual(
+            routine_plan.clock_value(query, later, recorded.timezone),
+            "notícias inteligência artificial hoje 6 outubro 2026",
+        )
+        # The day the person wrote stays that day, and a result that holds the text is still its source.
+        named = _recorded(_send(search, message="Notícias de 5 outubro 2026 a cada hora"))
+        self.assertEqual(_input(named)["query"]["kind"], "literal")
+        lookup = ("reports/fetch", {"q": "ideas"}, {"query": search[1]["query"]})
+        sourced = _recorded(_send(lookup, search, message=EVERY_HOUR))
+        self.assertEqual(_input(sourced)["query"]["kind"], "step_output")
 
     def test_with_no_zone_known_the_run_date_is_the_utc_date(self) -> None:
         calls = [("cloudflare/list-dns-records", {"zone_id": "z", "per_page": "2026-10-05"}, {})]
@@ -283,16 +303,16 @@ class SourceTests(unittest.TestCase):
         )
         self.assertEqual(_code(self, lambda: _record(_send(*cyclic))), "routine-recording-cyclic")
 
-    def test_work_split_across_sends_is_asked_about_until_it_runs_whole(self) -> None:
+    def test_the_latest_send_that_ran_actions_is_the_whole_work(self) -> None:
         first = ("cloudflare/list-dns-records", {"zone_id": ZONES["result"][0]["id"]}, {})
         second = ("cloudflare/list-dns-records", {"zone_id": ZONES["result"][1]["id"]}, {})
         named = "DNS de example.com e other.org a cada hora"
-        split = _record(_send(ZONES_CALL, first, message=named), _send(second))
-        self.assertEqual(split, recording.Question("routine-work-split"))
+        latest = _recorded(_send(ZONES_CALL, first, message=named), _send(second))
+        self.assertEqual(_actions(latest), ["list-zones", "list-dns-records"])
         whole = _recorded(_send(ZONES_CALL, first, message=named), _send(first, second))
         self.assertEqual(_actions(whole), ["list-zones", "list-dns-records", "list-dns-records"])
 
-    def test_an_earlier_identical_call_the_work_ran_again_is_no_split(self) -> None:
+    def test_an_earlier_identical_call_the_work_ran_again_is_one_source(self) -> None:
         earlier = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID}, {"result": [{"type": "A"}]})
         again = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID}, {"result": [{"type": "MX"}]})
         recorded = _recorded(_send(ZONES_CALL, earlier, message="shimpz.com"), _send(ZONES_CALL, again))

@@ -3,7 +3,6 @@
 import dataclasses
 import datetime
 import heapq
-import json
 from collections.abc import Mapping, Sequence
 
 from protocol.http.v1 import phrase
@@ -23,13 +22,12 @@ def record(
     *,
     asked: routine_recording.Asked | None = None,
     existing: routine_recording.Existing | None = None,
-    frontier: int = 0,
 ) -> routine_recording.Recorded | routine_recording.Question:
     """The plan a recording span defines, or the question to ask first; raises RecordingError when it cannot be one.
 
-    A pending rerun question stands until one later send's calls satisfy its manifest, or, for split work, until the
-    person keeps only the latest work; that send is then the new ``frontier``, and no call before it counts as split
-    work any more, though each may still be a source.
+    The work is the calls of the latest send that ran any Action. A question only work run again can answer gets one
+    repair: once a later send ran Actions, work that still needs the same repair, or that does not use the target the
+    person chose, refuses ``routine-record-again`` instead of asking again.
     """
     _admit(recording, contracts)
     if protection.lost:
@@ -37,24 +35,15 @@ def record(
     # The person's output, or show while the work is planned and its own questions come first; unstated, it is asked.
     stated = recording.mode or _output(sends, existing)
     recording = dataclasses.replace(recording, mode=_OUTPUT_MODES.get(stated or "show", stated))
-    if asked is not None and asked.manifest is not None:
-        kept = routine_rerun.kept_latest(sends, asked)
-        settled = kept if kept is not None else routine_rerun.settlement(sends, asked)
-        if settled is None:
-            question = routine_recording.Question(
-                asked.code, pending=asked.pending, manifest=asked.manifest, frontier=frontier
-            )
-            return dataclasses.replace(question, chosen=asked.chosen, chained_from=asked.chained_from)
-        frontier = max(frontier, settled)
     calls = routine_recording._calls(sends, contracts)
     texts = [line for send in sends for line in (*routine_recording._lines(send.person), *send.window)]
     latest = [call for call in calls if call.send == calls[-1].send] if calls else []
     context = routine_recording._Context(
         sends, calls, routine_recording._known(texts, protection), routine_recording.zone(sends), asked, contracts
     )
-    context.frontier = frontier
     work = routine_provenance._narrowed(context, latest)
     context.work = tuple(call.index for call in work)
+    repaired = asked is not None and any(send.occurrences for send in sends[asked.after :])
     try:
         if not latest and existing is not None:
             kept = _kept(context, recording, existing)
@@ -64,12 +53,16 @@ def record(
             when = _schedule(sends, existing)
         planned = kept.document if kept is not None else document
         chained_from = asked.chained_from if asked is not None else None
-        if stated is None or (stated == "chain" and not _chained(context, planned["steps"], chained_from)):
-            # Asked first, the question keeps the call the work would show, which a chain chosen then must use.
-            shown = chained_from or _shown_call(context, planned)
+        if stated is None or (stated == "chain" and not _chained(planned, chained_from)):
+            # Asked first, the question keeps the Action the work would show, whose result a chain chosen then uses.
+            shown = chained_from or _shown_action(planned)
             raise routine_recording._AskError(routine_recording.Question("routine-output-unstated", chained_from=shown))
     except routine_recording._AskError as asking:
-        return _asked(context, work, asking.question, frontier)
+        if repaired and _repair(asked, asking.question, stated):
+            raise routine_recording.RecordingError("routine-record-again") from asking
+        return _asked(context, work, asking.question)
+    if repaired and not _chosen_used(context, work):
+        raise routine_recording.RecordingError("routine-record-again")
     if kept is not None:
         return kept
     timezone, source = context.zone
@@ -78,17 +71,35 @@ def record(
     return routine_recording.Recorded(document, origins, permitted, when, timezone, source)
 
 
-# The questions only work run again can answer, which freeze that work as a manifest.
-_RERUN_CODES = frozenset({"routine-work-split", "routine-work-rerun", "routine-binding-unsourced"})
+def _repair(asked: routine_recording.Asked, question: routine_recording.Question, stated: str | None) -> bool:
+    """Whether work run again after a question still needs repairing: the same rerun, or the chain asked for."""
+    if asked.code in _RERUN_CODES:
+        return question.code in _RERUN_CODES
+    return asked.code == "routine-output-unstated" and stated == "chain" and question.code == asked.code
+
+
+def _chosen_used(context: routine_recording._Context, work: list[routine_recording._Call]) -> bool:
+    """Whether the work sends every target the person chose, wherever it calls the Action that choice is about."""
+    for binding in routine_provenance._bindings(context):
+        if binding.chosen is None:
+            continue
+        chosen = routine_recording._json_text(binding.chosen)
+        calls = [call for call in work if call.action == binding.action]
+        if not any(routine_provenance._sent_value(call, binding.member) == chosen for call in calls):
+            return False
+    return True
+
+
+# The questions only work run again can answer, which name that work for the Brain as a manifest.
+_RERUN_CODES = frozenset({"routine-work-rerun", "routine-binding-unsourced"})
 
 
 def _asked(
     context: routine_recording._Context,
     work: list[routine_recording._Call],
     question: routine_recording.Question,
-    frontier: int,
 ) -> routine_recording.Question:
-    """A question as Team keeps it: with the frontier, the work it asks to repeat, and every choice already answered.
+    """A question as Team keeps it: with the work it asks to repeat, and every choice already answered.
 
     A choice the person answered exactly stays bound, whatever Team asks next.
     """
@@ -108,12 +119,7 @@ def _asked(
         manifest = routine_rerun._manifest(context, work, tuple(kept.values()))
     chained_from = question.chained_from or (context.asked.chained_from if context.asked is not None else None)
     return dataclasses.replace(
-        question,
-        pending=pending,
-        manifest=manifest,
-        frontier=frontier,
-        chosen=tuple(kept.values()),
-        chained_from=chained_from,
+        question, pending=pending, manifest=manifest, chosen=tuple(kept.values()), chained_from=chained_from
     )
 
 
@@ -164,51 +170,29 @@ def _schedule(
 
 # How each output choice the person states runs: a chain uses the result in other Actions, which the recorded work then
 # runs, and shows it. A chain whose work has no step reading an earlier step's result is no chain yet: the output
-# question stands, and the Brain runs the chained work when the person answers it.
+# question stands, and the Brain runs the chained work when the person answers it, once.
 _OUTPUT_MODES = {"show": "show", "changes": "changes", "none": "none", "chain": "show"}
 
 
-def _chained(
-    context: routine_recording._Context,
-    steps: Sequence[Mapping[str, object]],
-    chained_from: tuple[str, str, str, str] | None,
-) -> bool:
-    """Whether a plan's work uses the result a chain is about: a later step reads it.
+def _chained(document: Mapping[str, object], chained_from: tuple[str, str] | None) -> bool:
+    """Whether a plan's work uses an earlier result, as a chain does: a later step reads it.
 
-    Chosen when Team asked for the output, the chain must use the result of the very call the work would then have
-    shown, or of one equivalent to it: the same Action, input, and result, as the recorder's sources compare them;
-    stated with the request, any earlier result some step reads.
+    Chosen when Team asked for the output, the chain must use a result of the Action the work would then have shown,
+    whatever its input; stated with the request, any earlier result some step reads.
     """
+    steps = document["steps"]
     read = {source["step"] for step in steps for source in step["input"].values() if source["kind"] == "step_output"}
-    return any(step["id"] in read and _is_call(context, step, chained_from) for step in steps)
-
-
-def _is_call(
-    context: routine_recording._Context, step: Mapping[str, object], call: tuple[str, str, str, str] | None
-) -> bool:
-    if call is None:
-        return True
-    occurrence = context.planned.get(step["id"])
-    return (
-        occurrence is not None
-        and (occurrence.assistant, occurrence.action) == call[:2]
-        and routine_plan.same(occurrence.input.value, json.loads(call[2]))
-        and routine_plan.same(occurrence.result.value, json.loads(call[3]))
+    return any(
+        step["id"] in read and (chained_from is None or (step["assistant"], step["action"]) == chained_from)
+        for step in steps
     )
 
 
-def _shown_call(
-    context: routine_recording._Context, document: Mapping[str, object]
-) -> tuple[str, str, str, str] | None:
-    """The call of the step a plan shows, or None when it shows none or stands for no call of the span."""
-    occurrence = context.planned.get(document["output"]["step"])
-    if occurrence is None:
-        return None
-    given, result = (
-        routine_recording._json_text(occurrence.input.value),
-        routine_recording._json_text(occurrence.result.value),
-    )
-    return occurrence.assistant, occurrence.action, given, result
+def _shown_action(document: Mapping[str, object]) -> tuple[str, str] | None:
+    """The Assistant and Action of the step a plan shows, or None when it shows none."""
+    shown = document["output"]["step"]
+    step = next((step for step in document["steps"] if step["id"] == shown), None)
+    return None if step is None else (step["assistant"], step["action"])
 
 
 def _output(sends: Sequence[routine_recording.Send], existing: routine_recording.Existing | None) -> str | None:
@@ -284,7 +268,6 @@ def _plan(
         raise routine_recording.RecordingError("routine-recording-empty")
     _classes(context)
     nodes = _closure(context, work)
-    routine_rerun._split(context, work, nodes)
     order = _ordered(context, nodes)
     names = {node: f"s{position}" for position, node in enumerate(order, start=1)}
     context.planned = {names[node]: nodes[node].occurrence for node in order}
@@ -434,7 +417,7 @@ def _resolved(
         return source["value"]
     if source["kind"] == "run_clock":
         instant = datetime.datetime.fromtimestamp(started, datetime.UTC)
-        return routine_plan.clock_value(source["format"], instant, context.zone[0])
+        return routine_plan.clock_value(source, instant, context.zone[0])
     try:
         if "where" in source:
             return routine_plan.select_where(

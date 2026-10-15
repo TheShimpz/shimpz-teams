@@ -69,26 +69,50 @@ _UNIT = {
     "دقائق": "minute",
     "ساعة": "hour",
     "ساعات": "hour",
+    "dia": "day",
+    "día": "day",
+    "semana": "week",
+    "day": "day",
+    "week": "week",
+    "jour": "day",
+    "semaine": "week",
+    "tag": "day",
+    "woche": "week",
+    "日": "day",
+    "週間": "week",
+    "天": "day",
+    "周": "week",
+    "星期": "week",
+    "个星期": "week",
+    "يوم": "day",
+    "أيام": "day",
+    "أسبوع": "week",
+    "أسابيع": "week",
 }
 # An interval: (language, pattern with an optional count group and a unit group, or a fixed unit).
 _INTERVALS = (
-    ("pt", r"\b(?:a\s+)?cada\s+(?:(\d+)\s+)?(segundo|minuto|hora)s?\b"),
-    ("pt", r"\bde\s+(\d+)\s+em\s+\d+\s+(segundo|minuto|hora)s?\b"),
+    ("pt", r"\b(?:a\s+)?cada\s+(?:(\d+)\s+)?(segundo|minuto|hora|dia|semana)s?\b"),
+    ("pt", r"\bde\s+(\d+)\s+em\s+\d+\s+(segundo|minuto|hora|dia|semana)s?\b"),
     ("pt", r"\bde\s+()(minuto|hora)\s+em\s+(?:minuto|hora)\b"),
     ("pt", r"\btod[ao]\s+()(minuto|hora)\b"),
-    ("en", r"\bevery\s+(?:(\d+)\s+)?(second|sec|minute|min|hour|hr)s?\b"),
+    ("en", r"\bevery\s+(?:(\d+)\s+)?(second|sec|minute|min|hour|hr|day|week)s?\b"),
     ("en", r"\beach\s+()(second|minute|hour)\b"),
     ("en", r"\b()(hour)ly\b"),
-    ("es", r"\bcada\s+(?:(\d+)\s+)?(segundo|minuto|hora)s?\b"),
-    ("fr", r"\btoutes\s+les\s+(?:(\d+)\s+)?(seconde|minute|heure)s?\b"),
+    ("es", r"\bcada\s+(?:(\d+)\s+)?(segundo|minuto|hora|d[ií]a|semana)s?\b"),
+    ("fr", r"\btoutes\s+les\s+(?:(\d+)\s+)?(seconde|minute|heure|semaine)s?\b"),
+    ("fr", r"\btous\s+les\s+(\d+)\s+(jour)s\b"),
     ("fr", r"\bchaque\s+()(seconde|minute|heure)\b"),
-    ("de", r"\balle\s+(\d+)\s+(sekunde|minute|stunde)n?\b"),
+    ("de", r"\balle\s+(\d+)\s+(sekunde|minute|stunde|tag|woche)(?:n|e)?\b"),
     ("de", r"\bjede[nrs]?\s+()(sekunde|minute|stunde)\b"),
     ("de", r"\b()(stünd)lich\b"),
-    ("ja", r"(\d+)\s*(秒|分|時間)(?:ごと|おき|毎)"),
+    ("ja", r"(\d+)\s*(秒|分|時間|日|週間)(?:ごと|おき|毎)"),
     ("ja", r"毎()(時|分)(?!間)"),
-    ("zh", r"每(?:隔)?\s*(\d*)\s*(秒钟|秒|分钟|个小时|小时)"),
-    ("ar", r"كل\s+(\d*)\s*(ثانية|ثواني|ثوان|دقيقة|دقائق|ساعة|ساعات)"),
+    ("zh", r"每(?:隔)?\s*(\d*)\s*(秒钟|秒|分钟|个小时|小时|天|个星期|星期|周)(?![一二三四五六日天])"),
+    (
+        "ar",
+        r"كل\s+(\d*)\s*(ثانية|ثواني|ثوان|دقيقة|دقائق|ساعة|ساعات|أيام|يوم|أسابيع|أسبوع)"
+        r"(?!\s+(?:ال)?(?:اثنين|ثلاثاء|أربعاء|خميس|جمعة|سبت|أحد))",
+    ),
 )
 _FIXED_UNITS = {"stünd": "hour", "時": "hour"}
 _DAILY = (
@@ -289,8 +313,11 @@ def _readings(sentence: str) -> dict[str, list[re.Match[str]]]:
     return admitted
 
 
-# The longest count any schedule can hold: a day in seconds has five digits; a longer one states nothing.
+# The longest count any schedule can hold: the longest gap in seconds has eight digits; a longer one states nothing.
 _MAX_COUNT_DIGITS = len(str(http_routine.MAX_CONTINUOUS_GAP_SECONDS))
+_UNIT_SECONDS = {"second": 1, "minute": 60, "hour": 3600, "day": 86_400, "week": 604_800}
+# A day or week without a count ("every day", "toda semana") is a calendar phrase, which needs its time or weekday.
+_COUNTED_UNITS = frozenset({"day", "week"})
 
 
 def _interval(count: str, unit: str) -> dict[str, object] | None:
@@ -298,9 +325,11 @@ def _interval(count: str, unit: str) -> dict[str, object] | None:
         return None
     every = int(count) if count else 1
     kind = _FIXED_UNITS.get(unit) or _UNIT[unit]
+    if kind in _COUNTED_UNITS and not count:
+        return None
     if kind == "hour" and 1 <= every <= 24:
         return {"kind": "hourly", "every": every}
-    gap = every * (60 if kind == "minute" else 3600 if kind == "hour" else 1)
+    gap = every * _UNIT_SECONDS[kind]
     if not http_routine.MIN_CONTINUOUS_GAP_SECONDS <= gap <= http_routine.MAX_CONTINUOUS_GAP_SECONDS:
         return None
     return {"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)}

@@ -9,6 +9,8 @@ from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_notice as http_routine_notice
 from routine import definition as routine_definition
 
+MAX_PREVIEW = http_routine.MAX_PREVIEW_CHARS
+
 
 def _many(count: int, actions: tuple[str, ...] = ("check",)) -> dict[str, object]:
     """A plan of ``count`` steps cycling through ``actions``, each step referring to the one before it."""
@@ -75,6 +77,18 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(http_routine.canonical_step(step, position), step)
         self.assertTrue(routine_definition.steps_fit(PLAN, permitted))
         self.assertEqual(routine_definition.disposition(PLAN), {"mode": "none", "step": None})
+
+    def test_a_dated_text_shows_its_template_cut_like_a_literal(self) -> None:
+        dated = {"days": 6, "format": "{dd}/{MM}", "lang": None}
+        plan = _many(1)
+        plan["steps"][0]["input"]["zone"] = {"kind": "run_clock", "format": "text", "parts": ["\u202e{x} ", dated]}
+        projected = routine_definition.step(plan, routine_fixture.permitted(plan), 1)
+        self.assertEqual(projected["inputs"][0]["value"], r"\u202e{{x}} {DD/MM|+6}")
+        self.assertEqual(http_routine.canonical_step(projected, 1), projected)
+        plan["steps"][0]["input"]["zone"]["parts"] = ["x" * 200, dated]
+        cut = routine_definition.step(plan, routine_fixture.permitted(plan), 1)
+        self.assertEqual((len(cut["inputs"][0]["value"]), cut["inputs"][0]["value"][-1]), (MAX_PREVIEW, "…"))
+        self.assertEqual(http_routine.canonical_step(cut, 1), cut)
 
     def test_a_step_whose_projection_outgrows_its_bound_does_not_fit(self) -> None:
         plan = _many(1)

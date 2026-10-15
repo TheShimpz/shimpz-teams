@@ -1,18 +1,13 @@
-"""A question's frozen work is settled only by a later send that runs it again exactly (ADR-0101)."""
+"""The work a question asks the Brain to run again, and the one repair that work gets (ADR-0101)."""
 
-import dataclasses
 import datetime
 import json
 import unittest
 
 from test_routine_recording import (
-    EVERY_HOUR,
     RECORDS,
     SELECTED,
     SHIMPZ_ID,
-    STARTED,
-    TWIN_ID,
-    TWINS,
     ZONES,
     ZONES_CALL,
     _actions,
@@ -26,248 +21,51 @@ from test_routine_recording import (
     _send,
 )
 
-from protocol.http.v1 import payload as http_payload
-from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import recording, trace
 
-SPLIT = http_routine_proposal.SPLIT_QUESTION["pt"]
 
+class RepairTests(unittest.TestCase):
+    """A question only work run again can answer stands until a later send runs Actions, which get one repair."""
 
-class RerunTests(unittest.TestCase):
-    """A question only work run again can answer stands until one later send repeats that work (ADR-0101)."""
-
-    def test_an_unsourced_value_settles_only_when_one_later_send_looks_it_up_again(self) -> None:
+    def test_an_unsourced_value_stands_until_work_runs_and_then_gets_one_repair(self) -> None:
         first = _send(RECORDS, message="DNS de shimpz.com a cada hora")
         asked = _record(first)
         self.assertEqual(asked.code, "routine-binding-unsourced")
-        slot = recording.Slot(("cloudflare", "list-dns-records"), True, (("zone_id", "fresh", SHIMPZ_ID),))
-        self.assertEqual(asked.manifest, recording.Manifest((slot,)))
         pending = _pending(asked, 1)
-        # A send with no Action, one that only looks the zone up, or one that remembers it again settles nothing.
-        for later in (_send(message="ok"), _send(ZONES_CALL), _send(RECORDS)):
+        # A send that runs no Action leaves the question standing.
+        self.assertEqual(_record(first, _send(message="ok"), asked=pending).code, asked.code)
+        # Work that remembers the value again ends the span instead of asking once more.
+        for later in (_send(RECORDS), _send(RECORDS, RECORDS)):
             with self.subTest(later=later):
-                self.assertEqual(_record(first, later, asked=pending).code, "routine-binding-unsourced")
+                code = _code(self, lambda later=later: _record(first, later, asked=pending))
+                self.assertEqual(code, "routine-record-again")
         recorded = _recorded(first, _send(ZONES_CALL, RECORDS), asked=pending)
         self.assertEqual(
             (_actions(recorded), _input(recorded)["zone_id"]), (["list-zones", "list-dns-records"], SELECTED)
         )
 
-    def test_split_work_settles_only_when_one_send_repeats_every_change_in_order(self) -> None:
-        first = _send(_post("a"), message="a cada hora")
-        asked = _record(first, _send(_post("b"), _post("b")))
-        self.assertEqual(asked.code, "routine-work-split")
-        changes = [slot.inputs for slot in asked.manifest.slots]
-        self.assertEqual(changes, [(("t", "value", "a"),), (("t", "value", "b"),), (("t", "value", "b"),)])
-        spans = (first, _send(_post("b"), _post("b")))
-        pending = _pending(asked, 2)
-        for later in (
-            _send(message="ok"),
-            _send(_post("a"), _post("b")),
-            _send(_post("b"), _post("b"), _post("a")),
-        ):
-            with self.subTest(later=later):
-                self.assertEqual(_record(*spans, later, asked=pending).code, "routine-work-split")
-        recorded = _recorded(*spans, _send(_post("a"), _post("b"), _post("b")), asked=pending)
-        self.assertEqual([step["input"]["t"]["value"] for step in recorded.document["steps"]], ["a", "b", "b"])
+    def test_work_rerun_with_other_words_records_the_latest_work_and_never_asks_about_a_split(self) -> None:
+        """The owner's football Routine: each answer reran the search with other words."""
 
-    def test_an_earlier_lookup_with_other_page_sizes_is_the_work_the_recording_ran_again(self) -> None:
-        """The owner's list, then "do this every hour", when the agent picked other page sizes the second time."""
+        def search(query: str) -> tuple:
+            return ("reports/fetch", {"query": query, "num_results": 5}, {"results": [{"title": query}]})
 
-        def zones(per_page: int) -> tuple:
-            return ("cloudflare/list-zones", {"page": 1, "per_page": per_page}, ZONES)
-
-        def records(per_page: int) -> tuple:
-            return ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID, "per_page": per_page}, RECORDS[2])
-
-        first = _send(zones(50), records(25), message="Liste os registros DNS de shimpz.com")
-        cases = {
-            "only the zones' page size": (zones(5), records(25)),
-            "both page sizes": (zones(5), records(10)),
-            "the lookup after its use": (records(10), zones(5)),
-        }
-        for case, calls in cases.items():
-            with self.subTest(case=case):
-                recorded = _recorded(first, _send(*calls, message="Faça isso a cada hora"))
-                zones_step, records_step = recorded.document["steps"]
-                self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
-                # The work's own lookup is the source, at the page sizes the work used, and the records are shown.
-                self.assertEqual(zones_step["input"]["per_page"], {"kind": "literal", "value": 5})
-                self.assertEqual(records_step["input"]["zone_id"], SELECTED)
-                sent = next(given for name, given, _result in calls if name == "cloudflare/list-dns-records")
-                self.assertEqual(records_step["input"]["per_page"]["value"], sent["per_page"])
-                self.assertEqual(recorded.document["output"]["step"], records_step["id"])
-
-    def test_an_unchosen_read_does_not_win_the_work_source_preference(self) -> None:
-        def read(zone_id: str, payload: str) -> tuple:
-            return (RECORDS[0], {"zone_id": zone_id}, {"payload": payload})
-
-        first = _send(
-            ("cloudflare/list-zones", {}, TWINS),
-            read(SHIMPZ_ID, "payload-12345"),
-            read(TWIN_ID, "different-12345"),
-            message="A cada hora, liste os registros DNS de shimpz.com",
+        sends = (
+            _send(search("jogos de futebol da semana"), message="Pesquise os jogos de futebol da semana"),
+            _send(search("principais jogos de futebol esta semana"), message="Principais jogos"),
+            _send(search("jogos futebol brasileirão e europa semana"), message="a cada 30 dias"),
         )
-        question = _record(first)
-        self.assertEqual((question.code, question.pending.member), ("routine-binding-ambiguous", "zone_id"))
-        self.assertEqual({value for value, _label in question.pending.targets}, {SHIMPZ_ID, TWIN_ID})
-        # The answer's send also reads the twin, whose result now holds what the chosen zone's held before.
-        answer = _send(
-            ("reports/fetch", {"q": "ids"}, {"id": TWIN_ID}),
-            read(SHIMPZ_ID, "different-12345"),
-            read(TWIN_ID, "payload-12345"),
-            ("reports/post", {"payload": "payload-12345"}, {}),
-            message=json.dumps(SHIMPZ_ID),
-        )
-        result = _record(first, answer, asked=_asked(question, 1))
-        self.assertIsInstance(result, recording.Question)
-        self.assertEqual((result.code, result.pending.member), ("routine-binding-ambiguous", "payload"))
-        self.assertTrue(any(item.member == "zone_id" and item.chosen == SHIMPZ_ID for item in result.chosen))
+        recorded = _recorded(*sends)
+        self.assertEqual(_actions(recorded), ["fetch"])
+        self.assertEqual(_input(recorded)["query"]["value"], "jogos futebol brasileirão e europa semana")
+        self.assertEqual(recorded.schedule, {"kind": "continuous", "gap": 30 * 86_400, "cap": 1})
 
-    def test_an_exact_twin_of_a_consumer_is_never_its_own_source(self) -> None:
-        lookup = ("reports/fetch", {"q": "ids"}, {"id": "remembered-1"})
-        echo = ("reports/fetch", {"id": "remembered-1"}, {"id": "remembered-1", "n": 1})
-        recorded = _recorded(_send(lookup, echo, message="relatório"), _send(echo, message=EVERY_HOUR))
-        self.assertEqual(_input(recorded)["id"]["kind"], "step_output")
-        self.assertEqual(_actions(recorded), ["fetch", "fetch"])
+    def test_earlier_changes_are_never_split_work_the_latest_send_is_the_work(self) -> None:
+        recorded = _recorded(_send(_post("a"), message="a cada hora"), _send(_post("b"), _post("b")))
+        self.assertEqual([step["input"]["t"]["value"] for step in recorded.document["steps"]], ["b", "b"])
 
-    def test_an_earlier_dependency_of_the_work_keeps_its_own_ambiguity(self) -> None:
-        zone = "zone-identifier-1"
-        lookup = ("reports/fetch", {"q": "zones"}, {"zone": zone})
-        report = ("reports/fetch", {"zone": zone}, {"report": "report-identifier-1"})
-        read = ("reports/fetch", {"report": "report-identifier-1"}, {"meta": {"zone": zone}})
-        asked = _record(_send(lookup, report, message="relatório"), _send(read, message=EVERY_HOUR))
-        self.assertEqual(asked.code, "routine-binding-ambiguous")
-
-    def test_an_earlier_read_for_another_target_or_a_named_choice_is_still_split_work(self) -> None:
-        other = "9a7806061c88ada191ed06f989cc3dac"
-        work = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID, "per_page": 10}, RECORDS[2])
-        cases = {
-            # Another zone is a referable target, never the assistant's own choice.
-            "another zone": ({"zone_id": other, "per_page": 25}, "Liste os registros DNS de example.com"),
-            # A page size the person asked for is theirs, never superseded.
-            "a named page size": ({"zone_id": SHIMPZ_ID, "per_page": 25}, "Liste os de shimpz.com com 25 por página"),
-            # Inputs with other members never did the same work.
-            "other members": ({"zone_id": SHIMPZ_ID}, "Liste os registros DNS de shimpz.com"),
-        }
-        for case, (given, message) in cases.items():
-            with self.subTest(case=case):
-                earlier = _send(("cloudflare/list-dns-records", given, RECORDS[2]), message=message)
-                asked = _record(earlier, _send(ZONES_CALL, work, message="Faça isso a cada hora para shimpz.com"))
-                self.assertEqual(asked.code, "routine-work-split")
-
-    def test_a_split_answered_by_keeping_only_the_latest_work_records_it_alone(self) -> None:
-        other = "9a7806061c88ada191ed06f989cc3dac"
-        earlier = _send(("cloudflare/list-dns-records", {"zone_id": other}, RECORDS[2]), message="DNS de example.com")
-        latest = _send(ZONES_CALL, RECORDS, message="Faça isso a cada hora para shimpz.com")
-        asked = _record(earlier, latest)
-        self.assertEqual(asked.code, "routine-work-split")
-        pending = _pending(asked, 2)
-        # Any answer but keeping the latest work leaves the question standing; that one records the latest work.
-        self.assertEqual(_record(earlier, latest, _send(message="Rodar tudo de novo"), asked=pending).code, asked.code)
-        for label in http_routine_proposal.SPLIT_LATEST.values():
-            composed = http_payload.compose_clarified("Faça isso a cada hora para shimpz.com", SPLIT, label, "pt")
-            with self.subTest(label=label):
-                recorded = _recorded(earlier, latest, _send(message=composed), asked=pending)
-                self.assertEqual(
-                    (_actions(recorded), _input(recorded)["zone_id"]), (["list-zones", "list-dns-records"], SELECTED)
-                )
-
-    def test_only_the_latest_answer_keeps_the_latest_work_and_that_work_is_the_one_recorded(self) -> None:
-        other = "9a7806061c88ada191ed06f989cc3dac"
-        earlier = _send(("cloudflare/list-dns-records", {"zone_id": other}, RECORDS[2]), message="DNS de example.com")
-        latest = _send(ZONES_CALL, RECORDS, message="Faça isso a cada hora para shimpz.com")
-        pending = _pending(_record(earlier, latest), 2)
-        label = http_routine_proposal.SPLIT_LATEST["pt"]
-        # An earlier answer quoted again inside a later composition never narrows the work.
-        replayed = http_payload.compose_clarified(
-            http_payload.compose_clarified("Liste", SPLIT, label, "pt"), SPLIT, "Rodar tudo de novo", "pt"
-        )
-        self.assertEqual(_record(earlier, latest, _send(message=replayed), asked=pending).code, "routine-work-split")
-        # A send that answers and also runs work is the Brain's, never the person's choice of the latest work.
-        answered_with_work = _send(RECORDS, message=label)
-        self.assertEqual(_record(earlier, latest, answered_with_work, asked=pending).code, "routine-work-split")
-        # Text shaped like an answer, but not to the exchange that asked, never narrows the work either.
-        pasted = http_payload.compose_clarified("Explique este exemplo copiado", SPLIT, label, "pt")
-        self.assertEqual(_record(earlier, latest, _send(message=pasted), asked=pending).code, "routine-work-split")
-        # Nor does that label under another question, even after the very request that was asked.
-        unrelated = http_payload.compose_clarified(latest.message, "Traduza isto?", label, "pt")
-        self.assertEqual(_record(earlier, latest, _send(message=unrelated), asked=pending).code, "routine-work-split")
-        # Work run after the question, then kept: that later work is what the Routine records.
-        later = _send(ZONES_CALL, RECORDS, message="De novo para shimpz.com")
-        kept = http_payload.compose_clarified(latest.message, SPLIT, label, "pt")
-        recorded = _recorded(earlier, latest, later, _send(message=kept), asked=pending)
-        self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
-
-    def test_work_split_with_a_withheld_input_is_never_frozen(self) -> None:
-        for action in ("reports/post", "reports/fetch"):
-            with self.subTest(action=action):
-                hidden = (action, {"t": "x"}, {}, trace.Kept({"t": None}, frozenset({"/t"})))
-                work = (action, {"t": "b"}, {})
-                code = _code(
-                    self, lambda hidden=hidden, work=work: _record(_send(hidden, message="a cada hora"), _send(work))
-                )
-                self.assertEqual(code, "routine-secret-literal")
-
-    def test_two_identical_changes_rerun_once_settle_nothing(self) -> None:
-        first = _send(_post("a"), message="a cada hora")
-        second = _send(_post("b"), _post("b"))
-        pending = _pending(_record(first, second), 2)
-        self.assertEqual(
-            _record(first, second, _send(_post("a"), _post("b")), asked=pending).code, "routine-work-split"
-        )
-
-    def test_a_run_date_settles_on_the_date_of_the_send_that_repeats_it(self) -> None:
-        lookup = ("reports/fetch", {"q": "ids"}, {"id": "remembered-1"})
-        dated = ("reports/fetch", {"day": "2026-10-05", "id": "remembered-1"}, {})
-        first = _send(dated, message="relatório a cada hora")
-        asked = _record(first)
-        self.assertEqual(asked.manifest.slots[0].inputs, (("day", "clock", None), ("id", "fresh", "remembered-1")))
-        pending = _pending(asked, 1)
-        tomorrow = STARTED + 86_400
-        next_day = ("reports/fetch", {"day": "2026-10-06", "id": "remembered-1"}, {})
-        self.assertIsInstance(
-            _record(first, _send(lookup, next_day, started_at=tomorrow), asked=pending), recording.Recorded
-        )
-        stale = _send(lookup, dated, started_at=tomorrow)
-        self.assertEqual(_record(first, stale, asked=pending).code, "routine-binding-unsourced")
-
-    def test_each_remembered_value_is_its_own_slot_and_a_rerun_must_repeat_each(self) -> None:
-        other_id = ZONES["result"][1]["id"]
-        other = ("cloudflare/list-dns-records", {"zone_id": other_id}, {"result": []})
-        first = _send(RECORDS, other, message="DNS de shimpz.com e other.org a cada hora")
-        asked = _record(first)
-        self.assertEqual(len(asked.manifest.slots), 2)
-        pending = _pending(asked, 1)
-        for later in (_send(ZONES_CALL, RECORDS), _send(ZONES_CALL, RECORDS, RECORDS)):
-            with self.subTest(later=later):
-                self.assertEqual(_record(first, later, asked=pending).code, "routine-binding-unsourced")
-        recorded = _recorded(first, _send(ZONES_CALL, RECORDS, other), asked=pending)
-        self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records", "list-dns-records"])
-
-    def test_read_only_twins_are_one_slot(self) -> None:
-        remembered = ("cloudflare/list-dns-records", {"zone_id": "f" * 32}, {})
-        asked = _record(_send(ZONES_CALL, ZONES_CALL, remembered, message="DNS a cada hora"))
-        self.assertEqual(asked.code, "routine-binding-unsourced")
-        self.assertEqual([slot.action[1] for slot in asked.manifest.slots], ["list-zones", "list-dns-records"])
-
-    def test_a_rerun_admits_extra_calls_only_as_sources_and_keeps_the_frozen_order(self) -> None:
-        first = _send(RECORDS, message="DNS de shimpz.com a cada hora")
-        pending = _pending(_record(first), 1)
-        unrelated = ("reports/fetch", {"q": 1}, {"x": 1})
-        for extra in (unrelated, _post("x")):
-            with self.subTest(extra=extra):
-                later = _send(ZONES_CALL, RECORDS, extra)
-                self.assertEqual(_record(first, later, asked=pending).code, "routine-binding-unsourced")
-        read = ("reports/fetch", {"q": 1}, {})
-        spans = (_send(_post("a"), message="a cada hora"), _send(read, _post("b")))
-        pending = _pending(_record(*spans), 2)
-        for moved in (_send(_post("a"), _post("b"), read), _send(read, _post("a"), _post("b"))):
-            with self.subTest(moved=moved):
-                self.assertEqual(_record(*spans, moved, asked=pending).code, "routine-work-split")
-        self.assertIsInstance(_record(*spans, _send(_post("a"), read, _post("b")), asked=pending), recording.Recorded)
-
-    def test_earlier_calls_for_targets_the_person_did_not_choose_are_no_split_work(self) -> None:
-        # Records for two zones, then the person chose a third, shimpz.com, and the agent reran only that one.
+    def test_a_chosen_target_must_be_what_the_repair_sends(self) -> None:
+        # Records for two zones, then the person chose a third, shimpz.com.
         chosen, others = ZONES["result"][3], ZONES["result"][:2]
         calls = [("cloudflare/list-dns-records", {"zone_id": zone["id"]}, {"result": []}) for zone in (*others, chosen)]
         first = _send(ZONES_CALL, *calls[:2], message="A cada 5 segundos, liste minhas zonas")
@@ -276,119 +74,58 @@ class RerunTests(unittest.TestCase):
         answer = _send(message=json.dumps(chosen["id"]))
         rerun = _record(first, answer, asked=_asked(asked, 1))
         self.assertEqual(rerun.code, "routine-work-rerun")
-        again = _send(ZONES_CALL, *[calls[2]] * 3)
-        # A record call for renamed work drops the rerun's manifest but keeps the person's choice.
-        superseded = dataclasses.replace(_asked(rerun, 2), manifest=None)
-        recorded = _recorded(first, answer, again, asked=superseded)
-        self.assertEqual({step["input"]["zone_id"]["value"] for step in recorded.document["steps"][1:]}, {chosen["id"]})
-        # Earlier calls for the unchosen targets stay eligible sources; they are only not split evidence.
+        # Work run again for another zone, or still for the unchosen ones, ends the span.
+        for later in (_send(ZONES_CALL, calls[0]), _send(ZONES_CALL, *calls[:2])):
+            with self.subTest(later=later):
+                code = _code(self, lambda later=later: _record(first, answer, later, asked=_asked(rerun, 2)))
+                self.assertEqual(code, "routine-record-again")
+        recorded = _recorded(first, answer, _send(ZONES_CALL, calls[2]), asked=_asked(rerun, 2))
         self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
+        self.assertEqual({step["input"]["zone_id"]["value"] for step in recorded.document["steps"][1:]}, {chosen["id"]})
 
-    def test_free_text_the_assistant_wrote_is_a_literal_in_the_frozen_work(self) -> None:
+    def test_a_withheld_input_is_never_frozen(self) -> None:
+        for action in ("reports/post", "reports/fetch"):
+            with self.subTest(action=action):
+                hidden = (action, {"t": "x"}, {}, trace.Kept({"t": None}, frozenset({"/t"})))
+                code = _code(self, lambda hidden=hidden: _record(_send(hidden, message="a cada hora")))
+                self.assertEqual(code, "routine-secret-literal")
+
+
+class ManifestTests(unittest.TestCase):
+    """The work a rerun question names for the Brain: each call, and what each input must be."""
+
+    def test_each_remembered_value_is_its_own_slot(self) -> None:
+        other = ("cloudflare/list-dns-records", {"zone_id": ZONES["result"][1]["id"]}, {"result": []})
+        asked = _record(_send(RECORDS, other, message="DNS de shimpz.com e other.org a cada hora"))
+        self.assertEqual(len(asked.manifest.slots), 2)
+        slot = recording.Slot(("cloudflare", "list-dns-records"), True, (("zone_id", "fresh", SHIMPZ_ID),))
+        self.assertEqual(asked.manifest.slots[0], slot)
+
+    def test_read_only_twins_are_one_slot(self) -> None:
+        remembered = ("cloudflare/list-dns-records", {"zone_id": "f" * 32}, {})
+        asked = _record(_send(ZONES_CALL, ZONES_CALL, remembered, message="DNS a cada hora"))
+        self.assertEqual(asked.code, "routine-binding-unsourced")
+        self.assertEqual([slot.action[1] for slot in asked.manifest.slots], ["list-zones", "list-dns-records"])
+
+    def test_free_text_and_dates_are_named_as_the_recording_keeps_them(self) -> None:
         typed = "some freely typed text"
         remembered = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID, "query": typed}, {"result": []})
-        first = _send(remembered, message="DNS de shimpz.com a cada hora")
-        asked = _record(first)
+        asked = _record(_send(remembered, message="DNS de shimpz.com a cada hora"))
         self.assertEqual(asked.manifest.slots[0].inputs, (("query", "value", typed), ("zone_id", "fresh", SHIMPZ_ID)))
-        recorded = _recorded(first, _send(ZONES_CALL, remembered), asked=_pending(asked, 1))
-        self.assertEqual(_input(recorded)["query"], {"kind": "literal", "value": typed})
-
-    def test_the_first_target_answer_already_excludes_the_unchosen_work(self) -> None:
-        zone_a, zone_b = (zone["id"] for zone in ZONES["result"][:2])
-        first = _send(ZONES_CALL, ("cloudflare/list-dns-records", {"zone_id": zone_a}, {}), message="DNS a cada hora")
-        second = _send(("cloudflare/list-dns-records", {"zone_id": zone_b}, {}))
-        asked = _record(first, second)
-        self.assertEqual(asked.code, "routine-binding-ambiguous")
-        answer = _send(message=json.dumps(zone_b))
-        recorded = _recorded(first, second, answer, asked=_asked(asked, 2))
-        self.assertEqual(_input(recorded)["zone_id"], {"kind": "literal", "value": zone_b})
-        repeated = _send(("cloudflare/list-dns-records", {"zone_id": zone_b}, {"n": 1}))
-        recorded = _recorded(first, second, answer, repeated, asked=_asked(asked, 2))
-        self.assertEqual(_input(recorded)["zone_id"], {"kind": "literal", "value": zone_b})
-
-    def test_settled_split_evidence_goes_but_an_earlier_source_stays(self) -> None:
-        lookup = ("reports/fetch", {"q": "ids"}, {"id": "source-id-1"})
-        spans = (_send(lookup, _post("a"), message="a cada hora"), _send(_post("b")))
-        pending = _pending(_record(*spans), 2)
-        settled = _send(_post("a"), _post("b"))
-        work = _send(("cloudflare/list-dns-records", {"zone_id": "source-id-1"}, {}))
-        recorded = _recorded(*spans, settled, work, asked=pending)
-        self.assertEqual(_actions(recorded), ["fetch", "list-dns-records"])
-        self.assertEqual(_input(recorded)["zone_id"], {"kind": "step_output", "step": "s1", "pointer": "/id"})
-        # New split work counts only the calls since the frontier.
-        split = _record(*spans, settled, _send(_post("c")), asked=pending)
-        self.assertEqual([slot.inputs[0][2] for slot in split.manifest.slots], ["a", "b", "c"])
-
-    def test_a_date_the_person_named_stays_that_date_in_the_rerun(self) -> None:
-        lookup = ("reports/fetch", {"q": "ids"}, {"id": "remembered-1"})
         dated = ("reports/fetch", {"day": "2026-10-05", "id": "remembered-1"}, {})
-        first = _send(dated, message="Relatório de 2026-10-05 a cada hora")
-        asked = _record(first)
-        self.assertEqual(
-            asked.manifest.slots[0].inputs, (("day", "value", "2026-10-05"), ("id", "fresh", "remembered-1"))
-        )
-        pending = _pending(asked, 1)
-        tomorrow = STARTED + 86_400
-        next_day = ("reports/fetch", {"day": "2026-10-06", "id": "remembered-1"}, {})
-        self.assertEqual(_record(first, _send(lookup, next_day, started_at=tomorrow), asked=pending).code, asked.code)
-        recorded = _recorded(first, _send(lookup, dated, started_at=tomorrow), asked=pending)
-        self.assertEqual(_input(recorded)["day"], {"kind": "literal", "value": "2026-10-05"})
+        run_date = _record(_send(dated, message="relatório a cada hora")).manifest.slots[0].inputs
+        self.assertEqual(run_date, (("day", "clock", None), ("id", "fresh", "remembered-1")))
+        named = _record(_send(dated, message="Relatório de 2026-10-05 a cada hora")).manifest.slots[0].inputs
+        self.assertEqual(named, (("day", "value", "2026-10-05"), ("id", "fresh", "remembered-1")))
 
-    def test_a_date_kept_as_a_literal_near_local_midnight_is_frozen_as_that_literal(self) -> None:
+    def test_the_utc_date_of_another_local_day_is_named_as_that_literal(self) -> None:
         # At 01:00 UTC it is still the day before in São Paulo, so the recorder keeps the UTC date as a literal.
         early = int(datetime.datetime(2026, 10, 5, 1, tzinfo=datetime.UTC).timestamp())
-        lookup = ("reports/fetch", {"q": "ids"}, {"id": "remembered-1"})
         dated = ("reports/fetch", {"day": "2026-10-05", "id": "remembered-1"}, {})
-        first = _send(dated, message="relatório a cada hora", started_at=early)
-        asked = _record(first)
+        asked = _record(_send(dated, message="relatório a cada hora", started_at=early))
         self.assertEqual(
             asked.manifest.slots[0].inputs, (("day", "value", "2026-10-05"), ("id", "fresh", "remembered-1"))
         )
-        recorded = _recorded(first, _send(lookup, dated, started_at=early + 86_400), asked=_pending(asked, 1))
-        self.assertEqual(_input(recorded)["day"], {"kind": "literal", "value": "2026-10-05"})
-
-    def test_a_run_date_at_2330_in_sao_paulo_settles_with_the_persons_own_date(self) -> None:
-        evening = int(datetime.datetime(2026, 10, 7, 2, 30, tzinfo=datetime.UTC).timestamp())
-        lookup = ("reports/fetch", {"q": "ids"}, {"id": "remembered-1"})
-        first = _send(
-            ("reports/fetch", {"day": "2026-10-06", "id": "remembered-1"}, {}),
-            message="relatório a cada hora",
-            started_at=evening,
-        )
-        asked = _record(first)
-        self.assertEqual(asked.manifest.slots[0].inputs, (("day", "clock", None), ("id", "fresh", "remembered-1")))
-        utc_day = ("reports/fetch", {"day": "2026-10-07", "id": "remembered-1"}, {})
-        later = evening + 60
-        self.assertEqual(
-            _record(first, _send(lookup, utc_day, started_at=later), asked=_pending(asked, 1)).code, asked.code
-        )
-        own_day = ("reports/fetch", {"day": "2026-10-06", "id": "remembered-1"}, {})
-        recorded = _recorded(first, _send(lookup, own_day, started_at=later), asked=_pending(asked, 1))
-        self.assertEqual(_input(recorded)["day"], {"kind": "run_clock", "format": "date"})
-
-    def test_the_settled_frontier_is_kept_while_another_question_is_asked(self) -> None:
-        first = _send(RECORDS, message="DNS de shimpz.com")
-        pending = _pending(_record(first), 1)
-        rerun = _send(ZONES_CALL, RECORDS, message="pronto")
-        asked = _record(first, rerun, asked=pending)
-        self.assertEqual((asked.code, asked.frontier), ("routine-schedule-unstated", 1))
-        answered = _recorded(
-            first, rerun, _send(message="a cada hora"), asked=_pending(asked, 2), frontier=asked.frontier
-        )
-        self.assertEqual(_actions(answered), ["list-zones", "list-dns-records"])
-
-    def test_a_chosen_target_stays_bound_while_another_question_is_asked(self) -> None:
-        twins = ("cloudflare/list-zones", {}, TWINS)
-        work = _send(twins, RECORDS, message="DNS de shimpz.com")
-        asked = _record(work)
-        chose = _record(work, _send(message=json.dumps(SHIMPZ_ID)), asked=_pending(asked, 1))
-        self.assertEqual(
-            (chose.code, [item.chosen for item in chose.chosen]), ("routine-schedule-unstated", [SHIMPZ_ID])
-        )
-        recorded = _recorded(
-            work, _send(message=json.dumps(SHIMPZ_ID)), _send(message="a cada hora"), asked=_asked(chose, 2)
-        )
-        self.assertEqual(_input(recorded)["zone_id"], {"kind": "literal", "value": SHIMPZ_ID})
 
 
 if __name__ == "__main__":

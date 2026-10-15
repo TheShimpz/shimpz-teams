@@ -73,12 +73,12 @@ class ScheduleContractTests(unittest.TestCase):
 
     def test_a_continuous_schedule_runs_its_stated_gap_all_day(self):
         # The cap is always the gap's whole day, so no cap ever rewrites the interval the person stated (ADR-0101).
-        for gap, cap in ((5, http_routine.MAX_CONTINUOUS_CAP), (7, 12_343), (30, 2880), (86_400, 1)):
+        for gap, cap in ((5, http_routine.MAX_CONTINUOUS_CAP), (7, 12_343), (30, 2880), (86_400, 1), (366 * 86_400, 1)):
             value = {"kind": "continuous", "gap": gap, "cap": cap}
             self.assertEqual((http_routine.canonical_schedule(value), http_routine.continuous_cap(gap)), (value, cap))
         for value in (
             {"kind": "continuous", "gap": 4, "cap": 21_600},
-            {"kind": "continuous", "gap": 86_401, "cap": 1},
+            {"kind": "continuous", "gap": 366 * 86_400 + 1, "cap": 1},
             {"kind": "continuous", "gap": 5, "cap": 0},
             {"kind": "continuous", "gap": 30, "cap": 1000},
             {"kind": "continuous", "gap": 7, "cap": 12_342},

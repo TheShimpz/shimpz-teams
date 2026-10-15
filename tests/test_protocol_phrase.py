@@ -110,6 +110,25 @@ class StatedScheduleTests(unittest.TestCase):
             }
         )
 
+    def test_a_counted_day_or_week_interval_in_every_language(self) -> None:
+        self.assert_stated(
+            {
+                "retorna a cada 30 dias": continuous(30 * 86_400),
+                "a cada 2 semanas": continuous(14 * 86_400),
+                "a cada 30 horas": continuous(30 * 3_600),
+                "every 3 days": continuous(3 * 86_400),
+                "cada 2 semanas": continuous(14 * 86_400),
+                "tous les 3 jours": continuous(3 * 86_400),
+                "toutes les 2 semaines": continuous(14 * 86_400),
+                "alle 3 Tage": continuous(3 * 86_400),
+                "alle 2 Wochen": continuous(14 * 86_400),
+                "3日ごと": continuous(3 * 86_400),
+                "2週間ごと": continuous(14 * 86_400),
+                "每3天": continuous(3 * 86_400),
+                "كل 3 أيام": continuous(3 * 86_400),
+            }
+        )
+
     def test_only_an_affirmative_complete_schedule_counts(self) -> None:
         for text in (
             "Todo dia às 9h?",
@@ -120,7 +139,8 @@ class StatedScheduleTests(unittest.TestCase):
             "Liste os registros DNS de shimpz.com",
             "todo dia",
             "a cada 2 segundos",
-            "a cada 30 horas",
+            "a cada 400 dias",
+            "toda semana",
             "todo mês no dia 30 às 9h",
             "às 9h",
             "",
@@ -143,7 +163,7 @@ class StatedScheduleTests(unittest.TestCase):
         )
 
     def test_a_count_too_long_to_be_a_schedule_states_nothing(self) -> None:
-        for text in ("every " + "9" * 5000 + " seconds", "a cada " + "1" * 7 + " segundos", "9" * 5000 + "秒ごと"):
+        for text in ("every " + "9" * 5000 + " seconds", "a cada " + "1" * 9 + " segundos", "9" * 5000 + "秒ごと"):
             with self.subTest(text=text[:20]):
                 self.assertEqual(phrase.stated(text), ())
 

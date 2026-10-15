@@ -8,6 +8,7 @@ import datetime
 from collections.abc import Iterator, Sequence
 
 from protocol.http.v1 import routine_proposal as http_routine_proposal
+from routine import dates as routine_dates
 from routine import plan as routine_plan
 from routine import recording as routine_recording
 from routine import schedule, trace
@@ -48,6 +49,10 @@ def _classified(
         return clock
     if not _referable(value):
         return {"kind": "literal", "value": value}, "assistant"
+    if isinstance(value, str) and not _holders(context, call, value):
+        dated = _dated(context, call, value)
+        if dated is not None:
+            return dated
     return _bound(context, input_, value, pending)
 
 
@@ -104,6 +109,21 @@ def _clock(
     if value == _date_at(started, "UTC").isoformat():
         return {"kind": "literal", "value": value}, "assistant"
     return None
+
+
+def _dated(
+    context: routine_recording._Context, call: routine_recording._Call, value: str
+) -> tuple[dict[str, object], str] | None:
+    """A text no result holds whose dates each run writes for its own date, as a template; None when it has none.
+
+    The dates are read near the date its send started on in the Routine's zone, in the send's interface language; a
+    date the person's own words wrote stays as written.
+    """
+    send = context.sends[call.send]
+    day = _date_at(send.started_at, context.zone[0])
+    named = {found for text in context.known.texts for found in routine_dates.dates(text, day, send.locale)}
+    parts = routine_dates.template(value, day, send.locale, named.__contains__)
+    return None if parts is None else ({"kind": "run_clock", "format": "text", "parts": parts}, "clock")
 
 
 def _date_at(instant: int, timezone: str) -> datetime.date:
@@ -182,7 +202,7 @@ def _bindings(context: routine_recording._Context) -> tuple[routine_recording.Pe
     """Every target choice the span holds, as the person's answers settle them.
 
     Each one already answered, and the open one, chosen as soon as a later send answers it exactly, so that answer
-    decides everything at once: what the work sends, what counts as split work, and what a rerun must repeat.
+    decides everything at once: what the work sends and what a rerun must repeat.
     """
     asked = context.asked
     if asked is None:
@@ -232,16 +252,16 @@ def _narrowed(
 
 def _sent(call: routine_recording._Call, binding: routine_recording.Pending) -> str | None:
     """The JSON text of the target of ``binding`` this call sent, or None when it sent none of them."""
-    given = call.occurrence.input
-    if (
-        call.action != binding.action
-        or given.withheld
-        or not isinstance(given.value, dict)
-        or binding.member not in given.value
-    ):
-        return None
-    text = routine_recording._json_text(given.value[binding.member])
+    text = _sent_value(call, binding.member) if call.action == binding.action else None
     return text if any(text == routine_recording._json_text(target) for target, _label in binding.targets) else None
+
+
+def _sent_value(call: routine_recording._Call, member: str) -> str | None:
+    """The JSON text of what a call sent for one input member, or None when it sent none or it is withheld."""
+    given = call.occurrence.input
+    if given.withheld or not isinstance(given.value, dict) or member not in given.value:
+        return None
+    return routine_recording._json_text(given.value[member])
 
 
 def _same_choice(question: routine_recording.Question, pending: routine_recording.Pending) -> bool:

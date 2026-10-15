@@ -236,7 +236,10 @@ the Routine then runs on `UTC` by convention, its run date included, which is ne
 step. Each step is `{position,
 assistant, action, read_only, inputs}`, and each input `{member, origin, value, step, pointer, where, item}` names
 exactly where its value comes from: `request` (named in the person's request) or `assistant` (chosen by the assistant,
-the same on every run), each with the literal's complete JSON text escaped (never cut); `clock`, the date of each run;
+the same on every run), each with the literal's complete JSON text escaped (never cut); `clock`, the date of each run
+(`value` `null`) or a text whose dates each run writes for its own date (`value` the complete template as a person
+reads it, escaped: every literal brace doubled and each date in braces as its format, then after `|` its month-name
+language and its offset in days, such as `{D month YYYY|pt}` or `{DD/MM/YYYY|+6}`);
 `step`, an earlier step's position and RFC 6901 pointer; or `selector`, the same through the one array item whose
 `where` member (`{member, value_json}`, the constant's JSON text as `routine.where_text` escapes it) matches, then that
 item's own pointer. `permitted` lists every Action the Routine may call, each once in identity order with whether its
@@ -274,7 +277,7 @@ forgets is not learned again.
 A Team Routine (ADR-0086) fires on a closed schedule (`routine.canonical_schedule`): `hourly` every 1 to 24 elapsed
 hours, `daily` at `HH:MM`, `weekly` on a weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in an
 IANA timezone name (`routine.canonical_timezone`; Team also requires that the zone loads), or, only when the user asks
-for it, `continuous`: its next run is due `gap` seconds (5 to 86,400) after the previous one ended, never overlapping,
+for it, `continuous`: its next run is due `gap` seconds (5 to 31,622,400, 366 days) after the previous one ended, never overlapping,
 with `cap` exactly `routine.continuous_cap(gap)`, `ceil(86400 / gap)` (at most `routine.MAX_CONTINUOUS_CAP`, 17,280),
 starts in any rolling 24 hours, so the interval a person stated runs all day and no cap ever rewrites it (ADR-0101).
 `routine.daily_rate` is a schedule's runs per day and `routine.daily_cap` its whole rolling 24-hour cap; the Team's
@@ -295,7 +298,8 @@ revision, plan_digest, total, offset, steps, next}`, at most 64 whole consecutiv
 never combines two revisions. A projected step (`routine.canonical_step`) is exactly `{position, assistant, action,
 read_only, inputs, stored_inputs}`, at most `routine.MAX_STEP_VIEW_BYTES` (24 KiB; Team refuses a plan with a larger
 step, never truncating it): each input, sorted by member, is a `literal` whose `value` is `routine.literal_preview` of
-its JSON (at most 120 characters, every control or invisible character escaped), a `run_clock` whose `value` is `date`,
+its JSON (at most 120 characters, every control or invisible character escaped), a `run_clock` whose `value` is `date`
+or `routine.preview` of a dated text's template as the card shows it,
 or a `step_output` naming an earlier step by position and an RFC 6901 pointer, and, when it selects through an array
 item, its `where` (`{member, value_json}`) and that item's `item` pointer (otherwise both `null`); `stored_inputs` names
 the Stored Inputs the step's Action uses by id only, never a value. The Routine view a Supervisor lists

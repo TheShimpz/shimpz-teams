@@ -1,7 +1,7 @@
 """Team's deterministic recording of a Routine plan from a person's recent chat sends, with no model (ADR-0101).
 
 This module holds the recording's inputs, questions, and results; ``routine.compose`` builds the plan, while
-``routine.provenance`` classifies each input and ``routine.rerun`` checks a frozen re-run.
+``routine.provenance`` classifies each input and ``routine.rerun`` names the work a question asks to run again.
 The chat agent runs the recurring work and calls ``record``; Team builds the plan from its own memory-only trace of the
 recording span: the person's consecutive fresh sends in one Team incarnation, each with its own message, the person's
 own words in it, the untruncated earlier sends its conversation window carried, its browser timezone, its start, and
@@ -19,8 +19,10 @@ member of a plan call is classified by the first rule that applies:
    from its one position outside arrays, or through the array item whose single member the person named and no other
    item shares; never by an index, which a reordered result would point at another item. An identifier no result
    holds, or a value inside an array or several positions that no named member separates, is asked about and never
-   frozen; free text or a container no result holds falls to rule 5;
-5. anything else is a literal the assistant chose, the same on every run.
+   frozen; free text or a container no result holds falls to rule 5 or 6;
+5. text no result holds that writes dates near its send's date is a template whose dates each run writes for its own
+   date (``routine.dates``); a date the person wrote stays as written;
+6. anything else is a literal the assistant chose, the same on every run.
 
 A source is one specific occurrence, a changing call's too wherever changes replay; read-only calls of the same Action
 with identical input and result and no changing call between them are one source, its earliest. The plan holds every
@@ -122,6 +124,8 @@ class Send:
     timezone: str | None
     started_at: int
     occurrences: tuple[trace.Occurrence, ...] = ()
+    # The chat's interface language, or None: it decides how a date the recorded work wrote is read.
+    locale: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,7 +162,7 @@ class Slot:
 
 @dataclass(frozen=True, slots=True)
 class Manifest:
-    """The work a split, rerun, or unsourced question asks to run again, one slot per occurrence, in dispatch order.
+    """The work a rerun or unsourced question asks to run again, one slot per occurrence, in dispatch order.
 
     Read-only twins (the same Action, input, and result with no change between) are one occurrence; every other call
     is its own slot, so its multiplicity and its order relative to every change are kept.
@@ -180,9 +184,8 @@ class Asked:
     wire: dict[str, object] | None = None
     # Every target choice the person already answered, each bound until the span ends.
     chosen: tuple[Pending, ...] = ()
-    # The call whose result the work showed when Team asked for the output, which a chain must use: its Assistant,
-    # Action, and its input and result as JSON text, which only an equivalent call shares.
-    chained_from: tuple[str, str, str, str] | None = None
+    # The Assistant and Action whose result the work showed when Team asked for the output, which a chain must use.
+    chained_from: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,9 +199,7 @@ class Question:
     pending: Pending | None = field(default=None, compare=False)
     manifest: Manifest | None = field(default=None, compare=False)
     chosen: tuple[Pending, ...] = field(default=(), compare=False)
-    chained_from: tuple[str, str, str, str] | None = field(default=None, compare=False)
-    # The first send whose calls count: the send that settled a rerun, or 0.
-    frontier: int = field(default=0, compare=False)
+    chained_from: tuple[str, str] | None = field(default=None, compare=False)
 
     def wire(self) -> dict[str, object]:
         """The question as the chat reply carries it: each target as its exact JSON text, which no client rounds."""
@@ -281,8 +282,6 @@ class _Context:
     zone: tuple[str, str]
     asked: Asked | None
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract]
-    # The send that settled a rerun: no call before it counts as split work.
-    frontier: int = 0
     # The dispatch indexes of the work's calls, once the work is narrowed to what the person chose.
     work: tuple[int, ...] = ()
     # The call each step of the plan stands for, by step id.

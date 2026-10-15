@@ -375,7 +375,7 @@ class RecordedRoutineTests(LocalContractCase):
             service = self.controller(directory, runtime)
             self.chat(service, _body("Liste os registros DNS de shimpz.com"))
             recording = local_chat_api._recording(
-                service, "team_1", {"issued_at": int(time.time())}, ("m", ["f"], None, ())
+                service, "team_1", {"issued_at": int(time.time())}, ("m", ["f"], None, (), "pt")
             )
             asked = self.chat(service, _body("shimpz.com, a cada 30 segundos, mostrar sempre"))["routine_question"]
         self.assertIsNone(recording)
@@ -602,34 +602,6 @@ class RecordedRoutineTests(LocalContractCase):
             card = self.chat(service, _body("Liste as zonas de shimpz.com a cada 30 segundos e use em outras ações"))
         self.assertEqual(asked["code"], "routine-output-unstated")
         self.assertEqual(card["routine_proposal"]["name"], "Zonas e DNS")
-
-    def test_a_verified_rerun_that_ends_in_prose_applies_the_stored_intent(self) -> None:
-        runtime = Sends(
-            (("list-dns-records",), _record()),
-            (("list-zones",), None),
-            (("list-zones", "list-dns-records"), None),
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            service = self.controller(directory, runtime)
-            asked = self.chat(
-                service, _body("Liste os registros DNS de shimpz.com a cada 30 segundos e mostre o resultado")
-            )
-            partial = self.chat(service, _body("Pode buscar a zona"))
-            rerun = self.chat(service, _body("Pode buscar de novo"))
-        self.assertEqual(asked["routine_question"]["code"], "routine-binding-unsourced")
-        self.assertEqual(
-            (partial["reply"], "routine_proposal" in partial, "routine_question" in partial), ("Pronto.", False, False)
-        )
-        # The Brain sees the work to run again: the remembered zone needs a fresh source.
-        (slot,) = runtime.contexts[1].routine_rerun
-        kinds = {item["member"]: item["kind"] for item in slot["inputs"]}
-        self.assertEqual(
-            (slot["action"], kinds), ("list-dns-records", {"page": "value", "per_page": "value", "zone_id": "fresh"})
-        )
-        self.assertIsNone(runtime.contexts[0].routine_rerun)
-        self.assertEqual(rerun["reply"], "Pronto.")
-        zone_id = next(item for item in rerun["routine_proposal"]["steps"][1]["inputs"] if item["member"] == "zone_id")
-        self.assertEqual(zone_id["where"]["value_json"], '"shimpz.com"')
 
     def test_cancelling_revokes_the_card_and_it_never_confirms(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

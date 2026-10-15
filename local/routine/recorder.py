@@ -30,10 +30,8 @@ from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import phrase
 from protocol.http.v1 import routine_context as http_routine_context
-from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import pin as routine_pin
 from routine import recording as routine_recording
-from routine import rerun as routine_rerun
 from routine import trace
 
 SPAN_SECONDS = 15 * 60
@@ -73,8 +71,6 @@ class Span:
     # The revision of every Routine the latest send's Brain was shown, by id: only these may be replaced.
     revisions: tuple[tuple[str, int], ...] = ()
     asked: routine_recording.Asked | None = None
-    # The first send whose calls count: the send that settled a rerun question, kept whatever is asked after it.
-    frontier: int = 0
     # What the latest record call asked for, which an answer to the span's question records again.
     intent: Intent | None = None
 
@@ -89,11 +85,13 @@ class Span:
 
 @dataclass(frozen=True, slots=True)
 class Started:
-    """A new send: its message, the conversation window it carried, and its browser timezone."""
+    """A new send: its message, the conversation window it carried, its browser timezone, and its interface language."""
 
     message: str
     conversation: tuple[object, ...]
     timezone: str | None
+    # The chat's interface language, or None.
+    locale: str | None = None
 
 
 def _text_bytes(send: routine_recording.Send) -> int:
@@ -125,12 +123,10 @@ def _bounded(span: Span) -> Span:
     if not _fits(sends):
         return dataclasses.replace(bounded, refused="routine-recording-too-large")
     gone = len(span.sends) - len(sends)
-    if gone:
-        # The question and the frontier counted the sends before them; those that went leave the count too.
-        bounded = dataclasses.replace(bounded, frontier=max(bounded.frontier - gone, 0))
-        if bounded.asked is not None:
-            after = max(bounded.asked.after - gone, 0)
-            bounded = dataclasses.replace(bounded, asked=dataclasses.replace(bounded.asked, after=after))
+    # The question counted the sends before it; those that went leave the count too.
+    if gone and bounded.asked is not None:
+        after = max(bounded.asked.after - gone, 0)
+        bounded = dataclasses.replace(bounded, asked=dataclasses.replace(bounded.asked, after=after))
     return bounded
 
 
@@ -145,7 +141,7 @@ def _send(started: Started, now: int) -> routine_recording.Send:
     )
     window = tuple(line for segment in earlier for line in segment.split("\n"))
     person = http_payload.authored_segments(started.message)
-    return routine_recording.Send(started.message, person, window, started.timezone, now)
+    return routine_recording.Send(started.message, person, window, started.timezone, now, locale=started.locale)
 
 
 class RecordingBook:
@@ -230,8 +226,7 @@ class RecordingBook:
                 question.chosen,
                 question.chained_from,
             )
-            frontier = max(found.frontier, question.frontier)
-            return dataclasses.replace(found, asked=asked, frontier=frontier, intent=intent)
+            return dataclasses.replace(found, asked=asked, intent=intent)
 
         self._change(team_id, recording_id, keep)
 
@@ -255,8 +250,7 @@ def answered(span: Span | None) -> Intent | None:
     """The intent to record again when the span's latest send is Admin's composed answer that binds its question.
 
     It binds a schedule question when it states a schedule, an output question when it states an output, an interval
-    question when it states an interval, a target question when it is exactly one target's JSON text, and a split-work
-    question when it keeps only the latest work. Anything
+    question when it states an interval, and a target question when it is exactly one target's JSON text. Anything
     else, typed freely or not binding, is the Brain's to read.
     """
     if span is None or span.intent is None or span.asked is None or span.refused:
@@ -264,7 +258,7 @@ def answered(span: Span | None) -> Intent | None:
     parsed = routine_recording.clarified_answer(span.sends[-1].message)
     if parsed is None:
         return None
-    original, question, answer = parsed
+    _original, _question, answer = parsed
     asked = span.asked
     stated = phrase.stated(answer)
     pending = asked.pending
@@ -275,10 +269,6 @@ def answered(span: Span | None) -> Intent | None:
         "routine-interval-over-budget": any(item["kind"] in _INTERVAL_KINDS for item in stated),
         "routine-binding-ambiguous": pending is not None
         and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets),
-        # Keeping only the latest work needs nothing run again; only an answer to the exchange that asked binds it.
-        "routine-work-split": http_routine_proposal.keeps_latest_work(question, answer)
-        and 0 < asked.after <= len(span.sends)
-        and original == span.sends[asked.after - 1].message.strip(),
     }
     return span.intent if bound.get(asked.code, False) else None
 
@@ -354,13 +344,6 @@ def _rerun_input(span: Span, slot: routine_recording.Slot, item: tuple[str, str,
         source = None if found is None else {"assistant": found[0], "action": found[1]}
         return {**shown, "source": source}
     return shown
-
-
-def settled(span: Span | None) -> Intent | None:
-    """The intent to record again when the span's latest send repeated the work its pending question asked for."""
-    if span is None or span.intent is None or span.asked is None or span.asked.manifest is None or span.refused:
-        return None
-    return span.intent if routine_rerun.settlement(span.sends, span.asked) == len(span.sends) - 1 else None
 
 
 class AnsweredRuntime:

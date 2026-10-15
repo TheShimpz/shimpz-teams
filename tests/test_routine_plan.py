@@ -37,6 +37,7 @@ SHARE = {
     "additionalProperties": False,
     "$defs": {"tag": {"type": "string", "minLength": 1}},
 }
+DATED = {"days": 0, "format": "{dd}/{MM}/{yyyy}", "lang": None}
 CONTRACTS = {
     ("shimpz-blog", "publish-post"): routine_plan.ActionContract(PIN, PUBLISH),
     ("shimpz-blog", "share-post"): routine_plan.ActionContract(OTHER_PIN, SHARE),
@@ -173,6 +174,14 @@ class PlanAdmissionTests(unittest.TestCase):
             (source("count", {"kind": "run_clock", "format": "date"}), "plan-input-type"),
             (source("day", {"kind": "run_clock", "format": "weekday"}), "plan-input-invalid"),
             (source("day", {"kind": "run_clock", "format": "time"}), "plan-input-invalid"),
+            (source("title", {"kind": "run_clock", "format": "text"}), "plan-input-invalid"),
+            (source("title", {"kind": "run_clock", "format": "date", "parts": [DATED]}), "plan-input-invalid"),
+            (source("title", {"kind": "run_clock", "format": "text", "parts": ["no date"]}), "plan-input-invalid"),
+            (source("title", {"kind": "run_clock", "format": "text", "parts": ["x" * 80, DATED]}), "plan-input-type"),
+            (
+                source("secret_note", {"kind": "run_clock", "format": "text", "parts": [DATED]}, 1),
+                "plan-secret-literal",
+            ),
             (source("title", {"kind": "step_text", "step": "publish", "pointer": "/id"}, 1), "plan-input-invalid"),
             (
                 source("post_id", {"kind": "step_output", "step": "publish", "pointer": "/a", "where": {}}, 1),
@@ -511,8 +520,15 @@ class PlanResolutionTests(unittest.TestCase):
 
     def test_clock_tokens_and_commitments_are_deterministic(self) -> None:
         instant = datetime.datetime(2026, 7, 4, 15, 5, 9, tzinfo=datetime.UTC)
-        self.assertEqual(routine_plan.clock_value("date", instant, "Asia/Tokyo"), "2026-07-05")
-        self.assertEqual(routine_plan.clock_value("date", instant, "UTC"), "2026-07-04")
+        date = {"kind": "run_clock", "format": "date"}
+        self.assertEqual(routine_plan.clock_value(date, instant, "Asia/Tokyo"), "2026-07-05")
+        self.assertEqual(routine_plan.clock_value(date, instant, "UTC"), "2026-07-04")
+        text = {
+            "kind": "run_clock",
+            "format": "text",
+            "parts": ["news ", {"days": 1, "format": "{d}/{M}", "lang": None}],
+        }
+        self.assertEqual(routine_plan.clock_value(text, instant, "Asia/Tokyo"), "news 6/7")
         self.assertEqual(routine_plan.commitment({"b": 1, "a": "é"}), routine_plan.commitment({"a": "é", "b": 1}))
         self.assertNotEqual(routine_plan.commitment({"a": 1}), routine_plan.commitment({"a": "1"}))
         with (

@@ -98,12 +98,14 @@ def _send(
     window: tuple[str, ...] = (),
     timezone: str | None = "America/Sao_Paulo",
     started_at: int = STARTED,
+    locale: str | None = "pt",
 ) -> recording.Send:
     lines = tuple(
         line for entry in window for segment in http_payload.authored_segments(entry) for line in segment.split("\n")
     )
     occurrences = tuple(_occurrence(call, started_at) for call in calls)
-    return recording.Send(message, http_payload.authored_segments(message), lines, timezone, started_at, occurrences)
+    person = http_payload.authored_segments(message)
+    return recording.Send(message, person, lines, timezone, started_at, occurrences, locale=locale)
 
 
 def _then_hourly(text: str) -> str:
@@ -120,7 +122,6 @@ def _record(*sends: recording.Send, mode: str = "show", **options) -> recording.
         options.get("contracts", CONTRACTS),
         asked=options.get("asked"),
         existing=options.get("existing"),
-        frontier=options.get("frontier", 0),
     )
 
 
@@ -351,17 +352,16 @@ class OwnerCaseTests(unittest.TestCase):
             (_input(recorded)["zone_id"], recorded.origins["s2"]["zone_id"]),
             ({"kind": "literal", "value": "target-b"}, "request"),
         )
+        # Work run again for the other target contradicts the choice: the span ends, never asks again.
         wrong = _send(fetch, ("cloudflare/list-dns-records", {"zone_id": "target"}, {}))
-        self.assertEqual(_record(work, _send(message='"target-b"'), wrong, asked=chosen).code, "routine-work-rerun")
-        # A rerun that also sends the other target again repeats the work but contradicts the choice.
+        code = _code(self, lambda: _record(work, _send(message='"target-b"'), wrong, asked=chosen))
+        self.assertEqual(code, "routine-record-again")
+        # A read for the unchosen target beside the chosen one is the choice not taken, which the work drops.
         both = _send(
             fetch, *(("cloudflare/list-dns-records", {"zone_id": zone}, {}) for zone in ("target-b", "target"))
         )
-        self.assertEqual(_record(work, _send(message='"target-b"'), both, asked=chosen).code, "routine-work-rerun")
-        # Once the rerun settled, later work that sends the other target again contradicts the choice.
-        later = _send(fetch, ("cloudflare/list-dns-records", {"zone_id": "target"}, {"n": 1}))
-        contradicted = _record(work, _send(message='"target-b"'), again, later, asked=chosen)
-        self.assertEqual(contradicted.code, "routine-work-rerun")
+        recorded = _recorded(work, _send(message='"target-b"'), both, asked=chosen)
+        self.assertEqual(_input(recorded)["zone_id"], {"kind": "literal", "value": "target-b"})
 
     def test_a_zone_listed_without_a_name_is_never_read_by_its_position(self) -> None:
         # A reordered list would make a position target another zone, so the person is asked which one it is.
@@ -508,49 +508,39 @@ class OutputTests(unittest.TestCase):
         alone = _send(ZONES_CALL, message="zonas a cada hora, usar em outras ações")
         self.assertEqual(self.output(alone), recording.Question("routine-output-unstated"))
 
-    def test_a_chain_chosen_after_the_question_must_use_the_result_it_asked_about(self) -> None:
+    def test_a_chain_chosen_after_the_question_uses_the_shown_action_and_gets_one_repair(self) -> None:
         records = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID}, {"result": {"id": "rec-1234567"}})
         work = _send(ZONES_CALL, records, message="DNS de shimpz.com a cada hora")
         asked = _record(work, mode=None)
         self.assertEqual(
-            (asked.code, asked.chained_from[:2]), ("routine-output-unstated", ("cloudflare", "list-dns-records"))
+            (asked.code, asked.chained_from), ("routine-output-unstated", ("cloudflare", "list-dns-records"))
         )
         chain = _send(message=http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"])
-        # Recording again with no new Action, or repeating the same work, uses no result of the records listing.
-        for later in ((), (_send(ZONES_CALL, records),)):
-            with self.subTest(later=len(later)):
-                again = _record(work, chain, *later, asked=_asked(asked, 1), mode=None)
-                self.assertEqual(
-                    (again.code, again.chained_from[:2]),
-                    ("routine-output-unstated", ("cloudflare", "list-dns-records")),
-                )
-        post = ("reports/post", {"record": "rec-1234567"}, {})
-        chained = _recorded(work, chain, _send(ZONES_CALL, records, post), asked=_asked(asked, 1), mode=None)
+        # With no Action run since the question it stands, as the zones the records read are no chain of the records.
+        again = _record(work, chain, asked=_asked(asked, 1), mode=None)
+        self.assertEqual((again.code, again.chained_from), (asked.code, asked.chained_from))
+        # Work run again that still uses no records result ends the span instead of asking once more.
+        code = _code(self, lambda: _record(work, chain, _send(ZONES_CALL, records), asked=_asked(asked, 1), mode=None))
+        self.assertEqual(code, "routine-record-again")
+        # A post reading a records result is the chain, whatever words the records call was run with.
+        reworded = (
+            "cloudflare/list-dns-records",
+            {"zone_id": SHIMPZ_ID, "per_page": 5},
+            {"result": {"id": "rec-98765"}},
+        )
+        post = ("reports/post", {"record": "rec-98765"}, {})
+        chained = _recorded(work, chain, _send(ZONES_CALL, reworded, post), asked=_asked(asked, 1), mode=None)
         self.assertEqual(_actions(chained), ["list-zones", "list-dns-records", "post"])
         self.assertEqual(chained.document["output"]["mode"], "show")
 
-    def test_a_chain_must_use_the_shown_call_itself_not_another_call_of_its_action(self) -> None:
+    def test_a_chain_must_use_the_shown_action_not_only_an_earlier_lookup(self) -> None:
         alpha = ("reports/fetch", {"q": "alpha"}, {"id": "aaa-111111"})
-        beta = ("reports/fetch", {"q": "beta"}, {"id": "bbb-222222"})
-        work = _send(alpha, beta, message="relatório a cada hora")
+        work = _send(alpha, message="relatório a cada hora")
         asked = _record(work, mode=None)
-        self.assertEqual(asked.code, "routine-output-unstated")
+        self.assertEqual(asked.chained_from, ("reports", "fetch"))
         chain = _send(message=http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"])
-        wrong = _send(alpha, beta, ("reports/post", {"x": "aaa-111111"}, {}))
-        self.assertEqual(_record(work, chain, wrong, asked=_asked(asked, 1), mode=None).code, asked.code)
-        right = _send(alpha, beta, ("reports/post", {"x": "bbb-222222"}, {}))
+        right = _send(alpha, ("reports/post", {"x": "aaa-111111"}, {}))
         self.assertIsInstance(_record(work, chain, right, asked=_asked(asked, 1), mode=None), recording.Recorded)
-
-    def test_a_chain_must_use_the_shown_result_of_identical_calls(self) -> None:
-        alpha = ("reports/fetch", {"q": "stats"}, {"id": "aaa-111111"})
-        beta = ("reports/fetch", {"q": "stats"}, {"id": "bbb-222222"})
-        work = _send(alpha, beta, message="relatório a cada hora")
-        asked = _record(work, mode=None)
-        chain = _send(message=http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"])
-        first = _send(alpha, beta, ("reports/post", {"x": "aaa-111111"}, {}))
-        self.assertEqual(_record(work, chain, first, asked=_asked(asked, 1), mode=None).code, asked.code)
-        second = _send(alpha, beta, ("reports/post", {"x": "bbb-222222"}, {}))
-        self.assertIsInstance(_record(work, chain, second, asked=_asked(asked, 1), mode=None), recording.Recorded)
 
     def test_no_output_or_two_in_one_segment_are_asked_never_guessed(self) -> None:
         for message in ("a cada hora", "a cada hora. Mostrar sempre. Ou só quando mudar."):

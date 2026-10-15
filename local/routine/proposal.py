@@ -33,6 +33,7 @@ from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_context as http_routine_context
 from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import compose as routine_compose
+from routine import dates as routine_dates
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record, trace
@@ -235,7 +236,7 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
     if existing is not None:
         kept = routine_recording.Existing(existing.plan, existing.schedule)
     # A record call for other work than the stored intent supersedes its question, the work it asked to repeat, and
-    # the result a chain had to use, though never the choices the person already answered; one continuing it keeps
+    # the Action a chain had to use, though never the choices the person already answered; one continuing it keeps
     # verifying.
     stored, asked = recording.intent, recording.asked
     if stored is not None and asked is not None and _work(stored) != _work(intent):
@@ -248,7 +249,6 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
             contracts,
             asked=asked,
             existing=kept,
-            frontier=recording.frontier,
         )
     except routine_recording.RecordingError as exc:
         raise RefusedError(exc.code) from exc
@@ -333,7 +333,9 @@ def _card_input(member: str, source: dict[str, object], origin: str, positions: 
     if source["kind"] == "literal":
         return {"member": member, "origin": origin, **empty, "value": _escaped_json(source["value"])}
     if source["kind"] == "run_clock":
-        return {"member": member, "origin": "clock", **empty}
+        # The run date alone, or a text template complete, each of its dates in braces as a person reads it.
+        shown = None if source["format"] == "date" else http_routine.escaped(routine_dates.shown(source["parts"]))
+        return {"member": member, "origin": "clock", **empty, "value": shown}
     shown = routine_definition.shown_where(source)
     return {
         "member": member,

@@ -17,6 +17,7 @@ import hashlib
 from collections.abc import Mapping, Sequence
 
 from protocol.http.v1 import routine as http_routine
+from routine import dates as routine_dates
 from routine import plan as routine_plan
 
 
@@ -55,7 +56,8 @@ def _input(member: str, source: Mapping[str, object], positions: Mapping[str, in
     if source["kind"] == "literal":
         return {"member": member, "source": "literal", "value": http_routine.literal_preview(source["value"])}
     if source["kind"] == "run_clock":
-        return {"member": member, "source": "run_clock", "value": source["format"]}
+        shown = source["format"] if source["format"] == "date" else routine_dates.shown(source["parts"])
+        return {"member": member, "source": "run_clock", "value": http_routine.preview(shown)}
     shown = shown_where(source)
     return {
         "member": member,

@@ -3,7 +3,8 @@
 A plan is versioned declarative JSON: at most 256 ordered steps (its admission budget below), each naming one exact
 Assistant Action by its complete pin, the same Action as often as the work needs with its own inputs, and giving each
 top-level input member it holds exactly one value: a ``literal``, the ``run_clock`` date of the run's one immutable
-start instant in the plan's timezone, or a ``step_output`` that copies one JSON value from a completed earlier step of
+start instant in the plan's timezone or a text template whose dates are written again for that date
+(``routine.dates``), or a ``step_output`` that copies one JSON value from a completed earlier step of
 the same run, selected by an RFC 6901 pointer, or through the one array item whose ``where`` member equals a constant
 and then the item's own ``item`` pointer. Every required member is present. There is no coercion, interpolation,
 expression, branch, loop, or cross-run lookup. Outputs can only fill inputs: they never choose an Assistant, an Action,
@@ -34,6 +35,7 @@ from core.canonical_json import encode as canonical
 from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_run as http_routine_run
+from routine import dates as routine_dates
 from routine import schedule
 
 VERSION = 4
@@ -83,8 +85,6 @@ STEP_ID_RE = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
 PIN_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
 _INDEX_RE = re.compile(r"(?:0|[1-9][0-9]{0,8})\Z")
-# The one run-clock token a recording infers: the run's date in the plan's timezone (ADR-0101).
-CLOCK_FORMATS = ("date",)
 # What a completed run does with its result; ``show`` and ``changes`` name the step whose result is shown.
 OUTPUT_MODES = http_routine.OUTPUT_MODES
 SHOWN_MODES = http_routine.SHOWN_MODES
@@ -278,14 +278,22 @@ def _step(raw: object, contracts: Mapping[tuple[str, str], ActionContract], earl
     if not set(inputs) <= set(properties) or not set(schema.get("required", ())) <= set(inputs):
         raise PlanError("plan-input-mismatch")
     # The whole input is the first position, so the root's own applicators and annotations derive every member's
-    # destinations; a member that is not a literal counts only for presence and is never itself checked.
-    supplied = {name: source.get("value", _NOT_LITERAL) for name, source in inputs.items()}
+    # destinations; a template is checked as the text it writes, and any other member that is not a literal counts only
+    # for presence and is never itself checked.
+    supplied = {name: _supplied(source) for name, source in inputs.items()}
     if _secret_literal(schema, "", supplied, schema, 0):
         raise PlanError("plan-secret-literal")
     for name, source in inputs.items():
         _typed(name, source, schema)
     schemas = (copy.deepcopy(contract.output_schema), copy.deepcopy(dict(schema)))
     return Step(step_id, assistant_id, action, pin, copy.deepcopy(inputs), *schemas)
+
+
+def _supplied(source: Mapping[str, object]) -> object:
+    """What a step input writes that its plan holds: a literal, or a template's text, which a secret never takes."""
+    if source.get("kind") == "run_clock" and "parts" in source:
+        return clock_value(source, _SAMPLE_INSTANT, "UTC")
+    return source.get("value", _NOT_LITERAL)
 
 
 def _matches(value: object, pattern: re.Pattern[str]) -> bool:
@@ -295,10 +303,11 @@ def _matches(value: object, pattern: re.Pattern[str]) -> bool:
 _SOURCE_FIELDS = (
     frozenset({"kind", "value"}),
     frozenset({"kind", "format"}),
+    frozenset({"kind", "format", "parts"}),
     frozenset({"kind", "step", "pointer"}),
     frozenset({"kind", "step", "pointer", "where", "item"}),
 )
-_SOURCES = tuple(zip(("literal", "run_clock", "step_output", "step_output"), _SOURCE_FIELDS, strict=True))
+_SOURCES = tuple(zip(("literal", "run_clock", "run_clock", "step_output", "step_output"), _SOURCE_FIELDS, strict=True))
 
 
 def _source(source: object, earlier: tuple[str, ...]) -> None:
@@ -308,14 +317,23 @@ def _source(source: object, earlier: tuple[str, ...]) -> None:
         raise PlanError("plan-input-invalid")
     if kind == "literal" and _holds_credential(source["value"]):
         raise PlanError("plan-secret-literal")
-    if kind == "run_clock" and source["format"] not in CLOCK_FORMATS:
+    if kind == "run_clock" and not _clock(source):
         raise PlanError("plan-input-invalid")
+    if kind == "run_clock" and "parts" in source and _holds_credential(clock_value(source, _SAMPLE_INSTANT, "UTC")):
+        raise PlanError("plan-secret-literal")
     if kind == "step_output" and (
         source["step"] not in earlier
         or pointer_tokens(source["pointer"]) is None
         or ("where" in source and not (_where(source["where"]) and pointer_tokens(source["item"]) is not None))
     ):
         raise PlanError("plan-reference-invalid")
+
+
+def _clock(source: Mapping[str, object]) -> bool:
+    """A run date alone, or a text template with its parts (``routine.dates``)."""
+    if source["format"] == "date":
+        return "parts" not in source
+    return source["format"] == "text" and "parts" in source and routine_dates.admitted(source["parts"])
 
 
 def _where(value: object) -> bool:
@@ -333,7 +351,7 @@ def _typed(name: str, source: Mapping[str, object], schema: Mapping[str, Any]) -
     if source["kind"] == "literal":
         _admit_member(schema, name, source["value"])
     elif source["kind"] == "run_clock":
-        _admit_member(schema, name, clock_value(source["format"], _SAMPLE_INSTANT, "UTC"))
+        _admit_member(schema, name, clock_value(source, _SAMPLE_INSTANT, "UTC"))
 
 
 def _secret_literal(root: Mapping[str, Any], name: str, value: object, subschema: object, depth: int) -> bool:
@@ -506,10 +524,10 @@ def _admit_member(schema: Mapping[str, Any], name: str, value: object) -> None:
         raise PlanError("plan-input-type") from exc
 
 
-def clock_value(form: str, instant: datetime.datetime, timezone: str) -> object:
-    """The run date: the run's start instant as a date in the plan's timezone; ``form`` is always ``date``."""
-    del form
-    return instant.astimezone(schedule.zone(timezone)).date().isoformat()
+def clock_value(source: Mapping[str, object], instant: datetime.datetime, timezone: str) -> object:
+    """A run-clock value at the run's start instant: the date in the plan's timezone, or a template written for it."""
+    day = instant.astimezone(schedule.zone(timezone)).date()
+    return day.isoformat() if source["format"] == "date" else routine_dates.render(source["parts"], day)
 
 
 def pointer_tokens(pointer: object) -> tuple[str, ...] | None:
@@ -613,7 +631,7 @@ def resolve(
         if source["kind"] == "literal":
             resolved[name] = copy.deepcopy(source["value"])
         elif source["kind"] == "run_clock":
-            resolved[name] = clock_value(source["format"], instant, plan.timezone)
+            resolved[name] = clock_value(source, instant, plan.timezone)
         elif selector(source) in selected:
             resolved[name] = copy.deepcopy(selected[selector(source)])
         else:

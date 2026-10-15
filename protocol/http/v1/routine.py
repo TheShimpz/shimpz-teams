@@ -22,9 +22,9 @@ MAX_ROUTINE_NAME_CHARS = 80
 MAX_ROUTINE_DESCRIPTION_CHARS = 600
 # The ordered Actions of a recorded plan (ADR-0092 section 3, ADR-0101): one Action may repeat.
 MAX_ROUTINE_STEPS = 256
-# A continuous Routine starts its runs this far apart, at least, and at most a day.
+# A continuous Routine starts its runs this far apart, at least, and at most 366 days.
 MIN_CONTINUOUS_GAP_SECONDS = 5
-MAX_CONTINUOUS_GAP_SECONDS = 86_400
+MAX_CONTINUOUS_GAP_SECONDS = 366 * 86_400
 DAY_SECONDS = 86_400
 # A continuous Routine's cap is always its gap's whole day, never lowered, so the interval a person stated is what
 # runs; the Team's daily Action-step budget alone bounds the sum (ADR-0101).
@@ -99,7 +99,7 @@ def canonical_schedule(value: object) -> dict[str, object] | None:
     """The exact schedule, or None.
 
     Hourly every 1..24 hours, daily, weekly (0 = Monday), monthly on day 1..28, or continuous: ``gap`` seconds (5 to
-    86,400) after each run ends, and ``cap`` exactly ``continuous_cap(gap)`` starts in any rolling 24 hours.
+    366 days) apart, and ``cap`` exactly ``continuous_cap(gap)`` starts in any rolling 24 hours.
     """
     kind = value.get("kind") if isinstance(value, dict) else None
     if not isinstance(kind, str) or kind not in SCHEDULE_KINDS or set(value) != _FIELDS[kind]:
@@ -252,7 +252,6 @@ MAX_STEP_VIEW_BYTES = 24 * 1024
 # A page of projected steps: whole steps only, at most this many and this many encoded bytes, so one always fits.
 MAX_PAGE_STEPS = 64
 MAX_PAGE_BYTES = 96 * 1024
-CLOCK_FORMATS = frozenset({"date"})
 PLAN_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
 # A lone surrogate is unsafe too: it has no UTF-8 encoding, so it is escaped in a preview and refused elsewhere.
@@ -271,7 +270,12 @@ def escaped(text: str) -> str:
 
 def literal_preview(value: object) -> str:
     """A literal's JSON text, with every control or invisible character escaped, cut to 120 characters."""
-    text = escaped(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    return preview(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+
+def preview(text: str) -> str:
+    """Text with every control or invisible character escaped, cut to 120 characters."""
+    text = escaped(text)
     return text if len(text) <= MAX_PREVIEW_CHARS else text[: MAX_PREVIEW_CHARS - 1] + "…"
 
 
@@ -326,7 +330,8 @@ def _input(value: object, position: int) -> bool:
     if source == "literal":
         return _plain(value["value"], MAX_PREVIEW_CHARS)
     if source == "run_clock":
-        return isinstance(value["value"], str) and value["value"] in CLOCK_FORMATS
+        # The run date, or the preview of a dated text's template as a person reads it.
+        return _plain(value["value"], MAX_PREVIEW_CHARS)
     return _reference(value, position)
 
 
