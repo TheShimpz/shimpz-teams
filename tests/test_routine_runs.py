@@ -221,6 +221,26 @@ class FailureStreakTests(unittest.TestCase):
             with self.subTest(index=index):
                 self.assertEqual(current.failures, (1, 2, 0, 1, 2, 3)[index])
                 self.assertEqual(current.paused, index == 5)
+        # The pause is said once, as the Routine's own notice with how many runs failed in a row.
+        streaks = [(item.run_id, item.detail) for item in state.notices if item.outcome == "streak-paused"]
+        self.assertEqual(streaks, [("", {"failures": 3})])
+        # A Routine already paused, by a person or a failure streak, says nothing more as more runs fail.
+        claimed_state, claim = routine_claim.claim(
+            at(
+                dataclasses.replace(
+                    state, routines=(dataclasses.replace(record.routine(state, "a" * 32), paused=False, failures=3),)
+                ),
+                "a" * 32,
+                NINE,
+            ),
+            NINE,
+            KEY,
+        )
+        paused = record.set_paused(claimed_state, "a" * 32, True)
+        failed = routine_runs.end(
+            paused, claim.run.run_id, NINE, "failed", {"code": "x", "actions": [], "position": None, "steps": None}
+        )
+        self.assertEqual(len([item for item in failed.notices if item.outcome == "streak-paused"]), 1)
         # A Stop or a denial is no execution failure.
         claimed_state, claim = routine_claim.claim(
             at(

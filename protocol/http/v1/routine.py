@@ -53,17 +53,21 @@ OUTCOMES = frozenset(
         "created",
         "changed",
         "deleted",
+        "streak-paused",
     }
 )
 # Outcomes of the Routine itself, never of a run: they carry no run id. ``skipped`` reports missed firings; a person
 # setting a held run aside through its card's Rodar, or by deleting its Routine, is the run outcome ``user-skipped``,
 # whose ``choice`` says which. ``healthy`` rolls up a continuous Routine's healthy runs that ended in one minute,
 # starting at the notice's instant (ADR-0092 section 9). ``deleted`` closes the Routine's timeline (ADR-0101).
-ROUTINE_OUTCOMES = ("skipped", "scope-changed", "created", "changed", "healthy", "deleted")
+# ``streak-paused`` says its consecutive failed runs paused it (ADR-0092 section 6), with how many.
+ROUTINE_OUTCOMES = ("skipped", "scope-changed", "created", "changed", "healthy", "deleted", "streak-paused")
 # Why a held run's Routine was paused (ADR-0092): the spent recovery budget, a Team-detected policy fault such as a
 # secret echo or an invalid frame, or recovery evidence Team never classified.
 PAUSE_REASONS = ("exhausted", "policy", "evidence")
 ERROR_CODE_RE = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
+# Consecutive no-effect failed runs that pause a Routine (ADR-0092 section 6).
+MAX_FAILURE_STREAK = 3
 # The interface languages: the same closed set as payload.CHAT_LOCALES, pinned equal by a Team test.
 LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
 SCHEDULE_KINDS = frozenset({"daily", "weekly", "monthly", "continuous"})

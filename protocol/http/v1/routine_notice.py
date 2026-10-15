@@ -109,6 +109,10 @@ _DETAILS = {
     "created": (_DEFINED_FIELDS, _defined),
     "changed": (_DEFINED_FIELDS, _defined),
     "deleted": (set(), lambda _detail: True),
+    "streak-paused": (
+        {"failures"},
+        lambda detail: type(detail["failures"]) is int and 1 <= detail["failures"] <= routine.MAX_FAILURE_STREAK,
+    ),
 }
 
 

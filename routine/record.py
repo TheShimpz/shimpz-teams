@@ -53,10 +53,11 @@ MAX_RUNS = 2 * MAX_UNRESOLVED_INCIDENTS
 # A live run: it may run a segment, waits for a person, or is fenced while its hold settles. Any other run record is an
 # incident: ``unresolved``, held for recovery or a person, or ``skipped``, set aside and releasing what it kept.
 LIVE = frozenset({"leased", "frozen", "held"})
-# Undelivered Routine outcomes beside every run's: a created or changed notice and, once, a deleted one per Routine.
-MAX_ROUTINE_NOTICES = 2 * MAX_ROUTINES
+# Undelivered Routine outcomes beside every run's: per Routine, a created or changed notice, the pause after a failure
+# streak, and, once, a deleted one.
+MAX_ROUTINE_NOTICES = 3 * MAX_ROUTINES
 # Consecutive no-effect failures that pause a Routine (ADR-0092 section 6).
-MAX_FAILURE_STREAK = 3
+MAX_FAILURE_STREAK = http_routine.MAX_FAILURE_STREAK
 
 
 class RoutineStateError(ValueError):
@@ -512,7 +513,7 @@ def run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail: 
     """Publish the next version of the run's one notice, keyed by its run id, with the run's usage and protection.
 
     Returns the state and the run carrying that version. A completed or recovered run resets its Routine's failure
-    streak; a failed one extends it, the third pausing it.
+    streak; a failed one extends it, the third pausing it with a ``streak-paused`` notice that says so.
     """
     version = value.notice_version + 1
     notice = Notice(
@@ -530,8 +531,11 @@ def run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail: 
     if outcome in {"done", "recovered", "failed"}:
         current = routine(state, value.routine_id)
         failures = current.failures + 1 if outcome == "failed" else 0
-        paused = current.paused or failures >= MAX_FAILURE_STREAK
-        state = replace_routine(state, dataclasses.replace(current, failures=failures, paused=paused))
+        streak = not current.paused and failures >= MAX_FAILURE_STREAK
+        state = replace_routine(state, dataclasses.replace(current, failures=failures, paused=current.paused or streak))
+        if streak:
+            paused = Notice(new_id(), current.routine_id, "", "streak-paused", now, {"failures": failures})
+            state = put_notice(state, paused)
     return state, dataclasses.replace(value, notice_version=version)
 
 

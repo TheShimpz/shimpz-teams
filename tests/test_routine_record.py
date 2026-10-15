@@ -104,6 +104,7 @@ class ContractTests(unittest.TestCase):
             "created": DEFINED,
             "changed": DEFINED,
             "deleted": {},
+            "streak-paused": {"failures": http_routine.MAX_FAILURE_STREAK},
         }
         self.assertEqual(set(valid), http_routine.OUTCOMES)
         for outcome, detail in valid.items():
@@ -112,6 +113,9 @@ class ContractTests(unittest.TestCase):
         invalid = (
             ("done", {"plan": SUMMARY}),
             ("deleted", {"name": "x"}),
+            ("streak-paused", {"failures": 0}),
+            ("streak-paused", {"failures": True}),
+            ("streak-paused", {}),
             ("unknown", {"plan": SUMMARY, "output": None}),
             ("done", {"actions": [["dns", "check"]], "output": None}),
             ("done", {"plan": {**SUMMARY, "steps": 3}, "output": None}),
