@@ -379,7 +379,7 @@ answering `requested`; it carries no model credential. It refuses while the held
 (`routine-workload-unquiesced`), while another run of the Routine is live (`routine-busy`), once it is deleted
 (`routine-not-found`), or when the Routine's Assistant contracts changed (`routine-contracts-changed`). Anything refused
 changes nothing. A tag that no longer matches is `routine-card-stale`, and a run no longer held is
-`routine-incident-not-unresolved`; every answer is checked and applied in the Team's execution slot, and its write checks
+`routine-incident-unavailable`; every answer is checked and applied in the Team's execution slot, and its write checks
 the same state again. `POST /v1/teams/:team_id/routines/:routine_id/pause` with `{}` turns a Routine's dispatch off,
 while a run already going finishes; `POST /v1/teams/:team_id/routines/:routine_id/resume` with `{}` turns dispatch back
 on and starts a fresh failure streak; an unresolved incident still holds the Routine until its card settles it. Deleting
