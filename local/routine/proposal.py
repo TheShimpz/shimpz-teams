@@ -113,10 +113,6 @@ class RefusedError(Exception):
         self.code = code
 
 
-def _brain_failed() -> ApiProblem:
-    return local_errors.brain_turn_failed()
-
-
 def _outcome(value: object) -> dict[str, object]:
     """The chat agent's ``record`` call exactly as Brain reports it; anything else is a Brain contract failure."""
     valid = (
@@ -129,7 +125,7 @@ def _outcome(value: object) -> dict[str, object]:
         and (value["replaces"] is None or http_routine.ROUTINE_ID_RE.fullmatch(str(value["replaces"])) is not None)
     )
     if not valid:
-        raise _brain_failed()
+        raise local_errors.brain_turn_failed()
     return value
 
 
