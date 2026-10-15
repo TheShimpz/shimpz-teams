@@ -55,9 +55,9 @@ OUTCOMES = frozenset(
     }
 )
 # Outcomes of the Routine itself, never of a run: they carry no run id. ``skipped`` reports missed firings; a person
-# setting a held run aside through its card's Rodar, or by deleting its Routine, is the run outcome ``user-skipped``,
-# whose ``choice`` says which. ``healthy`` rolls up a continuous Routine's healthy runs that ended in one minute,
-# starting at the notice's instant (ADR-0092 section 9). ``deleted`` closes the Routine's timeline (ADR-0101).
+# setting a held run aside through its card's Rodar, or by deleting its Routine, is the run outcome ``user-skipped``.
+# ``healthy`` rolls up a continuous Routine's healthy runs that ended in one minute, starting at the notice's instant
+# (ADR-0092 section 9). ``deleted`` closes the Routine's timeline (ADR-0101).
 # ``streak-paused`` says its consecutive failed runs paused it (ADR-0092 section 6), with how many.
 ROUTINE_OUTCOMES = ("skipped", "scope-changed", "created", "changed", "healthy", "deleted", "streak-paused")
 # Why a held run's Routine was paused (ADR-0092): the spent recovery budget, a Team-detected policy fault such as a

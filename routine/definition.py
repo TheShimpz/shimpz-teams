@@ -26,7 +26,7 @@ def plan_digest(plan: Mapping[str, object]) -> str:
 
 
 def run_units(value: object) -> int:
-    """A run's units: its replay steps, which every budget derives from (ADR-0101 §6.4)."""
+    """A run's units: its replay steps, which every budget derives from (ADR-0101 section 9)."""
     return len(value.plan["steps"])
 
 

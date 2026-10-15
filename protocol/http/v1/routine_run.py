@@ -84,7 +84,8 @@ def canonical_claim_request(value: object) -> dict[str, object] | None:
     return {"long": value["long"]}
 
 
-# A run's active time grows with its units to a ceiling, and past 600 s it is long (ADR-0092, scale; ADR-0101 §6.4).
+# A run's active time grows with its units to a ceiling, and past 600 s it is long (ADR-0092, scale; ADR-0101
+# section 9).
 SHORT_ACTIVE_SECONDS = 600
 MAX_ACTIVE_SECONDS = 7200
 

@@ -100,8 +100,9 @@ class Routine:
     rollup_runs: int = 0
     # The summed usage of that minute's runs, which the rollup notice carries (ADR-0101).
     rollup_usage: dict[str, object] | None = None
-    # A person's Rodar: when they asked for one fresh run of a fixed schedule, kept until a claim starts it, so neither
-    # a cap nor a late scheduler turns it into a missed firing; 0 when none is pending. It never moves the cadence.
+    # A person's Rodar: when they asked for one fresh run, whatever the schedule, kept until a claim starts it, so
+    # neither a cap nor a late scheduler turns it into a missed firing; 0 when none is pending. It never moves the
+    # cadence.
     run_requested: int = 0
     # The keyed digest of the result the last queued notice showed, which a ``changes`` Routine compares each completed
     # run's result with; empty until one is shown, and again after every change of the Routine.
@@ -144,9 +145,9 @@ class Run:
     # That call by its 1-based step position and its plan's step count; None and 0 otherwise.
     position: int | None = None
     steps: int = 0
-    # The run's active time so far, through every freeze, hold, and continuation (ADR-0101 §10).
+    # The run's active time so far, through every freeze, hold, and continuation (ADR-0101 section 7).
     usage: dict[str, object] = dataclasses.field(default_factory=lambda: {"duration_ms": 0})
-    # The run lost the protection of its secret values, so nothing it produced since may be shown (section 6.2).
+    # The run lost the protection of its secret values, so nothing it produced since may be shown (ADR-0101 section 6).
     protection_lost: bool = False
     # The Routine revision the run executes, which its claim names and its cursor binds (ADR-0092).
     revision: int = 1

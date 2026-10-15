@@ -28,8 +28,8 @@ Team Routine forms are split by responsibility (ADR-0101): `routine.py` owns sch
 and models; `routine_notice.py` notices and the views Admin lists; `routine_run.py` recovery
 cards, claims, segments, diagnostics, and run steps; `routine_proposal.py` the confirmation card, Team's questions,
 refusals, answers, and the output choices; and `routine_context.py` the Routine listing and rerun work a recording
-chat's Brain receives. The Brain mirrors `payload.py`, `phrase.py`, `routine.py`, `routine_proposal.py`, and
-`routine_context.py` with the three files above.
+chat's Brain receives. The Brain mirrors `payload.py`, `phrase.py`, `routine.py`, `routine_notice.py`,
+`routine_proposal.py`, and `routine_context.py` with the three files above.
 `strict_json.py` is an exact copy of the umbrella `.standards/strict_json.py` security source: the frame and stream
 decoders parse through it, so a duplicate field and every non-finite number, including an exponent overflow such as
 `1e999`, fail closed. The modules import one another as a package, and flat when `verify.py` runs them as scripts.
@@ -201,8 +201,8 @@ questions (`routine_proposal.SETTINGS_QUESTION_CODES`): an answer to one runs no
 work. When the person's next send is Admin's composed answer to an ambiguous
 binding and its latest answer is exactly one target's JSON text that states no schedule, Team records again with the
 request's stored intent without asking the Brain, and its reply is empty. Every other answer goes to the Brain, which
-records again with a description that says it; an output answer runs no Action again, so the span's latest work stays
-the work recorded, and its reply is empty too. A completed turn's `reply` is empty only beside a `routine_proposal`,
+records again with a description that says it; a settings answer (`routine_settings_answer` below) runs no Action
+again and keeps the work its intent selected, and its reply is empty too. A completed turn's `reply` is empty only beside a `routine_proposal`,
 `routine_question`, or `routine_refusal`, which then says everything the person reads.
 
 What a person's own words state about a Routine is read here too, with no model, so Team and the Brain read the

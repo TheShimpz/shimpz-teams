@@ -197,7 +197,7 @@ def finished(
 ) -> str:
     """A replayed run completed every step: commit its end exactly when Stop did not win it; no model is asked.
 
-    Its notice names the Actions it carried out, and says recovered when a continuation after a hold completed it. A
+    It ends by its Routine's output disposition, and as recovered when a continuation after a hold completed it. A
     deadline is no person's Stop: when it, not a person, cut a run whose sealed cursor proves every step complete, the
     run is recorded complete like the watchdog would, which also resets its failure streak. ``shown`` is the result the
     run's sealed cursor kept for its Routine's output disposition.
@@ -213,8 +213,8 @@ def complete_sealed(self, run: LeasedRun, shown: dict[str, object] | None) -> st
     """Record a run its own deadline cut after its sealed cursor completed every step, as complete.
 
     It uses the Team-authoritative transition the watchdog uses, bound to this run's exact lease but not to time left
-    on it, because a deadline exhausts both: the run is done or recovered, names its Actions, and resets the failure
-    streak. The caller has proven sealed completion; a run whose lease changed since is never touched.
+    on it, because a deadline exhausts both: the run is done or recovered by its output disposition, and resets the
+    failure streak. The caller has proven sealed completion; a run whose lease changed since is never touched.
     """
     now = int(time.time())
 
