@@ -8,7 +8,6 @@ exists. Names are unique per Space ignoring case, under one Space-wide namespace
 import hashlib
 import re
 import unicodedata
-from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from pathlib import Path
 
@@ -18,7 +17,7 @@ from inference import config as inference_config
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import ownership_conflict
 from local.labels import TEAM_LABEL, TEAM_NAME_LABEL
-from local.validation import validate_team_id
+from local.validation import docker_instant_ns, validate_team_id
 from protocol.http.v1 import payload as http_payload
 from storage import files as team_storage
 from storage import private_state
@@ -28,13 +27,6 @@ MAX_RECORD_BYTES = 4096
 # Every name this store writes: a Team's display-name record and its interrupted temporary file.
 _OWNED_NAME_RE = re.compile(r"(?:[0-9a-f]{64}\.name\.json|\.[0-9a-f]{64}\.name\.json\.[0-9a-f]{16}\.tmp)\Z")
 _RECORD_KEYS = {"schema", "team_id", "network_id", "team_name"}
-# Docker's RFC 3339 network creation time: whole seconds, an optional fraction of up to nanoseconds, and an offset
-# bounded here because datetime.fromisoformat would normalize an out-of-range one such as +00:60.
-_CREATED_RE = re.compile(
-    r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]{1,9}))?"
-    r"(Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])\Z"
-)
-_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _unavailable() -> ApiProblem:
@@ -139,20 +131,14 @@ def display_name(self, team_id: str, network) -> str:
 
 def _created_ns(network) -> int:
     """The Team network's Docker creation instant in nanoseconds since the epoch, whatever offset Docker reports."""
-    created = network.attrs.get("Created")
-    match = _CREATED_RE.fullmatch(created) if isinstance(created, str) else None
-    try:
-        if match is None:
-            raise ValueError("creation time is not RFC 3339")
-        whole, fraction, offset = match.groups()
-        instant = datetime.fromisoformat(whole + ("+00:00" if offset == "Z" else offset))
-    except ValueError as exc:
+    created = docker_instant_ns(network.attrs.get("Created"))
+    if created is None:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Docker returned an invalid Team creation time",
             code="team-metadata-invalid",
-        ) from exc
-    return (instant - _EPOCH) // timedelta(seconds=1) * 10**9 + int((fraction or "").ljust(9, "0"))
+        )
+    return created
 
 
 def _named_teams(self) -> list[tuple[str, str, object]]:

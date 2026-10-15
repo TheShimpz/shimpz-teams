@@ -16,7 +16,6 @@ passed: it is retried only after proven absence, or the run is held again.
 
 import contextlib
 import dataclasses
-import datetime
 import math
 import threading
 import time
@@ -42,6 +41,7 @@ from local.routine import incident as routine_incident
 from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
+from local.validation import docker_instant_ns
 from routine import claim as routine_claim
 from routine import cursor as routine_cursor
 from routine import hold as routine_hold
@@ -185,16 +185,6 @@ def proven(assessment: Assessment) -> str:
     return "uncertain"
 
 
-def _docker_instant(value: object) -> int | None:
-    """Docker's RFC 3339 instant as whole UTC epoch seconds, or None when it is not one."""
-    if not isinstance(value, str) or len(value) < 20 or value[19] not in ".Z":
-        return None
-    try:
-        return int(datetime.datetime.fromisoformat(value[:19] + "+00:00").timestamp())
-    except ValueError:
-        return None
-
-
 def _workload_state(self, team_id: str, assistant_id: str, workload: str) -> dict[str, object] | None:
     """The attempt's container state as Docker reports it; not running when that container is gone or replaced.
 
@@ -225,8 +215,8 @@ def _stopped_since(self, team_id: str, assistant_id: str, workload: str, dispatc
         return False
     if state.get("Running") is False:
         return True
-    started = _docker_instant(state.get("StartedAt"))
-    return started is not None and started > dispatched_at
+    started = docker_instant_ns(state.get("StartedAt"))
+    return started is not None and started // 10**9 > dispatched_at
 
 
 def _quiesced(self, team_id: str, assessment: Assessment) -> bool:

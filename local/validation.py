@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 
 from inference import config as inference_config
@@ -11,6 +12,13 @@ from protocol.http.v1 import routine as http_routine
 
 SPACE_ID_RE = re.compile(r"[a-z0-9][a-z0-9]*(?:-[a-z0-9]+)*")
 DOCKER_ID_RE = re.compile(r"[0-9a-f]{12,64}")
+# Docker's RFC 3339 instant: whole seconds, an optional fraction of up to nanoseconds, and an offset bounded here
+# because datetime.fromisoformat would normalize an out-of-range one such as +00:60.
+_DOCKER_INSTANT_RE = re.compile(
+    r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]{1,9}))?"
+    r"(Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])\Z"
+)
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 MAX_SPACE_ID_LENGTH = 48
 MAX_CHAT_ASSISTANTS = http_payload.MAX_CHAT_ASSISTANTS
 MIN_API_KEY_BYTES = 16
@@ -174,3 +182,16 @@ def half_cpu_set(processors: int) -> str:
         raise RuntimeError("the Docker daemon reported an invalid CPU count")
     available = max(1, processors // 2)
     return "0" if available == 1 else f"0-{available - 1}"
+
+
+def docker_instant_ns(value: object) -> int | None:
+    """Docker's RFC 3339 instant in nanoseconds since the epoch, whatever offset it reports; None when it is not one."""
+    match = _DOCKER_INSTANT_RE.fullmatch(value) if isinstance(value, str) else None
+    if match is None:
+        return None
+    whole, fraction, offset = match.groups()
+    try:
+        instant = datetime.fromisoformat(whole + ("+00:00" if offset == "Z" else offset))
+    except ValueError:
+        return None
+    return (instant - _EPOCH) // timedelta(seconds=1) * 10**9 + int((fraction or "").ljust(9, "0"))

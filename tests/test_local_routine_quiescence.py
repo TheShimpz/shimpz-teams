@@ -11,7 +11,7 @@ from test_local_routine_recovery import Assistant, RecoveryCase, failed
 
 from local import app as local_app
 from local.routine import incident as routine_incident
-from local.routine import recovery as routine_recovery
+from local.validation import docker_instant_ns
 
 
 def instant(epoch: int) -> str:
@@ -93,10 +93,12 @@ class QuiescenceTests(RecoveryCase):
             cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
             service.routine_store.put_cursor("team_1", dataclasses.replace(cursor, workload=""))
             self.assertEqual(self.verify(service, value, run_id), "unquiesced")
-        self.assertIsNone(routine_recovery._docker_instant("2026-10-02"))
-        self.assertIsNone(routine_recovery._docker_instant(7))
-        self.assertIsNone(routine_recovery._docker_instant("2026-13-40T99:00:00Z"))
-        self.assertEqual(routine_recovery._docker_instant("1970-01-01T00:00:10Z"), 10)
+        self.assertIsNone(docker_instant_ns("2026-10-02"))
+        self.assertIsNone(docker_instant_ns(7))
+        self.assertIsNone(docker_instant_ns("2026-13-40T99:00:00Z"))
+        self.assertEqual(docker_instant_ns("1970-01-01T00:00:10.5Z"), 10_500_000_000)
+        # An offset is honoured, never read as UTC.
+        self.assertEqual(docker_instant_ns("1970-01-01T02:00:10+02:00"), 10 * 10**9)
 
     @staticmethod
     def as_person():
