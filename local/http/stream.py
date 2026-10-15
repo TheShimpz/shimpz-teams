@@ -39,9 +39,7 @@ def _write(handler, operation: str, team_id: str, request_audit: RequestAudit, e
     handler.send_response(HTTPStatus.OK)
     handler.send_header("Content-Type", "application/x-ndjson")
     handler.send_header("Transfer-Encoding", "chunked")
-    handler.send_header("Cache-Control", "no-store")
-    handler.send_header("X-Content-Type-Options", "nosniff")
-    handler.send_header("Connection", "close")
+    handler.send_private_headers()
     handler.end_headers()
     writable = True
 
@@ -64,10 +62,7 @@ def _write(handler, operation: str, team_id: str, request_audit: RequestAudit, e
 
     def emit_failure(failure: stdlib.HttpFailure) -> None:
         trace_id = request_audit.record(operation, result=failure.result, team_id=team_id, detail=failure.audit_reason)
-        payload = {"error": failure.public_message, "trace_id": trace_id}
-        if failure.public_code is not None:
-            payload["code"] = failure.public_code
-        terminal.update(type="terminal", status=int(failure.status), body=payload)
+        terminal.update(type="terminal", status=int(failure.status), body=local.failure_payload(failure, trace_id))
 
     stdlib.dispatch(
         run,

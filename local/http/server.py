@@ -116,6 +116,12 @@ class Handler(http_deadline.DeadlineRequestHandler):
     def _authorized(self) -> bool:
         return strict_http.bearer_matches(self.headers, self.server.token)
 
+    def send_private_headers(self) -> None:
+        """The headers every answer carries: never cached, never sniffed, and the connection closed after it."""
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+
     def _send(self, status: HTTPStatus, payload: dict[str, object]) -> None:
         encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8")
         if len(encoded) > self._response_limit:
@@ -124,9 +130,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Connection", "close")
+        self.send_private_headers()
         if status == HTTPStatus.UNAUTHORIZED:
             self.send_header("WWW-Authenticate", 'Bearer realm="shimpz-local"')
         self.end_headers()
@@ -139,9 +143,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
             self.send_header(name, value)
         self.send_header("Content-Type", media_type)
         self.send_header("Content-Length", str(len(contents)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Connection", "close")
+        self.send_private_headers()
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(contents)
@@ -439,9 +441,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(len(content)))
             self.send_header("Repr-Digest", f"sha-256=:{digest}:")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Connection", "close")
+            self.send_private_headers()
             self.end_headers()
             self.wfile.write(content)
 

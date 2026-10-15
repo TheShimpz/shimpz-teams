@@ -26,6 +26,14 @@ def team_operation(call: Callable[[Any, str], dict[str, object]]) -> Operation:
     return operation
 
 
+def failure_payload(failure: stdlib.HttpFailure, trace_id: str) -> dict[str, object]:
+    """The public body of one failed operation: its safe message, its trace, and its stable code when it has one."""
+    payload: dict[str, object] = {"error": failure.public_message, "trace_id": trace_id}
+    if failure.public_code is not None:
+        payload["code"] = failure.public_code
+    return payload
+
+
 def classify_failure(
     exc: Exception,
     problem_type: type[Exception],
@@ -81,10 +89,7 @@ def dispatch_route(route, record, send, problem_type: type[Exception], docker_er
             assistant=assistant_id,
             detail=failure.audit_reason,
         )
-        payload = {"error": failure.public_message, "trace_id": trace_id}
-        if failure.public_code is not None:
-            payload["code"] = failure.public_code
-        send(failure.status, payload)
+        send(failure.status, failure_payload(failure, trace_id))
 
     stdlib.dispatch(
         action,
