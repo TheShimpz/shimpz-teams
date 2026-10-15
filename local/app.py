@@ -213,14 +213,10 @@ class AssistantLifecycle:
 
 
 def _account_egress_transport() -> integration_broker.FixedBrokerTransport:
-    proxy_host = os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_HOST")
     capability_file = os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE")
-    if proxy_host is None or capability_file is None:
+    if capability_file is None:
         raise RuntimeError("Local Account egress configuration is unavailable")
-    return integration_broker.FixedBrokerTransport(
-        proxy_host=proxy_host,
-        proxy_capability_file=capability_file,
-    )
+    return integration_broker.FixedBrokerTransport(proxy_capability_file=capability_file)
 
 
 @dataclass(frozen=True, slots=True)

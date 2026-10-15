@@ -9,6 +9,7 @@ import sys
 import tempfile
 import threading
 from pathlib import Path
+from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
@@ -242,7 +243,7 @@ class LocalStopPauseRaceTests(LocalContractCase):
         service.oauth_service = integration_service.BrokeredOAuthIntegrationService(
             challenge=service.oauth_pkce,
             store=controller.assistant_integrations,
-            broker=integration_broker.OAuthBrokerClient(integration_broker.FixedBrokerTransport()),
+            broker=integration_broker.OAuthBrokerClient(mock.Mock()),
         )
 
     def test_stop_withdraws_the_pkce_state_of_an_oauth_start_it_overlaps(self) -> None:

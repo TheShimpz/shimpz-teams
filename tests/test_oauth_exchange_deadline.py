@@ -19,9 +19,14 @@ DEADLINE = 0.3
 
 
 class SlowPeer:
-    """Accept one connection and run ``behaviour`` on it until the client hangs up or the test ends."""
+    """Accept one connection and run ``behaviour`` on it until the client hangs up or the test ends.
 
-    def __init__(self, behaviour: Callable[[socket.socket, threading.Event], None]) -> None:
+    A tunnelling peer first opens the CONNECT tunnel the broker transport asks the Account egress proxy for, so the
+    behaviour runs on the request inside it.
+    """
+
+    def __init__(self, behaviour: Callable[[socket.socket, threading.Event], None], *, tunnel: bool) -> None:
+        self.tunnel = tunnel
         self.stopped = threading.Event()
         self.listener = socket.create_server(("127.0.0.1", 0))
         self.port = self.listener.getsockname()[1]
@@ -33,6 +38,9 @@ class SlowPeer:
         with connection:
             connection.recv(65536)
             try:
+                if self.tunnel:
+                    connection.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                    connection.recv(65536)
                 behaviour(connection, self.stopped)
             except OSError:
                 return
@@ -65,19 +73,13 @@ class OAuthExchangeDeadlineTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _peer(self, behaviour: Callable[[socket.socket, threading.Event], None]) -> SlowPeer:
-        peer = SlowPeer(behaviour)
+    def _peer(self, behaviour: Callable[[socket.socket, threading.Event], None], *, tunnel: bool = True) -> SlowPeer:
+        peer = SlowPeer(behaviour, tunnel=tunnel)
         self.addCleanup(peer.close)
         return peer
 
-    def _broker(self, peer: SlowPeer, *, proxied: bool) -> None:
-        transport = (
-            integration_broker.FixedBrokerTransport(
-                proxy_host="shimpz-account-egress", proxy_capability_file="/run/shimpz-account-egress/token"
-            )
-            if proxied
-            else integration_broker.FixedBrokerTransport()
-        )
+    def _broker(self, peer: SlowPeer) -> None:
+        transport = integration_broker.FixedBrokerTransport(proxy_capability_file="/run/shimpz-account-egress/token")
         with (
             mock.patch.object(integration_broker.http.client, "HTTPSConnection", side_effect=peer.connection),
             mock.patch.object(integration_broker.account_egress, "read_capability", return_value="a" * 64),
@@ -88,17 +90,17 @@ class OAuthExchangeDeadlineTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, integration_broker.HTTP_TIMEOUT_SECONDS / 2)
 
     def test_a_stalled_proxy_tunnel_ends_at_the_deadline(self) -> None:
-        peer = self._peer(stall)
+        peer = self._peer(stall, tunnel=False)
         started = time.monotonic()
         with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "unavailable"):
-            self._broker(peer, proxied=True)
+            self._broker(peer)
         self._assert_ended_by_the_deadline(started)
 
     def test_trickled_broker_headers_end_at_the_deadline(self) -> None:
         peer = self._peer(trickle(b"HTTP/1.1 200 OK\r\nX-Slow: "))
         started = time.monotonic()
         with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "unavailable"):
-            self._broker(peer, proxied=False)
+            self._broker(peer)
         self._assert_ended_by_the_deadline(started)
 
     def test_a_trickled_broker_body_is_refused_not_truncated(self) -> None:
@@ -106,11 +108,11 @@ class OAuthExchangeDeadlineTests(unittest.TestCase):
         peer = self._peer(trickle(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{"))
         started = time.monotonic()
         with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "unavailable"):
-            self._broker(peer, proxied=False)
+            self._broker(peer)
         self._assert_ended_by_the_deadline(started)
 
     def test_a_deadline_that_passed_before_the_socket_existed_still_ends_it(self) -> None:
-        peer = self._peer(stall)
+        peer = self._peer(stall, tunnel=False)
         connection = peer.connection(timeout=integration_broker.HTTP_TIMEOUT_SECONDS)
         self.addCleanup(connection.close)
         started = time.monotonic()
@@ -126,7 +128,7 @@ class OAuthExchangeDeadlineTests(unittest.TestCase):
         def respond(connection: socket.socket, _stopped: threading.Event) -> None:
             connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\n{}")
 
-        peer = self._peer(respond)
+        peer = self._peer(respond, tunnel=False)
         connection = peer.connection(timeout=integration_broker.HTTP_TIMEOUT_SECONDS)
         self.addCleanup(connection.close)
         deadline = integration_http.ExchangeDeadline(connection, 60)
@@ -163,7 +165,7 @@ class OAuthExchangeDeadlineTests(unittest.TestCase):
             mock.patch.object(integration_http.threading, "Timer", LateTimer),
             self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "unavailable"),
         ):
-            self._broker(peer, proxied=False)
+            self._broker(peer)
 
 
 if __name__ == "__main__":

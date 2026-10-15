@@ -117,10 +117,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
                 return_value=token,
             ) as read_capability,
         ):
-            transport = integration_broker.FixedBrokerTransport(
-                proxy_host="shimpz-account-egress",
-                proxy_capability_file=capability_path,
-            )
+            transport = integration_broker.FixedBrokerTransport(proxy_capability_file=capability_path)
             result = transport.request(
                 url="https://shimpz.com/api/oauth/cloudflare/claim",
                 headers={"Content-Type": "application/json"},
@@ -140,22 +137,10 @@ class OAuthBrokerClientTests(unittest.TestCase):
             headers={"Content-Type": "application/json"},
         )
 
-    def test_fixed_transport_rejects_partial_or_foreign_proxy_configuration(self) -> None:
-        invalid = (
-            {"proxy_host": "shimpz-account-egress"},
-            {"proxy_capability_file": "/run/shimpz-account-egress/token"},
-            {
-                "proxy_host": "evil.example",
-                "proxy_capability_file": "/run/shimpz-account-egress/token",
-            },
-            {
-                "proxy_host": "shimpz-account-egress",
-                "proxy_capability_file": "relative/token",
-            },
-        )
-        for values in invalid:
-            with self.subTest(values=set(values)), self.assertRaises(integration_broker.OAuthBrokerClientError):
-                integration_broker.FixedBrokerTransport(**values)
+    def test_fixed_transport_rejects_an_invalid_proxy_capability_file(self) -> None:
+        for value in (None, "relative/token", 7):
+            with self.subTest(value=value), self.assertRaises(integration_broker.OAuthBrokerClientError):
+                integration_broker.FixedBrokerTransport(proxy_capability_file=value)
 
     def test_proxy_capability_reader_rejects_unsafe_file_custody(self) -> None:
         with (
@@ -310,8 +295,8 @@ class OAuthBrokerClientTests(unittest.TestCase):
             )
         self.assertNotIn(private, f"{captured.exception!r} {captured.exception}")
 
-    def test_direct_transport_endpoint_capability_and_io_edges_are_closed(self) -> None:
-        transport = integration_broker.FixedBrokerTransport()
+    def test_transport_endpoint_capability_and_io_edges_are_closed(self) -> None:
+        transport = integration_broker.FixedBrokerTransport(proxy_capability_file="/run/token")
         for url in (
             "http://shimpz.com/api/oauth/cloudflare/claim",
             "https://evil.example/api/oauth/cloudflare/claim",
@@ -326,24 +311,6 @@ class OAuthBrokerClientTests(unittest.TestCase):
             ):
                 transport.request(url=url, headers={}, body=b"{}")
 
-        response = Mock(status=200, read=Mock(return_value=b"{}"), getheader=Mock(return_value="application/json"))
-        connection = Mock(getresponse=Mock(return_value=response))
-        with patch.object(integration_broker.http.client, "HTTPSConnection", return_value=connection) as connect:
-            self.assertEqual(
-                transport.request(
-                    url="https://shimpz.com/api/oauth/cloudflare/claim",
-                    headers={},
-                    body=b"{}",
-                ).body,
-                b"{}",
-            )
-        connect.assert_called_once_with("shimpz.com", timeout=integration_broker.HTTP_TIMEOUT_SECONDS)
-        connection.close.assert_called_once()
-
-        proxied = integration_broker.FixedBrokerTransport(
-            proxy_host="shimpz-account-egress",
-            proxy_capability_file="/run/token",
-        )
         with (
             patch.object(
                 integration_broker.account_egress,
@@ -352,7 +319,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
             ),
             self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "capability is unavailable"),
         ):
-            proxied.request(
+            transport.request(
                 url="https://shimpz.com/api/oauth/cloudflare/claim",
                 headers={},
                 body=b"{}",
@@ -372,6 +339,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
                 connection.request.side_effect = failure
             with (
                 self.subTest(failure=failure),
+                patch.object(integration_broker.account_egress, "read_capability", return_value="a" * 64),
                 patch.object(integration_broker.http.client, "HTTPSConnection", return_value=connection),
                 self.assertRaises(integration_broker.OAuthBrokerClientError),
             ):

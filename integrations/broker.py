@@ -55,24 +55,12 @@ class BrokerTransport(Protocol):
 
 
 class FixedBrokerTransport:
-    """POST only to one reviewed shimpz.com broker operation."""
+    """POST only to one reviewed shimpz.com broker operation, always through the Account egress proxy."""
 
-    def __init__(
-        self,
-        *,
-        proxy_host: object = None,
-        proxy_capability_file: object = None,
-    ) -> None:
-        if proxy_host is None and proxy_capability_file is None:
-            self._proxy: tuple[str, Path] | None = None
-        elif (
-            proxy_host == _PROXY_HOST
-            and isinstance(proxy_capability_file, str | Path)
-            and Path(proxy_capability_file).is_absolute()
-        ):
-            self._proxy = (_PROXY_HOST, Path(proxy_capability_file))
-        else:
+    def __init__(self, *, proxy_capability_file: object) -> None:
+        if not isinstance(proxy_capability_file, str | Path) or not Path(proxy_capability_file).is_absolute():
             raise OAuthBrokerClientError("OAuth broker proxy configuration is invalid")
+        self._capability_file = Path(proxy_capability_file)
 
     def request(
         self,
@@ -98,21 +86,17 @@ class FixedBrokerTransport:
             }
         ):
             raise OAuthBrokerClientError("OAuth broker endpoint is invalid")
-        if self._proxy is None:
-            connection = http.client.HTTPSConnection(parsed.hostname, timeout=HTTP_TIMEOUT_SECONDS)
-        else:
-            proxy_host, capability_file = self._proxy
-            try:
-                proxy_capability = account_egress.read_capability(capability_file)
-            except account_egress.AccountEgressCapabilityError as exc:
-                raise OAuthBrokerClientError("OAuth broker proxy capability is unavailable") from exc
-            connection = http.client.HTTPSConnection(proxy_host, _PROXY_PORT, timeout=HTTP_TIMEOUT_SECONDS)
-            proxy_authorization = b64encode(f"{proxy_capability}:".encode("ascii")).decode("ascii")
-            connection.set_tunnel(
-                parsed.hostname,
-                443,
-                headers={"Proxy-Authorization": f"Basic {proxy_authorization}"},
-            )
+        try:
+            proxy_capability = account_egress.read_capability(self._capability_file)
+        except account_egress.AccountEgressCapabilityError as exc:
+            raise OAuthBrokerClientError("OAuth broker proxy capability is unavailable") from exc
+        connection = http.client.HTTPSConnection(_PROXY_HOST, _PROXY_PORT, timeout=HTTP_TIMEOUT_SECONDS)
+        proxy_authorization = b64encode(f"{proxy_capability}:".encode("ascii")).decode("ascii")
+        connection.set_tunnel(
+            parsed.hostname,
+            443,
+            headers={"Proxy-Authorization": f"Basic {proxy_authorization}"},
+        )
         try:
             status, content_type, payload = integration_http.exchange(
                 connection, parsed.path, headers, body, limit=MAX_RESPONSE_BYTES
@@ -187,11 +171,8 @@ def _object(response: BrokerHTTPResponse) -> dict[str, object]:
 
 
 class OAuthBrokerClient:
-    def __init__(
-        self,
-        transport: BrokerTransport | None = None,
-    ) -> None:
-        self._transport = transport or FixedBrokerTransport()
+    def __init__(self, transport: BrokerTransport) -> None:
+        self._transport = transport
 
     def __repr__(self) -> str:
         return "<OAuthBrokerClient shimpz.com>"

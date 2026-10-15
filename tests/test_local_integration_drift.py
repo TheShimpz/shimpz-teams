@@ -38,7 +38,7 @@ class LocalIntegrationDriftTests(LocalContractCase):
         service.oauth_service = integration_service.BrokeredOAuthIntegrationService(
             challenge=service.oauth_pkce,
             store=controller.assistant_integrations,
-            broker=integration_broker.OAuthBrokerClient(integration_broker.FixedBrokerTransport()),
+            broker=integration_broker.OAuthBrokerClient(mock.Mock()),
         )
         started = service.start_assistant_integration_authorization(
             "team_1",
