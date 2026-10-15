@@ -3,12 +3,12 @@
 This is the one rule source: Team records with it and the Brain mirrors it, so both read the same words alike.
 
 A Routine runs exactly when the person said, so Team reads it from the person's own text, never from the model. The
-table is bounded and closed: in each interface language, an interval of seconds, minutes, or hours ("a cada 30
-segundos", "every hour"), or a day, weekday, or day of the month with a time ("todo dia às 9h", "every Monday at 9am",
-"毎月5日9時"). A sentence that asks something (it ends with a question mark) states nothing, and a negation in any
-language rejects every reading it reaches, whichever language reads the same words. One text may state several
-schedules, which its reader then asks the person to choose between; a phrase this table does not read states nothing,
-so the person is asked again rather than guessed for.
+table is bounded and closed: in each interface language, an interval of seconds, minutes, hours, days, or weeks ("a
+cada 30 segundos", "every hour", "every 2 weeks"), or a day, weekday, or day of the month with a time ("todo dia às 9h",
+"every Monday at 9am", "毎月5日9時"). A sentence that asks something (it ends with a question mark) states nothing,
+and a negation in any language rejects every reading it reaches, whichever language reads the same words. One text
+may state several schedules, which its reader then asks the person to choose between; a phrase this table does not read
+states nothing, so the person is asked again rather than guessed for.
 
 An output choice is read the same way, from a bounded phrase table in the same languages that holds every localized
 choice label. A timezone is stated only as an exact, loadable IANA area zone such as "Europe/Lisbon", or "UTC".
