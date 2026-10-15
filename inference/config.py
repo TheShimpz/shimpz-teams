@@ -20,7 +20,6 @@ MAX_KNOWLEDGE_BYTES = 1024 * 1024
 
 
 class ProviderDefinition(TypedDict):
-    title: str
     default_model: str
     models: frozenset[str]
 
@@ -28,7 +27,6 @@ class ProviderDefinition(TypedDict):
 _MODEL_CATALOG = json.loads(Path(__file__).with_name("model_catalog.json").read_text(encoding="utf-8"))
 PROVIDERS: dict[str, ProviderDefinition] = {
     provider["id"]: {
-        "title": provider["title"],
         "default_model": provider["default_model"],
         "models": frozenset(model["id"] for model in provider["models"]),
     }
