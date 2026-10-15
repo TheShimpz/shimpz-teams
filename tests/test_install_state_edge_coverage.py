@@ -67,7 +67,7 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
 
         self.path.unlink()
         binding = self.store.put("team_1", copy.deepcopy(RESOLUTION))
-        encoded = bindings._encode_binding(binding)
+        encoded = bindings.encode_binding(binding)
         self.path.write_text(json.dumps({"version": 2, "bindings": [encoded, encoded]}), encoding="utf-8")
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "duplicate"):
             self.store._read()
@@ -98,7 +98,7 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
             },
         ):
             with self.subTest(value=value), self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
-                bindings._decode_binding(value, snapshots.validate_record)
+                bindings.decode_binding(value, snapshots.validate_record)
 
         published = bindings.binding_from_resolution("team_1", copy.deepcopy(RESOLUTION))
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "not a local snapshot"):
@@ -128,11 +128,11 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
                     "malformed",
                 ),
             ):
-                bindings._decode_binding(value, snapshots.validate_record)
+                bindings.decode_binding(value, snapshots.validate_record)
 
         invalid = bindings.DynamicAssistantBinding("team_1", IMAGE_ID, "unknown", {})
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
-            bindings._encode_binding(invalid)
+            bindings.encode_binding(invalid)
 
     def test_resolve_contract_helpers_handle_schema_invalid_shapes(self) -> None:
         self.assertEqual(contract._required_ids({"actions": None}, "stored_inputs"), set())
@@ -350,7 +350,7 @@ class UpdateStoreEdgeCoverageTests(unittest.TestCase):
         for successor in (different_team, different_provenance):
             with (
                 self.subTest(successor=successor),
-                mock.patch.object(bindings, "_decode_binding", side_effect=(previous, successor)),
+                mock.patch.object(bindings, "decode_binding", side_effect=(previous, successor)),
                 self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"),
             ):
                 update._decode(encoded, snapshots.validate_record)

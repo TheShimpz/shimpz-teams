@@ -194,8 +194,8 @@ def _encode(update: AssistantUpdate) -> dict[str, object]:
         "version": _UPDATE_FORMAT_VERSION,
         "team_id": update.team_id,
         "assistant_id": update.assistant_id,
-        "previous": bindings._encode_binding(update.previous),
-        "successor": bindings._encode_binding(update.successor),
+        "previous": bindings.encode_binding(update.previous),
+        "successor": bindings.encode_binding(update.successor),
         "previous_image_id": update.previous_image_id,
     }
 
@@ -219,8 +219,8 @@ def _decode(
         or http_payload.SOURCE_DIGEST_RE.fullmatch(value["previous_image_id"]) is None
     ):
         raise bindings.DynamicAssistantError("Assistant update transaction is malformed")
-    previous = bindings._decode_binding(value["previous"], local_record_validator)
-    successor = bindings._decode_binding(value["successor"], local_record_validator)
+    previous = bindings.decode_binding(value["previous"], local_record_validator)
+    successor = bindings.decode_binding(value["successor"], local_record_validator)
     if previous.assistant_id != value["assistant_id"] or successor.assistant_id != value["assistant_id"]:
         raise bindings.DynamicAssistantError("Assistant update transaction is malformed")
     if previous.team_id != value["team_id"] or successor.team_id != value["team_id"]:

@@ -224,7 +224,7 @@ class DynamicAssistantStore:
             or len(document["bindings"]) > _MAX_BINDINGS
         ):
             raise DynamicAssistantError("the dynamic Assistant registry is malformed")
-        bindings = [_decode_binding(value, self._local_record_validator) for value in document["bindings"]]
+        bindings = [decode_binding(value, self._local_record_validator) for value in document["bindings"]]
         identities = [(binding.team_id, binding.assistant_id) for binding in bindings]
         if len(identities) != len(set(identities)):
             raise DynamicAssistantError("the dynamic Assistant registry contains duplicate bindings")
@@ -233,7 +233,7 @@ class DynamicAssistantStore:
     def _write(self, bindings: builtins.list[DynamicAssistantBinding]) -> None:
         document = {
             "version": _FORMAT_VERSION,
-            "bindings": [_encode_binding(binding) for binding in sorted(bindings, key=_binding_key)],
+            "bindings": [encode_binding(binding) for binding in sorted(bindings, key=_binding_key)],
         }
         try:
             private_state.write_json_record(self._path, document, _MAX_FILE_BYTES)
@@ -287,7 +287,7 @@ def _binding(
     return DynamicAssistantBinding(team_id, digest, provenance, document)
 
 
-def _decode_binding(
+def decode_binding(
     value: object,
     local_record_validator: LocalRecordValidator,
 ) -> DynamicAssistantBinding:
@@ -330,7 +330,7 @@ def _admit(intact: DynamicAssistantBinding, validator: LocalRecordValidator) -> 
             _ADMISSIONS.popitem(last=False)
 
 
-def _encode_binding(binding: DynamicAssistantBinding) -> dict[str, object]:
+def encode_binding(binding: DynamicAssistantBinding) -> dict[str, object]:
     if binding.provenance == _PUBLISHED:
         document_name = "resolution"
     elif binding.provenance == _LOCAL:
