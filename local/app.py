@@ -212,6 +212,13 @@ class AssistantLifecycle:
     _network = local_egress.team_network
 
 
+def _audit_action(result: str, team_id: str, assistant_id: str, detail: str) -> None:
+    """One direct Action invocation's metadata-only audit record."""
+    local_audit.record_request(
+        "assistant-action", result=result, team_id=team_id, assistant=assistant_id, detail=detail
+    )
+
+
 def _account_egress_transport() -> integration_broker.FixedBrokerTransport:
     capability_file = os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE")
     if capability_file is None:
@@ -627,13 +634,7 @@ class LocalController:
                 ),
             )
             files = self._action_files(team_id, action_spec, private, safe_payload)
-            local_audit.record_request(
-                "assistant-action",
-                result="ok",
-                team_id=team_id,
-                assistant=assistant_id,
-                detail=f"started:{action}",
-            )
+            _audit_action("ok", team_id, assistant_id, f"started:{action}")
             rpc_payload = {
                 "input": safe_payload,
                 "stored_inputs": tuple(private.stored_inputs),
@@ -648,31 +649,15 @@ class LocalController:
         try:
             raw_result = self.assistant_lifecycle._rpc(container, action, rpc_payload, broker)
         except ApiProblem:
-            local_audit.record_request(
-                "assistant-action",
-                result="error",
-                team_id=team_id,
-                assistant=assistant_id,
-                detail=f"failed:{action}",
-            )
+            _audit_action("error", team_id, assistant_id, f"failed:{action}")
             if sent is not None:
                 # The exchange failed, so whether the workload received the bytes is unknown.
-                local_audit.record_request(
-                    "assistant-action",
-                    result="error",
-                    team_id=team_id,
-                    assistant=assistant_id,
-                    detail=f"file-delivery-unconfirmed:{action}:{sent.id}:{sent.size}",
+                _audit_action(
+                    "error", team_id, assistant_id, f"file-delivery-unconfirmed:{action}:{sent.id}:{sent.size}"
                 )
             raise
         if sent is not None:
-            local_audit.record_request(
-                "assistant-action",
-                result="ok",
-                team_id=team_id,
-                assistant=assistant_id,
-                detail=f"file-delivered:{action}:{sent.id}:{sent.size}",
-            )
+            _audit_action("ok", team_id, assistant_id, f"file-delivered:{action}:{sent.id}:{sent.size}")
         projected = local_chat_execution.project_invocation(
             self.assistant_stored_inputs,
             local_chat_execution.Invocation(team_id, assistant_id, action, action_spec, spec),
@@ -680,13 +665,7 @@ class LocalController:
             private,
             validate_action_payload,
         )
-        local_audit.record_request(
-            "assistant-action",
-            result="ok",
-            team_id=team_id,
-            assistant=assistant_id,
-            detail=f"completed:{action}",
-        )
+        _audit_action("ok", team_id, assistant_id, f"completed:{action}")
         return {"assistant": assistant_id, "action": action, "result": projected}
 
     def _provider_broker(
