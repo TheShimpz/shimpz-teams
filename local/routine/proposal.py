@@ -120,7 +120,7 @@ def _outcome(value: object) -> dict[str, object]:
         and set(value) == _OUTCOME_FIELDS
         and http_routine.exact_name(value["name"])
         and http_routine.exact_description(value["description"])
-        and (value["replaces"] is None or http_routine.ROUTINE_ID_RE.fullmatch(str(value["replaces"])) is not None)
+        and (value["replaces"] is None or http_routine.matches(value["replaces"], http_routine.ROUTINE_ID_RE))
     )
     if not valid:
         raise local_errors.brain_turn_failed()
