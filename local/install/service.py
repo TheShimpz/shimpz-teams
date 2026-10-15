@@ -1,7 +1,8 @@
 """Resolve, verify, and apply one immutable Local Assistant publication."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from contextvars import copy_context
 from http import HTTPStatus
 
@@ -260,12 +261,8 @@ def _apply_local_snapshot(
     if existing is None:
         spec, binding, created = self.registry.put_local_with_status(team_id, record)
         installer = install_assistant or self.assistant_lifecycle.install_assistant
-        try:
+        with _fresh_binding(self, team_id, assistant_id, binding, created=created):
             return installer(team_id, spec.assistant_id)
-        except (ApiProblem, bindings.DynamicAssistantError) as exc:
-            if created and not (isinstance(exc, ApiProblem) and exc.code == "assistant-install-rollback-incomplete"):
-                self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
-            raise
     candidate, successor = self.registry.local_replacement(
         team_id,
         existing.binding_digest,
@@ -286,6 +283,22 @@ def _apply_local_snapshot(
         successor_document=record,
         authorize_start=lambda: None,
     )
+
+
+@contextmanager
+def _fresh_binding(
+    self, team_id: str, assistant_id: str, binding: bindings.DynamicAssistantBinding, *, created: bool
+) -> Iterator[None]:
+    """Delete the exact binding this install created when the install fails, unless its rollback is incomplete.
+
+    A binding that existed before the install, or that a newer one replaced, always stays.
+    """
+    try:
+        yield
+    except (ApiProblem, bindings.DynamicAssistantError) as exc:
+        if created and not (isinstance(exc, ApiProblem) and exc.code == "assistant-install-rollback-incomplete"):
+            self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
+        raise
 
 
 def _discard_local_icon(self, binding: bindings.DynamicAssistantBinding) -> None:
@@ -400,16 +413,10 @@ def _apply_publication(self, team_id, assistant_id, source_digest, existing, res
 
     if existing is None:
         spec, binding, created = self.registry.put_with_status(team_id, resolution)
-        try:
+        with _fresh_binding(self, team_id, assistant_id, binding, created=created):
             return self.assistant_lifecycle.install_assistant(
-                team_id,
-                spec.assistant_id,
-                authorize_start=authorize_start,
+                team_id, spec.assistant_id, authorize_start=authorize_start
             )
-        except (ApiProblem, bindings.DynamicAssistantError) as exc:
-            if created and not (isinstance(exc, ApiProblem) and exc.code == "assistant-install-rollback-incomplete"):
-                self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
-            raise
     return self._install_bound_publication(
         team_id,
         assistant_id,

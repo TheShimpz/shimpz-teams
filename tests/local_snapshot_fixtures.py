@@ -9,6 +9,8 @@ from docker.errors import NotFound
 
 from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
+from install import bindings
+from local.errors import ApiProblemError
 from local.install import snapshots, source_package
 from tests import catalog_fixtures
 from tests.assistant_archive_fixtures import archive
@@ -40,6 +42,17 @@ def fresh_installing_lifecycle(install_assistant: mock.Mock) -> SimpleNamespace:
         lifecycle.install_assistant
     )
     return lifecycle
+
+
+# How a failed install of a fresh binding cleans up: (failure, the binding was created by it, it is deleted). Only a
+# binding the install created goes, and never after a rollback that reported itself incomplete.
+FRESH_BINDING_CLEANUP_CASES = (
+    (ApiProblemError(503, "failed", code="docker-start-failed"), True, True),
+    (ApiProblemError(503, "failed", code="docker-start-failed"), False, False),
+    (ApiProblemError(500, "rollback", code="assistant-install-rollback-incomplete"), True, False),
+    (bindings.DynamicAssistantError("changed"), True, True),
+    (bindings.DynamicAssistantError("changed"), False, False),
+)
 
 
 def _package(fixture_manifest: bytes) -> tuple[bytes, bytes, bytes]:

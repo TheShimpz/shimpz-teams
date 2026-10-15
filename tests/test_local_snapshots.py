@@ -21,7 +21,7 @@ from local.install import registry as assistant_registry
 from protocol.http.v1 import payload as http_payload
 from tests import catalog_fixtures
 from tests.assistant_archive_fixtures import archive as _archive
-from tests.local_snapshot_fixtures import CREATED, IMAGE_ID
+from tests.local_snapshot_fixtures import CREATED, FRESH_BINDING_CLEANUP_CASES, IMAGE_ID
 from tests.local_snapshot_fixtures import client as _client
 from tests.local_snapshot_fixtures import fresh_installing_lifecycle as _fresh_installing_lifecycle
 from tests.test_local_publication_install import _runtime_resolution
@@ -761,18 +761,7 @@ class LocalSnapshotTests(unittest.TestCase):
         client, _image_value, _container_value = _client()
         record = snapshots.admit(client, IMAGE_ID).record
         digest = "sha256:" + ("a" * 64)
-        failure_cases = (
-            (ApiProblemError(503, "failed", code="docker-start-failed"), True, True),
-            (ApiProblemError(503, "failed", code="docker-start-failed"), False, False),
-            (
-                ApiProblemError(500, "rollback", code="assistant-install-rollback-incomplete"),
-                True,
-                False,
-            ),
-            (bindings.DynamicAssistantError("changed"), True, True),
-            (bindings.DynamicAssistantError("changed"), False, False),
-        )
-        for failure, created, should_delete in failure_cases:
+        for failure, created, should_delete in FRESH_BINDING_CLEANUP_CASES:
             delete_if_matches = mock.Mock()
             registry = SimpleNamespace(
                 put_local_with_status=mock.Mock(

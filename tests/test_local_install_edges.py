@@ -15,6 +15,7 @@ from local.errors import ApiProblemError
 from local.install import developers, snapshots
 from local.install import registry as publication_registry
 from local.install import service as install_service
+from tests import local_snapshot_fixtures
 from tests.test_local_publication_install import ICON, RESOLUTION, _Connection, _Response, _runtime_resolution
 
 
@@ -230,18 +231,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
 
     def test_fresh_publication_failure_cleanup_is_fenced_by_binding_ownership(self) -> None:
         digest = f"sha256:{'a' * 64}"
-        failure_cases = (
-            (ApiProblemError(503, "failed", code="docker-start-failed"), True, True),
-            (ApiProblemError(503, "failed", code="docker-start-failed"), False, False),
-            (
-                ApiProblemError(500, "rollback", code="assistant-install-rollback-incomplete"),
-                True,
-                False,
-            ),
-            (bindings.DynamicAssistantError("changed"), True, True),
-            (bindings.DynamicAssistantError("changed"), False, False),
-        )
-        for failure, created, should_delete in failure_cases:
+        for failure, created, should_delete in local_snapshot_fixtures.FRESH_BINDING_CLEANUP_CASES:
             binding = types.SimpleNamespace(binding_digest=digest)
             registry = types.SimpleNamespace(
                 put_with_status=mock.Mock(
