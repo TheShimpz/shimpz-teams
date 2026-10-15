@@ -311,30 +311,15 @@ def settings_answer(span: Span | None) -> bool:
     for anything else, and an answer to a target or rerun question are the Brain's to read with every Action, so new
     work they name still runs.
     """
-    if span is None or span.asked is None or span.asked.code not in _SETTINGS_QUESTIONS:
+    if span is None or span.asked is None or span.asked.code not in http_routine_proposal.SETTINGS_ANSWERS:
         return False
     parsed = routine_recording.clarified_answer(span.sends[-1].message)
     if parsed is None:
         return False
-    if span.asked.code == "routine-interval-over-budget":
-        seconds = str((span.asked.wire or {}).get("value"))
-        offered = {
-            answer.replace("{seconds}", seconds) for answer in http_routine_proposal.OVER_BUDGET_ANSWERS.values()
-        }
-        return parsed[2] in offered
-    return parsed[2] in _SETTINGS_QUESTIONS[span.asked.code]
-
-
-# Every interface language's fixed answers to each settings question; the over-budget one is filled with its interval.
-_SETTINGS_QUESTIONS = {
-    "routine-schedule-unstated": frozenset(
-        label for labels in http_routine_proposal.SCHEDULE_CHOICES.values() for label in labels
-    ),
-    "routine-interval-over-budget": frozenset(),
-    "routine-output-unstated": frozenset(
-        label for choices in http_routine_proposal.OUTPUT_CHOICES.values() for label in choices.values()
-    ),
-}
+    # Only the over-budget answers hold the question's interval, which its value fills.
+    seconds = str((span.asked.wire or {}).get("value"))
+    offered = http_routine_proposal.SETTINGS_ANSWERS[span.asked.code]
+    return parsed[2] in {answer.replace("{seconds}", seconds) for answer in offered}
 
 
 def stated_schedule(span: Span | None) -> dict[str, object] | None:

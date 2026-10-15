@@ -90,11 +90,6 @@ QUESTION_CODES = (
     "routine-binding-ambiguous",
     "routine-work-rerun",
 )
-# The questions about how often the Routine runs and what each run does with its result, never about its work: an
-# answer to one runs no work again unless it also changes the work.
-SETTINGS_QUESTION_CODES = frozenset(
-    {"routine-schedule-unstated", "routine-interval-over-budget", "routine-output-unstated"}
-)
 MAX_QUESTION_OPTIONS = 8
 MAX_QUESTION_OPTION_CHARS = 120
 
@@ -194,6 +189,15 @@ OVER_BUDGET_ANSWERS = {
     "pt": "A cada {seconds} segundos",
     "zh": "每 {seconds} 秒",
 }
+# The questions about how often the Routine runs and what each run does with its result, never about its work, each
+# with every interface language's fixed answers Admin offers to it; the over-budget answer's "{seconds}" is the
+# question's value. An answer to one runs no work unless it changes the work, and then the whole resulting work once.
+SETTINGS_ANSWERS = {
+    "routine-schedule-unstated": frozenset(label for labels in SCHEDULE_CHOICES.values() for label in labels),
+    "routine-interval-over-budget": frozenset(OVER_BUDGET_ANSWERS.values()),
+    "routine-output-unstated": frozenset(label for labels in OUTPUT_CHOICES.values() for label in labels.values()),
+}
+SETTINGS_QUESTION_CODES = frozenset(SETTINGS_ANSWERS)
 
 
 def canonical_question(value: object) -> dict[str, object] | None:
