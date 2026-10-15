@@ -18,12 +18,10 @@ class AccountEgressCapabilityError(OSError):
     """The Account egress capability is unavailable or has unsafe custody."""
 
 
-def _identity(
-    metadata: os.stat_result,
-    expected_gid: int,
-    owner_uid: int,
-) -> tuple[int, int, int, int, int]:
-    if not private_state.file_custody_holds(metadata, uid=owner_uid, gid=expected_gid, mode=0o440, size=(64, 64)):
+def _identity(metadata: os.stat_result, expected_gid: int) -> tuple[int, int, int, int, int]:
+    if not private_state.file_custody_holds(
+        metadata, uid=CAPABILITY_OWNER_UID, gid=expected_gid, mode=0o440, size=(64, 64)
+    ):
         raise AccountEgressCapabilityError("Account egress capability metadata is unsafe")
     return (
         metadata.st_dev,
@@ -34,18 +32,14 @@ def _identity(
     )
 
 
-def read_capability(
-    path: Path = CAPABILITY_PATH,
-    *,
-    owner_uid: int = CAPABILITY_OWNER_UID,
-) -> str:
+def read_capability() -> str:
     """Read the exact capability for each outbound broker operation."""
     descriptor = -1
     try:
         expected_gid = grp.getgrnam(CAPABILITY_GROUP).gr_gid
-        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        descriptor = os.open(CAPABILITY_PATH, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
         before = os.fstat(descriptor)
-        identity = _identity(before, expected_gid, owner_uid)
+        identity = _identity(before, expected_gid)
         raw = os.read(descriptor, 65)
         after = os.fstat(descriptor)
     except (KeyError, OSError) as exc:
@@ -53,7 +47,7 @@ def read_capability(
     finally:
         if descriptor >= 0:
             os.close(descriptor)
-    if _identity(after, expected_gid, owner_uid) != identity or len(raw) != 64:
+    if _identity(after, expected_gid) != identity or len(raw) != 64:
         raise AccountEgressCapabilityError("Account egress capability changed while reading")
     try:
         capability = raw.decode("ascii")

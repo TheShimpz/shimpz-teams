@@ -144,23 +144,16 @@ class OAuthBrokerClientTests(unittest.TestCase):
                 "getgrnam",
                 return_value=Mock(gr_gid=os.getgid()),
             ),
+            patch.object(integration_broker.account_egress, "CAPABILITY_PATH", Path(directory) / "token"),
+            patch.object(integration_broker.account_egress, "CAPABILITY_OWNER_UID", os.getuid()),
         ):
             path = Path(directory) / "token"
             path.write_text("a" * 64, encoding="ascii")
             path.chmod(0o440)
-            self.assertEqual(
-                integration_broker.account_egress.read_capability(
-                    path,
-                    owner_uid=os.getuid(),
-                ),
-                "a" * 64,
-            )
+            self.assertEqual(integration_broker.account_egress.read_capability(), "a" * 64)
             path.chmod(0o400)
             with self.assertRaises(integration_broker.account_egress.AccountEgressCapabilityError):
-                integration_broker.account_egress.read_capability(
-                    path,
-                    owner_uid=os.getuid(),
-                )
+                integration_broker.account_egress.read_capability()
 
     def test_proxy_capability_reader_rejects_change_encoding_and_value_edges(self) -> None:
         account_egress = integration_broker.account_egress
@@ -201,7 +194,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
                 patch.object(account_egress.os, "close"),
                 self.assertRaisesRegex(account_egress.AccountEgressCapabilityError, message),
             ):
-                account_egress.read_capability(Path("/token"))
+                account_egress.read_capability()
 
         with (
             patch.object(account_egress.grp, "getgrnam", return_value=Mock(gr_gid=7)),
@@ -210,7 +203,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
             patch.object(account_egress.os, "read", return_value=b"a" * 64),
             patch.object(account_egress.os, "close") as close,
         ):
-            self.assertEqual(account_egress.read_capability(Path("/token")), "a" * 64)
+            self.assertEqual(account_egress.read_capability(), "a" * 64)
         close.assert_not_called()
 
     def test_claim_refresh_and_revoke_use_only_fixed_broker_operations(self) -> None:
