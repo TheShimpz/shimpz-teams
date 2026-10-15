@@ -194,8 +194,8 @@ the label the person picks states that choice), a stated interval the Team's dai
 cannot hold (`routine-interval-over-budget`, whose `value` is the shortest interval in seconds that fits; with room
 for no run at all the recording is refused as `routine-step-budget`), which item an input means (`routine-binding-ambiguous`, whose `options` are at most 8
 targets `{value, label}`: `value` is the exact compact JSON text of the string or integer the input would take, so
-no client rounds a large integer, and `label` the item's name, or `null`), a value that no earlier result provides (`routine-binding-unsourced`), work split across messages
-(`routine-work-split`), and work to run again for a chosen target (`routine-work-rerun`). Only `routine-binding-ambiguous` has options, and only
+no client rounds a large integer, and `label` the item's name, or `null`), and work to run again
+(`routine-work-rerun`), for a value that no earlier result provides or a target the person chose instead. Only `routine-binding-ambiguous` has options, and only
 `routine-interval-over-budget` has a value. When the person's next send is Admin's composed answer to that question
 and its latest answer binds it (it states a schedule, an interval, or an output, or is exactly one target's JSON text), Team
 records again with the request's stored intent without asking the Brain, and the reply is the fixed

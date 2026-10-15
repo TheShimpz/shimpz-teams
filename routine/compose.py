@@ -78,7 +78,9 @@ def record(
 
 def _repairing(question: routine_recording.Question, stated: str | None) -> bool:
     """Whether a question asks for work to run again: a rerun, or the chain the person chose and the work lacks."""
-    return question.code in _RERUN_CODES or (question.code == "routine-output-unstated" and stated == "chain")
+    return question.code == routine_recording.RERUN or (
+        question.code == "routine-output-unstated" and stated == "chain"
+    )
 
 
 def _chosen_used(context: routine_recording._Context, work: list[routine_recording._Call]) -> bool:
@@ -91,10 +93,6 @@ def _chosen_used(context: routine_recording._Context, work: list[routine_recordi
         if calls and not any(routine_provenance._sent_value(call, binding.member) == chosen for call in calls):
             return False
     return True
-
-
-# The questions only work run again can answer, which name that work for the Brain as a manifest.
-_RERUN_CODES = frozenset({"routine-work-rerun", "routine-binding-unsourced"})
 
 
 def _asked(
@@ -118,7 +116,7 @@ def _asked(
         pending = None
     kept = {(item.action, item.member, item.targets): item for item in chosen}
     manifest = question.manifest
-    if manifest is None and question.code in _RERUN_CODES:
+    if manifest is None and question.code == routine_recording.RERUN:
         manifest = routine_rerun._manifest(context, work, tuple(kept.values()))
     chained_from = question.chained_from or (context.asked.chained_from if context.asked is not None else None)
     return dataclasses.replace(

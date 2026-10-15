@@ -89,7 +89,6 @@ QUESTION_CODES = (
     "routine-output-unstated",
     "routine-interval-over-budget",
     "routine-binding-ambiguous",
-    "routine-binding-unsourced",
     "routine-work-rerun",
 )
 MAX_QUESTION_OPTIONS = 8

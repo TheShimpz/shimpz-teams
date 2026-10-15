@@ -553,7 +553,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                 "steps": [{"id": "list", "assistant": "dns", "action": "list-zones", "inputs": []}],
             },
         )
-        question = {"code": "routine-binding-unsourced", "options": [], "value": None}
+        question = {"code": "routine-work-rerun", "options": [], "value": None}
         rerun = ({"assistant": "dns", "action": "list-zones", "count": 1, "inputs": []},)
         chat = dataclasses.replace(
             context(self.secret),

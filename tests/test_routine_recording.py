@@ -209,7 +209,7 @@ class OwnerCaseTests(unittest.TestCase):
 
     def test_a_remembered_id_no_result_holds_is_asked_about(self) -> None:
         self.assertEqual(
-            _record(_send(RECORDS, message="shimpz.com a cada hora")), recording.Question("routine-binding-unsourced")
+            _record(_send(RECORDS, message="shimpz.com a cada hora")), recording.Question("routine-work-rerun")
         )
 
     def test_two_zones_of_the_named_name_are_asked_about_with_both_targets(self) -> None:
@@ -455,7 +455,7 @@ class KnownTextTests(unittest.TestCase):
             "Liste os registros", "Da zona shimpz-zone-1?", "sim, a cada hora", "pt"
         )
         call = ("reports/fetch", {"site": "shimpz-zone-1"}, {})
-        self.assertEqual(_record(_send(call, message=composed)).code, "routine-binding-unsourced")
+        self.assertEqual(_record(_send(call, message=composed)).code, "routine-work-rerun")
 
 
 class ScheduleTests(unittest.TestCase):
@@ -564,7 +564,7 @@ class OutputTests(unittest.TestCase):
                 )
         # The work's own questions come first.
         remembered = _send(RECORDS, message="DNS de shimpz.com a cada hora")
-        self.assertEqual(self.output(remembered).code, "routine-binding-unsourced")
+        self.assertEqual(self.output(remembered).code, "routine-work-rerun")
 
     def test_a_replacement_keeps_its_output_unless_the_person_states_another(self) -> None:
         existing = recording.Existing(KEPT_PLAN, {"kind": "daily", "time": "08:00"})

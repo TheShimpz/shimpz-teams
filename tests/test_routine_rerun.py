@@ -30,7 +30,7 @@ class RepairTests(unittest.TestCase):
     def test_an_unsourced_value_stands_until_work_runs_and_then_gets_one_repair(self) -> None:
         first = _send(RECORDS, message="DNS de shimpz.com a cada hora")
         asked = _record(first)
-        self.assertEqual(asked.code, "routine-binding-unsourced")
+        self.assertEqual(asked.code, "routine-work-rerun")
         pending = _pending(asked, 1)
         # A send that runs no Action leaves the question standing.
         self.assertEqual(_record(first, _send(message="ok"), asked=pending).code, asked.code)
@@ -161,7 +161,7 @@ class ManifestTests(unittest.TestCase):
     def test_read_only_twins_are_one_slot(self) -> None:
         remembered = ("cloudflare/list-dns-records", {"zone_id": "f" * 32}, {})
         asked = _record(_send(ZONES_CALL, ZONES_CALL, remembered, message="DNS a cada hora"))
-        self.assertEqual(asked.code, "routine-binding-unsourced")
+        self.assertEqual(asked.code, "routine-work-rerun")
         self.assertEqual([slot.action[1] for slot in asked.manifest.slots], ["list-zones", "list-dns-records"])
 
     def test_free_text_and_dates_are_named_as_the_recording_keeps_them(self) -> None:

@@ -65,7 +65,7 @@ class ClassificationTests(unittest.TestCase):
         for value, known, expected in cases:
             with self.subTest(value=value, known=known):
                 if expected == "asked":
-                    self.assertEqual(self.asked(value, known).code, "routine-binding-unsourced")
+                    self.assertEqual(self.asked(value, known).code, "routine-work-rerun")
                 else:
                     self.assertEqual(self.classify(value, known)[1], expected)
 
@@ -144,7 +144,7 @@ class ClassificationTests(unittest.TestCase):
                 self.assertEqual(
                     self.classify(value, "known", earlier), ({"kind": "literal", "value": value}, "assistant")
                 )
-        self.assertEqual(self.asked("abcdefgh", "known", {"x": "other"}).code, "routine-binding-unsourced")
+        self.assertEqual(self.asked("abcdefgh", "known", {"x": "other"}).code, "routine-work-rerun")
 
     def test_a_value_inside_an_array_without_a_named_member_is_asked_about(self) -> None:
         unnamed = {"items": [{"id": "id-0001", "kind": "zone"}, {"id": "id-0002", "kind": "zone"}]}
@@ -173,12 +173,12 @@ class ClassificationTests(unittest.TestCase):
                 self.assertEqual(self.classify(value, "known"), ({"kind": "literal", "value": value}, "assistant"))
         for value in ("zone-without-spaces", 1234567):
             with self.subTest(value=value):
-                self.assertEqual(self.asked(value, "known").code, "routine-binding-unsourced")
+                self.assertEqual(self.asked(value, "known").code, "routine-work-rerun")
 
     def test_the_persons_answer_naming_an_unsourced_value_settles_it(self) -> None:
         work = _send(RECORDS, message="DNS a cada hora")
-        self.assertEqual(_record(work), recording.Question("routine-binding-unsourced"))
-        pending = recording.Asked("routine-binding-unsourced", 1)
+        self.assertEqual(_record(work), recording.Question("routine-work-rerun"))
+        pending = recording.Asked("routine-work-rerun", 1)
         answered = _recorded(work, _send(message=f"O id é {SHIMPZ_ID}"), asked=pending)
         self.assertEqual(
             (_input(answered)["zone_id"], answered.origins["s1"]["zone_id"]),

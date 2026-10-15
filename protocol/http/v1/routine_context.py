@@ -82,7 +82,7 @@ def canonical_routine_listings(value: object) -> list[dict[str, object]] | None:
     return listed if list(value) == listed else None
 
 
-# The work a pending unsourced or rerun question asks the Brain to run again (ADR-0101): one entry per call, or per
+# The work a pending rerun question asks the Brain to run again (ADR-0101): one entry per call, or per
 # ``count`` consecutive identical calls, at most a plan's steps in all. Each input member has its kind: ``value`` with
 # its exact JSON text (null when withheld) and whether it is a target the person chose; ``clock``, the run's date; or
 # ``fresh``, never shown, with the Action whose earlier result held it, if any.

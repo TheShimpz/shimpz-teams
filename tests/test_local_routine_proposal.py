@@ -388,7 +388,7 @@ class RecordedRoutineTests(LocalContractCase):
             )
             asked = self.chat(service, _body("shimpz.com, a cada 30 segundos, mostrar sempre"))["routine_question"]
         self.assertIsNone(recording)
-        self.assertEqual(asked["code"], "routine-binding-unsourced")
+        self.assertEqual(asked["code"], "routine-work-rerun")
 
     def test_the_brain_sees_where_each_routines_timezone_came_from(self) -> None:
         runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))
@@ -594,14 +594,14 @@ class RecordedRoutineTests(LocalContractCase):
                 service, _body("Liste os registros DNS de shimpz.com a cada 30 segundos e mostre o resultado")
             )
             continued = self.chat(service, _body("Pode continuar"))
-        self.assertEqual(asked["routine_question"]["code"], "routine-binding-unsourced")
+        self.assertEqual(asked["routine_question"]["code"], "routine-work-rerun")
         self.assertEqual(
             (zones["routine_proposal"]["name"], [step["action"] for step in zones["routine_proposal"]["steps"]]),
             ("Zonas", ["list-zones"]),
         )
         # The same intent recorded again keeps waiting for the verified rerun.
-        self.assertEqual(again["routine_question"]["code"], "routine-binding-unsourced")
-        self.assertEqual(continued["routine_question"]["code"], "routine-binding-unsourced")
+        self.assertEqual(again["routine_question"]["code"], "routine-work-rerun")
+        self.assertEqual(continued["routine_question"]["code"], "routine-work-rerun")
 
     def test_new_work_drops_the_chain_anchor_of_the_question_it_supersedes(self) -> None:
         runtime = Sends(

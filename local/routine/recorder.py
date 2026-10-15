@@ -296,11 +296,8 @@ def routine_mode(span: Span | None) -> bool:
     )
 
 
-_RERUN_SHOWN = frozenset({"routine-binding-unsourced", "routine-work-rerun"})
-
-
 def rerun_work(span: Span | None) -> tuple[dict[str, object], ...] | None:
-    """The work a pending unsourced or rerun question asks the Brain to run again, in order, bounded and redacted.
+    """The work a pending rerun question asks the Brain to run again, in order, bounded and redacted.
 
     Each entry is one call, or ``count`` consecutive identical ones: its Action and each input member's kind. A value
     input shows its exact JSON text unless the span protects it or it is too long, and whether it is a target the
@@ -308,7 +305,7 @@ def rerun_work(span: Span | None) -> tuple[dict[str, object], ...] | None:
     Work past the protocol's bounds (``routine.canonical_rerun``), or of a span whose protection was lost, is not shown
     at all.
     """
-    if span is None or span.asked is None or span.asked.manifest is None or span.asked.code not in _RERUN_SHOWN:
+    if span is None or span.asked is None or span.asked.manifest is None or span.asked.code != routine_recording.RERUN:
         return None
     if span.protection.lost:
         # With its protection lost, nothing the span holds may be shown.

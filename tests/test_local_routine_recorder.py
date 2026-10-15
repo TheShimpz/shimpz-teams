@@ -139,7 +139,7 @@ class RecordingBookTests(unittest.TestCase):
         book.start("team_1", BINDING, _started(), 1)
         first = book.start("team_1", BINDING, _started(), 2)
         manifest = routine_recording.Manifest(())
-        question = routine_recording.Question("routine-binding-unsourced", manifest=manifest)
+        question = routine_recording.Question("routine-work-rerun", manifest=manifest)
         intent = routine_recorder.Intent("DNS", None, None, "Lista o DNS.")
         book.asked("team_1", first, question, intent)
         found = book.get("team_1", first)
@@ -198,7 +198,7 @@ class RecordingBookTests(unittest.TestCase):
             ("routine-binding-ambiguous", "123", intent),
             ("routine-binding-ambiguous", "a-zone", None),
             ("routine-binding-ambiguous", '"123"', None),
-            ("routine-binding-unsourced", "a cada hora", None),
+            ("routine-work-rerun", "a cada hora", None),
             ("routine-schedule-unstated", "a cada 30 dias", None),
             # An answer that also states a schedule is the Brain's, so the description says how often it runs.
             ("routine-output-unstated", "Mostrar somente quando mudar. A cada 60 segundos.", None),
@@ -247,7 +247,7 @@ class RecordingBookTests(unittest.TestCase):
         book = routine_recorder.RecordingBook()
         send = book.start("team_1", BINDING, _started("Liste"), 1)
         intent = routine_recorder.Intent("DNS", None, None, "Lista o DNS.")
-        book.asked("team_1", send, routine_recording.Question("routine-binding-unsourced"), intent)
+        book.asked("team_1", send, routine_recording.Question("routine-work-rerun"), intent)
         self.assertIs(routine_recorder.routine_mode(book.get("team_1", send)), True)
         self.assertIs(routine_recorder.routine_mode(None), False)
 
@@ -287,7 +287,7 @@ class RecordingBookTests(unittest.TestCase):
         zones = recording_cases.ZONES_CALL
         work = recording_cases._send(zones, records, remembered, *changes, message="DNS de shimpz.com a cada hora")
         asked = recording_cases._record(work)
-        self.assertEqual(asked.code, "routine-binding-unsourced")
+        self.assertEqual(asked.code, "routine-work-rerun")
         span = self.span((work,), asked, protected=("tok",))
         shown = routine_recorder.rerun_work(span)
         self.assertEqual([item["action"] for item in shown], ["list-zones", "list-dns-records", "fetch", "post"])
@@ -309,13 +309,9 @@ class RecordingBookTests(unittest.TestCase):
         many = routine_recording.Slot(("reports", "post"), False, (("t", "value", "x"),))
         for slots in ((wide,), (many,) * 257):
             with self.subTest(slots=len(slots)):
-                question = routine_recording.Question(
-                    "routine-binding-unsourced", manifest=routine_recording.Manifest(slots)
-                )
+                question = routine_recording.Question("routine-work-rerun", manifest=routine_recording.Manifest(slots))
                 self.assertIsNone(routine_recorder.rerun_work(self.span((recording_cases._send(),), question)))
-        ordinary = routine_recording.Question(
-            "routine-binding-unsourced", manifest=routine_recording.Manifest((many,) * 256)
-        )
+        ordinary = routine_recording.Question("routine-work-rerun", manifest=routine_recording.Manifest((many,) * 256))
         shown = routine_recorder.rerun_work(self.span((recording_cases._send(),), ordinary))
         self.assertEqual(http_routine_context.canonical_rerun(shown), list(shown))
 
@@ -324,7 +320,7 @@ class RecordingBookTests(unittest.TestCase):
         invented = ("cloudflare/list-dns-records", {"zone_id": "0" * 32}, {"result": []})
         work = recording_cases._send(invented, recording_cases.ZONES_CALL, message="DNS dessa zona a cada hora")
         asked = recording_cases._record(work)
-        self.assertEqual(asked.code, "routine-binding-unsourced")
+        self.assertEqual(asked.code, "routine-work-rerun")
         (records,) = [entry for entry in routine_recorder.rerun_work(self.span((work,), asked)) if entry["inputs"]]
         # No result ever held the made-up id, so nothing proves which Action returns it: the hint stays empty.
         self.assertEqual((records["action"], records["inputs"][0]["source"]), ("list-dns-records", None))
@@ -334,7 +330,7 @@ class RecordingBookTests(unittest.TestCase):
         echo = ("cloudflare/list-dns-records", {"zone_id": remembered}, {"zone_id": remembered})
         work = recording_cases._send(echo, message="DNS a cada hora")
         asked = recording_cases._record(work)
-        self.assertEqual(asked.code, "routine-binding-unsourced")
+        self.assertEqual(asked.code, "routine-work-rerun")
         (entry,) = routine_recorder.rerun_work(self.span((work,), asked))
         self.assertEqual(entry["inputs"][0]["source"], None)
 
@@ -343,7 +339,7 @@ class RecordingBookTests(unittest.TestCase):
         slot = routine_recording.Slot(
             ("reports", "post"), False, (("note", "value", {"text": f"use {secret} now"}), ("t", "value", "x"))
         )
-        question = routine_recording.Question("routine-binding-unsourced", manifest=routine_recording.Manifest((slot,)))
+        question = routine_recording.Question("routine-work-rerun", manifest=routine_recording.Manifest((slot,)))
         span = self.span((recording_cases._send(),), question, protected=(secret,))
         (entry,) = routine_recorder.rerun_work(span)
         self.assertEqual([item["value"] for item in entry["inputs"]], [None, '"x"'])

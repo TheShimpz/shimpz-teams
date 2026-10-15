@@ -6944,8 +6944,7 @@
       {"code": "routine-binding-ambiguous", "options": [{"value": "\"023e105f4ecef8ad9ca31a8372d0c353\"", "label": "shimpz.com"}, {"value": "\"7f1b2c3d4e5f60718293a4b5c6d7e8f9\"", "label": "shimpz.com"}], "value": null},
       {"code": "routine-binding-ambiguous", "options": [{"value": "9007199254740993", "label": null}], "value": null},
       {"code": "routine-binding-ambiguous", "options": [{"value": "\"a \\\"b\\\" \\\\ c\"", "label": null}], "value": null},
-      {"code": "routine-binding-unsourced", "options": [], "value": null},
-      {"code": "routine-work-rerun", "options": [], "value": null}
+            {"code": "routine-work-rerun", "options": [], "value": null}
     ],
     "invalid": [
       null,

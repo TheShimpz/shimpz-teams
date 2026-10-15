@@ -46,6 +46,8 @@ from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
 from routine import trace
 
+# The one question only work run again answers: a value no result provides, or a target the person chose instead.
+RERUN = "routine-work-rerun"
 MIN_REF_STRING = 6
 MIN_REF_INTEGER_DIGITS = 6
 MIN_SELECTOR_CHARS = 2
@@ -160,7 +162,7 @@ class Slot:
 
 @dataclass(frozen=True, slots=True)
 class Manifest:
-    """The work a rerun or unsourced question asks to run again, one slot per occurrence, in dispatch order.
+    """The work a rerun question asks to run again, one slot per occurrence, in dispatch order.
 
     Read-only twins (the same Action, input, and result with no change between) are one occurrence; every other call
     is its own slot, so its multiplicity and its order relative to every change are kept.

@@ -84,7 +84,7 @@ def _bound(
     except routine_recording._AskError as asking:
         if pending is not None and pending.chosen is not None and _same_choice(asking.question, pending):
             raise routine_recording._AskError(
-                routine_recording.Question("routine-work-rerun", pending=pending)
+                routine_recording.Question(routine_recording.RERUN, pending=pending)
             ) from asking
         raise
     if source is None:
@@ -298,7 +298,8 @@ def _sourced(
     if not found:
         if not _identifier(value):
             return None
-        raise routine_recording._AskError(routine_recording.Question("routine-binding-unsourced"))
+        # Only work run again finds where it comes from.
+        raise routine_recording._AskError(routine_recording.Question(routine_recording.RERUN))
     if len(found) > 1:
         found = _from_work(context, consumer, found)
     if len(found) > 1:
