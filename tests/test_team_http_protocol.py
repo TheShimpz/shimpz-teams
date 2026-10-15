@@ -235,18 +235,13 @@ class RoutineListBoundTests(unittest.TestCase):
             "run_id": "1" * 32,
             "routine_id": "0" * 32,
             "status": "frozen",
-            "scheduled_at": "2026-10-05T09:00:00Z",
             "request_kind": "integrations",
             "assistant_id": ASSISTANT,
             "action": ACTION,
-            "position": routine.MAX_ROUTINE_STEPS,
-            "steps": routine.MAX_ROUTINE_STEPS,
         }
         incident = {
             "run_id": "2" * 32,
             "routine_id": "0" * 32,
-            "name": name,
-            "created_at": "2026-10-05T09:00:00Z",
             "assistant_id": ASSISTANT,
             "action": ACTION,
             "position": routine.MAX_ROUTINE_STEPS,

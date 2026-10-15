@@ -135,38 +135,30 @@ def canonical_routine_view(value: object) -> dict[str, object] | None:
 
 def canonical_run_view(value: object) -> dict[str, object] | None:
     """One live run: a frozen run names the request it waits for, and its call; any other only that it is live."""
-    fields = {"run_id", "routine_id", "status", "scheduled_at", "request_kind", "assistant_id", "action"}
-    if not isinstance(value, dict) or set(value) != fields | {"position", "steps"}:
+    fields = {"run_id", "routine_id", "status", "request_kind", "assistant_id", "action"}
+    if not isinstance(value, dict) or set(value) != fields:
         return None
     status = value["status"]
-    request = (value["request_kind"], value["assistant_id"], value["action"], value["position"], value["steps"])
-    frozen = (
-        request[0] in REQUEST_KINDS
-        and routine.valid_assistant(request[1])
-        and routine.valid_action(request[2])
-        and routine.canonical_position(request[3], request[4]) is not None
-    )
+    request = (value["request_kind"], value["assistant_id"], value["action"])
+    frozen = request[0] in REQUEST_KINDS and routine.valid_assistant(request[1]) and routine.valid_action(request[2])
     valid = (
         routine.matches(value["run_id"], routine.ROUTINE_ID_RE)
         and routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
-        and instant(value["scheduled_at"])
         and isinstance(status, str)
         and status in RUN_STATUSES
-        and (frozen if status == "frozen" else request == (None, None, None, None, None))
+        and (frozen if status == "frozen" else request == (None, None, None))
     )
     return copy.deepcopy(value) if valid else None
 
 
 def canonical_incident_view(value: object) -> dict[str, object] | None:
     """One unresolved incident of a held run, its held call by position; it lasts until a person settles it."""
-    fields = {"run_id", "routine_id", "name", "created_at", "assistant_id", "action", "position", "steps"}
+    fields = {"run_id", "routine_id", "assistant_id", "action", "position", "steps"}
     if not isinstance(value, dict) or set(value) != fields:
         return None
     valid = (
         routine.matches(value["run_id"], routine.ROUTINE_ID_RE)
         and routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
-        and routine.exact_name(value["name"])
-        and instant(value["created_at"])
         and _held_step(value)
     )
     return copy.deepcopy(value) if valid else None

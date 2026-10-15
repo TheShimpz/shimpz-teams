@@ -6530,19 +6530,19 @@
     },
     "run": {
       "valid": [
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "leased", "scheduled_at": "2026-10-05T12:00:00Z", "request_kind": null, "assistant_id": null, "action": null, "position": null, "steps": null},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "held", "scheduled_at": "2026-10-05T12:00:00Z", "request_kind": null, "assistant_id": null, "action": null, "position": null, "steps": null},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "frozen", "scheduled_at": "2026-10-05T12:00:00Z", "request_kind": "human", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 2, "steps": 3}
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "leased", "request_kind": null, "assistant_id": null, "action": null},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "held", "request_kind": null, "assistant_id": null, "action": null},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "frozen", "request_kind": "human", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record"}
       ],
       "invalid": [
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "frozen", "scheduled_at": "2026-10-05T12:00:00Z", "request_kind": "email", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 2, "steps": 3},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "frozen", "request_kind": "email", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record"},
         null,
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "leased", "scheduled_at": "2026-10-05T12:00:00Z", "request_kind": null, "assistant_id": null, "action": null, "steps": null},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "frozen", "scheduled_at": "2026-10-05T12:00:00Z", "request_kind": "human", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 4, "steps": 3},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "leased", "scheduled_at": "2026-10-05T12:00:00Z", "request_kind": null, "assistant_id": null, "action": null, "position": 2, "steps": 2},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "leased", "scheduled_at": "2026-10-05T12:00:00Z", "request_kind": null, "assistant_id": null, "action": null, "position": null, "steps": 2},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "running", "scheduled_at": "2026-10-05T12:00:00Z", "request_kind": null, "assistant_id": null, "action": null, "position": null, "steps": null},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "frozen", "scheduled_at": "2026-10-05T12:00:00Z", "request_kind": "human", "assistant_id": "Shimpz", "action": "replace-dns-record", "position": 2, "steps": 3}
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "leased", "request_kind": null, "assistant_id": null},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "frozen", "request_kind": "human", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 2},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "leased", "request_kind": null, "assistant_id": null, "action": "replace-dns-record"},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "running", "request_kind": null, "assistant_id": null, "action": null},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "frozen", "request_kind": "human", "assistant_id": "Shimpz", "action": "replace-dns-record"},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "status": "leased", "request_kind": null, "assistant_id": null, "action": null}
       ]
     },
     "notice_batch": {
@@ -6632,19 +6632,18 @@
     },
     "incident": {
       "valid": [
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "DNS de shimpz.com", "created_at": "2026-10-05T12:01:07Z", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 2, "steps": 3},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "DNS de shimpz.com", "created_at": "2026-10-05T12:01:07Z", "assistant_id": null, "action": null, "position": null, "steps": null}
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 2, "steps": 3},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "assistant_id": null, "action": null, "position": null, "steps": null}
       ],
       "invalid": [
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": null, "created_at": "2026-10-05T12:01:07Z", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 2, "steps": 3},
+        {"run_id": "x", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 2, "steps": 3},
         null,
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "DNS de shimpz.com", "created_at": "2026-10-05T12:01:07Z", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 2, "steps": 3, "unexpected": "Toda segunda"},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "created_at": "2026-10-05T12:01:07Z", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 2, "steps": 3},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "created_at": "2026-10-05T12:01:07Z", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 2, "steps": 3},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "DNS de shimpz.com", "created_at": "2026-10-05T12:01:07Z", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 4, "steps": 3},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "DNS de shimpz.com", "created_at": "2026-10-05T12:01:07Z", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": null, "steps": 3},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "DNS de shimpz.com", "created_at": "2026-10-05T12:01:07Z", "assistant_id": null, "action": "replace-dns-record", "position": 2, "steps": 3},
-        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "DNS de shimpz.com", "created_at": "2026-10-05T12:01:07Z", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "steps": 3, "step": 2}
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 2, "steps": 3, "unexpected": "Toda segunda"},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 2, "steps": 3},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": 4, "steps": 3},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "position": null, "steps": 3},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "assistant_id": null, "action": "replace-dns-record", "position": 2, "steps": 3},
+        {"run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "steps": 3, "step": 2}
       ]
     },
     "card": {

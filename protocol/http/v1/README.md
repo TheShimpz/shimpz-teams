@@ -378,9 +378,10 @@ run now; a claimed run carries its `active_seconds` budget, which grows with its
 (`routine_run.active_seconds`) and makes it long past 600 seconds.
 
 A Supervisor's `GET /v1/teams/:team_id/routines` lists each Routine (`routine_notice.canonical_routine_view`), its live runs
-(`routine_notice.canonical_run_view`, a frozen one with its call's `position` and `steps`), and its unresolved `incidents`, at
-most `routine_notice.MAX_UNRESOLVED_INCIDENTS` (`routine_notice.canonical_incident_view`): each held run's id, Routine,
-name, the instant its run was held, and call. `POST /v1/teams/:team_id/routines/incidents/:run_id/card` with
+(`routine_notice.canonical_run_view`: its id, Routine, and status, and for a frozen one the request it waits for and its
+call), and its unresolved `incidents`, at most `routine_notice.MAX_UNRESOLVED_INCIDENTS`
+(`routine_notice.canonical_incident_view`): each held run's id, Routine, and the call it was held at by `position` of
+`steps`. `POST /v1/teams/:team_id/routines/incidents/:run_id/card` with
 `{}` opens that run's recovery card (`routine_run.canonical_card`): the call it stopped at by `position` of `steps` in the
 plan the run executed, that revision, the `evidence` of its failure (`recorded`, with the held operation's latest
 sanitized `diagnostic` of the same call; `absent` when none is kept; or `unavailable` when it could not be read), and its

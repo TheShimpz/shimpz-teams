@@ -44,22 +44,17 @@ def run_view(value: record.Run) -> dict[str, object]:
         "run_id": value.run_id,
         "routine_id": value.routine_id,
         "status": value.status,
-        "scheduled_at": instant.text(value.scheduled_at),
         "request_kind": value.request_kind or None,
         "assistant_id": value.assistant_id or None,
         "action": value.action or None,
-        "position": value.position,
-        "steps": value.steps if value.position is not None else None,
     }
 
 
-def incident_view(value: record.Run, name: str) -> dict[str, object]:
-    """An unresolved incident a card settles: its Routine, named ``name``, and the call whose effect is unknown."""
+def incident_view(value: record.Run) -> dict[str, object]:
+    """An unresolved incident a card settles: its Routine and the call whose effect is unknown."""
     return {
         "run_id": value.run_id,
         "routine_id": value.routine_id,
-        "name": name,
-        "created_at": instant.text(value.held_at),
         **routine_hold.step_detail(routine_hold.held_step(value)),
     }
 
@@ -92,11 +87,7 @@ def list_routines(self, team_id: str) -> dict[str, object]:
         "team_id": team_id,
         "routines": [routine_view(item) for item in state.routines],
         "runs": [run_view(item) for item in record.live_runs(state)],
-        "incidents": [
-            incident_view(item, record.routine(state, item.routine_id).name)
-            for item in state.runs
-            if item.status == "unresolved"
-        ],
+        "incidents": [incident_view(item) for item in state.runs if item.status == "unresolved"],
     }
 
 
