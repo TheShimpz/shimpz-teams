@@ -110,7 +110,7 @@ class InferenceConfigTests(unittest.TestCase):
 
     def test_unknown_cross_provider_and_unsafe_models_fail_closed(self):
         with self.assertRaises(inference_config.InferenceConfigError):
-            inference_config.normalize("codex", "gpt-test")
+            inference_config.normalize("unknown-provider", "gpt-test")
         for provider, model in (
             ("openai", "gpt-999"),
             ("openai", "claude-sonnet-5-5"),
