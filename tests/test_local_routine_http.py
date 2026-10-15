@@ -229,7 +229,7 @@ class RunRouteTests(RoutineHttpCase):
             self.assertEqual(self.terminal(raw)["body"]["status"], "done")
             status, _type, raw = self.request("POST", path, segment, headers)
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
-            # The compiled run never reached the Brain.
+            # The replayed run never reached the Brain.
             self.assertEqual(runtime.contexts, [])
 
     def test_a_routine_key_that_cannot_be_read_is_unavailable_not_denied(self) -> None:

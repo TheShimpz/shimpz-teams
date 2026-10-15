@@ -469,7 +469,7 @@ Ed25519 assertion travels in `X-Shimpz-Routine` with the JWT key id `local-routi
 model, lifetime, and one-use nonce bindings as a Supervisor assertion, requires `authority: "routine"` with
 `authority_sha256` equal to the SHA-256 of the run's lease token, and refuses any human assurance or decision binding.
 Admin's scheduler claims under the Team bearer with `POST /v1/routines/claim` and exactly `{long}`
-(`routine_run.canonical_claim_request`): no model key gates a claim, because a healthy compiled run needs none (ADR-0092),
+(`routine_run.canonical_claim_request`): no model key gates a claim, because a healthy replayed run needs none (ADR-0092),
 and any Team with a configured model may be claimed. The answer (`routine_run.canonical_claim`) is one run with its lease
 token, lease expiry, and the Routine `revision` and `plan_digest` it was claimed at, or `null` with `next_due_at`, the
 earliest epoch second a Routine of a Team Admin can run becomes due (`null` when none will), so Admin wakes then while

@@ -15,10 +15,10 @@ from action import journal as action_journal
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from local import app as local_app
-from local.routine import compiled as routine_compiled
 from local.routine import incident as routine_incident
 from local.routine import lifecycle as routine_lifecycle
 from local.routine import manage as routine_manage
+from local.routine import replay as routine_replay
 from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
 from routine import claim as routine_claim
@@ -255,7 +255,7 @@ class ResolutionTests(IncidentCase):
 
 
 class RecoverySnapshotTests(IncidentCase):
-    def compiled(self, service, value: record.Routine, run_id: str, generation: str, revision: int):
+    def replayed(self, service, value: record.Routine, run_id: str, generation: str, revision: int):
         """Seal the run's recovery snapshot and its first cursor, as the executor does before its first dispatch."""
         incarnation = generation.removesuffix(f":routine:{run_id}")
         document = _document(output={"mode": "none", "step": None})
@@ -284,7 +284,7 @@ class RecoverySnapshotTests(IncidentCase):
                     None,
                 ),
             )
-            snapshot, cursor = self.compiled(service, value, run_id, generation, 3)
+            snapshot, cursor = self.replayed(service, value, run_id, generation, 3)
             # A live run keeps its snapshot through every pass.
             routine_watchdog.check(service)
             self.assertEqual(service.routine_store.recoveries("team_1"), (run_id,))
@@ -317,7 +317,7 @@ class RecoverySnapshotTests(IncidentCase):
     def test_a_recovery_snapshot_is_write_once_even_after_a_restart(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, _lease, generation, _batch = self.held_run(directory, batch=False)
-            snapshot, _cursor = self.compiled(service, value, run_id, generation, 1)
+            snapshot, _cursor = self.replayed(service, value, run_id, generation, 1)
             original = service.routine_store.recovery("team_1", run_id)
             # Resealing the exact same snapshot is idempotent.
             routine_incident.seal_recovery(service, "team_1", snapshot)
@@ -342,15 +342,15 @@ class RecoverySnapshotTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
-            with self.assertRaises(local_app.ApiProblem) as uncompiled:
+            with self.assertRaises(local_app.ApiProblem) as unsealed:
                 routine_incident.open_recovery(service, "team_1", run_id)
-            self.assertEqual(uncompiled.exception.code, "routine-incident-unverifiable")
+            self.assertEqual(unsealed.exception.code, "routine-incident-unverifiable")
             with self.assertRaises(local_app.ApiProblem) as missing:
                 routine_incident.open_recovery(service, "team_1", "f" * 32)
             self.assertEqual(missing.exception.code, "routine-incident-unavailable")
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)
-            snapshot, _cursor = self.compiled(service, value, run_id, generation, 1)
+            snapshot, _cursor = self.replayed(service, value, run_id, generation, 1)
             routine_incident.hold(service, "team_1", run_id, lease)
             self.assertEqual(routine_incident.open_recovery(service, "team_1", run_id).recovery, snapshot)
             store = service.routine_store
@@ -597,9 +597,9 @@ class SealedStateTests(IncidentCase):
             self.assertIsNone(store.cursor("team_1", binding))
 
     def _publish_through_the_turn_loop(self, directory: str, *, sealable: bool):
-        """A one-step compiled Routine run through the real turn loop and journal, as a callable, with its state.
+        """A one-step replayed Routine run through the real turn loop and journal, as a callable, with its state.
 
-        The step's journal batch completes its operation; the turn loop then resumes the compiled runtime, which seals
+        The step's journal batch completes its operation; the turn loop then resumes the replayed runtime, which seals
         the advanced cursor, and only after that marks the batch delivered, which removes its receipts.
         """
         _controller, service, value, run_id, _lease, generation, _batch = self.held_run(directory, batch=False)
@@ -608,8 +608,8 @@ class SealedStateTests(IncidentCase):
         binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
         protections = service.routine_protections
         protections.bind(run_id)
-        seal = routine_compiled._Seal("team_1", service.routine_store, mock.Mock(), protections, lambda: None)
-        runtime = routine_compiled.CompiledRuntime(
+        seal = routine_replay._Seal("team_1", service.routine_store, mock.Mock(), protections, lambda: None)
+        runtime = routine_replay.ReplayRuntime(
             seal, plan, routine_cursor.start(plan, binding, 0, protections.boot), "Done."
         )
         operation = _operation("publish")
@@ -658,7 +658,7 @@ class SealedStateTests(IncidentCase):
     def test_a_step_whose_cursor_cannot_be_sealed_keeps_its_receipts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, generation, binding, prepared, run = self._publish_through_the_turn_loop(directory, sealable=False)
-            with self.assertRaises(routine_compiled.CompiledRunError) as caught:
+            with self.assertRaises(routine_replay.ReplayError) as caught:
                 run()
             self.assertEqual(caught.exception.code, "routine-cursor-unavailable")
             self.assertEqual(service.routine_store.cursor("team_1", binding).step, 0)

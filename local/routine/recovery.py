@@ -34,10 +34,10 @@ from local import audit as local_audit
 from local import errors as local_errors
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
-from local.routine import compiled as routine_compiled
 from local.routine import contracts as routine_contracts
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import incident as routine_incident
+from local.routine import replay as routine_replay
 from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
@@ -300,7 +300,7 @@ def _call_verifier(self, team_id: str, token: str, assessment: Assessment, reque
     try:
         self.action_state.discard(generation)
         result = self._run_chat_segment(segment)
-    except ApiProblem, routine_compiled.CompiledRunError:
+    except ApiProblem, routine_replay.ReplayError:
         return None
     finally:
         with contextlib.suppress(action_journal.ActionJournalError):
@@ -332,13 +332,13 @@ def _judge(self, team_id: str, assessment: Assessment, result: object, protected
         protection = self.routine_protections.grow(
             cursor.binding.run_id, trace.secret_values(recovered, step.output_schema)
         )
-        completed = routine_compiled.advance(
+        completed = routine_replay.advance(
             self.routine_store, team_id, cursor, assessment.plan, (recovered, protection)
         )
     except routine_plan.PlanError, routine_cursor.CursorError, routine_store.RoutineStoreError, ValueError:
         return "inconclusive"
     _seal(self, team_id, completed)
-    routine_compiled.record_recovered(self, team_id, cursor, assessment.plan, protected)
+    routine_replay.record_recovered(self, team_id, cursor, assessment.plan, protected)
     return "occurred"
 
 
@@ -419,7 +419,7 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     run = routine_run.LeasedRun(team_id, incident_id, lease, token, routine, (), value.requests_used)
     with routine_run.registered(self, team_id, incident_id, token, min(seconds, value.active_seconds_left)):
         # Its caller, the run that held, audits and settles how the whole run ended.
-        return routine_compiled.execute(self, run, value, progress)
+        return routine_replay.execute(self, run, value, progress)
 
 
 # The most active time the run's one recovery episode may use, within the run's own time left.

@@ -9,10 +9,10 @@ import routine_fixture
 from test_local_routine_recovery import RECORD, Assistant, RecoveryCase, failed
 
 from local import app as local_app
-from local.routine import compiled as routine_compiled
 from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
 from local.routine import recovery as routine_recovery
+from local.routine import replay as routine_replay
 from local.routine import store as routine_store
 from routine import claim as routine_claim
 from routine import cursor as routine_cursor
@@ -166,8 +166,8 @@ class ContinuationEdgeTests(RecoveryCase):
         cursor = routine_cursor.Cursor(
             binding, "sha256:" + "d" * 64, 0, 0, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6", 1, "e" * 64, carried=True
         )
-        runtime = routine_compiled.CompiledRuntime(seal, SimpleNamespace(digest=cursor.plan), cursor, "Name")
-        with self.assertRaises(routine_compiled.CompiledRunError) as caught:
+        runtime = routine_replay.ReplayRuntime(seal, SimpleNamespace(digest=cursor.plan), cursor, "Name")
+        with self.assertRaises(routine_replay.ReplayError) as caught:
             runtime.start(None, "")
         self.assertEqual(caught.exception.code, "cursor-operation-uncertain")
         with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-not-dispatched"):
@@ -234,7 +234,7 @@ class RunTimeTests(RecoveryCase):
     def test_a_failed_segment_is_charged_before_its_hold_and_its_continuation_keeps_the_balance(self) -> None:
         seen: list[int] = []
         ticks = iter(range(0, 10_000, 100))
-        clock = SimpleNamespace(monotonic=lambda: next(ticks), time=routine_compiled.time.time)
+        clock = SimpleNamespace(monotonic=lambda: next(ticks), time=routine_replay.time.time)
 
         class Watching(Assistant):
             """Each create sees the balance of the run it belongs to."""
@@ -247,7 +247,7 @@ class RunTimeTests(RecoveryCase):
         assistant = Watching([failed(), RECORD], [{"outcome": "not_occurred"}])
         service_box: list[object] = []
         with tempfile.TemporaryDirectory() as directory:
-            with mock.patch.object(routine_compiled, "time", clock):
+            with mock.patch.object(routine_replay, "time", clock):
                 service, _brain, value, run_id = self.held_with(directory, assistant, service_box)
             held = routine_hold.incident(self.state(service), run_id)
             self.assertEqual(self.verify(service, value, run_id), "absent")

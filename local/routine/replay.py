@@ -1,7 +1,7 @@
 """A recorded Routine run, executed step by step with no model (ADR-0092 sections 3, 5, and 6; ADR-0101).
 
 The run drives the same Team turn loop a chat uses, through the same Action journal, egress, Integrations, Stored
-Inputs, and human requests, but its turns come from the compiled plan instead of the Brain: each step is one Action
+Inputs, and human requests, but its turns come from the confirmed plan instead of the Brain: each step is one Action
 request whose input is resolved from literals, the run's one start instant, and values earlier steps of the same run
 returned. Its recovery snapshot is sealed before the first dispatch; its sealed cursor records each dispatch's logical
 operation and exact input before the RPC, and keeps each completed step's selected values before the journal may drop
@@ -74,7 +74,7 @@ def fault_of(exc: BaseException) -> str:
     return "other"
 
 
-class CompiledRunError(RuntimeError):
+class ReplayError(RuntimeError):
     """A step could not be resolved or advanced; ``code`` is the stable reason. The run is never retried."""
 
     def __init__(self, code: str) -> None:
@@ -108,7 +108,7 @@ class _Seal:
     lost: object = None
 
 
-class CompiledRuntime:
+class ReplayRuntime:
     """The Brain's turn interface, answered from the plan; it never calls a model.
 
     ``start`` and ``resume`` return the current step as one Action request, or a completed turn after the last step.
@@ -165,7 +165,7 @@ class CompiledRuntime:
                 self._plan, step, self.cursor.selections(), self.cursor.started_at, lambda value: value
             )
         except routine_plan.PlanError as exc:
-            raise CompiledRunError(exc.code) from exc
+            raise ReplayError(exc.code) from exc
         request = brain_runtime_client.ActionRequest(
             self.interrupt(self.cursor.step), step.assistant_id, step.action, resolved
         )
@@ -175,7 +175,7 @@ class CompiledRuntime:
         try:
             self._seal.store.put_cursor(self._seal.team_id, cursor)
         except routine_store.RoutineStoreError as exc:
-            raise CompiledRunError("routine-cursor-unavailable") from exc
+            raise ReplayError("routine-cursor-unavailable") from exc
         self.cursor = cursor
 
     def start(self, _context, _message, *, conversation=()) -> brain_runtime_client.RuntimeTurn:
@@ -184,7 +184,7 @@ class CompiledRuntime:
             try:
                 retried = routine_cursor.retry(self.cursor)
             except routine_cursor.CursorError as exc:
-                raise CompiledRunError(exc.code) from exc
+                raise ReplayError(exc.code) from exc
             self.seal(retried)
         return self._turn()
 
@@ -209,9 +209,9 @@ class CompiledRuntime:
         try:
             advanced = advance(self._seal.store, self._seal.team_id, self.cursor, self._plan, (result, protection))
         except routine_cursor.CursorError as exc:
-            raise CompiledRunError(exc.code) from exc
+            raise ReplayError(exc.code) from exc
         except routine_store.RoutineStoreError as exc:
-            raise CompiledRunError("routine-cursor-unavailable") from exc
+            raise ReplayError("routine-cursor-unavailable") from exc
         self.seal(advanced)
         self.record_step("done", dispatched)
         return self._turn()
@@ -257,7 +257,7 @@ class CompiledRuntime:
     ) -> None:
         """Seal the dispatch's logical operation, exact input, and workload before its RPC; a replay keeps both."""
         if request.interrupt_id != self.interrupt(self.cursor.step):
-            raise CompiledRunError("routine-step-changed")
+            raise ReplayError("routine-step-changed")
         try:
             dispatched = routine_cursor.dispatch(
                 self.cursor,
@@ -268,7 +268,7 @@ class CompiledRuntime:
                 dispatched_at=int(time.time()),
             )
         except routine_cursor.CursorError as exc:
-            raise CompiledRunError(exc.code) from exc
+            raise ReplayError(exc.code) from exc
         self.seal(dispatched)
         if evidence is not None:
             self.protect(routine_diagnostics.protected(evidence))
@@ -291,7 +291,7 @@ class CompiledRuntime:
         try:
             classified = routine_cursor.failed(self.cursor, fault_of(exc))
         except routine_cursor.CursorError as error:
-            raise CompiledRunError(error.code) from error
+            raise ReplayError(error.code) from error
         self.seal(classified)
         self.record_step("stopped" if getattr(exc, "code", "") == "chat-stopped" else "failed")
         # Only in memory, and only for this execution's automatic recovery: a recovered result is checked against the
@@ -322,7 +322,7 @@ class CompiledRuntime:
 
     @staticmethod
     def purpose(_context, _request, _assistant_name, _summary) -> None:
-        """A compiled run asks no model why it pauses."""
+        """A replayed run asks no model why it pauses."""
         return
 
 
@@ -337,7 +337,7 @@ def _sealed_by(self, team_id: str, run_id: str) -> _Seal:
 
 def record_recovered(self, team_id: str, cursor: routine_cursor.Cursor, plan: routine_plan.Plan, protected) -> None:
     """A verified occurrence completed the held step: its record says recovered, with the inputs it was given."""
-    runtime = CompiledRuntime(_sealed_by(self, team_id, cursor.binding.run_id), plan, cursor, "")
+    runtime = ReplayRuntime(_sealed_by(self, team_id, cursor.binding.run_id), plan, cursor, "")
     try:
         step = plan.steps[cursor.step]
         resolved = routine_plan.resolve(plan, step, cursor.selections(), cursor.started_at, lambda value: value)
@@ -438,7 +438,7 @@ def _plan(self, team_id: str, routine: record.Routine) -> routine_plan.Plan:
     try:
         return routine_plan.admit(routine.plan, contracts)
     except routine_plan.PlanError as exc:
-        raise CompiledRunError(exc.code) from exc
+        raise ReplayError(exc.code) from exc
 
 
 def runtime(
@@ -447,7 +447,7 @@ def runtime(
     value: record.Run,
     routine: record.Routine,
     protected: dict[str, tuple[str, ...]] | None = None,
-) -> CompiledRuntime:
+) -> ReplayRuntime:
     """The run's runtime: its recovery snapshot sealed, and its cursor reopened or started with its protection.
 
     A fresh run binds its protection in this Team boot with its first cursor, before anything can dispatch or
@@ -462,9 +462,9 @@ def runtime(
     try:
         cursor = self.routine_store.cursor(team_id, binding)
     except routine_store.RoutineStoreError as exc:
-        raise CompiledRunError("routine-cursor-unavailable") from exc
+        raise ReplayError("routine-cursor-unavailable") from exc
     if cursor is not None and cursor.plan != plan.digest:
-        raise CompiledRunError("cursor-plan-changed")
+        raise ReplayError("cursor-plan-changed")
     protections = self.routine_protections
     if cursor is None:
         protections.bind(value.run_id)
@@ -472,12 +472,12 @@ def runtime(
     else:
         protections.current(value.run_id, cursor.boot)
         started = cursor
-    compiled = CompiledRuntime(_sealed_by(self, team_id, value.run_id), plan, started, routine.name, protected)
+    replay = ReplayRuntime(_sealed_by(self, team_id, value.run_id), plan, started, routine.name, protected)
     if cursor is None:
-        compiled.seal(started)
+        replay.seal(started)
     else:
-        compiled.protection()
-    return compiled
+        replay.protection()
+    return replay
 
 
 def request(
@@ -487,7 +487,7 @@ def request(
     progress: chat_progress.Reporter | None,
     pending: object | None = None,
 ) -> SegmentRequest:
-    """A compiled segment's request, fresh or resumed from a frozen continuation: it carries no model key."""
+    """A replay segment's request, fresh or resumed from a frozen continuation: it carries no model key."""
     resumed = (
         {"message": ""}
         if pending is None
@@ -537,7 +537,7 @@ def _sealed(self, team_id: str, value: record.Run):
 
 
 def progress(self, team_id: str, value: record.Run) -> str:
-    """What durable state proves about one compiled run, never what a segment remembers in memory.
+    """What durable state proves about one replayed run, never what a segment remembers in memory.
 
     ``none``: nothing of it can have been dispatched, because every dispatch is sealed in its cursor before the RPC, and
     its cursor names none. ``done``: its sealed cursor completed every step of its sealed plan. ``partial``:
@@ -581,7 +581,7 @@ def _ended(
     run: routine_run.LeasedRun,
     value: record.Run,
     segment: RoutineSegment | None,
-    exc: ApiProblem | CompiledRunError,
+    exc: ApiProblem | ReplayError,
 ) -> str:
     """How a segment that raised ends: stopped, failed with nothing dispatched, or held for recovery.
 
@@ -637,14 +637,14 @@ def _read_only_prefix(self, team_id: str, value: record.Run) -> bool:
 def execute(
     self, run: routine_run.LeasedRun, value: record.Run, progress: chat_progress.Reporter | None, pending: object = None
 ) -> str:
-    """Run one registered segment of a compiled run in the held execution slot and record exactly how it ended."""
+    """Run one registered segment of a replayed run in the held execution slot and record exactly how it ended."""
     started = time.monotonic()
     segment: RoutineSegment | None = None
     try:
         segment_request = request(self, run, value, progress, pending)
         segment = segment_request.routine
         outcome = self._run_chat_segment(segment_request)
-    except (ApiProblem, CompiledRunError) as exc:
+    except (ApiProblem, ReplayError) as exc:
         # A failed segment's active time is charged under its live lease before it is fenced, so a hold carries the
         # balance the run really has left.
         routine_run.spend_time(self, run.team_id, run.run_id, run.lease, time.monotonic() - started)
@@ -666,7 +666,7 @@ def run_routine(
     claimed: tuple[int, str],
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
-    """Run one segment of a leased compiled run in the Team's execution slot, with no model.
+    """Run one segment of a leased replayed run in the Team's execution slot, with no model.
 
     The signed request names the Routine revision and plan digest the run was claimed at; any other is refused before
     anything runs.

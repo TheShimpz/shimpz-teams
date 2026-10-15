@@ -11,9 +11,9 @@ from test_local_routine_recovery import RECORD, Assistant, failed
 from action import execution as action_execution
 from local import app as local_app
 from local import audit as local_audit
-from local.routine import compiled as routine_compiled
 from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
+from local.routine import replay as routine_replay
 from routine import record
 
 
@@ -63,7 +63,7 @@ class ClassificationTests(unittest.TestCase):
         for fault, problems in cases.items():
             for item in problems:
                 with self.subTest(fault=fault, problem=item):
-                    self.assertEqual(routine_compiled.fault_of(item), fault)
+                    self.assertEqual(routine_replay.fault_of(item), fault)
 
 
 def cursor_action(state: record.TeamRoutines) -> str:
@@ -121,15 +121,15 @@ class PolicyHoldTests(AutomaticCase):
 
     def test_a_classification_that_was_never_sealed_holds_as_evidence_even_after_a_restart(self) -> None:
         assistant = ReadOnlyFault(problem("assistant-secret-exposure"))
-        real_seal = routine_compiled.CompiledRuntime.seal
+        real_seal = routine_replay.ReplayRuntime.seal
 
         def failing_classification(runtime, cursor):
             if cursor.fault:
-                raise routine_compiled.CompiledRunError("routine-cursor-unavailable")
+                raise routine_replay.ReplayError("routine-cursor-unavailable")
             return real_seal(runtime, cursor)
 
         with tempfile.TemporaryDirectory() as directory:
-            with mock.patch.object(routine_compiled.CompiledRuntime, "seal", failing_classification):
+            with mock.patch.object(routine_replay.ReplayRuntime, "seal", failing_classification):
                 service, _brain, value, run_id = self.held(directory, assistant)
             service = self.restarted(directory, assistant, Brain())
             cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor

@@ -6,7 +6,7 @@ from http import HTTPStatus
 
 from local_assistant_fixture import mutating_spec
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
-from test_local_routine_compiled import ZONE, ZONES, Brain, CompiledRunCase
+from test_local_routine_replay import ZONE, ZONES, Brain, ReplayRunCase
 from test_local_routine_service import ASSISTANT
 
 from action import failure as action_failure
@@ -52,7 +52,7 @@ class Assistant:
         return {"result": outcome}
 
 
-class RecoveryCase(CompiledRunCase):
+class RecoveryCase(ReplayRunCase):
     def mutating(self, directory: str, brain, assistant: Assistant):
         """A Team whose Assistant is the mutating one, its Actions answered by ``assistant``."""
         controller, service = self.service(directory, brain)
@@ -190,7 +190,7 @@ class VerificationTests(RecoveryCase):
             return {"result": LOOKUP_RESULT}
 
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, brain, value = self.compiled(directory, invoke)
+            _controller, service, brain, value = self.replayed(directory, invoke)
             claim = service.claim_routine_run()
             self.assertEqual(self.run_claim(service, claim)["status"], "held")
             self.assertEqual(self.verify(service, value, claim["run_id"]), "absent")

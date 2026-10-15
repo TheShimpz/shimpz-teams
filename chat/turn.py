@@ -82,7 +82,7 @@ class SegmentStrategy:
     ).throw(chat_orchestrator.ChatOrchestrationError("Action human requests are unavailable"))
     finalize: Callable[[], None] = lambda: None
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
-    # A compiled Routine run's own round limit and its choice to keep no invoked Actions (ADR-0092, 2026-10-05, scale).
+    # A replayed Routine run's own round limit and its choice to keep no invoked Actions (ADR-0092, 2026-10-05, scale).
     max_rounds: int = chat_orchestrator.MAX_ACTION_ROUNDS
     record_invoked: bool = True
 

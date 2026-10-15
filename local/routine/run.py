@@ -196,7 +196,7 @@ def _finish(self, run: LeasedRun, outcome: str, detail: dict[str, object], shown
 def finished(
     self, run: LeasedRun, value: record.Run, sealed_done: Callable[[], bool], shown: dict[str, object] | None = None
 ) -> str:
-    """A compiled run completed every step: commit its end exactly when Stop did not win it; no model is asked.
+    """A replayed run completed every step: commit its end exactly when Stop did not win it; no model is asked.
 
     Its notice names the Actions it carried out, and says recovered when a continuation after a hold completed it. A
     deadline is no person's Stop: when it, not a person, cut a run whose sealed cursor proves every step complete, the

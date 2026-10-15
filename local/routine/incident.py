@@ -100,7 +100,7 @@ def read_recovery(value: object, run_id: str) -> Recovery:
 
 
 def seal_recovery(self, team_id: str, snapshot: Recovery) -> None:
-    """Seal a compiled run's recovery snapshot; the executor does so before the run's first dispatch."""
+    """Seal a replayed run's recovery snapshot; the executor does so before the run's first dispatch."""
     payload = recovery(snapshot)
     read_recovery(payload, snapshot.binding.run_id)
     routine_state.call(lambda: self.routine_store.put_recovery(team_id, snapshot.binding.run_id, payload))
@@ -153,7 +153,7 @@ def read_evidence(payload: bytes, incident_id: str) -> dict[str, object]:
 
 
 def _snapshot(self, team_id: str, value: record.Run) -> Recovery | None:
-    """The run's sealed recovery snapshot, which must belong to exactly this run, or None for an uncompiled run."""
+    """The run's sealed recovery snapshot, which must belong to exactly this run, or None for an unreplayed run."""
     payload = routine_state.call(lambda: self.routine_store.recovery(team_id, value.run_id))
     if payload is None:
         return None

@@ -1,4 +1,4 @@
-"""The complete pin of one Action a compiled Routine step runs (ADR-0092 section 3).
+"""The complete pin of one Action a replayed Routine step runs (ADR-0092 section 3).
 
 A step pins everything that decides what its Action may do and how Team handles it: the immutable image and source
 identity, the outbound hosts, the Action's whole reviewed contract (input and output schemas, capabilities, effect,

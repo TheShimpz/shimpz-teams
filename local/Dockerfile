@@ -118,7 +118,7 @@ COPY --link local/chat/__init__.py local/chat/api.py local/chat/attachments.py l
     local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/pause.py \
     local/chat/private.py local/chat/resume.py local/chat/segment.py local/chat/service.py \
     local/chat/state.py local/chat/types.py ./local/chat/
-COPY --link local/routine/__init__.py local/routine/card.py local/routine/compiled.py local/routine/contracts.py \
+COPY --link local/routine/__init__.py local/routine/card.py local/routine/replay.py local/routine/contracts.py \
     local/routine/diagnostics.py local/routine/human.py local/routine/incident.py local/routine/lifecycle.py \
     local/routine/manage.py local/routine/notices.py local/routine/proposal.py local/routine/protection.py \
     local/routine/recorder.py local/routine/recovery.py local/routine/run.py local/routine/state.py \

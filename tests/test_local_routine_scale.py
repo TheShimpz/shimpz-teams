@@ -19,13 +19,13 @@ from action import failure as action_failure
 from chat import orchestrator as chat_orchestrator
 from local.chat import segment as chat_segment
 from local.errors import ApiProblemError
-from local.routine import compiled as routine_compiled
 from local.routine import contracts as routine_contracts
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import human as routine_human
 from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
 from local.routine import protection as routine_protection
+from local.routine import replay as routine_replay
 from local.routine import run as routine_run
 from local.routine import store as routine_store
 from protocol.http.v1 import routine as http_routine
@@ -169,13 +169,13 @@ class StepRecordEdgeTests(RoutineServiceCase):
 
     def runtime(self, service, value: record.Routine, diagnostics_store, run_id: str = "e" * 32) -> object:
         network = service.assistant_lifecycle._network("team_1").id
-        plan = routine_compiled._plan(service, "team_1", value)
+        plan = routine_replay._plan(service, "team_1", value)
         binding = routine_cursor.Binding(network, value.routine_id, value.revision, run_id)
         protections = service.routine_protections
         protections.bind(run_id)
-        seal = routine_compiled._Seal("team_1", service.routine_store, diagnostics_store, protections, lambda: None)
+        seal = routine_replay._Seal("team_1", service.routine_store, diagnostics_store, protections, lambda: None)
         cursor = routine_cursor.start(plan, binding, 0, protections.boot)
-        return routine_compiled.CompiledRuntime(seal, plan, cursor, "Done.")
+        return routine_replay.ReplayRuntime(seal, plan, cursor, "Done.")
 
     def test_a_record_too_large_keeps_no_inputs_and_one_that_cannot_be_kept_is_audited(self) -> None:
         kept: list[object] = []
@@ -186,14 +186,14 @@ class StepRecordEdgeTests(RoutineServiceCase):
             runtime = self.runtime(service, value, mock.Mock(record_step=lambda *args: kept.append(args)))
             runtime.record_step("done")
             self.assertEqual(kept, [])
-            runtime._attempt = routine_compiled._Attempt(1, 0.0, {"page": 1, "per_page": 5}, ())
-            with mock.patch.object(routine_compiled.http_routine, "MAX_STEP_VIEW_BYTES", 64):
+            runtime._attempt = routine_replay._Attempt(1, 0.0, {"page": 1, "per_page": 5}, ())
+            with mock.patch.object(routine_replay.http_routine, "MAX_STEP_VIEW_BYTES", 64):
                 runtime.record_step("done")
             self.assertIsNone(kept[0][2].inputs)
             self.assertEqual(kept[0][2].position, 1)
             broken = self.runtime(service, value, mock.Mock(record_step=failing))
-            broken._attempt = routine_compiled._Attempt(1, 0.0, {"page": 1, "per_page": 5}, ())
-            with mock.patch.object(routine_compiled.local_audit, "record_request") as audited:
+            broken._attempt = routine_replay._Attempt(1, 0.0, {"page": 1, "per_page": 5}, ())
+            with mock.patch.object(routine_replay.local_audit, "record_request") as audited:
                 broken.record_step("failed")
             self.assertEqual(audited.call_args.args[0], "routine-step-record")
             # A recovered step whose input can no longer be resolved withholds every preview, and has no duration.
@@ -203,7 +203,7 @@ class StepRecordEdgeTests(RoutineServiceCase):
             with mock.patch.object(
                 routine_plan, "resolve", side_effect=routine_plan.PlanError("plan-reference-missing")
             ):
-                routine_compiled.record_recovered(service, "team_1", cursor, runtime.plan, ())
+                routine_replay.record_recovered(service, "team_1", cursor, runtime.plan, ())
             self.assertEqual((recovered[0].status, recovered[0].duration_ms), ("recovered", None))
             self.assertEqual({item["value"] for item in recovered[0].inputs}, {None})
 
@@ -256,7 +256,7 @@ class StepRecordEdgeTests(RoutineServiceCase):
             runtime = self.runtime(service, value, mock.Mock(record_step=lambda *args: kept.append(args[2])))
             request = runtime.start(None, "").actions[0]
             # The Action returned 500 ms after it started; sealing and projecting it later never counts.
-            with mock.patch.object(routine_compiled, "_STEP_CLOCK", side_effect=[10.0, 10.5]):
+            with mock.patch.object(routine_replay, "_STEP_CLOCK", side_effect=[10.0, 10.5]):
                 runtime.dispatching(request, operation)
                 runtime.returned()
                 runtime.returned()
@@ -264,7 +264,7 @@ class StepRecordEdgeTests(RoutineServiceCase):
             self.assertEqual((kept[-1].status, kept[-1].duration_ms), ("done", 500))
             # Stop cutting the Action's call records it as stopped, never as failed.
             runtime.dispatching(request, operation)
-            with mock.patch.object(routine_compiled.routine_diagnostics, "protected", return_value=()):
+            with mock.patch.object(routine_replay.routine_diagnostics, "protected", return_value=()):
                 runtime.failed(
                     request, mock.Mock(operation_id=operation), ApiProblemError(409, "x", code="chat-stopped")
                 )
@@ -280,13 +280,13 @@ class StepRecordEdgeTests(RoutineServiceCase):
             def cut() -> object:
                 raise chat_orchestrator.ChatStoppedError("chat turn stopped")
 
-            with mock.patch.object(routine_compiled, "_STEP_CLOCK", side_effect=[20.0, 20.5]):
+            with mock.patch.object(routine_replay, "_STEP_CLOCK", side_effect=[20.0, 20.5]):
                 runtime.dispatching(request, operation)
                 with self.assertRaises(chat_orchestrator.ChatStoppedError):
                     chat_segment._observed(cut, runtime, request, None)
             stopped = ApiProblemError(409, "stopped", code="chat-stopped")
             segment = SimpleNamespace(runtime=runtime, batches=[])
-            routine_compiled._ended(service, run, record.run(self.state(service), claim["run_id"]), segment, stopped)
+            routine_replay._ended(service, run, record.run(self.state(service), claim["run_id"]), segment, stopped)
             self.assertEqual((kept[-1].status, kept[-1].duration_ms), ("stopped", 500))
             self.assertIsNone(runtime._attempt)
 
@@ -326,12 +326,12 @@ class ProtectionLossTests(RoutineServiceCase):
             lease = record.lease_of(claim["lease_token"], KEY)
             routine_run.bind_run(service, "team_1", claim["run_id"], lease)
             run = record.run(self.state(service), claim["run_id"])
-            fresh = routine_compiled.runtime(service, "team_1", run, value)
+            fresh = routine_replay.runtime(service, "team_1", run, value)
             self.assertEqual((fresh.protection().lost, fresh.cursor.protection_lost), (False, False))
             # A Team restart forgets every run's protection; the run reopened from its sealed cursor has lost it.
             service.routine_protections = routine_protection.RunProtections()
             service.routine_diagnostics = mock.Mock(record_step=lambda *args: kept.append(args[2]))
-            reopened = routine_compiled.runtime(service, "team_1", run, value)
+            reopened = routine_replay.runtime(service, "team_1", run, value)
             self.assertTrue(reopened.cursor.protection_lost)
             self.assertTrue(record.run(self.state(service), claim["run_id"]).protection_lost)
             request = reopened.start(None, "").actions[0]
@@ -362,8 +362,8 @@ class ProtectionLossTests(RoutineServiceCase):
             request = runtime.start(None, "").actions[0]
             runtime.dispatching(request, operation)
             with (
-                mock.patch.object(routine_compiled.routine_diagnostics, "protected", return_value=()),
-                mock.patch.object(routine_compiled.local_audit, "record_request") as audited,
+                mock.patch.object(routine_replay.routine_diagnostics, "protected", return_value=()),
+                mock.patch.object(routine_replay.local_audit, "record_request") as audited,
             ):
                 runtime.failed(request, mock.Mock(operation_id=operation), problem)
         diagnostic = store.record.call_args.args[2]

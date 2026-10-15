@@ -14,9 +14,9 @@ from action import journal as action_journal
 from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError
-from local.routine import compiled as routine_compiled
 from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
+from local.routine import replay as routine_replay
 from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
@@ -59,8 +59,8 @@ def _recover(service, team_id: str, value: record.Run) -> str | None:
     its protection, as every run does across a restart, so its notice says so and shows nothing it produced.
     """
     now = int(time.time())
-    progress = routine_compiled.progress(service, team_id, value)
-    shown = routine_compiled.sealed_shown(service, team_id, value) if progress == "done" else None
+    progress = routine_replay.progress(service, team_id, value)
+    shown = routine_replay.sealed_shown(service, team_id, value) if progress == "done" else None
 
     def recover(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
         current = next((item for item in state.runs if item.run_id == value.run_id), None)

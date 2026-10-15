@@ -33,7 +33,7 @@ class Runtime:
         return brain_runtime_client.RuntimeTurn(status="completed", reply="Done.", actions=())
 
 
-class Compiled(Runtime):
+class Replay(Runtime):
     """A recorded run's runtime: its plan has no step left."""
 
     def dispatching(self, _request, _operation_id, _workload="") -> None:
@@ -83,14 +83,14 @@ class RoutineSegmentTests(LocalContractCase):
         )
 
     def test_a_routine_segment_runs_its_runtime_in_its_own_generation_without_knowledge(self) -> None:
-        brain, compiled = Runtime(), Compiled()
+        brain, replay = Runtime(), Replay()
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, brain)
             network = controller.chat_turn_service._chat_setup("team_1", [], "openai", ("shimpz-cloudflare",))[1]
-            routine = RoutineSegment(RUN, f"{network}:routine:{RUN}", compiled)
+            routine = RoutineSegment(RUN, f"{network}:routine:{RUN}", replay)
             run = controller.chat_turn_service._run_chat_segment(self.request(routine))
             controller.chat_turn_service._run_chat_segment(self.request(None, "b" * 32))
-        (context,) = compiled.contexts
+        (context,) = replay.contexts
         (chat,) = brain.contexts
         expected_thread = f"local:local-space:team_1:{network}:routine-{RUN}"
         self.assertEqual(
@@ -114,8 +114,8 @@ class RoutineSegmentTests(LocalContractCase):
             controller = self._chat_controller(directory, Runtime())
             network = controller.chat_turn_service._chat_setup("team_1", [], "openai", ("shimpz-cloudflare",))[1]
             for stale in (
-                RoutineSegment(RUN, f"{'e' * 64}:routine:{RUN}", Compiled()),
-                RoutineSegment(RUN, f"{network}:routine:{'0' * 32}", Compiled()),
+                RoutineSegment(RUN, f"{'e' * 64}:routine:{RUN}", Replay()),
+                RoutineSegment(RUN, f"{network}:routine:{'0' * 32}", Replay()),
             ):
                 with self.subTest(stale=stale), self.assertRaises(local_app.ApiProblem) as caught:
                     controller.chat_turn_service._run_chat_segment(self.request(stale))

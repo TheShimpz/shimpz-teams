@@ -674,7 +674,7 @@ class RoutineStore:
         self._sealed_delete(team, f"{run}.continuation", "Routine continuation")
 
     def put_cursor(self, team_id: object, cursor: routine_cursor.Cursor) -> None:
-        """Seal one compiled run's cursor under exactly its binding (ADR-0092); a sealed loss of protection stays."""
+        """Seal one replayed run's cursor under exactly its binding (ADR-0092); a sealed loss of protection stays."""
         team = _team_id(team_id)
         with self.lock(team):
             sealed = self.cursor(team, cursor.binding) if not cursor.protection_lost else None
@@ -733,7 +733,7 @@ class RoutineStore:
         self._sealed_delete(_team_id(team_id), f"{_run_id(run_id)}.cursor", "Routine cursor")
 
     def put_recovery(self, team_id: object, run_id: object, payload: object) -> None:
-        """Seal one compiled run's immutable recovery snapshot before its first dispatch (ADR-0092).
+        """Seal one replayed run's immutable recovery snapshot before its first dispatch (ADR-0092).
 
         It is write-once: resealing the exact canonical bytes succeeds, and any other snapshot for the run is refused.
         """

@@ -81,7 +81,7 @@ class Routine:
     gap_started_at: int = 0
     missed: int = 0
     reported_missed: int = 0
-    # Each authenticated change of the Routine is a new revision, which a compiled cursor binds (ADR-0092).
+    # Each authenticated change of the Routine is a new revision, which a replay cursor binds (ADR-0092).
     revision: int = 1
     # Where its timezone came from: the person's browser, a zone the person wrote, or none, when the Routine needs no
     # zone and ``timezone`` is "UTC" only by convention (ADR-0101).

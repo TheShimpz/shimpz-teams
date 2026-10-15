@@ -1,4 +1,4 @@
-"""A compiled Routine run executes its plan with no model and no model key (ADR-0092 sections 3, 5, and 6)."""
+"""A replayed Routine run executes its plan with no model and no model key (ADR-0092 sections 3, 5, and 6)."""
 
 import contextlib
 import copy
@@ -24,10 +24,10 @@ from action import human as action_human
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 from local import app as local_app
-from local.routine import compiled as routine_compiled
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import incident as routine_incident
 from local.routine import protection as local_routine_protection
+from local.routine import replay as routine_replay
 from local.routine import run as routine_run
 from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
@@ -42,7 +42,7 @@ RECORDS = {"records": [], "pagination": LOOKUP_RESULT["pagination"]}
 
 
 class Brain:
-    """The Brain: a healthy compiled run must never ask it anything."""
+    """The Brain: a healthy replayed run must never ask it anything."""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -55,8 +55,8 @@ class Brain:
         return called
 
 
-class CompiledRunCase(RoutineServiceCase):
-    def compiled(self, directory: str, invoke, mode: str = "show"):
+class ReplayRunCase(RoutineServiceCase):
+    def replayed(self, directory: str, invoke, mode: str = "show"):
         brain = Brain()
         controller, service = self.service(directory, brain)
         controller.assistant_lifecycle.invoke = invoke
@@ -67,7 +67,7 @@ class CompiledRunCase(RoutineServiceCase):
         return controller, service, brain, value
 
 
-class ExecutionTests(CompiledRunCase):
+class ExecutionTests(ReplayRunCase):
     def test_a_healthy_run_makes_no_model_call_and_seals_each_dispatch_before_its_rpc(self) -> None:
         calls: list[tuple[str, dict[str, object], str, object]] = []
 
@@ -81,7 +81,7 @@ class ExecutionTests(CompiledRunCase):
             return {"result": ZONES if action == "list-zones" else RECORDS}
 
         with tempfile.TemporaryDirectory() as directory:
-            controller, service, brain, value = self.compiled(directory, invoke)
+            controller, service, brain, value = self.replayed(directory, invoke)
             network = controller.assistant_lifecycle._network("team_1").id
 
             def binding(run_id: str) -> routine_cursor.Binding:
@@ -139,7 +139,7 @@ class ExecutionTests(CompiledRunCase):
             return {"result": ZONES}
 
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, brain, _value = self.compiled(directory, invoke)
+            _controller, service, brain, _value = self.replayed(directory, invoke)
             claim = service.claim_routine_run()
             self.assertEqual(self.run_claim(service, claim)["status"], "held")
             opened = routine_incident.open_recovery(service, "team_1", claim["run_id"])
@@ -153,13 +153,13 @@ class ExecutionTests(CompiledRunCase):
 
     def test_a_missing_reference_fails_and_nothing_runs_when_the_plan_no_longer_admits(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, brain, _value = self.compiled(directory, lambda *_args: {"result": LOOKUP_RESULT})
+            _controller, service, brain, _value = self.replayed(directory, lambda *_args: {"result": LOOKUP_RESULT})
             claim = service.claim_routine_run()
             self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(brain.calls, [])
         invoked: list[object] = []
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, _brain, _value = self.compiled(directory, lambda *args: invoked.append(args))
+            _controller, service, _brain, _value = self.replayed(directory, lambda *args: invoked.append(args))
             claim = service.claim_routine_run()
             with mock.patch.object(routine_plan, "admit", side_effect=routine_plan.PlanError("plan-pin-drift")):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
@@ -180,7 +180,7 @@ class ExecutionTests(CompiledRunCase):
             return {"result": ZONES if action == "list-zones" else RECORDS}
 
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, brain, value = self.compiled(directory, invoke)
+            _controller, service, brain, value = self.replayed(directory, invoke)
             claim = service.claim_routine_run()
             self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
             opened = service.open_routine_challenge("team_1", claim["run_id"], "pt")
@@ -207,7 +207,7 @@ class ExecutionTests(CompiledRunCase):
             return {"result": ZONES if action == "list-zones" else RECORDS}
 
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, brain, _value = self.compiled(directory, invoke)
+            _controller, service, brain, _value = self.replayed(directory, invoke)
             claim = service.claim_routine_run()
             run_id = claim["run_id"]
             self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
@@ -236,7 +236,7 @@ class ExecutionTests(CompiledRunCase):
         self.assertIsNotNone(recovered.cursor.operation_id)
 
 
-class SelectorFailureTests(CompiledRunCase):
+class SelectorFailureTests(ReplayRunCase):
     def run_with(self, directory: str, pointer: str, read_only: bool):
         actions: list[str] = []
 
@@ -244,7 +244,7 @@ class SelectorFailureTests(CompiledRunCase):
             actions.append(action)
             return {"result": ZONES}
 
-        _controller, service, _brain, value = self.compiled(directory, invoke)
+        _controller, service, _brain, value = self.replayed(directory, invoke)
         plan = copy.deepcopy(value.plan)
         plan["steps"][1]["input"]["zone_id"]["pointer"] = pointer
         permitted = tuple({**item, "read_only": read_only} for item in value.permitted)
@@ -290,14 +290,14 @@ class SelectorFailureTests(CompiledRunCase):
         for sealed, routine in cases:
             with (
                 self.subTest(sealed=sealed),
-                mock.patch.object(routine_compiled, "_sealed", **sealed),
-                mock.patch.object(routine_compiled.routine_state, "load"),
-                mock.patch.object(routine_compiled.record, "routine", return_value=routine),
+                mock.patch.object(routine_replay, "_sealed", **sealed),
+                mock.patch.object(routine_replay.routine_state, "load"),
+                mock.patch.object(routine_replay.record, "routine", return_value=routine),
             ):
-                self.assertFalse(routine_compiled._read_only_prefix(None, "team_1", run))
+                self.assertFalse(routine_replay._read_only_prefix(None, "team_1", run))
 
 
-class DiagnosticTests(CompiledRunCase):
+class DiagnosticTests(ReplayRunCase):
     """A failed attempt's sanitized failure or transport condition outlives the segment, its archive, and a restart."""
 
     def failing(self, directory: str, problem: BaseException):
@@ -306,7 +306,7 @@ class DiagnosticTests(CompiledRunCase):
                 raise problem
             return {"result": ZONES}
 
-        _controller, service, _brain, _value = self.compiled(directory, invoke)
+        _controller, service, _brain, _value = self.replayed(directory, invoke)
         claim = service.claim_routine_run()
         self.assertEqual(self.run_claim(service, claim)["status"], "held")
         # A restarted Team opens its diagnostics with a fresh store over the same encrypted family.
@@ -429,7 +429,7 @@ def _crash_before_terminal_commit(_service):
     return mock.patch.object(routine_run, "finished", side_effect=Crash)
 
 
-class WatchdogRecoveryTests(CompiledRunCase):
+class WatchdogRecoveryTests(ReplayRunCase):
     """After a crash, the watchdog ends a leased run exactly as its sealed cursor, snapshot, and journal show."""
 
     def crashed(
@@ -441,7 +441,7 @@ class WatchdogRecoveryTests(CompiledRunCase):
             actions.append(action)
             return {"result": ZONES if action == "list-zones" else RECORDS}
 
-        _controller, service, brain, _value = self.compiled(directory, invoke, mode)
+        _controller, service, brain, _value = self.replayed(directory, invoke, mode)
         claim = service.claim_routine_run()
         with patch(service), self.assertRaises(Crash):
             self.run_claim(service, claim)
@@ -513,20 +513,20 @@ class WatchdogRecoveryTests(CompiledRunCase):
 
     def test_protection_is_kept_only_by_a_readable_cursor_of_this_boot_that_never_lost_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, _brain, value = self.compiled(directory, None)
-            compiled = RuntimeTests.runtime(self, service, value)
-            run_id = compiled.cursor.binding.run_id
+            _controller, service, _brain, value = self.replayed(directory, None)
+            replay = RuntimeTests.runtime(self, service, value)
+            run_id = replay.cursor.binding.run_id
             run = record.Run(run_id, value.routine_id, "leased", 0, generation=f"{'a' * 64}:routine:{run_id}")
-            kept = routine_compiled.protection_lost(service, "team_1", run)
+            kept = routine_replay.protection_lost(service, "team_1", run)
             with mock.patch.object(service.routine_store, "cursor", side_effect=routine_store.RoutineStoreError("x")):
-                unreadable = routine_compiled.protection_lost(service, "team_1", run)
+                unreadable = routine_replay.protection_lost(service, "team_1", run)
             with mock.patch.object(service.routine_store, "cursor", return_value=None):
-                unbound = routine_compiled.protection_lost(service, "team_1", run)
+                unbound = routine_replay.protection_lost(service, "team_1", run)
                 with mock.patch.object(service.action_state, "current_batch", return_value=("batch", "open")):
-                    begun = routine_compiled.protection_lost(service, "team_1", run)
-            ungenerated = routine_compiled.protection_lost(service, "team_1", dataclasses.replace(run, generation=""))
-            compiled.seal(routine_cursor.lose_protection(compiled.cursor))
-            sealed = routine_compiled.protection_lost(service, "team_1", run)
+                    begun = routine_replay.protection_lost(service, "team_1", run)
+            ungenerated = routine_replay.protection_lost(service, "team_1", dataclasses.replace(run, generation=""))
+            replay.seal(routine_cursor.lose_protection(replay.cursor))
+            sealed = routine_replay.protection_lost(service, "team_1", run)
         self.assertEqual(
             (kept, unreadable, unbound, begun, ungenerated, sealed), (False, True, False, False, False, True)
         )
@@ -561,7 +561,7 @@ class WatchdogRecoveryTests(CompiledRunCase):
                 seal(team, cursor)
 
             service.routine_store._seal_cursor = kept
-            return mock.patch.object(routine_compiled.CompiledRuntime, "dispatching", side_effect=Crash)
+            return mock.patch.object(routine_replay.ReplayRuntime, "dispatching", side_effect=Crash)
 
         with tempfile.TemporaryDirectory() as directory:
             service, _run_id, actions = self.crashed(directory, patch, restarted=True)
@@ -573,9 +573,9 @@ class WatchdogRecoveryTests(CompiledRunCase):
 
     def test_a_listed_run_of_another_boot_is_lost_and_its_cursor_seals_the_loss(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, _brain, value = self.compiled(directory, None)
-            compiled = RuntimeTests.runtime(self, service, value)
-            run_id = compiled.cursor.binding.run_id
+            _controller, service, _brain, value = self.replayed(directory, None)
+            replay = RuntimeTests.runtime(self, service, value)
+            run_id = replay.cursor.binding.run_id
             generation = f"{'a' * 64}:routine:{run_id}"
             service.routine_store.update(
                 "team_1",
@@ -584,15 +584,15 @@ class WatchdogRecoveryTests(CompiledRunCase):
                     None,
                 ),
             )
-            kept = routine_compiled.lost_runs(service, "team_1")
+            kept = routine_replay.lost_runs(service, "team_1")
             service.routine_protections = local_routine_protection.RunProtections()
-            lost = routine_compiled.lost_runs(service, "team_1")
-            cursor = service.routine_store.cursor("team_1", compiled.cursor.binding)
+            lost = routine_replay.lost_runs(service, "team_1")
+            cursor = service.routine_store.cursor("team_1", replay.cursor.binding)
         self.assertEqual((kept, lost, cursor.protection_lost), (frozenset(), frozenset({run_id}), True))
 
     def test_a_crash_before_any_dispatch_fails_the_run_interrupted(self) -> None:
         def patch(_service):
-            return mock.patch.object(routine_compiled.CompiledRuntime, "dispatching", side_effect=Crash)
+            return mock.patch.object(routine_replay.ReplayRuntime, "dispatching", side_effect=Crash)
 
         with tempfile.TemporaryDirectory() as directory:
             service, _run_id, actions = self.crashed(directory, patch)
@@ -636,11 +636,11 @@ class AssistantProcess:
         return {"ExitCode": 0}
 
 
-class RealRpcTests(CompiledRunCase):
+class RealRpcTests(ReplayRunCase):
     def test_a_run_reaches_the_assistant_over_its_real_rpc_with_no_brain_and_no_key(self) -> None:
         process = AssistantProcess()
         with tempfile.TemporaryDirectory() as directory:
-            controller, service, brain, value = self.compiled(directory, None)
+            controller, service, brain, value = self.replayed(directory, None)
             controller.assistant_lifecycle.invoke = controller.invoke
             controller.assistant_lifecycle.client = SimpleNamespace(api=process)
             claim = service.claim_routine_run()
@@ -659,7 +659,7 @@ class RealRpcTests(CompiledRunCase):
         self.assertEqual((detail["plan"], detail["output"]["state"]), (summary, "shown"))
 
 
-class StopTests(CompiledRunCase):
+class StopTests(ReplayRunCase):
     def test_a_stop_during_an_action_holds_the_run(self) -> None:
         def invoke(*_args):
             # An internal stop reaches the running segment while its first Action is in flight.
@@ -667,7 +667,7 @@ class StopTests(CompiledRunCase):
             return {"result": ZONES}
 
         with tempfile.TemporaryDirectory() as directory:
-            controller, service, brain, _value = self.compiled(directory, invoke)
+            controller, service, brain, _value = self.replayed(directory, invoke)
             claim = service.claim_routine_run()
             with mock.patch.object(controller.assistant_lifecycle, "_fail_stop_action"):
                 outcome = self.run_claim(service, claim)["status"]
@@ -685,7 +685,7 @@ class StopTests(CompiledRunCase):
             return {"result": ZONES if action == "list-zones" else RECORDS}
 
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, _brain, value = self.compiled(directory, invoke)
+            _controller, service, _brain, value = self.replayed(directory, invoke)
             claim = service.claim_routine_run()
             outcome = self.run_claim(service, claim)["status"]
             due = int(time.time()) - 60
@@ -701,93 +701,91 @@ class StopTests(CompiledRunCase):
         self.assertEqual(resumed["routine_id"], value.routine_id)
 
 
-class RuntimeTests(CompiledRunCase):
-    def runtime(self, service, value: record.Routine) -> routine_compiled.CompiledRuntime:
+class RuntimeTests(ReplayRunCase):
+    def runtime(self, service, value: record.Routine) -> routine_replay.ReplayRuntime:
         claim = service.claim_routine_run()
         network = "a" * 64
         run = record.Run(
             claim["run_id"], value.routine_id, "leased", 0, generation=f"{network}:routine:{claim['run_id']}"
         )
-        return routine_compiled.runtime(service, "team_1", run, value)
+        return routine_replay.runtime(service, "team_1", run, value)
 
     def test_the_runtime_refuses_a_foreign_step_a_lost_cursor_and_an_unresolvable_input(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, _brain, value = self.compiled(directory, None)
-            compiled = self.runtime(service, value)
-            self.assertIsNone(compiled.purpose(None, None, "", ""))
+            _controller, service, _brain, value = self.replayed(directory, None)
+            replay = self.runtime(service, value)
+            self.assertIsNone(replay.purpose(None, None, "", ""))
             foreign = brain_runtime_client.ActionRequest("routine-step-1", "x", "y", {})
-            with self.assertRaises(routine_compiled.CompiledRunError) as caught:
-                compiled.dispatching(foreign, "0" * 32)
+            with self.assertRaises(routine_replay.ReplayError) as caught:
+                replay.dispatching(foreign, "0" * 32)
             self.assertEqual(caught.exception.code, "routine-step-changed")
             # A failure is classified only for a dispatched operation.
-            with self.assertRaises(routine_compiled.CompiledRunError) as undispatched:
-                compiled.failed(foreign, None, RuntimeError("x"))
+            with self.assertRaises(routine_replay.ReplayError) as undispatched:
+                replay.failed(foreign, None, RuntimeError("x"))
             self.assertEqual(undispatched.exception.code, "cursor-not-dispatched")
-            first = compiled.start(None, "")
-            with self.assertRaises(routine_compiled.CompiledRunError) as invalid:
-                compiled.dispatching(first.actions[0], "not-an-operation")
+            first = replay.start(None, "")
+            with self.assertRaises(routine_replay.ReplayError) as invalid:
+                replay.dispatching(first.actions[0], "not-an-operation")
             self.assertEqual(invalid.exception.code, "cursor-dispatch-invalid")
-            with self.assertRaises(routine_compiled.CompiledRunError) as unselected:
-                compiled.resume(None, {"routine-step-0": {"zones": []}})
+            with self.assertRaises(routine_replay.ReplayError) as unselected:
+                replay.resume(None, {"routine-step-0": {"zones": []}})
             self.assertEqual(unselected.exception.code, "cursor-not-dispatched")
             # A cursor past the first step without the value the next step selects cannot resolve its input.
-            skipped = routine_cursor.Cursor(
-                compiled.cursor.binding, compiled.cursor.plan, compiled.cursor.started_at, 1
-            )
-            compiled.cursor = skipped
-            with self.assertRaises(routine_compiled.CompiledRunError) as missing:
-                compiled.start(None, "")
+            skipped = routine_cursor.Cursor(replay.cursor.binding, replay.cursor.plan, replay.cursor.started_at, 1)
+            replay.cursor = skipped
+            with self.assertRaises(routine_replay.ReplayError) as missing:
+                replay.start(None, "")
             self.assertEqual(missing.exception.code, "plan-reference-missing")
             with (
                 mock.patch.object(
                     service.routine_store, "put_cursor", side_effect=routine_store.RoutineStoreError("x")
                 ),
-                self.assertRaises(routine_compiled.CompiledRunError) as lost,
+                self.assertRaises(routine_replay.ReplayError) as lost,
             ):
-                compiled.seal(skipped)
+                replay.seal(skipped)
             self.assertEqual(lost.exception.code, "routine-cursor-unavailable")
 
     def test_a_cursor_that_cannot_be_read_or_names_another_plan_never_runs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, _brain, value = self.compiled(directory, None)
-            compiled = self.runtime(service, value)
+            _controller, service, _brain, value = self.replayed(directory, None)
+            replay = self.runtime(service, value)
             run = record.Run(
-                compiled.cursor.binding.run_id,
+                replay.cursor.binding.run_id,
                 value.routine_id,
                 "leased",
                 0,
-                generation=f"{'a' * 64}:routine:{compiled.cursor.binding.run_id}",
+                generation=f"{'a' * 64}:routine:{replay.cursor.binding.run_id}",
             )
             with (
                 mock.patch.object(service.routine_store, "cursor", side_effect=routine_store.RoutineStoreError("x")),
-                self.assertRaises(routine_compiled.CompiledRunError) as unreadable,
+                self.assertRaises(routine_replay.ReplayError) as unreadable,
             ):
-                routine_compiled.runtime(service, "team_1", run, value)
+                routine_replay.runtime(service, "team_1", run, value)
             self.assertEqual(unreadable.exception.code, "routine-cursor-unavailable")
             other = SimpleNamespace(plan="sha256:" + "0" * 64)
             with (
                 mock.patch.object(service.routine_store, "cursor", return_value=other),
-                self.assertRaises(routine_compiled.CompiledRunError) as changed,
+                self.assertRaises(routine_replay.ReplayError) as changed,
             ):
-                routine_compiled.runtime(service, "team_1", run, value)
+                routine_replay.runtime(service, "team_1", run, value)
             self.assertEqual(changed.exception.code, "cursor-plan-changed")
 
     def test_progress_is_read_from_the_sealed_snapshot_cursor_and_journal_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, _brain, value = self.compiled(directory, None)
-            compiled = self.runtime(service, value)
-            run_id = compiled.cursor.binding.run_id
+            _controller, service, _brain, value = self.replayed(directory, None)
+            replay = self.runtime(service, value)
+            run_id = replay.cursor.binding.run_id
             run = record.Run(
                 run_id,
                 value.routine_id,
                 "leased",
                 0,
-                generation=f"{compiled.cursor.binding.incarnation}:routine:{run_id}",
+                generation=f"{replay.cursor.binding.incarnation}:routine:{run_id}",
             )
             store, journal = service.routine_store, service.action_state
             batch = ("f" * 64, "open")
-            dispatched = dataclasses.replace(compiled.cursor, operation_id="0" * 32)
-            completed = dataclasses.replace(compiled.cursor, step=2)
+            dispatched = dataclasses.replace(replay.cursor, operation_id="0" * 32)
+            completed = dataclasses.replace(replay.cursor, step=2)
             cases = (
                 ({}, run, "none"),
                 ({}, dataclasses.replace(run, generation=""), "none"),
@@ -802,42 +800,42 @@ class RuntimeTests(CompiledRunCase):
                 ({"cursor": dataclasses.replace(completed, step=1)}, run, "partial"),
                 # A clean or complete cursor of another plan holds the run.
                 ({"cursor": dataclasses.replace(completed, plan="sha256:" + "0" * 64)}, run, "partial"),
-                ({"cursor": dataclasses.replace(compiled.cursor, plan="sha256:" + "0" * 64)}, run, "partial"),
+                ({"cursor": dataclasses.replace(replay.cursor, plan="sha256:" + "0" * 64)}, run, "partial"),
             )
             for patched, subject, expected in cases:
                 with contextlib.ExitStack() as stack, self.subTest(patched=patched, expected=expected):
                     for name, result in patched.items():
                         owner = journal if name == "current_batch" else store
                         stack.enter_context(mock.patch.object(owner, name, return_value=result))
-                    self.assertEqual(routine_compiled.progress(service, "team_1", subject), expected)
+                    self.assertEqual(routine_replay.progress(service, "team_1", subject), expected)
             failing = action_journal.ActionJournalError("journal unavailable")
             with mock.patch.object(journal, "current_batch", side_effect=failing):
-                self.assertEqual(routine_compiled.progress(service, "team_1", run), "partial")
+                self.assertEqual(routine_replay.progress(service, "team_1", run), "partial")
             with mock.patch.object(journal, "uncertain_fingerprint", side_effect=failing):
-                self.assertTrue(routine_compiled._uncertain(service, run, []))
+                self.assertTrue(routine_replay._uncertain(service, run, []))
 
 
-class ShownResultTests(CompiledRunCase):
+class ShownResultTests(ReplayRunCase):
     """The plan's shown step keeps its bounded result and keyed digest in the sealed cursor (ADR-0092, 2026-10-05)."""
 
     OPERATION = "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
 
     runtime = RuntimeTests.runtime
 
-    def shown_runtime(self, service, value: record.Routine) -> routine_compiled.CompiledRuntime:
-        compiled = self.runtime(service, value)
-        compiled.seal(dataclasses.replace(compiled.cursor, step=1, selected=(("zones", "/zones/0/id", "", "", ZONE),)))
-        request = compiled.start(None, "").actions[0]
-        compiled.dispatching(request, self.OPERATION)
-        return compiled
+    def shown_runtime(self, service, value: record.Routine) -> routine_replay.ReplayRuntime:
+        replay = self.runtime(service, value)
+        replay.seal(dataclasses.replace(replay.cursor, step=1, selected=(("zones", "/zones/0/id", "", "", ZONE),)))
+        request = replay.start(None, "").actions[0]
+        replay.dispatching(request, self.OPERATION)
+        return replay
 
     def test_the_shown_step_keeps_its_result_and_a_keyed_digest_bound_to_its_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, _brain, value = self.compiled(directory, None)
-            compiled = self.shown_runtime(service, value)
-            turn = compiled.resume(None, {"routine-step-1": RECORDS})
-            shown = compiled.cursor.shown
-            store, binding = service.routine_store, compiled.cursor.binding
+            _controller, service, _brain, value = self.replayed(directory, None)
+            replay = self.shown_runtime(service, value)
+            turn = replay.resume(None, {"routine-step-1": RECORDS})
+            shown = replay.cursor.shown
+            store, binding = service.routine_store, replay.cursor.binding
             material = routine_plan.canonical(routine_plan.output_safe(RECORDS, {}))
             again = store.output_digest("team_1", binding, "records", material)
             others = {
@@ -846,7 +844,7 @@ class ShownResultTests(CompiledRunCase):
                 store.output_digest("team_1", binding, "records", material + b" "),
                 store.output_digest("team_2", binding, "records", material),
             }
-            sealed = routine_compiled.sealed_shown(
+            sealed = routine_replay.sealed_shown(
                 service, "team_1", record.Run(binding.run_id, value.routine_id, "leased", 0, generation="x")
             )
         self.assertEqual(turn.status, "completed")
@@ -860,20 +858,20 @@ class ShownResultTests(CompiledRunCase):
 
     def test_a_result_that_cannot_be_projected_or_digested_never_passes_as_shown(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, _brain, value = self.compiled(directory, None)
-            compiled = self.shown_runtime(service, value)
-            dispatched = compiled.cursor
+            _controller, service, _brain, value = self.replayed(directory, None)
+            replay = self.shown_runtime(service, value)
+            dispatched = replay.cursor
             with mock.patch.object(routine_plan, "output_safe", side_effect=routine_plan.OutputError("x")):
-                compiled.resume(None, {"routine-step-1": RECORDS})
-            unavailable = compiled.cursor.shown
-            compiled.cursor = dispatched
+                replay.resume(None, {"routine-step-1": RECORDS})
+            unavailable = replay.cursor.shown
+            replay.cursor = dispatched
             with (
                 mock.patch.object(
                     service.routine_store, "output_digest", side_effect=routine_store.RoutineStoreError("x")
                 ),
-                self.assertRaises(routine_compiled.CompiledRunError) as lost,
+                self.assertRaises(routine_replay.ReplayError) as lost,
             ):
-                compiled.resume(None, {"routine-step-1": RECORDS})
+                replay.resume(None, {"routine-step-1": RECORDS})
         self.assertEqual(
             unavailable,
             {"step": "records", "output": routine_plan.output_state(2, "unavailable"), "digest": None},
@@ -883,10 +881,10 @@ class ShownResultTests(CompiledRunCase):
     def test_a_result_with_a_number_too_long_for_a_float_completes_and_shows_it_exactly(self) -> None:
         huge = {"records": [], "pagination": {**RECORDS["pagination"], "count": 10**400}}
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, _brain, value = self.compiled(directory, None)
-            compiled = self.shown_runtime(service, value)
-            turn = compiled.resume(None, {"routine-step-1": huge})
-            shown = compiled.cursor.shown
+            _controller, service, _brain, value = self.replayed(directory, None)
+            replay = self.shown_runtime(service, value)
+            turn = replay.resume(None, {"routine-step-1": huge})
+            shown = replay.cursor.shown
         self.assertEqual((turn.status, shown["output"]["state"]), ("completed", "shown"))
         pagination = dict(shown["output"]["value"]["fields"])["pagination"]
         self.assertEqual(dict(pagination["fields"])["count"]["value"], str(10**400)[:299] + "…")

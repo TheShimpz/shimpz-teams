@@ -24,7 +24,6 @@ from local.composition import ChatTurnDependencies
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import chat_active, chat_stop_timeout, routine_active
 from local.routine import card as local_routine_card
-from local.routine import compiled as local_routine_compiled
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import human as local_routine_human
 from local.routine import incident as local_routine_incident
@@ -34,6 +33,7 @@ from local.routine import proposal as local_routine_proposal
 from local.routine import protection as local_routine_protection
 from local.routine import recorder as local_routine_recorder
 from local.routine import recovery as local_routine_recovery
+from local.routine import replay as local_routine_replay
 from local.routine import run as local_routine_run
 
 # How long a Space reset waits for every running turn to stop after it cancelled them.
@@ -239,7 +239,7 @@ class ChatTurnService:
     pause_routine = local_routine_incident.pause_routine
     claim_routine_run = local_routine_run.claim_routine_run
     next_routine_due = local_routine_run.next_routine_due
-    run_routine = local_routine_compiled.run_routine
+    run_routine = local_routine_replay.run_routine
     _stop_routine_run = local_routine_run.halt_routine_run
     list_routines = local_routine_manage.list_routines
     routine_steps = local_routine_manage.routine_steps
@@ -249,7 +249,7 @@ class ChatTurnService:
     resume_routine_integrations = local_routine_human.resume_routine_integrations
     current_routine_challenge = local_routine_human.current_routine_challenge
     _cancel_routine_challenge = local_routine_human.cancel_routine_challenge
-    _routine_lost_runs = local_routine_compiled.lost_runs
+    _routine_lost_runs = local_routine_replay.lost_runs
     routine_notices = local_routine_notices.routine_notices
     acknowledge_routine_notices = local_routine_notices.acknowledge_notices
     routine_run_diagnostics = local_routine_diagnostics.run_diagnostics

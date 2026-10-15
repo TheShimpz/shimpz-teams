@@ -8,8 +8,8 @@ from unittest import mock
 
 import routine_fixture
 from test_local_chat_scope import LOOKUP_INPUT
-from test_local_routine_compiled import ZONE
 from test_local_routine_recovery import RECORD, Assistant, RecoveryCase, failed
+from test_local_routine_replay import ZONE
 from test_local_routine_service import ASSISTANT
 
 from local.routine import recovery as routine_recovery
@@ -328,7 +328,7 @@ class ContinuationDeadlineTests(BalanceCase):
     def test_a_deadline_between_continuation_steps_holds_the_partial_run_and_pauses_as_exhausted(self) -> None:
         fired: list[object] = []
 
-        real_resume = routine_recovery.routine_compiled.CompiledRuntime.resume
+        real_resume = routine_recovery.routine_replay.ReplayRuntime.resume
 
         def resume(runtime, context, results):
             turn = real_resume(runtime, context, results)
@@ -346,7 +346,7 @@ class ContinuationDeadlineTests(BalanceCase):
         with (
             tempfile.TemporaryDirectory() as directory,
             mock.patch.object(routine_recovery.threading, "Timer", captured_timer(fired)),
-            mock.patch.object(routine_recovery.routine_compiled.CompiledRuntime, "resume", resume),
+            mock.patch.object(routine_recovery.routine_replay.ReplayRuntime, "resume", resume),
             mock.patch.object(self, "plan", lambda service, *_steps: type(self).plan(service, *controller_plan)),
         ):
             service, value, run_id = self.run_held(directory, assistant)
@@ -496,7 +496,7 @@ class ContinuationDeadlineTests(BalanceCase):
         fired: list[object] = []
         box: list[object] = []
 
-        real_resume = routine_recovery.routine_compiled.CompiledRuntime.resume
+        real_resume = routine_recovery.routine_replay.ReplayRuntime.resume
 
         def resume(runtime, context, results):
             turn = real_resume(runtime, context, results)
@@ -550,7 +550,7 @@ class ContinuationDeadlineTests(BalanceCase):
             mock.patch.object(self, "service", service),
             mock.patch.object(self, "routine", failing_streak),
             mock.patch.object(routine_recovery.threading, "Timer", captured_timer(fired)),
-            mock.patch.object(routine_recovery.routine_compiled.CompiledRuntime, "resume", resume),
+            mock.patch.object(routine_recovery.routine_replay.ReplayRuntime, "resume", resume),
         ):
             service_value, value, _run_id = self.run_held(directory, assistant)
             state = self.state(service_value)

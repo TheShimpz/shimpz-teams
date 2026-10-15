@@ -385,7 +385,7 @@ class ChatOrchestratorTests(unittest.TestCase):
             )
 
     def test_a_turn_with_its_own_round_limit_runs_every_round_and_may_keep_no_invoked_actions(self):
-        """A compiled Routine run has one round per plan step and learns nothing (ADR-0092, 2026-10-05, scale)."""
+        """A replayed Routine run has one round per plan step and learns nothing (ADR-0092, 2026-10-05, scale)."""
         rounds = chat_orchestrator.MAX_ACTION_ROUNDS * 3
         turns = [suspended(interrupt_id=f"interrupt-{index}") for index in range(rounds)] + [completed()]
         outcome = chat_orchestrator.run(

@@ -270,7 +270,7 @@ class RunTests(RoutineServiceCase):
         summary = routine_definition.summary(state.routines[0].plan, 1)
         self.assertEqual((outcome, detail["plan"]), ("done", summary))
         self.assertEqual((detail["output"]["step"], detail["output"]["state"]), (1, "shown"))
-        # A healthy compiled run never asks the Brain anything.
+        # A healthy replayed run never asks the Brain anything.
         self.assertEqual(runtime.contexts, [])
 
     def test_nothing_is_claimed_without_a_routine_key_or_while_chat_is_busy(self) -> None:

@@ -16,9 +16,9 @@ from test_local_routine_service import (
 
 from action import challenges as action_challenges
 from local import app as local_app
-from local.routine import compiled as routine_compiled
 from local.routine import contracts as routine_contracts
 from local.routine import human as routine_human
+from local.routine import replay as routine_replay
 from local.routine import run as routine_run
 from local.routine import watchdog as routine_watchdog
 from routine import record
@@ -162,7 +162,7 @@ class ExecutionBoundTests(RoutineServiceCase):
             )
             # Nothing was dispatched, so a stop that ran out of active time fails the run instead of holding it.
             value = record.run(self.state(service), claim["run_id"])
-            outcome = routine_compiled._ended(service, run, value, None, stopped)
+            outcome = routine_replay._ended(service, run, value, None, stopped)
             self.assertEqual(outcome, "failed")
             self.assertEqual(
                 self.state(service).notices[-1].detail,

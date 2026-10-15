@@ -42,7 +42,7 @@ ROUTINE_MODELS = {"openai": "gpt-6.1-sol", "anthropic": "claude-opus-5-5"}
 
 @dataclass(frozen=True, slots=True)
 class RoutineSegment:
-    """One compiled Routine run (ADR-0092): its generation, its plan's runtime, and the held batch it prepares.
+    """One replayed Routine run (ADR-0092): its generation, its plan's runtime, and the held batch it prepares.
 
     The runtime answers the run's turns from the plan in place of the Brain and seals each dispatch before its RPC
     through ``dispatching``. The generation and journal thread label both derive from the run id in the Team's current
@@ -77,7 +77,7 @@ class SegmentRequest:
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
-    # A compiled Routine run (ADR-0092) runs in its own journal generation in the Team's current network,
+    # A replayed Routine run (ADR-0092) runs in its own journal generation in the Team's current network,
     # and holds an uncertain batch for a human instead of abandoning it.
     routine: RoutineSegment | None = None
     # The recording of a new logical chat turn that may define a Routine, by id (ADR-0101): only its start
@@ -88,7 +88,7 @@ class SegmentRequest:
 
 
 def _observed(invoke: Callable[[], object], runtime, action_request, evidence) -> object:
-    """One Action call of a compiled run: its failure is kept, and its own time ends at its return (ADR-0092, scale).
+    """One Action call of a replayed run: its failure is kept, and its own time ends at its return (ADR-0092, scale).
 
     The time ends before Team journals, seals, or projects anything of the call.
     """
@@ -211,7 +211,7 @@ class _TurnScope:
 def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_runtime_client.RuntimeContext:
     """What the Brain sees in this segment: Assistants, knowledge, Routines, and the message's prepared files."""
     routine = request.routine
-    # A compiled Routine run asks no model, so it reads no knowledge; a chat reads it at every segment, and the
+    # A replayed Routine run asks no model, so it reads no knowledge; a chat reads it at every segment, and the
     # Brain keeps what a logical turn started with across resumes.
     memories, skills = ((), ()) if routine is not None else _knowledge(self, request.team_id)
     runtime_assistants = tuple(
@@ -494,7 +494,7 @@ def _run_chat_segment_with_metadata(
             )
         if request.routine is None:
             return invoke()
-        # A compiled run's cursor names this logical operation and its exact input before the RPC (ADR-0092).
+        # A replayed run's cursor names this logical operation and its exact input before the RPC (ADR-0092).
         request.routine.runtime.dispatching(action_request, operation_id, active.container_id, evidence)
         return _observed(invoke, request.routine.runtime, action_request, evidence)
 

@@ -24,10 +24,10 @@ from action import journal as action_journal
 from inference import config as inference_config
 from local import app as local_app
 from local import authority as local_authority
-from local.routine import compiled as routine_compiled
 from local.routine import human as routine_human
 from local.routine import manage as routine_manage
 from local.routine import protection as local_routine_protection
+from local.routine import replay as routine_replay
 from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
@@ -221,7 +221,7 @@ class RunFaultTests(RoutineServiceCase):
             with self.assertRaises(local_app.ApiProblem) as caught:
                 service.open_routine_challenge("team_1", claim["run_id"], "en")
             frozen = record.run(self.state(service), claim["run_id"])
-            cursor = routine_compiled._sealed(service, "team_1", frozen)[2]
+            cursor = routine_replay._sealed(service, "team_1", frozen)[2]
         self.assertEqual((caught.exception.status, caught.exception.code), (409, "human-request-invalid"))
         # The loss is sealed in the cursor now; the run's next write marks it, whatever ends the run.
         self.assertEqual((frozen.status, cursor.protection_lost), ("frozen", True))

@@ -21,9 +21,9 @@ from local.chat import continuation as local_chat_continuations
 from local.chat import execution as local_chat_execution
 from local.chat import human as local_chat_human
 from local.errors import ApiProblemError as ApiProblem
-from local.routine import compiled as routine_compiled
 from local.routine import contracts as routine_contracts
 from local.routine import manage as routine_manage
+from local.routine import replay as routine_replay
 from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
@@ -349,7 +349,7 @@ def _replay(
             lease = _resume(self, team_id, value.run_id, (challenge_id, seal), requests_used)
         routine_state.call(lambda: self.routine_store.delete_continuation(team_id, value.run_id))
         run = routine_run.LeasedRun(team_id, value.run_id, lease, token, routine, transcripts, requests_used)
-        outcome = routine_compiled.execute(self, run, value, progress, pending)
+        outcome = routine_replay.execute(self, run, value, progress, pending)
         if outcome == "held":
             outcome = self._recover_routine_run(run, progress)
     routine_run.after_run(self, team_id, value.run_id, routine.routine_id, outcome)

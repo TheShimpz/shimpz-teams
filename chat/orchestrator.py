@@ -13,7 +13,7 @@ from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
 
-# A chat turn's Action rounds; a compiled Routine run has one round per step of its plan (ADR-0092 amendment,
+# A chat turn's Action rounds; a replayed Routine run has one round per step of its plan (ADR-0092 amendment,
 # 2026-10-05, scale), so a resumed continuation admits the larger of the two and each turn enforces its own.
 MAX_ACTION_ROUNDS = 8
 MAX_RESUMABLE_ROUNDS = 256
@@ -104,7 +104,7 @@ class ChatStrategy:
     cancelled: CancellationCheck = lambda: False
     validate_context: ContextCheck = lambda: None
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
-    # The turn's own Action round limit, and whether it keeps what each Action was for chat Skill learning; a compiled
+    # The turn's own Action round limit, and whether it keeps what each Action was for chat Skill learning; a replayed
     # run has a round per step and learns nothing, so its continuation never grows with completed steps.
     max_rounds: int = MAX_ACTION_ROUNDS
     record_invoked: bool = True
