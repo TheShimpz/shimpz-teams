@@ -18,7 +18,7 @@ def is_successor(
         or current.assistant_id != candidate.assistant_id
     ):
         return False
-    return _version(candidate.resolution) > _version(current.resolution)
+    return assistant_version(candidate.resolution) > assistant_version(current.resolution)
 
 
 class AssistantRegistry:
@@ -185,7 +185,8 @@ def _runtime_identity(binding: bindings.DynamicAssistantBinding) -> tuple[str, t
     return image, labels
 
 
-def _version(resolution: dict[str, object]) -> tuple[int, int, int]:
+def assistant_version(resolution: dict[str, object]) -> tuple[int, int, int]:
+    """The binding document's Assistant version as a comparable (major, minor, patch)."""
     value = resolution.get("assistant_version")
     if not isinstance(value, str):
         raise bindings.DynamicAssistantError("Assistant binding has no valid version")
@@ -197,4 +198,4 @@ def _version(resolution: dict[str, object]) -> tuple[int, int, int]:
 
 
 def _catalog_order(binding: bindings.DynamicAssistantBinding) -> tuple[tuple[int, int, int], str]:
-    return _version(binding.document), binding.binding_digest
+    return assistant_version(binding.document), binding.binding_digest

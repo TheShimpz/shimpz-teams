@@ -150,9 +150,9 @@ class LocalInstallEdgeTests(unittest.TestCase):
                 publication_registry._spec(binding)
 
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "valid version"):
-            publication_registry._version({"assistant_version": 1})
+            publication_registry.assistant_version({"assistant_version": 1})
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "valid version"):
-            publication_registry._version({"assistant_version": "invalid"})
+            publication_registry.assistant_version({"assistant_version": "invalid"})
 
     @staticmethod
     def _service_controller() -> types.SimpleNamespace:

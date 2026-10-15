@@ -11,7 +11,7 @@ from docker.errors import DockerException
 from install import bindings
 from local.activity import Activity
 from local.errors import ApiProblemError as ApiProblem
-from local.install import developers
+from local.install import developers, registry
 
 _INTERVAL_SECONDS = 300
 _MAX_BACKOFF_SECONDS = 3600
@@ -74,11 +74,11 @@ class AutomaticAssistantUpdater:
             if now < self._retry_after.get(key, 0):
                 continue
             try:
-                current_version = _binding_version(binding)
+                current_version = registry.assistant_version(binding.resolution)
                 source_digest = binding.resolution["source_digest"]
                 if not isinstance(source_digest, str):
                     raise TypeError
-            except KeyError, TypeError, ValueError:
+            except KeyError, TypeError, bindings.DynamicAssistantError:
                 log.exception("Automatic Assistant update check found an invalid installed binding")
                 self._record_result(binding.team_id, binding.assistant_id, "error", "binding:invalid")
                 continue
@@ -90,7 +90,7 @@ class AutomaticAssistantUpdater:
                 self._defer(key, now)
                 continue
             target_version = str(target["assistant_version"])
-            if _version(target_version) <= current_version:
+            if registry.assistant_version(target) <= current_version:
                 self._clear_failure(key)
                 continue
             try:
@@ -186,15 +186,6 @@ class AutomaticAssistantUpdater:
             self._record(team_id, assistant_id, result, detail)
         except RuntimeError:
             log.exception("Automatic Assistant update audit could not be recorded")
-
-
-def _binding_version(binding) -> tuple[int, int, int]:
-    return _version(binding.resolution["assistant_version"])
-
-
-def _version(value: str) -> tuple[int, int, int]:
-    major, minor, patch = value.split(".")
-    return int(major), int(minor), int(patch)
 
 
 def _candidate(
