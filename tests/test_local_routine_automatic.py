@@ -81,7 +81,7 @@ class AutomaticTests(AutomaticCase):
         self.assertEqual(self.status, "held")
         self.assertEqual([item.incident_id for item in state.incidents], [run_id])
         self.assertFalse(record.routine(state, value.routine_id).paused)
-        self.assertEqual((cursor.remaining("episodes"), cursor.remaining("verifications")), (0, 0))
+        self.assertTrue(cursor.episode)
         # The held run's one notice says it is held at its step, for the person's card.
         step = {"assistant_id": ASSISTANT, "action": "create-record", "position": 2}
         notice = state.notices[-1]
@@ -94,7 +94,7 @@ class AutomaticTests(AutomaticCase):
             cursor = self.cursor(service, run_id)
         self.assertEqual(self.status, "held")
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 2)
-        self.assertEqual((cursor.remaining("episodes"), cursor.remaining("retries")), (0, 0))
+        self.assertEqual((cursor.episode, cursor.continued), (True, True))
 
     def test_an_episode_past_its_active_time_stops_and_a_restart_never_starts_another(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
@@ -107,20 +107,20 @@ class AutomaticTests(AutomaticCase):
             again = routine_recovery.automatic(service, run)
             state = self.state(service)
         self.assertEqual((self.status, again), ("held", "held"))
-        self.assertEqual(cursor.remaining("recovery_seconds"), 0)
+        self.assertTrue(cursor.episode)
         # Running out of recovery time publishes the pause and its reason, not a plain hold.
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
 
-    def test_the_episode_time_is_reserved_durably_first_and_runs_under_a_cancellable_deadline(self) -> None:
+    def test_the_episode_opens_durably_first_and_runs_under_a_cancellable_deadline(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
-        observed: list[tuple[int, float]] = []
+        observed: list[tuple[bool, float]] = []
         real_verify = routine_recovery.verify
 
         def watching(service, team_id, incident_id, token, protected=None):
-            # While the episode works, its whole time is already spent durably and it is registered to its deadline.
+            # While the episode works, it is already sealed open and registered to its deadline.
             cursor = routine_recovery.routine_incident.open_recovery(service, team_id, incident_id).cursor
             registration = service._routine_runs[incident_id]
-            observed.append((cursor.remaining("recovery_seconds"), registration.deadline - time.monotonic()))
+            observed.append((cursor.episode, registration.deadline - time.monotonic()))
             return real_verify(service, team_id, incident_id, token, protected)
 
         with (
@@ -128,41 +128,17 @@ class AutomaticTests(AutomaticCase):
             mock.patch.object(routine_recovery, "verify", side_effect=watching),
         ):
             service, _value, run_id = self.run_held(directory, assistant)
-            cursor = self.cursor(service, run_id)
             registered = run_id in service._routine_runs
-        ((remaining, left),) = observed
-        self.assertEqual(remaining, 0)
+            again = routine_recovery._open(service, "team_1", run_id)
+        ((opened, left),) = observed
+        self.assertTrue(opened)
         self.assertTrue(55 < left <= 60)
-        # The unused part comes back when the episode ends; at least a second is always charged.
-        self.assertTrue(0 < cursor.remaining("recovery_seconds") <= 59)
         self.assertFalse(registered)
-
-    def test_a_crash_inside_the_episode_never_refills_its_time(self) -> None:
-        assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
-        with (
-            tempfile.TemporaryDirectory() as directory,
-            mock.patch.object(routine_recovery, "_release"),
-        ):
-            # The process dies before the unused time is returned: the reservation stays spent.
-            service, _value, run_id = self.run_held(directory, assistant)
-            cursor = self.cursor(service, run_id)
-        self.assertEqual((cursor.remaining("recovery_seconds"), cursor.remaining("episodes")), (0, 0))
+        # The episode was sealed before its work, so no later execution or restart opens another.
+        self.assertIsNone(again)
 
 
 class AutomaticEdgeTests(AutomaticCase):
-    def test_an_exhausted_verification_budget_pauses_the_routine_without_verifying(self) -> None:
-        assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
-        with (
-            tempfile.TemporaryDirectory() as directory,
-            mock.patch.object(routine_recovery.routine_cursor, "spend", side_effect=_spend_without_verifying),
-        ):
-            service, value, _run_id = self.run_held(directory, assistant)
-            state = self.state(service)
-        self.assertEqual(self.status, "held")
-        self.assertTrue(record.routine(state, value.routine_id).paused)
-        self.assertEqual(state.notices[-1].detail["reason"], "exhausted")
-        self.assertNotIn("find-record", [action for action, _id in assistant.calls])
-
     def test_time_running_out_after_evidence_or_a_failing_assessment_holds_the_run(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
         # Still in time when the verifier is dispatched; out of time once it answered.
@@ -184,34 +160,7 @@ class AutomaticEdgeTests(AutomaticCase):
             mock.patch.object(routine_recovery.routine_incident, "open_recovery", side_effect=drift),
             mock.patch.object(routine_recovery, "_clock", return_value=1.0),
         ):
-            self.assertIsNone(routine_recovery._reserve(None, "team_1", "a" * 32))
-            reservation = routine_recovery._Reservation(60, "g", 0.0)
-            self.assertIsNone(routine_recovery._release(None, "team_1", "a" * 32, reservation))
-
-    def test_an_episode_that_used_all_its_time_returns_nothing(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            service, _value, run_id = self.run_held(directory, Assistant([failed()], [{"outcome": "inconclusive"}]))
-            cursor = self.cursor(service, run_id)
-            spent = routine_recovery.routine_cursor.spend(
-                cursor, "recovery_seconds", cursor.remaining("recovery_seconds")
-            )
-            service.routine_store.put_cursor("team_1", spent)
-            with mock.patch.object(routine_recovery, "_clock", return_value=100.0):
-                routine_recovery._release(service, "team_1", run_id, routine_recovery._Reservation(60, "g", 0.0))
-            self.assertEqual(self.cursor(service, run_id).remaining("recovery_seconds"), 0)
-            with self.assertRaisesRegex(routine_recovery.routine_cursor.CursorError, "cursor-budget-invalid"):
-                routine_recovery.routine_cursor.refund(spent, "recovery_seconds", 0)
-            with self.assertRaisesRegex(routine_recovery.routine_cursor.CursorError, "cursor-invalid"):
-                routine_recovery.routine_cursor.refund(cursor, "recovery_seconds", 61)
-
-
-_REAL_SPEND = routine_recovery.routine_cursor.spend
-
-
-def _spend_without_verifying(cursor, budget, amount):
-    if budget == "verifications":
-        raise routine_recovery.routine_cursor.CursorError("cursor-budget-exhausted")
-    return _REAL_SPEND(cursor, budget, amount)
+            self.assertIsNone(routine_recovery._open(None, "team_1", "a" * 32))
 
 
 class BalanceCase(AutomaticCase):
@@ -231,17 +180,16 @@ class BalanceCase(AutomaticCase):
 
 
 class RunBalanceTests(BalanceCase):
-    """Recovery time comes out of both the recovery budget and the held run's remaining active time."""
+    """The episode's time is the recovery bound within the held run's remaining active time."""
 
-    def test_a_nearly_spent_run_reserves_only_what_it_has_left_and_gets_the_rest_back(self) -> None:
-        observed: list[tuple[int, int, float]] = []
+    def test_a_nearly_spent_run_recovers_only_within_what_it_has_left(self) -> None:
+        observed: list[tuple[int, float]] = []
         real_verify = routine_recovery.verify
 
         def watching(service, team_id, incident_id, token, protected=None):
-            cursor = routine_recovery.routine_incident.open_recovery(service, team_id, incident_id).cursor
             held = routine_hold.incident(service.routine_store.load(team_id), incident_id)
             left = service._routine_runs[incident_id].deadline - time.monotonic()
-            observed.append((cursor.remaining("recovery_seconds"), held.active_seconds_left, left))
+            observed.append((held.active_seconds_left, left))
             return real_verify(service, team_id, incident_id, token, protected)
 
         assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
@@ -250,15 +198,11 @@ class RunBalanceTests(BalanceCase):
             run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
             with mock.patch.object(routine_recovery, "verify", side_effect=watching):
                 self.assertEqual(routine_recovery.automatic(service, run), "held")
-            cursor = self.cursor(service, run_id)
             held = routine_hold.incident(self.state(service), run_id)
-        ((recovery, active, left),) = observed
-        # Only the 5 seconds the run had left were reserved, from both balances, and the episode was bounded by them.
-        self.assertEqual((recovery, active), (55, 0))
+        ((active, left),) = observed
+        # The episode was bounded by the 5 seconds the run had left, which its deadline keeps in memory only.
+        self.assertEqual((active, held.active_seconds_left), (5, 5))
         self.assertTrue(0 < left <= 5)
-        # The unused part came back to both; at least a second stays charged.
-        self.assertTrue(55 < cursor.remaining("recovery_seconds") <= 59)
-        self.assertTrue(0 < held.active_seconds_left <= 4)
 
     def test_a_run_with_no_time_left_is_exhausted_before_any_work(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
@@ -287,7 +231,7 @@ class RunBalanceTests(BalanceCase):
             self.run_held(directory, assistant)
         (bound,) = bounds
         self.assertEqual(self.status, "recovered")
-        # The continuation that retries the step is bounded by what remains of the episode's reservation.
+        # The continuation that retries the step is bounded by what remains of the episode's time.
         self.assertTrue(0 <= bound <= 60)
 
 
@@ -313,7 +257,7 @@ class DeadlineTests(BalanceCase):
                 outcome = routine_recovery.automatic(service, run)
             elapsed = time.monotonic() - started
             state = self.state(service)
-        # The one-second reservation ended the hanging verifier at once, long before any watchdog pass.
+        # The one-second episode ended the hanging verifier at once, long before any watchdog pass.
         self.assertTrue(released.is_set())
         self.assertLess(elapsed, 5)
         self.assertEqual(outcome, "held")
@@ -329,12 +273,12 @@ class DeadlineTests(BalanceCase):
             with mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 31.0)):
                 outcome = routine_recovery.automatic(service, run)
             state = self.state(service)
-        # Proven occurrence would continue, but the reservation had run out: exhausted, not continued.
+        # Proven occurrence would continue, but the episode's time had run out: exhausted, not continued.
         self.assertEqual(outcome, "held")
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
 
     def test_a_deadline_whose_stop_cannot_be_proven_is_audited_and_still_expires(self) -> None:
-        reservation = routine_recovery._Reservation(0, "g", 0.0)
+        episode = routine_recovery._Episode(0, 0.0)
         blocked = routine_recovery.ApiProblem(503, "x", code="assistant-action-blocked")
 
         def unprovable(_service, _team, _run, _token, mark):
@@ -345,9 +289,9 @@ class DeadlineTests(BalanceCase):
         with (
             mock.patch.object(routine_recovery.routine_run, "expire_routine_run", side_effect=unprovable),
             mock.patch.object(routine_recovery.local_audit, "record_request") as audited,
-            routine_recovery._deadline(None, "team_1", "a" * 32, "token", reservation),
+            routine_recovery._deadline(None, "team_1", "a" * 32, "token", episode),
         ):
-            self.assertTrue(reservation.expired.wait(5))
+            self.assertTrue(episode.expired.wait(5))
             for _attempt in range(100):
                 if audited.called:
                     break
@@ -363,7 +307,7 @@ class ContinuationDeadlineTests(BalanceCase):
 
         def resume(runtime, context, results):
             turn = real_resume(runtime, context, results)
-            if runtime.cursor.segment and runtime.cursor.step == 2:
+            if runtime.cursor.continued and runtime.cursor.step == 2:
                 # The retried step completed; the deadline passes before the next step is dispatched.
                 fired[-1]()
             return turn
@@ -429,19 +373,18 @@ class ContinuationDeadlineTests(BalanceCase):
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
 
-    def test_a_low_balance_retry_continues_with_the_time_its_reservation_has_left(self) -> None:
+    def test_a_low_balance_retry_continues_with_the_time_its_episode_has_left(self) -> None:
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         balances: list[tuple[int, int]] = []
         real_continue = routine_recovery.continue_run
 
-        def continuing(service, team_id, incident_id, token, progress=None, *, seconds=None):
+        def continuing(service, team_id, incident_id, token, progress=None, *, seconds):
             held = routine_hold.incident(service.routine_store.load(team_id), incident_id)
-            cursor = routine_recovery.routine_incident.open_recovery(service, team_id, incident_id).cursor
-            balances.append((held.active_seconds_left, cursor.remaining("recovery_seconds")))
+            balances.append((held.active_seconds_left, seconds))
             return real_continue(service, team_id, incident_id, token, progress, seconds=seconds)
 
         with tempfile.TemporaryDirectory() as directory:
-            # All 5 seconds the run had left were reserved; the retry still runs inside them.
+            # The episode had only the 5 seconds the run had left; the retry still runs inside them.
             service, _value, run_id = self.held_with_balance(directory, 5, assistant)
             with (
                 service._exclusive_chat_turn("team_1") as token,
@@ -452,11 +395,10 @@ class ContinuationDeadlineTests(BalanceCase):
             state = self.state(service)
         self.assertEqual(outcome, "recovered")
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 2)
-        # The run started its continuation with what the reservation had left, never more than its 5 seconds, and
-        # the recovery budget got none of it back.
-        ((handed, recovery),) = balances
+        # The run started its continuation with what the episode had left, never more than its 5 seconds.
+        ((active, handed),) = balances
+        self.assertEqual(active, 5)
         self.assertTrue(0 < handed <= 5)
-        self.assertEqual(recovery, 55)
         self.assertEqual((state.incidents, state.runs, state.notices[-1].outcome), ((), (), "recovered"))
 
     def test_a_deadline_just_before_the_continuation_registers_still_holds_and_pauses(self) -> None:
@@ -533,7 +475,7 @@ class ContinuationDeadlineTests(BalanceCase):
 
         def resume(runtime, context, results):
             turn = real_resume(runtime, context, results)
-            if runtime.cursor.segment and runtime.cursor.step == 2:
+            if runtime.cursor.continued and runtime.cursor.step == 2:
                 if exhaust:
                     # The deadline also spent the run's active time, or let its lease lapse.
                     changes = {"time": {"active_seconds_left": 0}, "lease": {"lease_expires_at": 1}}[exhaust]

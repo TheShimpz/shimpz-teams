@@ -347,7 +347,7 @@ class CursorSlotTests(unittest.TestCase):
             {},
         )
         self.assertEqual(last.shown, self.slot)
-        self.assertEqual(routine_cursor.continued(last).shown, self.slot)
+        self.assertEqual(routine_cursor.continued(routine_cursor.open_episode(last)).shown, self.slot)
         for slot in (None, {**self.slot, "step": "share"}):
             with self.subTest(slot=slot), self.assertRaisesRegex(routine_cursor.CursorError, "cursor-shown-invalid"):
                 routine_cursor.complete(self.cursor, self.plan, self.result, slot)

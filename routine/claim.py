@@ -260,7 +260,7 @@ def read_lease(state: record.TeamRoutines, run_id: str, lease_sha256: str) -> re
 def generation_for(network_id: str, run_id: str, suffix: str = "") -> str:
     """A run's journal generation in the Team's network.
 
-    A continuation (``s<n>``) or verification (``v<n>``) after a hold gets its own: the held one is archived.
+    The run's one continuation (``s1``) or verification (``v1``) after a hold gets its own: the held one is archived.
     """
     if suffix and record.SUFFIX_RE.fullmatch(suffix) is None:
         raise record.RoutineStateError("generation-invalid")

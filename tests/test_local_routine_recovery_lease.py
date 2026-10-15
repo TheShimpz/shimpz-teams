@@ -97,10 +97,9 @@ class RecoveryLeaseTests(AutomaticCase):
             with service._exclusive_chat_turn("team_1", value.routine_id) as token:
                 with service._active_chat_guard:
                     service._cancelled_chat_tokens.add(token)
-                with self.assertRaises(routine_recovery.ApiProblem) as caught:
-                    routine_recovery.continue_run(service, "team_1", run_id, token)
+                resumed = routine_recovery.continue_run(service, "team_1", run_id, token, seconds=60)
             self.assert_still_held(service, run_id, assistant)
-        self.assertEqual(caught.exception.code, "routine-recovery-stopped")
+        self.assertEqual(resumed, "held")
 
 
 class AtomicCardTests(AutomaticCase):
@@ -187,7 +186,7 @@ class DeadlineBindingTests(AutomaticCase):
 
 
 class StopPrecedenceTests(AutomaticCase):
-    def test_a_stop_before_the_episode_opens_reserves_and_publishes_nothing_even_with_no_time_left(self) -> None:
+    def test_a_stop_before_the_episode_opens_opens_and_publishes_nothing_even_with_no_time_left(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
             service.routine_store.update(
@@ -208,7 +207,7 @@ class StopPrecedenceTests(AutomaticCase):
             cursor = routine_recovery.routine_incident.open_recovery(service, "team_1", run_id).cursor
         self.assertEqual(outcome, "held")
         self.assertEqual(state.notices[-1].outcome, "held")
-        self.assertEqual(cursor.remaining("episodes"), 1)
+        self.assertFalse(cursor.episode)
 
     def test_a_deadline_after_a_persons_stop_never_turns_it_into_exhaustion(self) -> None:
         fired: list[object] = []
@@ -245,8 +244,8 @@ class StopPrecedenceTests(AutomaticCase):
     def test_nothing_continues_when_the_run_still_refuses_it_or_a_person_stopped_it_meanwhile(self) -> None:
         real_episode = routine_recovery._episode
 
-        def stopped_after(service, run, reservation):
-            went_on = real_episode(service, run, reservation)
+        def stopped_after(service, run, episode):
+            went_on = real_episode(service, run, episode)
             # The person's Stop lands right after the episode decided the run may go on.
             routine_run.stop_routine_run(service, run.team_id, run.run_id)
             return went_on
@@ -273,26 +272,26 @@ class StopPrecedenceTests(AutomaticCase):
                 self.assertEqual(state.notices[-1].outcome, "held")
                 self.assertFalse(record.routine(state, value.routine_id).paused)
 
-    def test_a_stop_during_the_reservation_or_just_before_publication_publishes_nothing(self) -> None:
+    def test_a_stop_while_the_episode_opens_or_just_before_publication_publishes_nothing(self) -> None:
         def stop(service, token):
             # What a person's Stop does to the execution, under the guard.
             with service._active_chat_guard:
                 service._cancelled_chat_tokens.add(token)
 
-        real_reserve = routine_recovery._reserve
+        real_open = routine_recovery._open
         real_unstopped = routine_run.unstopped
 
-        def reserving(service, team_id, incident_id):
-            reserved = real_reserve(service, team_id, incident_id)
+        def opening(service, team_id, incident_id):
+            opened = real_open(service, team_id, incident_id)
             stop(service, box[-1])
-            return reserved
+            return opened
 
         def publishing(service, token, deadline, commit):
             stop(service, token)
             return real_unstopped(service, token, deadline, commit)
 
         cases = {
-            "reserving": (0, mock.patch.object(routine_recovery, "_reserve", side_effect=reserving)),
+            "opening": (0, mock.patch.object(routine_recovery, "_open", side_effect=opening)),
             "publishing": (30, mock.patch.object(routine_run, "unstopped", side_effect=publishing)),
         }
         for name, (balance, patch) in cases.items():

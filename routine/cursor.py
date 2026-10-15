@@ -3,9 +3,9 @@
 A cursor binds the Team incarnation, the Routine and its revision, the run, the exact plan (whose digest covers every
 step's complete pin), the run's one start instant, the current step, that step's logical ``operation_id``, attempts,
 and resolved-input commitment, the values later steps selected from completed ones, the shown step's bounded result
-and its keyed comparison digest (ADR-0092 amendment, 2026-10-05, output), and the remaining recovery budgets. A
-completed step is never run again: the successful prefix is durable even when a later step fails. Restart never
-replenishes a budget, and no secret, human response, or complete output is ever held here.
+and its keyed comparison digest (ADR-0092 amendment, 2026-10-05, output), and whether the run's one recovery episode
+opened and continued it. A completed step is never run again: the successful prefix is durable even when a later step
+fails. Neither flag is ever cleared, and no secret, human response, or complete output is ever held here.
 
 It also records the Team boot its run protection was bound in, and whether that protection was lost, which is never
 undone.
@@ -21,18 +21,8 @@ from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import strict_json
 from routine import plan as routine_plan
 
-VERSION = 6
+VERSION = 7
 MAX_CURSOR_BYTES = 256 * 1024
-# The run's one automatic recovery episode: its time, its one retry, and its one verifier call. Consumption is
-# persisted before any dispatch, and nothing ever refills it.
-BUDGETS = (
-    ("episodes", 1),
-    ("recovery_seconds", 60),
-    ("retries", 1),
-    ("verifications", 1),
-)
-# Continuation segments a run may open after holds; each runs in its own journal generation.
-MAX_SEGMENTS = 8
 # Team's own classification of the dispatched operation's last failed attempt (ADR-0092 section 6): a handled failure
 # envelope, a transport fault after a proven fail-stop, a fault whose workload could not be proven stopped, a policy
 # fault (a secret echo, an invalid frame or result, an undeclared request), or any other refusal. Empty when the
@@ -57,8 +47,8 @@ _FIELDS = frozenset(
         "attempts",
         "commitment",
         "selected",
-        "budgets",
-        "segment",
+        "episode",
+        "continued",
         "absent",
         "carried",
         "fault",
@@ -98,9 +88,11 @@ class Cursor:
     attempts: int = 0
     commitment: str | None = None
     selected: tuple[tuple[str, str, object], ...] = ()
-    budgets: tuple[tuple[str, int], ...] = BUDGETS
-    # The continuation segment after holds; 0 is the run's own generation.
-    segment: int = 0
+    # The run's one automatic recovery episode opened (ADR-0092 section 6): sealed before any of its work, so a restart
+    # never opens another; its one verifier call and its one retry live inside it.
+    episode: bool = False
+    # The episode continued the run in its one continuation segment, which runs in its own generation (``s1``).
+    continued: bool = False
     # Team-admitted evidence proved the dispatched operation had no business effect, which permits one retry of it.
     absent: bool = False
     # The dispatched operation came from an earlier segment: this segment may only retry it, under the same logical
@@ -120,10 +112,7 @@ class Cursor:
 
     @property
     def generation_suffix(self) -> str:
-        return f"s{self.segment}" if self.segment else ""
-
-    def remaining(self, budget: str) -> int:
-        return dict(self.budgets)[budget]
+        return "s1" if self.continued else ""
 
     def selections(self) -> dict[routine_plan.Key, object]:
         return {tuple(item[:4]): item[4] for item in self.selected}
@@ -134,7 +123,7 @@ class Cursor:
 
 
 def start(plan: routine_plan.Plan, binding: Binding, started_at: int, boot: str) -> Cursor:
-    """A run's first cursor, at its first step with every budget whole, its protection bound in this Team boot."""
+    """A run's first cursor, at its first step with no recovery opened, its protection bound in this Team boot."""
     return _checked(Cursor(binding, plan.digest, started_at, boot=boot))
 
 
@@ -240,38 +229,27 @@ def proven_absent(cursor: Cursor) -> Cursor:
 
 
 def retry(cursor: Cursor) -> Cursor:
-    """Permit the one retry of the dispatched operation, under the same logical operation, only after proven absence.
+    """Permit the retry of the dispatched operation, under the same logical operation, only after proven absence.
 
-    The retry is consumed here, before its dispatch, and the proof is spent with it.
+    The proof is spent here, before its dispatch; the run's one continuation makes it the only retry of the run.
     """
     if cursor.operation_id is None or not cursor.absent:
         raise CursorError("cursor-operation-uncertain")
-    return _checked(dataclasses.replace(spend(cursor, "retries", 1), absent=False))
+    return _checked(dataclasses.replace(cursor, absent=False))
+
+
+def open_episode(cursor: Cursor) -> Cursor:
+    """Open the run's one automatic recovery episode; a run whose episode already opened never gets another."""
+    if cursor.episode:
+        raise CursorError("cursor-episode-spent")
+    return _checked(dataclasses.replace(cursor, episode=True))
 
 
 def continued(cursor: Cursor) -> Cursor:
-    """The cursor of the run's next continuation segment, after a hold archived the current generation."""
-    if cursor.segment >= MAX_SEGMENTS:
-        raise CursorError("cursor-segments-exhausted")
-    return _checked(dataclasses.replace(cursor, segment=cursor.segment + 1, carried=cursor.operation_id is not None))
-
-
-def spend(cursor: Cursor, budget: str, amount: int) -> Cursor:
-    """Consume part of one recovery budget; exhaustion is refused, never borrowed."""
-    remaining = dict(cursor.budgets)
-    if budget not in remaining or type(amount) is not int or not 0 < amount <= remaining[budget]:
-        raise CursorError("cursor-budget-exhausted")
-    remaining[budget] -= amount
-    return _checked(dataclasses.replace(cursor, budgets=tuple(sorted(remaining.items()))))
-
-
-def refund(cursor: Cursor, budget: str, amount: int) -> Cursor:
-    """Return part of a reservation that was not used; never beyond the budget's initial bound."""
-    remaining = dict(cursor.budgets)
-    if budget not in remaining or type(amount) is not int or amount <= 0:
-        raise CursorError("cursor-budget-invalid")
-    remaining[budget] += amount
-    return _checked(dataclasses.replace(cursor, budgets=tuple(sorted(remaining.items()))))
+    """The cursor of the run's one continuation segment, after its episode archived the held generation."""
+    if cursor.continued:
+        raise CursorError("cursor-continued")
+    return _checked(dataclasses.replace(cursor, continued=True, carried=cursor.operation_id is not None))
 
 
 def _same_plan(cursor: Cursor, plan: routine_plan.Plan) -> None:
@@ -294,8 +272,8 @@ def _document(cursor: Cursor) -> dict[str, object]:
         "attempts": cursor.attempts,
         "commitment": cursor.commitment,
         "selected": [list(item) for item in cursor.selected],
-        "budgets": dict(cursor.budgets),
-        "segment": cursor.segment,
+        "episode": cursor.episode,
+        "continued": cursor.continued,
         "absent": cursor.absent,
         "carried": cursor.carried,
         "fault": cursor.fault,
@@ -325,30 +303,13 @@ def decode(raw: bytes, binding: Binding) -> Cursor:
         or value["version"] != VERSION
     ):
         raise CursorError("cursor-invalid")
-    selected, budgets = value["selected"], value["budgets"]
+    selected = value["selected"]
     if not isinstance(selected, list) or not all(isinstance(item, list) and len(item) == 5 for item in selected):
         raise CursorError("cursor-invalid")
-    if not isinstance(budgets, dict):
-        raise CursorError("cursor-invalid")
+    fields = {name: value[name] for name in _FIELDS - {"version", "incarnation", "routine_id", "revision", "run_id"}}
     cursor = Cursor(
         Binding(value["incarnation"], value["routine_id"], value["revision"], value["run_id"]),
-        value["plan"],
-        value["started_at"],
-        value["step"],
-        value["operation_id"],
-        value["attempts"],
-        value["commitment"],
-        tuple(tuple(item) for item in selected),
-        tuple(sorted(budgets.items())),
-        value["segment"],
-        value["absent"],
-        value["carried"],
-        value["fault"],
-        value["workload"],
-        value["dispatched_at"],
-        value["shown"],
-        value["boot"],
-        value["protection_lost"],
+        **{**fields, "selected": tuple(tuple(item) for item in selected)},
     )
     if cursor.binding != binding or routine_plan.canonical(_document(cursor)) != raw:
         raise CursorError("cursor-invalid")
@@ -374,13 +335,15 @@ def _checked(cursor: Cursor) -> Cursor:
             if dispatched
             else cursor.commitment is None
         )
-        and _budgets_valid(cursor.budgets)
         and _selections_valid(cursor.selected)
-        and type(cursor.segment) is int
-        and 0 <= cursor.segment <= MAX_SEGMENTS
+        and type(cursor.episode) is bool
+        and type(cursor.continued) is bool
+        # Only an episode continues a run, and only a continuation carries an operation.
+        and (cursor.episode or not cursor.continued)
         and type(cursor.absent) is bool
         and type(cursor.carried) is bool
         and (dispatched or not (cursor.absent or cursor.carried))
+        and (cursor.continued or not cursor.carried)
         and isinstance(cursor.fault, str)
         and cursor.fault in FAULTS
         and (dispatched or cursor.fault == "")
@@ -431,15 +394,6 @@ def _shown_valid(shown: object) -> bool:
         and output["state"] in ("shown", "unavailable")
         and (digest is None or (isinstance(digest, str) and http_payload.SHA256_RE.fullmatch(digest) is not None))
         and (digest is None or output["state"] == "shown")
-    )
-
-
-def _budgets_valid(budgets: object) -> bool:
-    limits = dict(BUDGETS)
-    return (
-        isinstance(budgets, tuple)
-        and [name for name, _amount in budgets] == sorted(limits)
-        and all(type(amount) is int and 0 <= amount <= limits[name] for name, amount in budgets)
     )
 
 

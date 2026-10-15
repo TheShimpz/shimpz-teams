@@ -132,33 +132,6 @@ class HoldTimeTests(unittest.TestCase):
                 thawed, _token = routine_runs.thaw(frozen, run_id, NINE + 3, answered)
                 self.assertEqual(record.run(thawed, run_id).requests_used, kept)
 
-    def test_a_held_run_whose_routine_changed_or_went_gets_no_time_back(self):
-        state, claim, lease = bound()
-        run_id = claim.run.run_id
-        state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
-        charged = routine_hold.charge_incident(state, run_id, 60)
-        generation = routine_hold.incident(state, run_id).generation
-        gone = dataclasses.replace(charged, routines=())
-        self.assertIs(routine_hold.refund_incident(gone, run_id, generation, 10_000), gone)
-        changed = record.replace_routine(charged, dataclasses.replace(charged.routines[0], revision=2))
-        self.assertIs(routine_hold.refund_incident(changed, run_id, generation, 10_000), changed)
-
-    def test_recovery_time_is_charged_and_refunded_only_against_the_same_held_run(self):
-        state, claim, lease = bound()
-        run_id = claim.run.run_id
-        state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
-        charged = routine_hold.charge_incident(state, run_id, 60)
-        self.assertEqual(routine_hold.incident(charged, run_id).active_seconds_left, ONE_STEP - 60)
-        for seconds in (0, -1, True, ONE_STEP + 1):
-            with self.subTest(seconds=seconds), self.assertRaisesRegex(record.RoutineStateError, "time-invalid"):
-                routine_hold.charge_incident(state, run_id, seconds)
-        generation = routine_hold.incident(state, run_id).generation
-        refunded = routine_hold.refund_incident(charged, run_id, generation, 1_000)
-        self.assertEqual(routine_hold.incident(refunded, run_id).active_seconds_left, ONE_STEP)
-        for target, seconds in ((("x", generation), 5), ((run_id, "other"), 5), ((run_id, generation), 0)):
-            with self.subTest(target=target):
-                self.assertIs(routine_hold.refund_incident(charged, *target, seconds), charged)
-
 
 class ContinuousTests(unittest.TestCase):
     """A continuous Routine runs again its gap after each run ends, never overlapping, within its rolling cap."""

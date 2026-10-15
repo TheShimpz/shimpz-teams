@@ -1,4 +1,4 @@
-"""The run cursor: binding, durable prefix, stable operations, budgets, bounds, and protection (ADR-0101)."""
+"""The run cursor: binding, durable prefix, stable operations, its recovery, bounds, and protection (ADR-0101)."""
 
 import dataclasses
 import json
@@ -74,30 +74,18 @@ class CursorTests(unittest.TestCase):
             ):
                 transition()
 
-    def test_budgets_are_spent_never_replenished_or_borrowed(self) -> None:
-        spent = routine_cursor.spend(routine_cursor.spend(self.cursor, "recovery_seconds", 20), "verifications", 1)
-        self.assertEqual(dict(spent.budgets)["recovery_seconds"], 40)
-        self.assertEqual(dict(spent.budgets)["verifications"], 0)
-        decoded = routine_cursor.decode(routine_cursor.encode(spent), BINDING)
-        self.assertEqual(decoded.budgets, spent.budgets)
+    def test_the_recovery_episode_opens_once_and_outlives_encoding_and_steps(self) -> None:
+        opened = routine_cursor.open_episode(self.cursor)
+        self.assertEqual((self.cursor.episode, opened.episode), (False, True))
+        self.assertTrue(routine_cursor.decode(routine_cursor.encode(opened), BINDING).episode)
         advanced = routine_cursor.complete(
-            routine_cursor.dispatch(spent, self.plan, OPERATION, COMMITMENT),
+            routine_cursor.dispatch(opened, self.plan, OPERATION, COMMITMENT),
             self.plan,
             {"id": "1", "meta": {"a/b": [1]}},
         )
-        self.assertEqual(advanced.budgets, spent.budgets)
-        for budget, amount in (
-            ("verifications", 1),
-            ("recovery_seconds", 41),
-            ("retries", 0),
-            ("retries", True),
-            ("dollars", 1),
-        ):
-            with (
-                self.subTest(budget=budget, amount=amount),
-                self.assertRaisesRegex(routine_cursor.CursorError, "exhausted"),
-            ):
-                routine_cursor.spend(spent, budget, amount)
+        self.assertTrue(advanced.episode)
+        with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-episode-spent"):
+            routine_cursor.open_episode(advanced)
 
     def test_a_cursor_decodes_only_for_its_exact_binding_and_canonical_bytes(self) -> None:
         raw = routine_cursor.encode(routine_cursor.dispatch(self.cursor, self.plan, OPERATION, COMMITMENT))
@@ -119,15 +107,17 @@ class CursorTests(unittest.TestCase):
             routine_plan.canonical({key: value for key, value in document.items() if key != "shown"}),
             routine_plan.canonical({**document, "shown": {"step": "publish"}}),
             routine_plan.canonical({**document, "shown": []}),
-            routine_plan.canonical({key: value for key, value in document.items() if key != "budgets"}),
+            routine_plan.canonical({key: value for key, value in document.items() if key != "episode"}),
             routine_plan.canonical({**document, "selected": {}}),
             routine_plan.canonical({**document, "selected": [["publish", "/id"]]}),
             routine_plan.canonical({**document, "selected": [["publish", "/id", "", "/x", 1]]}),
             routine_plan.canonical({**document, "selected": [["publish", "/id", 1, "", 1]]}),
             routine_plan.canonical({**document, "unexpected": None}),
             routine_plan.canonical({**document, "boot": "x"}),
-            routine_plan.canonical({**document, "budgets": [4]}),
-            routine_plan.canonical({**document, "budgets": {**document["budgets"], "retries": 2}}),
+            routine_plan.canonical({**document, "episode": 1}),
+            # Only an episode continues a run, and only a continuation carries an operation.
+            routine_plan.canonical({**document, "continued": True}),
+            routine_plan.canonical({**document, "carried": True}),
             routine_plan.canonical({**document, "attempts": 0}),
             routine_plan.canonical({**document, "commitment": None}),
             routine_plan.canonical({**document, "step": routine_plan.MAX_STEPS + 1}),
@@ -233,36 +223,30 @@ class ProtectionTests(unittest.TestCase):
 
 
 class ContinuationTests(unittest.TestCase):
-    """A held run's cursor: proven absence permits one retry, and each continuation is a new segment (ADR-0092)."""
+    """A held run's cursor: proven absence permits the retry, inside the run's one continuation (ADR-0092)."""
 
     def setUp(self) -> None:
         self.plan = routine_plan.admit(_document(output=NONE), CONTRACTS)
         start = routine_cursor.start(self.plan, BINDING, 1_800_000_000, BOOT)
-        self.dispatched = routine_cursor.dispatch(start, self.plan, OPERATION, COMMITMENT)
+        self.dispatched = routine_cursor.open_episode(routine_cursor.dispatch(start, self.plan, OPERATION, COMMITMENT))
 
-    def test_one_retry_follows_only_proven_absence_and_spends_its_budget(self) -> None:
+    def test_a_retry_follows_only_proven_absence_and_spends_it(self) -> None:
         with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-operation-uncertain"):
             routine_cursor.retry(self.dispatched)
         absent = routine_cursor.proven_absent(routine_cursor.failed(self.dispatched, "transport"))
-        retried = routine_cursor.retry(absent)
-        self.assertEqual((retried.absent, retried.remaining("retries")), (False, 0))
+        self.assertFalse(routine_cursor.retry(absent).absent)
         with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-not-dispatched"):
             routine_cursor.proven_absent(routine_cursor.start(self.plan, BINDING, 0, BOOT))
 
-    def test_a_continuation_carries_its_operation_into_its_own_segment(self) -> None:
+    def test_the_one_continuation_carries_its_operation_into_its_own_generation(self) -> None:
         continued = routine_cursor.continued(self.dispatched)
-        self.assertEqual((continued.segment, continued.carried, continued.generation_suffix), (1, True, "s1"))
+        self.assertEqual((continued.continued, continued.carried, continued.generation_suffix), (True, True, "s1"))
         self.assertEqual(self.dispatched.generation_suffix, "")
-        last = dataclasses.replace(self.dispatched, segment=routine_cursor.MAX_SEGMENTS)
-        with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-segments-exhausted"):
-            routine_cursor.continued(last)
-
-    def test_a_refund_returns_only_part_of_a_real_reservation(self) -> None:
-        spent = routine_cursor.spend(self.dispatched, "recovery_seconds", 30)
-        self.assertEqual(routine_cursor.refund(spent, "recovery_seconds", 10).remaining("recovery_seconds"), 40)
-        for budget, amount in (("dollars", 1), ("recovery_seconds", 0), ("recovery_seconds", True)):
-            with self.subTest(budget=budget), self.assertRaisesRegex(routine_cursor.CursorError, "budget-invalid"):
-                routine_cursor.refund(spent, budget, amount)
+        with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-continued"):
+            routine_cursor.continued(continued)
+        without_episode = dataclasses.replace(self.dispatched, episode=False)
+        with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-invalid"):
+            routine_cursor.continued(without_episode)
 
 
 if __name__ == "__main__":

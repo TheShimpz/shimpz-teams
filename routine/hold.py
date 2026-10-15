@@ -11,7 +11,6 @@ import secrets
 from dataclasses import dataclass
 
 from routine import claim as routine_claim
-from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
 
@@ -229,30 +228,6 @@ def release_incident(state: record.TeamRoutines, incident_id: str) -> record.Tea
     return dataclasses.replace(
         state, incidents=tuple(released if item.incident_id == incident_id else item for item in state.incidents)
     )
-
-
-def charge_incident(state: record.TeamRoutines, incident_id: str, seconds: int) -> record.TeamRoutines:
-    """Reserve part of an unresolved incident's remaining active time for its recovery; never more than it has."""
-    value = incident(state, incident_id)
-    if value.status != "unresolved" or type(seconds) is not int or not 0 < seconds <= value.active_seconds_left:
-        raise record.RoutineStateError("incident-time-invalid")
-    return _replace_incident(state, dataclasses.replace(value, active_seconds_left=value.active_seconds_left - seconds))
-
-
-def refund_incident(state: record.TeamRoutines, incident_id: str, generation: str, seconds: int) -> record.TeamRoutines:
-    """Return unused reserved time to the same held run it was reserved from; anything else stays as it is."""
-    value = next((item for item in state.incidents if item.incident_id == incident_id), None)
-    if value is None or value.status != "unresolved" or value.generation != generation or seconds <= 0:
-        return state
-    # Never beyond the active time its revision gave the run: a hold never refills it. A run whose Routine changed or
-    # went can never continue, so it gets nothing back.
-    current = next((item for item in state.routines if item.routine_id == value.routine_id), None)
-    if current is None or current.revision != value.revision:
-        return state
-    refunded = min(
-        routine_plan.active_seconds(routine_definition.run_units(current)), value.active_seconds_left + seconds
-    )
-    return _replace_incident(state, dataclasses.replace(value, active_seconds_left=refunded))
 
 
 def _held(state: record.TeamRoutines, value: record.Run) -> record.TeamRoutines:

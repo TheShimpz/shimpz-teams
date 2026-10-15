@@ -353,9 +353,9 @@ def _judge(self, team_id: str, assessment: Assessment, result: object, protected
 def verify(
     self, team_id: str, incident_id: str, token: str, protected: dict[str, tuple[str, ...]] | None = None
 ) -> str:
-    """Verify a held run's failed step with no model, spending one verification of its budget before the call.
+    """Verify a held run's failed step with no model, once, inside the run's one recovery episode.
 
-    Returns ``occurred``, ``absent``, ``none``, ``inconclusive``, ``unverifiable``, or ``exhausted``.
+    Returns ``occurred``, ``absent``, ``none``, ``inconclusive``, or ``unverifiable``.
     """
     assessment = assess(self, team_id, incident_id)
     verdict = quiescence(self, team_id, assessment, proven(assessment))
@@ -368,13 +368,6 @@ def verify(
     request = verifier_request(assessment)
     if request is None:
         return "unverifiable"
-    try:
-        spent = routine_cursor.spend(assessment.cursor, "verifications", 1)
-    except routine_cursor.CursorError:
-        return "exhausted"
-    assessment = dataclasses.replace(
-        assessment, opened=routine_incident.OpenedRecovery(assessment.opened.recovery, _seal(self, team_id, spent))
-    )
     result = _call_verifier(self, team_id, token, assessment, request)
     if result is None:
         return "inconclusive"
@@ -384,36 +377,24 @@ def verify(
     return _judge(self, team_id, assessment, result, original)
 
 
-def refusal(cursor: routine_cursor.Cursor) -> str | None:
-    """Why a held run may not continue yet: an operation still uncertain, or its one retry already spent."""
-    if cursor.operation_id is None:
-        return None
-    if cursor.fault == "policy":
-        return "routine-policy-hold"
-    if cursor.fault == "unquiesced":
-        return "routine-workload-unquiesced"
-    if not cursor.absent:
-        return "routine-operation-uncertain"
-    return None if cursor.remaining("retries") else "routine-retry-exhausted"
+def blocked(cursor: routine_cursor.Cursor) -> bool:
+    """Whether a held run may not continue: its operation is still uncertain, held for policy, or not proven stopped."""
+    return cursor.operation_id is not None and (cursor.fault in {"policy", "unquiesced"} or not cursor.absent)
 
 
-def _cannot_continue(code: str) -> ApiProblem:
-    return ApiProblem(409, "Routine run cannot continue", code=code)
+def continue_run(self, team_id: str, incident_id: str, token: str, progress=None, *, seconds: int) -> str:
+    """Resume a held run as its one continuation, in its next generation; how it ended, or ``held`` when it cannot.
 
-
-def continue_run(self, team_id: str, incident_id: str, token: str, progress=None, *, seconds: int | None = None) -> str:
-    """Resume a held run as a continuation in its next generation; returns how that continuation ended.
-
-    It never passes an uncertain operation: only a completed step or a proven absence with its retry left continues.
+    It never passes an uncertain operation: only a completed step or a proven absence continues, and the continuation
+    runs within ``seconds`` of the episode's deadline and the run's own active time.
     """
     opened = routine_incident.open_recovery(self, team_id, incident_id)
-    refused = refusal(opened.cursor)
-    if refused is not None:
-        raise _cannot_continue(refused)
+    if blocked(opened.cursor):
+        return "held"
     try:
         cursor = _seal(self, team_id, routine_cursor.continued(opened.cursor))
-    except routine_cursor.CursorError as exc:
-        raise _cannot_continue(exc.code) from exc
+    except routine_cursor.CursorError:
+        return "held"
     generation = routine_claim.generation_for(
         opened.recovery.binding.incarnation, incident_id, cursor.generation_suffix
     )
@@ -422,8 +403,8 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     def reopen(state: record.TeamRoutines):
         try:
             reopened, lease_token = routine_hold.reopen_incident(state, incident_id, now, generation)
-        except record.RoutineStateError as exc:
-            return state, str(exc)
+        except record.RoutineStateError:
+            return state, None
         routine = record.routine(reopened, opened.recovery.binding.routine_id)
         return reopened, (record.run(reopened, incident_id), routine, lease_token)
 
@@ -433,10 +414,10 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     if not routine_run.unstopped(
         self, token, lambda: False, lambda: results.append(routine_state.update(self, team_id, reopen))
     ):
-        raise _cannot_continue("routine-recovery-stopped")
+        return "held"
     (reopened,) = results
-    if isinstance(reopened, str):
-        raise _cannot_continue(reopened)
+    if reopened is None:
+        return "held"
     value, routine, lease_token = reopened
     # The resolved hold's evidence goes; a later hold of this continuation seals its own.
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, incident_id))
@@ -445,87 +426,56 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     run = routine_run.LeasedRun(
         team_id, incident_id, lease, token, _provider(self, team_id), routine, (), value.requests_used
     )
-    active = value.active_seconds_left if seconds is None else min(seconds, value.active_seconds_left)
-    with routine_run.registered(self, team_id, incident_id, token, active):
+    with routine_run.registered(self, team_id, incident_id, token, min(seconds, value.active_seconds_left)):
         outcome = routine_compiled.execute(self, run, value, progress)
     routine_run.after_run(self, team_id, incident_id, routine.routine_id, outcome)
     return outcome
 
 
+# The most active time the run's one recovery episode may use, within the run's own time left.
+RECOVERY_SECONDS = 60
 # What pauses the Routine when the episode ends on it, and the reason its notice gives.
 _PAUSES = {"policy": "policy", "exhausted": "exhausted", "unclassified": "evidence"}
 # Evidence that lets the already-authorized run go on: a proven absence retries the same operation once.
 _GO_ON = frozenset({"occurred", "none", "absent"})
 
 
-@dataclass(frozen=True, slots=True)
-class _Reservation:
-    """The time an episode reserved from both the run's recovery budget and its remaining active time."""
+@dataclass(slots=True)
+class _Episode:
+    """The run's one recovery episode in this execution: its time, from when, and how it ended."""
 
     seconds: int
-    generation: str
     started: float
-    # Set by the deadline timer when the reservation ran out, whatever the episode was doing.
+    # Set by the deadline timer when the episode's time ran out, whatever the episode was doing.
     expired: threading.Event = dataclasses.field(default_factory=threading.Event)
-    # Set once the time left was handed to the continuation, which then accounts for it as the run's own.
-    transferred: threading.Event = dataclasses.field(default_factory=threading.Event)
-    # Set once the episode published why it paused the Routine, so its ending never publishes a second reason.
-    published: threading.Event = dataclasses.field(default_factory=threading.Event)
+    # Whether the episode already published why it paused the Routine, so its ending never publishes a second reason.
+    published: bool = False
 
     @property
     def deadline(self) -> float:
         return self.started + self.seconds
 
 
-def _reserve(self, team_id: str, incident_id: str) -> _Reservation | None:
-    """Spend the run's one episode and reserve its time from both balances, durably, before any work.
+def _open(self, team_id: str, incident_id: str) -> _Episode | None:
+    """Open the run's one episode durably, before any work, with its deadline in memory; None when none may open.
 
-    The reservation is the smaller of the recovery budget and the held run's remaining active time, so recovery never
-    outlasts the run. None when no episode may open. A crash keeps it spent, so a restart never refills either.
+    Its time is the smaller of the recovery bound and the held run's remaining active time, so recovery never outlasts
+    the run. The episode is sealed in the run's cursor first, so a crash or restart never opens another.
     """
     try:
         cursor = routine_incident.open_recovery(self, team_id, incident_id).cursor
         held = routine_hold.incident(routine_state.load(self, team_id), incident_id)
-        seconds = max(0, min(cursor.remaining("recovery_seconds"), held.active_seconds_left))
-        cursor = routine_cursor.spend(cursor, "episodes", 1)
-        _seal(self, team_id, routine_cursor.spend(cursor, "recovery_seconds", seconds) if seconds else cursor)
+        _seal(self, team_id, routine_cursor.open_episode(cursor))
     except ApiProblem, routine_cursor.CursorError, record.RoutineStateError:
         return None
-    if seconds:
-        routine_state.update(
-            self, team_id, lambda state: (routine_hold.charge_incident(state, incident_id, seconds), None)
-        )
-    return _Reservation(seconds, held.generation, _clock())
-
-
-def _release(self, team_id: str, incident_id: str, reservation: _Reservation) -> None:
-    """Return the reserved time the episode did not use to both balances; at least one second is always charged.
-
-    The run's active time goes back only to the same held run; time already handed to a continuation is the run's
-    own, and none of it ever returns to the recovery budget.
-    """
-    if reservation.transferred.is_set():
-        return
-    unused = reservation.seconds - min(reservation.seconds, max(1, math.ceil(_clock() - reservation.started)))
-    if unused <= 0:
-        return
-    try:
-        cursor = routine_incident.open_recovery(self, team_id, incident_id).cursor
-        _seal(self, team_id, routine_cursor.refund(cursor, "recovery_seconds", unused))
-    except ApiProblem, routine_cursor.CursorError:
-        return
-    routine_state.update(
-        self,
-        team_id,
-        lambda state: (routine_hold.refund_incident(state, incident_id, reservation.generation, unused), None),
-    )
+    return _Episode(max(0, min(RECOVERY_SECONDS, held.active_seconds_left)), _clock())
 
 
 @contextlib.contextmanager
-def _deadline(self, team_id: str, incident_id: str, token: str, reservation: _Reservation):
+def _deadline(self, team_id: str, incident_id: str, token: str, episode: _Episode):
     """A direct timer that cancels the episode at its absolute deadline, whatever it is doing.
 
-    At the deadline it marks the reservation expired and stops the registered recovery: its token and any Action in
+    At the deadline it marks the episode expired and stops the registered recovery: its token and any Action in
     flight. The watchdog still reconciles a timer that could not act.
     """
 
@@ -533,12 +483,12 @@ def _deadline(self, team_id: str, incident_id: str, token: str, reservation: _Re
         try:
             # Bound to this execution's token: a late timer never stops a later recovery of the same incident, and the
             # deadline is marked as the cause only if no person stopped it first.
-            routine_run.expire_routine_run(self, team_id, incident_id, token, reservation.expired.set)
+            routine_run.expire_routine_run(self, team_id, incident_id, token, episode.expired.set)
         except ApiProblem:
             local_audit.record_request("routine-recovery", result="error", team_id=team_id, detail="deadline-stop")
 
-    # The absolute deadline, not a fresh delay: the time since the reservation was taken is already gone.
-    timer = threading.Timer(max(0.0, reservation.deadline - _clock()), expire)
+    # The absolute deadline, not a fresh delay: the time since the episode opened is already gone.
+    timer = threading.Timer(max(0.0, episode.deadline - _clock()), expire)
     timer.daemon = True
     timer.start()
     try:
@@ -547,26 +497,26 @@ def _deadline(self, team_id: str, incident_id: str, token: str, reservation: _Re
         timer.cancel()
 
 
-def _stopped(self, token: str, reservation: _Reservation) -> bool:
+def _stopped(self, token: str, episode: _Episode) -> bool:
     """Whether a person stopped the recovery: it was cancelled, and not by its own deadline."""
-    return self._chat_cancelled(token) and not reservation.expired.is_set()
+    return self._chat_cancelled(token) and not episode.expired.is_set()
 
 
-def _episode(self, run: routine_run.LeasedRun, reservation: _Reservation) -> bool:
+def _episode(self, run: routine_run.LeasedRun, episode: _Episode) -> bool:
     """Verify first; True when the run may go on: a proven occurrence, or a proven absence that retries once.
 
-    Exhaustion is judged on the reservation's own clock, never on what the episode found: once its deadline passed,
-    the Routine pauses as exhausted. Otherwise a policy fault, missing evidence, or an exhausted budget pauses it, with
-    that reason on the notice, and anything still uncertain is held for the person's card.
+    Exhaustion is judged on the episode's own clock, never on what the episode found: once its deadline passed, the
+    Routine pauses as exhausted. Otherwise a policy fault or missing evidence pauses it, with that reason on the notice,
+    and anything still uncertain is held for the person's card.
     """
     team_id, incident_id = run.team_id, run.run_id
 
     def expired() -> bool:
-        return reservation.expired.is_set() or _clock() >= reservation.deadline
+        return episode.expired.is_set() or _clock() >= episode.deadline
 
-    # Nothing is dispatched once the reservation has run out, not even the verifier.
+    # Nothing is dispatched once the episode's time has run out, not even the verifier.
     verdict = "exhausted" if expired() else verify(self, team_id, incident_id, run.token, run.protected)
-    if _stopped(self, run.token, reservation):
+    if _stopped(self, run.token, episode):
         # A person's Stop is no failure and outranks anything later: a deadline passing afterwards is not exhaustion,
         # nothing is published, and the incident stays for the card.
         return False
@@ -574,89 +524,78 @@ def _episode(self, run: routine_run.LeasedRun, reservation: _Reservation) -> boo
         verdict = "exhausted"
     reason = _PAUSES.get(verdict)
     if reason is not None:
-        _publish(self, run, reservation, reason)
+        _publish(self, run, episode, reason)
     return verdict in _GO_ON and not self._chat_cancelled(run.token)
 
 
-def _go_on(self, run: routine_run.LeasedRun, reservation: _Reservation, progress) -> str:
-    """Continue the already-authorized run inside what is left of the reservation, or hold it.
+def _go_on(self, run: routine_run.LeasedRun, episode: _Episode, progress) -> str:
+    """Continue the already-authorized run inside what is left of the episode, or hold it.
 
     The retry is never dispatched without time left for it, and a continuation the deadline cuts, even between
     steps, is held again with its partial evidence while the Routine pauses as exhausted.
     """
     team_id, incident_id = run.team_id, run.run_id
-    if refusal(routine_incident.open_recovery(self, team_id, incident_id).cursor):
+    if blocked(routine_incident.open_recovery(self, team_id, incident_id).cursor):
         return "held"
-    left = max(0, math.floor(reservation.deadline - _clock()))
-    if _stopped(self, run.token, reservation):
+    left = max(0, math.floor(episode.deadline - _clock()))
+    if _stopped(self, run.token, episode):
         return "held"
     if not left:
-        _publish(self, run, reservation, "exhausted")
+        _publish(self, run, episode, "exhausted")
         return "held"
-    # The time left is handed to the held run durably, so its continuation may start: never more than was reserved,
-    # and never back to either budget.
-    routine_state.update(
-        self,
-        team_id,
-        lambda state: (routine_hold.refund_incident(state, incident_id, reservation.generation, left), None),
-    )
-    reservation.transferred.set()
     return continue_run(self, team_id, incident_id, run.token, progress, seconds=left)
 
 
-def _publish(self, run: routine_run.LeasedRun, reservation: _Reservation, reason: str) -> None:
+def _publish(self, run: routine_run.LeasedRun, episode: _Episode, reason: str) -> None:
     """Pause the Routine the held run belongs to and say why, once per episode, unless a person stopped it first."""
     if routine_run.unstopped(
         self,
         run.token,
-        reservation.expired.is_set,
+        episode.expired.is_set,
         lambda: routine_incident.pause(self, run.team_id, run.run_id, reason),
     ):
-        reservation.published.set()
+        episode.published = True
 
 
-def _finish(self, run: routine_run.LeasedRun, reservation: _Reservation, outcome: str) -> str:
+def _finish(self, run: routine_run.LeasedRun, episode: _Episode, outcome: str) -> str:
     """End the episode: a held run its deadline cut, however it got there, pauses the Routine as exhausted.
 
     Its evidence stays held either way. A failure to publish leaves the incident for the card.
     """
-    if outcome == "held" and reservation.expired.is_set() and not reservation.published.is_set():
+    if outcome == "held" and episode.expired.is_set() and not episode.published:
         with contextlib.suppress(ApiProblem):
-            _publish(self, run, reservation, "exhausted")
+            _publish(self, run, episode, "exhausted")
     return outcome
 
 
 def automatic(self, run: routine_run.LeasedRun, progress=None) -> str:
     """The run's one automatic recovery episode, right after its hold, in the same execution slot (ADR-0092).
 
-    The episode and its time are reserved durably from both the recovery budget and the run's active time first, and
-    it runs registered with that deadline, so Stop, deletion, and the watchdog reach it and a restart never refills
-    it. Linked verification comes first and needs no model; a proven absence retries the same step once, inside the
-    same allowance. Unused time is returned at the end. A person's Stop outranks every other outcome: it publishes
-    nothing.
+    The episode is sealed in the run's cursor first, so a restart never opens another, and it runs registered with its
+    deadline in memory, so Stop, deletion, and the watchdog reach it. Linked verification comes first and needs no
+    model; a proven absence retries the same step once, inside the same deadline. A person's Stop outranks every other
+    outcome: it publishes nothing.
     """
     team_id, incident_id = run.team_id, run.run_id
-    # A person who stopped the run before its episode opened: nothing is reserved, spent, or published.
-    reservation = None if self._chat_cancelled(run.token) else _reserve(self, team_id, incident_id)
-    if reservation is None:
+    # A person who stopped the run before its episode opened: nothing is opened or published.
+    episode = None if self._chat_cancelled(run.token) else _open(self, team_id, incident_id)
+    if episode is None:
         return "held"
     try:
-        if not reservation.seconds:
-            # No time is left in either balance: the episode is exhausted before it starts.
-            _publish(self, run, reservation, "exhausted")
+        if not episode.seconds:
+            # The run has no active time left: the episode is exhausted before it starts.
+            _publish(self, run, episode, "exhausted")
             return "held"
         with (
-            routine_run.registered(self, team_id, incident_id, run.token, reservation.seconds),
-            _deadline(self, team_id, incident_id, run.token, reservation),
+            routine_run.registered(self, team_id, incident_id, run.token, episode.seconds),
+            _deadline(self, team_id, incident_id, run.token, episode),
         ):
             try:
-                outcome = _go_on(self, run, reservation, progress) if _episode(self, run, reservation) else "held"
+                outcome = _go_on(self, run, episode, progress) if _episode(self, run, episode) else "held"
             except ApiProblem:
-                # A refusal on the way, such as a continuation the deadline cancelled before it reopened, still ends
-                # the episode as held, with its evidence.
+                # A refusal on the way, such as a continuation whose run cannot be read, still ends the episode as
+                # held, with its evidence.
                 outcome = "held"
-            finally:
-                _release(self, team_id, incident_id, reservation)
-            return _finish(self, run, reservation, outcome)
+            return _finish(self, run, episode, outcome)
     except ApiProblem:
         return "held"

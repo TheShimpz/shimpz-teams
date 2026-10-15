@@ -80,7 +80,7 @@ class PolicyHoldTests(AutomaticCase):
             cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
             with service._exclusive_chat_turn("team_1", value.routine_id) as token:
                 manual = routine_recovery.verify(service, "team_1", run_id, token)
-            refused = routine_recovery.refusal(routine_incident.open_recovery(service, "team_1", run_id).cursor)
+            refused = routine_recovery.blocked(routine_incident.open_recovery(service, "team_1", run_id).cursor)
             with local_audit.bind_request_principal(local_audit.AuditPrincipal("a" * 32, "human")):
                 card = service.open_routine_card("team_1", run_id)
         # The automatic episode paused at once; nothing ran twice.
@@ -89,7 +89,7 @@ class PolicyHoldTests(AutomaticCase):
         self.assertTrue(record.routine(state, value.routine_id).paused)
         self.assertEqual([action for action, _id in assistant.calls], ["list-zones"])
         # Verification can neither admit absence nor continue; the person decides on the card, which shows the step.
-        self.assertEqual((manual, refused), ("policy", "routine-policy-hold"))
+        self.assertEqual((manual, refused), ("policy", True))
         self.assertEqual((card["choices"], card["action"]), (["run", "delete"], cursor_action(state)))
 
     def test_a_read_only_handled_failure_is_still_proven_absent(self) -> None:
@@ -112,7 +112,7 @@ class PolicyHoldTests(AutomaticCase):
                 card = service.open_routine_card("team_1", run_id)
         # Even a read-only Action is not admitted as absent while its workload may still run.
         self.assertEqual((verdict, cursor.fault, cursor.absent), ("unquiesced", "unquiesced", False))
-        self.assertEqual(routine_recovery.refusal(cursor), "routine-workload-unquiesced")
+        self.assertTrue(routine_recovery.blocked(cursor))
         self.assertEqual(card["choices"], ["run", "delete"])
 
     def restarted(self, directory: str, assistant: Assistant, brain: Brain):

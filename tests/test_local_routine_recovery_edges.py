@@ -81,7 +81,7 @@ class VerifierCallEdgeTests(RecoveryCase):
     def test_an_unconfigured_failing_or_pausing_verifier_is_inconclusive(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
-            # Each case starts from the held cursor, with its one verification still unspent.
+            # Each case starts from the held cursor.
             fresh = self.cursor(service, run_id)
             down = inference_config.InferenceConfigError("unavailable")
             with (
@@ -111,22 +111,21 @@ class VerifierCallEdgeTests(RecoveryCase):
 
 
 class ContinuationEdgeTests(RecoveryCase):
-    def test_a_continuation_needs_its_segment_and_a_resumable_routine(self) -> None:
+    def test_a_continuation_needs_an_unspent_continuation_and_a_resumable_routine(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(
                 directory, Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
             )
             self.assertEqual(self.verify(service, value, run_id), "occurred")
-            exhausted = dataclasses.replace(self.cursor(service, run_id), segment=routine_cursor.MAX_SEGMENTS)
-            service.routine_store.put_cursor("team_1", exhausted)
-            with self.assertRaises(local_app.ApiProblem) as segments:
-                self.resume(service, value, run_id)
-            self.assertEqual(segments.exception.code, "cursor-segments-exhausted")
-            service.routine_store.put_cursor("team_1", dataclasses.replace(exhausted, segment=0))
+            spent = dataclasses.replace(self.cursor(service, run_id), episode=True, continued=True)
+            service.routine_store.put_cursor("team_1", spent)
+            self.assertEqual(self.resume(service, value, run_id), "held")
+            service.routine_store.put_cursor("team_1", dataclasses.replace(spent, continued=False))
             routine_incident.set_paused(service, "team_1", value.routine_id, True)
-            with self.assertRaises(local_app.ApiProblem) as paused:
-                self.resume(service, value, run_id)
-            self.assertEqual(paused.exception.code, "routine-not-resumable")
+            self.assertEqual(self.resume(service, value, run_id), "held")
+            state = self.state(service)
+        # Neither continued the run: its incident stays for the person's card.
+        self.assertEqual([item.status for item in state.incidents], ["unresolved"])
 
     def test_reopening_refuses_a_settled_incident_a_changed_routine_or_a_busy_one(self) -> None:
         state = record.TeamRoutines()
@@ -158,7 +157,7 @@ class ContinuationEdgeTests(RecoveryCase):
             with mock.patch.object(service.routine_store, "delete_incident"):
                 self.assertEqual(self.resume(service, value, run_id), "held")
             opened = routine_incident.open_recovery(service, "team_1", run_id)
-        self.assertEqual(opened.cursor.segment, 1)
+        self.assertTrue(opened.cursor.continued)
 
     def test_a_live_runs_files_stay_while_its_old_generation_goes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -304,8 +303,7 @@ class RunTimeTests(RecoveryCase):
                     None,
                 ),
             )
-            with self.assertRaises(local_app.ApiProblem) as caught:
-                self.resume(service, value, run_id)
+            resumed = self.resume(service, value, run_id)
             state = self.state(service)
-        self.assertEqual(caught.exception.code, "run-time-exhausted")
+        self.assertEqual(resumed, "held")
         self.assertEqual(([item.status for item in state.incidents], state.runs), (["unresolved"], ()))

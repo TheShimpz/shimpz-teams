@@ -349,7 +349,7 @@ def _decode_notice(value: object) -> record.Notice:
 def _generation_of(run_id: str, generation: object) -> bool:
     return isinstance(generation, str) and (
         generation == ""
-        or re.fullmatch(rf"[0-9a-f]{{64}}:routine:{run_id}(?::s[1-9][0-9]{{0,2}})?", generation) is not None
+        or re.fullmatch(rf"[0-9a-f]{{64}}:routine:{run_id}(?::s1)?", generation) is not None
     )
 
 

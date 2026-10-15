@@ -92,8 +92,14 @@ class RecoveryCase(CompiledRunCase):
 
     @staticmethod
     def resume(service, value, run_id: str) -> str:
+        """Continue the held run as its episode does, which opened before it verified."""
+        cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
+        if not cursor.episode:
+            service.routine_store.put_cursor("team_1", routine_cursor.open_episode(cursor))
         with service._exclusive_chat_turn("team_1", value.routine_id) as token:
-            return routine_recovery.continue_run(service, "team_1", run_id, token)
+            return routine_recovery.continue_run(
+                service, "team_1", run_id, token, seconds=routine_recovery.RECOVERY_SECONDS
+            )
 
     def cursor(self, service, run_id: str) -> routine_cursor.Cursor:
         return routine_incident.open_recovery(service, "team_1", run_id).cursor
@@ -122,11 +128,10 @@ class VerificationTests(RecoveryCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, assistant)
             self.assertEqual(self.verify(service, value, run_id), "inconclusive")
-            with self.assertRaises(local_app.ApiProblem) as caught:
-                self.resume(service, value, run_id)
+            resumed = self.resume(service, value, run_id)
             state = self.state(service)
         # The uncertain operation is never passed: the run stays held instead of repeating it.
-        self.assertEqual(caught.exception.code, "routine-operation-uncertain")
+        self.assertEqual(resumed, "held")
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
         self.assertEqual([item.incident_id for item in state.incidents], [run_id])
 
@@ -168,27 +173,14 @@ class VerificationTests(RecoveryCase):
             service, _brain, value, run_id = self.held(directory, assistant)
             self.assertEqual(self.verify(service, value, run_id), "absent")
             self.assertEqual(self.resume(service, value, run_id), "held")
-            # Even proven absent again, the run's one retry is already spent.
+            # Even proven absent again, the run's one continuation, and with it its one retry, is already spent.
             proven = routine_cursor.proven_absent(self.cursor(service, run_id))
             service.routine_store.put_cursor("team_1", proven)
-            with self.assertRaises(local_app.ApiProblem) as caught:
-                self.resume(service, value, run_id)
+            again = self.resume(service, value, run_id)
             cursor = self.cursor(service, run_id)
-        self.assertEqual(caught.exception.code, "routine-retry-exhausted")
+        self.assertEqual(again, "held")
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 2)
-        self.assertEqual((cursor.remaining("retries"), cursor.segment), (0, 1))
-
-    def test_an_automatic_verification_spends_its_budget_and_a_restart_never_refills_it(self) -> None:
-        assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
-        with tempfile.TemporaryDirectory() as directory:
-            service, _brain, value, run_id = self.held(directory, assistant)
-            verdicts = [self.verify(service, value, run_id) for _attempt in range(2)]
-            # A new store over the same state is a restart: the sealed cursor keeps what was spent.
-            restarted = service.routine_store.__class__(service.routine_store.root, service.routine_store.key_path)
-            service.routine_store = restarted
-            after = self.verify(service, value, run_id)
-        self.assertEqual(verdicts, ["inconclusive", "exhausted"])
-        self.assertEqual(after, "exhausted")
+        self.assertEqual((cursor.episode, cursor.continued), (True, True))
 
     def test_a_read_only_failure_is_absent_by_its_reviewed_declaration(self) -> None:
         def invoke(_team, _assistant, action, _payload, _evidence):
