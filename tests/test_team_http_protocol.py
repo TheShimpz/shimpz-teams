@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from test_protocol_verifier_edges import _flat_module_names, _fresh_modules
+
 from protocol.http.v1 import challenge, identifiers, payload, routine, routine_notice, routine_proposal, routine_run
 
 PROTOCOL = Path(__file__).resolve().parents[1] / "protocol" / "http" / "v1"
@@ -35,32 +37,13 @@ class FlatVerifierTests(unittest.TestCase):
     """`verify.py` runs every module of the protocol directory flat, as each consumer's copy does."""
 
     def test_the_verifier_imports_the_protocol_modules_flat_from_their_directory(self) -> None:
-        names = (
-            "challenge",
-            "identifiers",
-            "payload",
-            "phrase",
-            "progress",
-            "purpose",
-            "routine",
-            "routine_context",
-            "routine_notice",
-            "routine_proposal",
-            "routine_run",
-            "strict_json",
-            "supervisor",
-            "turn",
-            "websocket",
-        )
-        saved = {name: sys.modules.pop(name) for name in names if name in sys.modules}
         output = io.StringIO()
-        try:
-            with mock.patch.object(sys, "path", [str(PROTOCOL), *sys.path]), contextlib.redirect_stdout(output):
-                runpy.run_path(str(PROTOCOL / "verify.py"), run_name="team_protocol_verifier")
-        finally:
-            for name in names:
-                sys.modules.pop(name, None)
-            sys.modules.update(saved)
+        with (
+            _fresh_modules(*_flat_module_names(PROTOCOL)),
+            mock.patch.object(sys, "path", [str(PROTOCOL), *sys.path]),
+            contextlib.redirect_stdout(output),
+        ):
+            runpy.run_path(str(PROTOCOL / "verify.py"), run_name="team_protocol_verifier")
         self.assertIn("golden vectors are valid", output.getvalue())
 
 

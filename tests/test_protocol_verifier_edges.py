@@ -35,6 +35,15 @@ def _fresh_modules(*names: str):
         sys.modules.update(saved)
 
 
+def _flat_module_names(directory: Path) -> tuple[str, ...]:
+    """Every module a verifier in ``directory`` imports flat: the directory's own modules and its validators."""
+    names = {path.stem for path in directory.glob("*.py")}
+    validators = directory / "validators"
+    if validators.is_dir():
+        names |= {"validators", *(f"validators.{path.stem}" for path in validators.glob("*.py"))}
+    return tuple(sorted(names))
+
+
 def _execute(
     source: Path,
     mutate=None,
@@ -49,32 +58,6 @@ def _execute(
         if mutate is not None:
             mutate(mirror)
         output = io.StringIO()
-        module_names = (
-            "challenge",
-            "identifiers",
-            "payload",
-            "phrase",
-            "progress",
-            "purpose",
-            "routine",
-            "routine_context",
-            "routine_notice",
-            "routine_proposal",
-            "routine_run",
-            "schema_validator",
-            "strict_json",
-            "supervisor",
-            "turn",
-            "validators",
-            "validators.action_effect",
-            "validators.failure",
-            "validators.human_request",
-            "validators.input_file",
-            "validators.message_catalog",
-            "validators.route",
-            "websocket",
-        )
-
         # zoneinfo loads importlib.resources, which must not first import under the patched pathlib.Path.
         importlib.import_module("importlib.resources")
 
@@ -83,7 +66,7 @@ def _execute(
             return mirror / source.name if path.resolve() == source.resolve() else path
 
         with (
-            _fresh_modules(*module_names),
+            _fresh_modules(*_flat_module_names(source.parent)),
             mock.patch.object(sys, "path", [str(mirror), *sys.path]),
             mock.patch.dict(sys.modules, modules or {}),
             mock.patch.object(pathlib, "Path", redirected_path),

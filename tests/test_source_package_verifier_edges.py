@@ -8,22 +8,16 @@ import sys
 import tempfile
 import types
 import unittest
-import zlib
 from pathlib import Path
 from unittest import mock
 
-from test_protocol_verifier_edges import _execute
+from test_protocol_verifier_edges import _execute, _png_chunk
 
 SOURCE_PACKAGE = Path(__file__).resolve().parents[1] / "protocol/source-package/v1"
 
 
 def _load_source_package_verifier() -> dict[str, object]:
     return runpy.run_path(str(SOURCE_PACKAGE / "verify.py"), run_name="source_package_verifier")
-
-
-def _png_chunk(kind: bytes, data: bytes = b"") -> bytes:
-    checksum = zlib.crc32(kind + data) & 0xFFFFFFFF
-    return len(data).to_bytes(4, "big") + kind + data + checksum.to_bytes(4, "big")
 
 
 class SourcePackageVerifierEdgeTests(unittest.TestCase):
