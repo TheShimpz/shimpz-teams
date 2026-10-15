@@ -275,19 +275,29 @@ def answered(span: Span | None) -> Intent | None:
     return span.intent if bound else None
 
 
-def selected_work(span: Span, name: str, replaces: str | None) -> str | None:
-    """The send whose calls a record call's work is, by id, which its intent then keeps.
+def continued(span: Span, replaces: str | None) -> Intent | None:
+    """The stored intent a record call continues, or None when it starts a new one.
 
-    A send that ran Actions selects itself. A send that ran none keeps the work the same intent already selected, so
-    the person's answers and any unrelated send between them never replace it, even once it left the bounded span,
-    which admission then refuses. A first record call that ran nothing selects the latest send that ran any Action,
-    except that a replacement then keeps its steps (None).
+    A record call whose send ran no Action and that replaces exactly what the stored intent replaces only says more
+    about the same work, whatever it now names the Routine: the person's answers and any unrelated send between them
+    never replace that work, even once it left the bounded span, which admission then refuses, and a replacement stays
+    bound to the revision its Routine was first shown at. A send that ran Actions, or a call naming another Routine to
+    replace, is a new intent.
+    """
+    stored = span.intent
+    if stored is None or span.sends[-1].occurrences or stored.replaces != replaces:
+        return None
+    return stored
+
+
+def selected_work(span: Span, replaces: str | None) -> str | None:
+    """The send whose calls a new intent's work is, by id, which the intent then keeps.
+
+    A send that ran Actions selects itself. A record call that ran nothing and continues no stored intent selects the
+    latest send that ran any Action, except that a replacement then keeps its steps (None).
     """
     if span.sends[-1].occurrences:
         return span.recording_id
-    stored = span.intent
-    if stored is not None and (stored.name, stored.replaces) == (name, replaces):
-        return stored.work
     index = None if replaces is not None else routine_recording.latest_work(span.sends)
     return None if index is None else span.send_ids[index]
 

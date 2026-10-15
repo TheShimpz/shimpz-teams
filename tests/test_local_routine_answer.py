@@ -97,6 +97,35 @@ class RoutineAnswerTests(RecordingCase):
         self.assertEqual((card["name"], card["replaces"], card["description"]), (_record()["name"], None, said))
         self.assertEqual([step["action"] for step in card["steps"]], ["list-zones", "list-dns-records"])
 
+    def test_a_typed_answer_that_runs_nothing_keeps_the_stored_work_under_a_new_name(self) -> None:
+        # An unrelated send lists the zones; the typed answer's record call then names the Routine otherwise.
+        renamed = _record(name="Registros DNS")
+        runtime = Sends((("list-zones", "list-dns-records"), _record()), (("list-zones",), None), ((), renamed))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            asked = self.chat(service, _body("Liste os registros DNS de shimpz.com e mostre o resultado"))[
+                "routine_question"
+            ]
+            self.chat(service, _body("Agora só liste as zonas uma vez."))
+            card = self.chat(service, _body("A cada 30 segundos"))["routine_proposal"]
+        self.assertEqual(asked["code"], "routine-schedule-unstated")
+        self.assertEqual((card["name"], card["replaces"]), ("Registros DNS", None))
+        self.assertEqual([step["action"] for step in card["steps"]], ["list-zones", "list-dns-records"])
+
+    def test_a_typed_answer_that_runs_nothing_keeps_the_revision_its_replacement_was_shown(self) -> None:
+        original = "Liste os registros DNS"
+        runtime = Sends((("list-zones", "list-dns-records"), _record()))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            created = self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])["routine_id"]
+            runtime.scripts.append((("list-zones", "list-dns-records"), _record(replaces=created)))
+            runtime.scripts.append(((), _record(name="Registros DNS", replaces=created)))
+            asked = self.chat(service, _body(original))["routine_question"]
+            _bump_revisions(service)
+            # The answer's turn is shown the newer revision, which its record call never saw the work against.
+            refusal = self.chat(service, _body("shimpz.com"))["routine_refusal"]
+        self.assertEqual((asked["code"], refusal["code"]), ("routine-binding-ambiguous", "routine-revision-changed"))
+
     def test_a_freely_typed_send_reaches_the_brain_with_the_pending_question(self) -> None:
         original = "Liste os registros DNS de shimpz.com"
         runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))

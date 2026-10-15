@@ -185,19 +185,22 @@ def _intent(self, response: object, proposed: object) -> routine_recorder.Intent
     An answer Team records itself carries the intent the span stored, so its replaced revision stays the one shown.
     So does a settings answer, whatever its record call names: the person only said how often the Routine runs or
     what each run does with its result, so its work, its replacement, and the revision shown stay the stored intent's,
-    and only the description, which says the answer, is the call's.
+    and only the description, which says the answer, is the call's. A call that ran nothing and continues the stored
+    intent (``recorder.continued``) keeps its work and revision too, under the name and description the call gives.
     """
     if isinstance(proposed, routine_recorder.Intent):
         return proposed
     outcome = _outcome(proposed)
     found = self.routine_recordings.get(response.team_id, response.recording)
-    if found is not None and found.intent is not None and routine_recorder.settings_answer(found):
+    if found is None:
+        return routine_recorder.Intent(outcome["name"], outcome["replaces"], None, outcome["description"])
+    if found.intent is not None and routine_recorder.settings_answer(found):
         return dataclasses.replace(found.intent, description=outcome["description"])
-    shown, work = None, None
-    if found is not None:
-        if outcome["replaces"] is not None:
-            shown = dict(found.revisions).get(outcome["replaces"])
-        work = routine_recorder.selected_work(found, outcome["name"], outcome["replaces"])
+    stored = routine_recorder.continued(found, outcome["replaces"])
+    if stored is not None:
+        return dataclasses.replace(stored, name=outcome["name"], description=outcome["description"])
+    shown = None if outcome["replaces"] is None else dict(found.revisions).get(outcome["replaces"])
+    work = routine_recorder.selected_work(found, outcome["replaces"])
     return routine_recorder.Intent(outcome["name"], outcome["replaces"], shown, outcome["description"], work)
 
 
@@ -226,7 +229,7 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
     # though never the choices the person already answered nor the span's one repair, which a renamed record call
     # cannot renew; one continuing it keeps verifying.
     stored, asked = recording.intent, recording.asked
-    if stored is not None and asked is not None and _work(stored) != _work(intent):
+    if stored is not None and asked is not None and not _same_work(stored, intent):
         asked = dataclasses.replace(asked, pending=None, manifest=None)
     if intent.work is not None and intent.work not in recording.send_ids:
         # The selected work left the bounded span: recording other steps under its description would be silent, and
@@ -245,9 +248,9 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
         raise RefusedError(exc.code) from exc
 
 
-def _work(intent: routine_recorder.Intent) -> tuple[object, ...]:
-    """What makes two intents the same work: the Routine's name and what it replaces."""
-    return intent.name, intent.replaces
+def _same_work(stored: routine_recorder.Intent, intent: routine_recorder.Intent) -> bool:
+    """Whether a record call is for the stored intent's work: what it replaces, and its name or its continued work."""
+    return stored.replaces == intent.replaces and (stored.name == intent.name or stored.work == intent.work)
 
 
 def _room(candidate: record.Routine, others: tuple[record.Routine, ...]) -> routine_recording.Question:

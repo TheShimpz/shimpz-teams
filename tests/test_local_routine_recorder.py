@@ -170,25 +170,26 @@ class RecordingBookTests(unittest.TestCase):
         idle = book.start("team_1", BINDING, _started(), 2)
         span = book.get("team_1", idle)
         # A first record call that ran nothing selects the latest work; a replacement then keeps its own steps.
-        self.assertEqual(routine_recorder.selected_work(span, "DNS", None), worked)
-        self.assertIsNone(routine_recorder.selected_work(span, "DNS", "a" * 32))
+        self.assertIsNone(routine_recorder.continued(span, None))
+        self.assertEqual(routine_recorder.selected_work(span, None), worked)
+        self.assertIsNone(routine_recorder.selected_work(span, "a" * 32))
         intent = routine_recorder.Intent("DNS", None, None, "Lista o DNS.", worked)
         book.asked("team_1", idle, routine_recording.Question("routine-output-unstated"), intent)
-        # An unrelated send that ran Actions never replaces the intent's work for an answer that runs nothing.
+        # An unrelated send that ran Actions never replaces the intent's work for an answer that runs nothing,
+        # whatever that answer's record call names the Routine; one replacing another Routine is a new intent.
         other = book.start("team_1", BINDING, _started(), 3)
         book.occurred("team_1", other, _occurrence())
         answer = book.start("team_1", BINDING, _started(), 4)
         span = book.get("team_1", answer)
-        self.assertEqual(routine_recorder.selected_work(span, "DNS", None), worked)
-        # Another record intent is its own first call; a send that ran Actions selects itself.
-        self.assertEqual(routine_recorder.selected_work(span, "Zonas", None), other)
+        self.assertEqual(routine_recorder.continued(span, None), intent)
+        self.assertIsNone(routine_recorder.continued(span, "a" * 32))
+        # A send that ran Actions starts a new intent, which selects that send.
         book.occurred("team_1", answer, _occurrence())
-        self.assertEqual(routine_recorder.selected_work(book.get("team_1", answer), "DNS", None), answer)
-        # Work that left the bounded span stays selected, never replaced by other steps; admission refuses it.
-        gone = dataclasses.replace(span, intent=dataclasses.replace(intent, work="f" * 32))
-        self.assertEqual(routine_recorder.selected_work(gone, "DNS", None), "f" * 32)
+        ran = book.get("team_1", answer)
+        self.assertIsNone(routine_recorder.continued(ran, None))
+        self.assertEqual(routine_recorder.selected_work(ran, None), answer)
         nothing = book.get("team_2", book.start("team_2", BINDING, _started(), 5))
-        self.assertIsNone(routine_recorder.selected_work(nothing, "DNS", None))
+        self.assertIsNone(routine_recorder.selected_work(nothing, None))
 
     def test_only_the_persons_own_untruncated_earlier_lines_join_the_send(self) -> None:
         conversation = (
