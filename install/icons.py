@@ -3,7 +3,6 @@
 import hashlib
 import os
 import stat
-import tempfile
 import threading
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
@@ -14,6 +13,7 @@ from typing import Any
 
 from install.bindings import DynamicAssistantBinding
 from protocol.http.v1 import payload as http_payload
+from storage import private_state
 
 _MAX_ICON_BYTES = 1024 * 1024
 
@@ -141,22 +141,11 @@ class AssistantIconStore:
         return self._root / f"{identity.namespace}-{identity.key.removeprefix('sha256:')}.png"
 
     def _write(self, destination: Path, contents: bytes) -> None:
-        temporary: Path | None = None
         try:
             self._root.mkdir(mode=0o700, parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(mode="wb", dir=self._root, prefix=".icon.", delete=False) as stream:
-                temporary = Path(stream.name)
-                temporary.chmod(0o600)
-                stream.write(contents)
-                stream.flush()
-                os.fsync(stream.fileno())
-            temporary.replace(destination)
-            temporary = None
+            private_state.replace_durably(destination, contents)
         except OSError as exc:
             raise AssistantIconError("the Assistant icon cannot be persisted") from exc
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True, slots=True)

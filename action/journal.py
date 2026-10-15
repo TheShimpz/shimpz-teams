@@ -240,14 +240,7 @@ class ActionJournal:
                     os.fsync(descriptor)
                 finally:
                     os.close(descriptor)
-                directory = os.open(
-                    self.path.parent,
-                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                )
-                try:
-                    os.fsync(directory)
-                finally:
-                    os.close(directory)
+                private_state.fsync_directory(self.path.parent)
                 return True
             self._validate_file_metadata(metadata)
             if metadata.st_mode & 0o077:

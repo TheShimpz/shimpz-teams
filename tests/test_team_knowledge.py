@@ -146,7 +146,7 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob("*.knowledge.json")), [])
 
     def test_forgetting_the_last_entry_commits_the_removal_or_reports_failure(self):
-        real_fsync = inference_config.os.fsync
+        real_fsync = os.fsync
         synced: list[bool] = []
 
         def observe(descriptor: int) -> None:
@@ -155,20 +155,20 @@ class StoreTests(unittest.TestCase):
 
         forget = [{"op": "forget", "topic": "language", "preference": ""}]
         self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE], None)
-        with mock.patch.object(inference_config.os, "fsync", side_effect=observe):
+        with mock.patch.object(os, "fsync", side_effect=observe):
             self.assertEqual(self.store.apply_knowledge("team_1", forget, None), ([], []))
         self.assertEqual(synced, [True])
         self.assertEqual(list(self.root.glob("*.knowledge.json")), [])
 
         self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE], None)
         with (
-            mock.patch.object(inference_config.os, "fsync", side_effect=OSError("directory sync")),
+            mock.patch.object(os, "fsync", side_effect=OSError("directory sync")),
             self.assertRaisesRegex(inference_config.InferenceConfigError, "could not be removed"),
         ):
             self.store.apply_knowledge("team_1", forget, None)
         # A retry of the unconfirmed forget finds the record gone and still commits its directory entry.
         synced.clear()
-        with mock.patch.object(inference_config.os, "fsync", side_effect=observe):
+        with mock.patch.object(os, "fsync", side_effect=observe):
             self.assertEqual(self.store.apply_knowledge("team_1", forget, None), ([], []))
         self.assertEqual(synced, [True])
 
@@ -189,7 +189,7 @@ class StoreTests(unittest.TestCase):
         for failing in ("fchmod", "fsync"):
             with (
                 self.subTest(failing=failing),
-                mock.patch.object(inference_config.os, failing, side_effect=OSError("disk")),
+                mock.patch.object(os, failing, side_effect=OSError("disk")),
                 self.assertRaises(inference_config.InferenceConfigError),
             ):
                 self.store.apply_knowledge("team_1", [{"op": "remember", **FORMAT}], SKILL)

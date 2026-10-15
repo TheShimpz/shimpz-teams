@@ -92,7 +92,7 @@ class InferenceConfigTests(unittest.TestCase):
             real_fsync(descriptor)
             synced.append("directory" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "file")
 
-        with mock.patch.object(inference_config.os, "fsync", side_effect=observe):
+        with mock.patch.object(os, "fsync", side_effect=observe):
             self.store.save("team_1", inference_config.normalize())
         self.assertEqual(synced, ["file", "directory"])
 
@@ -102,7 +102,7 @@ class InferenceConfigTests(unittest.TestCase):
             real_fsync(descriptor)
 
         with (
-            mock.patch.object(inference_config.os, "fsync", side_effect=fail_directory),
+            mock.patch.object(os, "fsync", side_effect=fail_directory),
             self.assertRaisesRegex(OSError, "directory sync"),
         ):
             self.store.save("team_1", inference_config.normalize("anthropic", "claude-sonnet-5-5"))
@@ -202,12 +202,12 @@ class InferenceConfigTests(unittest.TestCase):
             real_fsync(descriptor)
             synced.append(stat.S_ISDIR(os.fstat(descriptor).st_mode))
 
-        with mock.patch.object(inference_config.os, "fsync", side_effect=observe):
+        with mock.patch.object(os, "fsync", side_effect=observe):
             self.store.delete("team_1")
         self.assertEqual(synced, [True, True])
         self.store.save("team_1", inference_config.normalize())
         synced.clear()
-        with mock.patch.object(inference_config.os, "fsync", side_effect=observe):
+        with mock.patch.object(os, "fsync", side_effect=observe):
             self.store.delete_all()
         self.assertEqual(synced, [True])
         self.assertEqual(list(self.root.iterdir()), [])
@@ -215,7 +215,7 @@ class InferenceConfigTests(unittest.TestCase):
         for operation in (lambda: self.store.delete("team_1"), self.store.delete_all):
             with (
                 self.subTest(operation=operation),
-                mock.patch.object(inference_config.os, "fsync", side_effect=OSError("directory sync")),
+                mock.patch.object(os, "fsync", side_effect=OSError("directory sync")),
                 self.assertRaisesRegex(inference_config.InferenceConfigError, "could not be removed"),
             ):
                 operation()

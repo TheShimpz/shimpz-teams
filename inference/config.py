@@ -2,8 +2,8 @@
 
 import hashlib
 import json
-import os
 import re
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypedDict
@@ -185,13 +185,7 @@ class InferenceConfigStore:
         """
         try:
             path.unlink(missing_ok=True)
-            try:
-                directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
-            except FileNotFoundError:
-                return
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
+            with suppress(FileNotFoundError):
+                private_state.fsync_directory(path.parent)
         except OSError as exc:
             raise InferenceConfigError("Team inference configuration could not be removed") from exc

@@ -252,17 +252,12 @@ class AssistantIconStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory, "icons")
             store = AssistantIconStore(root)
-            temporary = Path(directory, "partial")
-            stream = mock.MagicMock()
-            stream.__enter__.return_value.name = str(temporary)
-            stream.__enter__.return_value.flush.side_effect = OSError("full")
             with (
-                mock.patch("install.icons.tempfile.NamedTemporaryFile", return_value=stream),
-                mock.patch.object(Path, "unlink") as unlink,
+                mock.patch("storage.private_state.os.fsync", side_effect=OSError("full")),
                 self.assertRaisesRegex(AssistantIconError, "cannot be persisted"),
             ):
                 store._write(root / "icon.png", ICON)
-            unlink.assert_called_once_with(missing_ok=True)
+            self.assertEqual(list(root.iterdir()), [])
 
 
 if __name__ == "__main__":
