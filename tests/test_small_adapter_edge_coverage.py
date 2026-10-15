@@ -61,9 +61,7 @@ class SmallHttpAdapterCoverageTests(unittest.TestCase):
             self.assertEqual(raised.exception.status, status)
 
         route = stdlib.Route("GET", re.compile(r"/teams/(?P<team_id>[a-z0-9_]+)"), "team-get")
-        matched = stdlib.resolve_route([route], "GET", "/teams/team_1?view=full")
-        self.assertEqual(matched.params, {"team_id": "team_1"})
-        self.assertEqual(matched.query, {"view": ["full"]})
+        self.assertEqual(stdlib.resolve_route([route], "GET", "/teams/team_1?view=full"), "team-get")
         with self.assertRaises(stdlib.HttpError) as missing:
             stdlib.resolve_route([route], "POST", "/teams/team_1")
         self.assertEqual(missing.exception.status, 404)

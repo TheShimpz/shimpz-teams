@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import BinaryIO
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 
 class HttpError(ValueError):
@@ -22,13 +22,6 @@ class Route:
     method: str
     pattern: re.Pattern[str]
     operation: str
-
-
-@dataclass(frozen=True)
-class RouteMatch:
-    operation: str
-    params: dict[str, str]
-    query: dict[str, list[str]]
 
 
 @dataclass(frozen=True)
@@ -77,12 +70,12 @@ def read_json_body(headers: object, stream: BinaryIO, *, max_bytes: int) -> dict
     return body
 
 
-def resolve_route(routes: Iterable[Route], method: str, raw_target: str) -> RouteMatch:
+def resolve_route(routes: Iterable[Route], method: str, raw_target: str) -> str:
+    """Return the operation of the route that matches the method and the whole path, ignoring any query."""
     target = urlsplit(raw_target)
     for route in routes:
-        if route.method != method or (matched := route.pattern.fullmatch(target.path)) is None:
-            continue
-        return RouteMatch(route.operation, matched.groupdict(), parse_qs(target.query))
+        if route.method == method and route.pattern.fullmatch(target.path) is not None:
+            return route.operation
     raise HttpError(HTTPStatus.NOT_FOUND, f"no route for {method} {target.path}")
 
 
