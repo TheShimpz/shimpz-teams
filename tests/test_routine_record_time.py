@@ -7,8 +7,7 @@ import dataclasses
 import unittest
 
 import routine_fixture
-from test_routine_incident import IncidentNoticeTests
-from test_routine_record import EVERY_HOUR, KEY, NINE, added, at, bound, claimed, routine
+from routine_fixture import EVERY_HOUR, KEY, NINE, added, at, bound, claimed, held, routine
 
 from routine import claim as routine_claim
 from routine import hold as routine_hold
@@ -209,10 +208,8 @@ class ContinuousTests(unittest.TestCase):
 
     def test_a_skipped_hold_ends_the_run_so_the_next_one_waits_its_gap_after_the_skip(self):
         state = self.continuous()
-        state, claim = routine_claim.claim(state, NINE, KEY)
+        state, claim, lease = routine_fixture.claim_bound(state, NINE, network="net_1")
         run_id = claim.run.run_id
-        lease = record.lease_of(claim.lease_token, KEY)
-        state = routine_claim.bind_generation(state, run_id, lease, NINE, "net_1")
         state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1)
         # Held for a day: the gap after the held run's own end has long passed, but the incident still holds it.
         skipped_at = NINE + 86_400
@@ -228,7 +225,7 @@ class ContinuousTests(unittest.TestCase):
         self.assertEqual(record.routine(ran, "a" * 32).run_requested, 0)
         self.assertEqual(record.routine(ran, "a" * 32).next_run_at, skipped_at + 5)
         # A scheduled Routine's next firing is its own and a skip leaves it unchanged.
-        scheduled, _run_id = IncidentNoticeTests().held()
+        scheduled, _run_id = held()
         before = record.routine(scheduled, "a" * 32).next_run_at
         self.assertEqual(record.rebase_continuous(scheduled, "a" * 32, NINE + 10), scheduled)
         self.assertEqual(record.routine(scheduled, "a" * 32).next_run_at, before)

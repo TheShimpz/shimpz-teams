@@ -21,7 +21,6 @@ from local.routine import contracts as routine_contracts
 from local.routine import human as routine_human
 from local.routine import run as routine_run
 from local.routine import watchdog as routine_watchdog
-from routine import claim as routine_claim
 from routine import record
 from routine import runs as routine_runs
 
@@ -182,12 +181,8 @@ class WatchdogRaceTests(RoutineServiceCase):
     def bound(self, controller, service):
         """A claimed run whose generation is bound, and a journal read during which its worker finishes."""
         claim = service.claim_routine_run()
-        network = controller.assistant_lifecycle._network("team_1").id
-        lease = record.lease_of(claim["lease_token"], KEY)
         now = int(time.time())
-        service.routine_store.update(
-            "team_1", lambda state: (routine_claim.bind_generation(state, claim["run_id"], lease, now, network), None)
-        )
+        self.bind(controller, service, claim, now)
 
         def finish(state: record.TeamRoutines) -> tuple[record.TeamRoutines, None]:
             if not any(item.run_id == claim["run_id"] for item in state.runs):

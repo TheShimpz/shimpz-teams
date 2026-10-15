@@ -13,6 +13,7 @@ from unittest import mock
 
 import routine_fixture
 from local_controller_harness import LocalContractCase
+from routine_fixture import KEY
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 
 from action import human as action_human
@@ -36,7 +37,6 @@ from routine import hold as routine_hold
 from routine import record
 from tests import catalog_fixtures, human_request_fixtures
 
-KEY = "e" * 64
 API_KEY = "sk-test-0123456789"
 # SHA-256 of API_KEY, written out so tests check the fingerprint the boundary binds instead of recomputing it.
 API_KEY_SHA256 = "0d3b560722915d2f931a4c4100a00ecbce063d121e577e6b93bbbe7c05f23ad6"
@@ -141,6 +141,18 @@ class RoutineServiceCase(LocalContractCase):
         controller, service = self.service(directory, runtime)
         self.routine(service)
         return controller, service, service.claim_routine_run()
+
+    @staticmethod
+    def bind(controller, service, claim: dict[str, object], now: int | None = None) -> str:
+        """Bind a claimed run's first generation in the Team's network, as its first segment does; return it."""
+        network = controller.assistant_lifecycle._network("team_1").id
+        lease = record.lease_of(claim["lease_token"], KEY)
+        bound = int(time.time()) if now is None else now
+        service.routine_store.update(
+            "team_1",
+            lambda state: (routine_claim.bind_generation(state, claim["run_id"], lease, bound, network), None),
+        )
+        return routine_claim.generation_for(network, claim["run_id"])
 
     def routine(self, service, *, next_run_at: int | None = None, plan: dict | None = None) -> record.Routine:
         """Add one daily confirmed Routine pinned to the Team's current contracts, due now unless told otherwise.
@@ -659,16 +671,7 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
     def test_a_recovered_run_whose_batch_may_have_acted_is_held_as_an_incident(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, service, claim = self.claimed(directory, Runtime())
-            network = controller.assistant_lifecycle._network("team_1").id
-            lease = record.lease_of(claim["lease_token"], KEY)
-            service.routine_store.update(
-                "team_1",
-                lambda state: (
-                    routine_claim.bind_generation(state, claim["run_id"], lease, int(time.time()), network),
-                    None,
-                ),
-            )
-            generation = routine_claim.generation_for(network, claim["run_id"])
+            generation = self.bind(controller, service, claim)
             operation = local_app.action_journal.Operation("action-1", "b" * 64)
             batch = controller.action_state.prepare_batch(generation, "thread", (operation,), archivable=True)
             controller.action_state.begin(batch, operation)

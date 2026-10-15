@@ -9,62 +9,31 @@ from pathlib import Path
 from unittest import mock
 
 import routine_fixture
+from routine_fixture import (
+    ANCHOR,
+    EVERY_HOUR,
+    NINE,
+    added,
+    claimed,
+    epoch,
+    full_notices,
+    routine,
+)
 
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_notice as http_routine_notice
 from protocol.http.v1 import routine_run as http_routine_run
-from routine import claim as routine_claim
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
 
 UTC = datetime.UTC
-KEY = "e" * 64
 DIGEST = "sha256:" + "c" * 64
 DAILY = {"kind": "daily", "time": "09:00"}
-EVERY_HOUR = {"kind": "continuous", "gap": 3600}
 WEEKLY = {"kind": "weekly", "weekday": 0, "time": "09:00"}
 CONTINUOUS = {"kind": "continuous", "gap": 5}
 BATCH = ("net_1:routine:" + "f" * 32, "d" * 64)
-STEP = 1
-
-
-def epoch(*parts: int) -> int:
-    return int(datetime.datetime(*parts, tzinfo=UTC).timestamp())
-
-
-NINE = epoch(2026, 10, 1, 9)
-ANCHOR = epoch(2026, 9, 1)
-
-
-def routine(
-    routine_id: str = "a" * 32, schedule: dict | None = None, *, anchor: int = ANCHOR, plan: dict | None = None
-) -> record.Routine:
-    return routine_fixture.routine(routine_id, name="Daily DNS summary", anchor=anchor, schedule=schedule, plan=plan)
-
-
-def added(*routines: record.Routine) -> record.TeamRoutines:
-    state = record.TeamRoutines()
-    for value in routines:
-        state = record.add_routine(state, value)
-    return state
-
-
-def at(state: record.TeamRoutines, routine_id: str, next_run_at: int) -> record.TeamRoutines:
-    return record._replace_routine(
-        state, dataclasses.replace(record.routine(state, routine_id), next_run_at=next_run_at)
-    )
-
-
-def claimed(now: int = NINE) -> tuple[record.TeamRoutines, record.Claim, record.Lease]:
-    state, claim = routine_claim.claim(at(added(routine()), "a" * 32, NINE), now, KEY)
-    return state, claim, record.lease_of(claim.lease_token, KEY)
-
-
-def bound(now: int = NINE) -> tuple[record.TeamRoutines, record.Claim, record.Lease]:
-    state, claim, lease = claimed(now)
-    return routine_claim.bind_generation(state, claim.run.run_id, lease, now, "net_1"), claim, lease
 
 
 DEFINED = {
@@ -85,12 +54,6 @@ SUMMARY = {
     "actions": [["dns", "list-zones", 1], ["dns", "replace-dns-record", 1]],
     "more": 0,
 }
-
-
-def full_notices(count: int = record.MAX_UNDELIVERED_NOTICES) -> tuple[record.Notice, ...]:
-    return tuple(
-        record.Notice(f"{index:032x}", "c" * 32, "", "done", NINE, routine_fixture.DONE) for index in range(count)
-    )
 
 
 class ContractTests(unittest.TestCase):

@@ -11,7 +11,6 @@ import unittest
 from unittest import mock
 
 import routine_fixture
-import test_routine_record as base
 from test_routine_plan import CONTRACTS, _document
 
 from protocol.http.v1 import routine as http_routine
@@ -381,16 +380,18 @@ def _completed(mode: str, *, notice_version: int = 0, digest: str = "", shown: d
     """A claimed run of a one-step Routine with this disposition, its Routine's last digest, and its finish."""
     output = {"mode": mode, "step": "check" if mode in ("show", "changes") else None}
     plan = routine_fixture.plan_document(output=output)
-    value = base.routine(plan=plan)
-    state = base.at(base.added(value), value.routine_id, base.NINE)
+    value = routine_fixture.routine(plan=plan)
+    state = routine_fixture.at(routine_fixture.added(value), value.routine_id, routine_fixture.NINE)
     current = dataclasses.replace(record.routine(state, value.routine_id), output_digest=digest, failures=2)
-    state, claim = routine_claim.claim(record._replace_routine(state, current), base.NINE, base.KEY)
+    state, claim = routine_claim.claim(
+        record._replace_routine(state, current), routine_fixture.NINE, routine_fixture.KEY
+    )
     if notice_version:
         state = record._replace_run(state, dataclasses.replace(record.run(state, claim.run.run_id), notice_version=1))
     if lost:
         state = routine_runs.lose_protection(state, claim.run.run_id)
-    lease = record.lease_of(claim.lease_token, base.KEY)
-    return routine_runs.finish(state, claim.run.run_id, lease, base.NINE + 5, "done", {}, shown)
+    lease = record.lease_of(claim.lease_token, routine_fixture.KEY)
+    return routine_runs.finish(state, claim.run.run_id, lease, routine_fixture.NINE + 5, "done", {}, shown)
 
 
 def _summary(state: record.TeamRoutines) -> dict[str, object]:
@@ -453,20 +454,19 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual((silent.notices[0].outcome, silent.notices[0].protection_lost), ("done", True))
 
     def test_the_watchdog_completes_a_run_through_the_same_disposition(self) -> None:
-        value = dataclasses.replace(base.routine(), output_digest="")
-        state, claim = routine_claim.claim(base.at(base.added(value), value.routine_id, base.NINE), base.NINE, base.KEY)
-        lease = record.lease_of(claim.lease_token, base.KEY)
-        state = routine_claim.bind_generation(state, claim.run.run_id, lease, base.NINE, "net_1")
+        value = dataclasses.replace(routine_fixture.routine(), output_digest="")
+        due = routine_fixture.at(routine_fixture.added(value), value.routine_id, routine_fixture.NINE)
+        state, claim, _lease = routine_fixture.claim_bound(due, routine_fixture.NINE, network="net_1")
         done = routine_runs.complete_recovered(
-            state, claim.run.run_id, claim.run.lease_sha256, base.NINE + 5, self.shown
+            state, claim.run.run_id, claim.run.lease_sha256, routine_fixture.NINE + 5, self.shown
         )
         self.assertEqual(done.notices[-1].detail["output"], self.output)
 
     def test_an_update_starts_a_fresh_baseline(self) -> None:
         state = _completed("changes", shown=self.shown)
         current = state.routines[0]
-        changed = record.scheduled(dataclasses.replace(current, output_digest="a" * 64), base.NINE + 10)
-        updated = record.update(state, changed, 1, base.NINE + 10)
+        changed = record.scheduled(dataclasses.replace(current, output_digest="a" * 64), routine_fixture.NINE + 10)
+        updated = record.update(state, changed, 1, routine_fixture.NINE + 10)
         self.assertEqual(updated.routines[0].output_digest, "")
 
 

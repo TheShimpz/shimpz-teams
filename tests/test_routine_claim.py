@@ -3,7 +3,7 @@
 import dataclasses
 import unittest
 
-from test_routine_record import KEY, NINE, added, at, epoch, full_notices, routine
+from routine_fixture import KEY, NINE, added, at, epoch, full_notices, routine
 
 from routine import claim as routine_claim
 from routine import hold as routine_hold

@@ -12,18 +12,15 @@ from unittest import mock
 
 import routine_fixture
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from routine_fixture import KEY, NETWORK, NINE, STEP
 
 from local.chat import continuation as local_chat_continuation
 from local.routine import store as routine_store
-from routine import claim as routine_claim
 from routine import hold as routine_hold
 from routine import record
 from routine import runs as routine_runs
 
 UTC = datetime.UTC
-KEY = "e" * 64
-NETWORK = "a" * 64
-NINE = int(datetime.datetime(2026, 10, 1, 9, tzinfo=UTC).timestamp())
 
 
 def routine(routine_id: str = "a" * 32) -> record.Routine:
@@ -56,18 +53,11 @@ def busy_state() -> record.TeamRoutines:
     state = record.add_routine(record.add_routine(record.TeamRoutines(), routine()), routine("b" * 32))
     state = record.add_routine(state, routine("e" * 32))
     now = routine().next_run_at + 60
-    state, first = routine_claim.claim(state, now, KEY)
-    lease = record.lease_of(first.lease_token, KEY)
-    state = routine_claim.bind_generation(state, first.run.run_id, lease, now, NETWORK)
-    position = 1
-    state = routine_runs.freeze(state, first.run.run_id, lease, now, ("human", "dns", "check", position))
-    state, second = routine_claim.claim(state, now, KEY)
-    lease = record.lease_of(second.lease_token, KEY)
-    state = routine_claim.bind_generation(state, second.run.run_id, lease, now, NETWORK)
+    state, first, lease = routine_fixture.claim_bound(state, now)
+    state = routine_runs.freeze(state, first.run.run_id, lease, now, ("human", "dns", "check", STEP))
+    state, second, lease = routine_fixture.claim_bound(state, now)
     state = routine_hold.fence(state, second.run.run_id, lease, now)
-    state, third = routine_claim.claim(state, now, KEY)
-    lease = record.lease_of(third.lease_token, KEY)
-    state = routine_claim.bind_generation(state, third.run.run_id, lease, now, NETWORK)
+    state, third, _lease = routine_fixture.claim_bound(state, now)
     return routine_runs.end(state, third.run.run_id, now, "stopped", {"actions": []})
 
 

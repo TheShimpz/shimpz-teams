@@ -1,6 +1,5 @@
 """Destroying a Team or resetting the Space removes every Routine run's journal generation and state."""
 
-import datetime
 import errno
 import stat
 import tempfile
@@ -10,6 +9,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import routine_fixture
+from routine_fixture import KEY, NETWORK, NINE, STEP
 
 from action import challenges as action_challenges
 from action import journal as action_journal
@@ -26,10 +26,6 @@ from routine import claim as routine_claim
 from routine import record
 from routine import runs as routine_runs
 
-KEY = "e" * 64
-NETWORK = "a" * 64
-NINE = int(datetime.datetime(2026, 10, 1, 9, tzinfo=datetime.UTC).timestamp())
-
 
 def routine(routine_id: str) -> record.Routine:
     return routine_fixture.routine(routine_id, name="Daily DNS check", anchor=NINE - 86_400)
@@ -38,12 +34,9 @@ def routine(routine_id: str) -> record.Routine:
 def two_runs() -> tuple[record.TeamRoutines, str]:
     """One run that bound its generation and froze for a person, and one that has not started a segment yet."""
     state = record.add_routine(record.add_routine(record.TeamRoutines(), routine("a" * 32)), routine("b" * 32))
-    state, bound = routine_claim.claim(state, NINE, KEY)
-    lease = record.lease_of(bound.lease_token, KEY)
-    state = routine_claim.bind_generation(state, bound.run.run_id, lease, NINE, NETWORK)
+    state, bound, lease = routine_fixture.claim_bound(state, NINE)
     # A frozen run holds no execution slot, so the Team may lease its other due Routine.
-    position = 1
-    state = routine_runs.freeze(state, bound.run.run_id, lease, NINE, ("human", "dns", "check", position))
+    state = routine_runs.freeze(state, bound.run.run_id, lease, NINE, ("human", "dns", "check", STEP))
     state, fresh = routine_claim.claim(state, NINE, KEY)
     assert fresh is not None
     return state, bound.run.run_id

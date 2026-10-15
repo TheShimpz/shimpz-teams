@@ -4,7 +4,7 @@ import dataclasses
 import unittest
 
 import routine_fixture
-from test_routine_record import KEY, NINE, STEP, added, at, bound, claimed, epoch, full_notices, routine
+from routine_fixture import KEY, NINE, STEP, added, at, bound, claimed, epoch, full_notices, routine
 
 from routine import claim as routine_claim
 from routine import definition as routine_definition

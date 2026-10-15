@@ -43,15 +43,7 @@ class IncidentCase(RoutineServiceCase):
         value = self.routine(service)
         claim = service.claim_routine_run()
         lease = record.lease_of(claim["lease_token"], KEY)
-        network = controller.assistant_lifecycle._network("team_1").id
-        service.routine_store.update(
-            "team_1",
-            lambda state: (
-                routine_claim.bind_generation(state, claim["run_id"], lease, int(time.time()), network),
-                None,
-            ),
-        )
-        generation = routine_claim.generation_for(network, claim["run_id"])
+        generation = self.bind(controller, service, claim)
         prepared = None
         if batch:
             first, second = _operation("first"), _operation("second")

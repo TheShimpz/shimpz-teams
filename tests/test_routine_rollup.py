@@ -10,7 +10,6 @@ import unittest
 from pathlib import Path
 
 import routine_fixture
-import test_routine_record as base
 
 from local.routine import notices as routine_notices
 from local.routine import store as routine_store
@@ -21,7 +20,7 @@ from routine import runs as routine_runs
 
 ROUTINE_ID = "a" * 32
 # A minute boundary: 09:00:00.
-MINUTE = base.NINE
+MINUTE = routine_fixture.NINE
 NAME = "Resumo das mudanças de DNS"
 # The active time each run of these tests spends.
 RUN_MS = 1200
@@ -30,7 +29,7 @@ RUN_MS = 1200
 def defined(gap: int = 5) -> record.Routine:
     # A one-step Routine that shows no result keeps the compact minute rollup of its healthy runs (ADR-0101); every
     # five seconds all day it uses 17,280 of the Team's 20,000 daily steps.
-    value = base.routine(
+    value = routine_fixture.routine(
         schedule={"kind": "continuous", "gap": gap},
         plan=routine_fixture.plan_document(output={"mode": "none", "step": None}),
     )
@@ -38,14 +37,14 @@ def defined(gap: int = 5) -> record.Routine:
 
 
 def continuous(gap: int = 5) -> record.TeamRoutines:
-    return base.at(base.added(defined(gap)), ROUTINE_ID, MINUTE)
+    return routine_fixture.at(routine_fixture.added(defined(gap)), ROUTINE_ID, MINUTE)
 
 
 def run_once(state: record.TeamRoutines, start: int, end: int, outcome: str = "done") -> record.TeamRoutines:
     """Claim the Routine at ``start`` and let its worker end it at ``end``."""
-    state = base.at(state, ROUTINE_ID, start)
-    state, claim = routine_claim.claim(state, start, base.KEY)
-    lease = record.lease_of(claim.lease_token, base.KEY)
+    state = routine_fixture.at(state, ROUTINE_ID, start)
+    state, claim = routine_claim.claim(state, start, routine_fixture.KEY)
+    lease = record.lease_of(claim.lease_token, routine_fixture.KEY)
     state = routine_runs.spend(state, claim.run.run_id, lease, start, (1, RUN_MS))
     detail = (
         routine_fixture.DONE
@@ -175,18 +174,20 @@ class RollupTests(unittest.TestCase):
         self.assertEqual(record.routine(state, ROUTINE_ID).failures, 0)
 
     def test_a_run_with_its_own_earlier_notice_or_a_scheduled_routine_keeps_one_notice_per_run(self):
-        state = base.at(continuous(), ROUTINE_ID, MINUTE)
-        state, claim = routine_claim.claim(state, MINUTE, base.KEY)
+        state = routine_fixture.at(continuous(), ROUTINE_ID, MINUTE)
+        state, claim = routine_claim.claim(state, MINUTE, routine_fixture.KEY)
         # A run that already published a notice, such as one a person answered, ends on that same notice.
         answered = dataclasses.replace(record.run(state, claim.run.run_id), notice_version=1)
         state = dataclasses.replace(state, runs=(answered,))
-        lease = record.lease_of(claim.lease_token, base.KEY)
+        lease = record.lease_of(claim.lease_token, routine_fixture.KEY)
         state = routine_runs.finish(state, claim.run.run_id, lease, MINUTE + 1, "done", routine_fixture.DONE)
         self.assertEqual(
             [(item.outcome, item.notice_id, item.version) for item in state.notices], [("done", claim.run.run_id, 2)]
         )
-        state, claim, lease = base.claimed()
-        state = routine_runs.finish(state, claim.run.run_id, lease, base.NINE + 1, "done", routine_fixture.DONE)
+        state, claim, lease = routine_fixture.claimed()
+        state = routine_runs.finish(
+            state, claim.run.run_id, lease, routine_fixture.NINE + 1, "done", routine_fixture.DONE
+        )
         self.assertEqual([item.outcome for item in state.notices], ["done"])
 
     def test_a_minute_past_its_bound_rolls_up_nothing_more_and_shows_nothing(self):

@@ -533,13 +533,8 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
     def test_run_state_that_cannot_be_removed_stays_queued_and_holds_back_new_runs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, service, claim = self.claimed(directory, Runtime())
-            network = controller.assistant_lifecycle._network("team_1").id
-            lease = record.lease_of(claim["lease_token"], KEY)
             now = int(time.time())
-            service.routine_store.update(
-                "team_1",
-                lambda state: (routine_claim.bind_generation(state, claim["run_id"], lease, now, network), None),
-            )
+            self.bind(controller, service, claim, now)
             service.routine_store.update(
                 "team_1",
                 lambda state: (routine_runs.end(state, claim["run_id"], now, "stopped", {"actions": []}), None),

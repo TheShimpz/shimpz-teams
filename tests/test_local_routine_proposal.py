@@ -12,6 +12,7 @@ from unittest import mock
 
 import routine_fixture
 from local_controller_harness import LocalContractCase
+from routine_fixture import KEY
 
 from action import human as action_human
 from inference import client as brain_runtime_client
@@ -40,7 +41,6 @@ from tests import human_request_fixtures
 
 PRINCIPAL = "a" * 32
 # The Routine key fingerprint Team admits for a run in these tests.
-KEY = "e" * 64
 OTHER = "b" * 32
 ASSISTANT = "shimpz-cloudflare"
 SHIMPZ = "023e105f4ecef8ad9ca31a8372d0c353"

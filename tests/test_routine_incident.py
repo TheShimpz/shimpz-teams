@@ -4,7 +4,7 @@ import dataclasses
 import unittest
 
 import routine_fixture
-from test_routine_record import KEY, NINE, STEP, added, bound, claimed, routine
+from routine_fixture import KEY, NINE, STEP, added, bound, claimed, held, routine
 
 from routine import claim as routine_claim
 from routine import hold as routine_hold
@@ -15,16 +15,13 @@ from routine import runs as routine_runs
 class IncidentNoticeTests(unittest.TestCase):
     """A held run's one notice goes on through its incident: held, then paused or user-skipped (ADR-0092)."""
 
-    def held(self) -> tuple[record.TeamRoutines, str]:
-        state, claim, lease = bound()
-        run_id = claim.run.run_id
-        return routine_hold.fence(state, run_id, lease, NINE), run_id
-
     def test_a_hold_names_its_step_and_its_notice_goes_on_through_the_incident(self):
-        state, run_id = self.held()
+        state, run_id = held()
         state = routine_hold.settle_hold(state, run_id, NINE + 1, 1, ("dns", "replace-dns-record", STEP, 1))
-        held = routine_hold.incident(state, run_id)
-        self.assertEqual((held.name, held.assistant_id, held.action), (routine().name, "dns", "replace-dns-record"))
+        incident = routine_hold.incident(state, run_id)
+        self.assertEqual(
+            (incident.name, incident.assistant_id, incident.action), (routine().name, "dns", "replace-dns-record")
+        )
         notice = state.notices[-1]
         self.assertEqual(
             (notice.notice_id, notice.outcome, notice.detail, notice.version),
@@ -40,7 +37,7 @@ class IncidentNoticeTests(unittest.TestCase):
                 1,
             ),
         )
-        self.assertEqual(held.notice_version, 1)
+        self.assertEqual(incident.notice_version, 1)
         paused = routine_hold.pause_incident(state, run_id, NINE + 2, "exhausted")
         self.assertTrue(record.routine(paused, "a" * 32).paused)
         self.assertEqual(
@@ -73,7 +70,7 @@ class IncidentNoticeTests(unittest.TestCase):
         self.assertEqual(routine_hold.skip_incident(gone, run_id, NINE, choice="run").notices[-1].name, routine().name)
 
     def test_rodar_keeps_one_fresh_run_pending_through_any_delay_and_never_moves_the_cadence(self):
-        state, run_id = self.held()
+        state, run_id = held()
         state = routine_hold.settle_hold(state, run_id, NINE + 1, 1, ("dns", "replace-dns-record", STEP, 1))
         state = routine_hold.pause_incident(state, run_id, NINE + 2, "exhausted")
         cadence = record.routine(state, "a" * 32).next_run_at
@@ -102,7 +99,7 @@ class IncidentNoticeTests(unittest.TestCase):
             routine_hold.run_incident(state, run_id, NINE + 10, dataclasses.replace(expected, current=2))
 
     def test_deleting_a_routine_sets_a_run_held_afterwards_aside_as_it_is_indexed(self):
-        state, run_id = self.held()
+        state, run_id = held()
         state, _runs = record.begin_delete(state, "a" * 32)
         state = routine_hold.settle_hold(state, run_id, NINE + 1, 1, ("dns", "replace-dns-record", STEP, 1))
         self.assertEqual(routine_hold.incident(state, run_id).status, "skipped")
@@ -156,7 +153,7 @@ class IncidentNoticeTests(unittest.TestCase):
         self.assertIsNone(routine_claim.next_due(held, NINE))
 
     def test_a_hold_without_a_sealed_cursor_names_no_step(self):
-        state, run_id = self.held()
+        state, run_id = held()
         state = routine_hold.settle_hold(state, run_id, NINE + 1)
         self.assertEqual(
             state.notices[-1].detail, {"assistant_id": None, "action": None, "position": None, "steps": None}
@@ -176,10 +173,6 @@ class IncidentNoticeTests(unittest.TestCase):
 
 
 class HoldEdgeTests(unittest.TestCase):
-    def held(self) -> tuple[record.TeamRoutines, str]:
-        state, claim, lease = bound()
-        return routine_hold.fence(state, claim.run.run_id, lease, NINE), claim.run.run_id
-
     def test_a_hold_settles_only_a_held_run_of_a_known_revision_within_the_incident_bound(self):
         state, claim, _lease = bound()
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-held"):
@@ -187,22 +180,22 @@ class HoldEdgeTests(unittest.TestCase):
         unbound, unbound_claim, unbound_lease = claimed()
         with self.assertRaisesRegex(record.RoutineStateError, "generation-invalid"):
             routine_hold.fence(unbound, unbound_claim.run.run_id, unbound_lease, NINE)
-        held, run_id = self.held()
+        fenced, run_id = held()
         with self.assertRaisesRegex(record.RoutineStateError, "incident-invalid"):
-            routine_hold.settle_hold(held, run_id, NINE + 1, 0)
+            routine_hold.settle_hold(fenced, run_id, NINE + 1, 0)
         released = tuple(
             record.Incident(f"{index:032x}", "c" * 32, f"net_1:routine:{index:032x}", NINE, status="released")
             for index in range(record.MAX_INCIDENTS)
         )
-        settled = routine_hold.settle_hold(dataclasses.replace(held, incidents=released), run_id, NINE + 1)
+        settled = routine_hold.settle_hold(dataclasses.replace(fenced, incidents=released), run_id, NINE + 1)
         self.assertEqual(len(settled.incidents), record.MAX_INCIDENTS)
         full = tuple(dataclasses.replace(item, status="skipped") for item in released)
         with self.assertRaisesRegex(record.RoutineStateError, "incident-limit"):
-            routine_hold.settle_hold(dataclasses.replace(held, incidents=full), run_id, NINE + 1)
+            routine_hold.settle_hold(dataclasses.replace(fenced, incidents=full), run_id, NINE + 1)
 
     def test_an_incident_reopens_only_once_unresolved_resumable_and_idle(self):
-        held, run_id = self.held()
-        state = routine_hold.settle_hold(held, run_id, NINE + 1, 1)
+        fenced, run_id = held()
+        state = routine_hold.settle_hold(fenced, run_id, NINE + 1, 1)
         generation = routine_claim.generation_for("net_1", run_id, "s1")
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-found"):
             routine_hold.incident(state, "0" * 32)

@@ -1,9 +1,24 @@
 """A recorded Routine plan and confirmed definitions for Routine record, store, and service tests (ADR-0101)."""
 
 import dataclasses
+import datetime
 
 PIN = "sha256:" + "d" * 64
 SCOPE_PIN = "sha256:" + "a" * 64
+# The routine key fingerprint runs are claimed under, and the Team network their generations are bound in.
+KEY = "e" * 64
+NETWORK = "a" * 64
+# The first step of a plan, by position.
+STEP = 1
+EVERY_HOUR = {"kind": "continuous", "gap": 3600}
+
+
+def epoch(*parts: int) -> int:
+    return int(datetime.datetime(*parts, tzinfo=datetime.UTC).timestamp())
+
+
+NINE = epoch(2026, 10, 1, 9)
+ANCHOR = epoch(2026, 9, 1)
 
 
 # The output disposition a plan names unless a test chooses another: show the one step's result after every run.
@@ -44,11 +59,11 @@ def confirmed(value):
 
 
 def routine(
-    routine_id: str,
-    *,
-    name: str,
-    anchor: int,
+    routine_id: str = "a" * 32,
     schedule: dict[str, object] | None = None,
+    *,
+    name: str = "Daily DNS summary",
+    anchor: int = ANCHOR,
     timezone: str = "UTC",
     plan: dict[str, object] | None = None,
 ):
@@ -67,6 +82,71 @@ def routine(
         )
     )
     return dataclasses.replace(value, next_run_at=record.first_run(value))
+
+
+def added(*routines):
+    """A Team's Routine state holding these Routines and nothing else."""
+    from routine import record
+
+    state = record.TeamRoutines()
+    for value in routines:
+        state = record.add_routine(state, value)
+    return state
+
+
+def at(state, routine_id: str, next_run_at: int):
+    """The state with one Routine next due at ``next_run_at``."""
+    from routine import record
+
+    return record._replace_routine(
+        state, dataclasses.replace(record.routine(state, routine_id), next_run_at=next_run_at)
+    )
+
+
+def claim_bound(state, now: int, *, key: str = KEY, network: str = NETWORK):
+    """Claim the Team's due run at ``now`` and bind its first generation, as its first segment does.
+
+    Returns the state, the claim, and the lease that drives the run.
+    """
+    from routine import claim as routine_claim
+    from routine import record
+
+    state, claim = routine_claim.claim(state, now, key)
+    lease = record.lease_of(claim.lease_token, key)
+    return routine_claim.bind_generation(state, claim.run.run_id, lease, now, network), claim, lease
+
+
+def claimed(now: int = NINE):
+    """The default Routine due at NINE, claimed at ``now``: the state, the claim, and its lease."""
+    from routine import claim as routine_claim
+    from routine import record
+
+    state, claim = routine_claim.claim(at(added(routine()), "a" * 32, NINE), now, KEY)
+    return state, claim, record.lease_of(claim.lease_token, KEY)
+
+
+def bound(now: int = NINE):
+    """The claimed default run with its first generation bound in network ``net_1``."""
+    from routine import claim as routine_claim
+
+    state, claim, lease = claimed(now)
+    return routine_claim.bind_generation(state, claim.run.run_id, lease, now, "net_1"), claim, lease
+
+
+def held():
+    """The bound default run fenced for a hold, and its run id."""
+    from routine import hold as routine_hold
+
+    state, claim, lease = bound()
+    return routine_hold.fence(state, claim.run.run_id, lease, NINE), claim.run.run_id
+
+
+def full_notices(count: int | None = None):
+    """A full queue of undelivered done notices of another Routine."""
+    from routine import record
+
+    total = record.MAX_UNDELIVERED_NOTICES if count is None else count
+    return tuple(record.Notice(f"{index:032x}", "c" * 32, "", "done", NINE, DONE) for index in range(total))
 
 
 def put(store, team_id: str, state) -> None:
