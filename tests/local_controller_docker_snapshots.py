@@ -37,7 +37,7 @@ class LocalSnapshotInventoryMixin:
         )
         self._stage_snapshot(references["unnamed"], manifest(), {snapshots.ASSISTANT_LABEL: None})
         try:
-            local_status, local_catalog = self._api(flow.port, flow.token, "GET", "/v1/local-assistants")
+            local_status, local_catalog = self.api(flow.port, flow.token, "GET", "/v1/local-assistants")
             self.assertEqual(local_status, 200, local_catalog)
             entries = {entry["assistant_id"]: entry for entry in local_catalog["assistants"]}
             self.assertEqual(set(entries), {"fixture-assistant", "broken-labels"})
@@ -52,15 +52,15 @@ class LocalSnapshotInventoryMixin:
                 (shadow_id, "inadmissible", "labels-invalid", None),
             )
             started = time.monotonic()
-            warm_status, warm_catalog = self._api(flow.port, flow.token, "GET", "/v1/local-assistants")
+            warm_status, warm_catalog = self.api(flow.port, flow.token, "GET", "/v1/local-assistants")
             warm_elapsed = time.monotonic() - started
             self.assertEqual(warm_status, 200, warm_catalog)
             self.assertEqual(warm_catalog["assistants"], local_catalog["assistants"])
             self.assertLess(warm_elapsed, 0.5, f"warm Local snapshot inventory took {warm_elapsed:.3f}s")
         finally:
             for reference in references.values():
-                self._run("image", "rm", "--force", reference, check=False)
-        log_result = self._run("logs", flow.controller)
+                self.docker("image", "rm", "--force", reference, check=False)
+        log_result = self.docker("logs", flow.controller)
         logs = log_result.stdout + log_result.stderr
         self.assertNotIn("Docker image event validation failed", logs)
 
@@ -114,5 +114,5 @@ class LocalSnapshotInventoryMixin:
                 + f"ENTRYPOINT {json.dumps(snapshots.RUNTIME_ENTRYPOINT)}\n",
                 encoding="utf-8",
             )
-            self._run("build", "--quiet", "--tag", reference, build_root)
-        return self._run("image", "inspect", "--format", "{{.Id}}", reference).stdout.strip()
+            self.docker("build", "--quiet", "--tag", reference, build_root)
+        return self.docker("image", "inspect", "--format", "{{.Id}}", reference).stdout.strip()

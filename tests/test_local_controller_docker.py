@@ -83,11 +83,11 @@ class DockerFlowTests(
     controller_kind = "local controller"
     controller_extra_env: tuple[str, ...] = ()
 
-    def _new_flow(self) -> DockerFlow:
+    def new_flow(self) -> DockerFlow:
         self._supervisors_by_port: dict[int, DockerFlow] = {}
-        return new_flow(self._run)
+        return new_flow(self.docker)
 
-    def _api(
+    def api(
         self,
         port: int,
         credential: str | None,
@@ -107,7 +107,7 @@ class DockerFlowTests(
                 body,
                 headers,
             )
-        return super()._api(
+        return super().api(
             port,
             credential,
             method,
@@ -117,7 +117,7 @@ class DockerFlowTests(
         )
 
     @staticmethod
-    def _ownership(space_id: str, kind: str) -> dict[str, str]:
+    def ownership(space_id: str, kind: str) -> dict[str, str]:
         return {
             MANAGED_LABEL: "1",
             PROFILE_LABEL: LOCAL_PROFILE,
@@ -125,21 +125,21 @@ class DockerFlowTests(
             KIND_LABEL: kind,
         }
 
-    def _owned_ids(self, resource: str, space_id: str, kind: str) -> list[str]:
-        expected = self._ownership(space_id, kind)
+    def owned_ids(self, resource: str, space_id: str, kind: str) -> list[str]:
+        expected = self.ownership(space_id, kind)
         filters: list[str] = []
         for key, value in expected.items():
             filters.extend(("--filter", f"label={key}={value}"))
         if resource == "container":
-            result = self._run("container", "ls", "--all", "--quiet", *filters, check=False)
+            result = self.docker("container", "ls", "--all", "--quiet", *filters, check=False)
         else:
-            result = self._run("network", "ls", "--quiet", *filters, check=False)
+            result = self.docker("network", "ls", "--quiet", *filters, check=False)
         if result.returncode != 0:
             return []
 
         verified: list[str] = []
         for resource_id in result.stdout.splitlines():
-            inspected = self._run("inspect", resource_id, check=False)
+            inspected = self.docker("inspect", resource_id, check=False)
             if inspected.returncode != 0:
                 continue
             try:
@@ -153,9 +153,9 @@ class DockerFlowTests(
 
     def _cleanup_owned_space(self, space_id: str) -> None:
         # Workloads must leave their networks before Docker can remove those networks.
-        for container_id in self._owned_ids("container", space_id, "assistant"):
+        for container_id in self.owned_ids("container", space_id, "assistant"):
             self._remove("container", "rm", "--force", container_id)
-        for network_id in self._owned_ids("network", space_id, "team"):
+        for network_id in self.owned_ids("network", space_id, "team"):
             self._remove("network", "rm", network_id)
 
     def _wait_registry(self, port: int) -> None:
@@ -171,9 +171,9 @@ class DockerFlowTests(
 
     def _wait_local_controller(self, container: str) -> tuple[int, str]:
         def probe() -> tuple[int, str] | None:
-            state = self._run("inspect", "--format", "{{.State.Status}}", container, check=False)
+            state = self.docker("inspect", "--format", "{{.State.Status}}", container, check=False)
             if state.returncode == 0 and state.stdout.strip() == "running":
-                token_result = self._run(
+                token_result = self.docker(
                     "exec",
                     container,
                     "/opt/venv/bin/python",
@@ -182,10 +182,10 @@ class DockerFlowTests(
                     check=False,
                 )
                 if token_result.returncode == 0 and len(token_result.stdout.strip()) == 64:
-                    mapping = self._run("port", container, "7077/tcp").stdout.strip()
+                    mapping = self.docker("port", container, "7077/tcp").stdout.strip()
                     port = int(mapping.rsplit(":", 1)[1])
                     try:
-                        status, _ = self._api(port, token_result.stdout.strip(), "GET", "/healthz")
+                        status, _ = self.api(port, token_result.stdout.strip(), "GET", "/healthz")
                     except OSError, urllib.error.URLError:
                         pass
                     else:
@@ -195,7 +195,7 @@ class DockerFlowTests(
 
         return self._wait_controller(container, probe, interval=0.25)
 
-    def _prepare_images(self, flow: DockerFlow) -> None:
+    def prepare_images(self, flow: DockerFlow) -> None:
         fixture = (
             "--tag",
             flow.fixture_tag,
@@ -208,9 +208,9 @@ class DockerFlowTests(
         if {flow.controller_tag, flow.egress_proxy_tag} <= flow.caller_images:
             # Nothing heavy is built here, so the small fixture builds from the daemon's cache rather than through
             # a fresh, empty, resource-bounded builder.
-            self._run("build", *fixture)
+            self.docker("build", *fixture)
         else:
-            self._run(
+            self.docker(
                 "buildx",
                 "create",
                 "--name",
@@ -229,8 +229,8 @@ class DockerFlowTests(
                 "memory-swap=4g",
                 "--bootstrap",
             )
-            self._run("buildx", "build", "--builder", flow.builder, "--load", *fixture)
-        self._run(
+            self.docker("buildx", "build", "--builder", flow.builder, "--load", *fixture)
+        self.docker(
             "run",
             "--detach",
             "--name",
@@ -249,13 +249,13 @@ class DockerFlowTests(
             "127.0.0.1::5000",
             REGISTRY_IMAGE,
         )
-        registry_port = int(self._run("port", flow.registry, "5000/tcp").stdout.strip().rsplit(":", 1)[1])
+        registry_port = int(self.docker("port", flow.registry, "5000/tcp").stdout.strip().rsplit(":", 1)[1])
         self._wait_registry(registry_port)
         repository_tag = f"127.0.0.1:{registry_port}/shimpz/shimpz-cloudflare:test"
-        self._run("tag", flow.fixture_tag, repository_tag)
-        self._run("push", repository_tag)
+        self.docker("tag", flow.fixture_tag, repository_tag)
+        self.docker("push", repository_tag)
         repo_digests = json.loads(
-            self._run("image", "inspect", "--format", "{{json .RepoDigests}}", repository_tag).stdout
+            self.docker("image", "inspect", "--format", "{{json .RepoDigests}}", repository_tag).stdout
         )
         flow.trusted_ref = next(
             item for item in repo_digests if item.startswith(repository_tag.rsplit(":", 1)[0] + "@")
@@ -263,17 +263,17 @@ class DockerFlowTests(
         self.assertRegex(flow.trusted_ref, r"@sha256:[0-9a-f]{64}$")
 
         # Remove the exact test references so installation must perform a real digest pull.
-        self._run("image", "rm", repository_tag, flow.fixture_tag)
-        self.assertNotEqual(self._run("image", "inspect", flow.trusted_ref, check=False).returncode, 0)
+        self.docker("image", "rm", repository_tag, flow.fixture_tag)
+        self.assertNotEqual(self.docker("image", "inspect", flow.trusted_ref, check=False).returncode, 0)
 
         self._build_owned(flow, flow.controller_tag, TEAM / "local" / "Dockerfile", TEAM)
 
     def _build_owned(self, flow: DockerFlow, tag: str, dockerfile: Path, context: Path) -> None:
         """Build the image under test, or require the exact image the caller already built from this checkout."""
         if tag in flow.caller_images:
-            self._run("image", "inspect", tag)
+            self.docker("image", "inspect", tag)
             return
-        self._run(
+        self.docker(
             "buildx",
             "build",
             "--builder",
@@ -286,10 +286,10 @@ class DockerFlowTests(
             str(context),
         )
 
-    def _start_controller(self, flow: DockerFlow) -> None:
+    def start_controller(self, flow: DockerFlow) -> None:
         for volume in flow.volumes():
-            self._run("volume", "create", volume)
-        self._run("network", "create", flow.outbound_network)
+            self.docker("volume", "create", volume)
+        self.docker("network", "create", flow.outbound_network)
         self._build_owned(flow, flow.egress_proxy_tag, TEAM.parent / ".egress" / "Dockerfile", TEAM.parent)
         public_key = flow.supervisor_private_key.public_key().public_bytes(
             Encoding.PEM,
@@ -299,7 +299,7 @@ class DockerFlowTests(
             fixture_resolution(flow),
             separators=(",", ":"),
         ).encode()
-        self._run(
+        self.docker(
             "run",
             "--rm",
             "--user",
@@ -325,8 +325,8 @@ class DockerFlowTests(
             "os.chown(r.parent,10001,10001); r.parent.chmod(0o700); "
             "os.chown(r,10001,10001); r.chmod(0o600)",
         )
-        prepare_account_egress_capability(self._run, flow)
-        self._run(
+        prepare_account_egress_capability(self.docker, flow)
+        self.docker(
             "run",
             "--detach",
             "--name",
@@ -369,7 +369,7 @@ class DockerFlowTests(
             flow.egress_proxy_tag,
             "assistant",
         )
-        egress_metadata = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]
+        egress_metadata = json.loads(self.docker("inspect", flow.egress_proxy).stdout)[0]
         egress_host = egress_metadata["HostConfig"]
         self.assertEqual(set(egress_host["CapDrop"]), {"ALL"})
         self.assertIn(egress_host.get("CapAdd"), (None, []))
@@ -379,7 +379,7 @@ class DockerFlowTests(
             {"no-new-privileges", "no-new-privileges:true"},
         )
         socket_gid = str(Path("/var/run/docker.sock").stat().st_gid)
-        self._run(
+        self.docker(
             "run",
             "--detach",
             "--name",
@@ -469,7 +469,7 @@ class DockerFlowTests(
         )
         flow.port, flow.token = self._wait_local_controller(flow.controller)
         self._supervisors_by_port[flow.port] = flow
-        journal_mode = self._run(
+        journal_mode = self.docker(
             "exec",
             flow.controller,
             "/opt/venv/bin/python",
@@ -478,7 +478,7 @@ class DockerFlowTests(
             "print(oct(stat.S_IMODE(s.st_mode)),s.st_uid,s.st_gid,s.st_nlink)",
         ).stdout.strip()
         self.assertEqual(journal_mode, "0o600 10001 10001 1")
-        continuation_files = self._run(
+        continuation_files = self.docker(
             "exec",
             flow.controller,
             "/opt/venv/bin/python",
@@ -493,19 +493,19 @@ class DockerFlowTests(
         ).stdout.strip()
         self.assertEqual(continuation_files, "0o600:10001:10001 0o600:10001:10001")
 
-        unauthenticated, _ = self._api(flow.port, None, "GET", "/v1/assistants")
+        unauthenticated, _ = self.api(flow.port, None, "GET", "/v1/assistants")
         self.assertEqual(unauthenticated, 401)
-        status, catalog = self._api(flow.port, flow.token, "GET", "/v1/assistants")
+        status, catalog = self.api(flow.port, flow.token, "GET", "/v1/assistants")
         controller_logs = ""
         if status != 200:
-            log_result = self._run("logs", flow.controller, check=False)
+            log_result = self.docker("logs", flow.controller, check=False)
             controller_logs = (log_result.stdout + log_result.stderr)[-2000:]
         self.assertEqual(status, 200, f"{catalog}\n{controller_logs}")
         self.assertEqual(catalog["assistants"], [])
         self._assert_local_snapshot_fast_path(flow)
 
     def _exercise_team_storage(self, flow: DockerFlow) -> None:
-        status, created = self._api(
+        status, created = self.api(
             flow.port,
             flow.token,
             "POST",
@@ -514,7 +514,7 @@ class DockerFlowTests(
         )
         self.assertEqual(status, 200, created)
         self.assertTrue(created.get("created"), created)
-        _, created_again = self._api(
+        _, created_again = self.api(
             flow.port,
             flow.token,
             "POST",
@@ -522,25 +522,25 @@ class DockerFlowTests(
             {"team_name": "Demo Team"},
         )
         self.assertFalse(created_again["created"])
-        _, teams = self._api(flow.port, flow.token, "GET", "/v1/teams")
+        _, teams = self.api(flow.port, flow.token, "GET", "/v1/teams")
         self.assertEqual(
             teams["teams"],
             [{"team_id": "demo_team", "team_name": "Demo Team", "status": "running"}],
         )
         # A rename changes only the display name (ADR-0088): the id stays, the old name no longer creates this id.
-        renamed_status, renamed = self._api(
+        renamed_status, renamed = self.api(
             flow.port, flow.token, "PATCH", "/v1/teams/demo_team", {"team_name": "Demo Renamed"}
         )
         self.assertEqual(renamed_status, 200, renamed)
         self.assertEqual((renamed["team_id"], renamed["team_name"]), ("demo_team", "Demo Renamed"))
-        _, teams = self._api(flow.port, flow.token, "GET", "/v1/teams")
+        _, teams = self.api(flow.port, flow.token, "GET", "/v1/teams")
         self.assertEqual(teams["teams"][0]["team_name"], "Demo Renamed")
-        conflict_status, conflict = self._api(
+        conflict_status, conflict = self.api(
             flow.port, flow.token, "POST", "/v1/teams/demo_team/create", {"team_name": "Demo Team"}
         )
         self.assertEqual((conflict_status, conflict["code"]), (409, "team-name-conflict"))
 
-        file_status, uploaded = self._api(
+        file_status, uploaded = self.api(
             flow.port,
             flow.token,
             "POST",
@@ -555,11 +555,11 @@ class DockerFlowTests(
         flow.file_id = uploaded["file"]["id"]
         self.assertRegex(flow.file_id, r"^[0-9a-f]{32}$")
         self.assertEqual(uploaded["file"]["limit_bytes"], 100 * 1024 * 1024)
-        _, files = self._api(flow.port, flow.token, "GET", "/v1/teams/demo_team/files")
+        _, files = self.api(flow.port, flow.token, "GET", "/v1/teams/demo_team/files")
         self.assertEqual(files["files"][0]["id"], flow.file_id)
         self.assertEqual(files["used_bytes"], len(b"Team private data"))
         self.assertEqual(
-            self._run(
+            self.docker(
                 "exec",
                 flow.controller,
                 "test",
@@ -570,10 +570,10 @@ class DockerFlowTests(
             0,
         )
 
-        self._run("restart", flow.controller)
+        self.docker("restart", flow.controller)
         flow.port, flow.token = self._wait_local_controller(flow.controller)
         self._supervisors_by_port[flow.port] = flow
-        restart_status, files_after_restart = self._api(
+        restart_status, files_after_restart = self.api(
             flow.port,
             flow.token,
             "GET",
@@ -583,14 +583,14 @@ class DockerFlowTests(
         self.assertEqual(files_after_restart["files"][0]["id"], flow.file_id)
 
         # A daemon-side network loss must not let a new lifecycle inherit the old opaque data.
-        self._api(
+        self.api(
             flow.port,
             flow.token,
             "POST",
             "/v1/teams/orphan_team/create",
             {"team_name": "Orphan Team"},
         )
-        self._api(
+        self.api(
             flow.port,
             flow.token,
             "POST",
@@ -602,8 +602,8 @@ class DockerFlowTests(
             },
         )
         prefix = hashlib.sha256(flow.space_id.encode("ascii")).hexdigest()[:12]
-        self._run("network", "rm", f"shimpz-local-{prefix}-team-orphan_team")
-        _, recreated = self._api(
+        self.docker("network", "rm", f"shimpz-local-{prefix}-team-orphan_team")
+        _, recreated = self.api(
             flow.port,
             flow.token,
             "POST",
@@ -611,15 +611,15 @@ class DockerFlowTests(
             {"team_name": "Orphan Team"},
         )
         self.assertTrue(recreated["created"])
-        _, orphan_files = self._api(flow.port, flow.token, "GET", "/v1/teams/orphan_team/files")
+        _, orphan_files = self.api(flow.port, flow.token, "GET", "/v1/teams/orphan_team/files")
         self.assertEqual(orphan_files["files"], [])
-        self._api(flow.port, flow.token, "DELETE", "/v1/teams/orphan_team", {"team_name": "Orphan Team"})
+        self.api(flow.port, flow.token, "DELETE", "/v1/teams/orphan_team", {"team_name": "Orphan Team"})
 
     def _exercise_teardown(self, flow: DockerFlow) -> None:
         # The proxy serves only Team's provider calls, so it never joins a Team network (ADR-0106).
-        proxy_metadata = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]
+        proxy_metadata = json.loads(self.docker("inspect", flow.egress_proxy).stdout)[0]
         self.assertEqual(set(proxy_metadata["NetworkSettings"]["Networks"]), {flow.outbound_network})
-        policy_contract = self._run(
+        policy_contract = self.docker(
             "exec",
             flow.controller,
             "/opt/venv/bin/python",
@@ -633,14 +633,14 @@ class DockerFlowTests(
             '["api.cloudflare.com"] 0o640 10001 10017',
         )
 
-        _, removed = self._api(
+        _, removed = self.api(
             flow.port,
             flow.token,
             "DELETE",
             "/v1/teams/demo_team/assistants/shimpz-cloudflare",
         )
         self.assertTrue(removed["uninstalled"])
-        removed_again_status, removed_again = self._api(
+        removed_again_status, removed_again = self.api(
             flow.port,
             flow.token,
             "DELETE",
@@ -649,11 +649,11 @@ class DockerFlowTests(
         # A repeated uninstall confirms the already-absent Assistant instead of failing.
         self.assertEqual(removed_again_status, 200)
         self.assertFalse(removed_again["uninstalled"])
-        proxy_networks_after_uninstall = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0][
+        proxy_networks_after_uninstall = json.loads(self.docker("inspect", flow.egress_proxy).stdout)[0][
             "NetworkSettings"
         ]["Networks"]
         self.assertEqual(set(proxy_networks_after_uninstall), {flow.outbound_network})
-        remaining_policy_files = self._run(
+        remaining_policy_files = self.docker(
             "exec",
             flow.controller,
             "/opt/venv/bin/python",
@@ -662,18 +662,18 @@ class DockerFlowTests(
             "print(len(list(p.glob('*.json'))),len(list((p/'.tokens').glob('*.token'))))",
         ).stdout.strip()
         self.assertEqual(remaining_policy_files, "0 0")
-        _, deleted_file = self._api(
+        _, deleted_file = self.api(
             flow.port,
             flow.token,
             "DELETE",
             f"/v1/teams/demo_team/files/{flow.file_id}",
         )
         self.assertTrue(deleted_file["deleted"])
-        mismatch_status, mismatch = self._api(
+        mismatch_status, mismatch = self.api(
             flow.port, flow.token, "DELETE", "/v1/teams/demo_team", {"team_name": "Demo Team"}
         )
         self.assertEqual((mismatch_status, mismatch["code"]), (409, "team-name-mismatch"))
-        destroy_status, destroyed = self._api(
+        destroy_status, destroyed = self.api(
             flow.port, flow.token, "DELETE", "/v1/teams/demo_team", {"team_name": "Demo Renamed"}
         )
         self.assertEqual(destroy_status, 200, destroyed)
@@ -684,7 +684,7 @@ class DockerFlowTests(
             LOCAL_TEAM_RESIDUES,
         )
         self.assertNotEqual(
-            self._run(
+            self.docker(
                 "exec",
                 flow.controller,
                 "test",
@@ -694,14 +694,14 @@ class DockerFlowTests(
             ).returncode,
             0,
         )
-        _, destroyed_again = self._api(
+        _, destroyed_again = self.api(
             flow.port, flow.token, "DELETE", "/v1/teams/demo_team", {"team_name": "Demo Renamed"}
         )
         self.assertFalse(destroyed_again["destroyed"])
 
     def _exercise_reset(self, flow: DockerFlow) -> None:
         # Reset owns no identifiers and ignores a similarly labeled resource missing the exact kind label.
-        self._run(
+        self.docker(
             "network",
             "create",
             "--internal",
@@ -713,14 +713,14 @@ class DockerFlowTests(
             f"com.shimpz.local.space-id={flow.space_id}",
             flow.foreign_network,
         )
-        self._api(
+        self.api(
             flow.port,
             flow.token,
             "POST",
             "/v1/teams/reset_team/create",
             {"team_name": "Reset Team"},
         )
-        self._api(
+        self.api(
             flow.port,
             flow.token,
             "POST",
@@ -730,7 +730,7 @@ class DockerFlowTests(
                 "source_digest": flow.source_digest,
             },
         )
-        self._api(
+        self.api(
             flow.port,
             flow.token,
             "POST",
@@ -741,17 +741,17 @@ class DockerFlowTests(
                 "X-Shimpz-Filename": "reset.txt",
             },
         )
-        reset_status, reset = self._api(flow.port, flow.token, "DELETE", "/v1/space")
+        reset_status, reset = self.api(flow.port, flow.token, "DELETE", "/v1/space")
         self.assertEqual(reset_status, 200)
         self.assertEqual((reset["assistants_removed"], reset["teams_removed"]), (1, 1))
         self.assertEqual(
             reset["residue_absent"],
             LOCAL_TEAM_RESIDUES,
         )
-        _, reset_again = self._api(flow.port, flow.token, "DELETE", "/v1/space")
+        _, reset_again = self.api(flow.port, flow.token, "DELETE", "/v1/space")
         self.assertEqual((reset_again["assistants_removed"], reset_again["teams_removed"]), (0, 0))
         self.assertNotEqual(
-            self._run(
+            self.docker(
                 "exec",
                 flow.controller,
                 "test",
@@ -761,9 +761,9 @@ class DockerFlowTests(
             ).returncode,
             0,
         )
-        self.assertEqual(self._run("network", "inspect", flow.foreign_network, check=False).returncode, 0)
+        self.assertEqual(self.docker("network", "inspect", flow.foreign_network, check=False).returncode, 0)
 
-        audit = self._run(
+        audit = self.docker(
             "exec",
             flow.controller,
             "/opt/venv/bin/python",
@@ -774,21 +774,21 @@ class DockerFlowTests(
         self.assertIn('"detail":"assistant-integration-unavailable"', audit)
         self.assertNotIn(flow.token, audit)
 
-        token_mode, runtime_token_mode, account_egress_capability_mode = runtime_secret_metadata(self._run, flow)
+        token_mode, runtime_token_mode, account_egress_capability_mode = runtime_secret_metadata(self.docker, flow)
         self.assertEqual(token_mode, "0o440 10001 10010 1 64")
         self.assertEqual(runtime_token_mode, "0o440 10001 10016 1 64")
         self.assertEqual(account_egress_capability_mode, "0o440 10023 10022 1 64")
 
         # Leave one exact-owned pair for the outer finally. This proves cleanup does not depend
         # on reaching the controller reset route and therefore also runs after an earlier failure.
-        self._api(
+        self.api(
             flow.port,
             flow.token,
             "POST",
             "/v1/teams/cleanup_team/create",
             {"team_name": "Cleanup Team"},
         )
-        self._api(
+        self.api(
             flow.port,
             flow.token,
             "POST",
@@ -798,18 +798,18 @@ class DockerFlowTests(
                 "source_digest": flow.source_digest,
             },
         )
-        self.assertEqual(len(self._owned_ids("container", flow.space_id, "assistant")), 1)
-        self.assertEqual(len(self._owned_ids("network", flow.space_id, "team")), 1)
+        self.assertEqual(len(self.owned_ids("container", flow.space_id, "assistant")), 1)
+        self.assertEqual(len(self.owned_ids("network", flow.space_id, "team")), 1)
 
-    def _cleanup(self, flow: DockerFlow) -> None:
+    def cleanup(self, flow: DockerFlow) -> None:
         flow.brain_server.shutdown()
         flow.brain_server.server_close()
         flow.brain_thread.join(timeout=2)
         # Cleanup remains strictly scoped to this test's unique names/labels.
         self._remove("rm", "--force", flow.egress_proxy)
         self._cleanup_owned_space(flow.space_id)
-        owned_containers = self._owned_ids("container", flow.space_id, "assistant")
-        owned_networks = self._owned_ids("network", flow.space_id, "team")
+        owned_containers = self.owned_ids("container", flow.space_id, "assistant")
+        owned_networks = self.owned_ids("network", flow.space_id, "team")
         self._remove("rm", "--force", flow.controller)
         self._remove("rm", "--force", "--volumes", flow.registry)
         self._remove("network", "rm", flow.foreign_network)
@@ -828,7 +828,7 @@ class DockerFlowTests(
         self.assertEqual(owned_networks, [])
         for reference in (flow.trusted_ref, *owned_images):
             if reference:
-                self.assertNotEqual(self._run("image", "inspect", reference, check=False).returncode, 0)
+                self.assertNotEqual(self.docker("image", "inspect", reference, check=False).returncode, 0)
 
     @unittest.skipUnless(os.environ.get("SHIMPZ_RUN_DOCKER_TESTS") == "1", "real Docker test is opt-in")
     def test_local_uninstall_preserves_exact_staged_image_in_daemon(self) -> None:
@@ -901,17 +901,17 @@ class DockerFlowTests(
 
     @unittest.skipUnless(os.environ.get("SHIMPZ_RUN_DOCKER_TESTS") == "1", "real Docker test is opt-in")
     def test_real_pull_isolation_lifecycle_and_space_reset(self) -> None:
-        flow = self._new_flow()
+        flow = self.new_flow()
         try:
-            self._prepare_images(flow)
-            self._start_controller(flow)
+            self.prepare_images(flow)
+            self.start_controller(flow)
             self._exercise_team_storage(flow)
-            self._exercise_assistant(flow)
+            self.exercise_assistant(flow)
             self._exercise_assistant_recovery(flow)
             self._exercise_teardown(flow)
             self._exercise_reset(flow)
         finally:
-            self._cleanup(flow)
+            self.cleanup(flow)
 
 
 if __name__ == "__main__":

@@ -11,8 +11,8 @@ from local.assistant import isolation as local_container_policy
 class LocalAssistantLifecycleMixin:
     """Exercise an Assistant's install profile and process recovery through HTTP."""
 
-    def _exercise_assistant(self, flow: DockerFlow) -> None:
-        unknown_status, _ = self._api(
+    def exercise_assistant(self, flow: DockerFlow) -> None:
+        unknown_status, _ = self.api(
             flow.port,
             flow.token,
             "POST",
@@ -20,9 +20,9 @@ class LocalAssistantLifecycleMixin:
             {"assistant_id": "unknown-assistant", "source_digest": flow.source_digest},
         )
         self.assertEqual(unknown_status, 404)
-        self.assertNotEqual(self._run("image", "inspect", flow.trusted_ref, check=False).returncode, 0)
+        self.assertNotEqual(self.docker("image", "inspect", flow.trusted_ref, check=False).returncode, 0)
 
-        installed_status, installed = self._api(
+        installed_status, installed = self.api(
             flow.port,
             flow.token,
             "POST",
@@ -31,14 +31,14 @@ class LocalAssistantLifecycleMixin:
         )
         controller_logs = ""
         if installed_status != 200:
-            log_result = self._run("logs", flow.controller, check=False)
+            log_result = self.docker("logs", flow.controller, check=False)
             controller_logs = (log_result.stdout + log_result.stderr)[-2000:]
         self.assertEqual(installed_status, 200, f"{installed}\n{controller_logs}")
         self.assertTrue(installed["installed"], installed)
-        self.assertEqual(self._run("image", "inspect", flow.trusted_ref, check=False).returncode, 0)
-        _, catalog = self._api(flow.port, flow.token, "GET", "/v1/assistants")
+        self.assertEqual(self.docker("image", "inspect", flow.trusted_ref, check=False).returncode, 0)
+        _, catalog = self.api(flow.port, flow.token, "GET", "/v1/assistants")
         self.assertEqual(catalog["assistants"], [{"id": "shimpz-cloudflare", "title": "Shimpz Cloudflare"}])
-        _, registry = self._api(flow.port, flow.token, "GET", "/v1/teams/demo_team/assistant-registry")
+        _, registry = self.api(flow.port, flow.token, "GET", "/v1/teams/demo_team/assistant-registry")
         self.assertEqual(
             registry["assistants"],
             [
@@ -51,7 +51,7 @@ class LocalAssistantLifecycleMixin:
             ],
         )
 
-        flow.assistant_name = self._run(
+        flow.assistant_name = self.docker(
             "ps",
             "--all",
             "--filter",
@@ -62,8 +62,8 @@ class LocalAssistantLifecycleMixin:
             "{{.Names}}",
         ).stdout.strip()
         self.assertTrue(flow.assistant_name)
-        flow.original_assistant_id = self._run("inspect", "--format", "{{.Id}}", flow.assistant_name).stdout.strip()
-        metadata = json.loads(self._run("inspect", flow.assistant_name).stdout)[0]
+        flow.original_assistant_id = self.docker("inspect", "--format", "{{.Id}}", flow.assistant_name).stdout.strip()
+        metadata = json.loads(self.docker("inspect", flow.assistant_name).stdout)[0]
         host = metadata["HostConfig"]
         self.assertEqual(metadata["Config"]["User"], "10001:10001")
         self.assertTrue(host["ReadonlyRootfs"])
@@ -84,16 +84,16 @@ class LocalAssistantLifecycleMixin:
         networks = metadata["NetworkSettings"]["Networks"]
         self.assertEqual(len(networks), 1)
         flow.network_name = next(iter(networks))
-        network_metadata = json.loads(self._run("network", "inspect", flow.network_name).stdout)[0]
+        network_metadata = json.loads(self.docker("network", "inspect", flow.network_name).stdout)[0]
         self.assertTrue(network_metadata["Internal"])
         self.assertEqual(network_metadata["Labels"]["com.shimpz.local.space-id"], flow.space_id)
         self.assertEqual(network_metadata["Labels"]["com.shimpz.local.team-name"], "Demo Team")
 
     def _exercise_assistant_recovery(self, flow: DockerFlow) -> None:
-        self._run("kill", flow.assistant_name)
-        stopped_state = self._run("inspect", "--format", "{{.State.Status}}", flow.assistant_name).stdout.strip()
+        self.docker("kill", flow.assistant_name)
+        stopped_state = self.docker("inspect", "--format", "{{.State.Status}}", flow.assistant_name).stdout.strip()
         self.assertEqual(stopped_state, "exited")
-        recovered_status, recovered = self._api(
+        recovered_status, recovered = self.api(
             flow.port,
             flow.token,
             "POST",
@@ -101,11 +101,11 @@ class LocalAssistantLifecycleMixin:
             {"assistant_id": "shimpz-cloudflare", "source_digest": flow.source_digest},
         )
         self.assertEqual((recovered_status, recovered["installed"]), (200, False))
-        restarted_assistant_id = self._run("inspect", "--format", "{{.Id}}", flow.assistant_name).stdout.strip()
+        restarted_assistant_id = self.docker("inspect", "--format", "{{.Id}}", flow.assistant_name).stdout.strip()
         self.assertEqual(restarted_assistant_id, flow.original_assistant_id)
-        self.assertEqual(self._run("inspect", flow.original_assistant_id, check=False).returncode, 0)
+        self.assertEqual(self.docker("inspect", flow.original_assistant_id, check=False).returncode, 0)
 
-        _, installed_again = self._api(
+        _, installed_again = self.api(
             flow.port,
             flow.token,
             "POST",
@@ -114,11 +114,11 @@ class LocalAssistantLifecycleMixin:
         )
         self.assertFalse(installed_again["installed"])
         self.assertEqual(
-            self._run("inspect", "--format", "{{.Id}}", flow.assistant_name).stdout.strip(),
+            self.docker("inspect", "--format", "{{.Id}}", flow.assistant_name).stdout.strip(),
             restarted_assistant_id,
         )
 
-        _, listed = self._api(flow.port, flow.token, "GET", "/v1/teams/demo_team/assistants")
+        _, listed = self.api(flow.port, flow.token, "GET", "/v1/teams/demo_team/assistants")
         self.assertEqual(
             listed["assistants"],
             [
@@ -130,7 +130,7 @@ class LocalAssistantLifecycleMixin:
                 }
             ],
         )
-        account_status, account_inventory = self._api(
+        account_status, account_inventory = self.api(
             flow.port,
             flow.token,
             "GET",
@@ -168,7 +168,7 @@ class LocalAssistantLifecycleMixin:
                 "expires_at": None,
             },
         )
-        account_required, missing_account = self._api(
+        account_required, missing_account = self.api(
             flow.port,
             flow.token,
             "POST",
@@ -177,7 +177,7 @@ class LocalAssistantLifecycleMixin:
         )
         self.assertEqual(account_required, action_execution.INTEGRATION_PRECONDITION_STATUS)
         self.assertEqual(missing_account["code"], "assistant-integration-unavailable")
-        unknown_action, _ = self._api(
+        unknown_action, _ = self.api(
             flow.port,
             flow.token,
             "POST",

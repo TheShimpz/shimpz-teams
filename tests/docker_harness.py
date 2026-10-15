@@ -33,7 +33,7 @@ class DockerHarnessMixin:
     api_read_limit = 32 * 1024 + 1
     controller_kind = "controller"
 
-    def _run(
+    def docker(
         self,
         *arguments: str,
         check: bool = True,
@@ -53,9 +53,9 @@ class DockerHarnessMixin:
         return result
 
     def _remove(self, *arguments: str) -> None:
-        self._run(*arguments, check=False, timeout=120)
+        self.docker(*arguments, check=False, timeout=120)
 
-    def _api(
+    def api(
         self,
         port: int,
         credential: str | None,
@@ -106,7 +106,7 @@ class DockerHarnessMixin:
             if ready is not None:
                 return ready
             time.sleep(interval)
-        log_result = self._run("logs", container, check=False)
+        log_result = self.docker("logs", container, check=False)
         logs = (log_result.stdout + log_result.stderr)[-2000:]
         self.fail(f"the {self.controller_kind} did not become ready: {logs}")
         raise AssertionError("unreachable")

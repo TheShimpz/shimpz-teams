@@ -28,7 +28,7 @@ from perf.local_team_http import (
     TEAM_CPUS,
     TEAM_MEMORY_MIB,
     MeasurementError,
-    _bounded_controller_run,
+    bounded_controller_run,
     run_owned_flow,
 )
 from perf.percentiles import nearest_rank
@@ -73,10 +73,10 @@ SPAN_NAMES = frozenset(
 
 
 def _installed_container(runner: DockerFlowTests, flow: DockerFlow) -> str:
-    ids = runner._owned_ids("container", flow.space_id, "assistant")
+    ids = runner.owned_ids("container", flow.space_id, "assistant")
     if len(ids) != 1:
         raise MeasurementError("installation did not create exactly one owned Assistant container")
-    metadata = json.loads(runner._run("inspect", ids[0]).stdout)[0]
+    metadata = json.loads(runner.docker("inspect", ids[0]).stdout)[0]
     host = metadata["HostConfig"]
     if metadata["State"]["Status"] != "running" or metadata["Config"]["Image"] != flow.trusted_ref:
         raise MeasurementError("the installed Assistant does not run the expected image")
@@ -91,7 +91,7 @@ def _installed_container(runner: DockerFlowTests, flow: DockerFlow) -> str:
 
 
 def _verify_controller_limits(runner: DockerFlowTests, flow: DockerFlow) -> None:
-    metadata = json.loads(runner._run("inspect", flow.controller).stdout)[0]["HostConfig"]
+    metadata = json.loads(runner.docker("inspect", flow.controller).stdout)[0]["HostConfig"]
     if (
         metadata["NanoCpus"] != TEAM_CPUS * 1_000_000_000
         or metadata["Memory"] != TEAM_MEMORY_MIB * 1_048_576
@@ -102,11 +102,11 @@ def _verify_controller_limits(runner: DockerFlowTests, flow: DockerFlow) -> None
 
 
 def _host_container_count(runner: DockerFlowTests) -> int:
-    return len(runner._run("container", "ls", "--all", "--quiet").stdout.splitlines())
+    return len(runner.docker("container", "ls", "--all", "--quiet").stdout.splitlines())
 
 
 def _present(runner: DockerFlowTests, kind: str, identity: str) -> bool:
-    inspection = runner._run(kind, "inspect", identity, check=False)
+    inspection = runner.docker(kind, "inspect", identity, check=False)
     if inspection.returncode == 0:
         return True
     missing = ("no such image",) if kind == "image" else ("no such object", "no such container")
@@ -117,12 +117,12 @@ def _present(runner: DockerFlowTests, kind: str, identity: str) -> bool:
 
 def _sample(runner: DockerFlowTests, flow: DockerFlow, *, cold: bool) -> dict[str, object]:
     if not cold:
-        runner._run("pull", flow.trusted_ref)
+        runner.docker("pull", flow.trusted_ref)
     image_present = _present(runner, "image", flow.trusted_ref)
     if image_present == cold:
         raise MeasurementError("the image cache does not match the selected sample")
     started_monotonic = time.perf_counter_ns()
-    status, body = runner._api(
+    status, body = runner.api(
         flow.port,
         flow.token,
         "POST",
@@ -135,7 +135,7 @@ def _sample(runner: DockerFlowTests, flow: DockerFlow, *, cold: bool) -> dict[st
     container_id = _installed_container(runner, flow)
     if not _present(runner, "image", flow.trusted_ref):
         raise MeasurementError("the exact published digest was not pulled")
-    image = json.loads(runner._run("image", "inspect", flow.trusted_ref).stdout)[0]
+    image = json.loads(runner.docker("image", "inspect", flow.trusted_ref).stdout)[0]
     if (
         flow.trusted_ref not in image.get("RepoDigests", [])
         or not isinstance(image.get("Id"), str)
@@ -144,7 +144,7 @@ def _sample(runner: DockerFlowTests, flow: DockerFlow, *, cold: bool) -> dict[st
     ):
         raise MeasurementError("the pulled image identity or size is unavailable")
     uninstall_started = time.perf_counter_ns()
-    removed_status, removed = runner._api(
+    removed_status, removed = runner.api(
         flow.port,
         flow.token,
         "DELETE",
@@ -236,7 +236,7 @@ def _validated_spans(
 
 
 def _attach_phase_spans(runner: DockerFlowTests, flow: DockerFlow, observations: list[dict[str, object]]) -> None:
-    lines = runner._run("logs", flow.controller).stdout.splitlines()
+    lines = runner.docker("logs", flow.controller).stdout.splitlines()
     for operation in ("install", "uninstall"):
         prefix = f"{SPAN_PREFIX}{operation.upper()} "
         records = [json.loads(line[len(prefix) :]) for line in lines if line.startswith(prefix)]
@@ -270,7 +270,7 @@ def _phase_summary(arm: list[dict[str, object]], operation: str) -> dict[str, ob
 def _measure(runner: DockerFlowTests, flow: DockerFlow, samples: int, *, phase_spans: bool) -> dict[str, object]:
     # Match the host inventory that each uninstall sweeps after removing its Assistant.
     host_containers = _host_container_count(runner)
-    status, body = runner._api(flow.port, flow.token, "POST", "/v1/teams/demo_team/create", {"team_name": "Demo Team"})
+    status, body = runner.api(flow.port, flow.token, "POST", "/v1/teams/demo_team/create", {"team_name": "Demo Team"})
     if status != 200 or body.get("created") is not True:
         raise MeasurementError("the fixture Team was not created")
     observations = []
@@ -315,9 +315,9 @@ def _runner(*, phase_spans: bool) -> DockerFlowTests:
 
 
 def _start_bounded_controller(runner: DockerFlowTests, flow: DockerFlow) -> None:
-    bounded_run, changed = _bounded_controller_run(runner, flow)
-    with mock.patch.object(runner, "_run", side_effect=bounded_run):
-        runner._start_controller(flow)
+    bounded_run, changed = bounded_controller_run(runner, flow)
+    with mock.patch.object(runner, "docker", side_effect=bounded_run):
+        runner.start_controller(flow)
     if not changed[0]:
         raise MeasurementError("Team fixture controller was not started")
     _verify_controller_limits(runner, flow)
@@ -331,8 +331,8 @@ def main() -> int:
     if args.samples < 1 or args.samples > 24:
         parser.error("--samples must be between 1 and 24")
     runner = _runner(phase_spans=args.phase_spans)
-    flow = runner._new_flow()
-    # The real digest is assigned by _prepare_images after this unique-name preflight.
+    flow = runner.new_flow()
+    # The real digest is assigned by prepare_images after this unique-name preflight.
     flow.trusted_ref = f"127.0.0.1:1/shimpz/perf-preflight@sha256:{secrets.token_hex(32)}"
 
     def measure(result: dict[str, object]) -> None:
@@ -350,9 +350,9 @@ def main() -> int:
                 "assistant_memory_mib": ASSISTANT_MEMORY // 1_048_576,
                 "cpuset": flow.test_cpuset,
             },
-            team_image=runner._run("image", "inspect", "--format", "{{.Id}}", flow.controller_tag).stdout.strip(),
+            team_image=runner.docker("image", "inspect", "--format", "{{.Id}}", flow.controller_tag).stdout.strip(),
             host_processors=os.cpu_count(),
-            docker_logging_driver=runner._run("info", "--format", "{{.LoggingDriver}}").stdout.strip(),
+            docker_logging_driver=runner.docker("info", "--format", "{{.LoggingDriver}}").stdout.strip(),
             percentile_method="nearest-rank",
             errors=0,
             phase_limits=(

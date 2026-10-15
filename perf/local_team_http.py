@@ -110,8 +110,8 @@ def _volumes(flow: flow_fixture.DockerFlow) -> tuple[str, ...]:
     )
 
 
-def _residue(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> list[str]:
-    runner._run("info", "--format", "{{.ServerVersion}}")
+def residue(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> list[str]:
+    runner.docker("info", "--format", "{{.ServerVersion}}")
     resources = (
         *(("container", name) for name in (flow.controller, flow.egress_proxy, flow.registry)),
         *(("network", name) for name in (flow.outbound_network, flow.foreign_network)),
@@ -120,12 +120,12 @@ def _residue(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> list[str
     )
     present: list[str] = []
     for kind, name in resources:
-        inspection = runner._run(kind, "inspect", name, check=False)
+        inspection = runner.docker(kind, "inspect", name, check=False)
         if inspection.returncode == 0:
             present.append(f"{kind}:{name}")
         elif not any(marker in inspection.stderr.lower() for marker in ("no such", "not found")):
             raise MeasurementError(f"Docker resource inspection failed for {kind}:{name}")
-    builder = runner._run("buildx", "inspect", flow.builder, check=False)
+    builder = runner.docker("buildx", "inspect", flow.builder, check=False)
     if builder.returncode == 0:
         present.append(f"builder:{flow.builder}")
     elif not any(marker in builder.stderr.lower() for marker in ("no builder", "not found")):
@@ -133,8 +133,8 @@ def _residue(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> list[str
     return present
 
 
-def _bounded_controller_run(runner: DockerFlowTests, flow: flow_fixture.DockerFlow):
-    original = runner._run
+def bounded_controller_run(runner: DockerFlowTests, flow: flow_fixture.DockerFlow):
+    original = runner.docker
     changed = [False]
 
     def run(*arguments: str, **kwargs):
@@ -157,19 +157,19 @@ def _bounded_controller_run(runner: DockerFlowTests, flow: flow_fixture.DockerFl
 
 
 def _start(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
-    replacement, changed = _bounded_controller_run(runner, flow)
-    with mock.patch.object(runner, "_run", side_effect=replacement):
-        runner._start_controller(flow)
+    replacement, changed = bounded_controller_run(runner, flow)
+    with mock.patch.object(runner, "docker", side_effect=replacement):
+        runner.start_controller(flow)
     if not changed[0]:
         raise MeasurementError("Team fixture controller was not started")
-    metadata = json.loads(runner._run("inspect", flow.controller).stdout)[0]["HostConfig"]
+    metadata = json.loads(runner.docker("inspect", flow.controller).stdout)[0]["HostConfig"]
     if (
         metadata["NanoCpus"] != TEAM_CPUS * 1_000_000_000
         or metadata["Memory"] != TEAM_MEMORY_MIB * 1_048_576
         or metadata["MemorySwap"] != TEAM_MEMORY_MIB * 1_048_576
     ):
         raise MeasurementError("Team container limits do not match the workload")
-    status, _ = runner._api(
+    status, _ = runner.api(
         flow.port,
         flow.token,
         "POST",
@@ -178,7 +178,7 @@ def _start(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
     )
     if status != 200:
         raise MeasurementError("disposable Team creation failed")
-    status, _ = runner._api(
+    status, _ = runner.api(
         flow.port,
         flow.token,
         "PUT",
@@ -192,7 +192,7 @@ def _start(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
 def _sample(runner: DockerFlowTests, flow: flow_fixture.DockerFlow, delay_ms: int) -> tuple[float, float]:
     BrainPeer.delay_ms = delay_ms
     started = time.perf_counter_ns()
-    status, body = runner._api(
+    status, body = runner.api(
         flow.port,
         flow.token,
         "POST",
@@ -331,11 +331,11 @@ def _measure_chat(flow: flow_fixture.DockerFlow, *, selected: bool = False) -> d
 
 
 def _require_installed_assistant(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
-    owned = runner._owned_ids("container", flow.space_id, "assistant")
+    owned = runner.owned_ids("container", flow.space_id, "assistant")
     if len(owned) != 1:
         raise MeasurementError("reference Assistant inventory changed during the measured arm")
     # Docker lists abbreviated IDs; inspect resolves the exact installed generation.
-    metadata = json.loads(runner._run("inspect", owned[0]).stdout)[0]
+    metadata = json.loads(runner.docker("inspect", owned[0]).stdout)[0]
     if metadata["Id"] != flow.original_assistant_id:
         raise MeasurementError("reference Assistant identity changed during the measured arm")
     if metadata["State"]["Status"] != "running":
@@ -343,7 +343,7 @@ def _require_installed_assistant(runner: DockerFlowTests, flow: flow_fixture.Doc
 
 
 def _chat_span_records(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> list[dict[str, object]]:
-    logs = runner._run("logs", flow.controller)
+    logs = runner.docker("logs", flow.controller)
     records = []
     for line in (logs.stdout + logs.stderr).splitlines():
         if line.startswith(CHAT_SPAN_PREFIX):
@@ -509,7 +509,7 @@ def _measure_chat_inventory(
         raise MeasurementError("Assistant age probe requires chat spans")
     none_initial = _measure_chat_block(runner, flow, chat_spans=chat_spans, installed=False)
     try:
-        runner._exercise_assistant(flow)
+        runner.exercise_assistant(flow)
     except AssertionError as exc:
         raise MeasurementError("reference Assistant installation contract failed") from exc
     _require_installed_assistant(runner, flow)
@@ -532,10 +532,10 @@ def _measure_chat_inventory(
                 raise MeasurementError("host Docker container population changed during Assistant age probe")
             aged_selected[str(checkpoint)] = {"elapsed_since_install_seconds": round(elapsed, 2), **measured}
             _require_installed_assistant(runner, flow)
-    status, body = runner._api(flow.port, flow.token, "DELETE", "/v1/teams/demo_team/assistants/shimpz-cloudflare")
+    status, body = runner.api(flow.port, flow.token, "DELETE", "/v1/teams/demo_team/assistants/shimpz-cloudflare")
     if status != 200 or body.get("uninstalled") is not True:
         raise MeasurementError("reference Assistant uninstall failed")
-    if runner._owned_ids("container", flow.space_id, "assistant"):
+    if runner.owned_ids("container", flow.space_id, "assistant"):
         raise MeasurementError("reference Assistant remained after uninstall")
     none_restored = _measure_chat_block(runner, flow, chat_spans=chat_spans, installed=False)
     return {
@@ -548,7 +548,7 @@ def _measure_chat_inventory(
 
 
 def _inventory_span_records(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> list[dict[str, object]]:
-    logs = runner._run("logs", flow.controller)
+    logs = runner.docker("logs", flow.controller)
     records = []
     for line in (logs.stdout + logs.stderr).splitlines():
         if line.startswith(INVENTORY_SPAN_PREFIX):
@@ -639,7 +639,7 @@ def _inventory_span_summary(records: list[dict[str, object]], installed: bool) -
 
 
 def _host_container_count(runner: DockerFlowTests) -> int:
-    return len(runner._run("ps", "--all", "--quiet").stdout.splitlines())
+    return len(runner.docker("ps", "--all", "--quiet").stdout.splitlines())
 
 
 def _measure_inventory_route_block(
@@ -666,7 +666,7 @@ def _measure_inventory_route_block(
     samples: list[float] = []
     for index in range(-2, SAMPLES):
         started = time.perf_counter_ns()
-        status, body = runner._api(flow.port, flow.token, "GET", "/v1/teams/demo_team/assistants")
+        status, body = runner.api(flow.port, flow.token, "GET", "/v1/teams/demo_team/assistants")
         elapsed = (time.perf_counter_ns() - started) / 1_000_000
         trace_id = body.get("trace_id") if isinstance(body, dict) else None
         payload = {key: value for key, value in body.items() if key != "trace_id"} if isinstance(body, dict) else None
@@ -700,16 +700,16 @@ def _measure_inventory_route(
 ) -> dict[str, object]:
     none_initial = _measure_inventory_route_block(runner, flow, installed=False, spans=spans)
     try:
-        runner._exercise_assistant(flow)
+        runner.exercise_assistant(flow)
     except AssertionError as exc:
         raise MeasurementError("reference Assistant installation contract failed") from exc
     _require_installed_assistant(runner, flow)
     one_installed = _measure_inventory_route_block(runner, flow, installed=True, spans=spans)
     _require_installed_assistant(runner, flow)
-    status, body = runner._api(flow.port, flow.token, "DELETE", "/v1/teams/demo_team/assistants/shimpz-cloudflare")
+    status, body = runner.api(flow.port, flow.token, "DELETE", "/v1/teams/demo_team/assistants/shimpz-cloudflare")
     if status != 200 or body.get("uninstalled") is not True:
         raise MeasurementError("reference Assistant uninstall failed")
-    if runner._owned_ids("container", flow.space_id, "assistant"):
+    if runner.owned_ids("container", flow.space_id, "assistant"):
         raise MeasurementError("reference Assistant remained after uninstall")
     none_restored = _measure_inventory_route_block(runner, flow, installed=False, spans=spans)
     return {"none_initial": none_initial, "one_installed": one_installed, "none_restored": none_restored}
@@ -741,13 +741,13 @@ def _measure_team_create(runner: DockerFlowTests, flow: flow_fixture.DockerFlow)
         # An existing creation follows each new creation for the same Team in both revisions.
         for name, expected_created in (("new_ms", True), ("existing_ms", False)):
             started = time.perf_counter_ns()
-            status, body = runner._api(flow.port, flow.token, "POST", path, {"team_name": "Performance Team"})
+            status, body = runner.api(flow.port, flow.token, "POST", path, {"team_name": "Performance Team"})
             elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000
             if status != 200 or body.get("created") is not expected_created:
                 raise MeasurementError("Team creation returned a noncanonical result")
             if index >= 0:
                 samples[name].append(elapsed_ms)
-        status, body = runner._api(flow.port, flow.token, "DELETE", f"/v1/teams/{team_id}")
+        status, body = runner.api(flow.port, flow.token, "DELETE", f"/v1/teams/{team_id}")
         if status != 200 or not isinstance(body.get("residue_absent"), list):
             raise MeasurementError("measured Team cleanup failed")
     return {name: nearest_rank(values) for name, values in samples.items()}
@@ -755,7 +755,7 @@ def _measure_team_create(runner: DockerFlowTests, flow: flow_fixture.DockerFlow)
 
 def _sample_team_list(runner: DockerFlowTests, flow: flow_fixture.DockerFlow, expected: dict[str, str]) -> float:
     started = time.perf_counter_ns()
-    status, body = runner._api(flow.port, flow.token, "GET", "/v1/teams")
+    status, body = runner.api(flow.port, flow.token, "GET", "/v1/teams")
     elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000
     teams = [{"team_id": team_id, "team_name": expected[team_id], "status": "running"} for team_id in sorted(expected)]
     if status != 200 or body.get("teams") != teams:
@@ -769,7 +769,7 @@ def _measure_team_list(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -
     for count in TEAM_LIST_COUNTS:
         while len(expected) < count:
             team_id = f"perf_list_{len(expected):02d}"
-            status, body = runner._api(
+            status, body = runner.api(
                 flow.port, flow.token, "POST", f"/v1/teams/{team_id}/create", {"team_name": "List Team"}
             )
             if status != 200 or body.get("created") is not True:
@@ -781,7 +781,7 @@ def _measure_team_list(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -
             [_sample_team_list(runner, flow, expected) for _ in range(TEAM_LIST_SAMPLES)]
         )
     for team_id in sorted(expected.keys() - {"demo_team"}):
-        status, body = runner._api(flow.port, flow.token, "DELETE", f"/v1/teams/{team_id}")
+        status, body = runner.api(flow.port, flow.token, "DELETE", f"/v1/teams/{team_id}")
         if status != 200 or not isinstance(body.get("residue_absent"), list):
             raise MeasurementError("measured Team listing cleanup failed")
     return results
@@ -851,8 +851,8 @@ def _record_workload(
         team_memory_mib=TEAM_MEMORY_MIB,
         team_cpuset=flow.test_cpuset,
         host_processors=os.cpu_count(),
-        docker_logging_driver=runner._run("info", "--format", "{{.LoggingDriver}}").stdout.strip(),
-        team_image=runner._run("image", "inspect", "--format", "{{.Id}}", flow.controller_tag).stdout.strip(),
+        docker_logging_driver=runner.docker("info", "--format", "{{.LoggingDriver}}").stdout.strip(),
+        team_image=runner.docker("image", "inspect", "--format", "{{.Id}}", flow.controller_tag).stdout.strip(),
     )
     if inventory_route:
         result["inventory_span_mode"] = inventory_spans
@@ -901,7 +901,7 @@ def run_owned_flow(
     result: dict[str, object] = {"status": "error", "run_id": flow.space_id}
     owns_names = False
     try:
-        existing = _residue(runner, flow)
+        existing = residue(runner, flow)
         if existing:
             result.update(
                 status="preflight-error",
@@ -910,7 +910,7 @@ def run_owned_flow(
             )
         else:
             owns_names = True
-            runner._prepare_images(flow)
+            runner.prepare_images(flow)
             measure(result)
     except (*_CLEANUP_ERRORS, *errors) as exc:
         result.update(status="error", error_type=type(exc).__name__)
@@ -919,11 +919,11 @@ def run_owned_flow(
     finally:
         if owns_names:
             try:
-                runner._cleanup(flow)
+                runner.cleanup(flow)
             except _CLEANUP_ERRORS as exc:
                 result.update(status="cleanup-error", cleanup_error_type=type(exc).__name__)
             try:
-                remaining = _residue(runner, flow)
+                remaining = residue(runner, flow)
                 if remaining:
                     result.update(status="cleanup-error", residue=remaining)
             except _CLEANUP_ERRORS as exc:
@@ -941,7 +941,7 @@ def run_owned_flow(
 def main() -> int:
     runner, chat_spans, age_probe, inventory_route, inventory_spans = _configured_runner()
     with mock.patch.object(flow_fixture, "BrainLifecycleHandler", BrainPeer):
-        flow = runner._new_flow()
+        flow = runner.new_flow()
     flow.trusted_ref = f"127.0.0.1:1/shimpz/perf-placeholder@sha256:{secrets.token_hex(32)}"
 
     def measure(result: dict[str, object]) -> None:
