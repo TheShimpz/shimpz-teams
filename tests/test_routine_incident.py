@@ -136,7 +136,12 @@ class IncidentNoticeTests(unittest.TestCase):
     def test_a_hold_without_a_sealed_cursor_names_no_step(self):
         state, run_id = held()
         state = routine_hold.settle_hold(state, run_id, NINE + 1)
-        self.assertEqual(routine_hold.held_step(routine_hold.incident(state, run_id)), routine_hold.UNKNOWN_STEP)
+        step = routine_hold.held_step(routine_hold.incident(state, run_id))
+        self.assertEqual(step, routine_hold.UNKNOWN_STEP)
+        # Its incident view names no call.
+        self.assertEqual(
+            routine_hold.step_detail(step), {"assistant_id": None, "action": None, "position": None, "steps": None}
+        )
 
     def test_a_completed_continuation_is_recovered_and_resets_the_streak(self):
         state, claim, lease = bound()
