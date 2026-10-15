@@ -17,6 +17,7 @@ from unittest import mock
 
 from install.bindings import DynamicAssistantStore
 from install.contract import CONTRACT_ROOT
+from local.install import snapshots
 from local.install.registry import AssistantRegistry
 from perf.percentiles import median_p95
 
@@ -29,7 +30,7 @@ RESOLUTION["machine_contract"]["actions"][0]["output_schema"]["additionalPropert
 
 
 def _store(path: Path, selected_count: int, binding_count: int) -> DynamicAssistantStore:
-    store = DynamicAssistantStore(path)
+    store = DynamicAssistantStore(path, local_record_validator=snapshots.validate_record)
     for index in range(binding_count):
         resolution = copy.deepcopy(RESOLUTION)
         resolution["assistant_id"] = f"helper-{index}"

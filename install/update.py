@@ -36,7 +36,7 @@ class AssistantUpdateStore:
         self,
         root: Path,
         *,
-        local_record_validator: bindings.LocalRecordValidator | None = None,
+        local_record_validator: bindings.LocalRecordValidator,
     ) -> None:
         self._root = root
         self._local_record_validator = local_record_validator
@@ -212,7 +212,7 @@ def _encode(update: AssistantUpdate) -> dict[str, object]:
 
 def _decode(
     value: object,
-    local_record_validator: bindings.LocalRecordValidator | None = None,
+    local_record_validator: bindings.LocalRecordValidator,
 ) -> AssistantUpdate:
     if not isinstance(value, dict) or set(value) != {
         "version",
@@ -249,7 +249,7 @@ def _decode(
 def _successor_binding(
     previous: bindings.DynamicAssistantBinding,
     document: dict[str, Any],
-    local_record_validator: bindings.LocalRecordValidator | None,
+    local_record_validator: bindings.LocalRecordValidator,
 ) -> bindings.DynamicAssistantBinding:
     if previous.provenance == "published":
         return bindings.binding_from_resolution(previous.team_id, document)

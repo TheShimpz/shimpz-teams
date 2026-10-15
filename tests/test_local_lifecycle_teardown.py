@@ -24,6 +24,7 @@ from local import app as local_app
 from local import labels as local_labels
 from local import lifecycle as local_team_lifecycle
 from local.install import runtime as local_runtime
+from local.install import snapshots
 from local.install.registry import AssistantRegistry
 
 
@@ -195,7 +196,9 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         own = {**_runtime_resolution(), "source_digest": "sha256:" + "e" * 64}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            registry = AssistantRegistry(DynamicAssistantStore(root / "bindings.json"))
+            registry = AssistantRegistry(
+                DynamicAssistantStore(root / "bindings.json", local_record_validator=snapshots.validate_record)
+            )
             registry.put("team_1", own)
             registry.put("team_2", shared)
             icon_store = AssistantIconStore(root / "icons")
@@ -228,7 +231,9 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         resolution = _runtime_resolution()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            registry = AssistantRegistry(DynamicAssistantStore(root / "bindings.json"))
+            registry = AssistantRegistry(
+                DynamicAssistantStore(root / "bindings.json", local_record_validator=snapshots.validate_record)
+            )
             registry.put("team_1", resolution)
             icon_store = AssistantIconStore(root / "icons")
             with icon_store.retained(resolution, ICON, registry.bindings):

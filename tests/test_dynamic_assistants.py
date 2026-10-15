@@ -57,7 +57,9 @@ class PublishedAdmissionCacheTests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.store = DynamicAssistantStore(Path(self.directory.name) / "bindings.json")
+        self.store = DynamicAssistantStore(
+            Path(self.directory.name) / "bindings.json", local_record_validator=validate_local_record
+        )
         bindings._ADMISSIONS.clear()
         self.addCleanup(bindings._ADMISSIONS.clear)
 
@@ -100,7 +102,7 @@ class TeamAssistantLimitTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name) / "bindings.json"
-        self.store = DynamicAssistantStore(self.path)
+        self.store = DynamicAssistantStore(self.path, local_record_validator=validate_local_record)
 
     def _fill(self, count: int) -> None:
         for index in range(count):
@@ -136,7 +138,9 @@ class TeamAssistantLimitTests(unittest.TestCase):
         def install(assistant_id: str) -> str:
             ready.wait(timeout=5)
             try:
-                DynamicAssistantStore(self.path).put("team_1", named_resolution(assistant_id))
+                DynamicAssistantStore(self.path, local_record_validator=validate_local_record).put(
+                    "team_1", named_resolution(assistant_id)
+                )
             except AssistantLimitReachedError:
                 return "refused"
             return "installed"
@@ -152,7 +156,7 @@ class DynamicAssistantStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.path = Path(self.directory.name) / "bindings.json"
-        self.store = DynamicAssistantStore(self.path)
+        self.store = DynamicAssistantStore(self.path, local_record_validator=validate_local_record)
 
     def tearDown(self) -> None:
         self.directory.cleanup()
@@ -166,7 +170,10 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.assertEqual(first.binding_digest, repeated.binding_digest)
         self.assertNotEqual(first.binding_digest, other_team.binding_digest)
         self.assertEqual(first.provenance, "published")
-        self.assertEqual(DynamicAssistantStore(self.path).get("team_1", "hello-world"), first)
+        self.assertEqual(
+            DynamicAssistantStore(self.path, local_record_validator=validate_local_record).get("team_1", "hello-world"),
+            first,
+        )
         self.assertEqual(self.store.list("team_1"), (first,))
         self.assertEqual(self.store.snapshot(), (first, other_team))
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
@@ -176,9 +183,9 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.assertEqual(document["bindings"][0]["provenance"], "published")
         self.assertIn("resolution", document["bindings"][0])
 
-    def test_local_binding_requires_an_explicit_profile_validator(self) -> None:
-        with self.assertRaisesRegex(DynamicAssistantError, "unavailable in this profile"):
-            self.store.put_local("team_1", copy.deepcopy(LOCAL_RECORD))
+    def test_local_binding_is_admitted_only_by_its_validator(self) -> None:
+        with self.assertRaisesRegex(DynamicAssistantError, "local Assistant record is invalid"):
+            self.store.put_local("team_1", {**LOCAL_RECORD, "assistant_id": "other-example"})
         self.assertFalse(self.path.exists())
 
         local_store = DynamicAssistantStore(self.path, local_record_validator=validate_local_record)

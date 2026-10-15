@@ -1,4 +1,4 @@
-"""Chat attachment rules both profiles share (ADR-0093).
+"""Chat attachment rules for every Team turn (ADR-0093).
 
 Team alone reads the selected files, prepares them for the message, and rehydrates them for every segment of the
 logical turn; Brain receives them only as request-local content. While any attachment's text or image is in the turn,

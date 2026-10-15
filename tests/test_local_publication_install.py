@@ -25,6 +25,7 @@ from local.chat import private as local_chat_private
 from local.chat import state as local_chat_state
 from local.errors import ApiProblemError
 from local.install import registry as local_registry
+from local.install import snapshots
 from local.install.developers import (
     DevelopersClient,
     DevelopersError,
@@ -50,7 +51,9 @@ def _runtime_resolution() -> dict[str, object]:
 def _publication_controller(directory: str) -> local_app.LocalController:
     """A Local controller with an empty durable registry and a Developers peer that serves the fixture icon."""
     controller = object.__new__(local_app.LocalController)
-    controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+    controller.registry = AssistantRegistry(
+        DynamicAssistantStore(Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record)
+    )
     controller.developers = mock.Mock()
     controller.developers.icon.return_value = ICON
     controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
@@ -234,7 +237,11 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
     def test_registry_binds_publications_independently_per_team(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            registry = AssistantRegistry(
+                DynamicAssistantStore(
+                    Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record
+                )
+            )
             first = registry.put("team_1", _runtime_resolution())
             second = registry.put("team_2", _runtime_resolution())
 
@@ -275,7 +282,9 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
     def test_chat_inventory_reads_and_validates_the_registry_once_for_four_assistants(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = DynamicAssistantStore(Path(directory) / "bindings.json")
+            store = DynamicAssistantStore(
+                Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record
+            )
             containers = [
                 SimpleNamespace(
                     id=f"container-{index}", labels={local_app.ASSISTANT_LABEL: assistant_id}, status="running"
@@ -313,7 +322,9 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
     def test_spec_enumeration_uses_one_team_scoped_registry_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = DynamicAssistantStore(Path(directory) / "bindings.json")
+            store = DynamicAssistantStore(
+                Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record
+            )
             containers = [_spec_container(assistant_id) for assistant_id in _bind_helpers(store)]
             _bind_foreign(store, name="Foreign Assistant")
             containers.reverse()
@@ -367,7 +378,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
     def test_private_inventories_reuse_one_team_scoped_spec_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            store = DynamicAssistantStore(root / "bindings.json")
+            store = DynamicAssistantStore(root / "bindings.json", local_record_validator=snapshots.validate_record)
             containers = [_spec_container(assistant_id) for assistant_id in _bind_helpers(store)]
             _bind_foreign(store, name="Foreign Assistant", assistant_version="9.9.9")
             order, list_containers, read_bindings = _ordered_reads(store, containers)
@@ -426,7 +437,9 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
     def test_installed_inventory_uses_one_team_scoped_registry_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            store = DynamicAssistantStore(Path(directory) / "bindings.json")
+            store = DynamicAssistantStore(
+                Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record
+            )
             containers = [
                 SimpleNamespace(labels={local_app.ASSISTANT_LABEL: assistant_id}, status="running")
                 for assistant_id in _bind_helpers(store)
@@ -565,7 +578,11 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
     def test_trusted_image_requires_the_bound_publication_labels(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            registry = AssistantRegistry(
+                DynamicAssistantStore(
+                    Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record
+                )
+            )
             spec = registry.put("team_1", _runtime_resolution())
             image = SimpleNamespace(
                 attrs={

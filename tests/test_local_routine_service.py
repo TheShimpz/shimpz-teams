@@ -22,6 +22,7 @@ from install.bindings import DynamicAssistantStore
 from local import app as local_app
 from local import audit as local_audit
 from local import authority as local_authority
+from local.install import snapshots
 from local.install.registry import AssistantRegistry
 from local.labels import ASSISTANT_LABEL
 from local.routine import contracts as routine_contracts
@@ -229,7 +230,11 @@ class RoutineServiceCase(LocalContractCase):
         scan = type(service)._active_chat_assistants.__get__(service)
         with (
             mock.patch.object(service, "_active_chat_assistants", scan),
-            mock.patch.object(service, "registry", AssistantRegistry(DynamicAssistantStore(path))),
+            mock.patch.object(
+                service,
+                "registry",
+                AssistantRegistry(DynamicAssistantStore(path, local_record_validator=snapshots.validate_record)),
+            ),
             mock.patch.object(service.assistant_lifecycle, "client", docker, create=True),
         ):
             yield

@@ -10,6 +10,7 @@ from unittest import mock
 from install.bindings import DynamicAssistantConflictError, DynamicAssistantError, DynamicAssistantStore
 from install.contract import CONTRACT_ROOT
 from install.update import AssistantResidueStore, AssistantUpdateStore
+from local.install import snapshots
 
 RESOLUTION = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())["fixtures"]["resolve_response"]["value"]
 
@@ -18,8 +19,8 @@ class AssistantUpdateStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         root = Path(self.directory.name)
-        self.bindings = DynamicAssistantStore(root / "bindings.json")
-        self.updates = AssistantUpdateStore(root / "updates")
+        self.bindings = DynamicAssistantStore(root / "bindings.json", local_record_validator=snapshots.validate_record)
+        self.updates = AssistantUpdateStore(root / "updates", local_record_validator=snapshots.validate_record)
         self.residues = AssistantResidueStore(root / "residues")
 
     def tearDown(self) -> None:

@@ -12,7 +12,7 @@ from install import artifact_trust, bindings, icons
 from install.bindings import DynamicAssistantStore
 from local import audit as local_audit
 from local.errors import ApiProblemError
-from local.install import developers
+from local.install import developers, snapshots
 from local.install import registry as publication_registry
 from local.install import service as install_service
 from tests.test_local_publication_install import ICON, RESOLUTION, _Connection, _Response, _runtime_resolution
@@ -97,7 +97,11 @@ class LocalInstallEdgeTests(unittest.TestCase):
         self.assertFalse(publication_registry.is_successor(current, candidate))
 
         with tempfile.TemporaryDirectory() as directory:
-            registry = publication_registry.AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            registry = publication_registry.AssistantRegistry(
+                DynamicAssistantStore(
+                    Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record
+                )
+            )
             resolution = _runtime_resolution()
             spec = registry.put("team_1", resolution)
             binding = registry.binding("team_1", spec.assistant_id)

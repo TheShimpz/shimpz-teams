@@ -12,6 +12,7 @@ from unittest import mock
 
 from install import bindings, contract, lock, update
 from install.contract import CONTRACT_ROOT
+from local.install import snapshots
 
 RESOLUTION = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())["fixtures"]["resolve_response"]["value"]
 IMAGE_ID = "sha256:" + "a" * 64
@@ -29,7 +30,7 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name, "bindings.json")
-        self.store = bindings.DynamicAssistantStore(self.path)
+        self.store = bindings.DynamicAssistantStore(self.path, local_record_validator=snapshots.validate_record)
 
     def test_capacity_invalid_fence_and_idempotent_replace_edges(self) -> None:
         with (
@@ -97,7 +98,7 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
             },
         ):
             with self.subTest(value=value), self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
-                bindings._decode_binding(value)
+                bindings._decode_binding(value, snapshots.validate_record)
 
         published = bindings.binding_from_resolution("team_1", copy.deepcopy(RESOLUTION))
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "not a local snapshot"):
@@ -127,7 +128,7 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
                     "malformed",
                 ),
             ):
-                bindings._decode_binding(value)
+                bindings._decode_binding(value, snapshots.validate_record)
 
         invalid = bindings.DynamicAssistantBinding("team_1", IMAGE_ID, "unknown", {})
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
@@ -204,9 +205,11 @@ class UpdateStoreEdgeCoverageTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         root = Path(self.directory.name)
-        self.binding_store = bindings.DynamicAssistantStore(root / "bindings.json")
+        self.binding_store = bindings.DynamicAssistantStore(
+            root / "bindings.json", local_record_validator=snapshots.validate_record
+        )
         self.previous = self.binding_store.put("team_1", copy.deepcopy(RESOLUTION))
-        self.updates = update.AssistantUpdateStore(root / "updates")
+        self.updates = update.AssistantUpdateStore(root / "updates", local_record_validator=snapshots.validate_record)
         self.residues = update.AssistantResidueStore(root / "residues")
 
     def test_begin_rejects_noop_identity_and_image_edges(self) -> None:
@@ -319,18 +322,18 @@ class UpdateStoreEdgeCoverageTests(unittest.TestCase):
     def test_update_decode_rejects_shapes_and_cross_assistant_identity(self) -> None:
         for value in (None, {"version": 1}):
             with self.subTest(value=value), self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
-                update._decode(value)
+                update._decode(value, snapshots.validate_record)
 
         current = self.updates.begin(self.previous, _successor(), IMAGE_ID)
         encoded = update._encode(current)
         encoded["version"] = 1
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
-            update._decode(encoded)
+            update._decode(encoded, snapshots.validate_record)
 
         encoded = update._encode(current)
         encoded["assistant_id"] = "other"
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
-            update._decode(encoded)
+            update._decode(encoded, snapshots.validate_record)
 
         encoded = update._encode(current)
         previous = current.previous
@@ -350,11 +353,11 @@ class UpdateStoreEdgeCoverageTests(unittest.TestCase):
                 mock.patch.object(bindings, "_decode_binding", side_effect=(previous, successor)),
                 self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"),
             ):
-                update._decode(encoded)
+                update._decode(encoded, snapshots.validate_record)
 
         invalid = SimpleNamespace(provenance="unknown", team_id="team_1")
         with self.assertRaisesRegex(bindings.DynamicAssistantConflictError, "provenance is invalid"):
-            update._successor_binding(invalid, {}, None)
+            update._successor_binding(invalid, {}, snapshots.validate_record)
 
     def test_update_write_cleans_partial_file_and_invalid_residue_id_fails(self) -> None:
         path = Path(self.directory.name, "updates", "state.json")

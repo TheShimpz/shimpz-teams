@@ -26,7 +26,7 @@ _CONTRACTS = ContractValidator()
 # digest covers the exact resolution, so an admission is never reused for other bytes, and the registry file is still
 # read and integrity-checked on every read.
 _MAX_ADMISSIONS = 1024
-_ADMISSIONS: OrderedDict[tuple[str, LocalRecordValidator | None], None] = OrderedDict()
+_ADMISSIONS: OrderedDict[tuple[str, LocalRecordValidator], None] = OrderedDict()
 _ADMISSIONS_LOCK = threading.Lock()
 _PUBLISHED = "published"
 _LOCAL = "local"
@@ -76,7 +76,7 @@ class DynamicAssistantBinding:
 class DynamicAssistantStore:
     """One controller-private, atomic registry shared by request threads."""
 
-    def __init__(self, path: Path, *, local_record_validator: LocalRecordValidator | None = None) -> None:
+    def __init__(self, path: Path, *, local_record_validator: LocalRecordValidator) -> None:
         self._path = path
         self._lock_path = path.with_suffix(f"{path.suffix}.lock")
         self._local_record_validator = local_record_validator
@@ -265,11 +265,9 @@ def binding_from_resolution(
 def binding_from_local_record(
     team_id: str,
     record: dict[str, Any],
-    validator: LocalRecordValidator | None,
+    validator: LocalRecordValidator,
 ) -> DynamicAssistantBinding:
     _validate_team_id(team_id)
-    if validator is None:
-        raise DynamicAssistantError("local Assistant bindings are unavailable in this profile")
     if not isinstance(record, dict):
         raise DynamicAssistantError("the local Assistant record is invalid")
     validator(record)
@@ -298,7 +296,7 @@ def _binding(
 
 def _decode_binding(
     value: object,
-    local_record_validator: LocalRecordValidator | None = None,
+    local_record_validator: LocalRecordValidator,
 ) -> DynamicAssistantBinding:
     if not isinstance(value, dict) or not isinstance(value.get("provenance"), str):
         raise DynamicAssistantError("the dynamic Assistant registry binding is malformed")
@@ -318,7 +316,7 @@ def _decode_binding(
     return intact
 
 
-def _admit(intact: DynamicAssistantBinding, validator: LocalRecordValidator | None) -> None:
+def _admit(intact: DynamicAssistantBinding, validator: LocalRecordValidator) -> None:
     """Admit one intact binding under the current contract, once per binding digest and validator.
 
     A digest covers the binding's whole document, and each admission is a pure verdict on that document, so only an
