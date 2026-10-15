@@ -125,7 +125,7 @@ class RecordingBookTests(unittest.TestCase):
         book = routine_recorder.RecordingBook()
         self.assertIsNone(routine_recorder.stated_schedule(None))
         for message, expected in (
-            ("Liste o DNS a cada 30 minutos", {"kind": "continuous", "gap": 1800, "cap": 48}),
+            ("Liste o DNS a cada 30 minutos", {"kind": "continuous", "gap": 1800}),
             ("Liste o DNS", None),
             ("Liste o DNS a cada hora ou todo dia às 9h", None),
         ):
@@ -397,7 +397,7 @@ class OutcomeTests(unittest.TestCase):
         for change in (
             {"op": "create"},
             {"name": "a\nb"},
-            {"schedule": {"kind": "hourly", "every": 1}},
+            {"schedule": {"kind": "continuous", "gap": 3600}},
             {"output": {"mode": "show"}},
         ):
             with self.subTest(change=change), self.assertRaises(local_app.ApiProblem) as caught:

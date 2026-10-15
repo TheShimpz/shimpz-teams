@@ -23,9 +23,9 @@ UTC = datetime.UTC
 KEY = "e" * 64
 DIGEST = "sha256:" + "c" * 64
 DAILY = {"kind": "daily", "time": "09:00"}
-HOURLY = {"kind": "hourly", "every": 1}
+EVERY_HOUR = {"kind": "continuous", "gap": 3600}
 WEEKLY = {"kind": "weekly", "weekday": 0, "time": "09:00"}
-CONTINUOUS = {"kind": "continuous", "gap": 5, "cap": 17_280}
+CONTINUOUS = {"kind": "continuous", "gap": 5}
 BATCH = ("net_1:routine:" + "f" * 32, "d" * 64)
 STEP = 1
 
@@ -378,7 +378,7 @@ class AddTests(unittest.TestCase):
         plan["steps"] = [{**plan["steps"][0], "id": f"s{index}"} for index in range(100)]
         plan["output"] = {"mode": "none", "step": None}
         hundred = routine_fixture.confirmed(
-            dataclasses.replace(routine(), plan=plan, schedule={"kind": "continuous", "gap": 432, "cap": 200})
+            dataclasses.replace(routine(), plan=plan, schedule={"kind": "continuous", "gap": 432})
         )
         hundred = dataclasses.replace(hundred, next_run_at=record.first_run(hundred))
         # 200 runs of 100 steps is exactly the Team's 20,000 daily steps.
@@ -387,7 +387,7 @@ class AddTests(unittest.TestCase):
         self.assertEqual(routine_definition.capacity(state.routines), 0)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-step-budget"):
             record.add_routine(state, routine("b" * 32))
-        over = dataclasses.replace(hundred, schedule={"kind": "continuous", "gap": 430, "cap": 201})
+        over = dataclasses.replace(hundred, schedule={"kind": "continuous", "gap": 430})
         over = dataclasses.replace(over, next_run_at=record.first_run(over))
         with self.assertRaisesRegex(record.RoutineStateError, "routine-step-budget"):
             record.add_routine(record.TeamRoutines(), over)
@@ -400,7 +400,7 @@ class AddTests(unittest.TestCase):
         # 2,880 more, no longer fits beside it, while a daily one does.
         busy = added(routine("b" * 32, CONTINUOUS))
         record.add_routine(busy, routine())
-        every_thirty = {"kind": "continuous", "gap": 30, "cap": 2880}
+        every_thirty = {"kind": "continuous", "gap": 30}
         with self.assertRaisesRegex(record.RoutineStateError, "routine-step-budget"):
             record.add_routine(busy, routine("c" * 32, every_thirty))
         with self.assertRaisesRegex(record.RoutineStateError, "routine-not-found"):
@@ -409,7 +409,8 @@ class AddTests(unittest.TestCase):
     def test_the_first_firing_is_strictly_after_confirmation(self):
         self.assertEqual(routine(anchor=epoch(2026, 9, 1, 9, 30)).next_run_at, epoch(2026, 9, 2, 9))
         self.assertEqual(routine(anchor=epoch(2026, 9, 1, 9)).next_run_at, epoch(2026, 9, 2, 9))
-        self.assertEqual(routine(schedule=HOURLY, anchor=NINE).next_run_at, NINE + 3600)
+        # An interval runs right after confirmation, then its gap after each start.
+        self.assertEqual(routine(schedule=EVERY_HOUR, anchor=NINE).next_run_at, NINE)
 
 
 _JSON_TYPES = (None, True, 0, 1.5, "", "x", [], [[]], {}, {"k": []})
@@ -514,7 +515,7 @@ class ConfirmedChangeTests(unittest.TestCase):
             record.create(state, routine(), NINE + 5)
 
     def test_a_notice_keeps_the_timezone_source_it_was_written_with(self):
-        unzoned = dataclasses.replace(routine(schedule=HOURLY), timezone_source="none")
+        unzoned = dataclasses.replace(routine(schedule=EVERY_HOUR), timezone_source="none")
         state = record.create(record.TeamRoutines(), unzoned, NINE)
         lisbon = {**unzoned.plan, "timezone": "Europe/Lisbon"}
         zoned = dataclasses.replace(unzoned, timezone="Europe/Lisbon", timezone_source="person", plan=lisbon)
@@ -540,7 +541,7 @@ class ConfirmedChangeTests(unittest.TestCase):
         changed = record.scheduled(dataclasses.replace(routine(), name="DNS summary", schedule=WEEKLY), NINE)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-revision-changed"):
             record.update(state, changed, 2, NINE)
-        every_thirty = {"kind": "continuous", "gap": 30, "cap": 2880}
+        every_thirty = {"kind": "continuous", "gap": 30}
         with self.assertRaisesRegex(record.RoutineStateError, "routine-step-budget"):
             record.update(
                 added(routine(), routine("b" * 32, CONTINUOUS)),
@@ -587,7 +588,7 @@ class DefinitionZoneTests(unittest.TestCase):
     def test_a_definition_out_of_its_zone_or_revision_is_invalid(self):
         self.assertFalse(record.definition_valid(dataclasses.replace(routine(), timezone="Mars/Olympus")))
         # A Routine with no known zone runs on UTC by convention, its run date included; it is never another zone.
-        unzoned = dataclasses.replace(routine(schedule=HOURLY), timezone_source="none")
+        unzoned = dataclasses.replace(routine(schedule=EVERY_HOUR), timezone_source="none")
         self.assertTrue(record.definition_valid(unzoned))
         self.assertTrue(record.definition_valid(dataclasses.replace(routine(), timezone_source="none")))
         self.assertFalse(record.definition_valid(dataclasses.replace(routine(), timezone_source="phone")))

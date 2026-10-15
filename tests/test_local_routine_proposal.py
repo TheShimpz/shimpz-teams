@@ -76,7 +76,7 @@ MESSAGE = (
     "Pergunta: De qual zona?\nResposta: shimpz.com\n"
     "Pergunta: O que fazer com o resultado?\nResposta: Mostrar em todas as execuções"
 )
-CONTINUOUS = {"kind": "continuous", "gap": 30, "cap": 2880}
+CONTINUOUS = {"kind": "continuous", "gap": 30}
 
 
 def _record(**changes: object) -> dict[str, object]:
@@ -806,7 +806,7 @@ class RecordedRoutineTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
             card = self.chat(service)["routine_proposal"]
-        self.assertEqual((card["schedule"]["cap"], card["daily_cap"]), (2880, 2880))
+        self.assertEqual((card["schedule"], card["daily_cap"]), ({"kind": "continuous", "gap": 30}, 2880))
         # Two steps every 30 seconds take 5,760 daily steps; with 5,758 left, every 31 seconds is the shortest fit.
         with mock.patch.object(routine_definition, "capacity", return_value=2 * 2879):
             asked = self.question(Recording(_record()))
@@ -815,7 +815,7 @@ class RecordedRoutineTests(LocalContractCase):
             self.assertEqual(self.refusal(Recording(_record())), "routine-step-budget")
 
     def test_a_replacement_without_actions_keeps_the_steps_and_confirms_as_the_next_revision(self) -> None:
-        hourly = {"kind": "hourly", "every": 1}
+        every_hour = {"kind": "continuous", "gap": 3600}
         with tempfile.TemporaryDirectory() as directory:
             runtime = Recording(_record())
             service = self.controller(directory, runtime)
@@ -828,7 +828,7 @@ class RecordedRoutineTests(LocalContractCase):
             state = service.routine_store.load("team_1")
         (routine,) = state.routines
         self.assertEqual((card["replaces"], answer["status"], routine.revision), (routine_id, "changed", 2))
-        self.assertEqual((routine.schedule, routine.name, len(routine.plan["steps"])), (hourly, "DNS por hora", 2))
+        self.assertEqual((routine.schedule, routine.name, len(routine.plan["steps"])), (every_hour, "DNS por hora", 2))
         self.assertEqual([item.name for item in state.notices], ["DNS de shimpz.com", "DNS por hora"])
 
     def test_a_replaced_routine_that_changed_or_went_refuses_the_card(self) -> None:

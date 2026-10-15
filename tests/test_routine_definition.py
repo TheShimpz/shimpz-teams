@@ -48,7 +48,7 @@ def _defined(**changes: object) -> record.Routine:
         record.Routine(
             routine_id="a" * 32,
             name="DNS",
-            schedule={"kind": "continuous", "gap": 864, "cap": 100},
+            schedule={"kind": "continuous", "gap": 864},
             timezone="UTC",
             assistants=(),
             plan=routine_fixture.plan_document(),
@@ -98,8 +98,8 @@ class DefinitionTests(unittest.TestCase):
         self.assertGreater(routine_definition.definition_bytes(wider), plain)
 
     def test_a_budget_names_the_units_or_the_bytes_it_outgrows(self) -> None:
-        busy = _defined(routine_id="b" * 32, schedule={"kind": "continuous", "gap": 5, "cap": 17_280})
-        every_thirty = {"kind": "continuous", "gap": 30, "cap": 2880}
+        busy = _defined(routine_id="b" * 32, schedule={"kind": "continuous", "gap": 5})
+        every_thirty = {"kind": "continuous", "gap": 30}
         self.assertEqual(routine_definition.over_budget([busy], _defined(schedule=every_thirty)), "routine-step-budget")
         self.assertIsNone(routine_definition.over_budget([busy], _defined()))
         heavy = {

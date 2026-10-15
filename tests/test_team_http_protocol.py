@@ -281,12 +281,8 @@ class RoutineListBoundTests(unittest.TestCase):
             "name": name,
             "plan": _largest_summary(),
             "output": {"mode": "changes", "step": routine.MAX_ROUTINE_STEPS},
-            # A continuous schedule's gap and cap never both reach five digits: at five seconds the cap is 17,280.
-            "schedule": {
-                "kind": "continuous",
-                "gap": routine.MIN_CONTINUOUS_GAP_SECONDS,
-                "cap": routine.MAX_CONTINUOUS_CAP,
-            },
+            # The longest continuous schedule: its gap at the most digits.
+            "schedule": {"kind": "continuous", "gap": routine.MAX_CONTINUOUS_GAP_SECONDS},
             "timezone": "/".join(["Z" * 32] * 3),
             "timezone_source": "browser",
             "assistant_ids": sorted(f"a{index:02d}" + "a" * 37 for index in range(routine.MAX_NOTICE_ASSISTANTS)),

@@ -3,7 +3,7 @@
 import dataclasses
 import unittest
 
-from test_routine_record import HOURLY, KEY, NINE, added, at, epoch, full_notices, routine
+from test_routine_record import KEY, NINE, added, at, epoch, full_notices, routine
 
 from routine import claim as routine_claim
 from routine import hold as routine_hold
@@ -60,11 +60,11 @@ class ClaimTests(unittest.TestCase):
         self.assertEqual((runs, routine_claim.claimable(deleting, NINE)), ((), None))
 
     def test_only_one_late_firing_is_made_up_and_the_others_are_reported_once(self):
-        state = at(added(routine("b" * 32, HOURLY)), "b" * 32, NINE)
+        state = at(added(routine("b" * 32)), "b" * 32, NINE)
         state, claim = routine_claim.claim(state, NINE + 40 * 60, KEY)
         value = record.routine(state, "b" * 32)
-        self.assertEqual((claim.run.scheduled_at, value.next_run_at, state.notices), (NINE, NINE + 3600, ()))
-        state = at(added(routine("b" * 32, HOURLY)), "b" * 32, NINE - 1800)
+        self.assertEqual((claim.run.scheduled_at, value.next_run_at, state.notices), (NINE, NINE + 86_400, ()))
+        state = at(added(routine("b" * 32)), "b" * 32, NINE - 86_400)
         state, _claim = routine_claim.claim(state, NINE + 1200, KEY)
         self.assertEqual([notice.detail for notice in state.notices], [{"missed": 1}])
         self.assertEqual(record.routine(state, "b" * 32).missed, 0)
@@ -73,50 +73,43 @@ class ClaimTests(unittest.TestCase):
 class SweepTests(unittest.TestCase):
     def test_a_long_outage_is_one_skipped_notice_updated_as_the_gap_grows(self):
         now = NINE + 72 * 3600
-        # Daily: a firing at most 12 hours late is still made up.
-        daily = routine_claim.sweep(at(added(routine("a" * 32)), "a" * 32, NINE), now)
+        # A firing at most 12 hours late is still made up; every earlier one is skipped.
+        state = routine_claim.sweep(at(added(routine("a" * 32)), "a" * 32, NINE), now)
         self.assertEqual(
-            ([notice.detail for notice in daily.notices], record.routine(daily, "a" * 32).next_run_at),
-            (
-                [{"missed": 3}],
-                now,
-            ),
+            ([notice.detail for notice in state.notices], record.routine(state, "a" * 32).next_run_at),
+            ([{"missed": 3}], now),
         )
-        # Hourly: every firing over one hour late is skipped; the one at the grace edge is still made up.
-        state = routine_claim.sweep(at(added(routine("b" * 32, HOURLY)), "b" * 32, NINE), now)
-        self.assertEqual([notice.detail for notice in state.notices], [{"missed": 71}])
-        self.assertEqual(record.routine(state, "b" * 32).next_run_at, now - 3600)
         self.assertEqual(routine_claim.sweep(state, now), state)
-        later = routine_claim.sweep(state, now + 5 * 3600)
+        later = routine_claim.sweep(state, now + 5 * 86_400)
         self.assertEqual(
             [(notice.notice_id, notice.detail) for notice in later.notices],
-            [(state.notices[0].notice_id, {"missed": 76})],
+            [(state.notices[0].notice_id, {"missed": 8})],
         )
         # Acknowledging an older version keeps the updated notice; after delivery, the same gap is reported again
         # under the same notice, never as a second one.
         stale = record.acknowledge(later, frozenset({(state.notices[0].notice_id, state.notices[0].version)}))
         self.assertEqual(stale.notices, later.notices)
         delivered = record.acknowledge(later, frozenset((item.notice_id, item.version) for item in later.notices))
-        again = routine_claim.sweep(delivered, now + 7 * 3600)
+        again = routine_claim.sweep(delivered, now + 7 * 86_400)
         self.assertEqual(
             [(notice.notice_id, notice.detail) for notice in again.notices],
-            [(state.notices[0].notice_id, {"missed": 78})],
+            [(state.notices[0].notice_id, {"missed": 10})],
         )
 
     def test_counting_misses_is_bounded(self):
-        hours = record.MAX_COUNTED_MISSES + 5
-        state = routine_claim.sweep(at(added(routine("b" * 32, HOURLY)), "b" * 32, NINE), NINE + hours * 3600)
+        days = record.MAX_COUNTED_MISSES + 5
+        state = routine_claim.sweep(at(added(routine("b" * 32)), "b" * 32, NINE), NINE + days * 86_400)
         self.assertEqual(state.notices[0].detail["missed"], record.MAX_COUNTED_MISSES)
-        self.assertEqual(record.routine(state, "b" * 32).next_run_at, NINE + (hours - 1) * 3600)
+        self.assertEqual(record.routine(state, "b" * 32).next_run_at, NINE + days * 86_400)
 
     def test_a_full_notice_queue_blocks_claims_and_keeps_counting_skips(self):
         full = full_notices()
-        state = dataclasses.replace(at(added(routine("b" * 32, HOURLY)), "b" * 32, NINE), notices=full)
-        state = routine_claim.sweep(state, NINE + 5 * 3600)
-        self.assertEqual((len(state.notices), record.routine(state, "b" * 32).missed), (32, 4))
-        self.assertIsNone(routine_claim.claimable(state, NINE + 5 * 3600))
-        state = routine_claim.sweep(record.acknowledge(state, frozenset({(full[0].notice_id, 1)})), NINE + 5 * 3600)
-        self.assertEqual(state.notices[-1].detail, {"missed": 4})
+        state = dataclasses.replace(at(added(routine("b" * 32)), "b" * 32, NINE), notices=full)
+        state = routine_claim.sweep(state, NINE + 5 * 86_400)
+        self.assertEqual((len(state.notices), record.routine(state, "b" * 32).missed), (32, 5))
+        self.assertIsNone(routine_claim.claimable(state, NINE + 5 * 86_400))
+        state = routine_claim.sweep(record.acknowledge(state, frozenset({(full[0].notice_id, 1)})), NINE + 5 * 86_400)
+        self.assertEqual(state.notices[-1].detail, {"missed": 5})
 
 
 if __name__ == "__main__":

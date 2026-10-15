@@ -26,8 +26,8 @@ MAX_ROUTINE_STEPS = 256
 MIN_CONTINUOUS_GAP_SECONDS = 5
 MAX_CONTINUOUS_GAP_SECONDS = 366 * 86_400
 DAY_SECONDS = 86_400
-# A continuous Routine's cap is always its gap's whole day, never lowered, so the interval a person stated is what
-# runs; the Team's daily Action-step budget alone bounds the sum (ADR-0101).
+# A continuous Routine's daily cap is always its gap's whole day (``continuous_cap``), never lowered, so the interval a
+# person stated is what runs; the Team's daily Action-step budget alone bounds the sum (ADR-0101).
 MAX_CONTINUOUS_CAP = -(-DAY_SECONDS // MIN_CONTINUOUS_GAP_SECONDS)
 # The healthy runs one minute bucket rolls up: runs start their gap apart, but a run that outlasted it or a confirmed
 # change starts the next at once, so the bound is one a second.
@@ -66,17 +66,16 @@ PAUSE_REASONS = ("exhausted", "policy", "evidence")
 ERROR_CODE_RE = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
 # The interface languages: the same closed set as payload.CHAT_LOCALES, pinned equal by a Team test.
 LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
-SCHEDULE_KINDS = frozenset({"hourly", "daily", "weekly", "monthly", "continuous"})
+SCHEDULE_KINDS = frozenset({"daily", "weekly", "monthly", "continuous"})
 ROUTINE_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 # An IANA zone name such as "UTC" or "America/Argentina/Buenos_Aires"; Team also requires that it loads.
 TIMEZONE_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+-]{0,31}(?:/[A-Za-z0-9][A-Za-z0-9_+-]{0,31}){0,2}\Z")
 _TIME_RE = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]\Z")
 _FIELDS = {
-    "hourly": frozenset({"kind", "every"}),
     "daily": frozenset({"kind", "time"}),
     "weekly": frozenset({"kind", "weekday", "time"}),
     "monthly": frozenset({"kind", "day", "time"}),
-    "continuous": frozenset({"kind", "gap", "cap"}),
+    "continuous": frozenset({"kind", "gap"}),
 }
 
 
@@ -97,21 +96,14 @@ def _wall_clock(value: dict[str, object]) -> bool:
 def canonical_schedule(value: object) -> dict[str, object] | None:
     """The exact schedule, or None.
 
-    Hourly every 1..24 hours, daily, weekly (0 = Monday), monthly on day 1..28, or continuous: ``gap`` seconds (5 to
-    366 days) apart, and ``cap`` exactly ``continuous_cap(gap)`` starts in any rolling 24 hours.
+    Daily, weekly (0 = Monday), or monthly on day 1..28 at a wall-clock time, or continuous: runs ``gap`` seconds (5 to
+    366 days) apart, start to start, the first right after confirmation.
     """
     kind = value.get("kind") if isinstance(value, dict) else None
     if not isinstance(kind, str) or kind not in SCHEDULE_KINDS or set(value) != _FIELDS[kind]:
         return None
     if kind == "continuous":
-        gap = value["gap"]
-        valid = (
-            _whole(gap, MIN_CONTINUOUS_GAP_SECONDS, MAX_CONTINUOUS_GAP_SECONDS)
-            and type(value["cap"]) is int
-            and value["cap"] == continuous_cap(gap)
-        )
-    elif kind == "hourly":
-        valid = _whole(value["every"], 1, 24)
+        valid = _whole(value["gap"], MIN_CONTINUOUS_GAP_SECONDS, MAX_CONTINUOUS_GAP_SECONDS)
     else:
         valid = _wall_clock(value)
     return dict(value) if valid else None
@@ -168,9 +160,7 @@ def daily_rate(schedule: dict[str, object]) -> Fraction:
     """The runs per day a canonical schedule allows, its cap for a continuous one."""
     kind = schedule["kind"]
     if kind == "continuous":
-        return Fraction(schedule["cap"])
-    if kind == "hourly":
-        return Fraction(24, schedule["every"])
+        return Fraction(continuous_cap(schedule["gap"]))
     return {"daily": Fraction(1), "weekly": Fraction(1, 7), "monthly": Fraction(1, 28)}[kind]
 
 

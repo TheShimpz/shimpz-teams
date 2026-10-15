@@ -4,7 +4,7 @@ import dataclasses
 import unittest
 
 import routine_fixture
-from test_routine_record import HOURLY, KEY, NINE, STEP, added, at, bound, claimed, epoch, full_notices, routine
+from test_routine_record import KEY, NINE, STEP, added, at, bound, claimed, epoch, full_notices, routine
 
 from routine import claim as routine_claim
 from routine import definition as routine_definition
@@ -187,7 +187,9 @@ class RunLifecycleTests(unittest.TestCase):
         self.assertRegex(record.new_id(), r"\A[0-9a-f]{32}\Z")
         self.assertEqual(len(record.lease_sha256("token")), 64)
         self.assertEqual(record.grace_seconds(routine()), 12 * 3600)
-        self.assertEqual(record.grace_seconds(routine(schedule=HOURLY)), 3600)
+        self.assertEqual(
+            record.grace_seconds(routine(schedule={"kind": "monthly", "day": 1, "time": "09:00"})), 12 * 3600
+        )
         self.assertEqual(routine_claim.generation_for("net_1", "a" * 32), "net_1:routine:" + "a" * 32)
 
 

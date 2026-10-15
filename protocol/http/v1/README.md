@@ -274,12 +274,13 @@ of every Assistant it names, and a `procedure-` content key derived from both. N
 skill), then its new skill, which becomes the newest while the oldest give way beyond the bound; a skill the same turn
 forgets is not learned again.
 
-A Team Routine (ADR-0086) fires on a closed schedule (`routine.canonical_schedule`): `hourly` every 1 to 24 elapsed
-hours, `daily` at `HH:MM`, `weekly` on a weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in an
-IANA timezone name (`routine.canonical_timezone`; Team also requires that the zone loads), or, only when the user asks
-for it, `continuous`: its next run is due `gap` seconds (5 to 31,622,400, 366 days) after the previous one ended, never overlapping,
-with `cap` exactly `routine.continuous_cap(gap)`, `ceil(86400 / gap)` (at most `routine.MAX_CONTINUOUS_CAP`, 17,280),
-starts in any rolling 24 hours, so the interval a person stated runs all day and no cap ever rewrites it (ADR-0101).
+A Team Routine (ADR-0086) fires on a closed schedule (`routine.canonical_schedule`): `daily` at `HH:MM`, `weekly` on a
+weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in an IANA timezone name
+(`routine.canonical_timezone`; Team also requires that the zone loads), or `continuous` (any interval the person
+states, hours included): exactly `{kind, gap}`, its first run right after confirmation and each next one due `gap`
+seconds (5 to 31,622,400, 366 days) after the previous one started, never overlapping. Its rolling 24-hour cap is
+derived, never carried: `routine.continuous_cap(gap)`, `ceil(86400 / gap)` (at most `routine.MAX_CONTINUOUS_CAP`,
+17,280), so the interval a person stated runs all day and no cap ever rewrites it (ADR-0101).
 `routine.daily_rate` is a schedule's runs per day and `routine.daily_cap` its whole rolling 24-hour cap; the Team's
 daily Action-step budget alone bounds what its Routines' caps may start together. A Routine is recorded from the work the ordinary chat agent did in one turn and exists only once a person
 confirms its card (ADR-0101). Its notice then has the Routine outcome `created` or `changed`, no run id, and exactly

@@ -7,10 +7,10 @@ from protocol.http.v1 import routine_proposal as http_routine_proposal
 
 
 def continuous(gap: int) -> dict[str, object]:
-    return {"kind": "continuous", "gap": gap, "cap": -(-86_400 // gap)}
+    return {"kind": "continuous", "gap": gap}
 
 
-HOURLY = {"kind": "hourly", "every": 1}
+EVERY_HOUR = continuous(3600)
 
 
 def daily(time: str) -> dict[str, object]:
@@ -36,11 +36,11 @@ class StatedScheduleTests(unittest.TestCase):
             {
                 "A cada 30 segundos": continuous(30),
                 "a cada 5 segundos": continuous(5),
-                "A cada hora": HOURLY,
-                "a cada 2 horas": {"kind": "hourly", "every": 2},
+                "A cada hora": EVERY_HOUR,
+                "a cada 2 horas": continuous(7200),
                 "de 10 em 10 minutos": continuous(600),
-                "de hora em hora": HOURLY,
-                "toda hora": HOURLY,
+                "de hora em hora": EVERY_HOUR,
+                "toda hora": EVERY_HOUR,
                 "a cada minuto": continuous(60),
                 "Todo dia às 9h": daily("09:00"),
                 "todos os dias às 21:30": daily("21:30"),
@@ -57,15 +57,15 @@ class StatedScheduleTests(unittest.TestCase):
         self.assert_stated(
             {
                 "every 30 seconds": continuous(30),
-                "every hour": HOURLY,
-                "Hourly, please": HOURLY,
+                "every hour": EVERY_HOUR,
+                "Hourly, please": EVERY_HOUR,
                 "every 15 minutes": continuous(900),
                 "every day at 9am": daily("09:00"),
                 "daily at 9:30 pm": daily("21:30"),
                 "every Monday at 9": weekly(0, "09:00"),
                 "every month on the 3rd at 10:00": monthly(3, "10:00"),
                 "cada 30 segundos": continuous(30),
-                "cada hora": HOURLY,
+                "cada hora": EVERY_HOUR,
                 "todos los días a las 9": daily("09:00"),
                 "cada lunes a las 8:00": weekly(0, "08:00"),
                 "cada mes el día 12 a las 7": monthly(12, "07:00"),
@@ -76,13 +76,13 @@ class StatedScheduleTests(unittest.TestCase):
         self.assert_stated(
             {
                 "toutes les 30 secondes": continuous(30),
-                "toutes les heures": HOURLY,
+                "toutes les heures": EVERY_HOUR,
                 "tous les jours à 9h": daily("09:00"),
                 "chaque lundi à 8h30": weekly(0, "08:30"),
                 "chaque mois le 2 à 9h": monthly(2, "09:00"),
                 "alle 30 Sekunden": continuous(30),
-                "jede Stunde": HOURLY,
-                "stündlich": HOURLY,
+                "jede Stunde": EVERY_HOUR,
+                "stündlich": EVERY_HOUR,
                 "täglich um 9 Uhr": daily("09:00"),
                 "jeden Montag um 8 Uhr": weekly(0, "08:00"),
                 "jeden Monat am 4. um 6 Uhr": monthly(4, "06:00"),
@@ -94,17 +94,17 @@ class StatedScheduleTests(unittest.TestCase):
             {
                 "30秒ごと": continuous(30),
                 "５分おき": continuous(300),
-                "毎時": HOURLY,
+                "毎時": EVERY_HOUR,
                 "毎日9時": daily("09:00"),
                 "毎週月曜日9時30分": weekly(0, "09:30"),
                 "毎月5日9時": monthly(5, "09:00"),
                 "每30秒": continuous(30),
-                "每小时": HOURLY,
+                "每小时": EVERY_HOUR,
                 "每天9点": daily("09:00"),
                 "每周一9点": weekly(0, "09:00"),
                 "每月5号9点": monthly(5, "09:00"),
                 "كل 30 ثانية": continuous(30),
-                "كل ساعة": HOURLY,
+                "كل ساعة": EVERY_HOUR,
                 "كل يوم الساعة ٩": daily("09:00"),
                 "كل يوم الاثنين الساعة 9": weekly(0, "09:00"),
             }
@@ -175,7 +175,7 @@ class StatedScheduleTests(unittest.TestCase):
 
     def test_two_different_schedules_in_one_text_are_both_reported(self) -> None:
         found = phrase.stated("a cada hora e todo dia às 9h")
-        self.assertEqual(sorted(found, key=str), sorted([HOURLY, daily("09:00")], key=str))
+        self.assertEqual(sorted(found, key=str), sorted([EVERY_HOUR, daily("09:00")], key=str))
         # Two times for one day are two schedules, which a person is then asked to choose between.
         self.assertEqual(len(phrase.stated("todo dia às 9h ou às 10h")), 2)
         # The same schedule written twice is one.

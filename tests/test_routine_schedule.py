@@ -23,8 +23,8 @@ def local(value: datetime.datetime, name: str) -> datetime.datetime:
 class ScheduleContractTests(unittest.TestCase):
     def test_only_the_closed_schedule_shapes_are_canonical(self):
         valid = (
-            {"kind": "hourly", "every": 1},
-            {"kind": "hourly", "every": 24},
+            {"kind": "continuous", "gap": 3600},
+            {"kind": "continuous", "gap": 86400},
             {"kind": "daily", "time": "00:00"},
             {"kind": "weekly", "weekday": 6, "time": "23:59"},
             {"kind": "monthly", "day": 28, "time": "09:05"},
@@ -36,10 +36,7 @@ class ScheduleContractTests(unittest.TestCase):
             None,
             [],
             {"kind": "yearly", "time": "09:00"},
-            {"kind": "hourly", "every": 0},
-            {"kind": "hourly", "every": 25},
-            {"kind": "hourly", "every": True},
-            {"kind": "hourly", "every": 2.0},
+            {"kind": "continuous", "gap": 0},
             {"kind": "daily", "time": "24:00"},
             {"kind": "daily", "time": "9:00"},
             {"kind": "daily", "time": 900},
@@ -62,29 +59,28 @@ class ScheduleContractTests(unittest.TestCase):
                 schedule.zone(name)
 
     def test_daily_rates_bound_a_teams_schedule(self):
-        self.assertEqual(http_routine.daily_rate({"kind": "hourly", "every": 6}), 4)
+        self.assertEqual(http_routine.daily_rate({"kind": "continuous", "gap": 21600}), 4)
         self.assertEqual(http_routine.daily_rate({"kind": "daily", "time": "09:00"}), 1)
         self.assertEqual(http_routine.daily_rate({"kind": "weekly", "weekday": 0, "time": "09:00"}), Fraction(1, 7))
         self.assertEqual(http_routine.daily_rate({"kind": "monthly", "day": 1, "time": "09:00"}), Fraction(1, 28))
-        continuous = {"kind": "continuous", "gap": 30, "cap": 2880}
+        continuous = {"kind": "continuous", "gap": 30}
         self.assertEqual((http_routine.daily_rate(continuous), http_routine.daily_cap(continuous)), (2880, 2880))
         self.assertEqual(http_routine.daily_cap({"kind": "weekly", "weekday": 0, "time": "09:00"}), 1)
-        self.assertEqual(http_routine.daily_cap({"kind": "hourly", "every": 5}), 5)
+        self.assertEqual(http_routine.daily_cap({"kind": "continuous", "gap": 18000}), 5)
 
     def test_a_continuous_schedule_runs_its_stated_gap_all_day(self):
         # The cap is always the gap's whole day, so no cap ever rewrites the interval the person stated (ADR-0101).
         for gap, cap in ((5, http_routine.MAX_CONTINUOUS_CAP), (7, 12_343), (30, 2880), (86_400, 1), (366 * 86_400, 1)):
-            value = {"kind": "continuous", "gap": gap, "cap": cap}
+            value = {"kind": "continuous", "gap": gap}
             self.assertEqual((http_routine.canonical_schedule(value), http_routine.continuous_cap(gap)), (value, cap))
         for value in (
-            {"kind": "continuous", "gap": 4, "cap": 21_600},
-            {"kind": "continuous", "gap": 366 * 86_400 + 1, "cap": 1},
-            {"kind": "continuous", "gap": 5, "cap": 0},
-            {"kind": "continuous", "gap": 30, "cap": 1000},
-            {"kind": "continuous", "gap": 7, "cap": 12_342},
-            {"kind": "continuous", "gap": 5.0, "cap": 17_280},
-            {"kind": "continuous", "gap": 5, "cap": True},
-            {"kind": "continuous", "gap": 5},
+            {"kind": "continuous", "gap": 4},
+            {"kind": "continuous", "gap": 366 * 86_400 + 1},
+            {"kind": "continuous", "gap": 5.0},
+            {"kind": "continuous", "gap": True},
+            {"kind": "continuous", "gap": "30"},
+            {"kind": "continuous", "gap": 30, "every": 1},
+            {"kind": "continuous"},
         ):
             with self.subTest(value=value):
                 self.assertIsNone(http_routine.canonical_schedule(value))
@@ -117,22 +113,11 @@ class NextRunTests(unittest.TestCase):
         self.assertEqual(schedule.next_run(daily, "UTC", ANCHOR, at(2026, 9, 30, 9)), at(2026, 10, 1, 9))
 
     def test_a_continuous_run_is_due_its_gap_after_an_instant_never_before_the_anchor(self):
-        continuous = {"kind": "continuous", "gap": 5, "cap": 17_280}
+        continuous = {"kind": "continuous", "gap": 5}
         self.assertEqual(schedule.next_run(continuous, "UTC", ANCHOR, at(2026, 9, 30)), at(2026, 9, 30, 0, 0, 5))
         self.assertEqual(
             schedule.next_run(continuous, "UTC", at(2026, 10, 1), at(2026, 9, 30)), at(2026, 10, 1, 0, 0, 5)
         )
-
-    def test_hourly_counts_elapsed_hours_from_the_anchor(self):
-        every_six = {"kind": "hourly", "every": 6}
-        anchor = at(2026, 9, 30, 10, 17)
-        # The first firing is one period after the anchor, never at or before it.
-        self.assertEqual(schedule.next_run(every_six, "UTC", anchor, at(2026, 9, 30, 9)), at(2026, 9, 30, 16, 17))
-        self.assertEqual(schedule.next_run(every_six, "UTC", anchor, anchor), at(2026, 9, 30, 16, 17))
-        self.assertEqual(schedule.next_run(every_six, "UTC", anchor, at(2026, 10, 2, 16, 17)), at(2026, 10, 2, 22, 17))
-        # Elapsed time, not wall clock: across a daylight-saving change the local hour shifts.
-        across = upcoming(every_six, NEW_YORK, at(2026, 3, 7, 12), at(2026, 3, 8, 1), 2)
-        self.assertEqual(across, [at(2026, 3, 8, 6), at(2026, 3, 8, 12)])
 
     def test_a_nonexistent_local_time_runs_shifted_past_the_gap_and_an_ambiguous_one_first(self):
         daily = {"kind": "daily", "time": "02:30"}

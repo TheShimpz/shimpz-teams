@@ -58,7 +58,7 @@ class RepairTests(unittest.TestCase):
         recorded = _recorded(*sends)
         self.assertEqual(_actions(recorded), ["fetch"])
         self.assertEqual(_input(recorded)["query"]["value"], "jogos futebol brasileirão e europa semana")
-        self.assertEqual(recorded.schedule, {"kind": "continuous", "gap": 30 * 86_400, "cap": 1})
+        self.assertEqual(recorded.schedule, {"kind": "continuous", "gap": 30 * 86_400})
 
     def test_earlier_changes_are_never_split_work_the_latest_send_is_the_work(self) -> None:
         recorded = _recorded(_send(_post("a"), message="a cada hora"), _send(_post("b"), _post("b")))

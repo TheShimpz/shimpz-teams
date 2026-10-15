@@ -181,7 +181,7 @@ class OwnerCaseTests(unittest.TestCase):
         self.assertEqual(recorded.origins, {"s1": {}, "s2": {"zone_id": "selector"}})
         self.assertEqual(
             (recorded.schedule, recorded.timezone, recorded.timezone_source),
-            ({"kind": "continuous", "gap": 30, "cap": 2880}, "America/Sao_Paulo", "browser"),
+            ({"kind": "continuous", "gap": 30}, "America/Sao_Paulo", "browser"),
         )
         self.assertEqual([item["action"] for item in recorded.permitted], ["list-dns-records", "list-zones"])
 
@@ -461,7 +461,7 @@ class KnownTextTests(unittest.TestCase):
 class ScheduleTests(unittest.TestCase):
     def test_the_latest_send_stating_a_schedule_wins(self) -> None:
         recorded = _recorded(_send(ZONES_CALL, message="todo dia às 9h"), _send(message="melhor a cada 30 segundos"))
-        self.assertEqual(recorded.schedule, {"kind": "continuous", "gap": 30, "cap": 2880})
+        self.assertEqual(recorded.schedule, {"kind": "continuous", "gap": 30})
 
     def test_different_schedules_in_one_authored_text_are_asked_about_even_across_lines(self) -> None:
         asked = _record(_send(ZONES_CALL, message="Run every 5 seconds.\nRun every 30 seconds."))
@@ -470,7 +470,7 @@ class ScheduleTests(unittest.TestCase):
     def test_an_answer_in_a_composed_send_wins_over_the_request_it_repeats(self) -> None:
         composed = http_payload.compose_clarified("DNS a cada 5 segundos", "Tem certeza?", "a cada 30 segundos", "pt")
         recorded = _recorded(_send(ZONES_CALL, message=composed))
-        self.assertEqual(recorded.schedule, {"kind": "continuous", "gap": 30, "cap": 2880})
+        self.assertEqual(recorded.schedule, {"kind": "continuous", "gap": 30})
 
     def test_an_unreadable_count_is_asked_through_the_schedule_question(self) -> None:
         asked = _record(_send(ZONES_CALL, message="every " + "9" * 5000 + " seconds"))
@@ -488,7 +488,7 @@ class ScheduleTests(unittest.TestCase):
         kept = _recorded(_send(ZONES_CALL, message="sem mudar o horário"), existing=existing)
         self.assertEqual(kept.schedule, {"kind": "daily", "time": "08:00"})
         changed = _recorded(_send(ZONES_CALL, message="a cada hora"), existing=existing)
-        self.assertEqual(changed.schedule, {"kind": "hourly", "every": 1})
+        self.assertEqual(changed.schedule, {"kind": "continuous", "gap": 3600})
 
 
 class OutputTests(unittest.TestCase):
@@ -609,7 +609,7 @@ class TimezoneTests(unittest.TestCase):
         self.assertEqual((recorded.timezone, recorded.timezone_source), ("UTC", "none"))
         daily = _recorded(_send(ZONES_CALL, message="todo dia às 9h", timezone=None))
         self.assertEqual((daily.timezone, daily.timezone_source, daily.document["timezone"]), ("UTC", "none", "UTC"))
-        unzoned = recording.Existing({"steps": []}, {"kind": "hourly", "every": 1})
+        unzoned = recording.Existing({"steps": []}, {"kind": "continuous", "gap": 3600})
         self.assertEqual(_recorded(_send(ZONES_CALL, timezone="Asia/Tokyo"), existing=unzoned).timezone, "Asia/Tokyo")
 
 
@@ -721,7 +721,7 @@ class KeptTests(unittest.TestCase):
             ],
         }
         self.assertEqual(self.keep(plan=plain).origins["s2"], {"zone_id": "step", "day": "clock"})
-        self.assertEqual(self.keep(message="a cada hora").schedule, {"kind": "hourly", "every": 1})
+        self.assertEqual(self.keep(message="a cada hora").schedule, {"kind": "continuous", "gap": 3600})
 
     def test_a_lost_protection_or_a_drifted_pin_refuses(self) -> None:
         drifted = {**KEPT_PLAN, "steps": [{**KEPT_PLAN["steps"][0], "pin": DRIFTED_PIN}]}

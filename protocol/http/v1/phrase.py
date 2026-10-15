@@ -327,12 +327,10 @@ def _interval(count: str, unit: str) -> dict[str, object] | None:
     kind = _FIXED_UNITS.get(unit) or _UNIT[unit]
     if kind in _COUNTED_UNITS and not count:
         return None
-    if kind == "hour" and 1 <= every <= 24:
-        return {"kind": "hourly", "every": every}
     gap = every * _UNIT_SECONDS[kind]
     if not http_routine.MIN_CONTINUOUS_GAP_SECONDS <= gap <= http_routine.MAX_CONTINUOUS_GAP_SECONDS:
         return None
-    return {"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)}
+    return {"kind": "continuous", "gap": gap}
 
 
 def _time(hour: str, minute: str, half: str) -> str | None:

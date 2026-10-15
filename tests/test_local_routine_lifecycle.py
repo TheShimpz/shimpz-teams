@@ -42,7 +42,7 @@ def two_runs() -> tuple[record.TeamRoutines, str]:
     lease = record.lease_of(bound.lease_token, KEY)
     state = routine_claim.bind_generation(state, bound.run.run_id, lease, NINE, NETWORK)
     # A frozen run holds no execution slot, so the Team may lease its other due Routine.
-    position = {"phase": "replay", "step": 1}
+    position = 1
     state = routine_runs.freeze(state, bound.run.run_id, lease, NINE, ("human", "dns", "check", position))
     state, fresh = routine_claim.claim(state, NINE, KEY)
     assert fresh is not None
@@ -119,7 +119,7 @@ class RoutineLifecycleTests(unittest.TestCase):
                 attempt=1,
                 assistant_id="dns",
                 action="replace-dns-record",
-                position={"phase": "replay", "step": 1},
+                position=1,
                 recorded_at=NINE,
                 condition="timeout",
             ),

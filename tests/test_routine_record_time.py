@@ -8,7 +8,7 @@ import unittest
 
 import routine_fixture
 from test_routine_incident import IncidentNoticeTests
-from test_routine_record import HOURLY, KEY, NINE, added, at, bound, claimed, routine
+from test_routine_record import EVERY_HOUR, KEY, NINE, added, at, bound, claimed, routine
 
 from protocol.http.v1 import routine as http_routine
 from routine import claim as routine_claim
@@ -71,7 +71,7 @@ class ScaleClaimTests(unittest.TestCase):
         )
 
     def test_a_start_reserves_every_step_of_its_revision_under_the_team_daily_steps(self):
-        state = at(added(self.long_routine(schedule=HOURLY)), "b" * 32, NINE)
+        state = at(added(self.long_routine(schedule=EVERY_HOUR)), "b" * 32, NINE)
         full = tuple(("c" * 32, NINE - 3600 + index, 250) for index in range(80))
         capped = dataclasses.replace(state, starts=full)
         self.assertIsNone(routine_claim.claimable(capped, NINE))
@@ -166,7 +166,7 @@ class ContinuousTests(unittest.TestCase):
     """A continuous Routine runs again its gap after each run ends, never overlapping, within its rolling cap."""
 
     def continuous(self, gap: int = 5) -> record.TeamRoutines:
-        value = routine(schedule={"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)})
+        value = routine(schedule={"kind": "continuous", "gap": gap})
         return at(added(value), "a" * 32, NINE)
 
     def test_the_next_run_is_due_its_gap_after_the_previous_one_started_and_never_overlaps(self):

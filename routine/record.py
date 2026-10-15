@@ -259,9 +259,7 @@ def continuous(routine_value: Routine) -> bool:
 
 def grace_seconds(routine_value: Routine) -> int:
     """How late a run may still start: one period, and at most 12 hours."""
-    kind = routine_value.schedule["kind"]
-    period = routine_value.schedule["every"] * 3600 if kind == "hourly" else _PERIOD_SECONDS[kind]
-    return min(period, MAX_GRACE_SECONDS)
+    return min(_PERIOD_SECONDS[routine_value.schedule["kind"]], MAX_GRACE_SECONDS)
 
 
 _HEX32_RE = re.compile(r"[0-9a-f]{32}\Z")

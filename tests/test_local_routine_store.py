@@ -46,7 +46,7 @@ def changes_routine(routine_id: str = "d" * 32) -> record.Routine:
         routine(routine_id),
         plan=plan,
         timezone="UTC",
-        schedule={"kind": "hourly", "every": 1},
+        schedule={"kind": "continuous", "gap": 3600},
         rollup_usage={"duration_ms": 5, "models": []},
     )
     return dataclasses.replace(value, next_run_at=record.first_run(value))

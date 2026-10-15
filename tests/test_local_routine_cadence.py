@@ -22,11 +22,11 @@ from routine import record
 from routine import runs as routine_runs
 from routine import starts as routine_starts
 
-CONTINUOUS = {"kind": "continuous", "gap": 5, "cap": http_routine.continuous_cap(5)}
+CONTINUOUS = {"kind": "continuous", "gap": 5}
 
 
 def continuous(routine_id: str = "a" * 32, *, at: int = 1_800_000_000, gap: int = 5) -> record.Routine:
-    schedule = {"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)}
+    schedule = {"kind": "continuous", "gap": gap}
     return routine_fixture.routine(routine_id, name="Zones", anchor=at, schedule=schedule)
 
 
@@ -128,7 +128,7 @@ class ServiceLoadTests(RoutineHttpCase):
             routine_id=record.new_id(),
             name="Zones",
             plan=plan,
-            schedule={"kind": "continuous", "gap": gap, "cap": http_routine.continuous_cap(gap)},
+            schedule={"kind": "continuous", "gap": gap},
             timezone="UTC",
             assistants=tuple(sorted(contracts.items())),
             anchor=now - 60,

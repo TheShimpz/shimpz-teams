@@ -45,7 +45,7 @@ def _matches(schedule: dict[str, object], day: datetime.date) -> bool:
 def next_run(
     schedule: object, timezone: object, anchor: datetime.datetime, after: datetime.datetime
 ) -> datetime.datetime:
-    """The first firing strictly after ``after``; hourly counts elapsed hours from the Routine's ``anchor``."""
+    """The first firing strictly after ``after`` and the Routine's ``anchor``."""
     canonical = http_routine.canonical_schedule(schedule)
     if canonical is None:
         raise ScheduleError("invalid schedule")
@@ -56,9 +56,6 @@ def next_run(
     if canonical["kind"] == "continuous":
         # A continuous Routine's next run is due its gap after ``after``: the start a claim records, never a backlog.
         return after + datetime.timedelta(seconds=canonical["gap"])
-    if canonical["kind"] == "hourly":
-        period = datetime.timedelta(hours=canonical["every"])
-        return anchor + period * ((after - anchor) // period + 1)
     # Start a day early: a firing on the previous local date can still lie after ``after`` in UTC.
     day = after.astimezone(tz).date() - datetime.timedelta(days=1)
     while True:
