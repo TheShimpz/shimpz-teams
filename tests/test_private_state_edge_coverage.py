@@ -274,5 +274,88 @@ class PrivateStateEdgeCoverageTests(unittest.TestCase):
                 state.check_identified_envelope(value, 64, "malformed")
 
 
+class JsonRecordTests(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.path = Path(directory.name, "records", "record.json")
+
+    def test_a_record_round_trips_as_canonical_owner_only_json(self) -> None:
+        self.assertIsNone(private_state.read_json_record(self.path, 64))
+        private_state.write_json_record(self.path, {"name": "Équipe", "count": 1}, 64)
+        self.assertEqual(self.path.read_bytes(), '{"count":1,"name":"Équipe"}'.encode())
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(self.path.parent.stat().st_mode), 0o700)
+        self.assertEqual(private_state.read_json_record(self.path, 64), {"count": 1, "name": "Équipe"})
+
+    def test_an_oversized_record_is_neither_written_nor_read(self) -> None:
+        with self.assertRaisesRegex(ValueError, "byte limit"):
+            private_state.write_json_record(self.path, {"name": "x" * 64}, 16)
+        self.assertFalse(self.path.parent.exists())
+        self.path.parent.mkdir()
+        self.path.write_bytes(b'"' + b"x" * 16 + b'"')
+        with self.assertRaisesRegex(ValueError, "byte limit"):
+            private_state.read_json_record(self.path, 16)
+
+    def test_only_a_strict_json_document_in_a_regular_file_is_read(self) -> None:
+        self.path.parent.mkdir()
+        for raw in (b"", b"\xff", b'{"a":1,"a":2}', b"NaN", b"1e999", b"[" * 100_000):
+            with self.subTest(raw=raw[:16]):
+                self.path.write_bytes(raw)
+                with self.assertRaises(ValueError):
+                    private_state.read_json_record(self.path, 200_000)
+        self.path.unlink()
+        self.path.mkdir()
+        with self.assertRaises(OSError):
+            private_state.read_json_record(self.path, 64)
+        self.path.rmdir()
+        self.path.symlink_to(self.path.with_name("target.json"))
+        self.path.with_name("target.json").write_bytes(b"{}")
+        with self.assertRaises(OSError):
+            private_state.read_json_record(self.path, 64)
+
+
+class CustodyPredicateTests(unittest.TestCase):
+    @staticmethod
+    def metadata(kind: int, mode: int, *, uid: int = 1, gid: int = 2, nlink: int = 1, size: int = 5):
+        return SimpleNamespace(st_mode=kind | mode, st_uid=uid, st_gid=gid, st_nlink=nlink, st_size=size)
+
+    def test_file_custody_checks_every_stated_field_and_skips_only_none(self) -> None:
+        holds = self.metadata(stat.S_IFREG, 0o600)
+        self.assertTrue(private_state.file_custody_holds(holds, uid=1, gid=2, mode=0o600, size=(5, 5)))
+        self.assertTrue(private_state.file_custody_holds(holds, uid=None, gid=None, mode=None, size=None))
+        self.assertTrue(
+            private_state.file_custody_holds(holds, uid=1, gid=None, mode=private_state.OWNER_ONLY, size=None)
+        )
+        for metadata, fields in (
+            (self.metadata(stat.S_IFDIR, 0o600), {}),
+            (self.metadata(stat.S_IFREG, 0o600, nlink=2), {}),
+            (holds, {"uid": 3}),
+            (holds, {"gid": 3}),
+            (holds, {"mode": 0o640}),
+            (self.metadata(stat.S_IFREG, 0o640), {"mode": private_state.OWNER_ONLY}),
+            (holds, {"size": (6, 10)}),
+            (holds, {"size": (0, 4)}),
+        ):
+            arguments = {"uid": 1, "gid": 2, "mode": 0o600, "size": (0, 10), **fields}
+            with self.subTest(fields=fields):
+                self.assertFalse(private_state.file_custody_holds(metadata, **arguments))
+
+    def test_directory_custody_checks_kind_owner_group_and_mode(self) -> None:
+        holds = self.metadata(stat.S_IFDIR, 0o2770)
+        self.assertTrue(private_state.directory_custody_holds(holds, uid=1, gid=2, mode=0o2770))
+        self.assertTrue(private_state.directory_custody_holds(holds, uid=None, gid=None, mode=None))
+        for metadata, fields in (
+            (self.metadata(stat.S_IFREG, 0o2770), {}),
+            (holds, {"uid": 3}),
+            (holds, {"gid": 3}),
+            (holds, {"mode": 0o770}),
+            (holds, {"mode": private_state.OWNER_ONLY}),
+        ):
+            arguments = {"uid": 1, "gid": 2, "mode": 0o2770, **fields}
+            with self.subTest(fields=fields):
+                self.assertFalse(private_state.directory_custody_holds(metadata, **arguments))
+
+
 if __name__ == "__main__":
     unittest.main()

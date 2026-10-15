@@ -184,7 +184,7 @@ class InferenceConfigTests(unittest.TestCase):
                     self.store.load("team_1")
                 self.assertNotIsInstance(caught.exception, inference_config.InferenceConfigMissingError)
         with (
-            mock.patch.object(Path, "read_bytes", side_effect=PermissionError("denied")),
+            mock.patch("storage.private_state.os.open", side_effect=PermissionError("denied")),
             self.assertRaises(inference_config.InferenceConfigError) as caught,
         ):
             self.store.load("team_1")

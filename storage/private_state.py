@@ -19,6 +19,9 @@ from pathlib import Path
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from core import canonical_json
+from protocol.http.v1 import strict_json
+
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
@@ -158,6 +161,54 @@ def replace_in_directory(
             os.unlink(temporary, dir_fd=directory)
 
 
+def _read_at_most(descriptor: int, maximum: int) -> bytes:
+    """Read until end of file or one byte past ``maximum``, so the caller can refuse an oversized file."""
+    payload = bytearray()
+    while len(payload) <= maximum:
+        chunk = os.read(descriptor, min(64 * 1024, maximum + 1 - len(payload)))
+        if not chunk:
+            break
+        payload.extend(chunk)
+    return bytes(payload)
+
+
+def read_json_record(path: Path, maximum: int) -> object | None:
+    """The strict JSON document in the regular file ``path`` of at most ``maximum`` bytes, or None when absent.
+
+    No link is followed and a special file never blocks the read. An unreadable or non-regular file raises ``OSError``;
+    an oversized file or a document with duplicate fields, non-finite numbers, or invalid UTF-8 raises ``ValueError``.
+    """
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise OSError(f"{path.name} is not a regular file")
+        payload = _read_at_most(descriptor, maximum)
+    finally:
+        os.close(descriptor)
+    if len(payload) > maximum:
+        raise ValueError(f"{path.name} exceeds its byte limit")
+    try:
+        return strict_json.loads(payload)
+    except RecursionError as exc:
+        raise ValueError(f"{path.name} is nested too deeply") from exc
+
+
+def write_json_record(path: Path, value: object, maximum: int) -> None:
+    """Atomically and durably replace owner-only ``path`` with ``value``'s canonical JSON of at most ``maximum`` bytes.
+
+    The parent directory is created owner-only when absent. Oversized or unencodable content raises ``ValueError``
+    before anything is written; a persistence failure raises ``OSError``.
+    """
+    payload = canonical_json.encode(value)
+    if len(payload) > maximum:
+        raise ValueError(f"{path.name} exceeds its byte limit")
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    replace_durably(path, payload)
+
+
 def seal(key: bytes, plaintext: bytes, aad: bytes) -> dict[str, str]:
     """Encrypt ``plaintext`` bound to ``aad`` under a fresh 96-bit nonce into the stored AES-256-GCM envelope."""
     nonce = os.urandom(12)
@@ -243,15 +294,10 @@ class PrivateState:
             )
             if cache_initialized and identity == previous:
                 return PrivateFileRead(identity, None, True)
-            payload = bytearray()
-            while len(payload) <= maximum:
-                chunk = os.read(descriptor, min(64 * 1024, maximum + 1 - len(payload)))
-                if not chunk:
-                    break
-                payload.extend(chunk)
+            payload = _read_at_most(descriptor, maximum)
             if len(payload) > maximum:
                 raise self.error_class(f"{label} exceeds its fixed byte limit")
-            return PrivateFileRead(identity, bytes(payload), False)
+            return PrivateFileRead(identity, payload, False)
         finally:
             os.close(descriptor)
 

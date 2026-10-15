@@ -8,12 +8,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypedDict
 
-from core import canonical_json
 from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
 SCHEMA = 3
 KNOWLEDGE_SCHEMA = 1
+MAX_CONFIG_BYTES = 4096
+# Well above 32 memories and 8 sixteen-step skills at their field bounds.
+MAX_KNOWLEDGE_BYTES = 1024 * 1024
 
 
 class ProviderDefinition(TypedDict):
@@ -70,13 +72,6 @@ def _team_id(value: object) -> str:
     return team_id
 
 
-def write_private_json(root: Path, target: Path, value: dict[str, object]) -> None:
-    """Atomically and durably replace one owner-only JSON record inside a private directory."""
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    root.chmod(0o700)
-    private_state.replace_durably(target, canonical_json.encode(value))
-
-
 class InferenceConfigStore:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -92,18 +87,18 @@ class InferenceConfigStore:
     def save(self, team_id: object, config: InferenceConfig) -> InferenceConfig:
         team_id = _team_id(team_id)
         validated = normalize(config.provider, config.model)
-        self._write(self._path(team_id), {"schema": SCHEMA, "team_id": team_id, **asdict(validated)})
+        self._write(self._path(team_id), {"schema": SCHEMA, "team_id": team_id, **asdict(validated)}, MAX_CONFIG_BYTES)
         return validated
 
     def load_knowledge(self, team_id: object) -> tuple[list[dict[str, str]], list[dict[str, object]]]:
         """The Team's learned memory and skills (ADR-0084, ADR-0085); an absent file means nothing is learned yet."""
         team_id = _team_id(team_id)
         try:
-            value = json.loads(self._knowledge_path(team_id).read_bytes())
-        except FileNotFoundError:
-            return [], []
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            value = private_state.read_json_record(self._knowledge_path(team_id), MAX_KNOWLEDGE_BYTES)
+        except (OSError, ValueError) as exc:
             raise InferenceConfigError("Team knowledge is unavailable") from exc
+        if value is None:
+            return [], []
         if (
             not isinstance(value, dict)
             or set(value) != {"schema", "team_id", "memory", "skills"}
@@ -133,26 +128,26 @@ class InferenceConfigStore:
             return memory, skills
         record = {"schema": KNOWLEDGE_SCHEMA, "team_id": team_id, "memory": memory, "skills": skills}
         try:
-            self._write(target, record)
-        except OSError as exc:
+            self._write(target, record, MAX_KNOWLEDGE_BYTES)
+        except (OSError, ValueError) as exc:
             raise InferenceConfigError("Team knowledge could not be saved") from exc
         return memory, skills
 
-    def _write(self, target: Path, value: dict[str, object]) -> None:
-        write_private_json(self.root, target, value)
+    def _write(self, target: Path, value: dict[str, object], maximum: int) -> None:
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.root.chmod(0o700)
+        private_state.write_json_record(target, value, maximum)
 
     def load(self, team_id: object) -> InferenceConfig:
         team_id = _team_id(team_id)
         try:
-            raw = self._path(team_id).read_bytes()
-        except FileNotFoundError as exc:
-            raise InferenceConfigMissingError("Team inference configuration is not set") from exc
+            value = private_state.read_json_record(self._path(team_id), MAX_CONFIG_BYTES)
         except OSError as exc:
             raise InferenceConfigError("Team inference configuration is unavailable") from exc
-        try:
-            value = json.loads(raw)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except ValueError as exc:
             raise InferenceConfigError("Team inference configuration is invalid") from exc
+        if value is None:
+            raise InferenceConfigMissingError("Team inference configuration is not set")
         if not isinstance(value, dict) or set(value) != {"schema", "team_id", "provider", "model"}:
             raise InferenceConfigError("Team inference configuration is invalid")
         if value["schema"] != SCHEMA or value["team_id"] != team_id:

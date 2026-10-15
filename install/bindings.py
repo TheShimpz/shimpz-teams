@@ -3,7 +3,6 @@
 import builtins
 import fcntl
 import hashlib
-import json
 import threading
 from collections import OrderedDict
 from collections.abc import Callable
@@ -210,17 +209,13 @@ class DynamicAssistantStore:
 
     def _read(self) -> builtins.list[DynamicAssistantBinding]:
         try:
-            raw = self._path.read_bytes()
-        except FileNotFoundError:
-            return []
+            document = private_state.read_json_record(self._path, _MAX_FILE_BYTES)
         except OSError as exc:
             raise DynamicAssistantError("the dynamic Assistant registry cannot be read") from exc
-        if len(raw) > _MAX_FILE_BYTES:
-            raise DynamicAssistantError("the dynamic Assistant registry is too large")
-        try:
-            document = json.loads(raw)
-        except (UnicodeError, json.JSONDecodeError) as exc:
+        except ValueError as exc:
             raise DynamicAssistantError("the dynamic Assistant registry is malformed") from exc
+        if document is None:
+            return []
         if (
             not isinstance(document, dict)
             or set(document) != {"version", "bindings"}
@@ -240,12 +235,10 @@ class DynamicAssistantStore:
             "version": _FORMAT_VERSION,
             "bindings": [_encode_binding(binding) for binding in sorted(bindings, key=_binding_key)],
         }
-        encoded = canonical_json.encode(document)
-        if len(encoded) > _MAX_FILE_BYTES:
-            raise DynamicAssistantError("the dynamic Assistant registry is too large")
         try:
-            self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            private_state.replace_durably(self._path, encoded)
+            private_state.write_json_record(self._path, document, _MAX_FILE_BYTES)
+        except ValueError as exc:
+            raise DynamicAssistantError("the dynamic Assistant registry is too large") from exc
         except OSError as exc:
             raise DynamicAssistantError("the dynamic Assistant registry cannot be written") from exc
 

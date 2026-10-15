@@ -215,7 +215,7 @@ class StoreTests(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(inference_config.InferenceConfigError):
                 self.store.load_knowledge("team_1")
         with (
-            mock.patch.object(Path, "read_bytes", side_effect=PermissionError("denied")),
+            mock.patch("storage.private_state.os.open", side_effect=PermissionError("denied")),
             self.assertRaises(inference_config.InferenceConfigError),
         ):
             self.store.load_knowledge("team_1")

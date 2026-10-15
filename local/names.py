@@ -6,9 +6,7 @@ exists. Names are unique per Space ignoring case, under one Space-wide namespace
 """
 
 import hashlib
-import os
 import re
-import stat
 import unicodedata
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
@@ -22,8 +20,8 @@ from local.errors import ownership_conflict
 from local.labels import TEAM_LABEL, TEAM_NAME_LABEL
 from local.validation import validate_team_id
 from protocol.http.v1 import payload as http_payload
-from protocol.http.v1 import strict_json
 from storage import files as team_storage
+from storage import private_state
 
 SCHEMA = 1
 MAX_RECORD_BYTES = 4096
@@ -79,24 +77,13 @@ class TeamNameStore:
     def load(self, team_id: str, network_id: str) -> str | None:
         """The recorded name of this exact incarnation; a record that is unsafe or not its own fails closed."""
         try:
-            # No link is followed and a special file never blocks the read; only a regular file is a record.
-            descriptor = os.open(self._path(team_id), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        except FileNotFoundError:
-            return None
-        except OSError as exc:
-            raise _unavailable() from exc
-        try:
-            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-                os.close(descriptor)
-                raise _unavailable()
-            with os.fdopen(descriptor, "rb") as stream:
-                raw = stream.read(MAX_RECORD_BYTES + 1)
-            value = strict_json.loads(raw)
+            value = private_state.read_json_record(self._path(team_id), MAX_RECORD_BYTES)
         except (OSError, ValueError) as exc:
             raise _unavailable() from exc
+        if value is None:
+            return None
         if (
-            len(raw) > MAX_RECORD_BYTES
-            or not isinstance(value, dict)
+            not isinstance(value, dict)
             or set(value) != _RECORD_KEYS
             or type(value["schema"]) is not int
             or value["schema"] != SCHEMA
@@ -112,8 +99,10 @@ class TeamNameStore:
     def save(self, team_id: str, network_id: str, team_name: str) -> None:
         record = {"schema": SCHEMA, "team_id": team_id, "network_id": network_id, "team_name": team_name}
         try:
-            inference_config.write_private_json(self.root, self._path(team_id), record)
-        except OSError as exc:
+            self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+            self.root.chmod(0o700)
+            private_state.write_json_record(self._path(team_id), record, MAX_RECORD_BYTES)
+        except (OSError, ValueError) as exc:
             raise _unavailable() from exc
 
     def _owned(self) -> list[Path]:

@@ -49,14 +49,14 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
 
     def test_registry_read_rejects_io_size_shape_and_duplicate_identities(self) -> None:
         with (
-            mock.patch.object(Path, "read_bytes", side_effect=OSError("denied")),
+            mock.patch("storage.private_state.os.open", side_effect=PermissionError("denied")),
             self.assertRaisesRegex(bindings.DynamicAssistantError, "cannot be read"),
         ):
             self.store._read()
 
         with mock.patch.object(bindings, "_MAX_FILE_BYTES", 1):
             self.path.write_bytes(b"{}")
-            with self.assertRaisesRegex(bindings.DynamicAssistantError, "too large"):
+            with self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
                 self.store._read()
 
         for document in ([], {}, {"version": 1, "bindings": []}, {"version": 2, "bindings": {}}):
@@ -260,7 +260,7 @@ class UpdateStoreEdgeCoverageTests(unittest.TestCase):
     def test_update_reader_rejects_io_size_and_json_failures(self) -> None:
         path = Path(self.directory.name, "update.json")
         with (
-            mock.patch.object(Path, "read_bytes", side_effect=OSError("denied")),
+            mock.patch("storage.private_state.os.open", side_effect=PermissionError("denied")),
             self.assertRaisesRegex(bindings.DynamicAssistantError, "cannot be read"),
         ):
             self.updates._read(path)
@@ -309,7 +309,7 @@ class UpdateStoreEdgeCoverageTests(unittest.TestCase):
             self.residues.clear(residue)
 
         with (
-            mock.patch.object(Path, "read_bytes", side_effect=OSError("denied")),
+            mock.patch("storage.private_state.os.open", side_effect=PermissionError("denied")),
             self.assertRaisesRegex(bindings.DynamicAssistantError, "cannot be read"),
         ):
             self.residues._read(path)
@@ -365,7 +365,7 @@ class UpdateStoreEdgeCoverageTests(unittest.TestCase):
             mock.patch.object(update.private_state.os, "write", return_value=0),
             self.assertRaisesRegex(bindings.DynamicAssistantError, "cannot be written"),
         ):
-            update._write(path, {"value": True})
+            update._write(path, {"value": True}, 1024)
         self.assertEqual(list(path.parent.iterdir()), [])
 
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "image id is invalid"):

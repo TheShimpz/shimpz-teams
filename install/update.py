@@ -1,7 +1,6 @@
 """Durable current-contract transactions for Assistant replacement."""
 
 import fcntl
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,6 +12,7 @@ from storage import private_state
 _UPDATE_FORMAT_VERSION = 2
 _RESIDUE_FORMAT_VERSION = 1
 _MAX_BYTES = 2 * 1024 * 1024
+_MAX_RESIDUE_BYTES = 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +60,7 @@ class AssistantUpdateStore:
                 if current == update:
                     return current
                 raise bindings.DynamicAssistantConflictError("another Assistant update is already active")
-            _write(path, _encode(update))
+            _write(path, _encode(update), _MAX_BYTES)
         return update
 
     def get(self, team_id: str, assistant_id: str) -> AssistantUpdate | None:
@@ -107,18 +107,12 @@ class AssistantUpdateStore:
 
     def _read(self, path: Path) -> AssistantUpdate | None:
         try:
-            raw = path.read_bytes()
-        except FileNotFoundError:
-            return None
+            value = private_state.read_json_record(path, _MAX_BYTES)
         except OSError as exc:
             raise bindings.DynamicAssistantError("Assistant update transaction cannot be read") from exc
-        if not raw or len(raw) > _MAX_BYTES:
-            raise bindings.DynamicAssistantError("Assistant update transaction is malformed")
-        try:
-            value = json.loads(raw)
-        except (UnicodeError, json.JSONDecodeError) as exc:
+        except ValueError as exc:
             raise bindings.DynamicAssistantError("Assistant update transaction is malformed") from exc
-        return _decode(value, self._local_record_validator)
+        return None if value is None else _decode(value, self._local_record_validator)
 
 
 class AssistantResidueStore:
@@ -137,7 +131,7 @@ class AssistantResidueStore:
                 if current == residue:
                     return current
                 raise bindings.DynamicAssistantError("Assistant residue changed unexpectedly")
-            _write(path, {"version": _RESIDUE_FORMAT_VERSION, "image_id": residue.image_id})
+            _write(path, {"version": _RESIDUE_FORMAT_VERSION, "image_id": residue.image_id}, _MAX_RESIDUE_BYTES)
         return residue
 
     def list(self) -> tuple[AssistantResidue, ...]:
@@ -175,17 +169,13 @@ class AssistantResidueStore:
     @staticmethod
     def _read(path: Path) -> AssistantResidue | None:
         try:
-            raw = path.read_bytes()
-        except FileNotFoundError:
-            return None
+            value = private_state.read_json_record(path, _MAX_RESIDUE_BYTES)
         except OSError as exc:
             raise bindings.DynamicAssistantError("Assistant residue cannot be read") from exc
-        if not raw or len(raw) > 1024:
-            raise bindings.DynamicAssistantError("Assistant residue is malformed")
-        try:
-            value = json.loads(raw)
-        except (UnicodeError, json.JSONDecodeError) as exc:
+        except ValueError as exc:
             raise bindings.DynamicAssistantError("Assistant residue is malformed") from exc
+        if value is None:
+            return None
         if (
             not isinstance(value, dict)
             or set(value) != {"version", "image_id"}
@@ -258,12 +248,10 @@ def _successor_binding(
     raise bindings.DynamicAssistantConflictError("the Assistant update provenance is invalid")
 
 
-def _write(path: Path, value: dict[str, object]) -> None:
-    encoded = json.dumps(value, allow_nan=False, separators=(",", ":"), sort_keys=True).encode()
+def _write(path: Path, value: dict[str, object], maximum: int) -> None:
     try:
-        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        private_state.replace_durably(path, encoded)
-    except OSError as exc:
+        private_state.write_json_record(path, value, maximum)
+    except (OSError, ValueError) as exc:
         raise bindings.DynamicAssistantError("Assistant update transaction cannot be written") from exc
 
 
