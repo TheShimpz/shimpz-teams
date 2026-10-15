@@ -16,7 +16,10 @@ def manifest(
     seen: set[int] = set()
     for call in calls:
         given = call.occurrence.input
-        if given.withheld or given.oversize or not isinstance(given.value, dict):
+        # The same refusals, in the same order, as the recorder's own classification of the call.
+        if given.oversize:
+            raise routine_recording.RecordingError("routine-recording-too-large")
+        if given.withheld or not isinstance(given.value, dict):
             raise routine_recording.RecordingError("routine-secret-literal")
         representative = context.classes[call.index]
         if representative in seen:

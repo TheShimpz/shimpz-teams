@@ -150,6 +150,11 @@ class RepairTests(unittest.TestCase):
         code = _code(self, lambda: _record(_send(hidden, RECORDS, message="DNS de shimpz.com a cada hora")))
         self.assertEqual(code, "routine-secret-literal")
 
+    def test_an_oversize_call_beside_a_rerun_question_refuses_as_too_large(self) -> None:
+        oversize = ("reports/post", {"t": "x"}, {}, trace.Kept(None, frozenset({""}), oversize=True))
+        code = _code(self, lambda: _record(_send(oversize, RECORDS, message="DNS de shimpz.com a cada hora")))
+        self.assertEqual(code, "routine-recording-too-large")
+
     def test_a_withheld_input_is_never_frozen(self) -> None:
         for action in ("reports/post", "reports/fetch"):
             with self.subTest(action=action):
