@@ -59,7 +59,7 @@ class LocalLeafContractTests(unittest.TestCase):
             storage=types.SimpleNamespace(
                 metadata_connection=lambda *_args: nullcontext(None), settle=lambda *_args: None
             ),
-            _chat_setup=lambda *_args: (
+            _chat_setup=lambda *_args, **_kwargs: (
                 "Team",
                 "a" * 12,
                 (active,),

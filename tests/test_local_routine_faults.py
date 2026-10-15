@@ -25,6 +25,7 @@ from inference import config as inference_config
 from local import app as local_app
 from local import authority as local_authority
 from local.routine import compiled as routine_compiled
+from local.routine import human as routine_human
 from local.routine import manage as routine_manage
 from local.routine import protection as local_routine_protection
 from local.routine import run as routine_run
@@ -333,14 +334,16 @@ class RunFaultTests(RoutineServiceCase):
                     service, "team_1", claim["run_id"], record.lease_of(claim["lease_token"], KEY), 1
                 )
 
-    def test_a_team_without_a_model_configuration_is_never_claimed(self) -> None:
+    def test_a_team_without_a_model_configuration_still_runs_its_routines(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime())
+            controller, service = self.service(directory, Runtime())
+            controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
             self.routine(service)
             missing = inference_config.InferenceConfigMissingError("none")
-            with mock.patch.object(service.inference_store, "load", side_effect=missing):
-                self.assertIsNone(service.claim_routine_run())
-            self.assertEqual(self.state(service).runs, ())
+            with mock.patch.object(service.inference_store, "load", side_effect=missing) as load:
+                claim = service.claim_routine_run()
+                self.assertEqual(self.run_claim(service, claim)["status"], "done")
+            load.assert_not_called()
 
     def test_stopping_a_running_run_cancels_its_segment_and_fail_stops_its_action(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -425,11 +428,8 @@ class FrozenFaultTests(RoutineServiceCase):
             run_id = claim["run_id"]
             unreadable = (
                 mock.patch.object(service, "_active_chat_assistants", side_effect=down),
-                mock.patch.object(
-                    service.inference_store, "load", side_effect=inference_config.InferenceConfigError("unavailable")
-                ),
                 # Setup failed although everything reads as unchanged: still no proof.
-                mock.patch.object(service, "_chat_setup", side_effect=down),
+                mock.patch.object(routine_human.local_chat_execution, "routine_setup", side_effect=down),
             )
             for patch in unreadable:
                 with self.subTest(patch=patch), patch, self.assertRaises(local_app.ApiProblem) as unavailable:
@@ -468,20 +468,18 @@ class FrozenFaultTests(RoutineServiceCase):
             self.assertEqual(service.routine_store.continuations("team_1"), (run_id,))
             self.assertEqual(service.open_routine_challenge("team_1", run_id, "en")["run_id"], run_id)
 
-    def test_a_removed_or_changed_model_configuration_ends_the_frozen_run(self) -> None:
+    def test_a_removed_or_changed_model_configuration_never_ends_a_frozen_run(self) -> None:
         for load in (
             mock.Mock(side_effect=inference_config.InferenceConfigMissingError("unset")),
             mock.Mock(return_value=SimpleNamespace(provider="anthropic")),
         ):
             with self.subTest(load=load), tempfile.TemporaryDirectory() as directory:
                 _controller, service, claim = self.frozen(directory)
-                with (
-                    mock.patch.object(service.inference_store, "load", load),
-                    self.assertRaises(local_app.ApiProblem) as changed,
-                ):
-                    service.open_routine_challenge("team_1", claim["run_id"], "en")
-                self.assertEqual(changed.exception.code, "team-context-changed")
-                self.assertEqual(self.state(service).runs, ())
+                # A run asks no model, so its Team's model configuration is never part of what it froze with.
+                with mock.patch.object(service.inference_store, "load", load):
+                    opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
+                self.assertEqual(opened["run_id"], claim["run_id"])
+                load.assert_not_called()
 
     def test_an_answer_must_match_its_own_run_and_only_a_frozen_run_takes_one(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

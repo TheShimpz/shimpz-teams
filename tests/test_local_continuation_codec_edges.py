@@ -259,6 +259,21 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
             with self.subTest(provider=value.get("provider")), self.assertRaises(continuation.ContinuationCodecError):
                 continuation._pending(value)
 
+    def test_a_frozen_routine_run_names_only_its_network_and_assistants(self) -> None:
+        """A Routine run asks no model: its pending turn names no provider, model, usage, recording, or file."""
+        chat = pending()
+        routine = dataclasses.replace(
+            chat, file_ids=(), provider=None, identity=("network-id", chat.identity[2]), usage=None, model=None
+        )
+        payload = continuation._pending_payload(routine)
+        self.assertEqual(payload["identity"], {"network_id": "network-id", "assistants": [list(chat.identity[2][0])]})
+        self.assertEqual(continuation._pending(payload), routine)
+        for changes in ({"provider": "openai"}, {"file_ids": ["a" * 32]}, {"recording": "a" * 32}, {"model": "x"}):
+            with self.subTest(changes=changes), self.assertRaises(continuation.ContinuationCodecError):
+                continuation._pending({**payload, **changes})
+        with self.assertRaises(continuation.ContinuationCodecError):
+            continuation._identity_payload(("network-id", list(chat.identity[2])))
+
     def test_human_transcript_and_requirement_decoders_are_closed(self) -> None:
         invalid_response = {
             "kind": "input:password",

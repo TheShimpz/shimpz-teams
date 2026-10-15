@@ -194,6 +194,29 @@ def _invoke_chat_action(
     return invocation["result"]
 
 
+def routine_setup(self, team_id: str, assistant_ids: tuple[str, ...]) -> tuple[str, str, tuple[_ActiveAssistant, ...]]:
+    """The Team's name, network id, and exactly the running Assistants a Routine run names; one not running refuses.
+
+    A Routine run reads no files and no model configuration: it asks no model (ADR-0092).
+    """
+    team_name, network_id, active_by_id = self._team_assistants(team_id)
+    try:
+        return team_name, network_id, tuple(active_by_id[assistant_id] for assistant_id in assistant_ids)
+    except KeyError:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT, "a selected Assistant is unavailable", code="assistant-unavailable"
+        ) from None
+
+
+def routine_identity(network_id: str, assistants: tuple[_ActiveAssistant, ...]) -> tuple[object, ...]:
+    """A Routine run's Team identity: its network incarnation and the exact release and container of each Assistant.
+
+    It never names the Team's name or model configuration, which a run never uses, so renaming the Team or changing its
+    model never ends a frozen run (ADR-0092).
+    """
+    return (network_id, tuple((item.spec.assistant_id, item.spec.image, item.container_id) for item in assistants))
+
+
 def _chat_identity(
     team_name: str,
     network_id: str,

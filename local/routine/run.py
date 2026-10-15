@@ -15,7 +15,6 @@ from http import HTTPStatus
 from action import human as action_human
 from chat import orchestrator as chat_orchestrator
 from core import canonical_json
-from inference import config as inference_config
 from local import audit as local_audit
 from local import authority as local_authority
 from local import errors as local_errors
@@ -33,13 +32,12 @@ from routine import runs as routine_runs
 
 @dataclass(frozen=True, slots=True)
 class LeasedRun:
-    """One leased run's segment: its Team, lease, execution-slot token, provider, and Routine."""
+    """One leased run's segment: its Team, lease, execution-slot token, and Routine; it asks no model."""
 
     team_id: str
     run_id: str
     lease: record.Lease
     token: str
-    provider: str
     routine: record.Routine
     # The human answers this logical run already gave, kept for deterministic replay if it freezes again.
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
@@ -99,17 +97,6 @@ def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str, l
     return routine_claim.claim(state, now, key, long)
 
 
-def team_provider(self, team_id: str) -> str | None:
-    """The Team's configured model provider, or None when it has none; a Team with none is not claimed.
-
-    No run asks a model (ADR-0092); a frozen run's continuation records the provider it froze with.
-    """
-    try:
-        return self.inference_store.load(team_id).provider
-    except inference_config.InferenceConfigError:
-        return None
-
-
 def _state_unavailable(team_id: str) -> None:
     local_audit.record_request("routine-claim", result="error", team_id=team_id, detail="routine-state-unavailable")
 
@@ -140,8 +127,8 @@ def _claim_team(self, team_id: str, now: int, key: str, long: bool):
 def claim_routine_run(self, long: bool = True) -> dict[str, object] | None:
     """Lease one due run, choosing the least recently served Team first; None when nothing may start now.
 
-    Any Team with a configured model may be claimed; no run needs a model key. Without ``long``, Admin already holds a
-    long run in a worker, so only a short run is claimed (ADR-0092 amendment, 2026-10-05, scale).
+    No run asks a model, so a Team needs no model configuration or key. Without ``long``, Admin already holds a long run
+    in a worker, so only a short run is claimed (ADR-0092 amendment, 2026-10-05, scale).
     """
     try:
         key = local_authority.routine_key_fingerprint()
@@ -150,7 +137,7 @@ def claim_routine_run(self, long: bool = True) -> dict[str, object] | None:
     now = int(time.time())
     states = _readable_states(self, routine_state.call(self.routine_store.teams))
     for team_id in sorted(states, key=lambda team: (states[team].served_at, team)):
-        if team_provider(self, team_id) is None or _chat_busy(self, team_id):
+        if _chat_busy(self, team_id):
             continue
         if states[team_id].discards:
             try:
@@ -178,7 +165,7 @@ def next_routine_due(self) -> int | None:
     """When Admin should next claim: the earliest instant a Routine of a Team it can run becomes due (ADR-0092)."""
     now = int(time.time())
     states = _readable_states(self, routine_state.call(self.routine_store.teams))
-    due = [routine_claim.next_due(state, now) for team_id, state in states.items() if team_provider(self, team_id)]
+    due = [routine_claim.next_due(state, now) for state in states.values()]
     return min((item for item in due if item is not None), default=None)
 
 
@@ -271,7 +258,7 @@ def suspended(self, run: LeasedRun, segment, step: int) -> str:
         continuation=outcome.continuation,
         assistant_ids=tuple(assistant for assistant, _digest in run.routine.assistants),
         file_ids=(),
-        provider=run.provider,
+        provider=None,
         identity=segment.identity,
         transcripts=chat_orchestrator.retain_suspension_transcripts(run.transcripts, outcome),
         requests_used=run.requests_used,

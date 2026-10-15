@@ -404,23 +404,23 @@ class ContinuationDeadlineTests(BalanceCase):
     def test_a_deadline_just_before_the_continuation_registers_still_holds_and_pauses(self) -> None:
         fired: list[object] = []
 
-        real_provider = routine_recovery._provider
+        real_registered = routine_recovery.routine_run.registered
         calls: list[str] = []
 
-        def provider(service, team_id):
+        def registering(service, team_id, run_id, token, seconds):
             calls.append(team_id)
-            if len(calls) == 2:
-                # The verifier asked first; now the run was reopened, and the deadline passes before its continuation
-                # registers.
+            if len(calls) == 3:
+                # The run and then its episode registered first; now the run was reopened, and the deadline passes
+                # before its continuation registers.
                 self.assertEqual(record.incidents(service.routine_store.load(team_id)), ())
                 fired[-1]()
-            return real_provider(service, team_id)
+            return real_registered(service, team_id, run_id, token, seconds)
 
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         with (
             tempfile.TemporaryDirectory() as directory,
             mock.patch.object(routine_recovery.threading, "Timer", captured_timer(fired)),
-            mock.patch.object(routine_recovery, "_provider", side_effect=provider),
+            mock.patch.object(routine_recovery.routine_run, "registered", side_effect=registering),
         ):
             service, value, run_id = self.run_held(directory, assistant)
             state = self.state(service)

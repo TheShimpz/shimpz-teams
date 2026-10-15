@@ -30,7 +30,6 @@ from assistant import spec as assistant_spec
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
-from inference import config as inference_config
 from local import audit as local_audit
 from local import errors as local_errors
 from local.chat.segment import RoutineSegment, SegmentRequest
@@ -282,13 +281,6 @@ def verifier_request(assessment: Assessment) -> brain_runtime_client.ActionReque
     return brain_runtime_client.ActionRequest(VERIFY_INTERRUPT, step.assistant_id, verifier["action"], payload)
 
 
-def _provider(self, team_id: str) -> str:
-    try:
-        return self.inference_store.load(team_id).provider
-    except inference_config.InferenceConfigError as exc:
-        raise ApiProblem(503, "Team model provider is not configured", code="inference-unavailable") from exc
-
-
 def _call_verifier(self, team_id: str, token: str, assessment: Assessment, request) -> object:
     """Run the verifier in its own released generation; None when it failed, paused for a person, or was refused."""
     run_id = assessment.cursor.binding.run_id
@@ -298,7 +290,7 @@ def _call_verifier(self, team_id: str, token: str, assessment: Assessment, reque
         team_id=team_id,
         file_ids=[],
         assistant_ids=(assessment.step.assistant_id,),
-        provider=_provider(self, team_id),
+        provider=None,
         api_key="",
         token=token,
         message="",
@@ -423,9 +415,7 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, incident_id))
     lease = record.lease_of(lease_token, record.HUMAN_LEASE)
     # The logical run's answered human requests carry on; a continuation never gets a fresh allowance.
-    run = routine_run.LeasedRun(
-        team_id, incident_id, lease, token, _provider(self, team_id), routine, (), value.requests_used
-    )
+    run = routine_run.LeasedRun(team_id, incident_id, lease, token, routine, (), value.requests_used)
     with routine_run.registered(self, team_id, incident_id, token, min(seconds, value.active_seconds_left)):
         outcome = routine_compiled.execute(self, run, value, progress)
     routine_run.after_run(self, team_id, incident_id, routine.routine_id, outcome)

@@ -15,10 +15,10 @@ from http import HTTPStatus
 from action import challenges as action_challenges
 from action import human as action_human
 from chat import progress as chat_progress
-from inference import config as inference_config
 from install import bindings
 from local import errors as local_errors
 from local.chat import continuation as local_chat_continuations
+from local.chat import execution as local_chat_execution
 from local.chat import human as local_chat_human
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import compiled as routine_compiled
@@ -103,17 +103,14 @@ def _end_changed(self, team_id: str, value: record.Run) -> None:
 def _proven_changed(self, team_id: str, pending: local_chat_continuations.PendingLocalChat) -> bool:
     """Whether a Team whose context could not be set up provably changed since the run froze.
 
-    Only an Assistant the Team no longer runs, or a model configuration that is gone or names another provider, is
-    proof; a Team whose Assistants or configuration cannot be read now proves nothing.
+    Only an Assistant the Team no longer runs is proof; a Team whose Assistants cannot be read now proves nothing. A run
+    asks no model, so the Team's name and model configuration are never part of it (ADR-0092).
     """
     try:
         current = routine_contracts.current_contracts(self, team_id, pending.assistant_ids)
-        provider = self.inference_store.load(team_id).provider
-    except inference_config.InferenceConfigMissingError:
-        return True
-    except routine_contracts.ContractsUnavailableError, inference_config.InferenceConfigError:
+    except routine_contracts.ContractsUnavailableError:
         return False
-    return set(current) != set(pending.assistant_ids) or provider != pending.provider
+    return set(current) != set(pending.assistant_ids)
 
 
 def _current_context(
@@ -129,19 +126,19 @@ def _current_context(
     be read now, the run stays frozen and the person may retry. Returns the Team's running Assistants.
     """
     try:
-        current = self._chat_setup(team_id, [], pending.provider, pending.assistant_ids)
+        _name, network_id, assistants = local_chat_execution.routine_setup(self, team_id, pending.assistant_ids)
     except (ApiProblem, bindings.DynamicAssistantError) as exc:
         if not _proven_changed(self, team_id, pending):
             raise routine_contracts.context_unavailable() from exc
-        current = None
+        assistants = None
     if (
-        current is None
-        or self._chat_identity(*current) != pending.identity
-        or (requirement is not None and not local_chat_human.copy_binding_current(requirement, current[2]))
+        assistants is None
+        or local_chat_execution.routine_identity(network_id, assistants) != pending.identity
+        or (requirement is not None and not local_chat_human.copy_binding_current(requirement, assistants))
     ):
         _end_changed(self, team_id, value)
         raise ApiProblem(HTTPStatus.CONFLICT, "Team capabilities changed; the run ended", code="team-context-changed")
-    return current[2]
+    return assistants
 
 
 def open_routine_challenge(self, team_id: str, run_id: str, locale: str) -> dict[str, object]:
@@ -331,8 +328,7 @@ def _replay(
     """Thaw the run under an internal lease and continue it, with no model, in its own generation.
 
     The Team's execution slot is held before its lock and before anything is consumed: a concurrent chat refuses the
-    replay while the run stays frozen and its challenge stays answerable. The run goes on with the provider it froze
-    with.
+    replay while the run stays frozen and its challenge stays answerable.
     """
     team_id, value, routine, pending = frozen.team_id, frozen.value, frozen.routine, frozen.pending
     admission, challenge_id = answered if answered is not None else (None, None)
@@ -353,9 +349,7 @@ def _replay(
 
             lease = _resume(self, team_id, value.run_id, (challenge_id, seal), requests_used)
         routine_state.call(lambda: self.routine_store.delete_continuation(team_id, value.run_id))
-        run = routine_run.LeasedRun(
-            team_id, value.run_id, lease, token, pending.provider, routine, transcripts, requests_used
-        )
+        run = routine_run.LeasedRun(team_id, value.run_id, lease, token, routine, transcripts, requests_used)
         outcome = routine_compiled.execute(self, run, value, progress, pending)
         if outcome == "held":
             outcome = self._recover_routine_run(run, progress)

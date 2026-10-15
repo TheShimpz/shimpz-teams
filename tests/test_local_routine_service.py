@@ -542,7 +542,7 @@ class FreezeTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim, _frozen = self.paused(directory)
             with (
-                mock.patch.object(service, "_chat_identity", return_value=("changed",)),
+                mock.patch("local.chat.execution.routine_identity", return_value=("changed",)),
                 self.assertRaises(local_app.ApiProblem) as changed,
             ):
                 service.open_routine_challenge("team_1", claim["run_id"], "en")

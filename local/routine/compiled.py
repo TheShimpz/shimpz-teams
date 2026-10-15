@@ -503,7 +503,7 @@ def request(
         team_id=run.team_id,
         file_ids=[],
         assistant_ids=tuple(assistant for assistant, _pin in run.routine.assistants),
-        provider=run.provider,
+        provider=None,
         api_key="",
         token=run.token,
         routine=RoutineSegment(
@@ -679,10 +679,9 @@ def run_routine(
     """Run one segment of a leased compiled run in the Team's execution slot, with no model.
 
     The signed request names the Routine revision and plan digest the run was claimed at; any other is refused before
-    anything runs. The run keeps the Team's configured provider, which a frozen continuation records.
+    anything runs.
     """
     team_id = validate_team_id(team_id)
-    provider = routine_run.team_provider(self, team_id) or ""
     lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
     value, routine = routine_run.live_run(self, team_id, run_id, lease)
     if claimed != (routine.revision, routine_definition.plan_digest(routine.plan)):
@@ -700,7 +699,7 @@ def run_routine(
         else:
             generation = routine_run.bind_run(self, team_id, run_id, lease)
             bound = dataclasses.replace(value, generation=generation)
-            run = routine_run.LeasedRun(team_id, run_id, lease, token, provider, routine)
+            run = routine_run.LeasedRun(team_id, run_id, lease, token, routine)
             outcome = execute(self, run, bound, progress)
             if outcome == "held":
                 outcome = self._recover_routine_run(run, progress)

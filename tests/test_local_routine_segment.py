@@ -187,3 +187,18 @@ class RecordingTests(LocalContractCase):
             run_chat(controller.chat_turn_service, None)
             found = books.get("team_1", recording)
         self.assertEqual((len(seen), found.sends[-1].occurrences), (1, ()))
+
+
+class RoutineContextTests(LocalContractCase):
+    def test_a_routine_segment_ends_when_its_network_or_assistants_change_under_it(self) -> None:
+        """A Routine run's context is its network and Assistants alone; a change before its next Action ends it."""
+        from local.chat import segment as chat_segment
+
+        assistants = (SimpleNamespace(spec=SimpleNamespace(assistant_id="a", image="i"), container_id="c"),)
+        service = SimpleNamespace(_team_assistants=lambda _team_id: ("Team", "net", {"a": assistants[0]}))
+        request = SimpleNamespace(team_id="team_1", assistant_ids=("a",), routine=object())
+        same = chat_segment.local_chat_execution.routine_identity("net", assistants)
+        self.assertIsNone(chat_segment._validate_context(service, request, same, None))
+        with self.assertRaises(local_app.ApiProblem) as changed:
+            chat_segment._validate_context(service, request, ("other", ()), None)
+        self.assertEqual(changed.exception.code, "team-context-changed")

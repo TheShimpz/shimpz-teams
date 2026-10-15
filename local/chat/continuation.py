@@ -63,7 +63,9 @@ class PendingLocalChat:
     continuation: chat_orchestrator.ChatContinuation
     assistant_ids: tuple[str, ...]
     file_ids: tuple[str, ...]
-    provider: str
+    # The chat turn's model provider, or None for a frozen Routine run, which asks no model.
+    provider: str | None
+    # A chat turn's Team identity, or a frozen Routine run's: its network and Assistants alone (ADR-0092).
     identity: tuple[object, ...]
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
@@ -276,6 +278,15 @@ def _requests_used(value: object) -> int:
 
 
 def _identity_payload(identity: tuple[object, ...]) -> dict[str, object]:
+    if isinstance(identity, tuple) and len(identity) == 2:
+        # A frozen Routine run's identity: its network and Assistants, never the Team's name or model.
+        network_id, assistants = identity
+        if not isinstance(assistants, tuple):
+            raise ContinuationCodecError("continuation Team identity is malformed")
+        return {
+            "network_id": network_id,
+            "assistants": [list(item) if isinstance(item, tuple) else item for item in assistants],
+        }
     if not isinstance(identity, tuple) or len(identity) != 5:
         raise ContinuationCodecError("continuation Team identity is malformed")
     team_name, network_id, assistants, files, config = identity
@@ -503,6 +514,9 @@ def _continuation(value: object) -> chat_orchestrator.ChatContinuation:
 
 
 def _identity(value: object) -> tuple[object, ...]:
+    """A chat turn's Team identity, or a frozen Routine run's, which names only its network and Assistants."""
+    if isinstance(value, dict) and set(value) == {"network_id", "assistants"}:
+        return _network_id(value["network_id"]), _identity_assistants(value["assistants"])
     raw = _mapping(
         value,
         {"team_name", "network_id", "assistants", "files", "inference"},
@@ -514,11 +528,27 @@ def _identity(value: object) -> tuple[object, ...]:
         team_name = validate_team_name(raw["team_name"])
     except ApiProblemError as exc:
         raise ContinuationCodecError("continuation Team name is malformed") from exc
-    network_id = raw["network_id"]
-    if not isinstance(network_id, str) or _NETWORK_ID.fullmatch(network_id) is None:
+    network_id = _network_id(raw["network_id"])
+    assistants = _identity_assistants(raw["assistants"])
+    files = _identity_files(raw["files"])
+    inference = _mapping(raw["inference"], {"provider", "model"}, "continuation inference")
+    try:
+        config = inference_config.normalize(inference["provider"], inference["model"])
+    except inference_config.InferenceConfigError as exc:
+        raise ContinuationCodecError("continuation inference is malformed") from exc
+    return team_name, network_id, assistants, files, config
+
+
+def _network_id(value: object) -> str:
+    if not isinstance(value, str) or _NETWORK_ID.fullmatch(value) is None:
         raise ContinuationCodecError("continuation network identity is malformed")
+    return value
+
+
+def _identity_assistants(value: object) -> tuple[tuple[str, str, str], ...]:
+    """Each Assistant of an identity, once: its id, its exact release image, and its container."""
     assistants: list[tuple[str, str, str]] = []
-    for item in _sequence(raw["assistants"], MAX_IDENTITY_ASSISTANTS, "continuation Assistants"):
+    for item in _sequence(value, MAX_IDENTITY_ASSISTANTS, "continuation Assistants"):
         if not isinstance(item, list) or len(item) != 3:
             raise ContinuationCodecError("continuation Assistant identity is malformed")
         assistant = _component_id(item[0], "continuation Assistant identity", http_payload.canonical_assistant_id)
@@ -534,8 +564,12 @@ def _identity(value: object) -> tuple[object, ...]:
         assistants.append((assistant, image, container))
     if len({item[0] for item in assistants}) != len(assistants):
         raise ContinuationCodecError("continuation Assistant identity is malformed")
+    return tuple(assistants)
+
+
+def _identity_files(value: object) -> list[dict[str, object]]:
     files: list[dict[str, object]] = []
-    for item in _sequence(raw["files"], MAX_IDENTITY_FILES, "continuation files"):
+    for item in _sequence(value, MAX_IDENTITY_FILES, "continuation files"):
         entry = _mapping(item, {"id", "name", "media_type", "size", "sha256"}, "continuation file")
         if (
             not isinstance(entry["id"], str)
@@ -552,12 +586,7 @@ def _identity(value: object) -> tuple[object, ...]:
         files.append(dict(entry))
     if len({item["id"] for item in files}) != len(files):
         raise ContinuationCodecError("continuation files are malformed")
-    inference = _mapping(raw["inference"], {"provider", "model"}, "continuation inference")
-    try:
-        config = inference_config.normalize(inference["provider"], inference["model"])
-    except inference_config.InferenceConfigError as exc:
-        raise ContinuationCodecError("continuation inference is malformed") from exc
-    return team_name, network_id, tuple(assistants), files, config
+    return files
 
 
 def _pending(value: object) -> PendingLocalChat:
@@ -593,10 +622,14 @@ def _pending(value: object) -> PendingLocalChat:
     if len(file_ids) != len(raw["file_ids"]) or len(file_ids) != len(set(file_ids)):
         raise ContinuationCodecError("pending files are malformed")
     provider = raw["provider"]
-    if not isinstance(provider, str) or provider not in inference_config.PROVIDERS:
-        raise ContinuationCodecError("pending provider is malformed")
     identity = _identity(raw["identity"])
-    if identity[4].provider != provider:
+    if len(identity) == 2:
+        # A frozen Routine run asks no model and reads no file: it names no provider, model, usage, or recording.
+        if provider is not None or file_ids or (raw["usage"], raw["recording"], raw["model"]) != (None, None, None):
+            raise ContinuationCodecError("pending Routine run is malformed")
+    elif not isinstance(provider, str) or provider not in inference_config.PROVIDERS:
+        raise ContinuationCodecError("pending provider is malformed")
+    elif identity[4].provider != provider:
         raise ContinuationCodecError("pending provider binding is malformed")
     transcripts = _transcripts(raw["transcripts"])
     requests_used = _requests_used(raw["requests_used"])

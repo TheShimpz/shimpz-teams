@@ -8,7 +8,6 @@ from unittest import mock
 import routine_fixture
 from test_local_routine_recovery import RECORD, Assistant, RecoveryCase, failed
 
-from inference import config as inference_config
 from local import app as local_app
 from local.routine import compiled as routine_compiled
 from local.routine import incident as routine_incident
@@ -77,18 +76,11 @@ class AssessmentEdgeTests(RecoveryCase):
 
 
 class VerifierCallEdgeTests(RecoveryCase):
-    def test_an_unconfigured_failing_or_pausing_verifier_is_inconclusive(self) -> None:
+    def test_a_failing_or_pausing_verifier_is_inconclusive(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             # Each case starts from the held cursor.
             fresh = self.cursor(service, run_id)
-            down = inference_config.InferenceConfigError("unavailable")
-            with (
-                mock.patch.object(service.inference_store, "load", side_effect=down),
-                self.assertRaises(local_app.ApiProblem) as unconfigured,
-            ):
-                self.verify(service, value, run_id)
-            self.assertEqual(unconfigured.exception.code, "inference-unavailable")
             refused = local_app.ApiProblem(409, "x", code="team-context-changed")
             service.routine_store.put_cursor("team_1", fresh)
             with mock.patch.object(service, "_run_chat_segment", side_effect=refused):

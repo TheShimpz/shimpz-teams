@@ -22,9 +22,11 @@ from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local import inference as local_inference
 from local.chat import attachments as local_attachments
+from local.chat import execution as local_chat_execution
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import team_context_changed
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import recorder as routine_recorder
 from local.validation import brain_thread_id as _brain_thread_id
@@ -61,7 +63,8 @@ class SegmentRequest:
     team_id: str
     file_ids: list[str]
     assistant_ids: tuple[str, ...]
-    provider: str
+    # The chat turn's model provider; a Routine run asks no model and names none.
+    provider: str | None
     api_key: str
     token: str
     message: str | None = None
@@ -202,7 +205,8 @@ class _TurnScope:
     assistants: tuple[_ActiveAssistant, ...]
     genesis_by_id: dict[str, str]
     files: list[dict[str, object]]
-    config: object
+    # The Team's model configuration; None for a Routine run, which asks no model.
+    config: inference_config.InferenceConfig | None
 
 
 def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_runtime_client.RuntimeContext:
@@ -220,8 +224,9 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         thread_id=scope.thread_id,
         team_name=scope.team_name,
         assistants=runtime_assistants,
-        provider=config.provider,
-        model=_turn_model(self, request, config),
+        # A Routine run's runtime answers from its plan and reads neither.
+        provider="" if config is None else config.provider,
+        model="" if config is None else _turn_model(self, request, config),
         api_key=request.api_key,
         memories=None if routine is not None else tuple(memories),
         skills=None if routine is not None else chat_knowledge.turn_skills(skills, runtime_assistants),
@@ -337,22 +342,146 @@ def _run_chat_segment(
     return result
 
 
+@dataclass(frozen=True, slots=True)
+class _Scope:
+    """What one prepared segment runs against: Assistants, identity, Routine scope pins, selected files, and model."""
+
+    bindings: dict[str, _ActiveAssistant] = field(default_factory=dict)
+    identity: tuple[object, ...] = ()
+    contracts: tuple[tuple[str, str], ...] = ()
+    selected_files: dict[str, action_files.ActionFile] = field(default_factory=dict)
+    model: str | None = None
+
+
+def _setup(self, request: SegmentRequest, metadata_connection, *, scan_empty_scope: bool = True) -> tuple:
+    """The Team as this segment runs against it: its name, network, Assistants, files, model, and identity.
+
+    A Routine run reads no model configuration, and its identity names neither the Team's name nor one (ADR-0092).
+    """
+    if request.routine is not None:
+        team_name, network_id, assistants = local_chat_execution.routine_setup(
+            self, request.team_id, request.assistant_ids
+        )
+        return (
+            team_name,
+            network_id,
+            assistants,
+            [],
+            None,
+            local_chat_execution.routine_identity(network_id, assistants),
+        )
+    current = self._chat_setup(
+        request.team_id,
+        request.file_ids,
+        request.provider,
+        request.assistant_ids,
+        metadata_connection,
+        scan_empty_scope=scan_empty_scope,
+    )
+    return (*current, self._chat_identity(*current))
+
+
+def _validate_context(self, request: SegmentRequest, identity: tuple[object, ...], metadata_connection) -> None:
+    """The Team must still be exactly as the segment prepared it before its next Action."""
+    if request.routine is None:
+        self._validate_chat_context(
+            request.team_id, request.file_ids, request.provider, request.assistant_ids, identity, metadata_connection
+        )
+    elif _setup(self, request, metadata_connection, scan_empty_scope=False)[5] != identity:
+        raise team_context_changed()
+
+
+def _batch_strategy(
+    self, request: SegmentRequest, scope: _Scope, execute_action: Callable[..., object]
+) -> action_execution.ActionBatchStrategy:
+    """How the segment's Action batch dispatches through the Team's Assistants, Integrations, and Stored Inputs."""
+    bindings = scope.bindings
+    routine = request.routine
+    return action_execution.ActionBatchStrategy(
+        lambda active: (active.container_id, active.spec.image),
+        execute_action,
+        lambda action_request: self._require_action_rpc_envelope(
+            request.team_id, bindings, action_request, scope.selected_files
+        ),
+        lambda action_request: self._action_integration_generations(
+            request.team_id,
+            _required_active_assistant(bindings, action_request.assistant_id),
+            action_request.action,
+        ),
+        lambda action_request, origins: self._action_stored_input_generations(
+            request.team_id,
+            _required_active_assistant(bindings, action_request.assistant_id),
+            action_request,
+            origins,
+        ),
+        lambda action_request: (
+            _required_active_assistant(bindings, action_request.assistant_id).spec.actions[action_request.action].effect
+        ),
+        # A Routine retry repeats its carried logical operation; anything else lets the journal mint one.
+        (lambda _request: None) if routine is None else routine.runtime.logical_operation,
+        functools.partial(_admitted_delivery, self, request, bindings),
+        stopped=lambda: self._chat_cancelled(request.token),
+    )
+
+
+def _prepare(
+    self, request: SegmentRequest, metadata_connection, execute_action: Callable[..., object]
+) -> tuple[chat_turn_engine.PreparedSegment, _Scope]:
+    """Set up the segment against the Team as it is now, and the scope its Actions and requests run in."""
+    team_name, network_id, assistants, files, config, identity = _setup(self, request, metadata_connection)
+    # Identity keeps the immutable creation name, so a rename never changes it; the Brain and the terminal get
+    # the current display name of this exact network incarnation (ADR-0088).
+    display_name = self.team_names.load(request.team_id, network_id) or team_name
+    routine = request.routine
+    generation, thread_id = network_id, _brain_thread_id(self.space_id, request.team_id, network_id)
+    if routine is not None:
+        generation = routine.generation
+        thread_id = _routine_thread_id(self.space_id, request.team_id, network_id, routine.run_id)
+        if routine_claim.network_of(generation, routine.run_id) != network_id:
+            # The Team network changed since the run bound its generation: nothing may run in another network.
+            self._raise_chat_problem("context-changed", None)
+    if request.continuation is None:
+        try:
+            self.action_state.end_settled(generation)
+        except action_journal.ActionJournalError as exc:
+            self._raise_chat_problem("drive-error", exc)
+    genesis_by_id = {active.spec.assistant_id: self._active_assistant_genesis(active) for active in assistants}
+    contracts = tuple(
+        sorted(
+            (active.spec.assistant_id, routine_scope(active, genesis_by_id[active.spec.assistant_id]))
+            for active in assistants
+        )
+    )
+    context = _turn_context(
+        self, request, _TurnScope(thread_id, display_name, assistants, genesis_by_id, files, config)
+    )
+    bindings = {active.spec.assistant_id: active for active in assistants}
+    scope = _Scope(bindings, identity, contracts, action_files.selected(context.attachments), context.model or None)
+    held = routine is not None and routine.held
+    batch = (action_execution.HeldActionBatch if held else action_execution.ActionBatch)(
+        self.action_state,
+        generation,
+        context.thread_id,
+        bindings,
+        _batch_strategy(self, request, scope, execute_action),
+    )
+    if held:
+        routine.batches.append(batch)
+    return chat_turn_engine.PreparedSegment(display_name, identity, context, files, batch), scope
+
+
 def _run_chat_segment_with_metadata(
     self,
     request: SegmentRequest,
     metadata_connection,
 ) -> chat_turn_engine.SegmentResult:
-    bindings: dict[str, _ActiveAssistant] = {}
-    identity: tuple[object, ...] = ()
-    network_id = ""
-    contracts: tuple[tuple[str, str], ...] = ()
-    selected_files: dict[str, action_files.ActionFile] = {}
-    model: str | None = None
+    # The scope prepare sets, which every later callback of the segment reads.
+    scopes = [_Scope()]
 
     def execute_action(
         action_request: brain_runtime_client.ActionRequest, private_inputs: object, operation_id: str
     ) -> object:
-        active = _required_active_assistant(bindings, action_request.assistant_id)
+        active = _required_active_assistant(scopes[-1].bindings, action_request.assistant_id)
         evidence = _invocation_evidence(request, action_request, (private_inputs, operation_id))
 
         def invoke() -> object:
@@ -377,120 +506,42 @@ def _run_chat_segment_with_metadata(
         human_request: action_human.HumanRequest,
         locale: str,
     ) -> action_challenges.HumanRequirement:
+        scope = scopes[-1]
         # A Routine run's card shows no argument: its values may be protected (ADR-0101 section 6).
         return _human_requirement(
-            self, bindings, action_request, human_request, locale, selected_files, project_input=request.routine is None
+            self,
+            scope.bindings,
+            action_request,
+            human_request,
+            locale,
+            scope.selected_files,
+            project_input=request.routine is None,
         )
 
     def prepare() -> chat_turn_engine.PreparedSegment:
-        nonlocal bindings, identity, network_id, contracts, selected_files, model
-        team_name, network_id, assistants, files, config = self._chat_setup(
-            request.team_id,
-            request.file_ids,
-            request.provider,
-            request.assistant_ids,
-            metadata_connection,
-        )
-        # Identity keeps the immutable creation name, so a rename never changes it; the Brain and the terminal get
-        # the current display name of this exact network incarnation (ADR-0088).
-        identity = self._chat_identity(team_name, network_id, assistants, files, config)
-        display_name = self.team_names.load(request.team_id, network_id) or team_name
-        routine = request.routine
-        generation, thread_id = network_id, _brain_thread_id(self.space_id, request.team_id, network_id)
-        if routine is not None:
-            generation = routine.generation
-            thread_id = _routine_thread_id(self.space_id, request.team_id, network_id, routine.run_id)
-            if routine_claim.network_of(generation, routine.run_id) != network_id:
-                # The Team network changed since the run bound its generation: nothing may run in another network.
-                self._raise_chat_problem("context-changed", None)
-        if request.continuation is None:
-            try:
-                self.action_state.end_settled(generation)
-            except action_journal.ActionJournalError as exc:
-                self._raise_chat_problem("drive-error", exc)
-        genesis_by_id = {active.spec.assistant_id: self._active_assistant_genesis(active) for active in assistants}
-        contracts = tuple(
-            sorted(
-                (active.spec.assistant_id, routine_scope(active, genesis_by_id[active.spec.assistant_id]))
-                for active in assistants
-            )
-        )
-        context = _turn_context(
-            self, request, _TurnScope(thread_id, display_name, assistants, genesis_by_id, files, config)
-        )
-        bindings = {active.spec.assistant_id: active for active in assistants}
-        selected_files = action_files.selected(context.attachments)
-        model = context.model
-        held = routine is not None and routine.held
-        batch = (action_execution.HeldActionBatch if held else action_execution.ActionBatch)(
-            self.action_state,
-            generation,
-            context.thread_id,
-            bindings,
-            action_execution.ActionBatchStrategy(
-                lambda active: (active.container_id, active.spec.image),
-                execute_action,
-                lambda action_request: self._require_action_rpc_envelope(
-                    request.team_id,
-                    bindings,
-                    action_request,
-                    selected_files,
-                ),
-                lambda action_request: self._action_integration_generations(
-                    request.team_id,
-                    _required_active_assistant(bindings, action_request.assistant_id),
-                    action_request.action,
-                ),
-                lambda action_request, origins: self._action_stored_input_generations(
-                    request.team_id,
-                    _required_active_assistant(bindings, action_request.assistant_id),
-                    action_request,
-                    origins,
-                ),
-                lambda action_request: (
-                    _required_active_assistant(bindings, action_request.assistant_id)
-                    .spec.actions[action_request.action]
-                    .effect
-                ),
-                # A Routine retry repeats its carried logical operation; anything else lets the journal mint one.
-                (lambda _request: None) if routine is None else routine.runtime.logical_operation,
-                functools.partial(_admitted_delivery, self, request, bindings),
-                stopped=lambda: self._chat_cancelled(request.token),
-            ),
-        )
-        if held:
-            routine.batches.append(batch)
-        return chat_turn_engine.PreparedSegment(display_name, identity, context, files, batch)
+        prepared, scope = _prepare(self, request, metadata_connection, execute_action)
+        scopes.append(scope)
+        return prepared
 
     def private_inputs(
         requests: tuple[object, ...],
         requirements: chat_turn_engine.SegmentRequirements,
     ) -> bool:
-        return self._require_chat_private_inputs(request.team_id, bindings, requests, requirements)
-
-    def validate_current_context() -> None:
-        self._validate_chat_context(
-            request.team_id,
-            request.file_ids,
-            request.provider,
-            request.assistant_ids,
-            identity,
-            metadata_connection,
-        )
+        return self._require_chat_private_inputs(request.team_id, scopes[-1].bindings, requests, requirements)
 
     team_name, identity, outcome, requirements = chat_turn_engine.run_segment(
         chat_turn_engine.SegmentStrategy(
             runtime=_runtime(self, request),
             prepare=prepare,
             validate_action=lambda assistant_id, action, payload: self._validate_chat_action(
-                bindings,
+                scopes[-1].bindings,
                 assistant_id,
                 action,
                 payload,
             ),
             pause_for_private_inputs=private_inputs,
             cancelled=lambda: self._chat_cancelled(request.token),
-            validate_context=validate_current_context,
+            validate_context=lambda: _validate_context(self, request, scopes[-1].identity, metadata_connection),
             raise_problem=self._raise_chat_problem,
             human_requirement=human_requirement,
             progress=request.progress,
@@ -501,14 +552,15 @@ def _run_chat_segment_with_metadata(
         conversation=request.conversation,
         expected_identity=request.expected_identity,
     )
+    scope = scopes[-1]
     return chat_turn_engine.SegmentResult(
         team_name,
         identity,
         outcome,
         requirements.integrations,
         requirements.human,
-        contracts,
+        scope.contracts,
         request.locale,
         paused_batch=requirements.paused_batch,
-        model=model,
+        model=scope.model,
     )
