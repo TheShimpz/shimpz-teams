@@ -266,8 +266,9 @@ class LoopbackActivityTests(unittest.TestCase):
         for payload in ({"state": "unknown"}, {"state": "idle", "extra": 1}, ["idle"]):
             with (
                 self.subTest(payload=payload),
-                mock.patch.object(
-                    server.Handler, "_machine_read_route", return_value=(200, payload, "activity", None, None)
+                mock.patch.dict(
+                    server._OPERATIONS,
+                    {"activity": lambda _handler, _route, payload=payload: (200, payload, "activity", None, None)},
                 ),
             ):
                 self.assertEqual(self.client(), (1, ""))

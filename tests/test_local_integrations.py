@@ -17,6 +17,7 @@ from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase,
 
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
+from core.http import strict as strict_http
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from integrations import broker as integration_broker
@@ -230,7 +231,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             )
         )
 
-        route = handler._assistant_integration_route(["v1", "teams", "team_1", "assistant-integrations"])
+        route = handler._route(strict_http.ControllerRouteMatch("assistant-integration-list", {"team_id": "team_1"}))
 
         self.assertEqual(
             route,
@@ -434,45 +435,38 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             "callback_mode": "out-of-band",
             "session_binding": "browser-session-private-123456789",
         }
-        handler.command = "POST"
-        authorize_path = ["v1", "teams", "team_1", "assistant-integrations", "challenges", "a" * 32, "authorize"]
+        challenge = {"team_id": "team_1", "challenge_id": "a" * 32}
+        authorize_route = strict_http.ControllerRouteMatch("assistant-integration-authorize", challenge)
 
-        authorize = handler._assistant_integration_route(authorize_path)
+        authorize = handler._route(authorize_route)
         self.assertEqual(authorize[0], HTTPStatus.OK)
         self.assertEqual(authorize[2], "assistant-integration-authorize")
 
-        handler.command = "DELETE"
         handler._body = lambda **_kwargs: {"session_binding": "browser-session-private-123456789"}
-        cancelled = handler._assistant_integration_route(authorize_path)
+        cancelled = handler._route(strict_http.ControllerRouteMatch("assistant-integration-cancel", challenge))
         self.assertEqual(cancelled[:3], (HTTPStatus.OK, {"cancelled": True}, "assistant-integration-cancel"))
 
-        handler.command = "POST"
         handler._body = lambda **_kwargs: {
             "callback_mode": "https://attacker.example",
             "session_binding": "browser-session-private-123456789",
         }
         with self.assertRaisesRegex(local_app.ApiProblem, "OAuth authorization is invalid"):
-            handler._assistant_integration_route(authorize_path)
+            handler._route(authorize_route)
 
         handler._body = lambda **_kwargs: {
             "state": "s" * 43,
             "claim": "a" * 64,
             "session_binding": "browser-session-private-123456789",
         }
-        callback = handler._fixed_route(["v1", "oauth", "cloudflare", "callback"])
+        callback = handler._route(strict_http.ControllerRouteMatch("assistant-integration-complete", {}))
         self.assertEqual(callback[0], HTTPStatus.OK)
         self.assertEqual(callback[2], "assistant-integration-complete")
 
-        handler.command = "DELETE"
-        disconnected = handler._assistant_integration_route(
-            [
-                "v1",
-                "teams",
-                "team_1",
-                "assistant-integrations",
-                "shimpz-cloudflare",
-                "cloudflare",
-            ]
+        disconnected = handler._route(
+            strict_http.ControllerRouteMatch(
+                "assistant-integration-disconnect",
+                {"team_id": "team_1", "assistant_id": "shimpz-cloudflare", "integration_id": "cloudflare"},
+            )
         )
         self.assertEqual(disconnected[1], {"disconnected": True})
         self.assertEqual(disconnected[2], "assistant-integration-disconnect")
@@ -639,15 +633,12 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         handler._model_credential_headers = lambda: ("openai", "test-api-key")
         handler._body = lambda **_kwargs: {"challenge_id": "a" * 32}
 
-        handler.command = "GET"
         self.assertEqual(
-            http_chat.route(handler, ["v1", "teams", "team_1", "chat", "integrations"]),
+            handler._route(strict_http.ControllerRouteMatch("chat-integration-pending", {"team_id": "team_1"})),
             (HTTPStatus.OK, pending, "chat-integration-pending", "team_1", None),
         )
-        handler.command = "POST"
         self.assertEqual(
-            http_chat.route(handler, ["v1", "teams", "team_1", "chat", "integrations"]),
-            (HTTPStatus.OK, completed, "chat-integration-submit", "team_1", None),
+            http_chat._submit(handler, "chat-integration-submit", "team_1", None), (HTTPStatus.OK, completed)
         )
 
 

@@ -4,6 +4,7 @@ import base64
 import contextlib
 import json
 import threading
+from collections.abc import Callable
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer
 from typing import override
@@ -18,13 +19,14 @@ from local import activity as local_activity
 from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import oauth_authorization_invalid
+from local.errors import oauth_authorization_invalid, supervisor_unavailable
 from local.http import chat as local_http_chat
 from local.http import deadline as http_deadline
 from local.http import dispatch as local
 from local.http import inference as local_http_inference
 from local.http import routine as local_http_routine
 from local.http.audit import RequestAudit
+from local.http.dispatch import Operation, Result, team_operation
 from local.validation import (
     MODEL_BOUND_OPERATIONS,
     OPTIONAL_MODEL_OPERATIONS,
@@ -274,346 +276,9 @@ class Handler(http_deadline.DeadlineRequestHandler):
         credential = self._model_credential(operation)
         return None if credential is None else credential_binding(*credential)
 
-    def _space_reset_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, None, None] | None:
-        if self.command != "DELETE" or parts[:2] != ["v1", "space"]:
-            return None
-        if parts == ["v1", "space"]:
-            return HTTPStatus.OK, self.server.controller.reset_space(), "space-reset", None, None
-        if parts != ["v1", "space", "bootstrap"]:
-            return None
-        try:
-            local_authority.require_supervisor_absent()
-        except local_authority.SupervisorEstablishedError as exc:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Supervisor authority is already established",
-                code="supervisor-established",
-            ) from exc
-        except local_authority.SupervisorUnavailableError as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Supervisor authority state is unavailable",
-                code="supervisor-unavailable",
-            ) from exc
-        result = self.server.controller.reset_space()
-        try:
-            # Admin publishes no Supervisor key, so Team's pin of an earlier one goes with the reset Space.
-            local_authority.forget_supervisor_key()
-        except local_authority.SupervisorUnavailableError as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Supervisor authority state is unavailable",
-                code="supervisor-unavailable",
-            ) from exc
-        return HTTPStatus.OK, result, "space-bootstrap-reset", None, None
-
-    def _supervisor_key_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, None, None] | None:
-        if self.command != "POST" or parts != ["v1", "space", "supervisor-key"]:
-            return None
-        try:
-            signed_by = "" if self._supervisor_evidence is None else self._supervisor_evidence.key_sha256
-            rotated = local_authority.rotate_supervisor_key(self._body(), signed_by)
-        except local_authority.SupervisorDeniedError as exc:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "the Supervisor key rotation is invalid or no longer current",
-                code="supervisor-key-rotation-refused",
-            ) from exc
-        except local_authority.SupervisorUnavailableError as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Supervisor authority state is unavailable",
-                code="supervisor-unavailable",
-            ) from exc
-        local_audit.record_request("supervisor-key-rotate", result="ok", detail=rotated["key_sha256"][:16])
-        return HTTPStatus.OK, rotated, "supervisor-key-rotate", None, None
-
-    def _machine_read_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, None, None] | None:
-        if self.command == "GET" and parts == ["healthz"]:
-            return HTTPStatus.OK, self.server.controller.health(), "health", None, None
-        if self.command == "GET" and parts == ["v1", "activity"]:
-            return HTTPStatus.OK, {"state": self.server.activity.state()}, "activity", None, None
-        return None
-
-    def _fixed_route(
-        self, parts: list[str]
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        controller = self.server.controller
-        machine_read = self._machine_read_route(parts)
-        if machine_read is not None:
-            return machine_read
-        if self.command == "GET" and parts == ["v1", "assistants"]:
-            return HTTPStatus.OK, controller.list_registry(), "registry-list", None, None
-        if self.command == "GET" and parts == ["v1", "teams"]:
-            return HTTPStatus.OK, controller.list_teams(), "team-list", None, None
-        space = self._space_reset_route(parts) or self._supervisor_key_route(parts)
-        if space is not None:
-            return space
-        if self.command == "POST" and parts == ["v1", "oauth", "cloudflare", "callback"]:
-            body = self._body()
-            if set(body) != {"state", "claim", "session_binding"}:
-                raise ApiProblem(
-                    HTTPStatus.UNPROCESSABLE_ENTITY,
-                    "OAuth callback is invalid",
-                    code="invalid-body",
-                )
-            result = controller.chat_turn_service.complete_cloudflare_oauth_callback(
-                state=body["state"],
-                claim=body["claim"],
-                session_binding=body["session_binding"],
-            )
-            return HTTPStatus.OK, result, "assistant-integration-complete", None, None
-        return None
-
-    def _local_assistant_route(
-        self,
-        parts: list[str],
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        controller = self.server.controller
-        if self.command == "GET" and parts == ["v1", "local-assistants"]:
-            return HTTPStatus.OK, controller.list_local_snapshots(), "local-assistant-list", None, None
-        if (
-            self.command == "POST"
-            and len(parts) == 6
-            and parts[:2] == ["v1", "teams"]
-            and parts[3:] == ["assistants", "local", "fresh"]
-        ):
-            team_id = validate_team_id(parts[2])
-            result = controller.install_fresh_local_snapshot(team_id, self._local_install_body())
-            return HTTPStatus.OK, result, "local-assistant-fresh-install", team_id, str(result["assistant"])
-        if (
-            self.command != "POST"
-            or len(parts) != 5
-            or parts[:2] != ["v1", "teams"]
-            or parts[3:] != ["assistants", "local"]
-        ):
-            return None
-        team_id = validate_team_id(parts[2])
-        result = controller.install_local_snapshot(team_id, self._local_install_body())
-        return HTTPStatus.OK, result, "local-assistant-install", team_id, str(result["assistant"])
-
-    def _file_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        if len(parts) not in {4, 5} or parts[:2] != ["v1", "teams"] or parts[3] != "files":
-            return None
-        controller = self.server.controller
-        team_id = validate_team_id(parts[2])
-        if len(parts) == 4 and self.command == "GET":
-            return HTTPStatus.OK, controller.list_files(team_id), "file-list", team_id, None
-        if len(parts) == 4 and self.command == "POST":
-            if not _FILE_UPLOAD_SLOTS.acquire(blocking=False):
-                raise ApiProblem(
-                    HTTPStatus.TOO_MANY_REQUESTS,
-                    "another Team file upload is in progress",
-                    code="file-upload-busy",
-                )
-            try:
-                filename, content, media_type = self._file_body()
-                return (
-                    HTTPStatus.OK,
-                    controller.put_file(team_id, filename, content, media_type),
-                    "file-upload",
-                    team_id,
-                    None,
-                )
-            finally:
-                _FILE_UPLOAD_SLOTS.release()
-        if len(parts) == 5 and self.command == "DELETE":
-            return (
-                HTTPStatus.OK,
-                controller.delete_file(team_id, parts[4]),
-                "file-delete",
-                team_id,
-                None,
-            )
-        return None
-
-    def _assistant_integration_route(
-        self,
-        parts: list[str],
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        if len(parts) < 4 or parts[:2] != ["v1", "teams"] or parts[3] != "assistant-integrations":
-            return None
-        team_id = validate_team_id(parts[2])
-        if len(parts) == 4 and self.command == "GET":
-            return (
-                HTTPStatus.OK,
-                self.server.controller.chat_turn_service.list_assistant_integrations(team_id),
-                "assistant-integration-list",
-                team_id,
-                None,
-            )
-        if len(parts) == 7 and parts[4] == "challenges" and parts[6] == "authorize" and self.command == "POST":
-            body = self._body()
-            if set(body) != {"assistant_id", "integration_id", "callback_mode", "session_binding"}:
-                raise oauth_authorization_invalid()
-            if body["callback_mode"] not in integration_broker.CALLBACK_MODES:
-                raise oauth_authorization_invalid()
-            return (
-                HTTPStatus.OK,
-                self.server.controller.chat_turn_service.start_assistant_integration_authorization(
-                    team_id,
-                    parts[5],
-                    body["assistant_id"],
-                    body["integration_id"],
-                    body["session_binding"],
-                    body["callback_mode"],
-                ),
-                "assistant-integration-authorize",
-                team_id,
-                None,
-            )
-        if len(parts) == 7 and parts[4] == "challenges" and parts[6] == "authorize" and self.command == "DELETE":
-            body = self._body()
-            if set(body) != {"session_binding"}:
-                raise ApiProblem(
-                    HTTPStatus.UNPROCESSABLE_ENTITY,
-                    "OAuth cancellation is invalid",
-                    code="invalid-body",
-                )
-            return (
-                HTTPStatus.OK,
-                self.server.controller.chat_turn_service.cancel_assistant_integration_authorization(
-                    body["session_binding"]
-                ),
-                "assistant-integration-cancel",
-                team_id,
-                None,
-            )
-        if len(parts) == 6 and self.command == "DELETE":
-            return (
-                HTTPStatus.OK,
-                self.server.controller.chat_turn_service.disconnect_assistant_integration(
-                    team_id,
-                    parts[4],
-                    parts[5],
-                ),
-                "assistant-integration-disconnect",
-                team_id,
-                parts[4],
-            )
-        return None
-
-    def _assistant_stored_input_route(
-        self,
-        parts: list[str],
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        if len(parts) < 4 or parts[:2] != ["v1", "teams"] or parts[3] != "assistant-stored-inputs":
-            return None
-        team_id = validate_team_id(parts[2])
-        service = self.server.controller.chat_turn_service
-        if len(parts) == 4 and self.command == "GET":
-            return (
-                HTTPStatus.OK,
-                service.list_assistant_stored_inputs(team_id),
-                "assistant-stored-input-list",
-                team_id,
-                None,
-            )
-        if len(parts) == 6 and self.command == "DELETE":
-            return (
-                HTTPStatus.OK,
-                service.clear_assistant_stored_input(team_id, parts[4], parts[5]),
-                "assistant-stored-input-clear",
-                team_id,
-                parts[4],
-            )
-        return None
-
-    def _team_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        if len(parts) == 4 and parts[:2] == ["v1", "teams"] and parts[3] == "create":
-            team_id = validate_team_id(parts[2])
-            if self.command == "POST":
-                return (
-                    HTTPStatus.OK,
-                    self.server.controller.create_team(team_id, self._team_name_body()),
-                    "team-create",
-                    team_id,
-                    None,
-                )
-        if len(parts) == 3 and parts[:2] == ["v1", "teams"] and self.command in {"DELETE", "PATCH"}:
-            team_id = validate_team_id(parts[2])
-            if self.command == "DELETE":
-                return (
-                    HTTPStatus.OK,
-                    self.server.controller.destroy_team(team_id, self._team_name_body()),
-                    "team-destroy",
-                    team_id,
-                    None,
-                )
-            return (
-                HTTPStatus.OK,
-                self.server.controller.rename_team(team_id, self._team_name_body()),
-                "team-rename",
-                team_id,
-                None,
-            )
-        return None
-
-    def _route(
-        self,
-        parts: list[str],
-        route: strict_http.ControllerRouteMatch,
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None]:
-        controller = self.server.controller
-        operation = route.operation
-        grouped_resolver = {
-            "fixed": self._fixed_route,
-            "file": self._file_route,
-            "inference": lambda parts: local_http_inference.route(self, parts),
-            "chat": lambda parts: local_http_chat.route(self, parts),
-            "assistant-integration": self._assistant_integration_route,
-            "assistant-stored-input": self._assistant_stored_input_route,
-            "local-assistant": self._local_assistant_route,
-            "team": self._team_route,
-            "routine": lambda _parts: local_http_routine.route(self, route),
-        }.get(route.group)
-        if grouped_resolver is not None:
-            result = grouped_resolver(parts)
-            if result is None:
-                raise AssertionError("canonical local route group was not dispatched")
-            return result
-
-        team_id = validate_team_id(route.params["team_id"])
-        if operation == "assistant-list":
-            return HTTPStatus.OK, controller.list_assistants(team_id), operation, team_id, None
-        if operation == "assistant-registry":
-            return HTTPStatus.OK, controller.team_registry(team_id), operation, team_id, None
-        if operation == "assistant-install":
-            assistant_id, source_digest = self._install_body()
-            return (
-                HTTPStatus.OK,
-                controller.install_publication(team_id, assistant_id, source_digest),
-                operation,
-                team_id,
-                assistant_id,
-            )
-        assistant_id = route.params["assistant_id"]
-        return (
-            HTTPStatus.OK,
-            self._installed_assistant_route(route, team_id, assistant_id),
-            operation,
-            team_id,
-            assistant_id,
-        )
-
-    def _installed_assistant_route(
-        self,
-        route: strict_http.ControllerRouteMatch,
-        team_id: str,
-        assistant_id: str,
-    ) -> dict[str, object]:
-        """Dispatch one operation on one installed Team Assistant."""
-        controller = self.server.controller
-        operation = route.operation
-        if operation == "assistant-summary":
-            return controller.assistant_summary(team_id, assistant_id, route.params["locale"])
-        if operation == "assistant-details":
-            return controller.assistant_details(team_id, assistant_id, route.params["locale"])
-        if operation == "assistant-uninstall":
-            return controller.assistant_lifecycle.uninstall_assistant(team_id, assistant_id)
-        if operation == "assistant-invoke":
-            return self._invoke_directly(team_id, assistant_id, route.params["action_id"])
-        raise AssertionError("canonical local route was not dispatched")
+    def _route(self, route: strict_http.ControllerRouteMatch) -> Result:
+        """Dispatch one resolved, authorized operation; the route table and this operation table name the same set."""
+        return _OPERATIONS[route.operation](self, route)
 
     def _invoke_directly(self, team_id: str, assistant_id: str, action: str) -> dict[str, object]:
         """Run one Action outside a turn; a human request it raises has no chat to answer it (ADR-0038)."""
@@ -646,7 +311,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
             request_audit.machine()
             request_audit.record("machine-authority", result="ok")
             with local_audit.bind_request_principal(request_audit.principal()):
-                return self._route(parts, route)
+                return self._route(route)
         if route.operation == local_http_routine.RUN_OPERATION:
             local_http_routine.run(self, parts, route, request_audit)
             return None
@@ -693,17 +358,16 @@ class Handler(http_deadline.DeadlineRequestHandler):
         self._supervisor_evidence = evidence
         request_audit.record("human-authority", result="ok")
         with local_audit.bind_request_principal(request_audit.principal()):
-            return self._session_route(parts, route, request_audit)
+            return self._session_route(route, request_audit)
 
     def _session_route(
         self,
-        parts: list[str],
         route: strict_http.ControllerRouteMatch,
         request_audit: RequestAudit,
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         """Dispatch a request a Supervisor session authorized; streamed and binary responses are sent here."""
         if route.operation in local_http_chat.STREAMED_OPERATIONS:
-            local_http_chat.stream(self, parts, route, request_audit)
+            local_http_chat.stream(self, route, request_audit)
             return None
         if route.operation in local_http_routine.STREAMED_OPERATIONS:
             local_http_routine.stream(self, route, request_audit)
@@ -721,7 +385,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
         if route.operation in {"file-preview", "file-page-preview", "file-content"}:
             self._file_bytes(route, request_audit)
             return None
-        return self._route(parts, route)
+        return self._route(route)
 
     def _file_bytes(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
         """Send one listed file's bytes to the Supervisor's browser: a sanitized rendition, or the verified original."""
@@ -917,3 +581,218 @@ class Handler(http_deadline.DeadlineRequestHandler):
     @override
     def do_PUT(self) -> None:
         self._handle()
+
+
+def _ok(route: strict_http.ControllerRouteMatch, payload: dict[str, object]) -> Result:
+    return HTTPStatus.OK, payload, route.operation, None, None
+
+
+def _space_bootstrap_reset(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
+    """Reset a Space whose Admin publishes no Supervisor key, and forget Team's pin of an earlier one with it."""
+    try:
+        local_authority.require_supervisor_absent()
+    except local_authority.SupervisorEstablishedError as exc:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Supervisor authority is already established",
+            code="supervisor-established",
+        ) from exc
+    except local_authority.SupervisorUnavailableError as exc:
+        raise supervisor_unavailable() from exc
+    result = handler.server.controller.reset_space()
+    try:
+        local_authority.forget_supervisor_key()
+    except local_authority.SupervisorUnavailableError as exc:
+        raise supervisor_unavailable() from exc
+    return _ok(route, result)
+
+
+def _supervisor_key_rotate(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
+    try:
+        signed_by = "" if handler._supervisor_evidence is None else handler._supervisor_evidence.key_sha256
+        rotated = local_authority.rotate_supervisor_key(handler._body(), signed_by)
+    except local_authority.SupervisorDeniedError as exc:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "the Supervisor key rotation is invalid or no longer current",
+            code="supervisor-key-rotation-refused",
+        ) from exc
+    except local_authority.SupervisorUnavailableError as exc:
+        raise supervisor_unavailable() from exc
+    local_audit.record_request("supervisor-key-rotate", result="ok", detail=rotated["key_sha256"][:16])
+    return _ok(route, rotated)
+
+
+def _oauth_callback(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
+    body = handler._body()
+    if set(body) != {"state", "claim", "session_binding"}:
+        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "OAuth callback is invalid", code="invalid-body")
+    result = handler.server.controller.chat_turn_service.complete_cloudflare_oauth_callback(
+        state=body["state"],
+        claim=body["claim"],
+        session_binding=body["session_binding"],
+    )
+    return _ok(route, result)
+
+
+def _local_install(install: str) -> Operation:
+    """Install one staged Local snapshot through the controller's ``install`` method, audited under its Assistant."""
+
+    def operation(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
+        team_id = validate_team_id(route.params["team_id"])
+        result = getattr(handler.server.controller, install)(team_id, handler._local_install_body())
+        return HTTPStatus.OK, result, route.operation, team_id, str(result["assistant"])
+
+    return operation
+
+
+def _file_upload(handler: Handler, team_id: str) -> dict[str, object]:
+    if not _FILE_UPLOAD_SLOTS.acquire(blocking=False):
+        raise ApiProblem(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            "another Team file upload is in progress",
+            code="file-upload-busy",
+        )
+    try:
+        filename, content, media_type = handler._file_body()
+        return handler.server.controller.put_file(team_id, filename, content, media_type)
+    finally:
+        _FILE_UPLOAD_SLOTS.release()
+
+
+def _file_delete(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
+    team_id = validate_team_id(route.params["team_id"])
+    result = handler.server.controller.delete_file(team_id, route.params["file_id"])
+    return HTTPStatus.OK, result, route.operation, team_id, None
+
+
+def _integration_authorize(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
+    team_id = validate_team_id(route.params["team_id"])
+    body = handler._body()
+    if set(body) != {"assistant_id", "integration_id", "callback_mode", "session_binding"}:
+        raise oauth_authorization_invalid()
+    if body["callback_mode"] not in integration_broker.CALLBACK_MODES:
+        raise oauth_authorization_invalid()
+    result = handler.server.controller.chat_turn_service.start_assistant_integration_authorization(
+        team_id,
+        route.params["challenge_id"],
+        body["assistant_id"],
+        body["integration_id"],
+        body["session_binding"],
+        body["callback_mode"],
+    )
+    return HTTPStatus.OK, result, route.operation, team_id, None
+
+
+def _integration_cancel(handler: Handler, team_id: str) -> dict[str, object]:
+    body = handler._body()
+    if set(body) != {"session_binding"}:
+        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "OAuth cancellation is invalid", code="invalid-body")
+    return handler.server.controller.chat_turn_service.cancel_assistant_integration_authorization(
+        body["session_binding"]
+    )
+
+
+def _assistant_install(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
+    team_id = validate_team_id(route.params["team_id"])
+    assistant_id, source_digest = handler._install_body()
+    result = handler.server.controller.install_publication(team_id, assistant_id, source_digest)
+    return HTTPStatus.OK, result, route.operation, team_id, assistant_id
+
+
+def _assistant_operation(
+    call: Callable[[Handler, strict_http.ControllerRouteMatch, str, str], dict[str, object]],
+) -> Operation:
+    """An operation on one Assistant of the route's Team, audited under that Team and Assistant."""
+
+    def operation(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
+        team_id = validate_team_id(route.params["team_id"])
+        assistant_id = route.params["assistant_id"]
+        return HTTPStatus.OK, call(handler, route, team_id, assistant_id), route.operation, team_id, assistant_id
+
+    return operation
+
+
+_SERVER_OPERATIONS: dict[str, Operation] = {
+    "health": lambda handler, route: _ok(route, handler.server.controller.health()),
+    "activity": lambda handler, route: _ok(route, {"state": handler.server.activity.state()}),
+    "registry-list": lambda handler, route: _ok(route, handler.server.controller.list_registry()),
+    "team-list": lambda handler, route: _ok(route, handler.server.controller.list_teams()),
+    "space-reset": lambda handler, route: _ok(route, handler.server.controller.reset_space()),
+    "space-bootstrap-reset": _space_bootstrap_reset,
+    "supervisor-key-rotate": _supervisor_key_rotate,
+    "assistant-integration-complete": _oauth_callback,
+    "team-create": team_operation(
+        lambda handler, team_id: handler.server.controller.create_team(team_id, handler._team_name_body())
+    ),
+    "team-destroy": team_operation(
+        lambda handler, team_id: handler.server.controller.destroy_team(team_id, handler._team_name_body())
+    ),
+    "team-rename": team_operation(
+        lambda handler, team_id: handler.server.controller.rename_team(team_id, handler._team_name_body())
+    ),
+    "local-assistant-list": lambda handler, route: _ok(route, handler.server.controller.list_local_snapshots()),
+    "local-assistant-install": _local_install("install_local_snapshot"),
+    "local-assistant-fresh-install": _local_install("install_fresh_local_snapshot"),
+    "file-list": team_operation(lambda handler, team_id: handler.server.controller.list_files(team_id)),
+    "file-upload": team_operation(_file_upload),
+    "file-delete": _file_delete,
+    "assistant-integration-list": team_operation(
+        lambda handler, team_id: handler.server.controller.chat_turn_service.list_assistant_integrations(team_id)
+    ),
+    "assistant-integration-authorize": _integration_authorize,
+    "assistant-integration-cancel": team_operation(_integration_cancel),
+    "assistant-integration-disconnect": _assistant_operation(
+        lambda handler, route, team_id, assistant_id: (
+            handler.server.controller.chat_turn_service.disconnect_assistant_integration(
+                team_id, assistant_id, route.params["integration_id"]
+            )
+        )
+    ),
+    "assistant-stored-input-list": team_operation(
+        lambda handler, team_id: handler.server.controller.chat_turn_service.list_assistant_stored_inputs(team_id)
+    ),
+    "assistant-stored-input-clear": _assistant_operation(
+        lambda handler, route, team_id, assistant_id: (
+            handler.server.controller.chat_turn_service.clear_assistant_stored_input(
+                team_id, assistant_id, route.params["stored_input_id"]
+            )
+        )
+    ),
+    "assistant-list": team_operation(lambda handler, team_id: handler.server.controller.list_assistants(team_id)),
+    "assistant-registry": team_operation(lambda handler, team_id: handler.server.controller.team_registry(team_id)),
+    "assistant-install": _assistant_install,
+    "assistant-summary": _assistant_operation(
+        lambda handler, route, team_id, assistant_id: handler.server.controller.assistant_summary(
+            team_id, assistant_id, route.params["locale"]
+        )
+    ),
+    "assistant-details": _assistant_operation(
+        lambda handler, route, team_id, assistant_id: handler.server.controller.assistant_details(
+            team_id, assistant_id, route.params["locale"]
+        )
+    ),
+    "assistant-uninstall": _assistant_operation(
+        lambda handler, _route, team_id, assistant_id: (
+            handler.server.controller.assistant_lifecycle.uninstall_assistant(team_id, assistant_id)
+        )
+    ),
+    "assistant-invoke": _assistant_operation(
+        lambda handler, route, team_id, assistant_id: handler._invoke_directly(
+            team_id, assistant_id, route.params["action_id"]
+        )
+    ),
+}
+_ROUTINE_OPERATIONS: dict[str, Operation] = {
+    route.operation: local_http_routine.route
+    for route in strict_http.CONTROLLER_ROUTES
+    if route.operation.startswith("routine-")
+    and route.operation not in local_http_routine.STREAMED_OPERATIONS
+    and route.operation != local_http_routine.RUN_OPERATION
+}
+_OPERATIONS: dict[str, Operation] = {
+    **_SERVER_OPERATIONS,
+    **local_http_chat.OPERATIONS,
+    **local_http_inference.OPERATIONS,
+    **_ROUTINE_OPERATIONS,
+}

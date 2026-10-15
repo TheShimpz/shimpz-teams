@@ -32,6 +32,7 @@ stored_input_unavailable = _problem(
 )
 team_context_changed = _problem(_CONFLICT, "Team capabilities changed; retry", "team-context-changed")
 docker_unavailable = _problem(_UNAVAILABLE, "Docker is unavailable", "docker-unavailable")
+supervisor_unavailable = _problem(_UNAVAILABLE, "Supervisor authority state is unavailable", "supervisor-unavailable")
 ownership_conflict = _problem(_CONFLICT, "Team resource ownership conflict", "ownership-conflict")
 team_resources_ownership_conflict = _problem(
     _CONFLICT, "Team resources failed their ownership contract", "ownership-conflict"

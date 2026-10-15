@@ -1,8 +1,27 @@
 """Local Team-controller HTTP dispatch and stable failure projection."""
 
+from collections.abc import Callable
 from http import HTTPStatus
+from typing import Any
 
 from core.http import stdlib
+from core.http import strict as strict_http
+from local.validation import validate_team_id
+
+# One answered operation: its status, payload, and the operation, Team, and Assistant it is audited under.
+type Result = tuple[HTTPStatus, dict[str, object], str, str | None, str | None]
+# Every resolved operation is dispatched through one table from its operation name to one of these.
+type Operation = Callable[[Any, strict_http.ControllerRouteMatch], Result]
+
+
+def team_operation(call: Callable[[Any, str], dict[str, object]]) -> Operation:
+    """An operation answering ``call(handler, team_id)`` for the route's validated Team, audited under that Team."""
+
+    def operation(handler, route: strict_http.ControllerRouteMatch) -> Result:
+        team_id = validate_team_id(route.params["team_id"])
+        return HTTPStatus.OK, call(handler, team_id), route.operation, team_id, None
+
+    return operation
 
 
 def classify_failure(

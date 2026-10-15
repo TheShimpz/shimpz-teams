@@ -13,6 +13,7 @@ from core.http import strict as strict_http
 from local.errors import ApiProblemError as ApiProblem
 from local.http import stream as local_http_stream
 from local.http.audit import RequestAudit
+from local.http.dispatch import Operation, team_operation
 from local.validation import validate_team_id
 from protocol.http.v1 import turn as http_turn
 
@@ -32,8 +33,6 @@ BODY_LIMITS = {
     "chat-stop": MAX_BODY_BYTES,
 }
 
-type Result = tuple[HTTPStatus, dict[str, object], str, str | None, str | None]
-
 
 def _status(payload: dict[str, object]) -> HTTPStatus:
     return (
@@ -43,108 +42,73 @@ def _status(payload: dict[str, object]) -> HTTPStatus:
     )
 
 
-def _start(handler, team_id: str, progress: chat_progress.Reporter | None = None) -> Result:
+def _start(handler, team_id: str, progress: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
     provider, api_key = handler._model_credential_headers()
     body = handler._body(max_bytes=MAX_CHAT_BODY_BYTES)
     payload = handler.server.controller.chat_turn_service.chat(team_id, body, provider, api_key, progress)
-    return _status(payload), payload, "chat", team_id, None
+    return _status(payload), payload
 
 
-def _pending(handler, team_id: str, segment: str) -> Result | None:
-    pending = {
-        "human": ("pending_chat_human", "chat-human-pending"),
-        "integrations": ("pending_chat_integrations", "chat-integration-pending"),
-    }.get(segment)
-    if pending is None:
-        return None
-    method_name, operation_name = pending
-    operation = getattr(handler.server.controller.chat_turn_service, method_name)
-    return HTTPStatus.OK, operation(team_id), operation_name, team_id, None
+# Each streamed answer to a paused turn and the chat turn service method that resumes it.
+_SUBMISSIONS = {"chat-human-submit": "resume_chat_human", "chat-integration-submit": "resume_chat_integrations"}
 
 
-def _open(handler, team_id: str) -> Result:
+def _submit(
+    handler, operation: str, team_id: str, progress: chat_progress.Reporter
+) -> tuple[HTTPStatus, dict[str, object]]:
+    resume = getattr(handler.server.controller.chat_turn_service, _SUBMISSIONS[operation])
+    provider, api_key = handler._model_credential_headers()
+    payload = resume(team_id, handler._body(max_bytes=BODY_LIMITS[operation]), provider, api_key, progress)
+    return _status(payload), payload
+
+
+def _open(handler, team_id: str) -> dict[str, object]:
     """Open the pending human challenge in the Admin interface language its request copy renders in (ADR-0091)."""
     service = handler.server.controller.chat_turn_service
-    payload = service.open_chat_human(team_id, handler._body(max_bytes=BODY_LIMITS["chat-human-open"]))
-    return HTTPStatus.OK, payload, "chat-human-open", team_id, None
+    return service.open_chat_human(team_id, handler._body(max_bytes=BODY_LIMITS["chat-human-open"]))
 
 
-def _submit(handler, team_id: str, segment: str, progress: chat_progress.Reporter | None = None) -> Result | None:
-    submission = {
-        "human": ("resume_chat_human", "chat-human-submit"),
-        "integrations": ("resume_chat_integrations", "chat-integration-submit"),
-    }.get(segment)
-    if submission is None:
-        return None
-    method_name, operation_name = submission
-    operation = getattr(handler.server.controller.chat_turn_service, method_name)
-    provider, api_key = handler._model_credential_headers()
-    payload = operation(team_id, handler._body(max_bytes=BODY_LIMITS[operation_name]), provider, api_key, progress)
-    return _status(payload), payload, operation_name, team_id, None
-
-
-def _stop(handler, team_id: str) -> Result:
+def _stop(handler, team_id: str) -> dict[str, object]:
     if handler._body(max_bytes=BODY_LIMITS["chat-stop"]) != {}:
         raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "chat stop requires an empty object", code="invalid-body")
-    return HTTPStatus.OK, handler.server.controller.chat_turn_service.stop_chat(team_id), "chat-stop", team_id, None
+    return handler.server.controller.chat_turn_service.stop_chat(team_id)
 
 
-def _decision(handler, team_id: str, segment: str) -> Result | None:
-    decision = {
-        "capability-plan": ("capability_plan", "chat-capability-plan"),
-        "intent-route": ("intent_route", "chat-intent-route"),
-    }.get(segment)
-    if decision is None:
-        return None
-    method_name, operation_name = decision
-    operation = getattr(handler.server.controller.chat_turn_service, method_name)
+def _capability_plan(handler, team_id: str) -> dict[str, object]:
     provider, api_key = handler._model_credential_headers()
-    credentials = (
-        (provider, api_key, handler._decision_key(operation_name)) if segment == "intent-route" else (provider, api_key)
-    )
-    body = handler._body(max_bytes=BODY_LIMITS[operation_name])
-    return HTTPStatus.OK, operation(team_id, body, *credentials), operation_name, team_id, None
+    body = handler._body(max_bytes=BODY_LIMITS["chat-capability-plan"])
+    return handler.server.controller.chat_turn_service.capability_plan(team_id, body, provider, api_key)
 
 
-def _control(handler, team_id: str, segment: str) -> Result | None:
-    """The non-streamed chat controls: Stop, and opening the pending human challenge in one language."""
-    control = {"stop": _stop, "human/challenge": _open}.get(segment)
-    return control(handler, team_id) if control is not None else None
+def _intent_route(handler, team_id: str) -> dict[str, object]:
+    provider, api_key = handler._model_credential_headers()
+    decision_key = handler._decision_key("chat-intent-route")
+    body = handler._body(max_bytes=BODY_LIMITS["chat-intent-route"])
+    return handler.server.controller.chat_turn_service.intent_route(team_id, body, provider, api_key, decision_key)
 
 
-def route(handler, parts: list[str]) -> Result | None:
-    """Dispatch one non-streamed chat request, or None when the path or method names no chat operation."""
-    if len(parts) not in {4, 5, 6} or parts[:2] != ["v1", "teams"] or parts[3] != "chat":
-        return None
-    team_id = validate_team_id(parts[2])
-    if len(parts) == 4:
-        return _start(handler, team_id) if handler.command == "POST" else None
-    segment = "/".join(parts[4:])
-    if handler.command == "GET":
-        return _pending(handler, team_id, segment)
-    if handler.command != "POST":
-        return None
-    return (
-        _control(handler, team_id, segment)
-        or _decision(handler, team_id, segment)
-        or _submit(handler, team_id, segment)
-    )
+# The non-streamed chat operations; a turn and the answers to it stream instead.
+OPERATIONS: dict[str, Operation] = {
+    "chat-human-pending": team_operation(
+        lambda handler, team_id: handler.server.controller.chat_turn_service.pending_chat_human(team_id)
+    ),
+    "chat-integration-pending": team_operation(
+        lambda handler, team_id: handler.server.controller.chat_turn_service.pending_chat_integrations(team_id)
+    ),
+    "chat-human-open": team_operation(_open),
+    "chat-stop": team_operation(_stop),
+    "chat-capability-plan": team_operation(_capability_plan),
+    "chat-intent-route": team_operation(_intent_route),
+}
 
 
-def stream(
-    handler,
-    parts: list[str],
-    route: strict_http.ControllerRouteMatch,
-    request_audit: RequestAudit,
-) -> None:
+def stream(handler, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
     """Run a turn or one answer to it, streaming its progress before the terminal record."""
     team_id = validate_team_id(route.params["team_id"])
 
     def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
         if route.operation == "chat":
-            status, payload, *_audit = _start(handler, team_id, reporter)
-        else:
-            status, payload, *_audit = _submit(handler, team_id, parts[4], reporter)
-        return status, payload
+            return _start(handler, team_id, reporter)
+        return _submit(handler, route.operation, team_id, reporter)
 
     local_http_stream.respond(handler, route.operation, team_id, request_audit, execute)

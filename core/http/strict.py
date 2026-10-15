@@ -280,36 +280,6 @@ class ControllerRouteMatch:
     operation: str
     params: dict[str, str]
 
-    @property
-    def group(self) -> str | None:
-        fixed = {
-            "health",
-            "activity",
-            "registry-list",
-            "team-list",
-            "space-bootstrap-reset",
-            "space-reset",
-            "supervisor-key-rotate",
-            "assistant-integration-complete",
-        }
-        if self.operation in fixed:
-            return "fixed"
-        if self.operation in {"team-create", "team-destroy", "team-rename"}:
-            return "team"
-        if self.operation.startswith("local-assistant-"):
-            return "local-assistant"
-        for prefix, group in (
-            ("routine-", "routine"),
-            ("file-", "file"),
-            ("inference-", "inference"),
-            ("chat-", "chat"),
-            ("assistant-integration-", "assistant-integration"),
-            ("assistant-stored-input-", "assistant-stored-input"),
-        ):
-            if self.operation.startswith(prefix):
-                return group
-        return "chat" if self.operation == "chat" else None
-
 
 def _controller_route(method: str, path: str, operation: str) -> ControllerRoute:
     return ControllerRoute(method, tuple(part for part in path.split("/") if part), operation)

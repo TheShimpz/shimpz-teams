@@ -182,7 +182,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         )
         handler._capture_body = mock.Mock()
 
-        def route(_parts, resolved):
+        def route(resolved):
             http_audit.local_audit.record_request(
                 resolved.operation,
                 result="ok",

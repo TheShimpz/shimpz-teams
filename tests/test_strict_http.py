@@ -206,25 +206,7 @@ class StrictHttpTest(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIs(strict_http.bearer_matches(headers, token), value == f"Bearer {token}")
 
-    def test_route_groups_cover_every_routing_family(self) -> None:
-        expected = {
-            "health": "fixed",
-            "team-create": "team",
-            "file-list": "file",
-            "inference-status": "inference",
-            "chat-stop": "chat",
-            "assistant-integration-list": "assistant-integration",
-            "assistant-stored-input-list": "assistant-stored-input",
-            "local-assistant-list": "local-assistant",
-            "local-assistant-icon": "local-assistant",
-            "local-assistant-summary": "local-assistant",
-            "local-assistant-details": "local-assistant",
-            "unknown": None,
-        }
-        for operation, group in expected.items():
-            with self.subTest(operation=operation):
-                self.assertEqual(strict_http.ControllerRouteMatch(operation, {}).group, group)
-
+    def test_route_resolution_binds_named_path_parameters(self) -> None:
         uninstall = ("v1", "teams", "team_1", "assistants", "cloudflare-assistant")
         resolved = strict_http.resolve_controller_route("DELETE", uninstall)
         self.assertEqual(resolved.operation, "assistant-uninstall")

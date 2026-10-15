@@ -541,7 +541,7 @@ class LocalContractTests(LocalContractCase):
 
         self.assertTrue(handler._authorized())
         handler._capture_body("chat")
-        status, response, *_audit = http_chat.route(handler, ["v1", "teams", "team_1", "chat"])
+        status, response = http_chat._start(handler, "team_1", None)
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertEqual(captured["payload"], payload)

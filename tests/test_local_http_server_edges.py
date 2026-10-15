@@ -16,7 +16,6 @@ from local import authority
 from local.errors import ApiProblemError
 from local.http import audit as http_audit
 from local.http import chat as http_chat
-from local.http import inference as http_inference
 from local.http import server
 from local.http import stream as local_http_stream
 from protocol.http.v1 import payload as http_payload
@@ -249,27 +248,32 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
     def test_fixed_file_and_inference_routes_cover_every_outcome(self) -> None:
         controller = self.controller()
         handler = self.handler(controller=controller)
-        self.assertEqual(handler._fixed_route(["v1", "assistants"])[2], "registry-list")
-        self.assertEqual(handler._local_assistant_route(["v1", "local-assistants"])[2], "local-assistant-list")
+        self.assertEqual(handler._route(self.route("registry-list"))[2], "registry-list")
+        self.assertEqual(handler._route(self.route("local-assistant-list"))[2], "local-assistant-list")
         handler.command = "POST"
         handler._body = mock.Mock(return_value={"image_id": "sha256:" + ("a" * 64)})
         self.assertEqual(
-            handler._local_assistant_route(["v1", "teams", "team_1", "assistants", "local", "fresh"])[2],
-            "local-assistant-fresh-install",
+            handler._route(self.route("local-assistant-fresh-install", team_id="team_1")),
+            (
+                HTTPStatus.OK,
+                {"assistant": "assistant", "installed": True},
+                "local-assistant-fresh-install",
+                "team_1",
+                "assistant",
+            ),
         )
         controller.install_fresh_local_snapshot.assert_called_once()
         handler.command = "DELETE"
-        self.assertIsNone(handler._fixed_route(["v1", "space", "unknown"]))
         with mock.patch.object(authority, "require_supervisor_absent"):
-            self.assertEqual(handler._fixed_route(["v1", "space", "bootstrap"])[2], "space-bootstrap-reset")
-        self.assertEqual(handler._fixed_route(["v1", "space"])[2], "space-reset")
+            self.assertEqual(handler._route(self.route("space-bootstrap-reset"))[2], "space-bootstrap-reset")
+        self.assertEqual(handler._route(self.route("space-reset"))[2], "space-reset")
         handler.command = "POST"
         handler._body = mock.Mock(return_value={})
+        callback = self.route("assistant-integration-complete")
         with self.assertRaises(ApiProblemError):
-            handler._fixed_route(["v1", "oauth", "cloudflare", "callback"])
+            handler._route(callback)
         handler._body.return_value = {"state": "s", "claim": "c", "session_binding": "b"}
-        self.assertEqual(handler._fixed_route(["v1", "oauth", "cloudflare", "callback"])[1], {"connected": True})
-        self.assertIsNone(handler._fixed_route(["other"]))
+        self.assertEqual(handler._route(callback)[1], {"connected": True})
 
     def test_fresh_local_install_resolves_and_dispatches_through_the_public_route(self) -> None:
         controller = self.controller()
@@ -280,8 +284,9 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
 
         parts, route = handler._resolved_route()
         self.assertEqual(route.operation, "local-assistant-fresh-install")
-        result = handler._route(parts, route)
+        result = handler._route(route)
 
+        self.assertEqual(parts, ["v1", "teams", "team_1", "assistants", "local", "fresh"])
         self.assertEqual(result[2], "local-assistant-fresh-install")
         controller.install_fresh_local_snapshot.assert_called_once_with("team_1", image_id)
 
@@ -297,73 +302,61 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
                 mock.patch.object(authority, "require_supervisor_absent", side_effect=error),
                 self.assertRaises(ApiProblemError) as caught,
             ):
-                handler._fixed_route(["v1", "space", "bootstrap"])
+                handler._route(self.route("space-bootstrap-reset"))
             self.assertEqual(caught.exception.code, code)
         controller.reset_space.assert_not_called()
 
-        self.assertIsNone(handler._file_route(["other"]))
-        handler.command = "GET"
-        self.assertEqual(handler._file_route(["v1", "teams", "team_1", "files"])[2], "file-list")
-        handler.command = "POST"
+        self.assertEqual(handler._route(self.route("file-list", team_id="team_1"))[2], "file-list")
         handler._file_body = mock.Mock(return_value=("a.txt", b"x", "text/plain"))
         slots = SimpleNamespace(acquire=mock.Mock(return_value=False), release=mock.Mock())
+        upload = self.route("file-upload", team_id="team_1")
         with mock.patch.object(server, "_FILE_UPLOAD_SLOTS", slots), self.assertRaises(ApiProblemError):
-            handler._file_route(["v1", "teams", "team_1", "files"])
+            handler._route(upload)
         slots.acquire.return_value = True
         with mock.patch.object(server, "_FILE_UPLOAD_SLOTS", slots):
-            self.assertEqual(handler._file_route(["v1", "teams", "team_1", "files"])[2], "file-upload")
+            self.assertEqual(handler._route(upload)[2], "file-upload")
         slots.release.assert_called_once_with()
-        handler.command = "DELETE"
-        self.assertEqual(handler._file_route(["v1", "teams", "team_1", "files", "a" * 32])[2], "file-delete")
-        handler.command = "PATCH"
-        self.assertIsNone(handler._file_route(["v1", "teams", "team_1", "files"]))
+        self.assertEqual(
+            handler._route(self.route("file-delete", team_id="team_1", file_id="a" * 32))[2], "file-delete"
+        )
+        controller.delete_file.assert_called_once_with("team_1", "a" * 32)
 
-        route = http_inference.route
-        base = ["v1", "teams", "team_1", "inference"]
-        self.assertIsNone(route(handler, ["other"]))
-        self.assertIsNone(route(handler, [*base, "instructions"]))
-        handler.command = "GET"
-        self.assertEqual(route(handler, base)[2], "inference-status")
-        handler.command = "PUT"
+        self.assertEqual(handler._route(self.route("inference-status", team_id="team_1"))[2], "inference-status")
         handler._body = mock.Mock(return_value={"provider": "openai"})
-        self.assertEqual(route(handler, base)[2], "inference-configure")
-        handler.command = "PATCH"
-        self.assertIsNone(route(handler, base))
+        self.assertEqual(handler._route(self.route("inference-configure", team_id="team_1"))[2], "inference-configure")
+        controller.configure_inference.assert_called_once_with("team_1", {"provider": "openai"})
 
     def test_chat_route_variants_and_validation(self) -> None:
         handler = self.handler(controller=self.controller())
         handler._model_credential_headers = mock.Mock(return_value=("openai", "key"))
         handler._body = mock.Mock(return_value={})
-        self.assertIsNone(http_chat._pending(handler, "team_1", "unknown"))
-        self.assertEqual(http_chat._pending(handler, "team_1", "integrations")[2], "chat-integration-pending")
-        self.assertIsNone(http_chat._submit(handler, "team_1", "unknown"))
-        self.assertEqual(http_chat._submit(handler, "team_1", "integrations")[2], "chat-integration-submit")
+        for operation, pending in (
+            ("chat-integration-pending", {"pending": "integration"}),
+            ("chat-human-pending", {"pending": "human"}),
+        ):
+            with self.subTest(operation=operation):
+                self.assertEqual(
+                    handler._route(self.route(operation, team_id="team_1")),
+                    (HTTPStatus.OK, pending, operation, "team_1", None),
+                )
+        self.assertEqual(
+            http_chat._submit(handler, "chat-integration-submit", "team_1", None), (HTTPStatus.OK, {"status": "ok"})
+        )
+        stop = self.route("chat-stop", team_id="team_1")
         handler._body.return_value = {"unexpected": True}
         with self.assertRaises(ApiProblemError):
-            http_chat._stop(handler, "team_1")
+            handler._route(stop)
         handler._body.return_value = {}
-        self.assertEqual(http_chat._stop(handler, "team_1")[2], "chat-stop")
-
-        self.assertIsNone(http_chat.route(handler, ["other"]))
-        handler.command = "GET"
-        self.assertIsNone(http_chat.route(handler, ["v1", "teams", "team_1", "chat"]))
-        self.assertIsNone(http_chat.route(handler, ["v1", "teams", "team_1", "chat", "unknown"]))
-        handler.command = "PATCH"
-        self.assertIsNone(http_chat.route(handler, ["v1", "teams", "team_1", "chat", "human"]))
-        handler.command = "POST"
-        self.assertEqual(http_chat.route(handler, ["v1", "teams", "team_1", "chat", "stop"])[2], "chat-stop")
+        self.assertEqual(handler._route(stop), (HTTPStatus.OK, {"stopped": True}, "chat-stop", "team_1", None))
 
     def test_integration_and_team_routes_cover_exact_shapes(self) -> None:
         handler = self.handler(controller=self.controller())
         handler._body = mock.Mock(return_value={})
-        self.assertIsNone(handler._assistant_integration_route(["other"]))
-        handler.command = "GET"
-        path = ["v1", "teams", "team_1", "assistant-integrations"]
-        self.assertEqual(handler._assistant_integration_route(path)[2], "assistant-integration-list")
-        authorize = ["v1", "teams", "team_1", "assistant-integrations", "challenges", "a" * 32, "authorize"]
-        handler.command = "POST"
+        listed = self.route("assistant-integration-list", team_id="team_1")
+        self.assertEqual(handler._route(listed)[2], "assistant-integration-list")
+        authorize = self.route("assistant-integration-authorize", team_id="team_1", challenge_id="a" * 32)
         with self.assertRaises(ApiProblemError):
-            handler._assistant_integration_route(authorize)
+            handler._route(authorize)
         handler._body.return_value = {
             "assistant_id": "assistant",
             "integration_id": "cloudflare",
@@ -371,7 +364,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             "session_binding": "b",
         }
         with self.assertRaises(ApiProblemError):
-            handler._assistant_integration_route(authorize)
+            handler._route(authorize)
         callback_mode = next(iter(integration_broker.CALLBACK_MODES))
         handler._body.return_value = {
             "assistant_id": "assistant",
@@ -379,48 +372,46 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             "callback_mode": callback_mode,
             "session_binding": "b",
         }
-        self.assertEqual(handler._assistant_integration_route(authorize)[2], "assistant-integration-authorize")
-        handler.command = "DELETE"
+        self.assertEqual(handler._route(authorize)[2], "assistant-integration-authorize")
+        handler.server.controller.chat_turn_service.start_assistant_integration_authorization.assert_called_once_with(
+            "team_1", "a" * 32, "assistant", "cloudflare", "b", callback_mode
+        )
+        cancel = self.route("assistant-integration-cancel", team_id="team_1", challenge_id="a" * 32)
         handler._body.return_value = {}
         with self.assertRaises(ApiProblemError):
-            handler._assistant_integration_route(authorize)
+            handler._route(cancel)
         handler._body.return_value = {"session_binding": "b"}
-        self.assertEqual(handler._assistant_integration_route(authorize)[2], "assistant-integration-cancel")
-        disconnect = ["v1", "teams", "team_1", "assistant-integrations", "assistant", "cloudflare"]
-        self.assertEqual(handler._assistant_integration_route(disconnect)[2], "assistant-integration-disconnect")
-        handler.command = "PATCH"
-        self.assertIsNone(handler._assistant_integration_route(path))
+        self.assertEqual(handler._route(cancel)[2], "assistant-integration-cancel")
+        disconnect = self.route(
+            "assistant-integration-disconnect", team_id="team_1", assistant_id="assistant", integration_id="cloudflare"
+        )
+        self.assertEqual(
+            handler._route(disconnect),
+            (HTTPStatus.OK, {"disconnected": True}, "assistant-integration-disconnect", "team_1", "assistant"),
+        )
 
-        stored_inputs = ["v1", "teams", "team_1", "assistant-stored-inputs"]
-        self.assertIsNone(handler._assistant_stored_input_route(["other"]))
-        handler.command = "GET"
-        self.assertEqual(handler._assistant_stored_input_route(stored_inputs)[2], "assistant-stored-input-list")
-        handler.command = "DELETE"
-        clear = [*stored_inputs, "whatsapp", "whatsapp-token"]
-        self.assertEqual(handler._assistant_stored_input_route(clear)[2], "assistant-stored-input-clear")
-        handler.command = "POST"
-        self.assertIsNone(handler._assistant_stored_input_route(stored_inputs))
-
-        handler.command = "PATCH"
-        self.assertIsNone(handler._local_assistant_route(["v1", "local-assistants"]))
+        stored_inputs = self.route("assistant-stored-input-list", team_id="team_1")
+        self.assertEqual(handler._route(stored_inputs)[2], "assistant-stored-input-list")
+        clear = self.route(
+            "assistant-stored-input-clear", team_id="team_1", assistant_id="whatsapp", stored_input_id="whatsapp-token"
+        )
+        self.assertEqual(
+            handler._route(clear),
+            (HTTPStatus.OK, {"cleared": True}, "assistant-stored-input-clear", "team_1", "whatsapp"),
+        )
+        handler.server.controller.chat_turn_service.clear_assistant_stored_input.assert_called_once_with(
+            "team_1", "whatsapp", "whatsapp-token"
+        )
 
     def test_team_routes_create_confirm_deletion_and_rename_by_team_name(self) -> None:
         handler = self.handler(controller=self.controller())
         handler._team_name_body = mock.Mock(return_value="Team")
-        create = ["v1", "teams", "team_1", "create"]
-        handler.command = "PATCH"
-        self.assertIsNone(handler._team_route(create))
-        handler.command = "POST"
-        self.assertEqual(handler._team_route(create)[2], "team-create")
-        handler.command = "DELETE"
-        self.assertEqual(handler._team_route(["v1", "teams", "team_1"])[2], "team-destroy")
+        self.assertEqual(handler._route(self.route("team-create", team_id="team_1"))[2], "team-create")
+        handler.server.controller.create_team.assert_called_with("team_1", "Team")
+        self.assertEqual(handler._route(self.route("team-destroy", team_id="team_1"))[2], "team-destroy")
         handler.server.controller.destroy_team.assert_called_with("team_1", "Team")
-        handler.command = "PATCH"
-        self.assertEqual(handler._team_route(["v1", "teams", "team_1"])[2], "team-rename")
+        self.assertEqual(handler._route(self.route("team-rename", team_id="team_1"))[2], "team-rename")
         handler.server.controller.rename_team.assert_called_with("team_1", "Team")
-        handler.command = "PUT"
-        self.assertIsNone(handler._team_route(["v1", "teams", "team_1"]))
-        self.assertIsNone(handler._team_route(["other"]))
 
     def test_generic_route_dispatches_all_assistant_operations(self) -> None:
         controller = self.controller()
@@ -441,13 +432,12 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         )
         for operation, params in cases:
             with self.subTest(operation=operation):
-                result = handler._route([], self.route(operation, **params))
+                result = handler._route(self.route(operation, **params))
                 self.assertEqual(result[2], operation)
 
         controller.assistant_summary = mock.Mock(return_value={"locale": "pt", "summary": "Resumo."})
         result = handler._route(
-            [],
-            self.route("assistant-summary", team_id="team_1", assistant_id="assistant", locale="pt"),
+            self.route("assistant-summary", team_id="team_1", assistant_id="assistant", locale="pt")
         )
         self.assertEqual(
             result, (200, {"locale": "pt", "summary": "Resumo."}, "assistant-summary", "team_1", "assistant")
@@ -455,8 +445,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         controller.assistant_summary.assert_called_once_with("team_1", "assistant", "pt")
         controller.assistant_details = mock.Mock(return_value={"locale": "pt", "name": "Assistente"})
         result = handler._route(
-            [],
-            self.route("assistant-details", team_id="team_1", assistant_id="assistant", locale="pt"),
+            self.route("assistant-details", team_id="team_1", assistant_id="assistant", locale="pt")
         )
         self.assertEqual(
             result, (200, {"locale": "pt", "name": "Assistente"}, "assistant-details", "team_1", "assistant")
@@ -464,17 +453,27 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         controller.assistant_details.assert_called_once_with("team_1", "assistant", "pt")
 
         handler.command = "POST"
-        result = handler._route(
-            ["v1", "teams", "team_1", "assistants", "local"],
-            self.route("local-assistant-install", team_id="team_1"),
-        )
+        result = handler._route(self.route("local-assistant-install", team_id="team_1"))
         self.assertEqual(result[2], "local-assistant-install")
 
-        with self.assertRaises(AssertionError):
-            handler._route([], self.route("unknown", team_id="team_1", assistant_id="assistant"))
-        handler._fixed_route = mock.Mock(return_value=None)
-        with self.assertRaises(AssertionError):
-            handler._route([], self.route("health"))
+    def test_every_route_has_exactly_one_dispatcher(self) -> None:
+        # Streamed, binary, and leased-run operations are sent from the session route; every other one is dispatched
+        # through the operation table, so the route table and the dispatch cannot disagree.
+        sent = {
+            "assistant-icon",
+            "local-assistant-icon",
+            "local-assistant-summary",
+            "local-assistant-details",
+            "file-preview",
+            "file-page-preview",
+            "file-content",
+            server.local_http_routine.RUN_OPERATION,
+            *http_chat.STREAMED_OPERATIONS,
+            *server.local_http_routine.STREAMED_OPERATIONS,
+        }
+        routed = {route.operation for route in strict_http.CONTROLLER_ROUTES}
+        self.assertEqual(set(server._OPERATIONS), routed - sent)
+        self.assertTrue(sent < routed)
 
     def test_direct_action_human_request_is_a_stable_audited_refusal(self) -> None:
         controller = self.controller()
@@ -488,7 +487,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             mock.patch.object(server.local_audit, "record_request") as record,
             self.assertRaises(ApiProblemError) as refused,
         ):
-            handler._route([], invoke)
+            handler._route(invoke)
 
         self.assertEqual(
             (refused.exception.status, refused.exception.code),
@@ -512,7 +511,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         handler.command = "POST"
 
-        result = http_chat.route(handler, ["v1", "teams", "team_1", "chat", "capability-plan"])
+        result = handler._route(self.route("chat-capability-plan", team_id="team_1"))
 
         self.assertEqual(result[2], "chat-capability-plan")
         controller.chat_turn_service.capability_plan.assert_called_once_with(
@@ -539,7 +538,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         handler.command = "POST"
 
-        result = http_chat.route(handler, ["v1", "teams", "team_1", "chat", "intent-route"])
+        result = handler._route(self.route("chat-intent-route", team_id="team_1"))
 
         self.assertEqual(result[2], "chat-intent-route")
         controller.chat_turn_service.intent_route.assert_called_once_with(
@@ -578,11 +577,9 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             ),
         ):
             route = self.route("chat-human-submit", team_id="team_1")
-            http_chat.stream(handler, ["v1", "teams", "team_1", "chat", "human"], route, request_audit)
+            http_chat.stream(handler, route, request_audit)
             self.assertEqual(write.call_args_list[-1].args[1]["type"], "terminal")
-            http_chat.stream(
-                handler, ["v1", "teams", "team_1", "chat"], self.route("chat", team_id="team_1"), request_audit
-            )
+            http_chat.stream(handler, self.route("chat", team_id="team_1"), request_audit)
             self.assertEqual(write.call_args.args[1]["body"]["code"], "bad")
 
             def unexpected(_progress):
@@ -775,19 +772,15 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         controller = HandlerRouteEdgeTests.controller()
         handler = self.handler(method="POST", controller=controller)
         handler._body = mock.Mock(return_value={"public_key": "A" * 43})
-        handler.command = "GET"
-        self.assertIsNone(handler._supervisor_key_route(["v1", "space", "supervisor-key"]))
-        handler.command = "POST"
+        rotate_route = self.route("supervisor-key-rotate")
         rotated = {"rotated": True, "key_sha256": "a" * 64}
         with (
             mock.patch.object(authority, "rotate_supervisor_key", return_value=rotated) as rotate,
             mock.patch.object(http_audit.local_audit, "record_request") as audit,
         ):
-            self.assertEqual(
-                handler._fixed_route(["v1", "space", "supervisor-key"])[1:3], (rotated, "supervisor-key-rotate")
-            )
+            self.assertEqual(handler._route(rotate_route)[1:3], (rotated, "supervisor-key-rotate"))
             handler._supervisor_evidence = SimpleNamespace(key_sha256="b" * 64)
-            handler._fixed_route(["v1", "space", "supervisor-key"])
+            handler._route(rotate_route)
         self.assertEqual([call.args[1] for call in rotate.call_args_list], ["", "b" * 64])
         audit.assert_called_with("supervisor-key-rotate", result="ok", detail="a" * 16)
         for error, status, code in (
@@ -799,10 +792,10 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
                 mock.patch.object(authority, "rotate_supervisor_key", side_effect=error),
                 self.assertRaises(ApiProblemError) as caught,
             ):
-                handler._supervisor_key_route(["v1", "space", "supervisor-key"])
+                handler._route(rotate_route)
             self.assertEqual((caught.exception.status, caught.exception.code), (status, code))
         match = strict_http.resolve_controller_route("POST", ("v1", "space", "supervisor-key"))
-        self.assertEqual((match.operation, match.group), ("supervisor-key-rotate", "fixed"))
+        self.assertEqual(match.operation, "supervisor-key-rotate")
 
     def test_a_bootstrap_reset_removes_teams_supervisor_key_pin(self) -> None:
         controller = HandlerRouteEdgeTests.controller()
@@ -811,7 +804,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             mock.patch.object(authority, "require_supervisor_absent"),
             mock.patch.object(authority, "forget_supervisor_key") as forget,
         ):
-            handler._fixed_route(["v1", "space", "bootstrap"])
+            handler._route(self.route("space-bootstrap-reset"))
         forget.assert_called_once_with()
         with (
             mock.patch.object(authority, "require_supervisor_absent"),
@@ -820,7 +813,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             ),
             self.assertRaises(ApiProblemError) as caught,
         ):
-            handler._fixed_route(["v1", "space", "bootstrap"])
+            handler._route(self.route("space-bootstrap-reset"))
         self.assertEqual(caught.exception.code, "supervisor-unavailable")
 
     def test_bootstrap_reset_uses_machine_authority_without_human_assertion(self) -> None:

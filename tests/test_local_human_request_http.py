@@ -35,16 +35,11 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
             "value": True,
         }
 
-        handler.command = "GET"
         self.assertEqual(
-            http_chat.route(handler, ["v1", "teams", "team_1", "chat", "human"]),
+            handler._route(strict_http.ControllerRouteMatch("chat-human-pending", {"team_id": "team_1"})),
             (HTTPStatus.OK, pending, "chat-human-pending", "team_1", None),
         )
-        handler.command = "POST"
-        self.assertEqual(
-            http_chat.route(handler, ["v1", "teams", "team_1", "chat", "human"]),
-            (HTTPStatus.OK, completed, "chat-human-submit", "team_1", None),
-        )
+        self.assertEqual(http_chat._submit(handler, "chat-human-submit", "team_1", None), (HTTPStatus.OK, completed))
         self.assertEqual(http_chat._status(pending), HTTPStatus.PRECONDITION_REQUIRED)
 
     def test_opening_the_pending_challenge_in_a_language_is_a_local_post_route(self) -> None:
@@ -56,11 +51,10 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
         handler._body = lambda **_kwargs: {"locale": "pt"}
         path = ["v1", "teams", "team_1", "chat", "human", "challenge"]
 
-        handler.command = "POST"
-        self.assertEqual(http_chat.route(handler, path), (HTTPStatus.OK, opened, "chat-human-open", "team_1", None))
+        opening = strict_http.resolve_controller_route("POST", tuple(path))
+        self.assertEqual(handler._route(opening), (HTTPStatus.OK, opened, "chat-human-open", "team_1", None))
         self.assertEqual(bodies, [{"locale": "pt"}])
-        handler.command = "GET"
-        self.assertIsNone(http_chat.route(handler, path))
+        self.assertIsNone(strict_http.resolve_controller_route("GET", tuple(path)))
         self.assertEqual(server._JSON_BODY_LIMITS["chat-human-open"], server.MAX_BODY_BYTES)
         self.assertEqual(strict_http.resolve_controller_route("POST", tuple(path)).operation, "chat-human-open")
 
