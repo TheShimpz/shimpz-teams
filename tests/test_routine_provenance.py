@@ -24,6 +24,7 @@ from test_routine_recording import (
 )
 
 from routine import compose as routine_compose
+from routine import dates as routine_dates
 from routine import plan as routine_plan
 from routine import recording, trace
 
@@ -109,7 +110,7 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(recorded.origins["s1"]["query"], "clock")
         later = datetime.datetime.fromtimestamp(STARTED + 86_400, datetime.UTC)
         self.assertEqual(
-            routine_plan.clock_value(query, later, recorded.timezone),
+            routine_dates.clock_value(query, later, recorded.timezone),
             "notícias inteligência artificial hoje 6 outubro 2026",
         )
         # The day the person wrote stays that day, and a result that holds the text is still its source.

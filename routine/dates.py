@@ -17,7 +17,9 @@ text again byte for byte on the recording's date, or it is no template.
 
 import datetime
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+
+from routine import schedule
 
 MAX_OFFSET_DAYS = 31
 MAX_PARTS = 32
@@ -80,6 +82,19 @@ def _written(part: dict[str, object], run_date: datetime.date) -> str:
         return f"{value:02d}" if name in ("dd", "MM") else str(value)
 
     return _TOKEN_RE.sub(token, part["format"])
+
+
+def clock_value(source: Mapping[str, object], instant: datetime.datetime, timezone: str) -> object:
+    """A plan's run-clock value at a run's start: its date in the plan's timezone, or a template written for it."""
+    day = instant.astimezone(schedule.zone(timezone)).date()
+    return day.isoformat() if source["format"] == "date" else render(source["parts"], day)
+
+
+def admitted_clock(source: Mapping[str, object]) -> bool:
+    """Whether a run-clock source is the run date alone or a text template with its parts."""
+    if source["format"] == "date":
+        return "parts" not in source
+    return source["format"] == "text" and "parts" in source and admitted(source["parts"])
 
 
 def admitted(parts: object) -> bool:

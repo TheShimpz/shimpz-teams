@@ -8,6 +8,7 @@ from unittest import mock
 
 from assistant import action_schema
 from assistant import manifest as assistant_manifest
+from routine import dates as routine_dates
 from routine import plan as routine_plan
 
 PIN = "sha256:" + "a" * 64
@@ -527,14 +528,14 @@ class PlanResolutionTests(unittest.TestCase):
     def test_clock_tokens_and_commitments_are_deterministic(self) -> None:
         instant = datetime.datetime(2026, 7, 4, 15, 5, 9, tzinfo=datetime.UTC)
         date = {"kind": "run_clock", "format": "date"}
-        self.assertEqual(routine_plan.clock_value(date, instant, "Asia/Tokyo"), "2026-07-05")
-        self.assertEqual(routine_plan.clock_value(date, instant, "UTC"), "2026-07-04")
+        self.assertEqual(routine_dates.clock_value(date, instant, "Asia/Tokyo"), "2026-07-05")
+        self.assertEqual(routine_dates.clock_value(date, instant, "UTC"), "2026-07-04")
         text = {
             "kind": "run_clock",
             "format": "text",
             "parts": ["news ", {"days": 1, "format": "{d}/{M}", "lang": None}],
         }
-        self.assertEqual(routine_plan.clock_value(text, instant, "Asia/Tokyo"), "news 6/7")
+        self.assertEqual(routine_dates.clock_value(text, instant, "Asia/Tokyo"), "news 6/7")
         self.assertEqual(routine_plan.commitment({"b": 1, "a": "é"}), routine_plan.commitment({"a": "é", "b": 1}))
         self.assertNotEqual(routine_plan.commitment({"a": 1}), routine_plan.commitment({"a": "1"}))
         with (

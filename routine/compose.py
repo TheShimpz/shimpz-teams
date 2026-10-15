@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 
 from protocol.http.v1 import phrase
 from protocol.http.v1 import routine as http_routine
+from routine import dates as routine_dates
 from routine import plan as routine_plan
 from routine import provenance as routine_provenance
 from routine import recording as routine_recording
@@ -421,7 +422,7 @@ def _resolved(
         return source["value"]
     if source["kind"] == "run_clock":
         instant = datetime.datetime.fromtimestamp(started, datetime.UTC)
-        return routine_plan.clock_value(source, instant, context.zone[0])
+        return routine_dates.clock_value(source, instant, context.zone[0])
     try:
         if "where" in source:
             return routine_plan.select_where(

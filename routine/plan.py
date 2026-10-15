@@ -292,7 +292,7 @@ def _step(raw: object, contracts: Mapping[tuple[str, str], ActionContract], earl
 def _supplied(source: Mapping[str, object]) -> object:
     """What a step input writes that its plan holds: a literal, or a template's text, which a secret never takes."""
     if source.get("kind") == "run_clock" and "parts" in source:
-        return clock_value(source, _SAMPLE_INSTANT, "UTC")
+        return routine_dates.clock_value(source, _SAMPLE_INSTANT, "UTC")
     return source.get("value", _NOT_LITERAL)
 
 
@@ -317,9 +317,13 @@ def _source(source: object, earlier: tuple[str, ...]) -> None:
         raise PlanError("plan-input-invalid")
     if kind == "literal" and _holds_credential(source["value"]):
         raise PlanError("plan-secret-literal")
-    if kind == "run_clock" and not _clock(source):
+    if kind == "run_clock" and not routine_dates.admitted_clock(source):
         raise PlanError("plan-input-invalid")
-    if kind == "run_clock" and "parts" in source and _holds_credential(clock_value(source, _SAMPLE_INSTANT, "UTC")):
+    if (
+        kind == "run_clock"
+        and "parts" in source
+        and _holds_credential(routine_dates.clock_value(source, _SAMPLE_INSTANT, "UTC"))
+    ):
         raise PlanError("plan-secret-literal")
     if kind == "step_output" and (
         source["step"] not in earlier
@@ -327,13 +331,6 @@ def _source(source: object, earlier: tuple[str, ...]) -> None:
         or ("where" in source and not (_where(source["where"]) and pointer_tokens(source["item"]) is not None))
     ):
         raise PlanError("plan-reference-invalid")
-
-
-def _clock(source: Mapping[str, object]) -> bool:
-    """A run date alone, or a text template with its parts (``routine.dates``)."""
-    if source["format"] == "date":
-        return "parts" not in source
-    return source["format"] == "text" and "parts" in source and routine_dates.admitted(source["parts"])
 
 
 def _where(value: object) -> bool:
@@ -351,7 +348,7 @@ def _typed(name: str, source: Mapping[str, object], schema: Mapping[str, Any]) -
     if source["kind"] == "literal":
         _admit_member(schema, name, source["value"])
     elif source["kind"] == "run_clock":
-        _admit_member(schema, name, clock_value(source, _SAMPLE_INSTANT, "UTC"))
+        _admit_member(schema, name, routine_dates.clock_value(source, _SAMPLE_INSTANT, "UTC"))
 
 
 def _secret_literal(root: Mapping[str, Any], name: str, value: object, subschema: object, depth: int) -> bool:
@@ -524,12 +521,6 @@ def _admit_member(schema: Mapping[str, Any], name: str, value: object) -> None:
         raise PlanError("plan-input-type") from exc
 
 
-def clock_value(source: Mapping[str, object], instant: datetime.datetime, timezone: str) -> object:
-    """A run-clock value at the run's start instant: the date in the plan's timezone, or a template written for it."""
-    day = instant.astimezone(schedule.zone(timezone)).date()
-    return day.isoformat() if source["format"] == "date" else routine_dates.render(source["parts"], day)
-
-
 def pointer_tokens(pointer: object) -> tuple[str, ...] | None:
     """Decode one RFC 6901 pointer string; the empty pointer selects the whole value."""
     if not isinstance(pointer, str) or len(pointer) > MAX_POINTER or _POINTER_RE.fullmatch(pointer) is None:
@@ -631,7 +622,7 @@ def resolve(
         if source["kind"] == "literal":
             resolved[name] = copy.deepcopy(source["value"])
         elif source["kind"] == "run_clock":
-            resolved[name] = clock_value(source, instant, plan.timezone)
+            resolved[name] = routine_dates.clock_value(source, instant, plan.timezone)
         elif selector(source) in selected:
             resolved[name] = copy.deepcopy(selected[selector(source)])
         else:
