@@ -39,32 +39,10 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
         self.assertEqual(challenge.expires_in, 600)
         self.assertNotIn("verifier", repr(challenge).lower())
         self.assertNotIn(SESSION_ONE, repr(store._pending))
-        for mismatched in (
-            {"session_binding": SESSION_TWO},
-            {"team_id": "team_2"},
-            {"assistant_id": "other-assistant"},
-            {"integration_id": "other"},
-        ):
-            binding = {
-                "session_binding": SESSION_ONE,
-                "team_id": "team_1",
-                "assistant_id": "shimpz-cloudflare",
-                "integration_id": "cloudflare",
-            }
-            binding.update(mismatched)
-            with (
-                self.subTest(mismatched=mismatched),
-                self.assertRaises(integration_pkce.OAuthChallengeNotFoundError),
-            ):
-                store.claim(state=challenge.state, **binding)
+        with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
+            store.claim_callback(state=challenge.state, session_binding=SESSION_TWO)
 
-        exchange = store.claim(
-            state=challenge.state,
-            session_binding=SESSION_ONE,
-            team_id="team_1",
-            assistant_id="shimpz-cloudflare",
-            integration_id="cloudflare",
-        )
+        exchange = store.claim_callback(state=challenge.state, session_binding=SESSION_ONE)
         expected = (
             base64.urlsafe_b64encode(hashlib.sha256(exchange.code_verifier.encode("ascii")).digest())
             .rstrip(b"=")
@@ -78,13 +56,7 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
             ("team_1", "shimpz-cloudflare", "cloudflare"),
         )
         with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
-            store.claim(
-                state=challenge.state,
-                session_binding=SESSION_ONE,
-                team_id="team_1",
-                assistant_id="shimpz-cloudflare",
-                integration_id="cloudflare",
-            )
+            store.claim_callback(state=challenge.state, session_binding=SESSION_ONE)
 
     def test_callback_recovers_private_binding_only_for_the_starting_browser(self) -> None:
         store = integration_pkce.OAuthPKCEChallengeStore()
@@ -125,13 +97,7 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
             mock.patch.object(integration_pkce.time, "monotonic", return_value=130.0),
             self.assertRaises(integration_pkce.OAuthChallengeNotFoundError),
         ):
-            store.claim(
-                state=challenge.state,
-                session_binding=SESSION_ONE,
-                team_id="team_1",
-                assistant_id="shimpz-cloudflare",
-                integration_id="cloudflare",
-            )
+            store.claim_callback(state=challenge.state, session_binding=SESSION_ONE)
 
     def test_global_session_and_team_caps_are_independent(self) -> None:
         global_store = integration_pkce.OAuthPKCEChallengeStore(
@@ -167,23 +133,11 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
         second = create(store, session=SESSION_TWO, team="team_2")
         self.assertEqual(store.cancel_session(SESSION_ONE), 1)
         with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
-            store.claim(
-                state=first.state,
-                session_binding=SESSION_ONE,
-                team_id="team_1",
-                assistant_id="shimpz-cloudflare",
-                integration_id="cloudflare",
-            )
+            store.claim_callback(state=first.state, session_binding=SESSION_ONE)
         self.assertEqual(store.cancel_team("team_2"), 1)
         self.assertEqual(store.cancel_all(), 0)
         with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
-            store.claim(
-                state=second.state,
-                session_binding=SESSION_TWO,
-                team_id="team_2",
-                assistant_id="shimpz-cloudflare",
-                integration_id="cloudflare",
-            )
+            store.claim_callback(state=second.state, session_binding=SESSION_TWO)
 
         for invalid in (
             {"session_binding": "short"},

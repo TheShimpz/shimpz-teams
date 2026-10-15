@@ -255,33 +255,6 @@ class OAuthPKCEChallengeStore:
             self._by_binding[binding] = state
             return public
 
-    def claim(
-        self,
-        *,
-        state: object,
-        session_binding: object,
-        team_id: object,
-        assistant_id: object,
-        integration_id: object,
-    ) -> OAuthExchange:
-        identifier = _state(state)
-        binding = self._binding(session_binding, team_id, assistant_id, integration_id)
-        now = time.monotonic()
-        with self._lock:
-            self._expire(now)
-            challenge = self._pending.get(identifier)
-            if challenge is None:
-                raise OAuthChallengeNotFoundError("OAuth challenge is unavailable")
-            if (
-                not hmac.compare_digest(challenge.session_digest, binding[0])
-                or challenge.team_id != binding[1]
-                or challenge.assistant_id != binding[2]
-                or challenge.integration_id != binding[3]
-            ):
-                raise OAuthChallengeNotFoundError("OAuth challenge is unavailable")
-            self._remove(identifier)
-            return challenge.exchange()
-
     def claim_callback(
         self,
         *,
@@ -296,15 +269,8 @@ class OAuthPKCEChallengeStore:
         """
         identifier = _state(state)
         session_digest = _session_digest(session_binding)
-        now = time.monotonic()
         with self._lock:
-            self._expire(now)
-            challenge = self._pending.get(identifier)
-            if challenge is None or not hmac.compare_digest(
-                challenge.session_digest,
-                session_digest,
-            ):
-                raise OAuthChallengeNotFoundError("OAuth challenge is unavailable")
+            challenge = self._bound_locked(identifier, session_digest)
             self._remove(identifier)
             return challenge.exchange()
 
@@ -317,12 +283,8 @@ class OAuthPKCEChallengeStore:
         """Inspect only bounded identifiers; never expose or consume the verifier."""
         identifier = _state(state)
         session_digest = _session_digest(session_binding)
-        now = time.monotonic()
         with self._lock:
-            self._expire(now)
-            challenge = self._pending.get(identifier)
-            if challenge is None or not hmac.compare_digest(challenge.session_digest, session_digest):
-                raise OAuthChallengeNotFoundError("OAuth challenge is unavailable")
+            challenge = self._bound_locked(identifier, session_digest)
             return OAuthCallbackBinding(
                 team_id=challenge.team_id,
                 assistant_id=challenge.assistant_id,
@@ -332,20 +294,23 @@ class OAuthPKCEChallengeStore:
 
     def cancel_session(self, session_binding: object) -> int:
         digest = _session_digest(session_binding)
-        with self._lock:
-            states = tuple(
-                state
-                for state, challenge in self._pending.items()
-                if hmac.compare_digest(challenge.session_digest, digest)
-            )
-            for state in states:
-                self._remove(state)
-            return len(states)
+        return self._remove_where(lambda challenge: hmac.compare_digest(challenge.session_digest, digest))
 
     def cancel_team(self, team_id: object) -> int:
         team = _team_id(team_id)
+        return self._remove_where(lambda challenge: challenge.team_id == team)
+
+    def _bound_locked(self, identifier: str, session_digest: bytes) -> _PendingChallenge:
+        """The live challenge for this state started by this browser; the caller holds the lock."""
+        self._expire(time.monotonic())
+        challenge = self._pending.get(identifier)
+        if challenge is None or not hmac.compare_digest(challenge.session_digest, session_digest):
+            raise OAuthChallengeNotFoundError("OAuth challenge is unavailable")
+        return challenge
+
+    def _remove_where(self, selected: Callable[[_PendingChallenge], bool]) -> int:
         with self._lock:
-            states = tuple(state for state, challenge in self._pending.items() if challenge.team_id == team)
+            states = tuple(state for state, challenge in self._pending.items() if selected(challenge))
             for state in states:
                 self._remove(state)
             return len(states)
