@@ -191,10 +191,10 @@ class CorrectionTests(CardCase):
     def test_a_transition_refused_by_its_state_names_its_own_budget_code_or_the_incident(self) -> None:
         self.assertEqual(
             (
-                routine_incident._transition_problem("routine-rate-limit").code,
+                routine_incident._transition_problem("routine-step-budget").code,
                 routine_incident._transition_problem("x").code,
             ),
-            ("routine-rate-limit", "routine-incident-unavailable"),
+            ("routine-step-budget", "routine-incident-unavailable"),
         )
 
     def test_deletion_waits_for_a_stopped_writer_before_releasing_what_its_run_kept(self) -> None:

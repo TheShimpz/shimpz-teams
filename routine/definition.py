@@ -190,7 +190,7 @@ def capacity(routines: Sequence[object]) -> int:
 
 
 def over_budget(others: Sequence[object], admitted: object) -> str | None:
-    """Which Team budget a definition outgrows beside the Team's other Routines, or None: rate, steps, or bytes."""
+    """Which Team budget a definition outgrows beside the Team's other Routines, or None: daily steps or bytes."""
     if daily_steps(admitted) > capacity(others):
         return "routine-step-budget"
     if sum(definition_bytes(item) for item in (*others, admitted)) > routine_plan.TEAM_DEFINITION_BYTES:

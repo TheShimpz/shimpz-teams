@@ -919,7 +919,10 @@ class RecordedRoutineTests(LocalContractCase):
         cases = [
             ("plan-input-type", {"patch": (routine_plan, "admit", routine_plan.PlanError("plan-input-type"))}),
             ("routine-invalid", {"patch": (record, "scheduled", record.RoutineStateError("routine-invalid"))}),
-            ("routine-rate-limit", {"patch": (routine_definition, "over_budget", None), "value": "routine-rate-limit"}),
+            (
+                "routine-team-budget",
+                {"patch": (routine_definition, "over_budget", None), "value": "routine-team-budget"},
+            ),
             ("routine-secret-literal", {"outcome": _record(name="DNS tok-protected-1"), "protect": "tok-protected-1"}),
         ]
         for code, case in cases:
