@@ -187,16 +187,11 @@ class StrictHttpTest(unittest.TestCase):
         empty.add_header("Content-Length", "0")
         strict_http.reject_body(empty)
 
-        for target, allow_query, maximum in (
-            ("/path", False, 1),
-            ("/path?query=1", False, 100),
-            ("/path?=value", True, 100),
-            ("/path?key=one&key=two", True, 100),
-        ):
+        for target in ("/" + "p" * strict_http.MAX_REQUEST_TARGET_BYTES, "/path?query=1", "/path#part", "/p%61th"):
             with self.subTest(target=target), self.assertRaises(strict_http.HttpContractError):
-                strict_http.parse_request_target(target, allow_query=allow_query, max_bytes=maximum)
-        target = strict_http.parse_request_target("/path?key=value", allow_query=True)
-        self.assertEqual(target.query, {"key": "value"})
+                strict_http.parse_request_target(target)
+        target = strict_http.parse_request_target("/v1//teams/")
+        self.assertEqual((target.path, target.parts), ("/v1//teams/", ("v1", "teams")))
 
     def test_bearer_match_refuses_non_ascii_headers_instead_of_raising(self) -> None:
         token = "t" * 43

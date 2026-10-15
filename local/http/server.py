@@ -43,7 +43,6 @@ MAX_BODY_BYTES = 16 * 1024
 MAX_API_RESPONSE_BYTES = 128 * 1024
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_FILE_BODY_BYTES = MAX_UPLOAD_BYTES
-MAX_PATH_BYTES = 512
 REQUEST_TIMEOUT_SECONDS = 10
 _FILE_UPLOAD_SLOTS = threading.BoundedSemaphore(1)
 _MACHINE_ONLY_OPERATIONS = frozenset(
@@ -236,11 +235,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
 
     def _resolved_route(self) -> tuple[list[str], strict_http.ControllerRouteMatch]:
         try:
-            target = strict_http.parse_request_target(
-                self.path,
-                allow_query=False,
-                max_bytes=MAX_PATH_BYTES,
-            )
+            target = strict_http.parse_request_target(self.path)
         except strict_http.HttpContractError as exc:
             raise ApiProblem(exc.status, exc.message, code=exc.code) from exc
         parts = list(target.parts)

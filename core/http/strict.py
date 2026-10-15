@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import BinaryIO
-from urllib.parse import parse_qsl, quote, unquote_to_bytes, urlsplit
+from urllib.parse import quote, unquote_to_bytes, urlsplit
 
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
@@ -30,7 +30,6 @@ class HttpContractError(ValueError):
 class RequestTarget:
     path: str
     parts: tuple[str, ...]
-    query: dict[str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,40 +229,22 @@ def reject_body(headers: object) -> None:
         )
 
 
-def parse_request_target(
-    raw_target: str,
-    *,
-    allow_query: bool,
-    max_bytes: int = MAX_REQUEST_TARGET_BYTES,
-) -> RequestTarget:
-    """Parse one bounded origin-form target without encoded or ambiguous routing."""
-    if len(raw_target.encode("utf-8", "replace")) > max_bytes:
+def parse_request_target(raw_target: str) -> RequestTarget:
+    """Parse one bounded origin-form path without a query, a fragment, or encoded routing."""
+    if len(raw_target.encode("utf-8", "replace")) > MAX_REQUEST_TARGET_BYTES:
         raise HttpContractError(
             HTTPStatus.URI_TOO_LONG,
             "request path is too long",
             code="path-too-long",
         )
     parsed = urlsplit(raw_target)
-    if parsed.fragment or "%" in parsed.path or (parsed.query and not allow_query):
+    if parsed.fragment or "%" in parsed.path or parsed.query:
         raise HttpContractError(
             HTTPStatus.BAD_REQUEST,
             "query and encoded paths are not accepted",
             code="invalid-path",
         )
-    query: dict[str, str] = {}
-    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
-        if not key or key in query:
-            raise HttpContractError(
-                HTTPStatus.BAD_REQUEST,
-                "request query is ambiguous",
-                code="invalid-path",
-            )
-        query[key] = value
-    return RequestTarget(
-        path=parsed.path,
-        parts=tuple(part for part in parsed.path.split("/") if part),
-        query=query,
-    )
+    return RequestTarget(path=parsed.path, parts=tuple(part for part in parsed.path.split("/") if part))
 
 
 # Canonical route matching lives beside strict target parsing, so every Team endpoint shares one exact
