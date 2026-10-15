@@ -150,8 +150,7 @@ def skip_incident(
 
     ``choice`` is how: Rodar (``run``) or deleting the Routine (``delete``), which the run's
     ``user-skipped`` notice names; it is distinct from the Routine's own missed-schedule skip. A card's ``expected``
-    state is checked in the same write. Setting it aside is the held run's end: a continuous Routine's next run is due
-    its gap after it, however long the run was held.
+    state is checked in the same write.
     """
     value = incident(state, incident_id)
     if value.status != "unresolved":
@@ -159,21 +158,18 @@ def skip_incident(
     _expect(state, value, expected)
     detail = {**step_detail(held_step(value)), "choice": choice}
     state, value = record.run_notice(state, value, "user-skipped", now, detail)
-    state = record.rebase_continuous(state, value.routine_id, now)
     return record.replace_run(state, dataclasses.replace(value, status="skipped"))
 
 
 def run_incident(state: record.TeamRoutines, incident_id: str, now: int, expected: Expected) -> record.TeamRoutines:
     """Rodar: set the held run aside and request one fresh run of the Routine's current revision, in one write.
 
-    The Routine leaves its pause with a fresh failure streak. A fixed schedule keeps the request until a claim starts
-    it, under every start cap and without moving its cadence; a continuous one is simply due its gap after this.
+    The Routine leaves its pause with a fresh failure streak. Whatever its schedule, the request stands until a claim
+    starts it now, under every start cap and without moving its cadence.
     """
     value = incident(state, incident_id)
     state = record.set_paused(skip_incident(state, incident_id, now, expected, choice="run"), value.routine_id, False)
     current = record.routine(state, value.routine_id)
-    if record.continuous(current):
-        return state
     return record.replace_routine(state, dataclasses.replace(current, run_requested=now))
 
 

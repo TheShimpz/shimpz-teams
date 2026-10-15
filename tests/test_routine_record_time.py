@@ -179,25 +179,19 @@ class ContinuousTests(unittest.TestCase):
         self.assertEqual(routine_claim.next_due(state, boundary - 1), boundary)
         self.assertEqual(routine_claim.claimable(state, boundary).routine_id, "a" * 32)
 
-    def test_a_skipped_hold_ends_the_run_so_the_next_one_waits_its_gap_after_the_skip(self):
+    def test_rodar_on_a_set_aside_run_starts_the_routine_now_whatever_its_schedule(self):
         state = self.continuous()
         state, claim, lease = routine_fixture.claim_bound(state, NINE, network="net_1")
         run_id = claim.run.run_id
         state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1)
-        # Held for a day: the gap after the held run's own end has long passed, but the incident still holds it.
-        skipped_at = NINE + 86_400
-        self.assertIsNone(routine_claim.claimable(state, skipped_at))
-        skipped = routine_hold.skip_incident(state, run_id, skipped_at, choice="run")
-        self.assertEqual(record.routine(skipped, "a" * 32).next_run_at, skipped_at + 5)
-        self.assertIsNone(routine_claim.claimable(skipped, skipped_at + 4))
-        self.assertEqual(routine_claim.next_due(skipped, skipped_at), skipped_at + 5)
-        self.assertEqual(routine_claim.claimable(skipped, skipped_at + 5).routine_id, "a" * 32)
-        # Rodar on a continuous Routine asks for nothing more: it is due its gap after the run was set aside.
+        # Held for a day: the incident still holds the Routine, whatever its gap.
+        later = NINE + 86_400
+        self.assertIsNone(routine_claim.claimable(state, later))
         generation = routine_hold.incident(state, run_id).generation
-        ran = routine_hold.run_incident(state, run_id, skipped_at, routine_hold.Expected(1, generation, 1))
-        self.assertEqual(record.routine(ran, "a" * 32).run_requested, 0)
-        self.assertEqual(record.routine(ran, "a" * 32).next_run_at, skipped_at + 5)
-        # A scheduled Routine's next firing is its own and a skip leaves it unchanged.
+        ran = routine_hold.run_incident(state, run_id, later, routine_hold.Expected(1, generation, 1))
+        self.assertEqual(record.routine(ran, "a" * 32).run_requested, later)
+        self.assertEqual(routine_claim.claimable(ran, later).routine_id, "a" * 32)
+        # A scheduled Routine's next firing is its own: ending a run leaves it unchanged.
         scheduled, _run_id = held()
         before = record.routine(scheduled, "a" * 32).next_run_at
         self.assertEqual(record.rebase_continuous(scheduled, "a" * 32, NINE + 10), scheduled)

@@ -484,20 +484,18 @@ def ended(state: TeamRoutines, value: Run, now: int) -> TeamRoutines:
     A continuous Routine keeps its cadence from this run's start, so its runs never overlap or drift.
     """
     state = dataclasses.replace(state, discards=(*state.discards, (value.run_id, value.generation)))
-    return rebase_continuous(state, value.routine_id, now, cadence=True)
+    return rebase_continuous(state, value.routine_id, now)
 
 
-def rebase_continuous(state: TeamRoutines, routine_id: str, now: int, *, cadence: bool = False) -> TeamRoutines:
-    """A continuous Routine's next run once its run is over at ``now``; any other Routine is unchanged.
+def rebase_continuous(state: TeamRoutines, routine_id: str, now: int) -> TeamRoutines:
+    """A continuous Routine's next run once its run ended at ``now``; any other Routine is unchanged.
 
-    With ``cadence`` the run ended, and the next is due when its claim set it, its gap after the run started, or now
-    when the run outlasted the gap; a held run set aside makes the next due its gap after ``now``.
+    The next is due when its claim set it, its gap after the run started, or now when the run outlasted the gap.
     """
     current = next((item for item in state.routines if item.routine_id == routine_id), None)
     if current is None or not continuous(current):
         return state
-    next_run_at = max(now, current.next_run_at) if cadence else now + current.schedule["gap"]
-    return replace_routine(state, dataclasses.replace(current, next_run_at=next_run_at))
+    return replace_routine(state, dataclasses.replace(current, next_run_at=max(now, current.next_run_at)))
 
 
 def discarded(state: TeamRoutines, run_id: str, generation: str) -> TeamRoutines:
