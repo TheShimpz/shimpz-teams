@@ -521,15 +521,43 @@ def discarded(state: TeamRoutines, run_id: str, generation: str) -> TeamRoutines
     return dataclasses.replace(state, discards=tuple(item for item in state.discards if item != (run_id, generation)))
 
 
+def _next_run_notice(
+    state: TeamRoutines,
+    run_id: str,
+    value: Run | Incident,
+    outcome: str,
+    now: int,
+    detail: dict[str, object],
+    name: str = "",
+) -> TeamRoutines:
+    """Publish the next version of a run's one notice, keyed by its run id, with the run's usage and protection.
+
+    ``value`` is the live run or, once it is held, its incident; ``name`` is the Routine's name to keep, or the current
+    one when empty.
+    """
+    version = value.notice_version + 1
+    notice = Notice(
+        run_id,
+        value.routine_id,
+        run_id,
+        outcome,
+        now,
+        detail,
+        version,
+        name,
+        copy.deepcopy(value.usage),
+        value.protection_lost,
+    )
+    return _notice(state, notice)
+
+
 def _run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail: dict[str, object]):
     """Publish the next version of the run's one notice; returns the state and the run carrying that version.
 
     A completed or recovered run resets its Routine's failure streak; a failed one extends it, the third pausing it.
     """
     version = value.notice_version + 1
-    notice = Notice(value.run_id, value.routine_id, value.run_id, outcome, now, detail, version)
-    usage = copy.deepcopy(value.usage)
-    state = _notice(state, dataclasses.replace(notice, usage=usage, protection_lost=value.protection_lost))
+    state = _next_run_notice(state, value.run_id, value, outcome, now, detail)
     if outcome in {"done", "recovered", "failed"}:
         current = routine(state, value.routine_id)
         failures = current.failures + 1 if outcome == "failed" else 0

@@ -249,6 +249,14 @@ def _live(state: record.TeamRoutines, run_id: str, lease: record.Lease, now: int
     return value
 
 
+def _read_lease(state: record.TeamRoutines, run_id: str, lease_sha256: str) -> record.Run:
+    """A watchdog transition: only the exact lease the watchdog read, so a run claimed again meanwhile is untouched."""
+    value = _leased(state, run_id)
+    if not secrets.compare_digest(value.lease_sha256, lease_sha256):
+        raise record.RoutineStateError("run-changed")
+    return value
+
+
 def generation_for(network_id: str, run_id: str, suffix: str = "") -> str:
     """A run's journal generation in the Team's network.
 

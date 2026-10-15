@@ -134,11 +134,23 @@ def finish(
     value = routine_claim._live(state, run_id, lease, now)
     if outcome not in record._RUN_OUTCOMES:
         raise record.RoutineStateError("invalid-outcome")
+    return _ended(state, value, outcome, now, detail, shown)
+
+
+def _ended(
+    state: record.TeamRoutines,
+    value: record.Run,
+    outcome: str,
+    now: int,
+    detail: dict[str, object],
+    shown: dict[str, object] | None,
+) -> record.TeamRoutines:
+    """End a run with its notice: a completed one by its Routine's output disposition, any other with ``detail``."""
     if outcome in {"done", "recovered"}:
         state = _completion(state, value, outcome, now, shown)
     else:
         state = record._run_notice(state, value, outcome, now, detail)[0]
-    return record._without_run(state, run_id, now)
+    return record._without_run(state, value.run_id, now)
 
 
 def _completion(
@@ -237,11 +249,8 @@ def complete_recovered(
     state: record.TeamRoutines, run_id: str, lease_sha256: str, now: int, shown: dict[str, object] | None = None
 ) -> record.TeamRoutines:
     """Team's watchdog ends a leased run whose sealed cursor completed every step, as the worker would have."""
-    value = routine_claim._leased(state, run_id)
-    if not secrets.compare_digest(value.lease_sha256, lease_sha256):
-        raise record.RoutineStateError("run-changed")
-    state = _completion(state, value, completed(value), now, shown)
-    return record._without_run(state, run_id, now)
+    value = routine_claim._read_lease(state, run_id, lease_sha256)
+    return _ended(state, value, completed(value), now, {}, shown)
 
 
 def completed(value: record.Run) -> str:

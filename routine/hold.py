@@ -140,20 +140,8 @@ def _incident_notice(
     state: record.TeamRoutines, value: record.Incident, outcome: str, now: int, detail: dict[str, object]
 ) -> tuple[record.TeamRoutines, record.Incident]:
     """Publish the next version of the held run's one notice, which outlives a deleted Routine with the incident."""
-    version = value.notice_version + 1
-    notice = record.Notice(
-        value.incident_id,
-        value.routine_id,
-        value.incident_id,
-        outcome,
-        now,
-        detail,
-        version,
-        value.name,
-        value.usage,
-        value.protection_lost,
-    )
-    return record._notice(state, notice), dataclasses.replace(value, notice_version=version)
+    state = record._next_run_notice(state, value.incident_id, value, outcome, now, detail, value.name)
+    return state, dataclasses.replace(value, notice_version=value.notice_version + 1)
 
 
 def _replace_incident(state: record.TeamRoutines, updated: record.Incident) -> record.TeamRoutines:
@@ -267,28 +255,22 @@ def refund_incident(state: record.TeamRoutines, incident_id: str, generation: st
     return _replace_incident(state, dataclasses.replace(value, active_seconds_left=refunded))
 
 
-def fence(state: record.TeamRoutines, run_id: str, lease: record.Lease, now: int) -> record.TeamRoutines:
-    """Stop the live lease of a run that must be held (ADR-0092): no worker may advance it, nothing ends it yet."""
-    value = routine_claim._live(state, run_id, lease, now)
+def _held(state: record.TeamRoutines, value: record.Run) -> record.TeamRoutines:
+    """Stop a run's lease so no worker may advance it; nothing ends it yet."""
     if not value.generation:
         raise record.RoutineStateError("generation-invalid")
     held = dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
     return record._replace_run(state, held)
 
 
-def hold_recovered(state: record.TeamRoutines, run_id: str, lease_sha256: str) -> record.TeamRoutines:
-    """Team's watchdog holds a leased run nothing runs any more whose durable state shows it may have acted.
+def fence(state: record.TeamRoutines, run_id: str, lease: record.Lease, now: int) -> record.TeamRoutines:
+    """Stop the live lease of a run that must be held (ADR-0092)."""
+    return _held(state, routine_claim._live(state, run_id, lease, now))
 
-    Only the exact lease the watchdog read is fenced, so a run that ended or was claimed again meanwhile is untouched.
-    """
-    value = routine_claim._leased(state, run_id)
-    if not secrets.compare_digest(value.lease_sha256, lease_sha256):
-        raise record.RoutineStateError("run-changed")
-    if not value.generation:
-        raise record.RoutineStateError("generation-invalid")
-    return record._replace_run(
-        state, dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
-    )
+
+def hold_recovered(state: record.TeamRoutines, run_id: str, lease_sha256: str) -> record.TeamRoutines:
+    """Team's watchdog holds a leased run nothing runs any more whose durable state shows it may have acted."""
+    return _held(state, routine_claim._read_lease(state, run_id, lease_sha256))
 
 
 # What Team's watchdog fences or ends: runs nothing may drive any more.
