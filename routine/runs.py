@@ -158,7 +158,7 @@ def _completion(
         "plan": routine_definition.summary(current.plan, current.revision),
         "output": None,
     }
-    if mode in routine_plan.SHOWN_MODES:
+    if mode in http_routine.SHOWN_MODES:
         # On the wire the shown step is its position (ADR-0092 amendment, 2026-10-05, scale).
         position = routine_definition.disposition(current.plan)["step"]
         valid = shown is not None and shown.get("step") == step and not value.protection_lost

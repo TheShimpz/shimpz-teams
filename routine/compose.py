@@ -162,7 +162,7 @@ def _schedule(
 # How each output choice the person states runs: a chain uses the result in other Actions, which the recorded work then
 # runs, and shows it. A chain whose work has no step reading an earlier step's result is no chain yet: the output
 # question stands, and the Brain runs the chained work when the person answers it, once.
-_OUTPUT_MODES = {"show": "show", "changes": "changes", "none": "none", "chain": "show"}
+_OUTPUT_MODES = {**{mode: mode for mode in http_routine.OUTPUT_MODES}, "chain": "show"}
 
 
 def _chained(document: Mapping[str, object], chained_from: tuple[str, str] | None) -> bool:
@@ -233,7 +233,7 @@ def _document(steps: list[dict[str, object]], last: str | None, mode: str) -> di
         "version": routine_plan.VERSION,
         "timezone": http_routine.CONVENTIONAL_TIMEZONE,
         "steps": steps,
-        "output": {"mode": mode, "step": last if mode in routine_plan.SHOWN_MODES else None},
+        "output": {"mode": mode, "step": last if mode in http_routine.SHOWN_MODES else None},
     }
 
 

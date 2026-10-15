@@ -85,9 +85,6 @@ STEP_ID_RE = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
 PIN_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
 _INDEX_RE = re.compile(r"(?:0|[1-9][0-9]{0,8})\Z")
-# What a completed run does with its result; ``show`` and ``changes`` name the step whose result is shown.
-OUTPUT_MODES = http_routine.OUTPUT_MODES
-SHOWN_MODES = http_routine.SHOWN_MODES
 # A secret is never a literal: one of these in a destination name, or a destination marked write-only or as a password.
 _SECRET_MARKERS = (
     "secret",
@@ -131,7 +128,7 @@ class Plan:
     timezone: str
     steps: tuple[Step, ...]
     digest: str
-    # What a completed run does with its result: {"mode": one of OUTPUT_MODES, "step": the shown step id or None}.
+    # What a completed run does with its result: {"mode": a protocol output mode, "step": the shown step id or None}.
     output: Mapping[str, object] = dataclasses.field(default_factory=lambda: {"mode": "none", "step": None})
 
     def position(self, step_id: str) -> int:
@@ -140,7 +137,7 @@ class Plan:
 
     def shown(self) -> Step | None:
         """The step whose result a completed run shows, or None when the plan shows none."""
-        if self.output["mode"] not in SHOWN_MODES:
+        if self.output["mode"] not in http_routine.SHOWN_MODES:
             return None
         return next(step for step in self.steps if step.step_id == self.output["step"])
 
@@ -236,10 +233,10 @@ def _document(document: object) -> tuple[str, list[object], object, bytes]:
 
 def _output(value: object, steps: list[Step]) -> None:
     """The run's output disposition: a shown step is one of the plan's, which has at least one step to run."""
-    if not isinstance(value, dict) or set(value) != {"mode", "step"} or value["mode"] not in OUTPUT_MODES:
+    if not isinstance(value, dict) or set(value) != {"mode", "step"} or value["mode"] not in http_routine.OUTPUT_MODES:
         raise PlanError("plan-output-invalid")
     mode, shown = value["mode"], value["step"]
-    if mode in SHOWN_MODES:
+    if mode in http_routine.SHOWN_MODES:
         valid = isinstance(shown, str) and any(step.step_id == shown for step in steps)
     else:
         valid = shown is None
