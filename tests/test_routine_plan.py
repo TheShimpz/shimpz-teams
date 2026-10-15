@@ -800,6 +800,15 @@ class SelectorAndDispositionTests(unittest.TestCase):
         output = output or {"mode": "show", "step": "share"}
         return routine_plan.admit({**_document(steps=steps), "output": output}, contracts)
 
+    def test_a_pointer_through_an_index_and_scalars_beside_injected_values_preview_safely(self) -> None:
+        source = {"type": "object", "properties": {"zones": {"type": "array", "prefixItems": [{"type": "object"}]}}}
+        input_ = {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/zones/0"}}
+        plan = self.plan(input_, {"mode": "none", "step": None}, out=source)
+        value = {"id": 7, "flag": True, "note": None}
+        key = ("publish", "/zones/0", "", "")
+        shown = routine_plan.input_preview(plan, plan.steps[1], {"post_id": value}, {key: value}, ("secret",))
+        self.assertEqual(shown[0]["value"], '{"flag":true,"id":7,"note":null}')
+
     def selector(self, **changes: object) -> dict[str, object]:
         return {
             "post_id": {
@@ -874,37 +883,6 @@ class SelectorAndDispositionTests(unittest.TestCase):
         self.assertEqual(fields["[redacted]"], routine_plan.OUTPUT_REDACTED)
         self.assertEqual(fields["ok"], {"kind": "text", "value": "fine", "cut": False})
         self.assertEqual(routine_plan.output_safe("plain", {}, frozenset({""}))["kind"], "text")
-
-
-class IndexedPreviewTests(unittest.TestCase):
-    def test_a_pointer_through_an_index_and_scalars_beside_injected_values_preview_safely(self) -> None:
-        source = {"type": "object", "properties": {"zones": {"type": "array", "prefixItems": [{"type": "object"}]}}}
-        contracts = {
-            ("shimpz-blog", "publish-post"): routine_plan.ActionContract(PIN, PUBLISH, (), source),
-            ("shimpz-blog", "share-post"): routine_plan.ActionContract(OTHER_PIN, SHARE),
-        }
-        steps = [
-            {
-                "id": "publish",
-                "assistant": "shimpz-blog",
-                "action": "publish-post",
-                "pin": PIN,
-                "input": {"title": {"kind": "literal", "value": "x"}},
-            },
-            {
-                "id": "share",
-                "assistant": "shimpz-blog",
-                "action": "share-post",
-                "pin": OTHER_PIN,
-                "input": {"post_id": {"kind": "step_output", "step": "publish", "pointer": "/zones/0"}},
-            },
-        ]
-        output = {"mode": "none", "step": None}
-        plan = routine_plan.admit({**_document(steps=steps), "output": output}, contracts)
-        value = {"id": 7, "flag": True, "note": None}
-        key = ("publish", "/zones/0", "", "")
-        shown = routine_plan.input_preview(plan, plan.steps[1], {"post_id": value}, {key: value}, ("secret",))
-        self.assertEqual(shown[0]["value"], '{"flag":true,"id":7,"note":null}')
 
 
 if __name__ == "__main__":

@@ -33,7 +33,6 @@ DIGEST = "sha256:" + "c" * 64
 DAILY = {"kind": "daily", "time": "09:00"}
 WEEKLY = {"kind": "weekly", "weekday": 0, "time": "09:00"}
 CONTINUOUS = {"kind": "continuous", "gap": 5}
-BATCH = ("net_1:routine:" + "f" * 32, "d" * 64)
 
 
 DEFINED = {
