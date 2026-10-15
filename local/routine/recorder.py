@@ -30,6 +30,7 @@ from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import phrase
 from protocol.http.v1 import routine_context as http_routine_context
+from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import compose as routine_compose
 from routine import pin as routine_pin
 from routine import recording as routine_recording
@@ -271,6 +272,24 @@ def answered(span: Span | None) -> Intent | None:
         and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets)
     )
     return span.intent if bound else None
+
+
+def output_answer(span: Span | None) -> bool:
+    """Whether the span's latest send is exactly the person's choice of one output answering Team's output question.
+
+    Only Admin's composed answer whose answer is one output choice's label, in any interface language, qualifies; an
+    answer that also asks for anything else is a new request the Brain reads with every Action.
+    """
+    if span is None or span.asked is None or span.asked.code != "routine-output-unstated":
+        return False
+    parsed = routine_recording.clarified_answer(span.sends[-1].message)
+    return parsed is not None and parsed[2] in _OUTPUT_LABELS
+
+
+# Every interface language's label of every output choice, which the person picks in the question.
+_OUTPUT_LABELS = frozenset(
+    label for choices in http_routine_proposal.OUTPUT_CHOICES.values() for label in choices.values()
+)
 
 
 def stated_schedule(span: Span | None) -> dict[str, object] | None:

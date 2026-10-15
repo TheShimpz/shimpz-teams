@@ -234,6 +234,23 @@ class RecordingBookTests(unittest.TestCase):
         self.assertIsNone(answered("routine-schedule-unstated", "a cada hora", kept=None))
         self.assertIsNone(routine_recorder.answered(None))
 
+    def test_only_a_bare_output_choice_answering_the_output_question_records_alone(self) -> None:
+        def output_answer(code: str, answer: str, *, composed: bool = True) -> bool:
+            book = routine_recorder.RecordingBook()
+            send = book.start("team_1", BINDING, _started("Liste"), 1)
+            book.asked("team_1", send, routine_recording.Question(code), None)
+            message = http_payload.compose_clarified("Liste", "E o resultado?", answer, "pt") if composed else answer
+            send = book.start("team_1", BINDING, _started(message), 2)
+            return routine_recorder.output_answer(book.get("team_1", send))
+
+        self.assertTrue(output_answer("routine-output-unstated", "Mostrar somente quando mudar"))
+        self.assertTrue(output_answer("routine-output-unstated", "Show only when it changes"))
+        # An answer that also asks for other work, or answers another question, keeps every Action.
+        self.assertFalse(output_answer("routine-output-unstated", "Mostrar somente quando mudar e liste example.com"))
+        self.assertFalse(output_answer("routine-schedule-unstated", "Mostrar somente quando mudar"))
+        self.assertFalse(output_answer("routine-output-unstated", "Mostrar somente quando mudar", composed=False))
+        self.assertFalse(routine_recorder.output_answer(None))
+
     def test_routine_mode_follows_schedule_words_an_intent_or_a_pending_question(self) -> None:
         owner = http_payload.compose_clarified(
             http_payload.compose_clarified("Cria uma rotina pra mim", "O quê?", "Listar registros DNS", "pt"),
