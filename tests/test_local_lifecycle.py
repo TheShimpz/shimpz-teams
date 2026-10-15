@@ -34,7 +34,21 @@ def _second_assistant(controller: object, first: object) -> object:
     return second
 
 
+def _on_current_image(container) -> None:
+    container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
+    container.attrs["Config"]["Labels"][local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
+
+
 class LocalLifecycleTests(LocalContractCase):
+    def _manifest_failing_controller(self, status: HTTPStatus, message: str, code: str):
+        """A lifecycle controller whose Assistant runs the current image and whose manifest admission fails so."""
+        controller, container, events = self._lifecycle_controller()
+        _on_current_image(container)
+        controller.assistant_lifecycle._admit_assistant_allowed_hosts = mock.Mock(
+            side_effect=local_app.ApiProblem(status, message, code=code)
+        )
+        return controller, container, events
+
     def test_assistant_spec_enumeration_avoids_deep_container_admission(self) -> None:
         controller, _container, events = self._lifecycle_controller()
         controller.assistant_lifecycle._validate_container_security = mock.Mock(
@@ -333,15 +347,8 @@ class LocalLifecycleTests(LocalContractCase):
         self.assertEqual(events, ["reload", "reload", "trusted", "reload", ("remove", True), "create"])
 
     def test_listing_keeps_an_invalid_manifest_in_the_removable_inventory(self) -> None:
-        controller, container, events = self._lifecycle_controller()
-        container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
-        container.attrs["Config"]["Labels"][local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
-        controller.assistant_lifecycle._admit_assistant_allowed_hosts = mock.Mock(
-            side_effect=local_app.ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Assistant manifest does not match its reviewed contract",
-                code="assistant-manifest-invalid",
-            )
+        controller, container, events = self._manifest_failing_controller(
+            HTTPStatus.CONFLICT, "Assistant manifest does not match its reviewed contract", "assistant-manifest-invalid"
         )
 
         self.assertEqual(
@@ -355,15 +362,8 @@ class LocalLifecycleTests(LocalContractCase):
         )
 
     def test_listing_propagates_manifest_transport_unavailability(self) -> None:
-        controller, container, _events = self._lifecycle_controller()
-        container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
-        container.attrs["Config"]["Labels"][local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
-        controller.assistant_lifecycle._admit_assistant_allowed_hosts = mock.Mock(
-            side_effect=local_app.ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Assistant manifest is unavailable",
-                code="assistant-manifest-unavailable",
-            )
+        controller, _container, _events = self._manifest_failing_controller(
+            HTTPStatus.SERVICE_UNAVAILABLE, "Assistant manifest is unavailable", "assistant-manifest-unavailable"
         )
 
         with self.assertRaises(local_app.ApiProblem) as caught:
@@ -415,15 +415,8 @@ class LocalLifecycleTests(LocalContractCase):
         controller.assistant_lifecycle._admit_assistant_allowed_hosts.assert_not_called()
 
     def test_chat_stays_closed_for_a_manifest_invalid_inventory_entry(self) -> None:
-        controller, container, _events = self._lifecycle_controller()
-        container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
-        container.attrs["Config"]["Labels"][local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
-        controller.assistant_lifecycle._admit_assistant_allowed_hosts = mock.Mock(
-            side_effect=local_app.ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Assistant manifest is invalid",
-                code="assistant-manifest-invalid",
-            )
+        controller, _container, _events = self._manifest_failing_controller(
+            HTTPStatus.CONFLICT, "Assistant manifest is invalid", "assistant-manifest-invalid"
         )
 
         with self.assertRaises(local_app.ApiProblem) as caught:
@@ -460,8 +453,7 @@ class LocalLifecycleTests(LocalContractCase):
         second = _second_assistant(controller, first)
         network_name = controller.assistant_lifecycle._network_name("team_1")
         for container in (first, second):
-            container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
-            container.attrs["Config"]["Labels"][local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
+            _on_current_image(container)
         controller.client.containers.list = mock.Mock(return_value=[first, second])
         controller.assistant_lifecycle._validate_egress_policy = lambda *_args: None
 

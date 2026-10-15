@@ -46,58 +46,31 @@ class LocalSnapshotCutoverTests(unittest.TestCase):
         self.assertEqual(result, {"assistant": "fixture-assistant", "installed": True})
         self.assertFalse(lock.locked())
 
-    def test_published_to_local_cutover_rejects_a_changed_binding_before_uninstall(self) -> None:
+    def test_published_to_local_cutover_rejects_a_changed_or_absent_binding_before_uninstall(self) -> None:
         previous = SimpleNamespace(
             provenance="published",
             assistant_id="fixture-assistant",
             binding_digest="sha256:" + ("1" * 64),
         )
-        lifecycle = SimpleNamespace(
-            registry=SimpleNamespace(
-                binding=lambda _team_id, _assistant_id: SimpleNamespace(
-                    provenance="published",
-                    assistant_id="fixture-assistant",
-                    binding_digest="sha256:" + ("2" * 64),
-                )
-            ),
-            chat_turn_service=SimpleNamespace(_chat_lock=lambda _team_id: threading.Lock()),
-            _uninstall_assistant_unguarded=mock.Mock(),
-            _install_assistant_unguarded=mock.Mock(),
-        )
-
-        with self.assertRaises(ApiProblemError) as caught:
-            assistant_lifecycle.replace_published_with_local(
-                lifecycle,
-                "team_1",
-                previous,
-                mock.Mock(),
-            )
-
-        self.assertEqual(caught.exception.code, "assistant-binding-conflict")
-        lifecycle._uninstall_assistant_unguarded.assert_not_called()
-
-    def test_published_to_local_cutover_rejects_an_absent_binding_before_uninstall(self) -> None:
-        previous = SimpleNamespace(
+        changed = SimpleNamespace(
             provenance="published",
             assistant_id="fixture-assistant",
+            binding_digest="sha256:" + ("2" * 64),
         )
-        lifecycle = SimpleNamespace(
-            registry=SimpleNamespace(binding=lambda _team_id, _assistant_id: None),
-            chat_turn_service=SimpleNamespace(_chat_lock=lambda _team_id: threading.Lock()),
-            _uninstall_assistant_unguarded=mock.Mock(),
-            _install_assistant_unguarded=mock.Mock(),
-        )
+        for current in (changed, None):
+            with self.subTest(current=current):
+                lifecycle = SimpleNamespace(
+                    registry=SimpleNamespace(binding=lambda _team_id, _assistant_id, current=current: current),
+                    chat_turn_service=SimpleNamespace(_chat_lock=lambda _team_id: threading.Lock()),
+                    _uninstall_assistant_unguarded=mock.Mock(),
+                    _install_assistant_unguarded=mock.Mock(),
+                )
 
-        with self.assertRaises(ApiProblemError) as caught:
-            assistant_lifecycle.replace_published_with_local(
-                lifecycle,
-                "team_1",
-                previous,
-                mock.Mock(),
-            )
+                with self.assertRaises(ApiProblemError) as caught:
+                    assistant_lifecycle.replace_published_with_local(lifecycle, "team_1", previous, mock.Mock())
 
-        self.assertEqual(caught.exception.code, "assistant-binding-conflict")
-        lifecycle._uninstall_assistant_unguarded.assert_not_called()
+                self.assertEqual(caught.exception.code, "assistant-binding-conflict")
+                lifecycle._uninstall_assistant_unguarded.assert_not_called()
 
     def test_fresh_local_install_rechecks_absence_inside_one_chat_slot(self) -> None:
         lock = threading.Lock()

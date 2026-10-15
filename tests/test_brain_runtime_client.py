@@ -2,6 +2,7 @@ import dataclasses
 import json
 import secrets
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -50,6 +51,30 @@ class _Connection:
 
     def close(self) -> None:
         self.closed = True
+
+
+def hanging_connection(response: _Response, shutdown: threading.Event, label: str) -> _Connection:
+    """A connection whose answer never comes: it fails only once the client shuts its socket down at a deadline."""
+
+    class Socket:
+        @staticmethod
+        def settimeout(_seconds):
+            return None
+
+        @staticmethod
+        def shutdown(_how):
+            shutdown.set()
+
+    class Hanging(_Connection):
+        def connect(self) -> None:
+            self.sock = Socket()
+
+        def getresponse(self):
+            if not shutdown.wait(5):
+                raise AssertionError(f"the {label} deadline never fired")
+            raise OSError("connection shut down")
+
+    return Hanging(response)
 
 
 def context(secret: str) -> brain_runtime_client.RuntimeContext:

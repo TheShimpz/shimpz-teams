@@ -8,7 +8,13 @@ import unittest
 from dataclasses import replace
 from unittest import mock
 
-from test_brain_runtime_client import RuntimeClientCase, _Connection, _Response, capability_candidates, context
+from test_brain_runtime_client import (
+    RuntimeClientCase,
+    _Response,
+    capability_candidates,
+    context,
+    hanging_connection,
+)
 
 from inference import abort as brain_abort
 from inference import client as brain_runtime_client
@@ -82,26 +88,7 @@ class PurposeTests(RuntimeClientCase):
 
     def test_an_overall_deadline_disconnects_a_brain_that_never_answers(self):
         shutdown = threading.Event()
-
-        class Socket:
-            @staticmethod
-            def settimeout(_seconds):
-                return None
-
-            @staticmethod
-            def shutdown(_how):
-                shutdown.set()
-
-        class Hanging(_Connection):
-            def connect(self) -> None:
-                self.sock = Socket()
-
-            def getresponse(self):
-                if not shutdown.wait(5):
-                    raise AssertionError("the purpose deadline never fired")
-                raise OSError("connection shut down")
-
-        connection = Hanging(_Response({"purpose": PURPOSE}))
+        connection = hanging_connection(_Response({"purpose": PURPOSE}), shutdown, "purpose")
         client = brain_runtime_client.BrainRuntimeClient(
             base_url="http://brain-runtime:8080",
             token_file=self.token_file,
@@ -115,26 +102,9 @@ class PurposeTests(RuntimeClientCase):
     def test_a_capability_plan_ends_at_its_deadline_inside_admins_wait(self):
         # Past Team's deadline the closed request cancels Brain's provider I/O, inside Admin's own wait.
         shutdown = threading.Event()
-
-        class Socket:
-            @staticmethod
-            def settimeout(_seconds):
-                return None
-
-            @staticmethod
-            def shutdown(_how):
-                shutdown.set()
-
-        class Hanging(_Connection):
-            def connect(self) -> None:
-                self.sock = Socket()
-
-            def getresponse(self):
-                if not shutdown.wait(5):
-                    raise AssertionError("the capability plan deadline never fired")
-                raise OSError("connection shut down")
-
-        connection = Hanging(_Response({"status": "not-needed", "assistant_ids": []}))
+        connection = hanging_connection(
+            _Response({"status": "not-needed", "assistant_ids": []}), shutdown, "capability plan"
+        )
         client = brain_runtime_client.BrainRuntimeClient(
             base_url="http://brain-runtime:8080",
             token_file=self.token_file,
