@@ -7,6 +7,7 @@ Routines, answers their runs, and settles held runs through their recovery cards
 
 import re
 import time
+from collections.abc import Callable
 from http import HTTPStatus
 
 from action import human as action_human
@@ -194,13 +195,15 @@ def stream(handler, route: strict_http.ControllerRouteMatch, request_audit: Requ
     local_http_stream.respond(handler, route.operation, team_id, request_audit, execute)
 
 
-def expected_assurance(handler, params: dict[str, str]) -> dict[str, str] | None:
-    """The assurance an approval of a frozen run's authentication request must carry, as in chat."""
-    body = handler._body(max_bytes=MAX_HUMAN_RESPONSE_BODY_BYTES)
+def human_assurance(body: dict[str, object], lookup: Callable[[], object]) -> dict[str, str] | None:
+    """The assurance an approval of a pending authentication request must carry, a chat's or a frozen run's.
+
+    Only an approval (``submit`` with ``true``) of the challenge ``lookup`` finds, when it asks for authentication,
+    carries one: its kind and challenge id. ``lookup`` runs only for an approval.
+    """
     if set(body) != {"challenge_id", "decision", "value"} or body["decision"] != "submit" or body["value"] is not True:
         return None
-    team_id = validate_team_id(params.get("team_id"))
-    challenge = handler.server.controller.chat_turn_service.current_routine_challenge(team_id)
+    challenge = lookup()
     if (
         challenge is None
         or challenge.id != body["challenge_id"]
@@ -208,6 +211,16 @@ def expected_assurance(handler, params: dict[str, str]) -> dict[str, str] | None
     ):
         return None
     return {"kind": challenge.requirement.request.kind, "challenge_id": challenge.id}
+
+
+def expected_assurance(handler, params: dict[str, str]) -> dict[str, str] | None:
+    """The assurance an approval of a frozen run's authentication request must carry, as in chat."""
+
+    def current() -> object:
+        team_id = validate_team_id(params.get("team_id"))
+        return handler.server.controller.chat_turn_service.current_routine_challenge(team_id)
+
+    return human_assurance(handler._body(max_bytes=MAX_HUMAN_RESPONSE_BODY_BYTES), current)
 
 
 def run(handler, parts: list[str], route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:

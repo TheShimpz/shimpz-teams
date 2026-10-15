@@ -495,28 +495,15 @@ class Handler(http_deadline.DeadlineRequestHandler):
             return local_http_routine.expected_assurance(self, params)
         if operation != "chat-human-submit":
             return None
+
+        def current() -> object:
+            team_id = validate_team_id(params.get("team_id"))
+            service = self.server.controller.chat_turn_service
+            service._expire_human_challenges()
+            return service.human_challenges.current(team_id)
+
         body = self._body(max_bytes=local_http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES)
-        if (
-            set(body) != {"challenge_id", "decision", "value"}
-            or body.get("decision") != "submit"
-            or body.get("value") is not True
-        ):
-            return None
-        team_id = validate_team_id(params.get("team_id"))
-        service = self.server.controller.chat_turn_service
-        service._expire_human_challenges()
-        challenge = service.human_challenges.current(team_id)
-        challenge_id = body.get("challenge_id")
-        if (
-            challenge is None
-            or challenge.id != challenge_id
-            or challenge.requirement.request.kind not in action_human.AUTH_KINDS
-        ):
-            return None
-        return {
-            "kind": challenge.requirement.request.kind,
-            "challenge_id": challenge.id,
-        }
+        return local_http_routine.human_assurance(body, current)
 
     def _handle(self) -> None:
         self.close_connection = True
