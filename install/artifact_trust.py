@@ -4,7 +4,6 @@ import base64
 import binascii
 import hashlib
 import http.client
-import json
 import os
 import re
 import ssl
@@ -18,6 +17,7 @@ from typing import Any
 import docker
 
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import strict_json
 
 SIGNER_IDENTITY = "https://github.com/TheShimpz/shimpz-developers/.github/workflows/build-assistant.yml@refs/heads/main"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
@@ -295,16 +295,9 @@ def _blob_location(location: str | None) -> str:
 
 def _json_document(raw: bytes) -> object:
     try:
-        return json.loads(raw, object_pairs_hook=_unique_object)
+        return strict_json.loads(raw)
     except (ValueError, RecursionError) as exc:
         raise ArtifactTrustError("Sigstore bundle registry returned an invalid document") from exc
-
-
-def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    value = dict(pairs)
-    if len(value) != len(pairs):
-        raise ValueError("duplicate JSON object key")
-    return value
 
 
 def _ensure_private_directory(path: Path) -> Path:

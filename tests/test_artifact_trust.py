@@ -333,6 +333,7 @@ class ArtifactTrustTests(unittest.TestCase):
             ("bundle-not-an-object", bundle_case(signature_field, b"[]"), "not a DSSE"),
             ("bundle-not-json", bundle_case(signature_field, b"not-json"), "invalid document"),
             ("bundle-deeply-nested", bundle_case(signature_field, b"[" * 100_000), "invalid document"),
+            ("bundle-non-finite", bundle_case(signature_field, b'{"mediaType": NaN}'), "invalid document"),
             (
                 "bundle-media-type",
                 bundle_case(signature_field, lambda r: _bundle(_signature_statement(r), media_type="application/json")),
