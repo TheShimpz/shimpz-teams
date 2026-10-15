@@ -128,7 +128,7 @@ def restartable(self, team_id: str, tagged: _Tagged) -> record.Routine:
     routine_id = tagged.value.routine_id
     state = routine_state.load(self, team_id)
     current = next((item for item in state.routines if item.routine_id == routine_id), None)
-    if current is None or current.deleting or tagged.expected.current == 0:
+    if current is None or current.deleting:
         raise ApiProblem(HTTPStatus.CONFLICT, "Routine is unavailable", code="routine-not-found")
     if any(item.routine_id == routine_id for item in record.live_runs(state)):
         raise ApiProblem(HTTPStatus.CONFLICT, "another run of this Routine is live", code="routine-busy")
