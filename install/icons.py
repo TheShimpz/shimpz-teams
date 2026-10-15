@@ -85,7 +85,7 @@ class AssistantIconStore:
         path = self._path(identity)
         descriptor = -1
         try:
-            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
             metadata = os.fstat(descriptor)
             if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > _MAX_ICON_BYTES:
                 raise AssistantIconError("the Assistant icon is invalid")
