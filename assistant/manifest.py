@@ -257,14 +257,14 @@ def canonical_integration_declarations(value: object) -> tuple[IntegrationDeclar
         raise ManifestError("Assistant integration declarations are invalid")
     declarations: list[IntegrationDeclaration] = []
     for integration_id, scopes in value.items():
-        identifier = _identifier(integration_id, kind="integration")
+        declared_id = _identifier(integration_id, kind="integration")
         try:
-            intent = integration_providers.integration_intent(identifier, scopes)
+            intent = integration_providers.integration_intent(declared_id, scopes)
         except integration_providers.OAuthProviderError as exc:
             raise ManifestError("Assistant integration declaration is invalid") from exc
         declarations.append(
             IntegrationDeclaration(
-                identifier,
+                declared_id,
                 intent.provider.id,
                 intent.scopes,
             )
@@ -280,7 +280,7 @@ def canonical_stored_input_declarations(
         raise ManifestError("Assistant Stored Input declarations are invalid")
     declarations: list[StoredInputDeclaration] = []
     for stored_input_id, metadata in value.items():
-        identifier = _identifier(stored_input_id, kind="Stored Input")
+        declared_id = _identifier(stored_input_id, kind="Stored Input")
         if not isinstance(metadata, Mapping) or not _STORED_INPUT_REQUIRED <= set(metadata) <= _STORED_INPUT_FIELDS:
             raise ManifestError("Assistant Stored Input declaration is invalid")
         if metadata["kind"] != "password":
@@ -289,7 +289,7 @@ def canonical_stored_input_declarations(
             raise ManifestError("Assistant Stored Input help_url is invalid")
         declarations.append(
             StoredInputDeclaration(
-                id=identifier,
+                id=declared_id,
                 kind="password",
                 label=_public_text(metadata["label"], kind="Stored Input label", maximum=80),
                 description=_display_text(
