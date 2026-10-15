@@ -77,16 +77,8 @@ MODEL_BOUND_OPERATIONS = frozenset(
         "chat-intent-route",
         "chat-human-submit",
         "chat-integration-submit",
-        "routine-run",
-        "routine-human-submit",
-        "routine-integration-submit",
     }
 )
-
-
-# Routine requests a healthy replay serves without a model (ADR-0092): Admin sends the Team's model credential only
-# when it holds one, so a held run's recovery can use it; when it does, the assertion binds it as for any other.
-OPTIONAL_MODEL_OPERATIONS = frozenset({"routine-run", "routine-human-submit", "routine-integration-submit"})
 
 
 def credential_binding(provider: str, key: str) -> dict[str, str]:

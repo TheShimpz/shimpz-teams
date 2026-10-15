@@ -29,7 +29,6 @@ from local.http.audit import RequestAudit
 from local.http.dispatch import Operation, Result, team_operation
 from local.validation import (
     MODEL_BOUND_OPERATIONS,
-    OPTIONAL_MODEL_OPERATIONS,
     credential_binding,
     decision_binding,
     validate_decision_credential_header,
@@ -261,20 +260,10 @@ class Handler(http_deadline.DeadlineRequestHandler):
             )
         return parts, route
 
-    def _model_credential(self, operation: str) -> tuple[str, str] | None:
-        """The private model credential, or None when an operation that may go without one carries none at all."""
-        absent = not self.headers.get_all("X-Shimpz-Model-Provider", failobj=[]) and not self.headers.get_all(
-            "X-Shimpz-Model-Api-Key", failobj=[]
-        )
-        if operation in OPTIONAL_MODEL_OPERATIONS and absent:
-            return None
-        return self._model_credential_headers()
-
     def _model_binding(self, operation: str) -> dict[str, str] | None:
         if operation not in MODEL_BOUND_OPERATIONS:
             return None
-        credential = self._model_credential(operation)
-        return None if credential is None else credential_binding(*credential)
+        return credential_binding(*self._model_credential_headers())
 
     def _route(self, route: strict_http.ControllerRouteMatch) -> Result:
         """Dispatch one resolved, authorized operation; the route table and this operation table name the same set."""

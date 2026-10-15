@@ -44,6 +44,7 @@ TOKEN = "t" * 43
 EMPTY = b"{}"
 # Admin claims saying whether it can take a long run now (ADR-0092 amendment, 2026-10-05, scale).
 CLAIM = b'{"long":true}'
+MODEL_HEADERS = {"X-Shimpz-Model-Provider": "openai", "X-Shimpz-Model-Api-Key": API_KEY}
 
 
 class RoutineHttpCase(RoutineServiceCase):
@@ -91,9 +92,6 @@ class RoutineHttpCase(RoutineServiceCase):
         records = [progress_contract.decode_line(line) for line in raw.splitlines(keepends=True) if line.strip()]
         return records[-1]
 
-    def model(self) -> dict[str, str]:
-        return {"X-Shimpz-Model-Provider": "openai", "X-Shimpz-Model-Api-Key": API_KEY}
-
     def routine_headers(
         self,
         path: str,
@@ -101,10 +99,9 @@ class RoutineHttpCase(RoutineServiceCase):
         *,
         key: Ed25519PrivateKey | None = None,
         body: bytes = EMPTY,
-        keyless: bool = False,
+        model: dict[str, str] | None = None,
     ) -> dict[str, str]:
         now = int(time.time())
-        model = None if keyless else {"provider": "openai", "key_sha256": API_KEY_SHA256}
         claims = _claims(
             aud=contract.ROUTINE_AUDIENCE,
             authority=contract.ROUTINE_AUTHORITY,
@@ -121,8 +118,7 @@ class RoutineHttpCase(RoutineServiceCase):
         jwt = _segment(contract.canonical_json(contract.ROUTINE_JWT_HEADER))
         payload = _segment(contract.claims_json(claims, audience=contract.ROUTINE_AUDIENCE))
         signature = _segment((key or self.routine_key).sign(f"{jwt}.{payload}".encode("ascii")))
-        assertion = {contract.ROUTINE_ASSERTION_HEADER: f"Bearer {jwt}.{payload}.{signature}"}
-        return assertion if keyless else {**assertion, **self.model()}
+        return {contract.ROUTINE_ASSERTION_HEADER: f"Bearer {jwt}.{payload}.{signature}"}
 
 
 class KeylessRunTests(RoutineHttpCase):
@@ -138,7 +134,7 @@ class KeylessRunTests(RoutineHttpCase):
             bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"]}
             segment = json.dumps(bound).encode()
             # No model credential travels, and the assertion binds none.
-            headers = self.routine_headers(path, claim["lease_token"], body=segment, keyless=True)
+            headers = self.routine_headers(path, claim["lease_token"], body=segment)
             self.assertNotIn("X-Shimpz-Model-Api-Key", headers)
             status, _type, raw = self.request("POST", path, segment, headers)
             state = self.state(service)
@@ -146,7 +142,7 @@ class KeylessRunTests(RoutineHttpCase):
         self.assertEqual((state.runs, state.notices[-1].outcome), ((), "done"))
         self.assertEqual(runtime.contexts, [])
 
-    def test_a_model_credential_that_travels_must_still_be_whole_and_bound(self) -> None:
+    def test_an_assertion_that_binds_a_model_credential_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, service = self.serve(directory, Runtime())
             controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
@@ -155,11 +151,11 @@ class KeylessRunTests(RoutineHttpCase):
             path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
             bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"]}
             segment = json.dumps(bound).encode()
-            keyless = self.routine_headers(path, claim["lease_token"], body=segment, keyless=True)
-            # A half credential is refused, and a key the assertion does not bind is never admitted.
-            status, _type, raw = self.request("POST", path, segment, {**keyless, "X-Shimpz-Model-Provider": "openai"})
-            self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-model-credential"))
-            status, _type, raw = self.request("POST", path, segment, {**keyless, **self.model()})
+            # A run binds no model credential, so an assertion that binds one is never admitted.
+            model = {"provider": "openai", "key_sha256": API_KEY_SHA256}
+            headers = self.routine_headers(path, claim["lease_token"], body=segment, model=model)
+            sent = {**headers, "X-Shimpz-Model-Provider": "openai", "X-Shimpz-Model-Api-Key": API_KEY}
+            status, _type, raw = self.request("POST", path, segment, sent)
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
 
 
@@ -208,7 +204,7 @@ class RunRouteTests(RoutineHttpCase):
             path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
             bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"]}
             segment = json.dumps(bound).encode()
-            status, _type, raw = self.request("POST", path, segment, self.model())
+            status, _type, raw = self.request("POST", path, segment)
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
             forged = self.routine_headers(path, claim["lease_token"], key=Ed25519PrivateKey.generate(), body=segment)
             status, _type, raw = self.request("POST", path, segment, forged)
@@ -292,12 +288,12 @@ class SessionRouteTests(RoutineHttpCase):
                 self.assertEqual((opened["locale"], opened["rendered"]["title"]), ("pt", f"PT {opened_title}"))
                 challenge_id = opened["challenge_id"]
                 answer = json.dumps({"challenge_id": challenge_id, "decision": "deny"}).encode()
-                status, _type, raw = self.request("POST", run + "/human", answer, self.model())
+                status, _type, raw = self.request("POST", run + "/human", answer)
                 self.assertEqual(self.terminal(raw)["body"]["status"], "denied")
                 bad = "/v1/teams/team_1/routines/runs/bad/challenge"
                 status, _type, raw = self.request("POST", bad, b'{"locale":"en"}')
                 self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-run-not-found"))
-                status, _type, raw = self.request("POST", run + "/integrations", EMPTY, self.model())
+                status, _type, raw = self.request("POST", run + "/integrations", EMPTY)
                 self.assertEqual(self.terminal(raw)["body"]["code"], "routine-run-not-found")
                 status, _type, raw = self.request("DELETE", f"/v1/teams/team_1/routines/{value.routine_id}")
                 self.assertEqual((status, json.loads(raw)["deleted"]), (200, True))
@@ -369,7 +365,7 @@ class SessionRouteTests(RoutineHttpCase):
             with mock.patch.object(
                 local_authority, "verify", side_effect=local_authority.SupervisorDeniedError
             ) as verify:
-                self.request("POST", run + "/human", answer, self.model())
+                self.request("POST", run + "/human", answer)
                 self.assertEqual(
                     verify.call_args.kwargs["request"].assurance,
                     {"kind": "auth:password", "challenge_id": opened["challenge_id"]},
@@ -378,7 +374,7 @@ class SessionRouteTests(RoutineHttpCase):
                     {"challenge_id": "0" * 32, "decision": "submit", "value": True},
                     {"challenge_id": opened["challenge_id"], "decision": "deny"},
                 ):
-                    self.request("POST", run + "/human", json.dumps(other).encode(), self.model())
+                    self.request("POST", run + "/human", json.dumps(other).encode())
                     self.assertIsNone(verify.call_args.kwargs["request"].assurance)
 
 
@@ -416,7 +412,7 @@ class RecoveryRouteTests(RoutineHttpCase):
                         status, _type, raw = self.request("POST", path, body)
                         self.assertEqual((status, json.loads(raw)["code"]), (code, problem))
                 # A card answer runs no model: a credential sent with one is never bound or used.
-                status, _type, raw = self.request("POST", incident + "/answer", nonce.encode(), self.model())
+                status, _type, raw = self.request("POST", incident + "/answer", nonce.encode(), MODEL_HEADERS)
                 self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-incident-unavailable"))
                 self.assertIsNone(verify.call_args.kwargs["request"].model)
                 # Pausar turns the whole Routine's dispatch off; Retomar turns it back on.

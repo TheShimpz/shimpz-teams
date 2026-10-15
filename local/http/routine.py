@@ -220,7 +220,7 @@ def run(handler, parts: list[str], route: strict_http.ControllerRouteMatch, requ
                 method=handler.command,
                 path="/" + "/".join(parts),
                 body=body,
-                model=handler._model_binding(route.operation),
+                model=None,
                 assurance=None,
                 authority_kinds=frozenset(),
             ),
