@@ -94,11 +94,13 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
     for run_id in routine_incident.reconcile_team(service, team_id):
         _audit("routine-hold", run_id, team_id)
     # A continuation whose run no longer exists was left by a crash; an ended run's own is queued for removal anyway.
-    # A cursor also stays while its unresolved incident may still resume the run.
+    # A cursor also stays while its unresolved incident may still resume the run, and a queued discard keeps its run's
+    # snapshot and cursor until it drains, since they are what seal its terminal record.
     # The Team's Routine lock spans the read and the removals, so no run claimed meanwhile loses what it just sealed.
     with service.routine_store.lock(team_id):
         current = service.routine_store.load(team_id)
-        live = {item.run_id for item in record.live_runs(current)}
+        queued = {run_id for run_id, _generation in current.discards}
+        live = {item.run_id for item in record.live_runs(current)} | queued
         for run_id in service.routine_store.continuations(team_id):
             if run_id not in live:
                 service.routine_store.delete_continuation(team_id, run_id)
@@ -107,7 +109,7 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
                 service.routine_store.delete_recovery(team_id, run_id)
         # An incident, set aside or not, keeps its cursor until its own release, which waits for anything still
         # executing for it.
-        kept = {item.run_id for item in current.runs}
+        kept = {item.run_id for item in current.runs} | queued
         for run_id in service.routine_store.cursors(team_id):
             if run_id not in kept:
                 service.routine_store.delete_cursor(team_id, run_id)
@@ -118,7 +120,8 @@ def check(service, *, startup: bool = False) -> None:
     """One pass: stop segments out of active time, then recover and clean up every Team's Routine runs.
 
     A periodic pass audits one Team's failure and goes on, so a Team whose state cannot be read never holds back the
-    others. At startup every failure stays fatal, as does a Routine directory whose Team cannot be identified.
+    others. At startup a Team's failure stays fatal, as does a Routine directory whose Team cannot be identified; a held
+    run that fails to reconcile is audited and retried by the next pass at startup too.
     """
     for team_id, run_id in routine_run.stop_overdue(service):
         _audit("routine-stop", run_id, team_id)

@@ -24,6 +24,7 @@ from action import journal as action_journal
 from inference import config as inference_config
 from local import app as local_app
 from local import authority as local_authority
+from local.routine import diagnostics as routine_diagnostics
 from local.routine import human as routine_human
 from local.routine import manage as routine_manage
 from local.routine import protection as local_routine_protection
@@ -580,6 +581,24 @@ class WatchdogFaultTests(RoutineServiceCase):
             ):
                 routine_watchdog.check(service, startup=True)
             self.assertEqual(self.state(service).runs, ())
+
+    def test_a_run_the_watchdog_recovers_keeps_its_terminal_record_of_the_steps_that_never_ran(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service, claim = self.claimed(directory, Runtime())
+            self.bind(controller, service, claim)
+            state = self.state(service)
+            value = record.run(state, claim["run_id"])
+            # The run's first segment sealed its recovery snapshot and cursor, then Team restarted before any dispatch.
+            routine_replay.runtime(service, "team_1", value, record.routine(state, value.routine_id))
+            routine_watchdog.check(service, startup=True)
+            page = routine_diagnostics.run_steps(service, "team_1", claim["run_id"], "latest", 0, int(time.time()))
+            self.assertEqual(self.state(service).notices[-1].detail, {"code": "interrupted"})
+            self.assertTrue(page["steps"])
+            self.assertEqual({step["status"] for step in page["steps"]}, {"not_run"})
+            # The drained discard took the run's snapshot and cursor with it.
+            self.assertEqual(
+                (service.routine_store.recoveries("team_1"), service.routine_store.cursors("team_1")), ((), ())
+            )
 
 
 class TeamIsolationTests(RoutineServiceCase):
