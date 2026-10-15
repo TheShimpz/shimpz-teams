@@ -342,17 +342,15 @@ class RunFaultTests(RoutineServiceCase):
                 self.assertIsNone(service.claim_routine_run())
             self.assertEqual(self.state(service).runs, ())
 
-    def test_stopping_a_running_run_aborts_its_brain_request_and_fail_stops_its_action(self) -> None:
+    def test_stopping_a_running_run_cancels_its_segment_and_fail_stops_its_action(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, service = self.service(directory, Runtime())
-            abort = mock.Mock()
             container = object()
             routine_run.register_routine_run(service, "team_1", "f" * 32, "token", 600)
-            service._brain_aborts["token"] = abort
             service._active_action_containers["team_1"] = ("token", container)
             with mock.patch.object(controller.assistant_lifecycle, "_fail_stop_action") as fail_stop:
                 self.assertTrue(routine_run.stop_routine_run(service, "team_1", "f" * 32))
-            abort.abort.assert_called_once_with()
+            self.assertIn("token", service._cancelled_chat_tokens)
             fail_stop.assert_called_once_with(container)
             self.assertFalse(routine_run.stop_routine_run(service, "team_2", "f" * 32))
             self.assertFalse(routine_run.stop_routine_run(service, "team_1", "0" * 32))

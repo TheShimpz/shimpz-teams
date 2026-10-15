@@ -528,7 +528,7 @@ def halt_routine_run(self, team_id: str, run_id: str) -> bool:
 
 
 def stop_routine_run(self, team_id: str, run_id: str) -> bool:
-    """Stop exactly one running Routine run: cancel its turn, abort its Brain request, fail-stop its Action."""
+    """Stop exactly one running Routine run: cancel its segment and fail-stop its Action; a run asks no Brain."""
     return _stop_registered(self, team_id, run_id, None)
 
 
@@ -571,11 +571,8 @@ def _stop_registered(
             self._routine_runs[run_id] = dataclasses.replace(running, overdue=True)
         token = running.token
         self._cancelled_chat_tokens.add(token)
-        brain_abort = self._brain_aborts.get(token)
         active = self._active_action_containers.get(team_id)
         active_action = active[1] if active is not None and active[0] == token else None
-    if brain_abort is not None:
-        brain_abort.abort()
     if active_action is not None:
         self.assistant_lifecycle._fail_stop_action(active_action)
     return True
