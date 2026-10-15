@@ -12,6 +12,7 @@ from local_controller_harness import (
     open_recording_and_card,
     recording_or_card,
     routine_books,
+    wire_collaborators,
 )
 from test_local_team_destroy import _record_routine_state
 from test_local_turn_lifecycle import LOCAL_TEAM_RESIDUES
@@ -51,7 +52,7 @@ class LocalSpaceResetTests(LocalContractCase):
             delete_thread=lambda thread_id: events.append(("delete-thread", thread_id))
         )
         controller.action_state = SimpleNamespace(purge=lambda generation: events.append(("purge-action", generation)))
-        controller._wire_collaborators()
+        wire_collaborators(controller)
         controller.assistant_lifecycle._validate_network = lambda _network, team_id, **_kwargs: events.append(
             ("validate-network", team_id)
         )
@@ -106,7 +107,7 @@ class LocalSpaceResetTests(LocalContractCase):
         _record_routine_state(controller, events)
         controller.brain_runtime = SimpleNamespace(delete_thread=lambda _thread_id: None)
         controller.action_state = SimpleNamespace(purge=lambda _generation: None)
-        controller._wire_collaborators()
+        wire_collaborators(controller)
         labels = controller.assistant_lifecycle._assistant_labels("team_1", spec)
         container = SimpleNamespace(
             id="assistant-container",

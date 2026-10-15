@@ -17,6 +17,7 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from local_controller_harness import wire_collaborators
 from test_action_rpc_exchange import rpc_strategy
 
 from action import execution as action_execution
@@ -69,7 +70,7 @@ def _socket_bytes(payload: bytes, *, pieces: tuple[int, ...] = ()):
 class ActionRpcFrameTests(unittest.TestCase):
     def setUp(self) -> None:
         self.local = object.__new__(local_app.LocalController)
-        self.local._wire_collaborators()
+        wire_collaborators(self.local)
 
     def test_split_stdout_and_stderr_frames_are_read_exactly(self) -> None:
         payload = _frame(1, b'{"ok":') + _frame(2, b"warning") + _frame(1, b"true}")
@@ -641,7 +642,7 @@ class ActionRpcFrameTests(unittest.TestCase):
             )
             controller = object.__new__(local_app.LocalController)
             controller.client = SimpleNamespace(api=api)
-            controller._wire_collaborators()
+            wire_collaborators(controller)
             controller.assistant_lifecycle._fail_stop_action = mock.Mock()
             with (
                 mock.patch.object(

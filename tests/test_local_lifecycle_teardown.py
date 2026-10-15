@@ -16,6 +16,7 @@ from local_controller_harness import (
     TEST_ACCOUNT_REFRESH_TOKEN,
     LocalContractCase,
     invalid_listing,
+    wire_collaborators,
 )
 from test_local_publication_install import ICON, _runtime_resolution
 
@@ -45,7 +46,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         )
         image = SimpleNamespace(id=self.IMAGE_ID)
         controller.client = SimpleNamespace(containers=SimpleNamespace(create=lambda **_kwargs: container))
-        controller._wire_collaborators()
+        wire_collaborators(controller)
         network = SimpleNamespace(name=controller.assistant_lifecycle._network_name("team_1"))
         controller.assistant_lifecycle._egress_token = lambda *_args, **_kwargs: "a" * 32
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda *_args: (_ for _ in ()).throw(

@@ -15,6 +15,7 @@ from local_controller_harness import (
     TEST_ACCOUNT_REFRESH_TOKEN,
     LocalContractCase,
     invalid_listing,
+    wire_collaborators,
 )
 
 from local import app as local_app
@@ -518,7 +519,7 @@ class LocalLifecycleTests(LocalContractCase):
                 create=lambda **_kwargs: events.append("create") or container,
             )
         )
-        controller._wire_collaborators()
+        wire_collaborators(controller)
         network = SimpleNamespace(name=controller.assistant_lifecycle._network_name("team_1"))
         controller.assistant_lifecycle._egress_token = lambda *_args, **_kwargs: events.append("token") or "a" * 32
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, _spec: (
@@ -537,7 +538,7 @@ class LocalLifecycleTests(LocalContractCase):
 
     def test_local_admission_reviews_hosts_and_integrations(self) -> None:
         controller = object.__new__(local_app.LocalController)
-        controller._wire_collaborators()
+        wire_collaborators(controller)
         reviewed_contracts: list[local_app.assistant_manifest.ManifestContract] = []
 
         def admit(_container, reviewed):

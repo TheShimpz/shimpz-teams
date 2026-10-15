@@ -11,6 +11,7 @@ from local_controller_harness import (
     open_recording_and_card,
     recording_or_card,
     routine_books,
+    wire_collaborators,
 )
 from test_local_turn_lifecycle import LOCAL_TEAM_RESIDUES
 
@@ -76,7 +77,7 @@ def _destroy_controller(
     controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
     routine_books(controller)
     _record_routine_state(controller, events)
-    controller._wire_collaborators()
+    wire_collaborators(controller)
     controller.chat_turn_service._chat_lock = lambda _team_id: lock
     controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network
     controller.assistant_lifecycle._assistant_filters = lambda _team_id: {}
@@ -161,7 +162,7 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
         routine_books(controller)
         _record_routine_state(controller, events)
-        controller._wire_collaborators()
+        wire_collaborators(controller)
         # Human continuations that already expired, one of this Team's earlier generation and one of another Team.
         humans = controller.chat_turn_service.human_challenges
         foreign = _expired_human("team_2", "d" * 64)

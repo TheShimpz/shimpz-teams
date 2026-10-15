@@ -13,6 +13,8 @@ from types import SimpleNamespace
 from typing import ClassVar
 from unittest import mock
 
+from local_controller_harness import wire_collaborators
+
 from action import stored_input as action_stored_input
 from install.bindings import DynamicAssistantError, DynamicAssistantStore, binding_from_resolution
 from install.contract import CONTRACT_ROOT
@@ -699,7 +701,7 @@ class LocalStartAuthorizationCompensationTests(unittest.TestCase):
             containers=SimpleNamespace(create=create),
             images=SimpleNamespace(get=lambda _image_id: images["current"]),
         )
-        controller._wire_collaborators()
+        wire_collaborators(controller)
         lifecycle = controller.assistant_lifecycle
         network = SimpleNamespace(name=lifecycle._network_name("team_1"))
         lifecycle._network = lambda _team_id: network

@@ -49,6 +49,47 @@ def routine_books(controller) -> None:
     controller.routine_cards = local_routine_card.CardBook()
 
 
+# Every controller input LocalController._wire_collaborators hands its collaborators.
+_COLLABORATOR_INPUTS = (
+    "client",
+    "space_id",
+    "registry",
+    "cpuset_cpus",
+    "developers",
+    "artifact_trust",
+    "assistant_updates",
+    "assistant_residues",
+    "assistant_icons",
+    "storage",
+    "inference_store",
+    "team_names",
+    "brain_runtime",
+    "action_state",
+    "assistant_integrations",
+    "assistant_stored_inputs",
+    "integration_challenges",
+    "human_challenges",
+    "routine_human_challenges",
+    "routine_recordings",
+    "routine_proposals",
+    "routine_protections",
+    "routine_cards",
+    "oauth_pkce",
+    "oauth_service",
+    "chat_continuations",
+    "routine_store",
+    "routine_diagnostics",
+)
+
+
+def wire_collaborators(controller) -> None:
+    """Wire a bare test controller, leaving each collaborator input its case never reaches as None."""
+    for name in _COLLABORATOR_INPUTS:
+        if not hasattr(controller, name):
+            setattr(controller, name, None)
+    controller._wire_collaborators()
+
+
 def open_recording_and_card(controller) -> str:
     """Open a recording turn and a card for team_1, as a person's turn would; returns the recording id."""
     recording = controller.routine_recordings.start(
@@ -240,7 +281,7 @@ class LocalContractCase(unittest.TestCase):
         controller._names_lock = threading.RLock()
         controller.team_names = local_names.TeamNameStore(Path(directory) / "inference")
         routine_books(controller)
-        controller._wire_collaborators()
+        wire_collaborators(controller)
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)
         )
@@ -291,7 +332,7 @@ class LocalContractCase(unittest.TestCase):
         )
         controller.registry = TestAssistantRegistry({spec.assistant_id: spec})
         routine_books(controller)
-        controller._wire_collaborators()
+        wire_collaborators(controller)
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)
         )

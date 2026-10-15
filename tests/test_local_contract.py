@@ -19,6 +19,7 @@ from local_controller_harness import (
     LocalContractCase,
     chat_body,
     constructed_controller,
+    wire_collaborators,
 )
 
 from assistant import spec as assistant_registry
@@ -348,7 +349,7 @@ class LocalContractTests(LocalContractCase):
 
     def test_ambiguous_action_rpc_is_fail_stopped_or_permanently_blocked(self) -> None:
         controller = object.__new__(local_app.LocalController)
-        controller._wire_collaborators()
+        wire_collaborators(controller)
 
         class Stoppable:
             id = "stoppable"
@@ -397,7 +398,7 @@ class LocalContractTests(LocalContractCase):
 
     def test_unprovable_action_stop_is_permanently_blocked(self) -> None:
         controller = object.__new__(local_app.LocalController)
-        controller._wire_collaborators()
+        wire_collaborators(controller)
 
         class Ambiguous:
             id = "ambiguous"
@@ -449,7 +450,7 @@ class LocalContractTests(LocalContractCase):
             controller = object.__new__(local_app.LocalController)
             controller._locks = tuple(__import__("threading").RLock() for _ in range(64))
             controller.inference_store = inference_config.InferenceConfigStore(Path(directory) / "inference")
-            controller._wire_collaborators()
+            wire_collaborators(controller)
             controller.assistant_lifecycle._network = lambda _team_id: object()
 
             configured = controller.configure_inference(

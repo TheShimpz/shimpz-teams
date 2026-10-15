@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from local_controller_harness import TestAssistantRegistry
+from local_controller_harness import TestAssistantRegistry, wire_collaborators
 
 from local import app as local_app
 from local import labels as local_labels
@@ -31,7 +31,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
             allowed_hosts=("api.open-meteo.com", "geocoding-api.open-meteo.com"),
         )
         self.controller.registry = TestAssistantRegistry({self.spec.assistant_id: self.spec})
-        self.controller._wire_collaborators()
+        wire_collaborators(self.controller)
         for patcher in (
             mock.patch.object(local_egress, "ASSISTANT_EGRESS_POLICY_DIR", self.policy_root),
             mock.patch.object(local_egress, "ASSISTANT_EGRESS_POLICY_GID", os.getgid()),

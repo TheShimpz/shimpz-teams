@@ -18,6 +18,7 @@ from local_controller_harness import (
     LocalContractCase,
     TestAssistantRegistry,
     constructed_controller,
+    wire_collaborators,
 )
 
 from chat import orchestrator as chat_orchestrator
@@ -154,7 +155,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 ),
             )
             controller.assistant_stored_inputs = SimpleNamespace(delete_team=lambda _team_id: False)
-            controller._wire_collaborators()
+            wire_collaborators(controller)
 
             controller.chat_turn_service._delete_team_private_state("team_1")
             recreated = controller.assistant_integrations.metadata(
@@ -171,7 +172,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             controller._locks = tuple(threading.RLock() for _ in range(64))
             controller.registry = self._registry()
             controller.assistant_integrations = _integration_store(directory)
-            controller._wire_collaborators()
+            wire_collaborators(controller)
             controller.assistant_lifecycle._assistant_specs = lambda _team: (
                 controller.registry.get("team_1", "shimpz-cloudflare"),
             )
@@ -346,7 +347,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         controller.oauth_service = Service()
         controller._locks = (threading.RLock(),)
         controller.oauth_pkce = SimpleNamespace(inspect_callback=lambda **_binding: SimpleNamespace(team_id="team_1"))
-        controller._wire_collaborators()
+        wire_collaborators(controller)
         controller.chat_turn_service._current_integration_declaration = lambda *_args: None
 
         started = controller.chat_turn_service.start_assistant_integration_authorization(
@@ -464,7 +465,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 settle=lambda _team_id, _files: None,
             )
             controller.assistant_integrations = _integration_store(directory)
-            controller._wire_collaborators()
+            wire_collaborators(controller)
             active = ActiveAssistant(spec, "b" * 64)
             setup = (
                 "Team One",
@@ -527,7 +528,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
             controller.oauth_pkce = SimpleNamespace(cancel_team=lambda _team: 0)
             controller.assistant_integrations = _integration_store(directory)
-            controller._wire_collaborators()
+            wire_collaborators(controller)
             config = inference_config.InferenceConfig("openai", "gpt-5-nano")
             active = ActiveAssistant(spec, "b" * 64)
             setup = ("Team One", "c" * 64, (active,), [], config)

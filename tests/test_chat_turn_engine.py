@@ -14,6 +14,8 @@ TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(TESTS))
 
+from local_controller_harness import wire_collaborators
+
 from action import challenges as action_challenges
 from action import human as action_human
 from action import journal as action_journal
@@ -117,7 +119,7 @@ def _local_controller(local_active, config, events: list[str], fail):
     )
     controller.inference_store = SimpleNamespace(load=lambda _team_id: config, load_knowledge=lambda _team_id: ([], []))
     controller.routine_store = SimpleNamespace(load=lambda _team_id: routine_record.TeamRoutines())
-    controller._wire_collaborators()
+    wire_collaborators(controller)
     controller.assistant_lifecycle._network = lambda _team_id: SimpleNamespace(id="a" * 64, name="team-network")
     controller.assistant_lifecycle._validate_network = lambda _network, _team_id, **_kwargs: "Team"
     controller.chat_turn_service._active_chat_assistants = lambda _team_id, _network_name: (local_active,)
