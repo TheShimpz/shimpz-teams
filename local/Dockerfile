@@ -104,7 +104,7 @@ COPY --link core/__init__.py core/base64url.py core/canonical_json.py core/ident
 COPY --link core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY --link egress/__init__.py egress/policy.py ./egress/
 COPY --link inference/__init__.py inference/abort.py inference/client.py inference/config.py inference/errors.py \
-    inference/model_catalog.json \
+    inference/credential.py inference/model_catalog.json \
     inference/token.py inference/usage.py ./inference/
 COPY --link integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
     integrations/challenges.py integrations/flow.py integrations/http.py \

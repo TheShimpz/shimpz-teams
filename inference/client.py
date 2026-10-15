@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 from action import journal as action_journal
 from core import canonical_json
 from inference import abort as brain_abort
+from inference import config as inference_config
+from inference import credential as inference_credential
 from inference import token as inference_token
 from inference import usage as brain_usage
 from inference.errors import BrainRuntimeError
@@ -275,20 +277,13 @@ class RouteCredentials:
 def provider_credential(provider: object, model: object, api_key: object) -> dict[str, object] | None:
     """The provider credential one Brain request carries, or None when any part is outside the runtime contract."""
     if (
-        provider not in {"anthropic", "openai"}
+        provider not in inference_config.PROVIDERS
         or not isinstance(model, str)
         or action_journal.SAFE_ID_RE.fullmatch(model) is None
-        or not isinstance(api_key, str)
-        or not api_key
-        or len(api_key) > 16 * 1024
-        or "\0" in api_key
+        or not inference_credential.admissible_api_key(api_key)
     ):
         return None
     return {"provider": provider, "model": model, "api_key": api_key}
-
-
-def _invalid_secret(value: object) -> bool:
-    return not isinstance(value, str) or not 16 <= len(value) <= 8192 or not value.isascii() or "\0" in value
 
 
 class BrainRuntimeClient:
@@ -911,7 +906,8 @@ class BrainRuntimeClient:
         )
         provider_body = provider_credential(provider, model, api_key)
         if provider_body is None or (
-            decision_key is not None and (expected_intent is not None or _invalid_secret(decision_key))
+            decision_key is not None
+            and (expected_intent is not None or not inference_credential.admissible_api_key(decision_key))
         ):
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
         task, expected, admitted, admitted_context = self.validate_intent_route_inputs(

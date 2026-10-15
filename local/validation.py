@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 
 from inference import config as inference_config
+from inference import credential as inference_credential
 from local.errors import ApiProblemError, invalid_model_credential
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
@@ -21,8 +22,6 @@ _DOCKER_INSTANT_RE = re.compile(
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 MAX_SPACE_ID_LENGTH = 48
 MAX_CHAT_ASSISTANTS = http_payload.MAX_CHAT_ASSISTANTS
-MIN_API_KEY_BYTES = 16
-MAX_API_KEY_BYTES = 8 * 1024
 
 
 def validate_team_id(value: str) -> str:
@@ -98,14 +97,7 @@ def validate_decision_credential_header(values: list[str], operation: str) -> st
     if not values:
         return None
     key = values[0]
-    if (
-        operation != DECISION_OPERATION
-        or len(values) != 1
-        or not isinstance(key, str)
-        or not key.isascii()
-        or not MIN_API_KEY_BYTES <= len(key) <= MAX_API_KEY_BYTES
-        or any(not 33 <= ord(character) <= 126 for character in key)
-    ):
+    if operation != DECISION_OPERATION or len(values) != 1 or not inference_credential.admissible_api_key(key):
         raise ApiProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "a private decision credential is accepted only on intent classification",
@@ -130,10 +122,7 @@ def validate_model_credential_headers(
             code="invalid-model-credential",
         )
     api_key = api_keys[0]
-    if not isinstance(api_key, str) or api_key.strip() != api_key or not api_key.isascii():
-        raise invalid_model_credential()
-    encoded = api_key.encode("ascii")
-    if not MIN_API_KEY_BYTES <= len(encoded) <= MAX_API_KEY_BYTES or any(not 33 <= byte <= 126 for byte in encoded):
+    if not inference_credential.admissible_api_key(api_key):
         raise invalid_model_credential()
     return providers[0], api_key
 
