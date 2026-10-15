@@ -76,6 +76,26 @@ def _execute(
         return output.getvalue()
 
 
+def assert_main_verifies_and_synchronizes(
+    case: unittest.TestCase, api: dict[str, object], verifier: Path, target: Path
+) -> None:
+    """A verifier's main checks the authority, synchronizes exactly its files into ``target``, and runs as a script."""
+    for sync, printed in ((None, "golden vectors are valid"), (target, "synchronized")):
+        output = io.StringIO()
+        with (
+            mock.patch.dict(
+                api["main"].__globals__,
+                {"parse_args": mock.Mock(return_value=types.SimpleNamespace(sync=sync))},
+            ),
+            contextlib.redirect_stdout(output),
+        ):
+            api["main"]()
+        case.assertIn(printed, output.getvalue())
+    case.assertEqual({path.name for path in target.iterdir()}, {*api["AUTHORITY_FILES"], api["MANIFEST"]})
+    with mock.patch.object(sys, "argv", ["verify.py"]):
+        case.assertIn("golden vectors are valid", _execute(verifier, run_name="__main__"))
+
+
 def _load_install_verifier() -> dict[str, object]:
     with (
         _fresh_modules("schema_validator"),
@@ -366,38 +386,11 @@ class AssistantInstallVerifierEdgeTests(unittest.TestCase):
         cls.module_globals = cls.api["main"].__globals__
 
     def test_main_verifies_and_synchronizes_the_current_authority(self) -> None:
-        output = io.StringIO()
-        with (
-            mock.patch.dict(
-                self.module_globals,
-                {"parse_args": mock.Mock(return_value=types.SimpleNamespace(sync=None))},
-            ),
-            contextlib.redirect_stdout(output),
-        ):
-            self.api["main"]()
-        self.assertIn("golden vectors are valid", output.getvalue())
-
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "mirror"
             target.mkdir()
             shutil.copyfile(INSTALL / "README.md", target / "README.md")
-            output = io.StringIO()
-            with (
-                mock.patch.dict(
-                    self.module_globals,
-                    {"parse_args": mock.Mock(return_value=types.SimpleNamespace(sync=target))},
-                ),
-                contextlib.redirect_stdout(output),
-            ):
-                self.api["main"]()
-            self.assertEqual(
-                {path.name for path in target.iterdir()},
-                {*self.api["AUTHORITY_FILES"], self.api["MANIFEST"]},
-            )
-            self.assertIn("synchronized", output.getvalue())
-
-        with mock.patch.object(sys, "argv", ["verify.py"]):
-            self.assertIn("golden vectors are valid", _execute(INSTALL / "verify.py", run_name="__main__"))
+            assert_main_verifies_and_synchronizes(self, self.api, INSTALL / "verify.py", target)
 
     def test_load_and_schema_documents_reject_malformed_authority(self) -> None:
         load_object = self.api["load_object"]

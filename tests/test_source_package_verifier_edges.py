@@ -1,17 +1,13 @@
 """Executable conformance coverage for the vendored Developers source-package verifier."""
 
-import contextlib
 import copy
-import io
 import runpy
-import sys
 import tempfile
-import types
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_protocol_verifier_edges import _execute, _png_chunk
+from test_protocol_verifier_edges import _png_chunk, assert_main_verifies_and_synchronizes
 
 SOURCE_PACKAGE = Path(__file__).resolve().parents[1] / "protocol/source-package/v1"
 
@@ -42,36 +38,9 @@ class SourcePackageVerifierEdgeTests(unittest.TestCase):
         content = self.api["Content"](b"ab", 3)
         self.assertEqual((content.size, content.materialize()), (6, b"ababab"))
 
-        output = io.StringIO()
-        with (
-            mock.patch.dict(
-                self.module_globals,
-                {"parse_args": mock.Mock(return_value=types.SimpleNamespace(sync=None))},
-            ),
-            contextlib.redirect_stdout(output),
-        ):
-            self.api["main"]()
-        self.assertIn("golden vectors are valid", output.getvalue())
-
         with tempfile.TemporaryDirectory() as temporary:
-            target = Path(temporary) / "mirror"
-            with (
-                mock.patch.dict(
-                    self.module_globals,
-                    {"parse_args": mock.Mock(return_value=types.SimpleNamespace(sync=target))},
-                ),
-                contextlib.redirect_stdout(output),
-            ):
-                self.api["main"]()
-            self.assertEqual(
-                {path.name for path in target.iterdir()},
-                {*self.api["AUTHORITY_FILES"], self.api["MANIFEST"]},
-            )
-
-        with mock.patch.object(sys, "argv", ["verify.py"]):
-            self.assertIn(
-                "golden vectors are valid",
-                _execute(SOURCE_PACKAGE / "verify.py", run_name="__main__"),
+            assert_main_verifies_and_synchronizes(
+                self, self.api, SOURCE_PACKAGE / "verify.py", Path(temporary) / "mirror"
             )
 
     def test_json_shape_and_contract_helpers_fail_closed(self) -> None:
