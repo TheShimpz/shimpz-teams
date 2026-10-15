@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from core import canonical_json, identifier
+from core import canonical_json, identifier, text
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
 from storage import private_state
@@ -84,15 +84,7 @@ def _kind(value: object) -> str:
 
 
 def _public_text(value: object, label: str, maximum: int) -> str:
-    if (
-        not isinstance(value, str)
-        or not value
-        or value != value.strip()
-        or len(value) > maximum
-        or not value.isprintable()
-    ):
-        raise StoredInputValidationError(f"Stored Input {label} is invalid")
-    return value
+    return text.require(value, StoredInputValidationError, f"Stored Input {label} is invalid", max_chars=maximum)
 
 
 def _secret_value(value: object) -> str:

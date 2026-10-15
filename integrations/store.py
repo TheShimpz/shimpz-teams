@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from core import canonical_json, identifier
+from core import canonical_json, identifier, text
 from integrations import providers as integration_providers
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
@@ -141,12 +141,7 @@ def _bounded_text(
 ) -> str | None:
     if optional and value is None:
         return None
-    if not isinstance(value, str) or not value or value != value.strip() or not value.isprintable():
-        raise OAuthIntegrationValidationError(f"{label} is invalid")
-    encoded = value.encode("utf-8")
-    if len(encoded) > maximum:
-        raise OAuthIntegrationValidationError(f"{label} is invalid")
-    return value
+    return text.require(value, OAuthIntegrationValidationError, f"{label} is invalid", max_bytes=maximum)
 
 
 def _token(value: object, label: str, *, optional: bool = False) -> str | None:

@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from assistant import manifest as assistant_manifest
-from core import identifier
+from core import identifier, text
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import providers as integration_providers
@@ -121,12 +121,7 @@ def _component_id(
 def _public_text(value: object, label: str, *, optional: bool = False) -> str | None:
     if optional and value is None:
         return None
-    if not isinstance(value, str) or not value or value != value.strip() or not value.isprintable():
-        raise IntegrationFlowError(f"{label} is invalid")
-    encoded = value.encode("utf-8")
-    if len(encoded) > MAX_PUBLIC_TEXT_BYTES:
-        raise IntegrationFlowError(f"{label} is invalid")
-    return value
+    return text.require(value, IntegrationFlowError, f"{label} is invalid", max_bytes=MAX_PUBLIC_TEXT_BYTES)
 
 
 def _assistant(spec: object) -> _AssistantSpec:
