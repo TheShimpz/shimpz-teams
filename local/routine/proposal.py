@@ -289,7 +289,7 @@ def _candidate(self, response: object, intent: routine_recorder.Intent) -> tuple
         candidate = record.scheduled(candidate, int(time.time()))
     except record.RoutineStateError as exc:
         raise RefusedError(str(exc)) from exc
-    refused = routine_definition.over_budget(others, candidate) or record.change_room(state, 1)
+    refused = routine_definition.over_budget(others, candidate) or record.change_room(state)
     if refused == "routine-step-budget":
         # The person's interval stands; Team asks rather than run it less often than they said (ADR-0101).
         raise _AskedError(_room(candidate, others), recording.protection.values)

@@ -389,12 +389,12 @@ def _budgets(others: tuple[Routine, ...], admitted: Routine) -> None:
         raise RoutineStateError(refused)
 
 
-def change_room(state: TeamRoutines, notices: int) -> str | None:
-    """Why one more Routine change adding ``notices`` new notices cannot be admitted now; None when it fits.
+def change_room(state: TeamRoutines) -> str | None:
+    """Why one more Routine change, which adds its one notice, cannot be admitted now; None when it fits.
 
     It is checked before a card is shown; the confirmation's own write checks again with what only it can tell.
     """
-    if len(state.notices) + notices > MAX_UNDELIVERED_NOTICES + MAX_ROUTINE_NOTICES:
+    if len(state.notices) + 1 > MAX_UNDELIVERED_NOTICES + MAX_ROUTINE_NOTICES:
         return "notices-full"
     return None
 

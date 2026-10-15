@@ -462,12 +462,12 @@ class ConfirmedChangeTests(unittest.TestCase):
             record.create(state, routine(), NINE + 5)
 
     def test_room_for_a_change_counts_only_undelivered_notices(self):
-        self.assertIsNone(record.change_room(record.TeamRoutines(), 1))
+        self.assertIsNone(record.change_room(record.TeamRoutines()))
         full = dataclasses.replace(
             record.TeamRoutines(),
             notices=full_notices(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES),
         )
-        self.assertEqual(record.change_room(full, 1), "notices-full")
+        self.assertEqual(record.change_room(full), "notices-full")
 
     def test_an_update_is_the_next_revision_of_exactly_the_revision_the_card_saw(self):
         state = dataclasses.replace(added(routine(), routine("b" * 32)))
