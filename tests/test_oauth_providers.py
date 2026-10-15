@@ -4,10 +4,9 @@ from integrations import providers as integration_providers
 
 
 class OAuthProviderTests(unittest.TestCase):
-    def test_cloudflare_provider_is_core_owned_and_uses_pkce(self) -> None:
+    def test_cloudflare_provider_is_core_owned(self) -> None:
         provider = integration_providers.resolve("cloudflare")
 
-        self.assertEqual(provider.pkce_method, "S256")
         self.assertEqual(
             provider.allowed_scopes,
             {"dns.read", "dns.write", "offline_access", "zone.read"},

@@ -35,8 +35,6 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
         store = integration_pkce.OAuthPKCEChallengeStore()
         challenge = create(store)
 
-        self.assertEqual(challenge.code_challenge_method, "S256")
-        self.assertEqual(challenge.expires_in, 600)
         self.assertNotIn("verifier", repr(challenge).lower())
         self.assertNotIn(SESSION_ONE, repr(store._pending))
         with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):

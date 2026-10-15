@@ -41,8 +41,6 @@ class OAuthAuthorizationChallenge:
     provider_id: str
     scopes: tuple[str, ...]
     code_challenge: str
-    code_challenge_method: str
-    expires_in: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,8 +237,6 @@ class OAuthPKCEChallengeStore:
                 provider_id=intent.provider.id,
                 scopes=intent.scopes,
                 code_challenge=code_challenge,
-                code_challenge_method=intent.provider.pkce_method,
-                expires_in=self._ttl,
             )
             self._pending[state] = _PendingChallenge(
                 public=public,

@@ -33,7 +33,6 @@ class OAuthProvider:
     # The reviewed API hosts Team sends this provider's bearer to in an Assistant's provider calls (ADR-0106).
     api_hosts: tuple[str, ...]
     allowed_scopes: frozenset[str]
-    pkce_method: str
     # The only endpoints Team sends this provider's bearer to on its API hosts (ADR-0106 amendment, 2026-10-09).
     routes: tuple[ProviderRoute, ...] = ()
 
@@ -66,7 +65,6 @@ def _provider(
         id=provider_id,
         api_hosts=api_hosts,
         allowed_scopes=allowed_scopes,
-        pkce_method="S256",
         routes=tuple(ProviderRoute(method, re.compile(path)) for method, path in routes),
     )
     if (
