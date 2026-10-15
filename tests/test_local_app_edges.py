@@ -68,13 +68,7 @@ class LocalChatServiceEdgeTests(unittest.TestCase):
 
 
 class LocalControllerConstructionEdgeTests(unittest.TestCase):
-    def test_account_egress_and_publication_dependencies_are_required(self) -> None:
-        with (
-            mock.patch.dict(local_app.os.environ, {}, clear=True),
-            self.assertRaises(RuntimeError),
-        ):
-            local_app._account_egress_transport()
-
+    def test_publication_dependencies_are_required(self) -> None:
         dependencies = local_app.LocalControllerDependencies(
             inference_store=object(),
             brain_runtime=object(),

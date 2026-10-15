@@ -11,7 +11,6 @@ import re
 from base64 import b64encode
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlencode, urlsplit
 
@@ -57,11 +56,6 @@ class BrokerTransport(Protocol):
 class FixedBrokerTransport:
     """POST only to one reviewed shimpz.com broker operation, always through the Account egress proxy."""
 
-    def __init__(self, *, proxy_capability_file: object) -> None:
-        if not isinstance(proxy_capability_file, str | Path) or not Path(proxy_capability_file).is_absolute():
-            raise OAuthBrokerClientError("OAuth broker proxy configuration is invalid")
-        self._capability_file = Path(proxy_capability_file)
-
     def request(
         self,
         *,
@@ -87,7 +81,7 @@ class FixedBrokerTransport:
         ):
             raise OAuthBrokerClientError("OAuth broker endpoint is invalid")
         try:
-            proxy_capability = account_egress.read_capability(self._capability_file)
+            proxy_capability = account_egress.read_capability()
         except account_egress.AccountEgressCapabilityError as exc:
             raise OAuthBrokerClientError("OAuth broker proxy capability is unavailable") from exc
         connection = http.client.HTTPSConnection(_PROXY_HOST, _PROXY_PORT, timeout=HTTP_TIMEOUT_SECONDS)

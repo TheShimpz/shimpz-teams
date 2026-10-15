@@ -79,7 +79,7 @@ class OAuthExchangeDeadlineTests(unittest.TestCase):
         return peer
 
     def _broker(self, peer: SlowPeer) -> None:
-        transport = integration_broker.FixedBrokerTransport(proxy_capability_file="/run/shimpz-account-egress/token")
+        transport = integration_broker.FixedBrokerTransport()
         with (
             mock.patch.object(integration_broker.http.client, "HTTPSConnection", side_effect=peer.connection),
             mock.patch.object(integration_broker.account_egress, "read_capability", return_value="a" * 64),

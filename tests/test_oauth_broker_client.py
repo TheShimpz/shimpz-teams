@@ -108,7 +108,6 @@ class OAuthBrokerClientTests(unittest.TestCase):
         )
         connection = Mock(getresponse=Mock(return_value=response))
         token = "a" * 64
-        capability_path = Path("/run/shimpz-account-egress/token")
         with (
             patch.object(integration_broker.http.client, "HTTPSConnection", return_value=connection) as connect,
             patch.object(
@@ -117,7 +116,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
                 return_value=token,
             ) as read_capability,
         ):
-            transport = integration_broker.FixedBrokerTransport(proxy_capability_file=capability_path)
+            transport = integration_broker.FixedBrokerTransport()
             result = transport.request(
                 url="https://shimpz.com/api/oauth/cloudflare/claim",
                 headers={"Content-Type": "application/json"},
@@ -125,7 +124,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
             )
 
         self.assertEqual(result.status, 200)
-        read_capability.assert_called_once_with(capability_path)
+        read_capability.assert_called_once_with()
         connect.assert_called_once_with("shimpz-account-egress", 8889, timeout=10)
         tunnel = connection.set_tunnel.call_args
         self.assertEqual(tunnel.args, ("shimpz.com", 443))
@@ -136,11 +135,6 @@ class OAuthBrokerClientTests(unittest.TestCase):
             body=b"{}",
             headers={"Content-Type": "application/json"},
         )
-
-    def test_fixed_transport_rejects_an_invalid_proxy_capability_file(self) -> None:
-        for value in (None, "relative/token", 7):
-            with self.subTest(value=value), self.assertRaises(integration_broker.OAuthBrokerClientError):
-                integration_broker.FixedBrokerTransport(proxy_capability_file=value)
 
     def test_proxy_capability_reader_rejects_unsafe_file_custody(self) -> None:
         with (
@@ -296,7 +290,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
         self.assertNotIn(private, f"{captured.exception!r} {captured.exception}")
 
     def test_transport_endpoint_capability_and_io_edges_are_closed(self) -> None:
-        transport = integration_broker.FixedBrokerTransport(proxy_capability_file="/run/token")
+        transport = integration_broker.FixedBrokerTransport()
         for url in (
             "http://shimpz.com/api/oauth/cloudflare/claim",
             "https://evil.example/api/oauth/cloudflare/claim",

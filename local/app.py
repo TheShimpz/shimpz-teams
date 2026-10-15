@@ -212,13 +212,6 @@ def _audit_action(result: str, team_id: str, assistant_id: str, detail: str) -> 
     )
 
 
-def _account_egress_transport() -> integration_broker.FixedBrokerTransport:
-    capability_file = os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE")
-    if capability_file is None:
-        raise RuntimeError("Local Account egress configuration is unavailable")
-    return integration_broker.FixedBrokerTransport(proxy_capability_file=capability_file)
-
-
 @dataclass(frozen=True, slots=True)
 class LocalControllerDependencies:
     inference_store: inference_config.InferenceConfigStore | None = None
@@ -319,7 +312,7 @@ class LocalController:
         self.routine_protections = local_routine_protection.RunProtections()
         self.oauth_pkce = dependencies.oauth_pkce or integration_pkce.OAuthPKCEChallengeStore()
         self.oauth_broker = dependencies.oauth_broker or integration_broker.OAuthBrokerClient(
-            transport=_account_egress_transport(),
+            transport=integration_broker.FixedBrokerTransport(),
         )
         self.oauth_service = dependencies.oauth_service or integration_service.BrokeredOAuthIntegrationService(
             challenge=self.oauth_pkce,

@@ -1,5 +1,4 @@
 import contextlib
-import os
 import sys
 import tempfile
 import threading
@@ -234,10 +233,6 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         integrations = SimpleNamespace()
 
         with (
-            mock.patch.dict(
-                os.environ,
-                {"SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE": "/run/shimpz-account-egress/token"},
-            ),
             mock.patch.object(integration_broker, "FixedBrokerTransport", return_value=transport) as transport_type,
             mock.patch.object(integration_broker, "OAuthBrokerClient", return_value=broker) as broker_type,
             mock.patch.object(
@@ -254,30 +249,11 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 oauth_service=None,
             )
 
-        transport_type.assert_called_once_with(proxy_capability_file="/run/shimpz-account-egress/token")
+        transport_type.assert_called_once_with()
         broker_type.assert_called_once_with(transport=transport)
         service_type.assert_called_once_with(challenge=pkce, store=integrations, broker=broker)
         self.assertIs(controller.oauth_broker, broker)
         self.assertIs(controller.oauth_service, service)
-
-    def test_local_controller_requires_the_account_egress_capability_file(self) -> None:
-        with (
-            mock.patch.dict(os.environ, {}, clear=True),
-            self.assertRaisesRegex(RuntimeError, "Local Account egress configuration is unavailable"),
-        ):
-            local_app.LocalController(
-                SimpleNamespace(),
-                "local-space",
-                self._registry(),
-                SimpleNamespace(),
-                local_app.LocalControllerDependencies(
-                    inference_store=SimpleNamespace(),
-                    brain_runtime=SimpleNamespace(),
-                    action_state=SimpleNamespace(),
-                    developers=SimpleNamespace(),
-                    artifact_trust=SimpleNamespace(),
-                ),
-            )
 
     def test_authorization_and_callback_delegate_to_one_brokered_service(self) -> None:
         requirement = integration_challenges.IntegrationRequirement(

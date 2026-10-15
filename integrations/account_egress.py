@@ -37,13 +37,12 @@ def _identity(
 def read_capability(
     path: Path = CAPABILITY_PATH,
     *,
-    group: str = CAPABILITY_GROUP,
     owner_uid: int = CAPABILITY_OWNER_UID,
 ) -> str:
     """Read the exact capability for each outbound broker operation."""
     descriptor = -1
     try:
-        expected_gid = grp.getgrnam(group).gr_gid
+        expected_gid = grp.getgrnam(CAPABILITY_GROUP).gr_gid
         descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
         before = os.fstat(descriptor)
         identity = _identity(before, expected_gid, owner_uid)

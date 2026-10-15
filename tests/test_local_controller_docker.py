@@ -456,8 +456,6 @@ class DockerFlowTests(
             "--env",
             f"SHIMPZ_SPACE_ID={flow.space_id}",
             "--env",
-            "SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE=/run/shimpz-account-egress/token",
-            "--env",
             f"SHIMPZ_BRAIN_RUNTIME_URL=http://{flow.bridge_gateway}:{flow.brain_server.server_port}",
             *self.controller_extra_env,
             "--publish",
