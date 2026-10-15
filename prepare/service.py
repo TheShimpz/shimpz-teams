@@ -15,7 +15,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from dataclasses import dataclass
 
-from prepare import detect, limits
+from prepare import detect, limits, worker
 from prepare.helper import PreparationHelper
 
 _IMAGE_MAGIC = {"image/jpeg": b"\xff\xd8\xff", "image/png": b"\x89PNG\r\n\x1a\n"}
@@ -227,7 +227,9 @@ def prepare_attachments(
             interrupt()
             if item.size > _MAX_SOURCE_BYTES:
                 prepared.append(
-                    Attachment(item.id, item.name, detect.OCTET_STREAM, item.size, item.sha256, _opaque("too_large"))
+                    Attachment(
+                        item.id, item.name, detect.OCTET_STREAM, item.size, item.sha256, worker.opaque("too_large")
+                    )
                 )
                 continue
             data = item.read()
@@ -261,9 +263,9 @@ def _content(
     running: Callable[[], PreparationHelper],
 ) -> dict[str, object]:
     if found.kind == detect.OPAQUE:
-        return _opaque("unsupported")
+        return worker.opaque("unsupported")
     if len(data) > _SOURCE_LIMITS[found.kind]:
-        return _opaque("too_large")
+        return worker.opaque("too_large")
     if found.kind == detect.TEXT:
         return _text(detect.decode_text(data), pdf=False)
     answer = running().prepare(found.kind, data)
@@ -274,9 +276,9 @@ def _content(
 
 def _text(text: str | None, *, pdf: bool) -> dict[str, object]:
     if not isinstance(text, str) or not text.strip():
-        return _opaque("no_text" if pdf else "unreadable")
+        return worker.opaque("no_text" if pdf else "unreadable")
     if len(text) > limits.MAX_TEXT_CHARACTERS or len(text.encode("utf-8")) > limits.MAX_TEXT_BYTES:
-        return _opaque("too_large")
+        return worker.opaque("too_large")
     return {"type": "text", "text": text, "pdf": pdf}
 
 
@@ -302,7 +304,7 @@ def _image_answer(answer: dict[str, object]) -> dict[str, object]:
         or not encoded.startswith(_IMAGE_MAGIC[media_type])
         or encoded_size(media_type, encoded) != (width, height)
     ):
-        return _opaque("unreadable")
+        return worker.opaque("unreadable")
     return {
         "type": "image",
         "media_type": media_type,
@@ -362,9 +364,5 @@ def _decoded(value: object) -> bytes | None:
 def _opaque_answer(answer: dict[str, object]) -> dict[str, object]:
     reason = answer.get("reason")
     if set(answer) == {"type", "reason"} and answer["type"] == "opaque" and reason in limits.OPAQUE_REASONS:
-        return _opaque(str(reason))
-    return _opaque("unreadable")
-
-
-def _opaque(reason: str) -> dict[str, object]:
-    return {"type": "opaque", "reason": reason}
+        return worker.opaque(str(reason))
+    return worker.opaque("unreadable")

@@ -15,7 +15,6 @@ import warnings
 from prepare import limits
 
 _SIZE_LIMITS = {"image": limits.MAX_IMAGE_BYTES, "pdf": limits.MAX_PDF_BYTES, "pdf-page": limits.MAX_PDF_BYTES}
-_UNREADABLE = {"type": "opaque", "reason": "unreadable"}
 # Decoder failures on hostile input; each refuses only the one file.
 _DECODER_ERRORS = (
     ArithmeticError,
@@ -31,6 +30,11 @@ _DECODER_ERRORS = (
     ValueError,
     struct.error,
 )
+
+
+def opaque(reason: str) -> dict[str, object]:
+    """The closed answer for a file that yields no derivative, naming why."""
+    return {"type": "opaque", "reason": reason}
 
 
 def encode_request(kind: str, data: bytes, page: int | None = None) -> bytes:
@@ -66,7 +70,7 @@ def answer(raw: bytes) -> dict[str, object]:
     try:
         kind, data, page = decode_request(raw)
     except ValueError:
-        return dict(_UNREADABLE)
+        return opaque("unreadable")
     if kind == "pdf-page":
         return _page(data, page)
     return _image(data) if kind == "image" else _pdf(data)
@@ -84,7 +88,7 @@ def _image(data: bytes) -> dict[str, object]:
     except Image.DecompressionBombError, Image.DecompressionBombWarning:
         return {"type": "opaque", "reason": "too_large"}
     except _DECODER_ERRORS:
-        return dict(_UNREADABLE)
+        return opaque("unreadable")
 
 
 def _pdf(data: bytes) -> dict[str, object]:
@@ -101,7 +105,7 @@ def _pdf(data: bytes) -> dict[str, object]:
     except errors.LimitReachedError:
         return {"type": "opaque", "reason": "too_large"}
     except (errors.PyPdfError, *_DECODER_ERRORS):
-        return dict(_UNREADABLE)
+        return opaque("unreadable")
 
 
 def _page(data: bytes, page_number: int) -> dict[str, object]:
@@ -114,7 +118,7 @@ def _page(data: bytes, page_number: int) -> dict[str, object]:
     except page.PageRefusedError as exc:
         return {"type": "opaque", "reason": exc.reason}
     except (PdfiumError, *_DECODER_ERRORS):
-        return dict(_UNREADABLE)
+        return opaque("unreadable")
 
 
 def _confine() -> None:
@@ -132,7 +136,7 @@ def main() -> int:
     """Read one request from standard input and write one answer to standard output."""
     _confine()
     raw = sys.stdin.buffer.read(limits.MAX_HELPER_INPUT_BYTES + 1)
-    result = answer(raw) if len(raw) <= limits.MAX_HELPER_INPUT_BYTES else dict(_UNREADABLE)
+    result = answer(raw) if len(raw) <= limits.MAX_HELPER_INPUT_BYTES else opaque("unreadable")
     sys.stdout.write(json.dumps(result, ensure_ascii=True, separators=(",", ":")))
     sys.stdout.flush()
     return 0

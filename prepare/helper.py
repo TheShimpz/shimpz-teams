@@ -15,13 +15,12 @@ from pathlib import PurePosixPath
 from action import execution as action_execution
 from prepare import limits, worker
 
-HELPER_PYTHON = str(PurePosixPath("/") / "opt" / "venv" / "bin" / "python")
+HELPER_PYTHON = "/opt/venv/bin/python"
 IDLE_ENTRYPOINT = [HELPER_PYTHON, "-c", "import signal; signal.pause()"]
 WORKER_ARGV = [HELPER_PYTHON, "-m", "prepare.worker"]
 HELPER_USER = "65534:65534"
-HELPER_WORKDIR = str(PurePosixPath("/") / "app")
+HELPER_WORKDIR = "/app"
 HELPER_TMPFS = {str(PurePosixPath("/") / "tmp"): "size=16m,mode=1777,noexec,nosuid,nodev"}
-_UNREADABLE = {"type": "opaque", "reason": "unreadable"}
 
 
 class HelperUnavailableError(RuntimeError):
@@ -118,8 +117,8 @@ class PreparationHelper:
                 ),
             )
         except action_execution.RpcExchangeError:
-            return dict(_UNREADABLE)
-        return answer if isinstance(answer, dict) else dict(_UNREADABLE)
+            return worker.opaque("unreadable")
+        return answer if isinstance(answer, dict) else worker.opaque("unreadable")
 
     def close(self) -> None:
         """Remove the helper container, keeping ownership of it until its removal or absence is proved.
