@@ -6,7 +6,6 @@ Client Secret. It deliberately owns no routes, cookies, browser state, Assistant
 runtime calls, or Brain-visible data.
 """
 
-import functools
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -175,162 +174,6 @@ def _missing_candidate(
     return selected
 
 
-def _authorization_url(
-    challenge: integration_pkce.OAuthPKCEChallengeStore,
-    store: integration_store.OAuthIntegrationStore,
-    build_url: Callable[..., str],
-    pending: integration_challenges.PendingIntegrationChallenge,
-    session_binding: object,
-    resource_binding: object,
-    selection: _Selection,
-) -> str:
-    try:
-        selected = _missing_candidate(pending, store, selection)
-        public = challenge.create(
-            session_binding=session_binding,
-            team_id=selected.team_id,
-            assistant_id=selected.assistant_id,
-            integration_id=selected.integration_id,
-            provider_id=selected.provider,
-            scopes=selected.scopes,
-            resource_binding=resource_binding,
-        )
-        return build_url(
-            provider_id=public.provider_id,
-            state=public.state,
-            code_challenge=public.code_challenge,
-            scopes=public.scopes,
-        )
-    except OAuthIntegrationUnavailableError:
-        raise
-    except (
-        integration_challenges.IntegrationChallengeError,
-        integration_store.OAuthIntegrationStoreError,
-        integration_broker.OAuthBrokerClientError,
-        integration_pkce.OAuthChallengeError,
-        integration_providers.OAuthProviderError,
-        OAuthIntegrationServiceError,
-        KeyError,
-        TypeError,
-    ):
-        raise OAuthIntegrationServiceError("OAuth integration could not be started") from None
-
-
-def _complete(
-    challenge: integration_pkce.OAuthPKCEChallengeStore,
-    store: integration_store.OAuthIntegrationStore,
-    operations: _CompletionOperations,
-    state: object,
-    claim_or_code: object,
-    session_binding: object,
-    resolver: Callable[[str, str, str], object],
-) -> OAuthIntegrationCompletion:
-    if not callable(resolver):
-        raise OAuthIntegrationServiceError("OAuth declaration resolver is unavailable")
-    try:
-        exchange = challenge.claim_callback(
-            state=state,
-            session_binding=session_binding,
-        )
-        try:
-            current = resolver(
-                exchange.team_id,
-                exchange.assistant_id,
-                exchange.integration_id,
-            )
-        except OAuthIntegrationDeclarationError:
-            raise OAuthIntegrationServiceError("OAuth integration declaration is unavailable") from None
-        provider, scopes = _declaration(current)
-        if provider != exchange.provider_id or scopes != exchange.scopes:
-            raise OAuthIntegrationServiceError("OAuth integration declaration changed")
-        callbacks = integration_store.OAuthReplacementCallbacks(
-            exchange=lambda: operations.exchange(
-                provider_id=provider,
-                credential=claim_or_code,
-                state=state,
-                code_verifier=exchange.code_verifier,
-                scopes=scopes,
-            ),
-            revoke=operations.revoke,
-        )
-        metadata = store.replace(
-            exchange.team_id,
-            exchange.assistant_id,
-            exchange.integration_id,
-            provider,
-            scopes,
-            callbacks,
-        )
-        return OAuthIntegrationCompletion(
-            team_id=exchange.team_id,
-            assistant_id=exchange.assistant_id,
-            integration_id=exchange.integration_id,
-            provider=metadata.provider,
-            scopes=metadata.scopes,
-            generation=metadata.generation,
-            resource_binding=exchange.resource_binding,
-        )
-    except (
-        integration_store.OAuthIntegrationStoreError,
-        integration_broker.OAuthBrokerClientError,
-        integration_pkce.OAuthChallengeError,
-        integration_providers.OAuthProviderError,
-        OAuthIntegrationServiceError,
-    ):
-        raise OAuthIntegrationServiceError("OAuth integration could not be completed") from None
-
-
-def _claim_broker(
-    broker: integration_broker.OAuthBrokerClient,
-    *,
-    provider_id: object,
-    credential: object,
-    state: object,
-    code_verifier: object,
-    scopes: object,
-) -> object:
-    return broker.claim(
-        provider_id=provider_id,
-        claim=credential,
-        state=state,
-        code_verifier=code_verifier,
-        scopes=scopes,
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class _CompletionOperations:
-    exchange: Callable[..., object]
-    revoke: Callable[[str, str, str | None, str | None], None]
-
-
-def _revoke_broker(
-    broker: integration_broker.OAuthBrokerClient,
-    provider: str,
-    access_token: str,
-    refresh_token: str | None,
-    broker_lease: str | None,
-) -> None:
-    broker.revoke(
-        provider_id=provider,
-        token=refresh_token or access_token,
-        broker_lease=broker_lease,
-    )
-
-
-def _replace_revoke_broker(
-    broker: integration_broker.OAuthBrokerClient,
-    provider: str,
-    access_token: str,
-    refresh_token: str | None,
-    broker_lease: str | None,
-) -> None:
-    try:
-        _revoke_broker(broker, provider, access_token, refresh_token, broker_lease)
-    except integration_broker.OAuthBrokerClientError as exc:
-        raise integration_store.OAuthIntegrationRevocationError("OAuth broker revocation failed") from exc
-
-
 class BrokeredOAuthIntegrationService:
     """Controller orchestration that never owns an OAuth Client Secret."""
 
@@ -368,19 +211,37 @@ class BrokeredOAuthIntegrationService:
             selected_callback_mode = integration_broker.canonical_callback_mode(callback_mode)
         except integration_broker.OAuthBrokerClientError:
             raise OAuthIntegrationServiceError("OAuth callback mode is invalid") from None
-        build_url = functools.partial(
-            self._broker.authorization_url,
-            callback_mode=selected_callback_mode,
-        )
-        return _authorization_url(
-            self._challenge,
-            self._store,
-            build_url,
-            pending,
-            session_binding,
-            resource_binding,
-            _Selection(assistant_id, integration_id),
-        )
+        try:
+            selected = _missing_candidate(pending, self._store, _Selection(assistant_id, integration_id))
+            public = self._challenge.create(
+                session_binding=session_binding,
+                team_id=selected.team_id,
+                assistant_id=selected.assistant_id,
+                integration_id=selected.integration_id,
+                provider_id=selected.provider,
+                scopes=selected.scopes,
+                resource_binding=resource_binding,
+            )
+            return self._broker.authorization_url(
+                provider_id=public.provider_id,
+                state=public.state,
+                code_challenge=public.code_challenge,
+                scopes=public.scopes,
+                callback_mode=selected_callback_mode,
+            )
+        except OAuthIntegrationUnavailableError:
+            raise
+        except (
+            integration_challenges.IntegrationChallengeError,
+            integration_store.OAuthIntegrationStoreError,
+            integration_broker.OAuthBrokerClientError,
+            integration_pkce.OAuthChallengeError,
+            integration_providers.OAuthProviderError,
+            OAuthIntegrationServiceError,
+            KeyError,
+            TypeError,
+        ):
+            raise OAuthIntegrationServiceError("OAuth integration could not be started") from None
 
     def complete(
         self,
@@ -389,19 +250,60 @@ class BrokeredOAuthIntegrationService:
         session_binding: object,
         current_declaration_callback: Callable[[str, str, str], object],
     ) -> OAuthIntegrationCompletion:
-        operations = _CompletionOperations(
-            exchange=functools.partial(_claim_broker, self._broker),
-            revoke=functools.partial(_replace_revoke_broker, self._broker),
-        )
-        return _complete(
-            self._challenge,
-            self._store,
-            operations,
-            state,
-            claim,
-            session_binding,
-            current_declaration_callback,
-        )
+        if not callable(current_declaration_callback):
+            raise OAuthIntegrationServiceError("OAuth declaration resolver is unavailable")
+        try:
+            exchange = self._challenge.claim_callback(state=state, session_binding=session_binding)
+            try:
+                current = current_declaration_callback(exchange.team_id, exchange.assistant_id, exchange.integration_id)
+            except OAuthIntegrationDeclarationError:
+                raise OAuthIntegrationServiceError("OAuth integration declaration is unavailable") from None
+            provider, scopes = _declaration(current)
+            if provider != exchange.provider_id or scopes != exchange.scopes:
+                raise OAuthIntegrationServiceError("OAuth integration declaration changed")
+            callbacks = integration_store.OAuthReplacementCallbacks(
+                exchange=lambda: self._broker.claim(
+                    provider_id=provider,
+                    claim=claim,
+                    state=state,
+                    code_verifier=exchange.code_verifier,
+                    scopes=scopes,
+                ),
+                revoke=self._revoke_replaced,
+            )
+            metadata = self._store.replace(
+                exchange.team_id, exchange.assistant_id, exchange.integration_id, provider, scopes, callbacks
+            )
+            return OAuthIntegrationCompletion(
+                team_id=exchange.team_id,
+                assistant_id=exchange.assistant_id,
+                integration_id=exchange.integration_id,
+                provider=metadata.provider,
+                scopes=metadata.scopes,
+                generation=metadata.generation,
+                resource_binding=exchange.resource_binding,
+            )
+        except (
+            integration_store.OAuthIntegrationStoreError,
+            integration_broker.OAuthBrokerClientError,
+            integration_pkce.OAuthChallengeError,
+            integration_providers.OAuthProviderError,
+            OAuthIntegrationServiceError,
+        ):
+            raise OAuthIntegrationServiceError("OAuth integration could not be completed") from None
+
+    def _revoke_replaced(
+        self,
+        provider: str,
+        access_token: str,
+        refresh_token: str | None,
+        broker_lease: str | None,
+    ) -> None:
+        """Revoke the grant a replacement supersedes, failing as a revocation the store compensates."""
+        try:
+            self._broker.revoke(provider_id=provider, token=refresh_token or access_token, broker_lease=broker_lease)
+        except integration_broker.OAuthBrokerClientError as exc:
+            raise integration_store.OAuthIntegrationRevocationError("OAuth broker revocation failed") from exc
 
     def cancel(self, session_binding: object) -> bool:
         """Remove only the PKCE continuation held for one fresh Admin handoff."""

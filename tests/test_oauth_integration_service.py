@@ -6,7 +6,6 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
 from test_oauth_broker_client import ACCESS, LEASE, REFRESH, SCOPES, Transport
@@ -285,15 +284,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
 
     def test_completion_requires_a_live_declaration_resolver(self) -> None:
         with self.assertRaisesRegex(integration_service.OAuthIntegrationServiceError, "resolver"):
-            integration_service._complete(
-                self.challenges,
-                self.store,
-                mock.Mock(),
-                "state",
-                CLAIM,
-                SESSION,
-                None,
-            )
+            self.service.complete("state", CLAIM, SESSION, None)
 
 
 if __name__ == "__main__":

@@ -151,8 +151,7 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
             ),
             self.assertRaises(integration_store.OAuthIntegrationRevocationError),
         ):
-            integration_service._replace_revoke_broker(
-                broker,
+            self.service._revoke_replaced(
                 "cloudflare",
                 ACCESS,
                 REFRESH,
