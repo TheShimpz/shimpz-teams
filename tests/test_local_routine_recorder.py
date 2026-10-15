@@ -184,9 +184,11 @@ class RecordingBookTests(unittest.TestCase):
         self.assertEqual(routine_recorder.selected_work(span, "Zonas", None), other)
         book.occurred("team_1", answer, _occurrence())
         self.assertEqual(routine_recorder.selected_work(book.get("team_1", answer), "DNS", None), answer)
-        # Work that left the bounded span is never guessed.
+        # Work that left the bounded span is never guessed, nor replaced by other steps: the person records again.
         gone = dataclasses.replace(span, intent=dataclasses.replace(intent, work="f" * 32))
-        self.assertIsNone(routine_recorder.selected_work(gone, "DNS", None))
+        with self.assertRaises(routine_recording.RecordingError) as refused:
+            routine_recorder.selected_work(gone, "DNS", None)
+        self.assertEqual(refused.exception.code, "routine-record-again")
         nothing = book.get("team_2", book.start("team_2", BINDING, _started(), 5))
         self.assertIsNone(routine_recorder.selected_work(nothing, "DNS", None))
 

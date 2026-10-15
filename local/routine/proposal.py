@@ -192,7 +192,10 @@ def _intent(self, response: object, proposed: object) -> routine_recorder.Intent
     if found is not None:
         if outcome["replaces"] is not None:
             shown = dict(found.revisions).get(outcome["replaces"])
-        work = routine_recorder.selected_work(found, outcome["name"], outcome["replaces"])
+        try:
+            work = routine_recorder.selected_work(found, outcome["name"], outcome["replaces"])
+        except routine_recording.RecordingError as exc:
+            raise RefusedError(exc.code) from exc
     return routine_recorder.Intent(outcome["name"], outcome["replaces"], shown, outcome["description"], work)
 
 

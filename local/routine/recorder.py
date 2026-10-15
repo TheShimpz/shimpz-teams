@@ -286,7 +286,10 @@ def selected_work(span: Span, name: str, replaces: str | None) -> str | None:
         return span.recording_id
     stored = span.intent
     if stored is not None and (stored.name, stored.replaces) == (name, replaces):
-        return stored.work if stored.work in span.send_ids else None
+        if stored.work is None or stored.work in span.send_ids:
+            return stored.work
+        # The selected work left the span: recording other steps under this description would be silent, so ask again.
+        raise routine_recording.RecordingError("routine-record-again")
     index = None if replaces is not None else routine_recording.latest_work(span.sends)
     return None if index is None else span.send_ids[index]
 

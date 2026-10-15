@@ -971,6 +971,18 @@ class RecordedRoutineTests(LocalContractCase):
             busy = self.chat(service)["routine_refusal"]["code"]
         self.assertEqual(busy, "routine-busy")
 
+    def test_a_record_whose_selected_work_left_the_span_refuses_to_record_again(self) -> None:
+        span = SimpleNamespace(revisions=())
+        service = SimpleNamespace(routine_recordings=SimpleNamespace(get=lambda _team, _send: span))
+        response = SimpleNamespace(team_id="team_1", recording="a" * 32)
+        left = routine_proposal.routine_recording.RecordingError("routine-record-again")
+        with (
+            mock.patch.object(routine_proposal.routine_recorder, "selected_work", side_effect=left),
+            self.assertRaises(routine_proposal.RefusedError) as refused,
+        ):
+            routine_proposal._intent(service, response, _record())
+        self.assertEqual(refused.exception.code, "routine-record-again")
+
     def test_a_card_its_own_contract_refuses_is_an_internal_error_never_shown(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
