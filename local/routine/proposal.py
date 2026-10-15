@@ -235,12 +235,12 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
     kept = None
     if existing is not None:
         kept = routine_recording.Existing(existing.plan, existing.schedule)
-    # A record call for other work than the stored intent supersedes its question, the work it asked to repeat, the
-    # Action a chain had to use, and its repair, though never the choices the person already answered; one continuing
-    # it keeps verifying.
+    # A record call for other work than the stored intent supersedes its question, the work it asked to repeat, and the
+    # Action a chain had to use, though never the choices the person already answered nor the span's one repair, which
+    # a renamed record call cannot renew; one continuing it keeps verifying.
     stored, asked = recording.intent, recording.asked
     if stored is not None and asked is not None and _work(stored) != _work(intent):
-        asked = dataclasses.replace(asked, pending=None, manifest=None, chained_from=None, repair_from=None)
+        asked = dataclasses.replace(asked, pending=None, manifest=None, chained_from=None)
     try:
         return routine_compose.record(
             recording.sends,
