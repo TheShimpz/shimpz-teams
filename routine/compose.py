@@ -33,13 +33,13 @@ def record(
     # The person's output, or show while the work is planned and its own questions come first; unstated, it is asked.
     stated = _output(sends, existing)
     mode = stated or "show"
-    calls = routine_recording._calls(sends, contracts)
-    texts = [line for send in sends for line in (*routine_recording._lines(send.person), *send.window)]
+    calls = routine_recording.span_calls(sends, contracts)
+    texts = [line for send in sends for line in (*routine_recording.segment_lines(send.person), *send.window)]
     latest = [call for call in calls if call.send == calls[-1].send] if calls else []
-    context = routine_recording._Context(
-        sends, calls, routine_recording._known(texts, protection), routine_recording.zone(sends), asked, contracts
+    context = routine_recording.Context(
+        sends, calls, routine_recording.known_texts(texts, protection), routine_recording.zone(sends), asked, contracts
     )
-    work = routine_provenance._narrowed(context, latest)
+    work = routine_provenance.narrowed(context, latest)
     context.work = tuple(call.index for call in work)
     # The send count when the span first asked for a repair, which it keeps across later questions until a card.
     repair_from = asked.repair_from if asked is not None else None
@@ -52,8 +52,8 @@ def record(
             document, origins = _plan(context, mode, work)
             when = _schedule(sends, existing)
         if stated is None:
-            raise routine_recording._AskError(routine_recording.Question("routine-output-unstated"))
-    except routine_recording._AskError as asking:
+            raise routine_recording.AskError(routine_recording.Question("routine-output-unstated"))
+    except routine_recording.AskError as asking:
         repairing = asking.question.code == routine_recording.RERUN
         if repaired and repairing:
             raise routine_recording.RecordingError("routine-record-again") from asking
@@ -68,21 +68,21 @@ def record(
     return routine_recording.Recorded(document, origins, permitted, when, context.zone[1])
 
 
-def _chosen_used(context: routine_recording._Context, work: list[routine_recording._Call]) -> bool:
+def _chosen_used(context: routine_recording.Context, work: list[routine_recording.Call]) -> bool:
     """Whether the work sends every target the person chose wherever it calls the Action that choice is about."""
-    for binding in routine_provenance._bindings(context):
+    for binding in routine_provenance.target_choices(context):
         if binding.chosen is None:
             continue
-        chosen = routine_recording._json_text(binding.chosen)
+        chosen = routine_recording.json_text(binding.chosen)
         calls = [call for call in work if call.action == binding.action]
-        if calls and not any(routine_provenance._sent_value(call, binding.member) == chosen for call in calls):
+        if calls and not any(routine_provenance.sent_value(call, binding.member) == chosen for call in calls):
             return False
     return True
 
 
 def _asked(
-    context: routine_recording._Context,
-    work: list[routine_recording._Call],
+    context: routine_recording.Context,
+    work: list[routine_recording.Call],
     question: routine_recording.Question,
 ) -> routine_recording.Question:
     """A question as Team keeps it: with the work it asks to repeat, and every choice already answered.
@@ -92,7 +92,7 @@ def _asked(
     chosen = list(context.asked.chosen) if context.asked is not None else []
     answered = context.asked.pending if context.asked is not None else None
     if answered is not None:
-        selected = routine_provenance._selection(context, answered)
+        selected = routine_provenance.selection(context, answered)
         if selected is not None:
             chosen.append(dataclasses.replace(answered, chosen=selected))
     pending = question.pending
@@ -102,7 +102,7 @@ def _asked(
     kept = {(item.action, item.member, item.targets): item for item in chosen}
     manifest = question.manifest
     if manifest is None and question.code == routine_recording.RERUN:
-        manifest = routine_rerun._manifest(context, work, tuple(kept.values()))
+        manifest = routine_rerun.manifest(context, work, tuple(kept.values()))
     return dataclasses.replace(question, pending=pending, manifest=manifest, chosen=tuple(kept.values()))
 
 
@@ -136,7 +136,7 @@ def _schedule(
         return dict(latest[0])
     if not latest and existing is not None:
         return dict(existing.schedule)
-    raise routine_recording._AskError(routine_recording.Question("routine-schedule-unstated"))
+    raise routine_recording.AskError(routine_recording.Question("routine-schedule-unstated"))
 
 
 def _output(sends: Sequence[routine_recording.Send], existing: routine_recording.Existing | None) -> str | None:
@@ -161,7 +161,7 @@ def _output(sends: Sequence[routine_recording.Send], existing: routine_recording
 
 
 def _kept(
-    context: routine_recording._Context, mode: str, existing: routine_recording.Existing
+    context: routine_recording.Context, mode: str, existing: routine_recording.Existing
 ) -> routine_recording.Recorded:
     """A replacement that ran no Action: the replaced plan's steps exactly, on a new schedule, zone, or output.
 
@@ -199,7 +199,7 @@ def _admitted(
         raise routine_recording.RecordingError(exc.code) from exc
 
 
-def _kept_origin(source: Mapping[str, object], known: routine_recording._Known) -> str:
+def _kept_origin(source: Mapping[str, object], known: routine_recording.Known) -> str:
     """How the card names a kept input's origin, as a recording would now."""
     if source["kind"] == "literal":
         return "request" if known.names(source["value"]) else "assistant"
@@ -209,7 +209,7 @@ def _kept_origin(source: Mapping[str, object], known: routine_recording._Known) 
 
 
 def _plan(
-    context: routine_recording._Context, mode: str, work: list[routine_recording._Call]
+    context: routine_recording.Context, mode: str, work: list[routine_recording.Call]
 ) -> tuple[dict[str, object], dict]:
     """The plan document and each step's input origins, from the work and every source it needs."""
     if not work:
@@ -229,25 +229,23 @@ def _plan(
 
 
 def _closure(
-    context: routine_recording._Context, work: list[routine_recording._Call]
-) -> dict[int, routine_recording._Call]:
+    context: routine_recording.Context, work: list[routine_recording.Call]
+) -> dict[int, routine_recording.Call]:
     """The plan calls: each work call's source representative, and every source their inputs read, transitively."""
-    nodes: dict[int, routine_recording._Call] = {}
+    nodes: dict[int, routine_recording.Call] = {}
     pending = [context.classes[call.index] for call in work]
     while pending:
         node = pending.pop()
         if node in nodes:
             continue
         nodes[node] = context.calls[node]
-        routine_provenance._classify_call(context, nodes[node])
+        routine_provenance.classify_call(context, nodes[node])
         inputs, _origins = context.inputs[node]
         pending.extend(source["node"] for source in inputs.values() if "node" in source)
     return nodes
 
 
-def _step(
-    context: routine_recording._Context, call: routine_recording._Call, names: dict[int, str]
-) -> dict[str, object]:
+def _step(context: routine_recording.Context, call: routine_recording.Call, names: dict[int, str]) -> dict[str, object]:
     inputs, _origins = context.inputs[call.index]
     return {
         "id": names[call.index],
@@ -265,9 +263,9 @@ def _named(source: dict[str, object], names: dict[int, str]) -> dict[str, object
     return {"kind": "step_output", "step": names[source["node"]], **named}
 
 
-def _classes(context: routine_recording._Context) -> None:
+def _classes(context: routine_recording.Context) -> None:
     """Each call's source: its earliest read-only twin (same Action, input, and result) with no change between."""
-    open_sources: list[routine_recording._Call] = []
+    open_sources: list[routine_recording.Call] = []
     for call in context.calls:
         if not call.read_only:
             # Nothing read before a change is the same source as anything read after it.
@@ -294,7 +292,7 @@ def _twins(left: trace.Occurrence, right: trace.Occurrence) -> bool:
     )
 
 
-def _edges(context: routine_recording._Context, nodes: dict[int, routine_recording._Call]) -> dict[int, set[int]]:
+def _edges(context: routine_recording.Context, nodes: dict[int, routine_recording.Call]) -> dict[int, set[int]]:
     """Each plan call's successors: what reads it, and every call on the far side of a changing call."""
     edges: dict[int, set[int]] = {node: set() for node in nodes}
     for node in nodes:
@@ -310,7 +308,7 @@ def _edges(context: routine_recording._Context, nodes: dict[int, routine_recordi
     return edges
 
 
-def _ordered(context: routine_recording._Context, nodes: dict[int, routine_recording._Call]) -> list[int]:
+def _ordered(context: routine_recording.Context, nodes: dict[int, routine_recording.Call]) -> list[int]:
     """The plan calls in data-dependency order, earliest first, every changing call where it ran; refuses a cycle."""
     edges = _edges(context, nodes)
     incoming = dict.fromkeys(nodes, 0)
@@ -337,8 +335,8 @@ def _ordered(context: routine_recording._Context, nodes: dict[int, routine_recor
 
 
 def _verify(
-    context: routine_recording._Context,
-    nodes: dict[int, routine_recording._Call],
+    context: routine_recording.Context,
+    nodes: dict[int, routine_recording.Call],
     document: dict[str, object],
     names: dict[int, str],
 ) -> None:

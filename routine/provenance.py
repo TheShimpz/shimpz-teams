@@ -16,7 +16,7 @@ from routine import schedule, trace
 # --- Each input ------------------------------------------------------------------------------------------------------
 
 
-def _classify_call(context: routine_recording._Context, call: routine_recording._Call) -> None:
+def classify_call(context: routine_recording.Context, call: routine_recording.Call) -> None:
     """Classify every top-level input member of one plan call; refuses a secret."""
     given = call.occurrence.input
     if given.oversize:
@@ -43,8 +43,8 @@ def _classify_call(context: routine_recording._Context, call: routine_recording.
 
 
 def origin(
-    context: routine_recording._Context,
-    input_: tuple[routine_recording._Call, str],
+    context: routine_recording.Context,
+    input_: tuple[routine_recording.Call, str],
     value: object,
     pending: routine_recording.Pending | None = None,
 ) -> str:
@@ -61,7 +61,7 @@ def origin(
         return dated
     if not _referable(value):
         return "assistant"
-    if _holders(context, call, value):
+    if holders(context, call, value):
         return "sourced"
     if isinstance(value, str) and _dated(context, call, value) is not None:
         return "template"
@@ -69,9 +69,9 @@ def origin(
 
 
 def _classified(
-    context: routine_recording._Context, input_: tuple[routine_recording._Call, str], value: object
+    context: routine_recording.Context, input_: tuple[routine_recording.Call, str], value: object
 ) -> tuple[dict[str, object], str]:
-    pending = _binding_for(_bindings(context), input_, value)
+    pending = binding_for(target_choices(context), input_, value)
     kind = origin(context, input_, value, pending)
     if kind == "request":
         return {"kind": "literal", "value": value}, "request"
@@ -84,22 +84,20 @@ def _classified(
     return {"kind": "literal", "value": value}, "assistant"
 
 
-def _person_named(
-    context: routine_recording._Context, pending: routine_recording.Pending | None, value: object
-) -> bool:
+def _person_named(context: routine_recording.Context, pending: routine_recording.Pending | None, value: object) -> bool:
     """Whether the person named the value: the target they chose, or, never for a target, a value their text holds.
 
     A target of the pending choice is confirmed only by the person's exact answer, never by a substring.
     """
-    text = routine_recording._json_text(value)
-    if pending is not None and any(text == routine_recording._json_text(target) for target, _label in pending.targets):
-        return pending.chosen is not None and text == routine_recording._json_text(pending.chosen)
+    text = routine_recording.json_text(value)
+    if pending is not None and any(text == routine_recording.json_text(target) for target, _label in pending.targets):
+        return pending.chosen is not None and text == routine_recording.json_text(pending.chosen)
     return context.known.names(value)
 
 
 def _bound(
-    context: routine_recording._Context,
-    input_: tuple[routine_recording._Call, str],
+    context: routine_recording.Context,
+    input_: tuple[routine_recording.Call, str],
     value: object,
     pending: routine_recording.Pending | None,
 ) -> tuple[dict[str, object], str]:
@@ -109,9 +107,9 @@ def _bound(
     """
     try:
         source = _sourced(context, input_, value)
-    except routine_recording._AskError as asking:
+    except routine_recording.AskError as asking:
         if pending is not None and pending.chosen is not None and _same_choice(asking.question, pending):
-            raise routine_recording._AskError(
+            raise routine_recording.AskError(
                 routine_recording.Question(routine_recording.RERUN, pending=pending)
             ) from asking
         raise
@@ -119,7 +117,7 @@ def _bound(
     return source, "selector" if "where" in source else "step"
 
 
-def _date_origin(context: routine_recording._Context, call: routine_recording._Call, value: object) -> str | None:
+def _date_origin(context: routine_recording.Context, call: routine_recording.Call, value: object) -> str | None:
     """``clock`` when the value is the date its own send started on in the Routine's zone, which each run reads there.
 
     The UTC date of a send that started on another date in that zone is the assistant's fixed literal,
@@ -136,7 +134,7 @@ def _date_origin(context: routine_recording._Context, call: routine_recording._C
 
 
 def _dated(
-    context: routine_recording._Context, call: routine_recording._Call, value: str
+    context: routine_recording.Context, call: routine_recording.Call, value: str
 ) -> tuple[dict[str, object], str] | None:
     """A text no result holds whose dates each run writes for its own date, as a template; None when it has none.
 
@@ -182,8 +180,8 @@ def _pointer(tokens: tuple[str, ...]) -> str:
     return "".join("/" + trace.escape(token) for token in tokens)
 
 
-def _holders(
-    context: routine_recording._Context, consumer: routine_recording._Call, value: object
+def holders(
+    context: routine_recording.Context, consumer: routine_recording.Call, value: object
 ) -> dict[int, list[_Position]]:
     """Each source representative whose replayed result holds ``value``, and the available positions it is at."""
     found: dict[int, list[_Position]] = {}
@@ -203,7 +201,7 @@ def _holders(
 
 
 def _from_work(
-    context: routine_recording._Context, consumer: routine_recording._Call, found: dict[int, list[_Position]]
+    context: routine_recording.Context, consumer: routine_recording.Call, found: dict[int, list[_Position]]
 ) -> dict[int, list[_Position]]:
     """Of several sources holding a work call's value, the one the work itself ran: it replays every run.
 
@@ -222,7 +220,7 @@ def _identifier(value: object) -> bool:
     return type(value) is int or (isinstance(value, str) and not any(character.isspace() for character in value))
 
 
-def _bindings(context: routine_recording._Context) -> tuple[routine_recording.Pending, ...]:
+def target_choices(context: routine_recording.Context) -> tuple[routine_recording.Pending, ...]:
     """Every target choice the span holds, as the person's answers settle them.
 
     Each one already answered, and the open one, chosen as soon as a later send answers it exactly, so that answer
@@ -233,40 +231,38 @@ def _bindings(context: routine_recording._Context) -> tuple[routine_recording.Pe
         return ()
     if asked.pending is None:
         return asked.chosen
-    selected = _selection(context, asked.pending)
+    selected = selection(context, asked.pending)
     current = asked.pending if selected is None else dataclasses.replace(asked.pending, chosen=selected)
     return (*asked.chosen, current)
 
 
-def _binding_for(
-    bindings: Sequence[routine_recording.Pending], input_: tuple[routine_recording._Call, str], value: object
+def binding_for(
+    bindings: Sequence[routine_recording.Pending], input_: tuple[routine_recording.Call, str], value: object
 ) -> routine_recording.Pending | None:
     """The target choice binding this Action input's value: one about this input with the value among its targets."""
     call, member = input_
-    text = routine_recording._json_text(value)
+    text = routine_recording.json_text(value)
     return next(
         (
             binding
             for binding in bindings
             if (call.action, member) == (binding.action, binding.member)
-            and any(text == routine_recording._json_text(target) for target, _label in binding.targets)
+            and any(text == routine_recording.json_text(target) for target, _label in binding.targets)
         ),
         None,
     )
 
 
-def _narrowed(
-    context: routine_recording._Context, work: list[routine_recording._Call]
-) -> list[routine_recording._Call]:
+def narrowed(context: routine_recording.Context, work: list[routine_recording.Call]) -> list[routine_recording.Call]:
     """The work without its calls that sent a target the person did not choose, when one of its calls sent theirs.
 
     Those calls were the choice not taken, so the work keeps the chosen call and runs nothing again. A changing call
     never drops: work that changed something with another target must run again with the chosen one.
     """
-    for binding in _bindings(context):
+    for binding in target_choices(context):
         if binding.chosen is None:
             continue
-        chosen = routine_recording._json_text(binding.chosen)
+        chosen = routine_recording.json_text(binding.chosen)
         sent = {call.index: _sent(call, binding) for call in work}
         others = {index for index, text in sent.items() if text is not None and text != chosen}
         if chosen in sent.values() and all(call.read_only for call in work if call.index in others):
@@ -274,18 +270,18 @@ def _narrowed(
     return work
 
 
-def _sent(call: routine_recording._Call, binding: routine_recording.Pending) -> str | None:
+def _sent(call: routine_recording.Call, binding: routine_recording.Pending) -> str | None:
     """The JSON text of the target of ``binding`` this call sent, or None when it sent none of them."""
-    text = _sent_value(call, binding.member) if call.action == binding.action else None
-    return text if any(text == routine_recording._json_text(target) for target, _label in binding.targets) else None
+    text = sent_value(call, binding.member) if call.action == binding.action else None
+    return text if any(text == routine_recording.json_text(target) for target, _label in binding.targets) else None
 
 
-def _sent_value(call: routine_recording._Call, member: str) -> str | None:
+def sent_value(call: routine_recording.Call, member: str) -> str | None:
     """The JSON text of what a call sent for one input member, or None when it sent none or it is withheld."""
     given = call.occurrence.input
     if given.withheld or not isinstance(given.value, dict) or member not in given.value:
         return None
-    return routine_recording._json_text(given.value[member])
+    return routine_recording.json_text(given.value[member])
 
 
 def _same_choice(question: routine_recording.Question, pending: routine_recording.Pending) -> bool:
@@ -298,29 +294,29 @@ def _same_choice(question: routine_recording.Question, pending: routine_recordin
     )
 
 
-def _selection(context: routine_recording._Context, pending: routine_recording.Pending) -> object:
+def selection(context: routine_recording.Context, pending: routine_recording.Pending) -> object:
     """The target whose exact JSON text the person's latest answer is, or None; "123" and 123 never match each other."""
     after = context.asked.after
     for segment in reversed([segment for send in context.sends[after:] for segment in send.person]):
         answer = segment.strip()
-        chosen = [target for target, _label in pending.targets if answer == routine_recording._json_text(target)]
+        chosen = [target for target, _label in pending.targets if answer == routine_recording.json_text(target)]
         if chosen:
             return chosen[0]
     return None
 
 
 def _sourced(
-    context: routine_recording._Context, input_: tuple[routine_recording._Call, str], value: object
+    context: routine_recording.Context, input_: tuple[routine_recording.Call, str], value: object
 ) -> dict[str, object]:
     """The one source occurrence and position holding ``value``; else it asks.
 
     An identifier nothing returned is asked about, since freezing one would replay a remembered id.
     """
     consumer, _member = input_
-    found = _holders(context, consumer, value)
+    found = holders(context, consumer, value)
     if not found:
         # An identifier no result holds: only work run again finds where it comes from.
-        raise routine_recording._AskError(routine_recording.Question(routine_recording.RERUN))
+        raise routine_recording.AskError(routine_recording.Question(routine_recording.RERUN))
     if len(found) > 1:
         found = _from_work(context, consumer, found)
     if len(found) > 1:
@@ -337,8 +333,8 @@ def _sourced(
 
 
 def _ambiguous(
-    context: routine_recording._Context,
-    input_: tuple[routine_recording._Call, str],
+    context: routine_recording.Context,
+    input_: tuple[routine_recording.Call, str],
     value: object,
     options: list[dict[str, object]],
 ) -> Exception:
@@ -351,7 +347,7 @@ def _ambiguous(
     protected = context.known.protected
     choices: list[dict[str, object]] = []
     for option in options:
-        if trace.exposes(routine_recording._json_text(option["value"]), protected):
+        if trace.exposes(routine_recording.json_text(option["value"]), protected):
             continue
         if trace.exposes(option["label"], protected):
             option = {**option, "label": None}
@@ -359,7 +355,7 @@ def _ambiguous(
             choices.append(option)
     call, member = input_
     pending = routine_recording.Pending(call.action, member, tuple((item["value"], item["label"]) for item in choices))
-    return routine_recording._AskError(
+    return routine_recording.AskError(
         routine_recording.Question("routine-binding-ambiguous", _shown(pending), pending=pending)
     )
 
@@ -377,7 +373,7 @@ def _offered(option: dict[str, object]) -> bool:
     return http_routine_proposal.canonical_question(question) is not None
 
 
-def _binding(context: routine_recording._Context, node: int, position: _Position) -> dict[str, object]:
+def _binding(context: routine_recording.Context, node: int, position: _Position) -> dict[str, object]:
     """How one position is read: its pointer outside arrays, or through one array by the member the person named.
 
     Never by an index, which a reordered result would point at another item; anything else offers its targets.
@@ -465,7 +461,7 @@ def _at(value: object, tokens: tuple[str, ...]) -> object:
     return value
 
 
-def _selectable(constant: object, known: routine_recording._Known) -> bool:
+def _selectable(constant: object, known: routine_recording.Known) -> bool:
     if isinstance(constant, str):
         return len(constant) >= routine_recording.MIN_SELECTOR_CHARS and known.names(constant)
     return type(constant) is int and known.names(constant)
@@ -483,7 +479,7 @@ def _unique(result: trace.Kept, array_tokens: tuple[str, ...], items: list, chos
     return True
 
 
-def _unexposed(source: dict[str, object], known: routine_recording._Known) -> None:
+def _unexposed(source: dict[str, object], known: routine_recording.Known) -> None:
     """Refuse a reference no plan pointer can hold, or whose path or selector holds a value the span protects."""
     pointers = [source["pointer"], source.get("item", "")]
     tokens = [routine_plan.pointer_tokens(pointer) for pointer in pointers]

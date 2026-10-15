@@ -203,15 +203,15 @@ class Question:
 
     def wire(self) -> dict[str, object]:
         """The question as the chat reply carries it: each target as its exact JSON text, which no client rounds."""
-        options = [{"value": _json_text(item["value"]), "label": item["label"]} for item in self.options]
+        options = [{"value": json_text(item["value"]), "label": item["label"]} for item in self.options]
         return {"code": self.code, "options": options, "value": self.value}
 
 
-def _json_text(value: object) -> str:
+def json_text(value: object) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-class _AskError(Exception):
+class AskError(Exception):
     def __init__(self, question: Question) -> None:
         super().__init__(question.code)
         self.question = question
@@ -237,7 +237,7 @@ class Recorded:
 
 
 @dataclass(frozen=True, slots=True)
-class _Known:
+class Known:
     texts: tuple[str, ...]
     numbers: frozenset[str]
     protected: frozenset[str]
@@ -250,14 +250,14 @@ class _Known:
         return isinstance(value, int | float) and routine_plan.canonical(value).decode() in self.numbers
 
 
-def _known(texts: Sequence[str], protection: trace.Protection) -> _Known:
+def known_texts(texts: Sequence[str], protection: trace.Protection) -> Known:
     """The person's texts, with every whole number token each one writes on its own."""
     numbers = frozenset(match.group() for text in texts for match in _NUMBER_RE.finditer(text))
-    return _Known(tuple(texts), numbers, protection.values)
+    return Known(tuple(texts), numbers, protection.values)
 
 
 @dataclass(frozen=True, slots=True)
-class _Call:
+class Call:
     """One call of the span: its global dispatch index, its send, and its occurrence."""
 
     index: int
@@ -274,10 +274,10 @@ class _Call:
 
 
 @dataclass(slots=True)
-class _Context:
+class Context:
     sends: Sequence[Send]
-    calls: list[_Call]
-    known: _Known
+    calls: list[Call]
+    known: Known
     zone: tuple[str, str]
     asked: Asked | None
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract]
@@ -290,15 +290,15 @@ class _Context:
     inputs: dict[int, tuple[dict[str, dict[str, object]], dict[str, str]]] = field(default_factory=dict)
 
 
-def _lines(segments: Sequence[str]) -> list[str]:
+def segment_lines(segments: Sequence[str]) -> list[str]:
     """Each line of the person's segments: a name or number never spans two."""
     return [line for segment in segments for line in segment.split("\n")]
 
 
-def _calls(sends: Sequence[Send], contracts: Mapping[tuple[str, str], routine_plan.ActionContract]) -> list[_Call]:
+def span_calls(sends: Sequence[Send], contracts: Mapping[tuple[str, str], routine_plan.ActionContract]) -> list[Call]:
     """Every call of the span in dispatch order; one whose Action is no longer at its pin refuses the recording."""
     occurrences = [(position, item) for position, send in enumerate(sends) for item in send.occurrences]
-    calls = [_Call(index, send, occurrence) for index, (send, occurrence) in enumerate(occurrences)]
+    calls = [Call(index, send, occurrence) for index, (send, occurrence) in enumerate(occurrences)]
     for call in calls:
         contract = contracts.get(call.action)
         if contract is None or contract.pin != call.occurrence.pin:

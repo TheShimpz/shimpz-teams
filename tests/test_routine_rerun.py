@@ -91,7 +91,7 @@ class RepairTests(unittest.TestCase):
         ).occurrences[0]
         for occurrence in (sent_nothing, withheld):
             with self.subTest(occurrence=occurrence):
-                self.assertIsNone(routine_provenance._sent_value(recording._Call(0, 0, occurrence), "text"))
+                self.assertIsNone(routine_provenance.sent_value(recording.Call(0, 0, occurrence), "text"))
 
     def test_a_repair_that_drops_the_chosen_target_ends_the_span(self) -> None:
         chosen, others = ZONES["result"][3], ZONES["result"][:2]
