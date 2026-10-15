@@ -199,6 +199,45 @@ def _admit_batch(
     return batch, _file_actions(batch, declared, file_actions)
 
 
+def _run_batch(
+    strategy: ChatStrategy,
+    batch: tuple[brain_runtime_client.ActionRequest, ...],
+    contracts: Mapping[str, str],
+    checkpoint: ChatContinuation,
+) -> tuple[dict[str, object], list[InvokedAction]] | ChatHumanSuspension:
+    """Run one admitted batch in order: its results by interrupt, and what it invoked, unless a person must answer."""
+    results: dict[str, object] = {}
+    batch_invoked: list[InvokedAction] = []
+    for index, request in enumerate(batch, start=1):
+        if strategy.cancelled():
+            raise ChatStoppedError("chat turn stopped")
+        strategy.validate_context()
+        with strategy.progress.span(
+            "action",
+            index=index,
+            total=len(batch),
+            assistant_id=request.assistant_id,
+            action=request.action,
+        ):
+            try:
+                result = strategy.invoke_action(request)
+            except action_human.HumanRequestSuspensionError as exc:
+                return ChatHumanSuspension(checkpoint, request, exc.request, tuple(results))
+        results[request.interrupt_id] = result
+        if not strategy.record_invoked:
+            continue
+        batch_invoked.append(
+            InvokedAction(
+                assistant_id=request.assistant_id,
+                action=request.action,
+                inputs=tuple(sorted(name for name in request.input if http_payload.SKILL_INPUT_RE.fullmatch(name))),
+                contract=contracts[request.assistant_id],
+                learnable=all(http_payload.SKILL_INPUT_RE.fullmatch(name) for name in request.input),
+            )
+        )
+    return results, batch_invoked
+
+
 def _drive(
     runtime: brain_runtime_client.BrainRuntimeClient,
     context: brain_runtime_client.RuntimeContext,
@@ -232,24 +271,6 @@ def _drive(
         if _round == strategy.max_rounds:
             raise ChatOrchestrationError("Brain exceeded the Action round limit")
 
-        with strategy.progress.span("action-preparation"):
-            strategy.validate_context()
-            batch, batch_file_actions = _admit_batch(turn, context, declared, strategy, (seen_interrupts, file_actions))
-            batch_interrupts = {request.interrupt_id for request in batch}
-            if strategy.pause_before_batch(batch):
-                return ChatSuspension(
-                    continuation=ChatContinuation(
-                        turn=turn,
-                        seen_interrupts=tuple(sorted(seen_interrupts)),
-                        invoked=tuple(invoked),
-                        round_index=_round,
-                        file_actions=file_actions,
-                    ),
-                    requests=batch,
-                )
-            strategy.prepare_batch(batch)
-        results: dict[str, object] = {}
-        batch_invoked: list[InvokedAction] = []
         checkpoint = ChatContinuation(
             turn=turn,
             seen_interrupts=tuple(sorted(seen_interrupts)),
@@ -257,33 +278,17 @@ def _drive(
             round_index=_round,
             file_actions=file_actions,
         )
-        for index, request in enumerate(batch, start=1):
-            if strategy.cancelled():
-                raise ChatStoppedError("chat turn stopped")
+        with strategy.progress.span("action-preparation"):
             strategy.validate_context()
-            with strategy.progress.span(
-                "action",
-                index=index,
-                total=len(batch),
-                assistant_id=request.assistant_id,
-                action=request.action,
-            ):
-                try:
-                    result = strategy.invoke_action(request)
-                except action_human.HumanRequestSuspensionError as exc:
-                    return ChatHumanSuspension(checkpoint, request, exc.request, tuple(results))
-            results[request.interrupt_id] = result
-            if not strategy.record_invoked:
-                continue
-            batch_invoked.append(
-                InvokedAction(
-                    assistant_id=request.assistant_id,
-                    action=request.action,
-                    inputs=tuple(sorted(name for name in request.input if http_payload.SKILL_INPUT_RE.fullmatch(name))),
-                    contract=contracts[request.assistant_id],
-                    learnable=all(http_payload.SKILL_INPUT_RE.fullmatch(name) for name in request.input),
-                )
-            )
+            batch, batch_file_actions = _admit_batch(turn, context, declared, strategy, (seen_interrupts, file_actions))
+            batch_interrupts = {request.interrupt_id for request in batch}
+            if strategy.pause_before_batch(batch):
+                return ChatSuspension(continuation=checkpoint, requests=batch)
+            strategy.prepare_batch(batch)
+        ran = _run_batch(strategy, batch, contracts, checkpoint)
+        if isinstance(ran, ChatHumanSuspension):
+            return ran
+        results, batch_invoked = ran
 
         strategy.validate_context()
         seen_interrupts.update(batch_interrupts)
