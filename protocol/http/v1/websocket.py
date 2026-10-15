@@ -66,12 +66,7 @@ def public_text(value: object, maximum: int, *, field: str = "public text") -> s
     return value
 
 
-def decode_bounded_json_frame(
-    message: dict[str, object],
-    max_bytes: int,
-    *,
-    invalid_json_detail: str = "WebSocket frame must be valid unique-key JSON",
-) -> dict[str, object]:
+def decode_bounded_json_frame(message: dict[str, object], max_bytes: int) -> dict[str, object]:
     if message.get("type") != "websocket.receive":
         raise FrameError(400, "invalid WebSocket frame")
     text = message.get("text")
@@ -86,14 +81,15 @@ def decode_bounded_json_frame(
     try:
         value = strict_json.loads(text)
     except json.JSONDecodeError, UnicodeError, ValueError, RecursionError:
-        raise FrameError(400, invalid_json_detail) from None
+        raise FrameError(400, "WebSocket frame must be valid unique-key JSON") from None
     if not isinstance(value, dict):
         raise FrameError(400, "WebSocket JSON must be an object")
     return value
 
 
-def safe_status(value: object, fallback: int = 502) -> int:
-    return value if isinstance(value, int) and not isinstance(value, bool) and 400 <= value <= 599 else fallback
+def safe_status(value: object) -> int:
+    """An error status as given when it is one, else 502."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and 400 <= value <= 599 else 502
 
 
 def error_terminal(
@@ -143,12 +139,13 @@ def canonical_human_response(value: object) -> dict[str, object]:
             "decision",
         }
     )
-    if set(value) != expected or (decision == "submit" and not _human_value(value["value"])):
+    if set(value) != expected or (decision == "submit" and not human_value(value["value"])):
         raise FrameError(400, "invalid human response frame")
     return dict(value)
 
 
-def _human_value(value: object) -> bool:
+def human_value(value: object) -> bool:
+    """A human response value within its bounds: an approval, bounded text, or distinct bounded choices."""
     if value is True:
         return True
     if isinstance(value, str):

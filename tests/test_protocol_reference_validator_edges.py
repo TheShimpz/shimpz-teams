@@ -675,9 +675,9 @@ class WebSocketReferenceEdgeTests(unittest.TestCase):
         ):
             with self.subTest(value=value), self.assertRaises(websocket.FrameError):
                 websocket.canonical_human_response(value)
-        self.assertTrue(websocket._human_value("x"))
-        self.assertTrue(websocket._human_value(["a", "b"]))
-        self.assertFalse(websocket._human_value(["a", "a"]))
+        self.assertTrue(websocket.human_value("x"))
+        self.assertTrue(websocket.human_value(["a", "b"]))
+        self.assertFalse(websocket.human_value(["a", "a"]))
 
 
 class SchemaReferenceEdgeTests(unittest.TestCase):
