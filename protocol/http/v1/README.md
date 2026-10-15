@@ -311,8 +311,7 @@ response cap.
 Every notice (`routine_notice.canonical_notice`) names its Routine by the `name` it had when Team wrote that version, so a row
 keeps its title after the Routine is renamed or deleted, and carries `usage` and `protection_lost`. A run notice's
 `usage` (`routine.canonical_run_usage`) has a chat reply's shape, `{duration_ms, models}`, its active time excluding
-frozen time and per provider and model the tokens its recovery calls reported; a run that needed no recovery lists no
-model. A Routine outcome carries `usage` `null`, except `healthy`, which carries its runs' summed usage.
+frozen time; a Routine run asks no model, so it lists none. A Routine outcome carries `usage` `null`, except `healthy`, which carries its runs' summed usage.
 `protection_lost` is true on a run's notice versions written after the run lost the protection of its secret values
 (ADR-0101 section 6.2), so nothing it produced afterwards was shown anywhere; it is always false on a Routine outcome.
 The Routine outcome `deleted` (detail `{}`) closes a Routine's timeline once its confirmed deletion completes.
@@ -334,8 +333,8 @@ completion of its own; a run that already has a notice always gets its terminal 
 Every call is placed by a position (`routine.canonical_position`): `{"phase": "replay", "step": n}`, a replay step's
 1-based position among the plan's `steps`; no other phase is admitted. `held` names the call whose effect is unresolved as `{assistant_id, action,
 position, steps}`, all `null` when the run sealed no plan cursor; a `frozen` run names its call the same way with its
-`request_kind`: `human` or `integrations`. The same run's notice then goes on as `paused`, the same call plus a `reason` (`decided`,
-`unavailable`, `exhausted`, `policy`, or `evidence`, recovery evidence that could not be read), or `user-skipped` when a
+`request_kind`: `human` or `integrations`. The same run's notice then goes on as `paused`, the same call plus a `reason`
+(`exhausted`, `policy`, or `evidence`, recovery evidence Team never classified), or `user-skipped` when a
 person set the run aside, the same call plus the `choice` that did it (`run`, or `delete`, a deletion of its Routine). A
 person's `user-skipped` is a run outcome; the Routine outcome `skipped` reports missed firings and has no run id. A
 continuous Routine's healthy runs that show nothing, each completed with no earlier notice, share one versioned
@@ -461,17 +460,16 @@ Ed25519 assertion travels in `X-Shimpz-Routine` with the JWT key id `local-routi
 `team-local-routine`; `supervisor.canonical_claims(value, audience=ROUTINE_AUDIENCE)` admits the same request, body,
 model, lifetime, and one-use nonce bindings as a Supervisor assertion, requires `authority: "routine"` with
 `authority_sha256` equal to the SHA-256 of the run's lease token, and refuses any human assurance or decision binding.
-Admin's scheduler claims under the Team bearer with `POST /v1/routines/claim` and exactly `{}`
+Admin's scheduler claims under the Team bearer with `POST /v1/routines/claim` and exactly `{long}`
 (`routine_run.canonical_claim_request`): no model key gates a claim, because a healthy compiled run needs none (ADR-0092),
 and any Team with a configured model may be claimed. The answer (`routine_run.canonical_claim`) is one run with its lease
-token, lease expiry, the Team's configured provider, and the Routine `revision`, `plan_digest`, and `mode` (`scheduled`
-or `continuous`, `routine_run.RUN_MODES`) it was claimed at, or `null` with `next_due_at`, the earliest epoch second a
-Routine of a Team Admin can run becomes due (`null` when none will), so Admin wakes then while still reconciling on its
-own interval. The run's signed segment request, `POST /v1/teams/:team_id/routines/runs/:run_id/segment`, carries exactly
-that `{revision, plan_digest, mode}` (`routine_run.canonical_segment_request`); any other is refused as
-`routine-revision-stale` before anything runs. The run's segment and its frozen answers carry the private model
-credential only when Admin holds the Team's key; it then travels whole and the assertion binds it, and without it a held
-run's recovery pauses as `unavailable`.
+token, lease expiry, and the Routine `revision` and `plan_digest` it was claimed at, or `null` with `next_due_at`, the
+earliest epoch second a Routine of a Team Admin can run becomes due (`null` when none will), so Admin wakes then while
+still reconciling on its own interval. The run's signed segment request, `POST
+/v1/teams/:team_id/routines/runs/:run_id/segment`, carries exactly that `{revision, plan_digest}`
+(`routine_run.canonical_segment_request`); any other is refused as `routine-revision-stale` before anything runs. No
+run, recovery, or frozen run's answer asks a model, so none carries a model credential (ADR-0092 amendment,
+2026-10-15).
 
 An intent-route classification (never selection, chat, or any other request) may also carry one Supervisor-configured
 TypeSafe key in `X-Shimpz-Decision-Api-Key` (ADR-0077). The Local Supervisor assertion then binds its digest as

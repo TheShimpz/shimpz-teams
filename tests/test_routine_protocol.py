@@ -11,10 +11,8 @@ CARD = VECTORS["routine_proposal"]["valid"][0]
 
 
 class RoutineProtocolEdgeTests(unittest.TestCase):
-    def test_schedules_name_their_cap_mode_and_active_time(self) -> None:
+    def test_schedules_name_their_cap_and_active_time(self) -> None:
         self.assertEqual(routine.daily_cap({"kind": "hourly", "every": 7}), 4)
-        self.assertEqual(routine_run.run_mode({"kind": "continuous", "gap": 30, "cap": 1000}), "continuous")
-        self.assertEqual(routine_run.run_mode({"kind": "daily", "time": "09:00"}), "scheduled")
         self.assertEqual(routine_run.active_seconds(8), routine_run.SHORT_ACTIVE_SECONDS)
         self.assertEqual(routine_run.active_seconds(320), routine_run.MAX_ACTIVE_SECONDS)
 

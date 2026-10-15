@@ -209,7 +209,6 @@ class Claim:
     # The Routine revision and plan digest the run was claimed at; its segment request must name exactly these.
     revision: int = 1
     plan_digest: str = ""
-    mode: str = "scheduled"
     # The run's active time, from its revision's units; Admin bounds its worker's wait by it.
     active_seconds: int = routine_plan.SHORT_ACTIVE_SECONDS
 

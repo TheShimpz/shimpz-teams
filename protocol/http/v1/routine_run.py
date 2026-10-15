@@ -105,14 +105,6 @@ def active_seconds(units: int) -> int:
     return min(360 + 30 * units, MAX_ACTIVE_SECONDS)
 
 
-# How a claimed run was scheduled: by its firings, or continuously after the previous run ended (ADR-0092).
-RUN_MODES = ("scheduled", "continuous")
-
-
-def run_mode(schedule: dict[str, object]) -> str:
-    return "continuous" if schedule["kind"] == "continuous" else "scheduled"
-
-
 def canonical_claim(value: object) -> dict[str, object] | None:
     """A claim's answer: one run with the lease token Admin's routine identity signs for, or none and a wake hint.
 
@@ -129,7 +121,7 @@ def canonical_claim(value: object) -> dict[str, object] | None:
     valid = (
         hint is None
         and isinstance(run, dict)
-        and set(run) == fields | {"revision", "plan_digest", "mode"}
+        and set(run) == fields | {"revision", "plan_digest"}
         and type(run["active_seconds"]) is int
         and 0 < run["active_seconds"] <= MAX_ACTIVE_SECONDS
         and routine._team(run["team_id"])
@@ -140,14 +132,13 @@ def canonical_claim(value: object) -> dict[str, object] | None:
         and run["lease_expires_at"] > 0
         and routine._revision(run["revision"])
         and routine._identity(run["plan_digest"], routine.PLAN_DIGEST_RE)
-        and run["mode"] in RUN_MODES
     )
     return copy.deepcopy(value) if valid else None
 
 
 def canonical_segment_request(value: object) -> dict[str, object] | None:
     """A leased run's segment request: exactly the revision and plan digest its claim named, under the signature."""
-    if not isinstance(value, dict) or set(value) != {"revision", "plan_digest", "mode"}:
+    if not isinstance(value, dict) or set(value) != {"revision", "plan_digest"}:
         return None
     # A request body reaches only the fixed-length digest pattern, never the shared identifier patterns.
     plan_digest = value["plan_digest"]
@@ -155,9 +146,8 @@ def canonical_segment_request(value: object) -> dict[str, object] | None:
         routine._revision(value["revision"])
         and isinstance(plan_digest, str)
         and routine.PLAN_DIGEST_RE.fullmatch(plan_digest) is not None
-        and value["mode"] in RUN_MODES
     )
-    return {"revision": value["revision"], "plan_digest": plan_digest, "mode": value["mode"]} if valid else None
+    return {"revision": value["revision"], "plan_digest": plan_digest} if valid else None
 
 
 # Per-execution diagnostics (ADR-0092 section 8): one Team-sanitized handled failure, or one safe transport condition,

@@ -169,7 +169,6 @@ def claim_routine_run(self, long: bool = True) -> dict[str, object] | None:
                 "lease_expires_at": claim.run.lease_expires_at,
                 "revision": claim.revision,
                 "plan_digest": claim.plan_digest,
-                "mode": claim.mode,
                 "active_seconds": claim.active_seconds,
             }
     return None

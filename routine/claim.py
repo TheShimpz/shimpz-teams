@@ -7,7 +7,6 @@ import secrets
 from action import journal as action_journal
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
-from protocol.http.v1 import routine_run as http_routine_run
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
@@ -215,9 +214,8 @@ def _lease(
         served_at=now,
         starts=routine_starts.started(state.starts, due.routine_id, now, units),
     )
-    mode = http_routine_run.run_mode(due.schedule)
     digest = routine_definition.plan_digest(due.plan)
-    return state, record.Claim(leased, token, due.revision, digest, mode, leased.active_seconds_left)
+    return state, record.Claim(leased, token, due.revision, digest, leased.active_seconds_left)
 
 
 def lease_until(value: record.Run, now: int) -> int:

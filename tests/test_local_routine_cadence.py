@@ -227,6 +227,5 @@ class ServiceLoadTests(RoutineHttpCase):
             state = self.state(service)
         runs = [answer["run"] for answer in answers if answer["run"] is not None]
         self.assertEqual((len(answers), len(runs), len(state.runs)), (8, 1, 1))
-        self.assertEqual(runs[0]["mode"], "continuous")
         # The others get no wake hint for a Routine that is running: its own end sets its next run.
         self.assertTrue(all(answer["next_due_at"] is None for answer in answers if answer["run"] is None))

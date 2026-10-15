@@ -38,7 +38,6 @@ from local.routine import state as routine_state
 from local.routine import store as routine_store
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
-from protocol.http.v1 import routine_run as http_routine_run
 from routine import claim as routine_claim
 from routine import cursor as routine_cursor
 from routine import definition as routine_definition
@@ -667,7 +666,7 @@ def run_routine(
     team_id: str,
     run_id: str,
     evidence: local_authority.RoutineEvidence,
-    claimed: tuple[int, str, str],
+    claimed: tuple[int, str],
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
     """Run one segment of a leased compiled run in the Team's execution slot, with no model.
@@ -679,12 +678,7 @@ def run_routine(
     provider = routine_run.team_provider(self, team_id) or ""
     lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
     value, routine = routine_run._live_run(self, team_id, run_id, lease)
-    current = (
-        routine.revision,
-        routine_definition.plan_digest(routine.plan),
-        http_routine_run.run_mode(routine.schedule),
-    )
-    if claimed != current:
+    if claimed != (routine.revision, routine_definition.plan_digest(routine.plan)):
         raise ApiProblem(409, "Routine revision changed since the claim", code="routine-revision-stale")
     with (
         self._exclusive_chat_turn(team_id, routine.routine_id) as token,

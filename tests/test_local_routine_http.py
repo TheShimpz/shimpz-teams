@@ -135,7 +135,7 @@ class KeylessRunTests(RoutineHttpCase):
             status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
             claim = json.loads(raw)["run"]
             path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
-            bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"], "mode": claim["mode"]}
+            bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"]}
             segment = json.dumps(bound).encode()
             # No model credential travels, and the assertion binds none.
             headers = self.routine_headers(path, claim["lease_token"], body=segment, keyless=True)
@@ -153,7 +153,7 @@ class KeylessRunTests(RoutineHttpCase):
             self.routine(service)
             claim = service.claim_routine_run()
             path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
-            bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"], "mode": claim["mode"]}
+            bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"]}
             segment = json.dumps(bound).encode()
             keyless = self.routine_headers(path, claim["lease_token"], body=segment, keyless=True)
             # A half credential is refused, and a key the assertion does not bind is never admitted.
@@ -206,8 +206,7 @@ class RunRouteTests(RoutineHttpCase):
             self.routine(service)
             claim = service.claim_routine_run()
             path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
-            bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"], "mode": claim["mode"]}
-            self.assertEqual(claim["mode"], "scheduled")
+            bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"]}
             segment = json.dumps(bound).encode()
             status, _type, raw = self.request("POST", path, segment, self.model())
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
@@ -217,11 +216,10 @@ class RunRouteTests(RoutineHttpCase):
             other_lease = self.routine_headers(path, "another-lease", body=segment)
             status, _type, raw = self.request("POST", path, segment, other_lease)
             self.assertEqual(self.terminal(raw)["body"]["code"], "routine-lease-invalid")
-            # A segment that names another revision, plan, or mode than its claim is refused before anything runs.
+            # A segment that names another revision or plan than its claim is refused before anything runs.
             for stale in (
                 {**bound, "revision": claim["revision"] + 1},
                 {**bound, "plan_digest": "sha256:" + "0" * 64},
-                {**bound, "mode": "continuous"},
             ):
                 body = json.dumps(stale).encode()
                 status, _type, raw = self.request(

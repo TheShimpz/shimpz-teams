@@ -245,7 +245,7 @@ def run(handler, parts: list[str], route: strict_http.ControllerRouteMatch, requ
     service = handler.server.controller.chat_turn_service
 
     def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
-        binding = (claimed["revision"], claimed["plan_digest"], claimed["mode"])
+        binding = (claimed["revision"], claimed["plan_digest"])
         return HTTPStatus.OK, service.run_routine(team_id, run_id, evidence, binding, reporter)
 
     with local_audit.bind_request_principal(request_audit.principal()):
