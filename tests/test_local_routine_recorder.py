@@ -134,6 +134,20 @@ class RecordingBookTests(unittest.TestCase):
                 self.assertEqual(routine_recorder.stated_schedule(book.get("team_1", send)), expected)
                 book.drop("team_1")
 
+    def test_the_brain_learns_the_one_output_the_person_states(self) -> None:
+        book = routine_recorder.RecordingBook()
+        self.assertIsNone(routine_recorder.stated_output(None))
+        for message, expected in (
+            ("Liste o DNS e mostre sempre", "show"),
+            ("Liste o DNS", None),
+            ("Liste o DNS e mostre os resultados, ou só quando mudar", None),
+            (http_payload.compose_clarified("Liste o DNS", "E o resultado?", "Não mostrar", "pt"), "none"),
+        ):
+            with self.subTest(message=message):
+                send = book.start("team_1", BINDING, _started(message), 1)
+                self.assertEqual(routine_recorder.stated_output(book.get("team_1", send)), expected)
+                book.drop("team_1")
+
     def test_a_question_is_kept_and_counts_sends_as_old_ones_go(self) -> None:
         book = routine_recorder.RecordingBook()
         book.start("team_1", BINDING, _started(), 1)
@@ -188,7 +202,8 @@ class RecordingBookTests(unittest.TestCase):
         cases = [
             ("routine-schedule-unstated", "a cada 30 segundos", None),
             ("routine-schedule-unstated", "ainda não sei", None),
-            ("routine-output-unstated", "Mostrar somente quando mudar", intent),
+            # An output answer is the Brain's, so the description says what each run does with its result.
+            ("routine-output-unstated", "Mostrar somente quando mudar", None),
             ("routine-output-unstated", "ainda não sei", None),
             ("routine-interval-over-budget", "a cada 31 segundos", None),
             ("routine-interval-over-budget", "todo dia às 9h", None),
@@ -198,8 +213,8 @@ class RecordingBookTests(unittest.TestCase):
             ("routine-binding-ambiguous", '"123"', None),
             ("routine-work-rerun", "a cada hora", None),
             ("routine-schedule-unstated", "a cada 30 dias", None),
-            # An answer that also states a schedule is the Brain's, so the description says how often it runs.
-            ("routine-output-unstated", "Mostrar somente quando mudar. A cada 60 segundos.", None),
+            # A target answer that also states a schedule is the Brain's, so the description says how often it runs.
+            ("routine-binding-ambiguous", '"a-zone". A cada 60 segundos.', None),
         ]
         for code, answer, expected in cases:
             with self.subTest(code=code, answer=answer):

@@ -535,7 +535,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             client.start(context(self.secret), "Quais modelos?", conversation=())
 
     def test_a_completed_turn_carries_at_most_one_routine_record_and_never_with_a_question(self):
-        recorded = {"op": "record", "name": "DNS semanal"}
+        recorded = {"name": "DNS semanal"}
         client, connection = self.client(
             _Response(
                 {"status": "completed", "clarification": None, "reply": "Ok.", "actions": [], "routine": recorded}
@@ -571,6 +571,14 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             (sent["routine_mode"], sent["routine_question"], sent["routine_rerun"]), (True, question, [dict(rerun[0])])
         )
         self.assertEqual(sent["routine_schedule"], {"kind": "weekly", "weekday": 0, "time": "09:00"})
+        self.assertIsNone(sent["routine_output"])
+        output = dataclasses.replace(chat, routine_output="changes")
+        client, connection = self.client(
+            _Response({"status": "completed", "clarification": None, "reply": "", "actions": [], "routine": recorded})
+        )
+        # A record says everything through the card Team answers it with, so its reply may be empty.
+        self.assertEqual(client.start(output, "Mostrar somente quando mudar", conversation=()).reply, "")
+        self.assertEqual(json.loads(connection.requests[0][2])["routine_output"], "changes")
         question = {
             "question": "Qual?",
             "options": [{"label": "A", "description": ""}, {"label": "B", "description": ""}],
@@ -579,6 +587,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         rendered = "Qual?\n\n1. A ✓\n2. B"
         for routine, status, clarification, reply in (
             (["record"], "completed", None, "Ok."),
+            (recorded, "completed", None, " "),
             (recorded, "action-required", None, ""),
             (recorded, "completed", question, rendered),
         ):

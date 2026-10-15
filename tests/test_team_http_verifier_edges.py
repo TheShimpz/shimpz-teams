@@ -134,14 +134,6 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
                 _execute(HTTP / "verify.py", mutate)
 
-    def test_rejects_routine_answer_replies_that_miss_a_language_or_the_english_default(self) -> None:
-        for mutate in (
-            _edited('    "zh": "已将你的回答应用到例行任务。",\n', ""),
-            _edited('ANSWER_REPLIES[locale or "en"]', 'ANSWER_REPLIES[locale or "pt"]'),
-        ):
-            with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
-                _execute(HTTP / "verify.py", mutate)
-
     def test_rejects_missing_or_drifted_routine_phrase_vectors(self) -> None:
         def missing(value: dict[str, object]) -> None:
             value["routine_phrase"]["stated"] = []

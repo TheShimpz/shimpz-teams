@@ -373,17 +373,10 @@ for case in labels["authored_segments"]:
     if list(payload.authored_segments(case["message"])) != case["segments"]:
         fail("an authored-segments vector differs")
 
-if set(routine_proposal.ANSWER_REPLIES) != set(routine.LOCALES) or any(
-    routine.canonical_name(text) != text for text in routine_proposal.ANSWER_REPLIES.values()
-):
-    fail("the Routine answer replies do not cover every interface language with one plain line")
-if routine_proposal.answer_reply(None) != routine_proposal.ANSWER_REPLIES["en"]:
-    fail("a chat without an interface language does not get the English answer reply")
-
 choices = routine_proposal.OUTPUT_CHOICES
 if set(choices) != set(routine.LOCALES) or any(
-    tuple(labels) != routine_proposal.OUTPUT_KINDS
-    or any(routine.canonical_name(label) != label for label in labels.values())
+    tuple(labels) != routine.OUTPUT_MODES
+    or not all(routine.exact_name(label) for label in labels.values())
     or len({label.casefold() for label in labels.values()}) != len(labels)
     for labels in choices.values()
 ):

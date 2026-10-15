@@ -139,17 +139,29 @@ def _schedule(
     raise routine_recording.AskError(routine_recording.Question("routine-schedule-unstated"))
 
 
-def _output(sends: Sequence[routine_recording.Send], existing: routine_recording.Existing | None) -> str | None:
-    """The output choice the latest authored segment stating one states; a replacement keeps its mode when none is.
-
-    None when no segment states one, or the latest that does states two: the person is then asked.
-    """
+def _latest_outputs(sends: Sequence[routine_recording.Send]) -> tuple[str, ...]:
+    """Every output choice the latest authored segment stating one states; empty when none does."""
     latest: tuple[str, ...] = ()
     for send in sends:
         for segment in send.person:
             found = phrase.outputs(segment)
             if found:
                 latest = found
+    return latest
+
+
+def stated_output(sends: Sequence[routine_recording.Send]) -> str | None:
+    """The one output choice the latest authored segment stating one states, or None."""
+    latest = _latest_outputs(sends)
+    return latest[0] if len(latest) == 1 else None
+
+
+def _output(sends: Sequence[routine_recording.Send], existing: routine_recording.Existing | None) -> str | None:
+    """The output choice the person states; a replacement keeps its mode when none is.
+
+    None when no segment states one, or the latest that does states two: the person is then asked.
+    """
+    latest = _latest_outputs(sends)
     if len(latest) == 1:
         return latest[0]
     if not latest and existing is not None:

@@ -368,7 +368,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
 
         terminal = types.SimpleNamespace(
             reply="reply",
-            routine={"op": "record"},
+            routine={"name": "DNS"},
             clarification=None,
             memory=(),
             actions=(),
@@ -425,7 +425,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
 
     def test_a_card_whose_terminal_line_outgrows_its_bound_is_refused_never_cut(self) -> None:
         write = mock.Mock()
-        terminal = types.SimpleNamespace(routine={"op": "record"})
+        terminal = types.SimpleNamespace(routine={"name": "DNS"})
         body = {"team_id": "team_1", "reply": "x" * 200_000}
         for fields, expected in (
             ({"routine_proposal": {"name": "y" * 70_000}}, {"routine_refusal": {"code": "routine-proposal-too-large"}}),

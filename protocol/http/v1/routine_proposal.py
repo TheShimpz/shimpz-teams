@@ -125,7 +125,6 @@ def _question_option(value: object) -> bool:
 # What each run does with its result, as the person chooses it (ADR-0101): show it every run, show it only when it
 # changes, or show nothing. Team reads the choice from the person's own words; asked, Admin offers these labels in the
 # interface language, and the label the person picks, as Admin composes it, states that choice.
-OUTPUT_KINDS = routine.OUTPUT_MODES
 OUTPUT_CHOICES = {
     "ar": {
         "show": "اعرض في كل تشغيل",
@@ -164,25 +163,6 @@ OUTPUT_CHOICES = {
     },
     "zh": {"show": "每次运行都显示", "changes": "仅在变化时显示", "none": "不显示"},
 }
-
-
-# The reply of a send that answers Team's pending question, which Team then records without asking the Brain: one
-# fixed text in each interface language, and the English one for a chat without one (ADR-0101).
-ANSWER_REPLIES = {
-    "ar": "طبّقتُ إجابتك على الروتين.",
-    "de": "Ich habe Ihre Antwort auf die Routine angewendet.",
-    "en": "I applied your answer to the Routine.",
-    "es": "Apliqué tu respuesta a la rutina.",
-    "fr": "J'ai appliqué votre réponse à la routine.",
-    "ja": "回答をルーティンに反映しました。",
-    "pt": "Apliquei sua resposta à rotina.",
-    "zh": "已将你的回答应用到例行任务。",
-}
-
-
-def answer_reply(locale: str | None) -> str:
-    """The fixed reply of an answer Team records itself, in the chat's interface language or English."""
-    return ANSWER_REPLIES[locale or "en"]
 
 
 def canonical_question(value: object) -> dict[str, object] | None:

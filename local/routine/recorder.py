@@ -30,6 +30,7 @@ from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import phrase
 from protocol.http.v1 import routine_context as http_routine_context
+from routine import compose as routine_compose
 from routine import pin as routine_pin
 from routine import recording as routine_recording
 from routine import trace
@@ -251,9 +252,9 @@ class RecordingBook:
 def answered(span: Span | None) -> Intent | None:
     """The intent to record again when the span's latest send is Admin's composed answer that binds its question.
 
-    It binds an output question when it states an output, and a target question when it is exactly one target's JSON
-    text, either only when it states no schedule. A schedule or interval answer, and anything else typed freely or not
-    binding, is the Brain's to read: it records again with a description that says how often the Routine runs.
+    Only a target question binds, when the answer is exactly one target's JSON text and states no schedule. Any other
+    answer is the Brain's to read: it records again with a description that says it, and an output answer runs no
+    Action again.
     """
     if span is None or span.intent is None or span.asked is None or span.refused:
         return None
@@ -264,18 +265,23 @@ def answered(span: Span | None) -> Intent | None:
     if phrase.stated(answer):
         return None
     pending = span.asked.pending
-    bound = {
-        "routine-output-unstated": bool(phrase.outputs(answer)),
-        "routine-binding-ambiguous": pending is not None
-        and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets),
-    }
-    return span.intent if bound.get(span.asked.code, False) else None
+    bound = (
+        span.asked.code == "routine-binding-ambiguous"
+        and pending is not None
+        and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets)
+    )
+    return span.intent if bound else None
 
 
 def stated_schedule(span: Span | None) -> dict[str, object] | None:
     """The one schedule the span's person states, as Team will record it, for the Brain's description; else None."""
     found = () if span is None else routine_recording.stated_schedules(span.sends)
     return dict(found[0]) if len(found) == 1 else None
+
+
+def stated_output(span: Span | None) -> str | None:
+    """The one output mode the span's person states, as Team will record it, for the Brain's description; else None."""
+    return None if span is None else routine_compose.stated_output(span.sends)
 
 
 def routine_mode(span: Span | None) -> bool:
@@ -346,10 +352,13 @@ def _rerun_input(span: Span, slot: routine_recording.Slot, item: tuple[str, str,
 
 
 class AnsweredRuntime:
-    """The runtime of a send Team records itself: it never asks the Brain and completes with its fixed reply."""
+    """The runtime of a send Team records itself: it never asks the Brain, and its reply is empty.
 
-    def __init__(self, reply: str, intent: Intent) -> None:
-        self._turn = brain_runtime_client.RuntimeTurn("completed", reply, (), routine=intent)
+    The card, question, or refusal the recording ends with says everything.
+    """
+
+    def __init__(self, intent: Intent) -> None:
+        self._turn = brain_runtime_client.RuntimeTurn("completed", "", (), routine=intent)
 
     def start(self, _context: object, _message: str, *, conversation: object = ()) -> object:
         return self._turn

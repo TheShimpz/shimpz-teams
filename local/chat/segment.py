@@ -31,7 +31,6 @@ from local.routine import diagnostics as routine_diagnostics
 from local.routine import recorder as routine_recorder
 from local.validation import brain_thread_id as _brain_thread_id
 from local.validation import routine_thread_id as _routine_thread_id
-from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import claim as routine_claim
 from routine import pin as routine_pin
 from routine import recording as routine_recording
@@ -235,6 +234,7 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         routine_mode=mutable and routine_recorder.routine_mode(_span(self, request)),
         routine_rerun=routine_recorder.rerun_work(_span(self, request)) if mutable else None,
         routine_schedule=routine_recorder.stated_schedule(_span(self, request)) if mutable else None,
+        routine_output=routine_recorder.stated_output(_span(self, request)) if mutable else None,
         locale=request.locale,
         turn_clock=_turn_clock(_span(self, request)) if mutable else None,
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),
@@ -290,7 +290,7 @@ def _runtime(self, request: SegmentRequest) -> object:
     if request.recording is not None and request.continuation is None:
         intent = routine_recorder.answered(self.routine_recordings.live(request.team_id, request.recording))
         if intent is not None:
-            return routine_recorder.AnsweredRuntime(http_routine_proposal.answer_reply(request.locale), intent)
+            return routine_recorder.AnsweredRuntime(intent)
     return self.brain_runtime
 
 

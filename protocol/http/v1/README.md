@@ -189,17 +189,19 @@ interface language (for example `routine-step-budget` or `routine-secret-literal
 `routine_question` (`routine_proposal.canonical_question`) is `{code, options, value}`: Team asks the person before any card,
 the recording is kept, and the person's answer is an ordinary chat message. Its code is one of
 `routine_proposal.QUESTION_CODES`: how often it runs (`routine-schedule-unstated`), what each run does with its result (`routine-output-unstated`:
-Admin offers `routine_proposal.OUTPUT_CHOICES`, one label for each of `routine_proposal.OUTPUT_KINDS` in the interface language, and
+Admin offers `routine_proposal.OUTPUT_CHOICES`, one label for each of `routine.OUTPUT_MODES` in the interface language, and
 the label the person picks states that choice), a stated interval the Team's daily budget
 cannot hold (`routine-interval-over-budget`, whose `value` is the shortest interval in seconds that fits; with room
 for no run at all the recording is refused as `routine-step-budget`), which item an input means (`routine-binding-ambiguous`, whose `options` are at most 8
 targets `{value, label}`: `value` is the exact compact JSON text of the string or integer the input would take, so
 no client rounds a large integer, and `label` the item's name, or `null`), and work to run again
 (`routine-work-rerun`), for a value that no earlier result provides or a target the person chose instead. Only `routine-binding-ambiguous` has options, and only
-`routine-interval-over-budget` has a value. When the person's next send is Admin's composed answer to that question
-and its latest answer binds it (it states a schedule, an interval, or an output, or is exactly one target's JSON text), Team
-records again with the request's stored intent without asking the Brain, and the reply is the fixed
-`routine_proposal.answer_reply` text in the interface language (English without one).
+`routine-interval-over-budget` has a value. When the person's next send is Admin's composed answer to an ambiguous
+binding and its latest answer is exactly one target's JSON text that states no schedule, Team records again with the
+request's stored intent without asking the Brain, and its reply is empty. Every other answer goes to the Brain, which
+records again with a description that says it; an output answer runs no Action again, so the span's latest work stays
+the work recorded, and its reply is empty too. A completed turn's `reply` is empty only beside a `routine_proposal`,
+`routine_question`, or `routine_refusal`, which then says everything the person reads.
 
 What a person's own words state about a Routine is read here too, with no model, so Team and the Brain read the
 same words alike (`phrase.py`, ADR-0101): `phrase.stated` reads the canonical schedules a text states,
@@ -226,7 +228,10 @@ value, chosen, source}` with a plain member of at most `routine_context.MAX_RERU
 carries its exact compact JSON text of at most `routine_context.MAX_RERUN_LITERAL_CHARS` characters, or `null` when withheld,
 and whether it is a target the person chose; a `clock` input is the run's date; a `fresh` input never shows its value
 and names the `{assistant, action}` whose earlier result held it, or `null`. Team sends no such work past these
-bounds. `routine_mode`, whether the chat is about a Routine, is a plain advisory boolean. `routine_proposal` is
+bounds. `routine_mode`, whether the chat is about a Routine, is a plain advisory boolean. `routine_schedule` is the one
+schedule Team reads from the person's sends (`routine.canonical_schedule`) and `routine_output` the one output mode it
+reads (`routine.OUTPUT_MODES`), each `null` when it reads none; the Brain refuses a record whose description states
+another, or states one the person did not give, except a replacement's own listed one. `routine_proposal` is
 the Routine's confirmation card (`routine_proposal.canonical_proposal`), at most 160 KiB, which Team checks against the whole
 terminal line bound before publishing: exactly `{proposal_id, expires_at, replaces, name, description, steps}` (ADR-0101
 amendment, 2026-10-15). `replaces` is `null` for a new Routine or the id of the Routine it changes; `description` is the

@@ -111,11 +111,14 @@ class RuntimeContext:
     # Advisory: whether the chat is about a Routine, read with no model from the recording span (ADR-0101). The Brain
     # still follows what the current message asks.
     routine_mode: bool = False
-    # The work a pending unsourced or rerun question asks to run again, in order, bounded and redacted; None otherwise.
+    # The work a pending rerun question asks to run again, in order, bounded and redacted; None otherwise.
     routine_rerun: tuple[Mapping[str, object], ...] | None = None
     # The one schedule the recording span's person states, which the record call's description must say; None when the
     # person states none or several (ADR-0101). Only beside ``routines``.
     routine_schedule: Mapping[str, object] | None = None
+    # The one output mode the recording span's person states, which the record call's description must say; None when
+    # the person states none or several (ADR-0101). Only beside ``routines``.
+    routine_output: str | None = None
     # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
     # the start, so only a start sends it.
     locale: str | None = None
@@ -144,8 +147,8 @@ class RuntimeTurn:
     clarification: dict[str, object] | None = None
     # The memory changes a completed turn proposed; the profile saves them only when its reply commits (ADR-0084).
     memory: tuple[dict[str, str], ...] = ()
-    # The one Routine change a completed turn's isolated compiler produced (ADR-0092), or None; Local Team admits it.
-    routine: dict[str, object] | None = None
+    # The chat agent's one Routine ``record`` that ended a completed turn (ADR-0101), or None; Local Team admits it.
+    routine: object = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,6 +346,7 @@ class BrainRuntimeClient:
             "routine_mode": context.routine_mode,
             "routine_rerun": None if context.routine_rerun is None else [dict(item) for item in context.routine_rerun],
             "routine_schedule": None if context.routine_schedule is None else dict(context.routine_schedule),
+            "routine_output": context.routine_output,
             "attachments": [dict(item) for item in context.attachments],
         }
 
@@ -489,7 +493,9 @@ class BrainRuntimeClient:
                     input=action_input,
                 )
             )
-        if status == "completed" and (not reply.strip() or actions):
+        # A completed turn says something, except one that ended on a Routine record: the card, question, or refusal
+        # Team answers it with says everything, and its reply may be empty.
+        if status == "completed" and (actions or (not reply.strip() and (routine is None or reply))):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         if status == "action-required" and (reply or not actions):
             raise BrainRuntimeError("Brain runtime returned an invalid response")

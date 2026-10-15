@@ -43,7 +43,7 @@ from routine import recording as routine_recording
 PROPOSAL_SECONDS = 15 * 60
 # The record call names the Routine; when it runs, in which zone, and what each run does with its result are the
 # person's own words, which Team reads (ADR-0101).
-_OUTCOME_FIELDS = frozenset({"op", "name", "description", "replaces"})
+_OUTCOME_FIELDS = frozenset({"name", "description", "replaces"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,10 +118,8 @@ def _outcome(value: object) -> dict[str, object]:
     valid = (
         isinstance(value, dict)
         and set(value) == _OUTCOME_FIELDS
-        and value["op"] == "record"
-        and http_routine.canonical_name(value["name"]) == value["name"]
-        and http_routine.canonical_description(value["description"]) is not None
-        and http_routine.canonical_description(value["description"]) == value["description"]
+        and http_routine.exact_name(value["name"])
+        and http_routine.exact_description(value["description"])
         and (value["replaces"] is None or http_routine.ROUTINE_ID_RE.fullmatch(str(value["replaces"])) is not None)
     )
     if not valid:

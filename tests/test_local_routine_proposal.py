@@ -82,7 +82,6 @@ CONTINUOUS = {"kind": "continuous", "gap": 30}
 
 def _record(**changes: object) -> dict[str, object]:
     value = {
-        "op": "record",
         "name": "DNS de shimpz.com",
         "description": "A cada 30 segundos, lista as zonas da sua Cloudflare e lê os registros DNS de shimpz.com.",
         "replaces": None,
@@ -439,18 +438,23 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(len(runtime.contexts), 2)
         self.assertEqual(schedule, CONTINUOUS)
 
-    def test_the_output_is_the_persons_to_state_and_a_composed_answer_states_it_without_the_brain(self) -> None:
+    def test_an_output_answer_reaches_the_brain_which_records_the_earlier_work_saying_it(self) -> None:
         original = "Liste os registros DNS de shimpz.com a cada 30 segundos"
-        runtime = Sends((("list-zones", "list-dns-records"), _record()))
+        said = "A cada 30 segundos, lista os registros DNS de shimpz.com. Mostrar somente quando mudar."
+        # The answer runs no Action again: the Brain only records once more, its description now saying the output.
+        runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), _record(description=said)))
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
             asked = self.chat(service, _body(original))["routine_question"]
             choice = http_routine_proposal.OUTPUT_CHOICES["pt"]["changes"]
             answer = http_payload.compose_clarified(original, "O que fazer com o resultado?", choice, "pt")
             card = self.chat(service, _body(answer))["routine_proposal"]
-            output = self.candidate(service, card).plan["output"]["mode"]
+            candidate = self.candidate(service, card)
         self.assertEqual(asked, {"code": "routine-output-unstated", "options": [], "value": None})
-        self.assertEqual((len(runtime.contexts), output), (1, "changes"))
+        self.assertEqual([context.routine_output for context in runtime.contexts], [None, "changes"])
+        self.assertEqual(runtime.contexts[1].routine_question, asked)
+        self.assertEqual((candidate.plan["output"]["mode"], card["description"]), ("changes", said))
+        self.assertEqual([step["action"] for step in candidate.plan["steps"]], ["list-zones", "list-dns-records"])
 
     def test_a_freely_typed_send_reaches_the_brain_with_the_pending_question(self) -> None:
         original = "Liste os registros DNS de shimpz.com"
@@ -541,6 +545,9 @@ class RecordedRoutineTests(LocalContractCase):
                 response = self.chat(service, _body(composed))
                 self.assertEqual(len(runtime.contexts), 1 + brain)
                 self.assertEqual("routine_proposal" in response, not brain)
+                if not brain:
+                    # The card Team records itself says everything: its reply carries no text.
+                    self.assertEqual(response["reply"], "")
 
     def test_an_answer_replaces_only_the_revision_the_record_call_was_shown(self) -> None:
         def remove(service) -> None:
