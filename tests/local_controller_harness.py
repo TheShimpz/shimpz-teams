@@ -40,7 +40,7 @@ TEST_ASSISTANT_VERSION = "0.1.0"
 
 
 def routine_books(controller) -> None:
-    """A controller's in-memory Routine books (ADR-0101): challenges, recordings, cards, protection, recovery cards."""
+    """A controller's in-memory Routine books (ADR-0101): challenges, recordings, proposal cards, and protection."""
     controller.routine_human_challenges = action_challenges.HumanChallengeStore()
     controller.routine_recordings = local_routine_recorder.RecordingBook()
     controller.routine_proposals = local_routine_proposal.ProposalBook()
