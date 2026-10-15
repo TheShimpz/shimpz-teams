@@ -240,31 +240,6 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
             )
         self.assertNotIn(callback_secret, f"{callback.exception!r} {callback.exception}")
 
-    def test_disconnect_failure_retains_custody_and_is_safely_retryable(self) -> None:
-        self._put_grant()
-        private_detail = "private-broker-detail-123456789"
-        transport = SequenceTransport([broker_response(503, {"error": private_detail})])
-        service = self._service(transport)
-
-        with self.assertRaises(integration_service.OAuthIntegrationServiceError) as failed:
-            service.disconnect("team_1", "shimpz-cloudflare", "cloudflare")
-        rendered = f"{failed.exception!r} {failed.exception}"
-        for private in (ACCESS, REFRESH, LEASE, private_detail):
-            self.assertNotIn(private, rendered)
-        self.assertEqual(
-            self.store.metadata("team_1", "shimpz-cloudflare", {"cloudflare": DECLARATION})[0].status,
-            "connected",
-        )
-
-        transport.responses.append(broker_response(200, {"revoked": True}))
-        self.assertTrue(service.disconnect("team_1", "shimpz-cloudflare", "cloudflare"))
-        self.assertFalse(service.disconnect("team_1", "shimpz-cloudflare", "cloudflare"))
-        self.assertEqual(len(transport.requests), 2)
-        self.assertEqual(
-            self.store.metadata("team_1", "shimpz-cloudflare", {"cloudflare": DECLARATION})[0].status,
-            "missing",
-        )
-
     def test_candidate_projection_rejects_malformed_pending_contracts(self) -> None:
         self.assertEqual(
             integration_service._declaration(SimpleNamespace(provider="cloudflare", scopes=SCOPES)),

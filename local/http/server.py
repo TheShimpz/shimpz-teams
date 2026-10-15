@@ -711,13 +711,6 @@ _SERVER_OPERATIONS: dict[str, Operation] = {
     ),
     "assistant-integration-authorize": _integration_authorize,
     "assistant-integration-cancel": team_operation(_integration_cancel),
-    "assistant-integration-disconnect": _assistant_operation(
-        lambda handler, route, team_id, assistant_id: (
-            handler.server.controller.chat_turn_service.disconnect_assistant_integration(
-                team_id, assistant_id, route.params["integration_id"]
-            )
-        )
-    ),
     "assistant-stored-input-list": team_operation(
         lambda handler, team_id: handler.server.controller.chat_turn_service.list_assistant_stored_inputs(team_id)
     ),

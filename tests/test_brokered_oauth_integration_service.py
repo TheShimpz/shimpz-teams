@@ -18,6 +18,7 @@ from tests import integration_store_fixtures
 SESSION = "browser-session-private-123456789"
 CLAIM = "a" * 64
 DECLARATION = {"provider": "cloudflare", "scopes": SCOPES}
+ROTATED = "rotated-access-private-123456789"
 
 
 def pending() -> integration_challenges.PendingIntegrationChallenge:
@@ -95,20 +96,6 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
             )[0].status,
             "connected",
         )
-
-        self.assertTrue(
-            self.service.disconnect(
-                "team_1",
-                "shimpz-cloudflare",
-                "cloudflare",
-            )
-        )
-        self.assertEqual(
-            [urlsplit(str(item["url"])).path for item in self.transport.requests],
-            ["/api/oauth/cloudflare/claim", "/api/oauth/cloudflare/revoke"],
-        )
-        revoked = json.loads(self.transport.requests[-1]["body"])
-        self.assertEqual(revoked, {"token": REFRESH, "broker_lease": LEASE})
 
     def test_wrong_session_and_declaration_drift_consume_no_broker_claim(self) -> None:
         for declaration in (
@@ -242,35 +229,34 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
         self.assertEqual(self.transport.requests, [])
 
     def test_claimed_lifetime_is_anchored_to_delivery_and_refreshed_within_the_margin(self) -> None:
+        margin = integration_store.REFRESH_WINDOW_SECONDS
+        # The Store delivered 3,499 remaining seconds: the token stays usable until the refresh margin.
+        with self.subTest(scenario="usable"):
+            self._claim_then_resolve("usable", [3499, 3600], 3499 - margin - 1, ACCESS)
+        # A grant delivered inside the refresh margin is never returned as-is.
+        with self.subTest(scenario="inside"):
+            self._claim_then_resolve("inside", [45, 3600], 0, ROTATED)
+
+    def _claim_then_resolve(self, name: str, lifetimes: list[int], advance: int, first: str) -> None:
         now = [1_000_000_000]
-        root = Path(self.temporary.name)
+        root = Path(self.temporary.name) / name
         store = integration_store.OAuthIntegrationStore(
-            root / "lifetime-state" / "integrations.json",
-            root / "lifetime-key" / "aes256.key",
-            clock=lambda: now[0],
+            root / "state" / "integrations.json", root / "key" / "aes256.key", clock=lambda: now[0]
         )
-        rotated = "rotated-access-private-123456789"
-        lifetimes = [3499, 3600, 45, 3600]
 
         class LifetimeTransport(Transport):
             def request(self, **request) -> integration_broker.BrokerHTTPResponse:
                 self.requests.append(request)
                 operation = urlsplit(str(request["url"])).path.rsplit("/", 1)[-1]
-                payload = (
-                    {"revoked": True}
-                    if operation == "revoke"
-                    else {
-                        "access_token": ACCESS if operation == "claim" else rotated,
-                        "refresh_token": REFRESH,
-                        "expires_in": lifetimes.pop(0),
-                        "scopes": list(SCOPES),
-                        "broker_lease": LEASE,
-                    }
-                )
+                payload = {
+                    "access_token": ACCESS if operation == "claim" else ROTATED,
+                    "refresh_token": REFRESH,
+                    "expires_in": lifetimes.pop(0),
+                    "scopes": list(SCOPES),
+                    "broker_lease": LEASE,
+                }
                 return integration_broker.BrokerHTTPResponse(
-                    200,
-                    "application/json",
-                    json.dumps(payload, separators=(",", ":")).encode(),
+                    200, "application/json", json.dumps(payload, separators=(",", ":")).encode()
                 )
 
         transport = LifetimeTransport()
@@ -290,24 +276,15 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
                 lambda refresh, lease: service.refresh("cloudflare", SCOPES, refresh, lease),
             )
 
-        def claim_then_resolve(advance: int) -> str:
-            url = authorization(service, pending(), SESSION, callback_mode="local-domain")
-            state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
-            service.complete(state, CLAIM, SESSION, lambda _team, _assistant, _integration: DECLARATION)
-            now[0] += advance
-            return resolve()
-
-        # The Store delivered 3,499 remaining seconds; the token stays usable until the refresh margin.
-        self.assertEqual(claim_then_resolve(3499 - integration_store.REFRESH_WINDOW_SECONDS - 1), ACCESS)
+        url = authorization(service, pending(), SESSION, callback_mode="local-domain")
+        state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
+        service.complete(state, CLAIM, SESSION, lambda _team, _assistant, _integration: DECLARATION)
+        now[0] += advance
+        self.assertEqual(resolve(), first)
         now[0] += 1
-        self.assertEqual(resolve(), rotated)
-        self.assertTrue(service.disconnect("team_1", "shimpz-cloudflare", "cloudflare"))
-
-        # A grant delivered inside the refresh margin is never returned as-is.
-        self.assertEqual(claim_then_resolve(0), rotated)
+        self.assertEqual(resolve(), ROTATED)
         self.assertEqual(
-            [urlsplit(str(item["url"])).path.rsplit("/", 1)[-1] for item in transport.requests],
-            ["claim", "refresh", "revoke", "claim", "refresh"],
+            [urlsplit(str(item["url"])).path.rsplit("/", 1)[-1] for item in transport.requests], ["claim", "refresh"]
         )
         self.assertEqual(lifetimes, [])
 
@@ -323,8 +300,6 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
             self.service.cancel(None)
         with self.assertRaisesRegex(integration_service.OAuthIntegrationServiceError, "refreshed"):
             self.service.refresh("missing", SCOPES, REFRESH, LEASE)
-        with self.assertRaisesRegex(integration_service.OAuthIntegrationServiceError, "disconnected"):
-            self.service.disconnect("../team", "assistant", "integration")
 
 
 if __name__ == "__main__":

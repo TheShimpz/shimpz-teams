@@ -332,11 +332,6 @@ CONTROLLER_ROUTES = (
         "/v1/teams/:team_id/assistant-integrations/challenges/:challenge_id/authorize",
         "assistant-integration-cancel",
     ),
-    _controller_route(
-        "DELETE",
-        "/v1/teams/:team_id/assistant-integrations/:assistant_id/:integration_id",
-        "assistant-integration-disconnect",
-    ),
     _controller_route("GET", "/v1/teams/:team_id/assistant-stored-inputs", "assistant-stored-input-list"),
     _controller_route(
         "DELETE",

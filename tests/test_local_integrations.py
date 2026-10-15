@@ -397,7 +397,6 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 "integration_id": "cloudflare",
             },
             cancel_assistant_integration_authorization=lambda _binding: {"cancelled": True},
-            disconnect_assistant_integration=lambda *_values: {"disconnected": True},
         )
         handler = object.__new__(local_app.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=chat_turn_service))
@@ -433,15 +432,6 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         callback = handler._route(strict_http.ControllerRouteMatch("assistant-integration-complete", {}))
         self.assertEqual(callback[0], HTTPStatus.OK)
         self.assertEqual(callback[2], "assistant-integration-complete")
-
-        disconnected = handler._route(
-            strict_http.ControllerRouteMatch(
-                "assistant-integration-disconnect",
-                {"team_id": "team_1", "assistant_id": "shimpz-cloudflare", "integration_id": "cloudflare"},
-            )
-        )
-        self.assertEqual(disconnected[1], {"disconnected": True})
-        self.assertEqual(disconnected[2], "assistant-integration-disconnect")
 
     def test_chat_pauses_before_any_action_when_integration_is_missing(self) -> None:
         spec = self._registry()["shimpz-cloudflare"]

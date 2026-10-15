@@ -426,24 +426,3 @@ class BrokeredOAuthIntegrationService:
             )
         except integration_broker.OAuthBrokerClientError:
             raise OAuthIntegrationServiceError("OAuth integration could not be refreshed") from None
-
-    def disconnect(
-        self,
-        team_id: object,
-        assistant_id: object,
-        integration_id: object,
-    ) -> bool:
-        revoke = functools.partial(_revoke_broker, self._broker)
-
-        try:
-            return self._store.revoke_then_delete(
-                team_id,
-                assistant_id,
-                integration_id,
-                revoke,
-            )
-        except (
-            integration_store.OAuthIntegrationStoreError,
-            integration_broker.OAuthBrokerClientError,
-        ):
-            raise OAuthIntegrationServiceError("OAuth integration could not be disconnected") from None

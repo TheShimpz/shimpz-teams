@@ -220,7 +220,6 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             clear_assistant_stored_input=mock.Mock(return_value={"cleared": True}),
             start_assistant_integration_authorization=mock.Mock(return_value={"url": "https://example.com"}),
             cancel_assistant_integration_authorization=mock.Mock(return_value={"cancelled": True}),
-            disconnect_assistant_integration=mock.Mock(return_value={"disconnected": True}),
         )
         return SimpleNamespace(
             chat_turn_service=service,
@@ -377,13 +376,6 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             handler._route(cancel)
         handler._body.return_value = {"session_binding": "b"}
         self.assertEqual(handler._route(cancel)[2], "assistant-integration-cancel")
-        disconnect = self.route(
-            "assistant-integration-disconnect", team_id="team_1", assistant_id="assistant", integration_id="cloudflare"
-        )
-        self.assertEqual(
-            handler._route(disconnect),
-            (HTTPStatus.OK, {"disconnected": True}, "assistant-integration-disconnect", "team_1", "assistant"),
-        )
 
         stored_inputs = self.route("assistant-stored-input-list", team_id="team_1")
         self.assertEqual(handler._route(stored_inputs)[2], "assistant-stored-input-list")

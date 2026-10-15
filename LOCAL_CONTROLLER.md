@@ -152,12 +152,11 @@ data, traces, or credentials. A disconnected progress consumer cannot change the
 | `GET` | `/v1/teams/{team_id}/assistant-integrations` | list redacted connected-Integration state |
 | `POST` | `/v1/teams/{team_id}/assistant-integrations/challenges/{challenge_id}/authorize` | start bounded OAuth authorization |
 | `DELETE` | `/v1/teams/{team_id}/assistant-integrations/challenges/{challenge_id}/authorize` | cancel the exact fresh OAuth authorization |
-| `DELETE` | `/v1/teams/{team_id}/assistant-integrations/{assistant_id}/{integration_id}` | disconnect and delete one credential |
 | `POST` | `/v1/oauth/cloudflare/callback` | redeem the broker claim bound to the Admin session |
 
 OAuth authorization material crosses the dedicated broker path, never chat frames. The controller
 stores only encrypted Integration credentials, returns redacted metadata, binds claims/challenges to one
-Team and Admin session, and deletes local and broker state on disconnect or Team teardown.
+Team and Admin session, and deletes its local credentials on uninstall or Team teardown.
 The authorization request body contains exactly `assistant_id`, `integration_id`, `callback_mode`, and
 `session_binding`; the Assistant and Integration pair must be an exact currently missing requirement in the pending
 challenge, and callback mode is one of `loopback`, `local-domain`, or `out-of-band`. Cancellation contains exactly

@@ -266,11 +266,13 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
 
             with ThreadPoolExecutor(max_workers=2) as pool:
                 revoking = pool.submit(
-                    store.revoke_then_delete,
+                    store.replace,
                     "team_1",
                     "shimpz-cloudflare",
                     "cloudflare",
-                    revoke,
+                    "cloudflare",
+                    SCOPES,
+                    integration_store.OAuthReplacementCallbacks(tokens, revoke),
                 )
                 self.assertTrue(entered.wait(1))
                 other = pool.submit(
@@ -434,7 +436,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             self.assertFalse(store.delete_assistant("team_2", "second-assistant"))
             self.assertFalse(store.delete_all())
 
-    def test_generations_never_repeat_after_disconnect_or_bulk_deletion(self) -> None:
+    def test_generations_never_repeat_after_any_deletion(self) -> None:
         # A prepared Action batch binds a generation; a reconnection after any deletion must never reuse it.
         with tempfile.TemporaryDirectory() as directory:
             store = open_store(Path(directory))
@@ -444,8 +446,6 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 return store.put(*reference, "cloudflare", SCOPES, tokens(), ACCOUNT).generation
 
             issued = [connect()]
-            self.assertTrue(store.revoke_then_delete(*reference, lambda *_tokens: None))
-            issued.append(connect())
             self.assertTrue(store.retain_declared("team_1", "shimpz-cloudflare", ()))
             issued.append(connect())
             self.assertTrue(store.delete_assistant("team_1", "shimpz-cloudflare"))
@@ -454,52 +454,13 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             issued.append(connect())
             self.assertTrue(store.delete_all())
             issued.append(connect())
-            self.assertEqual(issued, [1, 2, 3, 4, 5, 6])
+            self.assertEqual(issued, [1, 2, 3, 4, 5])
 
             state = json.loads(store.state_path.read_bytes())
-            state["last_generation"] = 5
+            state["last_generation"] = 4
             store.state_path.write_text(json.dumps(state), encoding="utf-8")
             with self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "malformed"):
                 open_store(Path(directory)).metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
-
-    def test_revocation_transaction_keeps_authenticated_custody_until_callback_succeeds(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            store = open_store(Path(directory))
-            put(store)
-            observed: list[tuple[str, str, str | None, str | None]] = []
-
-            def fail(provider: str, access: str, refresh: str | None, lease: str | None) -> None:
-                observed.append((provider, access, refresh, lease))
-                raise RuntimeError("synthetic upstream failure")
-
-            with self.assertRaisesRegex(RuntimeError, "upstream failure"):
-                store.revoke_then_delete("team_1", "shimpz-cloudflare", "cloudflare", fail)
-            self.assertEqual(observed, [("cloudflare", ACCESS, REFRESH, None)])
-            self.assertEqual(
-                store.metadata("team_1", "shimpz-cloudflare", DECLARATIONS)[0].status,
-                "connected",
-            )
-
-            self.assertTrue(
-                store.revoke_then_delete(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "cloudflare",
-                    lambda provider, access, refresh, lease: observed.append((provider, access, refresh, lease)),
-                )
-            )
-            self.assertEqual(
-                observed,
-                [("cloudflare", ACCESS, REFRESH, None), ("cloudflare", ACCESS, REFRESH, None)],
-            )
-            self.assertFalse(
-                store.revoke_then_delete(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "cloudflare",
-                    lambda *_tokens: self.fail("missing integration must not invoke revocation"),
-                )
-            )
 
     def test_validation_helpers_reject_malformed_public_and_private_values(self) -> None:
         for function, arguments in (
@@ -692,10 +653,8 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
 
             with self.assertRaisesRegex(integration_store.OAuthIntegrationValidationError, "refresh callback"):
                 store.resolve("team_1", "assistant", "integration", "cloudflare", SCOPES, None)
-            with self.assertRaisesRegex(integration_store.OAuthIntegrationValidationError, "revocation callback"):
-                store.revoke_then_delete("team_1", "assistant", "integration", None)
 
-    def test_refresh_and_revocation_detect_concurrent_generation_changes(self) -> None:
+    def test_refresh_detects_a_concurrent_generation_change(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             now = [1_000]
@@ -732,17 +691,6 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                     "cloudflare",
                     SCOPES,
                     replace_during_refresh,
-                )
-
-            def delete_during_revocation(*_tokens: object) -> None:
-                store.delete_assistant("team_1", "assistant")
-
-            with self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "changed during revocation"):
-                store.revoke_then_delete(
-                    "team_1",
-                    "assistant",
-                    "integration",
-                    delete_during_revocation,
                 )
 
     def test_delete_team_and_all_report_both_state_transitions(self) -> None:

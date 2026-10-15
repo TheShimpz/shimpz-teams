@@ -751,38 +751,3 @@ class OAuthIntegrationStore(private_state.RecordStore):
                     )
                 )
             return tuple(result)
-
-    def revoke_then_delete(
-        self,
-        team_id: object,
-        assistant_id: object,
-        integration_id: object,
-        revoke_callback: Callable[[str, str, str | None, str | None], None],
-    ) -> bool:
-        """Delete one grant only after its authenticated tokens are revoked upstream."""
-        team = _team_id(team_id)
-        assistant = _assistant_id(assistant_id)
-        integration = _component_id(integration_id, "integration id")
-        if not callable(revoke_callback):
-            raise OAuthIntegrationValidationError("OAuth revocation callback is invalid")
-        with self._integration_flight(team, assistant, integration):
-            with self._lock:
-                state = self._read_state()
-                records = _PRIVATE_STATE.records(state, team, assistant, create=False)
-                raw_record = records.get(integration)
-                if raw_record is None:
-                    return False
-                record = _validate_record(raw_record)
-                provider, _, _, _, generation = _record_metadata(record)
-                grant = self._resolve_record(team, assistant, integration, record)
-            revoke_callback(provider, grant.access_token, grant.refresh_token, grant.broker_lease)
-            with self._lock:
-                state = self._read_state_for_update()
-                records = _PRIVATE_STATE.records(state, team, assistant, create=False)
-                current = records.get(integration)
-                if current is None or _record_metadata(_validate_record(current))[4] != generation:
-                    raise OAuthIntegrationStoreError("OAuth integration changed during revocation")
-                records.pop(integration)
-                _PRIVATE_STATE.prune_empty_records(state, team, assistant)
-                self._write_state(state)
-                return True

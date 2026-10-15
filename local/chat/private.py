@@ -342,27 +342,6 @@ def cancel_assistant_integration_authorization(
     return {"cancelled": cancelled}
 
 
-def disconnect_assistant_integration(
-    self,
-    team_id: object,
-    assistant_id: object,
-    integration_id: object,
-) -> dict[str, object]:
-    team_id = validate_team_id(team_id)
-    # The same Team lifecycle lock as a completion: a disconnect never lands between its declaration check and its
-    # seal, so it either removes the grant that completion sealed or finishes before the completion begins.
-    try:
-        with self._lock(team_id):
-            disconnected = self.oauth_service.disconnect(team_id, assistant_id, integration_id)
-    except integration_service.OAuthIntegrationServiceError as exc:
-        raise ApiProblem(
-            HTTPStatus.BAD_GATEWAY,
-            "Assistant integration could not be disconnected",
-            code="assistant-integration-oauth-unavailable",
-        ) from exc
-    return {"disconnected": disconnected}
-
-
 def pending_chat_integrations(self, team_id: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     self.assistant_lifecycle._network(team_id)
