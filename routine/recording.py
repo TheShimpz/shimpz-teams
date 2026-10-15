@@ -146,16 +146,16 @@ class Pending:
 
 @dataclass(frozen=True, slots=True)
 class Slot:
-    """One call a rerun must make: its Action, whether it is read-only, and what each input member must be.
+    """One call a rerun must make: its Action, and what each input member must be.
 
     Each input is (member, kind, value): ``value`` must be sent exactly; ``clock`` must be the date its own send
-    started on, in UTC; ``fresh`` must be a value one of the rerun send's own results holds, so its provenance is new,
-    and ``value`` then keeps the value the work sent, so distinct values stay distinct in the rerun. ``sources`` names,
-    for a fresh member, the Action of the earliest eligible source that returned its value, never the call itself.
+    started on, in the Routine's own zone; ``fresh`` must be a value one of the rerun send's own results holds, so its
+    provenance is new, and ``value`` then keeps the value the work sent, so distinct values stay distinct in the rerun.
+    ``sources`` names, for a fresh member, the Action of the earliest eligible source that returned its value, never
+    the call itself.
     """
 
     action: tuple[str, str]
-    read_only: bool
     inputs: tuple[tuple[str, str, object], ...]
     sources: tuple[tuple[str, tuple[str, str]], ...] = ()
 
@@ -283,8 +283,6 @@ class Context:
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract]
     # The dispatch indexes of the work's calls, once the work is narrowed to what the person chose.
     work: tuple[int, ...] = ()
-    # The call each step of the plan stands for, by step id.
-    planned: dict[str, trace.Occurrence] = field(default_factory=dict)
     # Every call's source representative, and each plan call's classified inputs and their origins.
     classes: dict[int, int] = field(default_factory=dict)
     inputs: dict[int, tuple[dict[str, dict[str, object]], dict[str, str]]] = field(default_factory=dict)

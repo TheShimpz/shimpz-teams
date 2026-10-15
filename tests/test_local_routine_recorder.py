@@ -302,9 +302,9 @@ class RecordingBookTests(unittest.TestCase):
 
     def test_frozen_work_past_the_brain_forms_bounds_is_never_shown(self) -> None:
         wide = routine_recording.Slot(
-            ("reports", "fetch"), True, tuple((f"m{index:03d}", "clock", None) for index in range(65))
+            ("reports", "fetch"), tuple((f"m{index:03d}", "clock", None) for index in range(65))
         )
-        many = routine_recording.Slot(("reports", "post"), False, (("t", "value", "x"),))
+        many = routine_recording.Slot(("reports", "post"), (("t", "value", "x"),))
         for slots in ((wide,), (many,) * 257):
             with self.subTest(slots=len(slots)):
                 question = routine_recording.Question("routine-work-rerun", manifest=routine_recording.Manifest(slots))
@@ -335,7 +335,7 @@ class RecordingBookTests(unittest.TestCase):
     def test_a_protected_value_is_withheld_even_where_json_escaping_would_hide_it(self) -> None:
         secret = 'tok"en\\1'
         slot = routine_recording.Slot(
-            ("reports", "post"), False, (("note", "value", {"text": f"use {secret} now"}), ("t", "value", "x"))
+            ("reports", "post"), (("note", "value", {"text": f"use {secret} now"}), ("t", "value", "x"))
         )
         question = routine_recording.Question("routine-work-rerun", manifest=routine_recording.Manifest((slot,)))
         span = self.span((recording_cases._send(),), question, protected=(secret,))

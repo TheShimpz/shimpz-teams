@@ -218,7 +218,6 @@ def _plan(
     nodes = _closure(context, work)
     order = _ordered(context, nodes)
     names = {node: f"s{position}" for position, node in enumerate(order, start=1)}
-    context.planned = {names[node]: nodes[node].occurrence for node in order}
     steps = [_step(context, nodes[node], names) for node in order]
     origins = {names[node]: context.inputs[node][1] for node in order}
     work_nodes = {context.classes[call.index] for call in work}

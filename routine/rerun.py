@@ -33,7 +33,7 @@ def manifest(
             for member, kind, value in inputs
             if kind == "fresh" and (holders := routine_provenance.holders(context, call, value))
         )
-        slots.append(routine_recording.Slot(call.action, call.read_only, inputs, sources))
+        slots.append(routine_recording.Slot(call.action, inputs, sources))
     return routine_recording.Manifest(tuple(slots))
 
 

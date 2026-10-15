@@ -170,7 +170,7 @@ class ManifestTests(unittest.TestCase):
         other = ("cloudflare/list-dns-records", {"zone_id": ZONES["result"][1]["id"]}, {"result": []})
         asked = _record(_send(RECORDS, other, message="DNS de shimpz.com e other.org a cada hora"))
         self.assertEqual(len(asked.manifest.slots), 2)
-        slot = recording.Slot(("cloudflare", "list-dns-records"), True, (("zone_id", "fresh", SHIMPZ_ID),))
+        slot = recording.Slot(("cloudflare", "list-dns-records"), (("zone_id", "fresh", SHIMPZ_ID),))
         self.assertEqual(asked.manifest.slots[0], slot)
 
     def test_read_only_twins_are_one_slot(self) -> None:
