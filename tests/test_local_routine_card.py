@@ -1,12 +1,13 @@
 """A held run's card: its recorded failure, Rodar, and Excluir (ADR-0092 section 7, ADR-0101)."""
 
+import contextlib
 import dataclasses
 import tempfile
 from unittest import mock
 
 import routine_fixture
 from docker.errors import DockerException
-from test_local_routine_recovery import Assistant, RecoveryCase, failed
+from test_local_routine_recovery import Assistant, Brain, RecoveryCase, failed
 from test_local_routine_service import ASSISTANT
 
 from local import app as local_app
@@ -16,6 +17,7 @@ from local.routine import contracts as routine_contracts
 from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
 from local.routine import run as routine_run
+from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
 from protocol.http.v1 import routine_notice as http_routine_notice
 from protocol.http.v1 import routine_run as http_routine_run
@@ -93,18 +95,32 @@ class CardViewTests(CardCase):
                 card = self.card(service, run_id)
         self.assertEqual((card["assistant_id"], card["action"], card["position"], card["steps"]), indexed)
 
-    def test_a_held_run_whose_hold_named_no_call_opens_no_card(self) -> None:
+    def test_a_cursor_unreadable_while_holding_leaves_the_run_held_until_a_pass_indexes_its_call(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
-            with (
-                mock.patch.object(routine_hold, "held_step", return_value=routine_hold.UNKNOWN_STEP),
-                self.as_person(),
-                self.assertRaises(local_app.ApiProblem) as caught,
-            ):
-                service.open_routine_card("team_1", run_id)
-            # Nothing was consumed: the card opens once the call is known.
-            self.card(service, run_id)
-        self.assertEqual(caught.exception.code, "routine-incident-unavailable")
+            service = self.mutating(directory, Brain(), Assistant([failed()], []))
+            service._recover_routine_run = lambda _run, _progress=None: "held"
+            value = self.zone_record_routine(service)
+            claim = service.claim_routine_run()
+            held_step = routine_incident._held_step
+
+            def unreadable(owner, team_id, snapshot):
+                # The store fails transiently exactly while the hold reads the sealed cursor for its call.
+                down = routine_store.RoutineStoreError("down")
+                with mock.patch.object(owner.routine_store, "cursor", side_effect=down):
+                    return held_step(owner, team_id, snapshot)
+
+            with mock.patch.object(routine_incident, "_held_step", unreadable), contextlib.suppress(Exception):
+                self.run_claim(service, claim)
+            # The hold failed before indexing, so the run is still held and no card names an unknown call.
+            self.assertEqual([item.status for item in self.state(service).runs], ["held"])
+            routine_watchdog.check(service)
+            (incident,) = record.incidents(self.state(service))
+            card = self.card(service, claim["run_id"])
+        self.assertEqual((incident.run_id, incident.status), (claim["run_id"], "unresolved"))
+        self.assertEqual(
+            (card["assistant_id"], card["action"], card["revision"], card["position"], card["steps"]),
+            (ASSISTANT, "create-record", value.revision, 2, 2),
+        )
 
     def test_an_answer_must_name_the_tag_of_the_state_it_finds(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

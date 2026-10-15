@@ -100,8 +100,6 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
     opened, value = tagged.opened, tagged.value
     # The call the hold indexed, the one its notice and incident view name too.
     assistant_id, action, position, steps = routine_hold.held_step(value)
-    if not assistant_id:
-        raise local_errors.routine_incident_not_unresolved()
     incarnation = opened.recovery.binding.incarnation
     evidence = _evidence(self, team_id, incarnation, incident_id, opened.cursor.operation_id)
     if evidence["diagnostic"] is not None and (

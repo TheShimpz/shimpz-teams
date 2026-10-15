@@ -213,15 +213,29 @@ class ExecutionTests(CompiledRunCase):
             self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
             opened = service.open_routine_challenge("team_1", run_id, "pt")
             unreadable = routine_store.RoutineStoreError("Routine cursor could not be read")
-            with mock.patch.object(service.routine_store, "cursor", side_effect=unreadable):
-                resumed = self.answer_human(service, run_id, opened["challenge_id"])
+            with (
+                mock.patch.object(service.routine_store, "cursor", side_effect=unreadable),
+                self.assertRaises(local_app.ApiProblem) as caught,
+            ):
+                self.answer_human(service, run_id, opened["challenge_id"])
+            # The hold could not read the call it stopped at, so the run stays held, never indexed without it.
+            self.assertEqual([item.status for item in self.state(service).runs], ["held"])
+            routine_watchdog.check(service)
             state = self.state(service)
             recovered = routine_incident.open_recovery(service, "team_1", run_id)
-        self.assertEqual((resumed["status"], brain.calls, calls), ("held", [], ["list-zones", "list-dns-records"]))
-        self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
-        # The unreadable cursor leaves the held notice without a step; it never blocks the incident.
         self.assertEqual(
-            state.notices[-1].detail, {"assistant_id": None, "action": None, "position": None, "steps": None}
+            (caught.exception.code, brain.calls, calls),
+            ("routine-state-unavailable", [], ["list-zones", "list-dns-records"]),
+        )
+        self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
+        # The watchdog's next pass indexed the incident with the call its notice names.
+        self.assertEqual(
+            (
+                state.notices[-1].detail["action"],
+                state.notices[-1].detail["position"],
+                state.notices[-1].detail["steps"],
+            ),
+            ("list-dns-records", 2, 2),
         )
         # The completed first step and the dispatched second one stay as evidence, never cleaned up as a failure.
         self.assertEqual(recovered.cursor.step, 1)

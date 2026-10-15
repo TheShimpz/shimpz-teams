@@ -209,16 +209,14 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
 
 
 def _held_step(self, team_id: str, snapshot: Recovery | None) -> routine_hold.HeldStep:
-    """The Assistant Action the held run's sealed cursor stopped at; none when no cursor is sealed or readable.
+    """The Assistant Action the held run's sealed cursor stopped at; none when the run sealed no snapshot or cursor.
 
-    It only labels the run's notice, so a cursor that cannot be read never keeps the incident from being indexed.
+    A cursor that cannot be read now fails the hold's step, so the run stays held and the watchdog's next pass
+    indexes it with its call; it is never indexed without the call its card must name.
     """
     if snapshot is None:
         return routine_hold.UNKNOWN_STEP
-    try:
-        cursor = self.routine_store.cursor(team_id, snapshot.binding)
-    except routine_store.RoutineStoreError:
-        return routine_hold.UNKNOWN_STEP
+    cursor = routine_state.call(lambda: self.routine_store.cursor(team_id, snapshot.binding))
     if cursor is None:
         return routine_hold.UNKNOWN_STEP
     return held_call(cursor, snapshot.plan["steps"])
