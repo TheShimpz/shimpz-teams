@@ -120,9 +120,6 @@ routine_run_not_found = _problem(_NOT_FOUND, "Routine run is unavailable", "rout
 routine_run_steps_not_found = _problem(_NOT_FOUND, "Routine run steps are unavailable", "routine-run-steps-not-found")
 routine_lease_invalid = _problem(_CONFLICT, "Routine run lease is not live", "routine-lease-invalid")
 routine_incident_unavailable = _problem(_NOT_FOUND, "Routine incident is unavailable", "routine-incident-unavailable")
-routine_incident_not_unresolved = _problem(
-    _CONFLICT, "Routine incident is not unresolved", "routine-incident-unavailable"
-)
 routine_card_stale = _problem(_CONFLICT, "the recovery card is stale; open it again", "routine-card-stale")
 routine_deliveries_invalid = _problem(_INVALID, "Routine deliveries are invalid", "invalid-body")
 routine_state_unavailable = _problem(_UNAVAILABLE, "Team Routine state is unavailable", "routine-state-unavailable")

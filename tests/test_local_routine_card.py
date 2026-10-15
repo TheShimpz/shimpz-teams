@@ -235,7 +235,7 @@ class CorrectionTests(CardCase):
             # A run set aside is no longer held: its card no longer opens.
             with self.as_person(), self.assertRaises(local_app.ApiProblem) as settled:
                 service.open_routine_card("team_1", run_id)
-            self.assertEqual((settled.exception.status, settled.exception.code), (409, "routine-incident-unavailable"))
+            self.assertEqual((settled.exception.status, settled.exception.code), (404, "routine-incident-unavailable"))
             self.assertEqual([item.routine_id for item in state.routines], [value.routine_id])
             routine_run.unregister_routine_run(service, run_id)
             routine_watchdog.check(service)

@@ -245,7 +245,7 @@ def _transition_problem(code: str) -> ApiProblem:
         return local_errors.routine_card_stale()
     if code.startswith("routine-") or code == "notices-full":
         return ApiProblem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine change", code=code)
-    return local_errors.routine_incident_not_unresolved()
+    return local_errors.routine_incident_unavailable()
 
 
 def set_aside(
@@ -347,7 +347,7 @@ def unresolved(self, team_id: str, incident_id: str) -> record.Run:
     except record.RoutineStateError as exc:
         raise local_errors.routine_incident_unavailable() from exc
     if value.status != "unresolved":
-        raise local_errors.routine_incident_not_unresolved()
+        raise local_errors.routine_incident_unavailable()
     return value
 
 
