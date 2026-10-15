@@ -19,13 +19,12 @@ from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.http import stream as local_http_stream
 from local.http.audit import RequestAudit
-from local.http.dispatch import MAX_BODY_BYTES
+from local.http.dispatch import MAX_BODY_BYTES, MAX_HUMAN_RESPONSE_BODY_BYTES
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_notice as http_routine_notice
 from protocol.http.v1 import routine_run as http_routine_run
 
-MAX_HUMAN_RESPONSE_BODY_BYTES = 128 * 1024
 MACHINE_OPERATIONS = frozenset({"routine-claim", "routine-notices", "routine-notice-ack"})
 RUN_OPERATION = "routine-run"
 STREAMED_OPERATIONS = frozenset({"routine-human-submit", "routine-integration-submit"})

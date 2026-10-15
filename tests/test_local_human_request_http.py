@@ -8,6 +8,7 @@ from unittest import mock
 
 from core.http import strict as strict_http
 from local.http import chat as http_chat
+from local.http import dispatch as http_dispatch
 from local.http import server
 
 
@@ -78,10 +79,10 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
         captured, body = strict_http.read_json_document(
             self._json_headers(len(raw)),
             BytesIO(raw),
-            max_bytes=http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES,
+            max_bytes=http_dispatch.MAX_HUMAN_RESPONSE_BODY_BYTES,
         )
 
-        self.assertEqual(http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES, 128 * 1024)
+        self.assertEqual(http_dispatch.MAX_HUMAN_RESPONSE_BODY_BYTES, 128 * 1024)
         self.assertEqual(captured, raw)
         self.assertEqual(body["value"], value)
 
@@ -90,9 +91,9 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
 
         with self.assertRaises(strict_http.HttpContractError) as caught:
             strict_http.read_json_document(
-                self._json_headers(http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES + 1),
+                self._json_headers(http_dispatch.MAX_HUMAN_RESPONSE_BODY_BYTES + 1),
                 stream,
-                max_bytes=http_chat.MAX_HUMAN_RESPONSE_BODY_BYTES,
+                max_bytes=http_dispatch.MAX_HUMAN_RESPONSE_BODY_BYTES,
             )
 
         self.assertEqual(caught.exception.status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)

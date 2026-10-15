@@ -10,6 +10,8 @@ from local.validation import validate_team_id
 
 # The bound of an ordinary JSON request body; an operation that needs more names its own limit.
 MAX_BODY_BYTES = 16 * 1024
+# The bound of one answer to a pending human request, from a chat turn or a Routine run alike.
+MAX_HUMAN_RESPONSE_BODY_BYTES = 128 * 1024
 # One answered operation: its status, payload, and the operation, Team, and Assistant it is audited under.
 type Result = tuple[HTTPStatus, dict[str, object], str, str | None, str | None]
 # Every resolved operation is dispatched through one table from its operation name to one of these.
