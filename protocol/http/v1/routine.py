@@ -60,10 +60,9 @@ OUTCOMES = frozenset(
 # whose ``choice`` says which. ``healthy`` rolls up a continuous Routine's healthy runs that ended in one minute,
 # starting at the notice's instant (ADR-0092 section 9). ``deleted`` closes the Routine's timeline (ADR-0101).
 ROUTINE_OUTCOMES = ("skipped", "scope-changed", "created", "changed", "healthy", "deleted")
-# Why a held run's Routine was paused (ADR-0092): the recovery decision, a decision that could not be made, the spent
-# recovery budget, a Team-detected policy fault such as a secret echo or an invalid frame, or recovery evidence that
-# could not be read.
-PAUSE_REASONS = ("decided", "unavailable", "exhausted", "policy", "evidence")
+# Why a held run's Routine was paused (ADR-0092): the spent recovery budget, a Team-detected policy fault such as a
+# secret echo or an invalid frame, or recovery evidence Team never classified.
+PAUSE_REASONS = ("exhausted", "policy", "evidence")
 ERROR_CODE_RE = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
 # The interface languages: the same closed set as payload.CHAT_LOCALES, pinned equal by a Team test.
 LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
@@ -537,13 +536,8 @@ def canonical_output(value: object) -> dict[str, object] | None:
     return copy.deepcopy(value) if valid else None
 
 
-# A run's model usage, in the shape of a chat reply's (ADR-0082, ADR-0101): its active duration and, per provider and
-# model, the tokens its recovery calls reported; a run that needed no recovery has no model.
+# A run's usage, in the shape of a chat reply's (ADR-0082, ADR-0101): its active duration; a Routine run asks no model.
 canonical_run_usage = payload.canonical_run_usage
-
-
-# The model providers a claimed run's recovery may use.
-MODEL_PROVIDERS = ("anthropic", "openai")
 
 
 def canonical_permitted(value: object) -> dict[str, int] | None:

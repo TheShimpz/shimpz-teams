@@ -715,13 +715,13 @@ class RecordedRoutineTests(LocalContractCase):
             claim = service.claim_routine_run()
             evidence = local_authority.RoutineEvidence(KEY, record.lease_sha256(claim["lease_token"]), "a" * 32, 0)
             claimed = (claim["revision"], claim["plan_digest"], claim["mode"])
-            return claim["run_id"], service.run_routine("team_1", claim["run_id"], evidence, claimed, ("openai", ""))
+            return claim["run_id"], service.run_routine("team_1", claim["run_id"], evidence, claimed)
 
         def answer(service, run_id: str, decision: str) -> dict[str, object]:
             opened = service.open_routine_challenge("team_1", run_id, "pt")
             body = {"challenge_id": opened["challenge_id"], "decision": decision}
             body.update({"value": True} if decision == "submit" else {})
-            return service.resume_routine_human("team_1", run_id, body, "openai", "")
+            return service.resume_routine_human("team_1", run_id, body)
 
         with (
             tempfile.TemporaryDirectory() as directory,

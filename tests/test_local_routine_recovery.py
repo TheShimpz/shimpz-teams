@@ -76,10 +76,10 @@ class RecoveryCase(CompiledRunCase):
         service = self.mutating(directory, brain, assistant)
         if not automatic:
             # These tests drive verification by hand; the automatic episode has its own tests.
-            service._recover_routine_run = lambda _run, _key, _progress=None: "held"
+            service._recover_routine_run = lambda _run, _progress=None: "held"
         value = self.zone_record_routine(service)
         claim = service.claim_routine_run()
-        self.assertEqual(self.run_without_key(service, claim)["status"], "held")
+        self.assertEqual(self.run_claim(service, claim)["status"], "held")
         return service, brain, value, claim["run_id"]
 
     @staticmethod
@@ -163,12 +163,14 @@ class VerificationTests(RecoveryCase):
                 self.assertEqual(self.cursor(service, run_id).step, 1)
 
     def test_the_one_retry_is_never_repeated_in_the_run(self) -> None:
-        assistant = Assistant([failed(), failed()], [{"outcome": "not_occurred"}, {"outcome": "not_occurred"}])
+        assistant = Assistant([failed(), failed()], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, assistant)
             self.assertEqual(self.verify(service, value, run_id), "absent")
             self.assertEqual(self.resume(service, value, run_id), "held")
-            self.assertEqual(self.verify(service, value, run_id), "absent")
+            # Even proven absent again, the run's one retry is already spent.
+            proven = routine_cursor.proven_absent(self.cursor(service, run_id))
+            service.routine_store.put_cursor("team_1", proven)
             with self.assertRaises(local_app.ApiProblem) as caught:
                 self.resume(service, value, run_id)
             cursor = self.cursor(service, run_id)
@@ -177,15 +179,15 @@ class VerificationTests(RecoveryCase):
         self.assertEqual((cursor.remaining("retries"), cursor.segment), (0, 1))
 
     def test_an_automatic_verification_spends_its_budget_and_a_restart_never_refills_it(self) -> None:
-        assistant = Assistant([failed()], [{"outcome": "inconclusive"}] * 3)
+        assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, assistant)
-            verdicts = [self.verify(service, value, run_id) for _attempt in range(4)]
+            verdicts = [self.verify(service, value, run_id) for _attempt in range(2)]
             # A new store over the same state is a restart: the sealed cursor keeps what was spent.
             restarted = service.routine_store.__class__(service.routine_store.root, service.routine_store.key_path)
             service.routine_store = restarted
             after = self.verify(service, value, run_id)
-        self.assertEqual(verdicts, ["inconclusive"] * 3 + ["exhausted"])
+        self.assertEqual(verdicts, ["inconclusive", "exhausted"])
         self.assertEqual(after, "exhausted")
 
     def test_a_read_only_failure_is_absent_by_its_reviewed_declaration(self) -> None:
@@ -197,7 +199,7 @@ class VerificationTests(RecoveryCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, brain, value = self.compiled(directory, invoke)
             claim = service.claim_routine_run()
-            self.assertEqual(self.run_without_key(service, claim)["status"], "held")
+            self.assertEqual(self.run_claim(service, claim)["status"], "held")
             self.assertEqual(self.verify(service, value, claim["run_id"]), "absent")
         self.assertEqual(brain.calls, [])
 

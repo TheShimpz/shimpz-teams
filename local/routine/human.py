@@ -243,8 +243,6 @@ def resume_routine_human(
     team_id: str,
     run_id: str,
     body: object,
-    provider: str,
-    api_key: str,
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
     """Validate one exact answer to a frozen run's challenge, then replay the run from its continuation.
@@ -259,10 +257,6 @@ def resume_routine_human(
     if decision == "deny":
         return _deny(self, team_id, value, routine, challenge.id)
     pending = challenge.payload[1].pending
-    # Without a key Admin holds, the replay goes on with the provider the run froze with; only recovery needs a key.
-    provider = provider or pending.provider
-    if pending.provider != provider:
-        raise local_errors.inference_provider_mismatch()
     try:
         admission = action_human.append_response(
             pending.transcripts,
@@ -274,11 +268,11 @@ def resume_routine_human(
     except action_human.HumanRequestError as exc:
         raise local_errors.human_response_mismatch() from exc
     frozen = _Frozen(team_id, value, routine, pending, challenge.requirement)
-    return _replay(self, frozen, (provider, api_key), progress, (admission, challenge.id))
+    return _replay(self, frozen, progress, (admission, challenge.id))
 
 
 def resume_routine_integrations(
-    self, team_id: str, run_id: str, provider: str, api_key: str, progress: chat_progress.Reporter | None = None
+    self, team_id: str, run_id: str, progress: chat_progress.Reporter | None = None
 ) -> dict[str, object]:
     """After the person connected the Integration, replay the run; a still-missing one freezes it again."""
     team_id = validate_team_id(team_id)
@@ -286,10 +280,7 @@ def resume_routine_integrations(
     if value.request_kind != "integrations":
         raise ApiProblem(HTTPStatus.CONFLICT, "Routine run is waiting for an answer", code="routine-run-not-frozen")
     pending = _decoded(self, team_id, value.run_id).pending
-    provider = provider or pending.provider
-    if pending.provider != provider:
-        raise local_errors.inference_provider_mismatch()
-    return _replay(self, _Frozen(team_id, value, routine, pending), (provider, api_key), progress, None)
+    return _replay(self, _Frozen(team_id, value, routine, pending), progress, None)
 
 
 def _thaw(
@@ -342,17 +333,15 @@ def _resume(
 def _replay(
     self,
     frozen: _Frozen,
-    credentials: tuple[str, str],
     progress: chat_progress.Reporter | None,
     answered: tuple[action_human.HumanResponseAdmission, str] | None,
 ) -> dict[str, object]:
     """Thaw the run under an internal lease and continue it, with no model, in its own generation.
 
     The Team's execution slot is held before its lock and before anything is consumed: a concurrent chat refuses the
-    replay while the run stays frozen and its challenge stays answerable. Only a hold of the replayed run may use the
-    model key, for its one automatic recovery.
+    replay while the run stays frozen and its challenge stays answerable. The run goes on with the provider it froze
+    with.
     """
-    provider, api_key = credentials
     team_id, value, routine, pending = frozen.team_id, frozen.value, frozen.routine, frozen.pending
     admission, challenge_id = answered if answered is not None else (None, None)
     transcripts = pending.transcripts if admission is None else admission.transcripts
@@ -372,9 +361,11 @@ def _replay(
 
             lease = _resume(self, team_id, value.run_id, (challenge_id, seal), requests_used)
         routine_state.call(lambda: self.routine_store.delete_continuation(team_id, value.run_id))
-        run = routine_run._Run(team_id, value.run_id, lease, token, provider, routine, transcripts, requests_used)
+        run = routine_run._Run(
+            team_id, value.run_id, lease, token, pending.provider, routine, transcripts, requests_used
+        )
         outcome = routine_compiled.execute(self, run, value, progress, pending)
         if outcome == "held":
-            outcome = self._recover_routine_run(run, api_key, progress)
+            outcome = self._recover_routine_run(run, progress)
     routine_run._after_run(self, team_id, value.run_id, routine.routine_id, outcome)
     return {"team_id": team_id, "run_id": value.run_id, "status": outcome}

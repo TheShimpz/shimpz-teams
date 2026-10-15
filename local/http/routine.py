@@ -28,7 +28,6 @@ MAX_HUMAN_RESPONSE_BODY_BYTES = 128 * 1024
 MACHINE_OPERATIONS = frozenset({"routine-claim", "routine-notices", "routine-notice-ack"})
 RUN_OPERATION = "routine-run"
 STREAMED_OPERATIONS = frozenset({"routine-human-submit", "routine-integration-submit"})
-MODEL_BOUND_OPERATIONS = frozenset({RUN_OPERATION, *STREAMED_OPERATIONS})
 # The Team's whole Routine list is the one response with its own protocol allowance; every other keeps the API cap.
 RESPONSE_LIMITS = {"routine-list": http_routine_notice.MAX_ROUTINE_LIST_BYTES}
 BODY_LIMITS = {
@@ -186,12 +185,11 @@ def stream(handler, route: strict_http.ControllerRouteMatch, request_audit: Requ
 
     def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
         run_id = _run_id(route)
-        provider, api_key = handler._model_credential(route.operation) or ("", "")
         if route.operation == "routine-human-submit":
             body = handler._body(max_bytes=BODY_LIMITS[route.operation])
-            return HTTPStatus.OK, service.resume_routine_human(team_id, run_id, body, provider, api_key, reporter)
+            return HTTPStatus.OK, service.resume_routine_human(team_id, run_id, body, reporter)
         _empty(handler, route.operation)
-        return HTTPStatus.OK, service.resume_routine_integrations(team_id, run_id, provider, api_key, reporter)
+        return HTTPStatus.OK, service.resume_routine_integrations(team_id, run_id, reporter)
 
     local_http_stream.respond(handler, route.operation, team_id, request_audit, execute)
 
@@ -247,9 +245,8 @@ def run(handler, parts: list[str], route: strict_http.ControllerRouteMatch, requ
     service = handler.server.controller.chat_turn_service
 
     def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
-        provider, api_key = handler._model_credential(route.operation) or ("", "")
         binding = (claimed["revision"], claimed["plan_digest"], claimed["mode"])
-        return HTTPStatus.OK, service.run_routine(team_id, run_id, evidence, binding, (provider, api_key), reporter)
+        return HTTPStatus.OK, service.run_routine(team_id, run_id, evidence, binding, reporter)
 
     with local_audit.bind_request_principal(request_audit.principal()):
         local_http_stream.respond(handler, route.operation, team_id, request_audit, execute)

@@ -125,7 +125,7 @@ def canonical_claim(value: object) -> dict[str, object] | None:
     run, hint = value["run"], value["next_due_at"]
     if run is None:
         return {"run": None, "next_due_at": hint} if hint is None or (type(hint) is int and hint > 0) else None
-    fields = {"team_id", "run_id", "routine_id", "lease_token", "lease_expires_at", "provider", "active_seconds"}
+    fields = {"team_id", "run_id", "routine_id", "lease_token", "lease_expires_at", "active_seconds"}
     valid = (
         hint is None
         and isinstance(run, dict)
@@ -138,7 +138,6 @@ def canonical_claim(value: object) -> dict[str, object] | None:
         and routine._identity(run["lease_token"], routine_notice.LEASE_TOKEN_RE)
         and type(run["lease_expires_at"]) is int
         and run["lease_expires_at"] > 0
-        and run["provider"] in routine.MODEL_PROVIDERS
         and routine._revision(run["revision"])
         and routine._identity(run["plan_digest"], routine.PLAN_DIGEST_RE)
         and run["mode"] in RUN_MODES

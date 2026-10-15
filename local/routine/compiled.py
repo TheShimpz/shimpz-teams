@@ -668,19 +668,15 @@ def run_routine(
     run_id: str,
     evidence: local_authority.RoutineEvidence,
     claimed: tuple[int, str, str],
-    credentials: tuple[str, str],
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
-    """Run one segment of a leased compiled run in the Team's execution slot.
+    """Run one segment of a leased compiled run in the Team's execution slot, with no model.
 
     The signed request names the Routine revision and plan digest the run was claimed at; any other is refused before
-    anything runs. A healthy run never uses the model key of ``credentials``; only a held run's one automatic recovery
-    may ask the Brain with it.
+    anything runs. The run keeps the Team's configured provider, which a frozen continuation records.
     """
     team_id = validate_team_id(team_id)
-    provider, api_key = credentials
-    # Without a key Admin holds, the run uses the Team's configured provider; it needs no key unless it is held.
-    provider = provider or routine_run.team_provider(self, team_id) or ""
+    provider = routine_run.team_provider(self, team_id) or ""
     lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
     value, routine = routine_run._live_run(self, team_id, run_id, lease)
     current = (
@@ -706,6 +702,6 @@ def run_routine(
             run = routine_run._Run(team_id, run_id, lease, token, provider, routine)
             outcome = execute(self, run, bound, progress)
             if outcome == "held":
-                outcome = self._recover_routine_run(run, api_key, progress)
+                outcome = self._recover_routine_run(run, progress)
     routine_run._after_run(self, team_id, run_id, routine.routine_id, outcome)
     return {"team_id": team_id, "run_id": run_id, "status": outcome}

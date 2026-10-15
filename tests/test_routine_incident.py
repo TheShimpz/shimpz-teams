@@ -41,7 +41,7 @@ class IncidentNoticeTests(unittest.TestCase):
             ),
         )
         self.assertEqual(held.notice_version, 1)
-        paused = routine_hold.pause_incident(state, run_id, NINE + 2, "decided")
+        paused = routine_hold.pause_incident(state, run_id, NINE + 2, "exhausted")
         self.assertTrue(record.routine(paused, "a" * 32).paused)
         self.assertEqual(
             (paused.notices[-1].outcome, paused.notices[-1].detail, paused.notices[-1].version),
@@ -52,7 +52,7 @@ class IncidentNoticeTests(unittest.TestCase):
                     "action": "replace-dns-record",
                     "position": {"phase": "replay", "step": 1},
                     "steps": 1,
-                    "reason": "decided",
+                    "reason": "exhausted",
                 },
                 2,
             ),

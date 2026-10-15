@@ -75,9 +75,9 @@ class CursorTests(unittest.TestCase):
                 transition()
 
     def test_budgets_are_spent_never_replenished_or_borrowed(self) -> None:
-        spent = routine_cursor.spend(routine_cursor.spend(self.cursor, "verifications", 2), "model_calls", 4)
-        self.assertEqual(dict(spent.budgets)["verifications"], 1)
-        self.assertEqual(dict(spent.budgets)["model_calls"], 0)
+        spent = routine_cursor.spend(routine_cursor.spend(self.cursor, "recovery_seconds", 20), "verifications", 1)
+        self.assertEqual(dict(spent.budgets)["recovery_seconds"], 40)
+        self.assertEqual(dict(spent.budgets)["verifications"], 0)
         decoded = routine_cursor.decode(routine_cursor.encode(spent), BINDING)
         self.assertEqual(decoded.budgets, spent.budgets)
         advanced = routine_cursor.complete(
@@ -87,8 +87,8 @@ class CursorTests(unittest.TestCase):
         )
         self.assertEqual(advanced.budgets, spent.budgets)
         for budget, amount in (
-            ("model_calls", 1),
-            ("verifications", 2),
+            ("verifications", 1),
+            ("recovery_seconds", 41),
             ("retries", 0),
             ("retries", True),
             ("dollars", 1),
@@ -258,9 +258,9 @@ class ContinuationTests(unittest.TestCase):
             routine_cursor.continued(last)
 
     def test_a_refund_returns_only_part_of_a_real_reservation(self) -> None:
-        spent = routine_cursor.spend(self.dispatched, "verifications", 2)
-        self.assertEqual(routine_cursor.refund(spent, "verifications", 1).remaining("verifications"), 2)
-        for budget, amount in (("dollars", 1), ("verifications", 0), ("verifications", True)):
+        spent = routine_cursor.spend(self.dispatched, "recovery_seconds", 30)
+        self.assertEqual(routine_cursor.refund(spent, "recovery_seconds", 10).remaining("recovery_seconds"), 40)
+        for budget, amount in (("dollars", 1), ("recovery_seconds", 0), ("recovery_seconds", True)):
             with self.subTest(budget=budget), self.assertRaisesRegex(routine_cursor.CursorError, "budget-invalid"):
                 routine_cursor.refund(spent, budget, amount)
 

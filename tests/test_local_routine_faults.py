@@ -10,7 +10,6 @@ from unittest import mock
 
 from test_local_chat_scope import LOOKUP_RESULT
 from test_local_routine_service import (
-    API_KEY,
     ASSISTANT,
     KEY,
     RoutineServiceCase,
@@ -296,11 +295,8 @@ class RunFaultTests(RoutineServiceCase):
             self.assertEqual(
                 service.open_routine_challenge("team_1", claim["run_id"], "en")["status"], "integrations-required"
             )
-            with self.assertRaises(local_app.ApiProblem) as provider:
-                service.resume_routine_integrations("team_1", claim["run_id"], "anthropic", API_KEY)
-            self.assertEqual(provider.exception.code, "inference-provider-mismatch")
             # Still missing: the replay pauses again and the run freezes again.
-            again = service.resume_routine_integrations("team_1", claim["run_id"], "openai", API_KEY)
+            again = service.resume_routine_integrations("team_1", claim["run_id"])
             self.assertEqual(again["status"], "frozen")
 
     def test_a_completion_stop_wins_and_a_lease_that_ran_out_are_recorded(self) -> None:

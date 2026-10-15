@@ -81,6 +81,8 @@ class VerifierCallEdgeTests(RecoveryCase):
     def test_an_unconfigured_failing_or_pausing_verifier_is_inconclusive(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
+            # Each case starts from the held cursor, with its one verification still unspent.
+            fresh = self.cursor(service, run_id)
             down = inference_config.InferenceConfigError("unavailable")
             with (
                 mock.patch.object(service.inference_store, "load", side_effect=down),
@@ -89,9 +91,11 @@ class VerifierCallEdgeTests(RecoveryCase):
                 self.verify(service, value, run_id)
             self.assertEqual(unconfigured.exception.code, "inference-unavailable")
             refused = local_app.ApiProblem(409, "x", code="team-context-changed")
+            service.routine_store.put_cursor("team_1", fresh)
             with mock.patch.object(service, "_run_chat_segment", side_effect=refused):
                 self.assertEqual(self.verify(service, value, run_id), "inconclusive")
             paused = SimpleNamespace(outcome=object())
+            service.routine_store.put_cursor("team_1", fresh)
             with mock.patch.object(service, "_run_chat_segment", return_value=paused):
                 self.assertEqual(self.verify(service, value, run_id), "inconclusive")
 

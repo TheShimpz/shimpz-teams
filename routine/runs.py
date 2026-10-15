@@ -48,20 +48,6 @@ def joined_usage(first: dict[str, object], second: dict[str, object]) -> dict[st
     return {"duration_ms": duration, "models": models[: http_payload.MAX_TURN_USAGE_MODELS]}
 
 
-def used(state: record.TeamRoutines, run_id: str, models: list[dict[str, object]]) -> record.TeamRoutines:
-    """Add the tokens a run's model calls reported, its recovery's included, to its usage (ADR-0082, ADR-0101)."""
-    value = record.run(state, run_id)
-    return record._replace_run(state, dataclasses.replace(value, usage=added_usage(value.usage, models)))
-
-
-def added_usage(usage: dict[str, object], models: list[dict[str, object]]) -> dict[str, object]:
-    """``usage`` with these model calls' tokens added, refused unless a run's notice admits the sum."""
-    usage = joined_usage(usage, {"duration_ms": 0, "models": models})
-    if http_routine.canonical_run_usage(usage) != usage:
-        raise record.RoutineStateError("usage-invalid")
-    return usage
-
-
 def lose_protection(state: record.TeamRoutines, run_id: str) -> record.TeamRoutines:
     """The run lost the protection of its secret values; every later version of its notice says so, for good."""
     value = record.run(state, run_id)

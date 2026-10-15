@@ -6,10 +6,9 @@ import threading
 from unittest import mock
 
 import routine_fixture
-from test_local_routine_automatic import AutomaticCase, Brain, captured_timer
+from test_local_routine_automatic import AutomaticCase, captured_timer
 from test_local_routine_recovery import RECORD, Assistant, failed
 
-from inference import client as inference_client
 from local import app as local_app
 from local import audit as local_audit
 from local.routine import card as routine_card
@@ -50,17 +49,24 @@ class RecoveryLeaseTests(AutomaticCase):
         self.assertEqual(state.incidents[0].status, "unresolved")
         self.assertIsNotNone(service.routine_store.incident("team_1", run_id))
 
-    def test_deletion_reaches_the_automatic_episode_and_nothing_continues(self) -> None:
-        box: list[object] = []
+    def interrupting(self, interrupt):
+        """Run ``interrupt`` once the episode's verification proved the operation absent, before anything continues."""
+        real_verify = routine_recovery.verify
 
-        class Deleting(Brain):
-            def routine_recovery(self, payload, provider, model):
-                box[0].delete_routine("team_1", box[0].routine_store.load("team_1").routines[0].routine_id)
-                return super().routine_recovery(payload, provider, model)
+        def verify(service, team_id, incident_id, token, protected=None):
+            verdict = real_verify(service, team_id, incident_id, token, protected)
+            interrupt(service)
+            return verdict
+
+        return mock.patch.object(routine_recovery, "verify", side_effect=verify)
+
+    def test_deletion_reaches_the_automatic_episode_and_nothing_continues(self) -> None:
+        def delete(service) -> None:
+            service.delete_routine("team_1", service.routine_store.load("team_1").routines[0].routine_id)
 
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
-        with tempfile.TemporaryDirectory() as directory, self.capturing(box):
-            service, _value, run_id = self.run_held(directory, assistant, Deleting("retry"))
+        with tempfile.TemporaryDirectory() as directory, self.capturing([]), self.interrupting(delete):
+            service, _value, run_id = self.run_held(directory, assistant)
             routine_watchdog.check(service)
             state = self.state(service)
         # The deletion set the held run aside; the operation ran once and never again.
@@ -70,19 +76,18 @@ class RecoveryLeaseTests(AutomaticCase):
         self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "delete"))
 
     def test_stop_reaches_the_automatic_episode_and_fences_its_continuation(self) -> None:
-        box: list[object] = []
-
-        class Stopping(Brain):
-            def routine_recovery(self, payload, provider, model):
-                routine_run.stop_routine_run(box[0], "team_1", held_incident(box[0]))
-                return super().routine_recovery(payload, provider, model)
+        def stop(service) -> None:
+            routine_run.stop_routine_run(service, "team_1", held_incident(service))
 
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
-        with tempfile.TemporaryDirectory() as directory, self.capturing(box):
-            service, _value, run_id = self.run_held(directory, assistant, Stopping("retry"))
+        with tempfile.TemporaryDirectory() as directory, self.capturing([]), self.interrupting(stop):
+            service, value, run_id = self.run_held(directory, assistant)
             self.assert_still_held(service, run_id, assistant)
-        # The Brain answered retry, but the Stop came first.
+            state = self.state(service)
+        # The absence was proven, but the Stop came first: nothing is published, and the run is held for the card.
         self.assertEqual(self.status, "held")
+        self.assertFalse(record.routine(state, value.routine_id).paused)
+        self.assertEqual(state.notices[-1].outcome, "held")
 
     def test_a_cancelled_recovery_never_reopens_its_run(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
@@ -96,27 +101,6 @@ class RecoveryLeaseTests(AutomaticCase):
                     routine_recovery.continue_run(service, "team_1", run_id, token)
             self.assert_still_held(service, run_id, assistant)
         self.assertEqual(caught.exception.code, "routine-recovery-stopped")
-
-    def test_a_stop_while_the_provider_call_is_blocked_publishes_no_failure_or_pause(self) -> None:
-        box: list[object] = []
-
-        class Aborted(Brain):
-            def routine_recovery(self, payload, provider, model):
-                self.asked.append(payload)
-                routine_run.stop_routine_run(box[0], "team_1", held_incident(box[0]))
-                # What the client raises once Stop aborted its request.
-                raise inference_client.BrainRuntimeError("Brain runtime request was stopped")
-
-        brain = Aborted()
-        assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
-        with tempfile.TemporaryDirectory() as directory, self.capturing(box):
-            service, value, run_id = self.run_held(directory, assistant, brain)
-            self.assert_still_held(service, run_id, assistant)
-            state = self.state(service)
-        self.assertEqual((self.status, len(brain.asked)), ("held", 1))
-        # Not unavailable, not paused: the run's notice still says it is held, for the person's card.
-        self.assertFalse(record.routine(state, value.routine_id).paused)
-        self.assertEqual(state.notices[-1].outcome, "held")
 
 
 class AtomicCardTests(AutomaticCase):
@@ -219,7 +203,7 @@ class StopPrecedenceTests(AutomaticCase):
                 with service._active_chat_guard:
                     service._cancelled_chat_tokens.add(token)
                 run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)
-                outcome = routine_recovery.automatic(service, run, "k")
+                outcome = routine_recovery.automatic(service, run)
             state = self.state(service)
             cursor = routine_recovery.routine_incident.open_recovery(service, "team_1", run_id).cursor
         self.assertEqual(outcome, "held")
@@ -251,7 +235,7 @@ class StopPrecedenceTests(AutomaticCase):
                 mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 999.0)),
             ):
                 run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)
-                outcome = routine_recovery.automatic(service, run, "k")
+                outcome = routine_recovery.automatic(service, run)
             state = self.state(service)
         self.assertEqual(outcome, "held")
         # Neither the later deadline nor the clock running past it outranks the person's earlier Stop.
@@ -261,8 +245,8 @@ class StopPrecedenceTests(AutomaticCase):
     def test_nothing_continues_when_the_run_still_refuses_it_or_a_person_stopped_it_meanwhile(self) -> None:
         real_episode = routine_recovery._episode
 
-        def stopped_after(service, run, api_key, reservation):
-            went_on = real_episode(service, run, api_key, reservation)
+        def stopped_after(service, run, reservation):
+            went_on = real_episode(service, run, reservation)
             # The person's Stop lands right after the episode decided the run may go on.
             routine_run.stop_routine_run(service, run.team_id, run.run_id)
             return went_on
@@ -282,7 +266,7 @@ class StopPrecedenceTests(AutomaticCase):
                     run = mock.Mock(
                         team_id="team_1", run_id=run_id, provider="openai", token=token, protected=protected
                     )
-                    outcome = routine_recovery.automatic(service, run, "k")
+                    outcome = routine_recovery.automatic(service, run)
                 state = self.state(service)
                 self.assertEqual(outcome, "held")
                 self.assertEqual([item.incident_id for item in state.incidents], [run_id])
@@ -333,7 +317,7 @@ class StopPrecedenceTests(AutomaticCase):
                 ):
                     box.append(token)
                     run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)
-                    outcome = routine_recovery.automatic(service, run, "k")
+                    outcome = routine_recovery.automatic(service, run)
                 state = self.state(service)
                 self.assertEqual(outcome, "held")
                 # The person's Stop came first: neither exhaustion nor the policy pause is published.
@@ -373,7 +357,7 @@ class StopPrecedenceTests(AutomaticCase):
             ):
                 box.append(token)
                 run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)
-                routine_recovery.automatic(service, run, "k")
+                routine_recovery.automatic(service, run)
             for thread in threads:
                 thread.join(5)
             state = self.state(service)

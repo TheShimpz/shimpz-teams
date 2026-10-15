@@ -178,7 +178,7 @@ class SchedulerRouteTests(RoutineHttpCase):
             status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
             claimed = json.loads(raw)
             claim = claimed["run"]
-            self.assertEqual((claim["provider"], claimed["next_due_at"]), ("openai", None))
+            self.assertIsNone(claimed["next_due_at"])
             self.assertEqual((claim["revision"], claim["plan_digest"]), (1, routine_definition.plan_digest(value.plan)))
             self.assertEqual((status, claim["team_id"]), (200, "team_1"))
             status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)

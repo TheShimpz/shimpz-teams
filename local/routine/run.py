@@ -102,8 +102,7 @@ def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str, l
 def team_provider(self, team_id: str) -> str | None:
     """The Team's configured model provider, or None when it has none; a Team with none is not claimed.
 
-    No key is needed to claim or run a healthy compiled run (ADR-0092); only a held run's recovery uses the Team's
-    model, with the key Admin sends when it holds one.
+    No run asks a model (ADR-0092); a frozen run's continuation records the provider it froze with.
     """
     try:
         return self.inference_store.load(team_id).provider
@@ -141,9 +140,8 @@ def _claim_team(self, team_id: str, now: int, key: str, long: bool):
 def claim_routine_run(self, long: bool = True) -> dict[str, object] | None:
     """Lease one due run, choosing the least recently served Team first; None when nothing may start now.
 
-    Any Team with a configured model may be claimed, whether or not Admin holds its key: a healthy run needs none.
-    Without ``long``, Admin already holds a long run in a worker, so only a short run is claimed (ADR-0092 amendment,
-    2026-10-05, scale).
+    Any Team with a configured model may be claimed; no run needs a model key. Without ``long``, Admin already holds a
+    long run in a worker, so only a short run is claimed (ADR-0092 amendment, 2026-10-05, scale).
     """
     try:
         key = local_authority.routine_key_fingerprint()
@@ -152,8 +150,7 @@ def claim_routine_run(self, long: bool = True) -> dict[str, object] | None:
     now = int(time.time())
     states = _readable_states(self, routine_state.call(self.routine_store.teams))
     for team_id in sorted(states, key=lambda team: (states[team].served_at, team)):
-        provider = team_provider(self, team_id)
-        if provider is None or _chat_busy(self, team_id):
+        if team_provider(self, team_id) is None or _chat_busy(self, team_id):
             continue
         if states[team_id].discards:
             try:
@@ -170,7 +167,6 @@ def claim_routine_run(self, long: bool = True) -> dict[str, object] | None:
                 "routine_id": claim.run.routine_id,
                 "lease_token": claim.lease_token,
                 "lease_expires_at": claim.run.lease_expires_at,
-                "provider": provider,
                 "revision": claim.revision,
                 "plan_digest": claim.plan_digest,
                 "mode": claim.mode,

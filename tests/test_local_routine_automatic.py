@@ -1,22 +1,17 @@
-"""A held run's one automatic recovery episode: verification first, the Brain only on proven absence (ADR-0092)."""
+"""A held run's one automatic recovery episode: verification first, one retry on proven absence (ADR-0092)."""
 
 import dataclasses
 import tempfile
 import threading
 import time
-import unittest
-from typing import ClassVar
 from unittest import mock
 
 import routine_fixture
 from test_local_chat_scope import LOOKUP_INPUT
 from test_local_routine_compiled import ZONE
 from test_local_routine_recovery import RECORD, Assistant, RecoveryCase, failed
-from test_local_routine_service import API_KEY, ASSISTANT
+from test_local_routine_service import ASSISTANT
 
-from inference import client as inference_client
-from inference import config as inference_config
-from inference import recovery as inference_recovery
 from local.routine import recovery as routine_recovery
 from routine import hold as routine_hold
 from routine import record
@@ -42,152 +37,82 @@ def captured_timer(fired: list[object], delays: list[float] | None = None) -> ty
 
 
 class Brain:
-    """The Brain as the automatic episode may reach it: only its one recovery decision, each answer in turn."""
-
-    def __init__(self, *decisions: str) -> None:
-        self.decisions = list(decisions)
-        self.asked: list[dict[str, object]] = []
-
-    def routine_recovery(self, payload, _provider, _model):
-        self.asked.append(payload)
-        return {"decision": self.decisions.pop(0)}
+    """The Brain, which no Routine run or recovery episode ever reaches."""
 
     def __getattr__(self, name: str):
         raise AssertionError(f"the episode asked the Brain to {name}")
 
 
-class Switching(Assistant):
-    """An Assistant whose first create runs while the Team's model configuration changes to another provider."""
-
-    service = None
-
-    def __call__(self, team, assistant, action, payload, evidence):
-        if action == "create-record" and self.service is not None:
-            self.service.inference_store.save("team_1", inference_config.normalize("anthropic"))
-            self.service = None
-        return super().__call__(team, assistant, action, payload, evidence)
-
-
 class AutomaticCase(RecoveryCase):
-    def run_held(self, directory: str, assistant: Assistant, brain: Brain, key: str = API_KEY):
-        """Claim and run with the model key Admin sends; the hold runs its automatic episode at once."""
-        service, _brain, value, run_id = self.held_automatic(directory, assistant, brain, key)
-        return service, value, run_id
-
-    def held_automatic(self, directory, assistant, brain, key):
-        service = self.mutating(directory, brain, assistant)
+    def run_held(self, directory: str, assistant: Assistant, brain: Brain | None = None):
+        """Claim and run; the hold runs its automatic episode at once."""
+        service = self.mutating(directory, brain or Brain(), assistant)
         # The Assistant may reach the Team's state while its Action runs, as a person changing it meanwhile would.
         assistant.service = service
         value = self.zone_record_routine(service)
         claim = service.claim_routine_run()
-        self.status = self.run_claim(service, claim, key)["status"]
-        return service, brain, value, claim["run_id"]
+        self.status = self.run_claim(service, claim)["status"]
+        return service, value, claim["run_id"]
 
 
 class AutomaticTests(AutomaticCase):
-    def test_proven_absence_asks_once_and_retries_the_same_operation(self) -> None:
-        brain = Brain("retry")
+    def test_proven_absence_retries_the_same_operation_once(self) -> None:
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
-            service, _value, _run_id = self.run_held(directory, assistant, brain)
+            service, _value, _run_id = self.run_held(directory, assistant)
             state = self.state(service)
         self.assertEqual((self.status, state.incidents, state.runs), ("recovered", (), ()))
-        (asked,) = brain.asked
-        self.assertEqual(
-            (asked["proof"], asked["step"]), ("not_occurred", {"assistant": ASSISTANT, "action": "create-record"})
-        )
-        # The step's sanitized diagnostic is the Brain's untrusted evidence; the 404 alone never proved anything.
-        self.assertEqual(asked["diagnostics"][0]["failure"]["http_status"], 404)
         creates = [operation for action, operation in assistant.calls if action == "create-record"]
         self.assertEqual((len(creates), creates[0]), (2, creates[1]))
 
-    def test_the_decisions_reported_tokens_reach_the_recovered_runs_notice(self) -> None:
-        models = [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 10, "output_tokens": 5}]
-        assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
-        with (
-            tempfile.TemporaryDirectory() as directory,
-            mock.patch.object(routine_recovery.brain_usage, "since", return_value=models),
-        ):
-            service, _value, run_id = self.run_held(directory, assistant, Brain("retry"))
-            state = self.state(service)
-        notice = next(item for item in state.notices if item.run_id == run_id)
-        self.assertEqual((self.status, notice.outcome, notice.usage["models"]), ("recovered", "recovered", models))
-
-    def test_a_proven_occurrence_continues_with_no_model_call(self) -> None:
-        brain = Brain()
+    def test_a_proven_occurrence_continues(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
         with tempfile.TemporaryDirectory() as directory:
-            service, _value, _run_id = self.run_held(directory, assistant, brain)
+            service, _value, _run_id = self.run_held(directory, assistant)
             state = self.state(service)
-        self.assertEqual((self.status, brain.asked, state.incidents), ("recovered", [], ()))
+        self.assertEqual((self.status, state.incidents), ("recovered", ()))
 
-    def test_inconclusive_evidence_holds_for_the_card_without_asking_the_brain(self) -> None:
-        brain = Brain()
+    def test_inconclusive_evidence_holds_for_the_card(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
         with tempfile.TemporaryDirectory() as directory:
-            service, value, run_id = self.run_held(directory, assistant, brain)
+            service, value, run_id = self.run_held(directory, assistant)
             state = self.state(service)
             cursor = self.cursor(service, run_id)
-        self.assertEqual((self.status, brain.asked), ("held", []))
+        self.assertEqual(self.status, "held")
         self.assertEqual([item.incident_id for item in state.incidents], [run_id])
         self.assertFalse(record.routine(state, value.routine_id).paused)
-        self.assertEqual((cursor.remaining("episodes"), cursor.remaining("verifications")), (0, 2))
-
-    def test_ask_holds_and_pause_or_an_unavailable_decision_also_pauses_the_routine(self) -> None:
-        cases = ((("ask",), API_KEY, None), (("pause",), API_KEY, "decided"), ((), "", "unavailable"))
-        for decisions, key, reason in cases:
-            paused = reason is not None
-            brain = Brain(*decisions)
-            assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
-            with tempfile.TemporaryDirectory() as directory, self.subTest(decisions=decisions, key=bool(key)):
-                service, value, run_id = self.run_held(directory, assistant, brain, key)
-                state = self.state(service)
-                cursor = self.cursor(service, run_id)
-                self.assertEqual(self.status, "held")
-                self.assertEqual(record.routine(state, value.routine_id).paused, paused)
-                # The held run's one notice says it is held, or why recovery paused its Routine.
-                notice = state.notices[-1]
-                step = {
-                    "assistant_id": ASSISTANT,
-                    "action": "create-record",
-                    "position": {"phase": "replay", "step": 2},
-                    "steps": 2,
-                }
-                expected = ("held", step) if reason is None else ("paused", {**step, "reason": reason})
-                self.assertEqual((notice.notice_id, (notice.outcome, notice.detail)), (run_id, expected))
-                # Each call and its whole output cap are paid before the call; with no key, nothing is asked.
-                self.assertEqual(len(brain.asked), len(decisions))
-                self.assertEqual((cursor.remaining("model_calls"), cursor.remaining("output_tokens")), (3, 3072))
+        self.assertEqual((cursor.remaining("episodes"), cursor.remaining("verifications")), (0, 0))
+        # The held run's one notice says it is held at its step, for the person's card.
+        step = {"assistant_id": ASSISTANT, "action": "create-record", "position": {"phase": "replay", "step": 2}}
+        notice = state.notices[-1]
+        self.assertEqual((notice.notice_id, notice.outcome, notice.detail), (run_id, "held", {**step, "steps": 2}))
 
     def test_the_episode_runs_once_and_the_retry_never_repeats(self) -> None:
-        brain = Brain("retry", "retry")
         assistant = Assistant([failed(), failed()], [{"outcome": "not_occurred"}, {"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
-            service, _value, run_id = self.run_held(directory, assistant, brain)
+            service, _value, run_id = self.run_held(directory, assistant)
             cursor = self.cursor(service, run_id)
-        self.assertEqual((self.status, len(brain.asked)), ("held", 1))
+        self.assertEqual(self.status, "held")
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 2)
         self.assertEqual((cursor.remaining("episodes"), cursor.remaining("retries")), (0, 0))
 
     def test_an_episode_past_its_active_time_stops_and_a_restart_never_starts_another(self) -> None:
-        brain = Brain("retry")
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
         ticks = iter([0.0])
         with tempfile.TemporaryDirectory() as directory:
             with mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 61.0)):
-                service, _value, run_id = self.run_held(directory, assistant, brain)
+                service, _value, run_id = self.run_held(directory, assistant)
             cursor = self.cursor(service, run_id)
             run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
-            again = routine_recovery.automatic(service, run, API_KEY)
+            again = routine_recovery.automatic(service, run)
             state = self.state(service)
-        self.assertEqual((self.status, brain.asked, again), ("held", [], "held"))
+        self.assertEqual((self.status, again), ("held", "held"))
         self.assertEqual(cursor.remaining("recovery_seconds"), 0)
         # Running out of recovery time publishes the pause and its reason, not a plain hold.
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
 
     def test_the_episode_time_is_reserved_durably_first_and_runs_under_a_cancellable_deadline(self) -> None:
-        brain = Brain("ask")
-        assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
+        assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
         observed: list[tuple[int, float]] = []
         real_verify = routine_recovery.verify
 
@@ -202,7 +127,7 @@ class AutomaticTests(AutomaticCase):
             tempfile.TemporaryDirectory() as directory,
             mock.patch.object(routine_recovery, "verify", side_effect=watching),
         ):
-            service, _value, run_id = self.run_held(directory, assistant, brain)
+            service, _value, run_id = self.run_held(directory, assistant)
             cursor = self.cursor(service, run_id)
             registered = run_id in service._routine_runs
         ((remaining, left),) = observed
@@ -213,84 +138,30 @@ class AutomaticTests(AutomaticCase):
         self.assertFalse(registered)
 
     def test_a_crash_inside_the_episode_never_refills_its_time(self) -> None:
-        brain = Brain("ask")
-        assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
+        assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
         with (
             tempfile.TemporaryDirectory() as directory,
             mock.patch.object(routine_recovery, "_release"),
         ):
             # The process dies before the unused time is returned: the reservation stays spent.
-            service, _value, run_id = self.run_held(directory, assistant, brain)
+            service, _value, run_id = self.run_held(directory, assistant)
             cursor = self.cursor(service, run_id)
         self.assertEqual((cursor.remaining("recovery_seconds"), cursor.remaining("episodes")), (0, 0))
 
 
 class AutomaticEdgeTests(AutomaticCase):
-    def test_an_exhausted_decision_or_unreadable_diagnostics_pause_without_asking(self) -> None:
-        for name in ("exhausted", "diagnostics"):
-            brain = Brain("ask")
-            assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
-            patches = {
-                "exhausted": mock.patch.object(
-                    routine_recovery.routine_cursor, "spend", side_effect=_spend_without_calls
-                ),
-                "diagnostics": mock.patch.object(
-                    routine_recovery.routine_diagnostics.DiagnosticStore,
-                    "read",
-                    side_effect=routine_recovery.routine_diagnostics.DiagnosticStoreError("down"),
-                ),
-            }
-            with tempfile.TemporaryDirectory() as directory, self.subTest(name=name), patches[name]:
-                service, value, _run_id = self.run_held(directory, assistant, brain)
-                state = self.state(service)
-                paused = record.routine(state, value.routine_id).paused
-                self.assertEqual(self.status, "held")
-                self.assertTrue(paused)
-                # Unreadable or corrupt diagnostics pause the Routine without asking the model anything.
-                expected = {"exhausted": "exhausted", "diagnostics": "evidence"}[name]
-                self.assertEqual(state.notices[-1].detail["reason"], expected)
-                self.assertEqual(brain.asked, [])
-
-    def test_absent_or_expired_diagnostics_are_simply_left_out(self) -> None:
-        brain = Brain("ask")
+    def test_an_exhausted_verification_budget_pauses_the_routine_without_verifying(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
         with (
             tempfile.TemporaryDirectory() as directory,
-            mock.patch.object(routine_recovery.routine_diagnostics.DiagnosticStore, "read", return_value=()),
+            mock.patch.object(routine_recovery.routine_cursor, "spend", side_effect=_spend_without_verifying),
         ):
-            service, value, _run_id = self.run_held(directory, assistant, brain)
+            service, value, _run_id = self.run_held(directory, assistant)
             state = self.state(service)
-        self.assertEqual(brain.asked[0]["diagnostics"], [])
-        self.assertFalse(record.routine(state, value.routine_id).paused)
-
-    def test_an_unconfigured_team_has_no_decision(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
-            down = routine_recovery.inference_config.InferenceConfigError("down")
-            with mock.patch.object(service.inference_store, "load", side_effect=down):
-                decided = routine_recovery._decide(service, "team_1", run_id, ("openai", API_KEY), None)
-                self.assertEqual(decided, "unavailable")
-
-    def test_a_key_is_never_sent_once_the_team_switched_to_another_provider(self) -> None:
-        brain = Brain("retry")
-        assistant = Switching([failed(), RECORD], [{"outcome": "not_occurred"}])
-        with (
-            tempfile.TemporaryDirectory() as directory,
-            mock.patch.object(routine_recovery.local_audit, "record_request") as audited,
-        ):
-            service, value, run_id = self.run_held(directory, assistant, brain)
-            # The Team's provider changed while the Action ran: the OpenAI key never reaches the Brain for Anthropic,
-            # no model call is charged, and the held run pauses its Routine as a decision that could not be made.
-            self.assertEqual((brain.asked, self.status), ([], "held"))
-            state = self.state(service)
-            cursor = self.cursor(service, run_id)
-        self.assertEqual((cursor.remaining("model_calls"), cursor.remaining("output_tokens")), (4, 4096))
+        self.assertEqual(self.status, "held")
         self.assertTrue(record.routine(state, value.routine_id).paused)
-        self.assertEqual(state.notices[-1].detail["reason"], "unavailable")
-        self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
-        audited.assert_any_call(
-            "routine-recovery", result="denied", team_id="team_1", detail="inference-provider-mismatch"
-        )
+        self.assertEqual(state.notices[-1].detail["reason"], "exhausted")
+        self.assertNotIn("find-record", [action for action, _id in assistant.calls])
 
     def test_time_running_out_after_evidence_or_a_failing_assessment_holds_the_run(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
@@ -298,7 +169,7 @@ class AutomaticEdgeTests(AutomaticCase):
         ticks = iter([0.0, 0.0, 0.0])
         with tempfile.TemporaryDirectory() as directory:
             with mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 61.0)):
-                service, _value, run_id = self.run_held(directory, assistant, Brain())
+                service, _value, run_id = self.run_held(directory, assistant)
             self.assertEqual(self.status, "held")
             self.assertEqual(self.cursor(service, run_id).step, 2)
         assistant = Assistant([failed()], [])
@@ -307,7 +178,7 @@ class AutomaticEdgeTests(AutomaticCase):
             tempfile.TemporaryDirectory() as directory,
             mock.patch.object(routine_recovery, "verify", side_effect=drift),
         ):
-            self.run_held(directory, assistant, Brain())
+            self.run_held(directory, assistant)
         self.assertEqual(self.status, "held")
         with (
             mock.patch.object(routine_recovery.routine_incident, "open_recovery", side_effect=drift),
@@ -319,9 +190,7 @@ class AutomaticEdgeTests(AutomaticCase):
 
     def test_an_episode_that_used_all_its_time_returns_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            service, _value, run_id = self.run_held(
-                directory, Assistant([failed()], [{"outcome": "inconclusive"}]), Brain()
-            )
+            service, _value, run_id = self.run_held(directory, Assistant([failed()], [{"outcome": "inconclusive"}]))
             cursor = self.cursor(service, run_id)
             spent = routine_recovery.routine_cursor.spend(
                 cursor, "recovery_seconds", cursor.remaining("recovery_seconds")
@@ -339,53 +208,16 @@ class AutomaticEdgeTests(AutomaticCase):
 _REAL_SPEND = routine_recovery.routine_cursor.spend
 
 
-def _spend_without_calls(cursor, budget, amount):
-    if budget == "model_calls":
+def _spend_without_verifying(cursor, budget, amount):
+    if budget == "verifications":
         raise routine_recovery.routine_cursor.CursorError("cursor-budget-exhausted")
     return _REAL_SPEND(cursor, budget, amount)
 
 
-class DecisionClientTests(unittest.TestCase):
-    SUBJECT: ClassVar[dict[str, object]] = {
-        "routine": {"name": "N", "request": "R"},
-        "step": {"assistant": "a", "action": "b"},
-        "proof": "no_effect",
-    }
-
-    def client(self, answer):
-        client = inference_client.BrainRuntimeClient.__new__(inference_client.BrainRuntimeClient)
-        usage = dict.fromkeys(inference_client.brain_usage.FIELDS, 0)
-        client._post = mock.Mock(return_value={**answer, "usage": usage})
-        return client
-
-    def test_only_a_closed_decision_from_a_valid_request_is_admitted(self) -> None:
-        client = self.client({"decision": "retry"})
-        with mock.patch.object(inference_client.brain_usage, "record"):
-            decided = inference_recovery.decide(client, ("openai", "gpt-6-luna", "sk-x"), "pt", self.SUBJECT, ())
-            self.assertEqual(decided, "retry")
-            self.assertEqual(client._post.call_args.args[0], "/v1/routine-recovery")
-            for answer in ({"decision": "verify"}, {"decision": "ask", "x": 1}):
-                with self.subTest(answer=answer), self.assertRaises(inference_client.BrainRuntimeError):
-                    inference_recovery.decide(self.client(answer), ("openai", "m", "k"), None, self.SUBJECT, ())
-        for credentials, locale, subject, diagnostics in (
-            (("other", "m", "k"), None, self.SUBJECT, ()),
-            (("openai", "bad model", "k"), None, self.SUBJECT, ()),
-            (("openai", "m", ""), None, self.SUBJECT, ()),
-            (("openai", "m", "k"), "xx", self.SUBJECT, ()),
-            (("openai", "m", "k"), None, {**self.SUBJECT, "proof": "occurred"}, ()),
-            (("openai", "m", "k"), None, self.SUBJECT, ({},) * 9),
-        ):
-            with (
-                self.subTest(credentials=credentials, locale=locale),
-                self.assertRaises(inference_client.BrainRuntimeError),
-            ):
-                inference_recovery.decide(client, credentials, locale, subject, diagnostics)
-
-
 class BalanceCase(AutomaticCase):
-    def held_with_balance(self, directory: str, seconds: int, assistant: Assistant, brain: Brain | None = None):
+    def held_with_balance(self, directory: str, seconds: int, assistant: Assistant):
         """A held run, without its automatic episode yet, whose remaining active time is ``seconds``."""
-        service, _brain, value, run_id = self.held(directory, assistant, brain or Brain())
+        service, _brain, value, run_id = self.held(directory, assistant, Brain())
         service.routine_store.update(
             "team_1",
             lambda state: (
@@ -417,7 +249,7 @@ class RunBalanceTests(BalanceCase):
             service, _value, run_id = self.held_with_balance(directory, 5, assistant)
             run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
             with mock.patch.object(routine_recovery, "verify", side_effect=watching):
-                self.assertEqual(routine_recovery.automatic(service, run, API_KEY), "held")
+                self.assertEqual(routine_recovery.automatic(service, run), "held")
             cursor = self.cursor(service, run_id)
             held = routine_hold.incident(self.state(service), run_id)
         ((recovery, active, left),) = observed
@@ -429,19 +261,17 @@ class RunBalanceTests(BalanceCase):
         self.assertTrue(0 < held.active_seconds_left <= 4)
 
     def test_a_run_with_no_time_left_is_exhausted_before_any_work(self) -> None:
-        brain = Brain("retry")
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
-            service, _value, run_id = self.held_with_balance(directory, 0, assistant, brain)
+            service, _value, run_id = self.held_with_balance(directory, 0, assistant)
             run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
-            outcome = routine_recovery.automatic(service, run, API_KEY)
+            outcome = routine_recovery.automatic(service, run)
             state = self.state(service)
-        self.assertEqual((outcome, brain.asked), ("held", []))
+        self.assertEqual(outcome, "held")
         self.assertNotIn("find-record", [action for action, _id in assistant.calls])
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
 
     def test_the_retry_runs_inside_the_recovery_allowance(self) -> None:
-        brain = Brain("retry")
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         bounds: list[int] = []
         real_continue = routine_recovery.continue_run
@@ -454,7 +284,7 @@ class RunBalanceTests(BalanceCase):
             tempfile.TemporaryDirectory() as directory,
             mock.patch.object(routine_recovery, "continue_run", side_effect=continuing),
         ):
-            self.run_held(directory, assistant, brain)
+            self.run_held(directory, assistant)
         (bound,) = bounds
         self.assertEqual(self.status, "recovered")
         # The continuation that retries the step is bounded by what remains of the episode's reservation.
@@ -472,22 +302,21 @@ class DeadlineTests(BalanceCase):
                     released.wait(10)
                 return super().__call__(team, assistant, action, payload, evidence)
 
-        brain = Brain("retry")
         assistant = Blocking([failed()], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
-            service, _value, run_id = self.held_with_balance(directory, 1, assistant, brain)
+            service, _value, run_id = self.held_with_balance(directory, 1, assistant)
             service.assistant_lifecycle._fail_stop_action = mock.Mock(side_effect=lambda _container: released.set())
             run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
             started = time.monotonic()
             with service._exclusive_chat_turn("team_1") as token:
                 run.token = token
-                outcome = routine_recovery.automatic(service, run, API_KEY)
+                outcome = routine_recovery.automatic(service, run)
             elapsed = time.monotonic() - started
             state = self.state(service)
         # The one-second reservation ended the hanging verifier at once, long before any watchdog pass.
         self.assertTrue(released.is_set())
         self.assertLess(elapsed, 5)
-        self.assertEqual((outcome, brain.asked), ("held", []))
+        self.assertEqual(outcome, "held")
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
         service.assistant_lifecycle._fail_stop_action.assert_called_once()
 
@@ -498,7 +327,7 @@ class DeadlineTests(BalanceCase):
             run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
             ticks = iter([0.0, 0.0, 0.0])
             with mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 31.0)):
-                outcome = routine_recovery.automatic(service, run, API_KEY)
+                outcome = routine_recovery.automatic(service, run)
             state = self.state(service)
         # Proven occurrence would continue, but the reservation had run out: exhausted, not continued.
         self.assertEqual(outcome, "held")
@@ -539,7 +368,6 @@ class ContinuationDeadlineTests(BalanceCase):
                 fired[-1]()
             return turn
 
-        brain = Brain("retry")
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         controller_plan = (
             ("zones", "list-zones", LOOKUP_INPUT),
@@ -552,7 +380,7 @@ class ContinuationDeadlineTests(BalanceCase):
             mock.patch.object(routine_recovery.routine_compiled.CompiledRuntime, "resume", resume),
             mock.patch.object(self, "plan", lambda service, *_steps: type(self).plan(service, *controller_plan)),
         ):
-            service, value, run_id = self.run_held(directory, assistant, brain)
+            service, value, run_id = self.run_held(directory, assistant)
             state = self.state(service)
             cursor = self.cursor(service, run_id)
         # Never ended as stopped: the partial run is held with its evidence and its Routine runs no further cycle.
@@ -566,10 +394,9 @@ class ContinuationDeadlineTests(BalanceCase):
     def test_the_timer_is_set_for_what_is_left_and_nothing_starts_once_it_ran_out(self) -> None:
         delays: list[float] = []
 
-        brain = Brain("retry")
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
-            service, _value, run_id = self.held_with_balance(directory, 30, assistant, brain)
+            service, _value, run_id = self.held_with_balance(directory, 30, assistant)
             run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
             # Taken at 0, armed at 12, and already past its deadline when the episode would start work.
             ticks = iter([0.0, 12.0])
@@ -577,34 +404,32 @@ class ContinuationDeadlineTests(BalanceCase):
                 mock.patch.object(routine_recovery.threading, "Timer", captured_timer([], delays)),
                 mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 30.0)),
             ):
-                outcome = routine_recovery.automatic(service, run, API_KEY)
+                outcome = routine_recovery.automatic(service, run)
             state = self.state(service)
         self.assertEqual(delays, [18.0])
-        self.assertEqual((outcome, brain.asked), ("held", []))
+        self.assertEqual(outcome, "held")
         self.assertNotIn("find-record", [action for action, _id in assistant.calls])
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
 
     def test_a_retry_with_no_time_left_is_never_dispatched(self) -> None:
-        brain = Brain("retry")
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
-            service, _value, run_id = self.held_with_balance(directory, 30, assistant, brain)
+            service, _value, run_id = self.held_with_balance(directory, 30, assistant)
             run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
-            # In time through the decision, with less than a second left for the retry.
+            # In time through the verification, with less than a second left for the retry.
             ticks = iter([0.0, 0.0, 0.0, 0.0, 29.5])
             with (
                 service._exclusive_chat_turn("team_1") as token,
                 mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 29.5)),
             ):
                 run.token = token
-                outcome = routine_recovery.automatic(service, run, API_KEY)
+                outcome = routine_recovery.automatic(service, run)
             state = self.state(service)
-        self.assertEqual((outcome, len(brain.asked)), ("held", 1))
+        self.assertEqual(outcome, "held")
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
 
     def test_a_low_balance_retry_continues_with_the_time_its_reservation_has_left(self) -> None:
-        brain = Brain("retry")
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         balances: list[tuple[int, int]] = []
         real_continue = routine_recovery.continue_run
@@ -617,13 +442,13 @@ class ContinuationDeadlineTests(BalanceCase):
 
         with tempfile.TemporaryDirectory() as directory:
             # All 5 seconds the run had left were reserved; the retry still runs inside them.
-            service, _value, run_id = self.held_with_balance(directory, 5, assistant, brain)
+            service, _value, run_id = self.held_with_balance(directory, 5, assistant)
             with (
                 service._exclusive_chat_turn("team_1") as token,
                 mock.patch.object(routine_recovery, "continue_run", side_effect=continuing),
             ):
                 run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)
-                outcome = routine_recovery.automatic(service, run, API_KEY)
+                outcome = routine_recovery.automatic(service, run)
             state = self.state(service)
         self.assertEqual(outcome, "recovered")
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 2)
@@ -649,14 +474,13 @@ class ContinuationDeadlineTests(BalanceCase):
                 fired[-1]()
             return real_provider(service, team_id)
 
-        brain = Brain("retry")
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         with (
             tempfile.TemporaryDirectory() as directory,
             mock.patch.object(routine_recovery.threading, "Timer", captured_timer(fired)),
             mock.patch.object(routine_recovery, "_provider", side_effect=provider),
         ):
-            service, value, run_id = self.run_held(directory, assistant, brain)
+            service, value, run_id = self.run_held(directory, assistant)
             state = self.state(service)
         # Out of time, not stopped: the partial run is held again and its Routine pauses as exhausted.
         self.assertEqual(self.status, "held")
@@ -674,14 +498,13 @@ class ContinuationDeadlineTests(BalanceCase):
             fired[-1]()
             return real_continued(cursor)
 
-        brain = Brain("retry")
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         with (
             tempfile.TemporaryDirectory() as directory,
             mock.patch.object(routine_recovery.threading, "Timer", captured_timer(fired)),
             mock.patch.object(routine_recovery.routine_cursor, "continued", side_effect=continued),
         ):
-            service, value, run_id = self.run_held(directory, assistant, brain)
+            service, value, run_id = self.run_held(directory, assistant)
             state = self.state(service)
         # The refused continuation is no plain hold: the incident and its evidence stay, and the Routine pauses.
         self.assertEqual(self.status, "held")
@@ -698,7 +521,7 @@ class ContinuationDeadlineTests(BalanceCase):
                 # A Stop found the run unregistered and fenced it out.
                 service._routine_halting.add(run_id)
             run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
-            self.assertEqual(routine_recovery.automatic(service, run, API_KEY), "held")
+            self.assertEqual(routine_recovery.automatic(service, run), "held")
         self.assertNotIn("find-record", [action for action, _id in assistant.calls])
 
     def cut_after_the_last_step(self, cause: str, exhaust: str = ""):
@@ -762,7 +585,7 @@ class ContinuationDeadlineTests(BalanceCase):
             mock.patch.object(routine_recovery.threading, "Timer", captured_timer(fired)),
             mock.patch.object(routine_recovery.routine_compiled.CompiledRuntime, "resume", resume),
         ):
-            service_value, value, _run_id = self.run_held(directory, assistant, Brain("retry"))
+            service_value, value, _run_id = self.run_held(directory, assistant)
             state = self.state(service_value)
         return state, record.routine(state, value.routine_id)
 

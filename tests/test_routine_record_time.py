@@ -252,17 +252,15 @@ class UsageAndProtectionTests(unittest.TestCase):
         state, claim, lease = bound()
         run_id = claim.run.run_id
         state = routine_runs.spend(state, run_id, lease, NINE, (1, 1500))
-        state = routine_runs.used(state, run_id, [MODEL])
-        state = routine_runs.used(
-            state, run_id, [MODEL, {**MODEL, "provider": "anthropic", "model": "claude-sonnet-5-5"}]
+        self.assertEqual(record.run(state, run_id).usage, {"duration_ms": 1500, "models": []})
+        joined = routine_runs.joined_usage(
+            {"duration_ms": 1, "models": [MODEL]},
+            {"duration_ms": 2, "models": [MODEL, {**MODEL, "provider": "anthropic", "model": "claude-sonnet-5-5"}]},
         )
-        usage = record.run(state, run_id).usage
-        self.assertEqual(usage["duration_ms"], 1500)
+        self.assertEqual(joined["duration_ms"], 3)
         self.assertEqual(
-            [(item["provider"], item["input_tokens"]) for item in usage["models"]], [("anthropic", 10), ("openai", 20)]
+            [(item["provider"], item["input_tokens"]) for item in joined["models"]], [("anthropic", 10), ("openai", 20)]
         )
-        with self.assertRaisesRegex(record.RoutineStateError, "usage-invalid"):
-            routine_runs.used(state, run_id, [{**MODEL, "model": "Bad Model"}])
         capped = routine_runs.joined_usage(
             {"duration_ms": routine_runs.MAX_USAGE_MS, "models": [{**MODEL, "input_tokens": 999_999_999}]},
             {"duration_ms": 5, "models": [{**MODEL, "input_tokens": 9}]},
@@ -282,24 +280,19 @@ class UsageAndProtectionTests(unittest.TestCase):
     def test_a_run_notice_carries_its_usage_and_a_lost_protection_for_good(self):
         state, claim, lease = bound()
         run_id = claim.run.run_id
-        state = routine_runs.lose_protection(routine_runs.used(state, run_id, [MODEL]), run_id)
+        state = routine_runs.spend(state, run_id, lease, NINE, (1, 1500))
+        state = routine_runs.lose_protection(state, run_id)
         state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
         held = state.notices[-1]
-        self.assertEqual(
-            (held.outcome, held.protection_lost, held.usage["models"][0]["model"]), ("held", True, "gpt-6-luna")
-        )
+        self.assertEqual((held.outcome, held.protection_lost, held.usage["duration_ms"]), ("held", True, 1500))
         incident = routine_hold.incident(state, run_id)
         self.assertTrue(incident.protection_lost)
-        recovered = routine_hold.used(state, run_id, [MODEL])
-        self.assertEqual(routine_hold.incident(recovered, run_id).usage["models"][0]["input_tokens"], 20)
-        with self.assertRaisesRegex(record.RoutineStateError, "usage-invalid"):
-            routine_hold.used(state, run_id, [{**MODEL, "provider": ""}])
         reopened, _token = routine_hold.reopen_incident(
-            recovered, run_id, NINE + 2, routine_claim.generation_for("net_1", run_id, "s1")
+            state, run_id, NINE + 2, routine_claim.generation_for("net_1", run_id, "s1")
         )
         run = record.run(reopened, run_id)
         self.assertTrue(run.protection_lost)
-        self.assertEqual(run.usage["models"][0]["input_tokens"], 20)
+        self.assertEqual(run.usage["duration_ms"], 1500)
 
 
 if __name__ == "__main__":

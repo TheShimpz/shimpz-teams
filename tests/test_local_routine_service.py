@@ -65,11 +65,6 @@ class Runtime:
     def purpose(self, _context, _request, _assistant_name, _summary):
         return None
 
-    @staticmethod
-    def routine_recovery(_payload, _provider, _model):
-        # A held run's automatic recovery asks the person unless a test scripts another decision.
-        return {"decision": "ask"}
-
 
 def completed(reply: str = "Your zones are listed.") -> brain_runtime_client.RuntimeTurn:
     return brain_runtime_client.RuntimeTurn("completed", reply, ())
@@ -177,16 +172,12 @@ class RoutineServiceCase(LocalContractCase):
     # The Routine key's fingerprint the Team admits; the HTTP cases sign with a real key and set theirs.
     fingerprint = KEY
 
-    def run_claim(self, service, claim: dict[str, object], key: str = API_KEY) -> dict[str, object]:
-        """Run a claimed run under its lease with this model key ("" runs it without one)."""
+    def run_claim(self, service, claim: dict[str, object]) -> dict[str, object]:
+        """Run a claimed run under its lease."""
         lease = record.lease_sha256(claim["lease_token"])
         evidence = local_authority.RoutineEvidence(self.fingerprint, lease, "a" * 32, 0)
         return service.run_routine(
-            "team_1",
-            claim["run_id"],
-            evidence,
-            (claim["revision"], claim["plan_digest"], claim["mode"]),
-            ("openai", key),
+            "team_1", claim["run_id"], evidence, (claim["revision"], claim["plan_digest"], claim["mode"])
         )
 
     def asking(self, directory: str, request: action_human.HumanRequest | None = None, *turns):
@@ -201,16 +192,14 @@ class RoutineServiceCase(LocalContractCase):
         self.routine(service)
         return controller, service, service.claim_routine_run()
 
-    def answer_human(
-        self, service, run_id: str, challenge_id: str, decision: str = "submit", *, provider="openai", key=API_KEY
-    ):
+    def answer_human(self, service, run_id: str, challenge_id: str, decision: str = "submit"):
         """Answer a frozen run's open challenge: approve it with True, or deny it."""
         answer = {
             "challenge_id": challenge_id,
             "decision": decision,
             **({"value": True} if decision == "submit" else {}),
         }
-        return service.resume_routine_human("team_1", run_id, answer, provider, key)
+        return service.resume_routine_human("team_1", run_id, answer)
 
     def state(self, service) -> record.TeamRoutines:
         return service.routine_store.load("team_1")
@@ -488,7 +477,7 @@ class FreezeTests(RoutineServiceCase):
                 for answer in ({"decision": "deny"}, {"decision": "submit", "value": True}):
                     with self.subTest(answer=answer), self.assertRaises(local_app.ApiProblem) as busy:
                         service.resume_routine_human(
-                            "team_1", run_id, {"challenge_id": opened["challenge_id"], **answer}, "openai", API_KEY
+                            "team_1", run_id, {"challenge_id": opened["challenge_id"], **answer}
                         )
                     self.assertEqual(busy.exception.code, "chat-active")
                     # Nothing was consumed: the run, its continuation, and its challenge wait for the same answer.
@@ -527,17 +516,14 @@ class FreezeTests(RoutineServiceCase):
             )
             for body, code in cases:
                 with self.subTest(code=code), self.assertRaises(local_app.ApiProblem) as refused:
-                    service.resume_routine_human("team_1", claim["run_id"], body, "openai", API_KEY)
+                    service.resume_routine_human("team_1", claim["run_id"], body)
                 self.assertEqual(refused.exception.code, code)
-            with self.assertRaises(local_app.ApiProblem) as provider:
-                self.answer_human(service, claim["run_id"], opened["challenge_id"], provider="anthropic")
-            self.assertEqual(provider.exception.code, "inference-provider-mismatch")
             for run_id, code in (("0" * 32, "routine-run-not-found"), (7, "routine-run-not-found")):
                 with self.subTest(run_id=run_id), self.assertRaises(local_app.ApiProblem) as missing:
                     service.open_routine_challenge("team_1", run_id, "en")
                 self.assertEqual(missing.exception.code, code)
             with self.assertRaises(local_app.ApiProblem) as integration:
-                service.resume_routine_integrations("team_1", claim["run_id"], "openai", API_KEY)
+                service.resume_routine_integrations("team_1", claim["run_id"])
             self.assertEqual(integration.exception.code, "routine-run-not-frozen")
 
     def test_a_changed_team_ends_the_frozen_run_instead_of_replaying(self) -> None:

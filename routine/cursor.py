@@ -21,16 +21,15 @@ from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import strict_json
 from routine import plan as routine_plan
 
-VERSION = 5
+VERSION = 6
 MAX_CURSOR_BYTES = 256 * 1024
-# The initial automatic recovery bounds; consumption is persisted before any paid dispatch.
+# The run's one automatic recovery episode: its time, its one retry, and its one verifier call. Consumption is
+# persisted before any dispatch, and nothing ever refills it.
 BUDGETS = (
     ("episodes", 1),
-    ("model_calls", 4),
-    ("output_tokens", 4096),
     ("recovery_seconds", 60),
     ("retries", 1),
-    ("verifications", 3),
+    ("verifications", 1),
 )
 # Continuation segments a run may open after holds; each runs in its own journal generation.
 MAX_SEGMENTS = 8

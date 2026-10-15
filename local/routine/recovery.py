@@ -5,9 +5,9 @@ is proven absent when Team-admitted evidence says so: a reviewed read-only Actio
 effect, or a suspension before any effect. Anything else stays uncertain until the Action's fixed read-only verifier
 is run under its exact descriptor: the operation's logical id or every required original input whole, and nothing a
 model chose. ``occurred`` with a recovered result valid under the original output schema completes the step;
-``not_occurred`` proves absence, which permits the one retry of the same operation in the whole run; anything else,
-including a failure of the verifier, is inconclusive and leaves the run held for a person. Exceptions, validation
-messages, HTTP status codes, expired credentials, and not-found responses are never proof by themselves.
+``not_occurred`` proves absence, which retries the same operation once in the whole run; anything else, including a
+failure of the verifier, is inconclusive and leaves the run held for a person. Exceptions, validation messages, HTTP
+status codes, expired credentials, and not-found responses are never proof by themselves.
 
 A verifier call runs in its own journal generation, released when it ends. A continuation resumes the held run in a
 fresh generation under a fresh internal lease, in the Team's execution slot, and an uncertain operation is never
@@ -32,8 +32,6 @@ from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from inference import config as inference_config
-from inference import recovery as inference_recovery
-from inference import usage as brain_usage
 from local import audit as local_audit
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
@@ -51,8 +49,6 @@ from routine import plan as routine_plan
 from routine import record, trace
 
 VERIFY_SUFFIX = "v1"
-# Each recovery call's output cap, charged in full before the call (ADR-0092 section 6).
-MAX_OUTPUT_TOKENS = 1024
 # The episode's active-time clock.
 _clock = time.monotonic
 VERIFY_INTERRUPT = "routine-verify"
@@ -465,91 +461,10 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     return outcome
 
 
-def _diagnostics(self, team_id: str, assessment: Assessment) -> list[dict[str, object]] | None:
-    """The failed step's sanitized failure evidence, as untrusted data.
-
-    Diagnostics that were never kept or have expired are simply absent; unreadable or corrupt ones are None, which no
-    model is ever asked about.
-    """
-    try:
-        found = self.routine_diagnostics.read(
-            team_id, assessment.network_id, assessment.cursor.binding.run_id, int(time.time())
-        )
-    except routine_diagnostics.DiagnosticStoreError:
-        return None
-    operation = assessment.cursor.operation_id
-    return [{"failure": item.failure, "condition": item.condition} for item in found if item.operation_id == operation][
-        -inference_recovery.MAX_DIAGNOSTICS :
-    ]
-
-
-def _decide(self, team_id: str, incident_id: str, credential: tuple[str, str], locale: str | None) -> str:
-    """Ask the Brain once whether to retry, ask, or pause; its call and output are paid for before it is made.
-
-    ``credential`` is the provider the run's key belongs to and that key. Recovery evidence that cannot be read is
-    ``evidence``: the Routine pauses and the model is never asked. A Team whose model provider is no longer the key's
-    has no decision either: the key is never sent to another provider, and nothing is charged.
-    """
-    provider, api_key = credential
-    assessment = assess(self, team_id, incident_id)
-    diagnostics = _diagnostics(self, team_id, assessment)
-    if diagnostics is None:
-        return "evidence"
-    try:
-        config = self.inference_store.load(team_id)
-    except inference_config.InferenceConfigError:
-        return "unavailable"
-    if config.provider != provider:
-        local_audit.record_request(
-            "routine-recovery", result="denied", team_id=team_id, detail="inference-provider-mismatch"
-        )
-        return "unavailable"
-    try:
-        spent = routine_cursor.spend(assessment.cursor, "model_calls", 1)
-        spent = routine_cursor.spend(spent, "output_tokens", MAX_OUTPUT_TOKENS)
-    except routine_cursor.CursorError:
-        return "exhausted"
-    _seal(self, team_id, spent)
-    routine = assessment.opened.recovery
-    settled = assessment.action.effect == "read_only" or assessment.state == "no_effect"
-    proof = "no_effect" if settled else "not_occurred"
-    subject = {
-        "routine": {"name": routine.name},
-        "step": {"assistant": assessment.step.assistant_id, "action": assessment.step.action},
-        "proof": proof,
-    }
-    before = brain_usage.tokens()
-    try:
-        return inference_recovery.decide(
-            self.brain_runtime,
-            (config.provider, config.model, api_key),
-            locale,
-            subject,
-            diagnostics,
-        )
-    except brain_runtime_client.BrainRuntimeError:
-        return "unavailable"
-    finally:
-        _used(self, team_id, incident_id, brain_usage.since(before))
-
-
-def _used(self, team_id: str, incident_id: str, models: list[dict[str, object]]) -> None:
-    """Add a recovery decision's reported tokens to the held run's usage, which its notices carry (ADR-0101)."""
-    if models:
-        routine_state.update(self, team_id, lambda state: (routine_hold.used(state, incident_id, models), None))
-
-
 # What pauses the Routine when the episode ends on it, and the reason its notice gives.
-_PAUSES = {
-    "policy": "policy",
-    "exhausted": "exhausted",
-    "pause": "decided",
-    "unavailable": "unavailable",
-    "evidence": "evidence",
-    "unclassified": "evidence",
-}
-# Evidence that lets the already-authorized run go on.
-_GO_ON = frozenset({"occurred", "none", "retry"})
+_PAUSES = {"policy": "policy", "exhausted": "exhausted", "unclassified": "evidence"}
+# Evidence that lets the already-authorized run go on: a proven absence retries the same operation once.
+_GO_ON = frozenset({"occurred", "none", "absent"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -619,8 +534,8 @@ def _release(self, team_id: str, incident_id: str, reservation: _Reservation) ->
 def _deadline(self, team_id: str, incident_id: str, token: str, reservation: _Reservation):
     """A direct timer that cancels the episode at its absolute deadline, whatever it is doing.
 
-    At the deadline it marks the reservation expired and stops the registered recovery: its token, its Brain request,
-    and any Action in flight. The watchdog still reconciles a timer that could not act.
+    At the deadline it marks the reservation expired and stops the registered recovery: its token and any Action in
+    flight. The watchdog still reconciles a timer that could not act.
     """
 
     def expire() -> None:
@@ -646,12 +561,12 @@ def _stopped(self, token: str, reservation: _Reservation) -> bool:
     return self._chat_cancelled(token) and not reservation.expired.is_set()
 
 
-def _episode(self, run: routine_run._Run, api_key: str, reservation: _Reservation) -> bool:
-    """Verify first, and ask the Brain only on proven absence; True when the run may go on.
+def _episode(self, run: routine_run._Run, reservation: _Reservation) -> bool:
+    """Verify first; True when the run may go on: a proven occurrence, or a proven absence that retries once.
 
     Exhaustion is judged on the reservation's own clock, never on what the episode found: once its deadline passed,
-    the Routine pauses as exhausted. Otherwise a policy fault, missing evidence, an exhausted budget, a pause decision,
-    or a decision that could not be made pauses it, with that reason on the notice.
+    the Routine pauses as exhausted. Otherwise a policy fault, missing evidence, or an exhausted budget pauses it, with
+    that reason on the notice, and anything still uncertain is held for the person's card.
     """
     team_id, incident_id = run.team_id, run.run_id
 
@@ -660,11 +575,9 @@ def _episode(self, run: routine_run._Run, api_key: str, reservation: _Reservatio
 
     # Nothing is dispatched once the reservation has run out, not even the verifier.
     verdict = "exhausted" if expired() else verify(self, team_id, incident_id, run.token, run.protected)
-    if verdict == "absent" and not expired() and not self._chat_cancelled(run.token):
-        verdict = _decide(self, team_id, incident_id, (run.provider, api_key), None)
     if _stopped(self, run.token, reservation):
-        # A person's Stop is no failure and outranks anything later: an aborted Brain call is not unavailable, a
-        # deadline passing afterwards is not exhaustion, nothing is published, and the incident stays for the card.
+        # A person's Stop is no failure and outranks anything later: a deadline passing afterwards is not exhaustion,
+        # nothing is published, and the incident stays for the card.
         return False
     if expired():
         verdict = "exhausted"
@@ -722,14 +635,14 @@ def _finish(self, run: routine_run._Run, reservation: _Reservation, outcome: str
     return outcome
 
 
-def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
+def automatic(self, run: routine_run._Run, progress=None) -> str:
     """The run's one automatic recovery episode, right after its hold, in the same execution slot (ADR-0092).
 
     The episode and its time are reserved durably from both the recovery budget and the run's active time first, and
     it runs registered with that deadline, so Stop, deletion, and the watchdog reach it and a restart never refills
-    it. Linked verification comes first and needs no model; only a proven absence asks the Brain, once, whether the
-    same step should be retried, and that retry runs inside the same allowance. Unused time is returned at the end. A
-    person's Stop outranks every other outcome: it publishes nothing.
+    it. Linked verification comes first and needs no model; a proven absence retries the same step once, inside the
+    same allowance. Unused time is returned at the end. A person's Stop outranks every other outcome: it publishes
+    nothing.
     """
     team_id, incident_id = run.team_id, run.run_id
     # A person who stopped the run before its episode opened: nothing is reserved, spent, or published.
@@ -746,9 +659,7 @@ def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
             _deadline(self, team_id, incident_id, run.token, reservation),
         ):
             try:
-                outcome = (
-                    _go_on(self, run, reservation, progress) if _episode(self, run, api_key, reservation) else "held"
-                )
+                outcome = _go_on(self, run, reservation, progress) if _episode(self, run, reservation) else "held"
             except ApiProblem:
                 # A refusal on the way, such as a continuation the deadline cancelled before it reopened, still ends
                 # the episode as held, with its evidence.

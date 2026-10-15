@@ -14,7 +14,6 @@ from routine import claim as routine_claim
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
-from routine import runs as routine_runs
 
 # The call a held run stopped at: its Assistant, Action, position, and its plan's step count; all empty when the run
 # sealed no cursor (ADR-0092 amendment, 2026-10-05, scale; ADR-0101 positions).
@@ -242,12 +241,6 @@ def release_incident(state: record.TeamRoutines, incident_id: str) -> record.Tea
     return dataclasses.replace(
         state, incidents=tuple(released if item.incident_id == incident_id else item for item in state.incidents)
     )
-
-
-def used(state: record.TeamRoutines, incident_id: str, models: list[dict[str, object]]) -> record.TeamRoutines:
-    """Add the tokens a held run's recovery reported to the usage its notices and continuation carry (ADR-0101)."""
-    value = incident(state, incident_id)
-    return _replace_incident(state, dataclasses.replace(value, usage=routine_runs.added_usage(value.usage, models)))
 
 
 def charge_incident(state: record.TeamRoutines, incident_id: str, seconds: int) -> record.TeamRoutines:

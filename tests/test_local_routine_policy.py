@@ -73,10 +73,9 @@ def cursor_action(state: record.TeamRoutines) -> str:
 
 class PolicyHoldTests(AutomaticCase):
     def test_a_read_only_secret_echo_is_held_for_policy_never_verified_away_or_retried(self) -> None:
-        brain = Brain("retry")
         assistant = ReadOnlyFault(problem("assistant-secret-exposure"))
         with tempfile.TemporaryDirectory() as directory:
-            service, value, run_id = self.run_held(directory, assistant, brain)
+            service, value, run_id = self.run_held(directory, assistant)
             state = self.state(service)
             cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
             with service._exclusive_chat_turn("team_1", value.routine_id) as token:
@@ -84,8 +83,8 @@ class PolicyHoldTests(AutomaticCase):
             refused = routine_recovery.refusal(routine_incident.open_recovery(service, "team_1", run_id).cursor)
             with local_audit.bind_request_principal(local_audit.AuditPrincipal("a" * 32, "human")):
                 card = service.open_routine_card("team_1", run_id)
-        # The automatic episode paused at once without asking the Brain; nothing ran twice.
-        self.assertEqual((self.status, brain.asked, cursor.fault, cursor.absent), ("held", [], "policy", False))
+        # The automatic episode paused at once; nothing ran twice.
+        self.assertEqual((self.status, cursor.fault, cursor.absent), ("held", "policy", False))
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "policy"))
         self.assertTrue(record.routine(state, value.routine_id).paused)
         self.assertEqual([action for action, _id in assistant.calls], ["list-zones"])
@@ -132,17 +131,15 @@ class PolicyHoldTests(AutomaticCase):
         with tempfile.TemporaryDirectory() as directory:
             with mock.patch.object(routine_compiled.CompiledRuntime, "seal", failing_classification):
                 service, _brain, value, run_id = self.held(directory, assistant)
-            brain = Brain("retry")
-            service = self.restarted(directory, assistant, brain)
+            service = self.restarted(directory, assistant, Brain())
             cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
             with service._exclusive_chat_turn("team_1", value.routine_id) as token:
                 manual = routine_recovery.verify(service, "team_1", run_id, token)
             run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
-            episode = routine_recovery.automatic(service, run, "k")
+            episode = routine_recovery.automatic(service, run)
             state = self.state(service)
         # The secret echo's policy class was lost with the failed write; the read-only step is still never admitted
-        # as absent: no Brain call, no retry, and the Routine pauses for missing evidence.
+        # as absent: no retry, and the Routine pauses for missing evidence.
         self.assertEqual((cursor.fault, cursor.absent, manual, episode), ("", False, "unclassified", "held"))
-        self.assertEqual(brain.asked, [])
         self.assertEqual([action for action, _id in assistant.calls], ["list-zones"])
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "evidence"))

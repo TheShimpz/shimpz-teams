@@ -66,9 +66,6 @@ class CompiledRunCase(RoutineServiceCase):
         value = self.routine(service, plan=plan)
         return controller, service, brain, value
 
-    def run_without_key(self, service, claim: dict[str, object]) -> dict[str, object]:
-        return self.run_claim(service, claim, "")
-
 
 class ExecutionTests(CompiledRunCase):
     def test_a_healthy_run_makes_no_model_call_and_seals_each_dispatch_before_its_rpc(self) -> None:
@@ -91,7 +88,7 @@ class ExecutionTests(CompiledRunCase):
                 return routine_cursor.Binding(network, value.routine_id, value.revision, run_id)
 
             claim = service.claim_routine_run()
-            result = self.run_without_key(service, claim)
+            result = self.run_claim(service, claim)
             state = self.state(service)
             leftovers = (service.routine_store.cursors("team_1"), service.routine_store.recoveries("team_1"))
         self.assertEqual(result["status"], "done")
@@ -144,9 +141,10 @@ class ExecutionTests(CompiledRunCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, brain, _value = self.compiled(directory, invoke)
             claim = service.claim_routine_run()
-            self.assertEqual(self.run_without_key(service, claim)["status"], "held")
+            self.assertEqual(self.run_claim(service, claim)["status"], "held")
             opened = routine_incident.open_recovery(service, "team_1", claim["run_id"])
-        self.assertEqual((actions, brain.calls), (["list-zones", "list-dns-records"], []))
+        # The failed read-only step had no effect, so it was retried once, and failed again.
+        self.assertEqual((actions, brain.calls), (["list-zones", "list-dns-records", "list-dns-records"], []))
         # The successful prefix is durable: the cursor stands at the failed step with the value it selected.
         self.assertEqual(
             (opened.cursor.step, opened.cursor.selections()), (1, {("zones", "/zones/0/id", "", ""): ZONE})
@@ -157,14 +155,14 @@ class ExecutionTests(CompiledRunCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, brain, _value = self.compiled(directory, lambda *_args: {"result": LOOKUP_RESULT})
             claim = service.claim_routine_run()
-            self.assertEqual(self.run_without_key(service, claim)["status"], "failed")
+            self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(brain.calls, [])
         invoked: list[object] = []
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, _brain, _value = self.compiled(directory, lambda *args: invoked.append(args))
             claim = service.claim_routine_run()
             with mock.patch.object(routine_plan, "admit", side_effect=routine_plan.PlanError("plan-pin-drift")):
-                self.assertEqual(self.run_without_key(service, claim)["status"], "failed")
+                self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             state = self.state(service)
         self.assertEqual(invoked, [])
         self.assertEqual(
@@ -184,9 +182,9 @@ class ExecutionTests(CompiledRunCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, brain, value = self.compiled(directory, invoke)
             claim = service.claim_routine_run()
-            self.assertEqual(self.run_without_key(service, claim)["status"], "frozen")
+            self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
             opened = service.open_routine_challenge("team_1", claim["run_id"], "pt")
-            resumed = self.answer_human(service, claim["run_id"], opened["challenge_id"], key="")
+            resumed = self.answer_human(service, claim["run_id"], opened["challenge_id"])
             state = self.state(service)
         self.assertEqual((resumed["status"], brain.calls), ("done", []))
         self.assertEqual(
@@ -212,11 +210,11 @@ class ExecutionTests(CompiledRunCase):
             _controller, service, brain, _value = self.compiled(directory, invoke)
             claim = service.claim_routine_run()
             run_id = claim["run_id"]
-            self.assertEqual(self.run_without_key(service, claim)["status"], "frozen")
+            self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
             opened = service.open_routine_challenge("team_1", run_id, "pt")
             unreadable = routine_store.RoutineStoreError("Routine cursor could not be read")
             with mock.patch.object(service.routine_store, "cursor", side_effect=unreadable):
-                resumed = self.answer_human(service, run_id, opened["challenge_id"], key="")
+                resumed = self.answer_human(service, run_id, opened["challenge_id"])
             state = self.state(service)
             recovered = routine_incident.open_recovery(service, "team_1", run_id)
         self.assertEqual((resumed["status"], brain.calls, calls), ("held", [], ["list-zones", "list-dns-records"]))
@@ -254,7 +252,7 @@ class SelectorFailureTests(CompiledRunCase):
                 None,
             ),
         )
-        result = self.run_without_key(service, service.claim_routine_run())
+        result = self.run_claim(service, service.claim_routine_run())
         return result, self.state(service), actions
 
     def test_an_input_no_read_only_result_resolves_fails_the_run_before_its_step(self) -> None:
@@ -302,7 +300,7 @@ class DiagnosticTests(CompiledRunCase):
 
         _controller, service, _brain, _value = self.compiled(directory, invoke)
         claim = service.claim_routine_run()
-        self.assertEqual(self.run_without_key(service, claim)["status"], "held")
+        self.assertEqual(self.run_claim(service, claim)["status"], "held")
         # A restarted Team opens its diagnostics with a fresh store over the same encrypted family.
         service.routine_diagnostics = local_routine_diagnostics.DiagnosticStore(
             service.routine_diagnostics.root, service.routine_diagnostics.key_path
@@ -326,16 +324,19 @@ class DiagnosticTests(CompiledRunCase):
                 directory, self.problem(action_failure.ActionFailedError(failure))
             )
             details = service.routine_run_diagnostics("team_1", run_id, int(time.time()))
-        (diagnostic,) = details["diagnostics"]
+        # The read-only step's handled failure had no effect, so its one retry failed again as a second attempt.
+        first, retried = details["diagnostics"]
         self.assertEqual(
-            (diagnostic["operation_id"], diagnostic["attempt"], diagnostic["action"], diagnostic["condition"]),
+            (first["operation_id"], first["attempt"], first["action"], first["condition"]),
             (operation_id, 1, "list-dns-records", None),
         )
-        self.assertEqual(diagnostic["failure"], failure.document())
+        self.assertEqual((retried["operation_id"], retried["attempt"]), (operation_id, 2))
+        self.assertEqual((first["failure"], retried["failure"]), (failure.document(), failure.document()))
 
     def test_a_transport_condition_is_kept_and_anything_else_keeps_nothing(self) -> None:
         cases = (
-            (action_execution.RpcExchangeError("timeout"), [(None, "timeout")]),
+            # A transport fault after a proven fail-stop had no effect: its one retry timed out again.
+            (action_execution.RpcExchangeError("timeout"), [(None, "timeout"), (None, "timeout")]),
             (action_execution.RpcExchangeError("raw", "Traceback: secret"), []),
             (ValueError("unexplained"), []),
         )
@@ -393,9 +394,10 @@ class DiagnosticTests(CompiledRunCase):
                 )
             details = service.routine_run_diagnostics("team_1", run_id, int(time.time()))
         # Re-redacted against everything the run protects before it is kept, so the value never reaches the record.
-        [diagnostic] = details["diagnostics"]
-        self.assertNotIn("tok-123", json.dumps(diagnostic))
-        self.assertTrue(diagnostic["failure"]["redacted"])
+        self.assertEqual(len(details["diagnostics"]), 2)
+        for diagnostic in details["diagnostics"]:
+            self.assertNotIn("tok-123", json.dumps(diagnostic))
+            self.assertTrue(diagnostic["failure"]["redacted"])
 
 
 class Crash(BaseException):
@@ -434,7 +436,7 @@ class WatchdogRecoveryTests(CompiledRunCase):
         _controller, service, brain, _value = self.compiled(directory, invoke, mode)
         claim = service.claim_routine_run()
         with patch(service), self.assertRaises(Crash):
-            self.run_without_key(service, claim)
+            self.run_claim(service, claim)
         self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "leased")
         if restarted:
             # A restarted Team process holds no run's protection: it lives in its boot's memory only.
@@ -634,7 +636,7 @@ class RealRpcTests(CompiledRunCase):
             controller.assistant_lifecycle.invoke = controller.invoke
             controller.assistant_lifecycle.client = SimpleNamespace(api=process)
             claim = service.claim_routine_run()
-            result = self.run_without_key(service, claim)
+            result = self.run_claim(service, claim)
             state = self.state(service)
         self.assertEqual((result["status"], brain.calls), ("done", []))
         first, second = process.invocations
@@ -660,7 +662,7 @@ class StopTests(CompiledRunCase):
             controller, service, brain, _value = self.compiled(directory, invoke)
             claim = service.claim_routine_run()
             with mock.patch.object(controller.assistant_lifecycle, "_fail_stop_action"):
-                outcome = self.run_without_key(service, claim)["status"]
+                outcome = self.run_claim(service, claim)["status"]
             state = self.state(service)
         # The stopped Action's effect is unknown, so the run is held for recovery instead of ending stopped.
         self.assertEqual(
@@ -677,7 +679,7 @@ class StopTests(CompiledRunCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, _brain, value = self.compiled(directory, invoke)
             claim = service.claim_routine_run()
-            outcome = self.run_without_key(service, claim)["status"]
+            outcome = self.run_claim(service, claim)["status"]
             due = int(time.time()) - 60
             routine_fixture.update_routine(service, value.routine_id, next_run_at=due)
             paused = service.claim_routine_run()
