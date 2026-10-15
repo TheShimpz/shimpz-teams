@@ -74,13 +74,12 @@ class InferenceConfigStore:
     def __init__(self, root: Path) -> None:
         self.root = root
 
-    def _path(self, team_id: str) -> Path:
-        digest = hashlib.sha256(team_id.encode()).hexdigest()
-        return self.root / f"{digest}.json"
+    def _path(self, team_id: str, suffix: str = ".json") -> Path:
+        """A Team's record, named by its id's SHA-256 so no id ever becomes a path."""
+        return self.root / f"{hashlib.sha256(team_id.encode()).hexdigest()}{suffix}"
 
     def _knowledge_path(self, team_id: str) -> Path:
-        digest = hashlib.sha256(team_id.encode()).hexdigest()
-        return self.root / f"{digest}.knowledge.json"
+        return self._path(team_id, ".knowledge.json")
 
     def save(self, team_id: object, config: InferenceConfig) -> InferenceConfig:
         team_id = _team_id(team_id)
