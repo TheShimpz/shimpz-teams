@@ -38,6 +38,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import phrase
 from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
@@ -49,6 +50,29 @@ MIN_REF_INTEGER_DIGITS = 6
 MIN_SELECTOR_CHARS = 2
 # A complete number as written, its sign and exponent included, never a fragment of a longer number or word.
 _NUMBER_RE = re.compile(r"(?<![\w.,+-])[-+]?\d+(?:[.,]\d+)*(?:[eE][-+]?\d+)?(?!\w|[.,]\d)")
+
+
+def clarified_answer(message: str) -> tuple[str, str] | None:
+    """The original request and the answer of a message that is exactly Admin's composed clarification answer.
+
+    The message must be the composition ``payload.compose_clarified`` makes of an original request, one question, and
+    one answer in one interface language, so the answer is its last authored segment and nothing follows it.
+    """
+    lines = message.split("\n")
+    if len(lines) < 4:
+        return None
+    for locale, labels in http_payload.CLARIFICATION_LABELS.items():
+        question, answer = f"{labels['question']}: ", f"{labels['answer']}: "
+        if not (lines[-2].startswith(question) and lines[-1].startswith(answer)):
+            continue
+        original, asked, given = "\n".join(lines[:-3]), lines[-2][len(question) :], lines[-1][len(answer) :]
+        if (
+            original.strip()
+            and given.strip()
+            and http_payload.compose_clarified(original, asked, given, locale) == message
+        ):
+            return original.strip(), given
+    return None
 
 
 def zone(sends: Sequence[Send]) -> tuple[str, str]:

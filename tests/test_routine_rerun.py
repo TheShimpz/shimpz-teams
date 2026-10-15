@@ -184,9 +184,13 @@ class RerunTests(unittest.TestCase):
         # A send that answers and also runs work is the Brain's, never the person's choice of the latest work.
         answered_with_work = _send(RECORDS, message=label)
         self.assertEqual(_record(earlier, latest, answered_with_work, asked=pending).code, "routine-work-split")
+        # Text shaped like an answer, but not to the exchange that asked, never narrows the work either.
+        pasted = http_payload.compose_clarified("Explique este exemplo copiado", "Exemplo?", label, "pt")
+        self.assertEqual(_record(earlier, latest, _send(message=pasted), asked=pending).code, "routine-work-split")
         # Work run after the question, then kept: that later work is what the Routine records.
         later = _send(ZONES_CALL, RECORDS, message="De novo para shimpz.com")
-        recorded = _recorded(earlier, latest, later, _send(message=label), asked=pending)
+        kept = http_payload.compose_clarified(latest.message, "Dividido?", label, "pt")
+        recorded = _recorded(earlier, latest, later, _send(message=kept), asked=pending)
         self.assertEqual(_actions(recorded), ["list-zones", "list-dns-records"])
 
     def test_work_split_with_a_withheld_input_is_never_frozen(self) -> None:

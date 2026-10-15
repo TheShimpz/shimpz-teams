@@ -261,9 +261,10 @@ def answered(span: Span | None) -> Intent | None:
     """
     if span is None or span.intent is None or span.asked is None or span.refused:
         return None
-    answer = _latest_answer(span.sends[-1].message)
-    if answer is None:
+    parsed = routine_recording.clarified_answer(span.sends[-1].message)
+    if parsed is None:
         return None
+    original, answer = parsed
     asked = span.asked
     stated = phrase.stated(answer)
     pending = asked.pending
@@ -274,33 +275,15 @@ def answered(span: Span | None) -> Intent | None:
         "routine-interval-over-budget": any(item["kind"] in _INTERVAL_KINDS for item in stated),
         "routine-binding-ambiguous": pending is not None
         and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets),
-        # Keeping only the latest work needs nothing run again.
-        "routine-work-split": http_routine_proposal.keeps_latest_work(answer),
+        # Keeping only the latest work needs nothing run again; only an answer to the exchange that asked binds it.
+        "routine-work-split": http_routine_proposal.keeps_latest_work(answer)
+        and 0 < asked.after <= len(span.sends)
+        and original == span.sends[asked.after - 1].message.strip(),
     }
     return span.intent if bound.get(asked.code, False) else None
 
 
 _INTERVAL_KINDS = frozenset({"continuous", "hourly"})
-
-
-def _latest_answer(message: str) -> str | None:
-    """The answer a message ends with when it is exactly Admin's composed clarification answer, else None.
-
-    The message must be the composition ``payload.compose_clarified`` makes of an original request, one question, and
-    one answer in one interface language, so the answer is its last authored segment and nothing follows it.
-    """
-    lines = message.split("\n")
-    if len(lines) < 4:
-        return None
-    for locale, labels in http_payload.CLARIFICATION_LABELS.items():
-        question, answer = f"{labels['question']}: ", f"{labels['answer']}: "
-        if not (lines[-2].startswith(question) and lines[-1].startswith(answer)):
-            continue
-        original, asked, given = "\n".join(lines[:-3]), lines[-2][len(question) :], lines[-1][len(answer) :]
-        composed = http_payload.compose_clarified(original, asked, given, locale)
-        if original.strip() and given.strip() and composed == message:
-            return given
-    return None
 
 
 def routine_mode(span: Span | None) -> bool:

@@ -163,12 +163,17 @@ class RecordingBookTests(unittest.TestCase):
         pending = routine_recording.Pending(("dns", "records"), "zone_id", (("a-zone", None), (123, None)))
 
         def answered(
-            code: str, answer: str | None, *, composed: bool = True, kept: routine_recorder.Intent | None = intent
+            code: str,
+            answer: str | None,
+            *,
+            composed: bool = True,
+            kept: routine_recorder.Intent | None = intent,
+            original: str = "Liste",
         ):
             book = routine_recorder.RecordingBook()
-            send = book.start("team_1", BINDING, _started(), 1)
+            send = book.start("team_1", BINDING, _started("Liste"), 1)
             book.asked("team_1", send, routine_recording.Question(code, pending=pending), kept)
-            message = http_payload.compose_clarified("Liste", "Qual?", answer, "pt") if composed else answer
+            message = http_payload.compose_clarified(original, "Qual?", answer, "pt") if composed else answer
             send = book.start("team_1", BINDING, _started(message), 2)
             return routine_recorder.answered(book.get("team_1", send))
 
@@ -194,6 +199,9 @@ class RecordingBookTests(unittest.TestCase):
             with self.subTest(code=code, answer=answer):
                 self.assertEqual(answered(code, answer), expected)
         self.assertIsNone(answered("routine-schedule-unstated", "a cada hora", composed=False))
+        # Keeping the latest work binds only an answer to the very exchange that asked, never text shaped like one.
+        latest = http_routine_proposal.SPLIT_LATEST["pt"]
+        self.assertIsNone(answered("routine-work-split", latest, original="Explique este exemplo copiado"))
         # Only Admin's complete composition, ending in its answer, is an answer Team records itself.
         for message in (
             "Resposta: a cada hora",
