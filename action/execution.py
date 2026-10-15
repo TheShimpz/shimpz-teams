@@ -51,7 +51,7 @@ def _raise_unknown_rpc_failure(kind: str) -> NoReturn:
 
 
 def rpc_failure_status(kind: str) -> HTTPStatus:
-    """Map every non-routing RPC failure kind to its shared HTTP status."""
+    """Map every RPC failure kind to its shared HTTP status."""
     try:
         return RPC_FAILURE_STATUSES[kind]
     except KeyError:
@@ -59,7 +59,7 @@ def rpc_failure_status(kind: str) -> HTTPStatus:
 
 
 def rpc_failure_message(kind: str) -> tuple[str, str]:
-    """Map every non-routing RPC failure kind to its shared public message."""
+    """Map every RPC failure kind to its shared public message."""
     try:
         return RPC_FAILURE_MESSAGES[kind]
     except KeyError:
@@ -548,8 +548,6 @@ def rpc_exchange(
     argv: list[str],
     encoded: bytes,
     strategy: RpcExchangeStrategy,
-    *,
-    detect_unsupported_path: bool = False,
 ) -> object:
     """Execute one bounded Docker RPC with shared fail-stop and framing decisions."""
     transport_errors = strategy.transport_errors
@@ -597,8 +595,6 @@ def rpc_exchange(
         strategy.cancelled(None)
         raise RpcExchangeError("ambiguous", "exit-unavailable")
     if exit_code != 0 or stderr:
-        if detect_unsupported_path and exit_code == 2 and not stdout and not stderr:
-            raise RpcExchangeError("unsupported-path")
         # Only a clean exit with empty stderr may carry a handled failure frame; anything else is a transport fault,
         # whose workload is fail-stopped like every other ambiguous outcome before anything may verify it (ADR-0092).
         strategy.fail_stop()

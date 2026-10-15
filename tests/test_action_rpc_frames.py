@@ -538,11 +538,10 @@ class ActionRpcFrameTests(unittest.TestCase):
 
         raw_socket = SimpleNamespace(shutdown=lambda _how: None)
         stream = SimpleNamespace(_sock=raw_socket)
-        for details, inspect_error, expected, unsupported in (
-            (None, TransportError("offline"), "ambiguous", False),
-            ({"ExitCode": None}, None, "ambiguous", False),
-            ({"ExitCode": 2}, None, "unsupported-path", True),
-            ({"ExitCode": 1}, None, "failed", False),
+        for details, inspect_error, expected in (
+            (None, TransportError("offline"), "ambiguous"),
+            ({"ExitCode": None}, None, "ambiguous"),
+            ({"ExitCode": 1}, None, "failed"),
         ):
             api = mock.Mock()
             api.exec_create.return_value = {"Id": "exec"}
@@ -557,23 +556,12 @@ class ActionRpcFrameTests(unittest.TestCase):
                 mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b"", b"")),
                 self.assertRaises(action_execution.RpcExchangeError) as caught,
             ):
-                action_execution.rpc_exchange(
-                    "container",
-                    ["command"],
-                    b"request",
-                    current,
-                    detect_unsupported_path=unsupported,
-                )
+                action_execution.rpc_exchange("container", ["command"], b"request", current)
             self.assertEqual(caught.exception.kind, expected)
             close.assert_called_once_with(stream)
-            if expected == "unsupported-path":
-                # An unsupported path never ran an Action, so there is nothing to stop.
-                fail_stop.assert_not_called()
-            else:
-                # An ambiguous outcome, or a nonzero exit or stderr, fail-stops the workload (ADR-0092).
-                fail_stop.assert_called_once_with()
-            if expected != "unsupported-path":
-                cancelled.assert_called_once()
+            # An ambiguous outcome, or a nonzero exit or stderr, fail-stops the workload (ADR-0092).
+            fail_stop.assert_called_once_with()
+            cancelled.assert_called_once()
 
         api = mock.Mock()
         api.exec_create.return_value = {"Id": "exec"}
