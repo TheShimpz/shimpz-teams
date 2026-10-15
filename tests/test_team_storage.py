@@ -355,10 +355,9 @@ class TeamStorageRetentionTests(unittest.TestCase):
         beta = self.storage.put("beta", "b.txt", b"beta", "text/plain")
         self.storage.reference("beta", [beta["id"]])
         self.now += team_storage.UNREFERENCED_GRACE_SECONDS
-        self.assertEqual(self.storage.sweep("alpha"), 1)
-        self.assertEqual(self.storage.sweep("alpha"), 0)
-        self.assertEqual(self.storage.sweep("absent"), 0)
-        self.assertEqual(self.storage.sweep("beta"), 0)
+        self.assertEqual(self._ids("alpha"), [])
+        self.assertEqual(self._ids("alpha"), [])
+        self.assertEqual(self._ids("absent"), [])
         self.assertEqual(self._ids("beta"), [beta["id"]])
         with self.assertRaises(team_storage.StorageNotFoundError):
             self.storage.get("alpha", alpha["id"])
@@ -414,7 +413,7 @@ class TeamStorageRetentionTests(unittest.TestCase):
     def test_a_collected_file_cannot_be_referenced_by_a_turn(self) -> None:
         stored = self.storage.put("alpha", "late.txt", b"late", "text/plain")
         self.now += team_storage.UNREFERENCED_GRACE_SECONDS
-        self.storage.sweep("alpha")
+        self.assertEqual(self._ids(), [])
         with self.assertRaises(team_storage.StorageNotFoundError):
             self.storage.reference("alpha", [stored["id"]])
 
@@ -486,7 +485,7 @@ class TeamStorageRetentionTests(unittest.TestCase):
         for operation in (
             lambda: self.storage.settle("alpha", []),
             lambda: self.storage.reference("alpha", ["0" * 32]),
-            lambda: self.storage.sweep("alpha"),
+            lambda: self.storage.list("alpha"),
             lambda: self.storage.release("alpha", ["0" * 32]),
         ):
             with (

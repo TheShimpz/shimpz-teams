@@ -252,13 +252,12 @@ class TeamStorage:
         return int(self._clock())
 
     @staticmethod
-    def _sweep(connection: sqlite3.Connection, now: int) -> int:
+    def _sweep(connection: sqlite3.Connection, now: int) -> None:
         """Remove every unreferenced file idle for the whole grace period, inside the caller's transaction."""
-        cursor = connection.execute(
+        connection.execute(
             "DELETE FROM files WHERE referenced=0 AND idle_since<=?",
             (now - UNREFERENCED_GRACE_SECONDS,),
         )
-        return cursor.rowcount
 
     @contextmanager
     def _transaction(self, team_id: str, *, create: bool, limit_bytes: int) -> Iterator[sqlite3.Connection]:
@@ -358,15 +357,6 @@ class TeamStorage:
             "limit_bytes": limit_bytes,
             "remaining_bytes": max(0, limit_bytes - used),
         }
-
-    def sweep(self, team_id: str) -> int:
-        """Collect the Team's unreferenced files past their grace period; repeating it removes nothing more."""
-        team_id = _team_id(team_id)
-        try:
-            with self._transaction(team_id, create=False, limit_bytes=self._limit(team_id)) as connection:
-                return self._sweep(connection, self._now())
-        except StorageNotFoundError:
-            return 0
 
     def reference(self, team_id: str, file_ids: Sequence[object]) -> tuple[str, ...]:
         """Mark the files a new turn selected as referenced before its Brain start can read them.

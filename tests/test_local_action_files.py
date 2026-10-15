@@ -102,7 +102,7 @@ class LocalFileDeliveryTests(unittest.TestCase):
 
     def test_a_collected_file_or_a_direct_invocation_never_reaches_the_workload(self) -> None:
         self.now += team_storage.UNREFERENCED_GRACE_SECONDS
-        self.assertEqual(self.storage.sweep("team_1"), 1)
+        self.assertEqual(self.storage.list("team_1")["files"], [])
         with self.assertRaises(local_app.ApiProblem) as caught:
             self.invoke(_approved())
         self.assertEqual(caught.exception.code, "action-file-unavailable")

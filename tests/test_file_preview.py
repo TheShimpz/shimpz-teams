@@ -414,7 +414,7 @@ class ControllerPreviewTests(unittest.TestCase):
 
         def collected(*_args, **_kwargs):
             now[0] += team_storage.UNREFERENCED_GRACE_SECONDS
-            self.assertEqual(controller.storage.sweep("team_1"), 1)
+            self.assertEqual(controller.storage.list("team_1")["files"], [])
             return preparation.Rendition("image/png", 4, 4, png)
 
         with (

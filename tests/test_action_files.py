@@ -147,7 +147,7 @@ class DeliveryTests(unittest.TestCase):
             with self.subTest(read=read.__name__), self.assertRaises(action_files.FileDeliveryError):
                 action_files.deliver(UPLOAD, self.file, _approved(), self.input, read)
         self.now += team_storage.UNREFERENCED_GRACE_SECONDS
-        self.assertEqual(self.storage.sweep("team_1"), 1)
+        self.assertEqual(self.storage.list("team_1")["files"], [])
         with self.assertRaises(team_storage.StorageNotFoundError):
             action_files.deliver(UPLOAD, self.file, _approved(), self.input, self.read)
         # A file-taking Action outside a turn that selected its file never runs, even before authorization.
