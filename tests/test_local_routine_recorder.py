@@ -163,6 +163,33 @@ class RecordingBookTests(unittest.TestCase):
             send = book.start("team_1", BINDING, _started(), 3 + index)
         self.assertEqual(book.get("team_1", send).asked.after, 0)
 
+    def test_a_record_intent_keeps_the_work_it_selected_until_a_send_runs_actions_again(self) -> None:
+        book = routine_recorder.RecordingBook()
+        worked = book.start("team_1", BINDING, _started(), 1)
+        book.occurred("team_1", worked, _occurrence())
+        idle = book.start("team_1", BINDING, _started(), 2)
+        span = book.get("team_1", idle)
+        # A first record call that ran nothing selects the latest work; a replacement then keeps its own steps.
+        self.assertEqual(routine_recorder.selected_work(span, "DNS", None), worked)
+        self.assertIsNone(routine_recorder.selected_work(span, "DNS", "a" * 32))
+        intent = routine_recorder.Intent("DNS", None, None, "Lista o DNS.", worked)
+        book.asked("team_1", idle, routine_recording.Question("routine-output-unstated"), intent)
+        # An unrelated send that ran Actions never replaces the intent's work for an answer that runs nothing.
+        other = book.start("team_1", BINDING, _started(), 3)
+        book.occurred("team_1", other, _occurrence())
+        answer = book.start("team_1", BINDING, _started(), 4)
+        span = book.get("team_1", answer)
+        self.assertEqual(routine_recorder.selected_work(span, "DNS", None), worked)
+        # Another record intent is its own first call; a send that ran Actions selects itself.
+        self.assertEqual(routine_recorder.selected_work(span, "Zonas", None), other)
+        book.occurred("team_1", answer, _occurrence())
+        self.assertEqual(routine_recorder.selected_work(book.get("team_1", answer), "DNS", None), answer)
+        # Work that left the bounded span is never guessed.
+        gone = dataclasses.replace(span, intent=dataclasses.replace(intent, work="f" * 32))
+        self.assertIsNone(routine_recorder.selected_work(gone, "DNS", None))
+        nothing = book.get("team_2", book.start("team_2", BINDING, _started(), 5))
+        self.assertIsNone(routine_recorder.selected_work(nothing, "DNS", None))
+
     def test_only_the_persons_own_untruncated_earlier_lines_join_the_send(self) -> None:
         conversation = (
             brain_runtime_client.RuntimeConversationEntry("user", "DNS de shimpz.com", False),

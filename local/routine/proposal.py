@@ -180,7 +180,7 @@ def _current(self, response: object, recording) -> tuple[object, ...]:
 
 
 def _intent(self, response: object, proposed: object) -> routine_recorder.Intent:
-    """What a record call asks for, with the replaced Routine's revision as that call's turn was shown it.
+    """What a record call asks for, with the replaced Routine's revision as that call's turn was shown it, and its work.
 
     An answer Team records itself carries the intent the span stored, so its replaced revision stays the one shown.
     """
@@ -188,10 +188,12 @@ def _intent(self, response: object, proposed: object) -> routine_recorder.Intent
         return proposed
     outcome = _outcome(proposed)
     found = self.routine_recordings.get(response.team_id, response.recording)
-    shown = None
-    if outcome["replaces"] is not None and found is not None:
-        shown = dict(found.revisions).get(outcome["replaces"])
-    return routine_recorder.Intent(outcome["name"], outcome["replaces"], shown, outcome["description"])
+    shown, work = None, None
+    if found is not None:
+        if outcome["replaces"] is not None:
+            shown = dict(found.revisions).get(outcome["replaces"])
+        work = routine_recorder.selected_work(found, outcome["name"], outcome["replaces"])
+    return routine_recorder.Intent(outcome["name"], outcome["replaces"], shown, outcome["description"], work)
 
 
 def _replaced(state: record.TeamRoutines, intent: routine_recorder.Intent) -> record.Routine | None:
@@ -226,6 +228,7 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
             recording.sends,
             recording.protection,
             contracts,
+            work=recording.send_ids.index(intent.work) if intent.work in recording.send_ids else None,
             asked=asked,
             existing=kept,
         )

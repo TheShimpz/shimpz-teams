@@ -141,6 +141,7 @@ def _record(*sends: recording.Send, mode: str | None = "show", **options) -> rec
             sends,
             options.get("protection") or trace.Protection(),
             options.get("contracts", CONTRACTS),
+            work=options.get("work", recording.latest_work(sends)),
             asked=options.get("asked"),
             existing=options.get("existing"),
         )

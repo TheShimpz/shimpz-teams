@@ -78,6 +78,11 @@ def clarified_answer(message: str) -> tuple[str, str, str] | None:
     return None
 
 
+def latest_work(sends: Sequence[Send]) -> int | None:
+    """The position of the latest send that ran any Action, or None when none did."""
+    return next((index for index in reversed(range(len(sends))) if sends[index].occurrences), None)
+
+
 def latest_reading[T](sends: Sequence[Send], read: Callable[[str], tuple[T, ...]]) -> tuple[T, ...]:
     """Every reading of the latest authored segment that ``read`` finds any in; none when no segment has one."""
     latest: tuple[T, ...] = ()

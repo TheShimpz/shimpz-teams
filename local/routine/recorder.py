@@ -47,13 +47,15 @@ class Intent:
     """What the span's latest ``record`` call asked for: the Routine's name, what it replaces, and its description.
 
     The replaced Routine is bound at exactly the revision that call was shown, which admission then requires unchanged.
-    The description is kept with it, so a card Team builds from the person's answer shows what the agent wrote.
+    The description is kept with it, so a card Team builds from the person's answer shows what the agent wrote, and so
+    is the id of the send whose calls are its work (``selected_work``), or None when a replacement keeps its steps.
     """
 
     name: str
     replaces: str | None
     revision: int | None
     description: str
+    work: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +273,22 @@ def answered(span: Span | None) -> Intent | None:
         and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets)
     )
     return span.intent if bound else None
+
+
+def selected_work(span: Span, name: str, replaces: str | None) -> str | None:
+    """The send whose calls a record call's work is, by id, which its intent then keeps.
+
+    A send that ran Actions selects itself. A send that ran none keeps the work the same intent already selected, so
+    the person's answers and any unrelated send between them never replace it. A first record call that ran nothing
+    selects the latest send that ran any Action, except that a replacement then keeps its steps (None).
+    """
+    if span.sends[-1].occurrences:
+        return span.recording_id
+    stored = span.intent
+    if stored is not None and (stored.name, stored.replaces) == (name, replaces):
+        return stored.work if stored.work in span.send_ids else None
+    index = None if replaces is not None else routine_recording.latest_work(span.sends)
+    return None if index is None else span.send_ids[index]
 
 
 def output_answer(span: Span | None) -> bool:

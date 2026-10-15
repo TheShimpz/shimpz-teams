@@ -17,12 +17,14 @@ def record(
     protection: trace.Protection,
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract],
     *,
+    work: int | None,
     asked: routine_recording.Asked | None = None,
     existing: routine_recording.Existing | None = None,
 ) -> routine_recording.Recorded | routine_recording.Question:
     """The plan a recording span defines, or the question to ask first; raises RecordingError when it cannot be one.
 
-    The work is the calls of the latest send that ran any Action. A span gets one repair: once it asked for work to run
+    The work is the calls of the send at position ``work``, the one its record intent selected; with none, a
+    replacement keeps its steps. A span gets one repair: once it asked for work to run
     again and a later send ran Actions, work that needs another repair refuses ``routine-record-again`` instead of
     asking again, whatever was asked between. No card ever records work that calls an Action a person's choice is
     about without sending the target they chose.
@@ -34,7 +36,7 @@ def record(
     mode = stated or "show"
     calls = routine_recording.span_calls(sends, contracts)
     texts = [line for send in sends for line in (*routine_recording.segment_lines(send.person), *send.window)]
-    latest = [call for call in calls if call.send == calls[-1].send] if calls else []
+    latest = [call for call in calls if call.send == work]
     context = routine_recording.Context(
         sends, calls, routine_recording.known_texts(texts, protection), routine_recording.zone(sends), asked, contracts
     )
