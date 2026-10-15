@@ -2,9 +2,10 @@
 
 import hashlib
 import json
-import re
 import unittest
 from pathlib import Path
+
+from protocol_manifest import assert_manifest_holds
 
 ROOT = Path(__file__).resolve().parents[1] / "protocol" / "install"
 AUTHORITY = ROOT / "v1"
@@ -16,7 +17,6 @@ EXPECTED_UPSTREAM = {
     "tree": "1335bc109e7a631617cfd261daf66502408ed8b3",
     "contract_files_sha256": "a507dadb341cf28aacbd650ae8af1d6ba5649af97ed5084c0c5898832f0b4628",
 }
-ROW = re.compile(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)")
 
 
 class AssistantInstallProtocolTests(unittest.TestCase):
@@ -27,15 +27,7 @@ class AssistantInstallProtocolTests(unittest.TestCase):
             hashlib.sha256(MANIFEST.read_bytes()).hexdigest(),
             EXPECTED_UPSTREAM["contract_files_sha256"],
         )
-        rows = [ROW.fullmatch(line) for line in MANIFEST.read_text(encoding="ascii").splitlines()]
-        self.assertTrue(all(rows))
-        expected = {match[2]: match[1] for match in rows if match is not None}
-        self.assertEqual(
-            sorted(path.name for path in AUTHORITY.iterdir() if path.name != "__pycache__"),
-            sorted([*expected, MANIFEST.name]),
-        )
-        for filename, digest in expected.items():
-            self.assertEqual(hashlib.sha256((AUTHORITY / filename).read_bytes()).hexdigest(), digest)
+        assert_manifest_holds(self, AUTHORITY)
 
 
 if __name__ == "__main__":

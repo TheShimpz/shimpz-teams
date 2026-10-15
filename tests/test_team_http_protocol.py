@@ -1,36 +1,26 @@
 """Integrity gate for the producer-owned Team HTTP protocol."""
 
 import contextlib
-import hashlib
 import io
 import json
-import re
 import runpy
 import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from protocol_manifest import assert_manifest_holds
 from test_protocol_verifier_edges import _flat_module_names, _fresh_modules
 
 from protocol.http.v1 import challenge, identifiers, payload, routine, routine_notice, routine_proposal, routine_run
 
 PROTOCOL = Path(__file__).resolve().parents[1] / "protocol" / "http" / "v1"
 ASSISTANT_PROTOCOL = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1"
-MANIFEST = PROTOCOL / "contract-files.sha256"
-ROW = re.compile(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)")
 
 
 class TeamHttpProtocolTests(unittest.TestCase):
     def test_manifest_covers_and_digests_every_produced_artifact(self) -> None:
-        matches = [ROW.fullmatch(line) for line in MANIFEST.read_text(encoding="ascii").splitlines()]
-        self.assertTrue(matches)
-        self.assertTrue(all(matches))
-        expected = {match[2]: match[1] for match in matches if match is not None}
-        actual = {path.name for path in PROTOCOL.iterdir() if path.is_file() and path != MANIFEST}
-        self.assertEqual(set(expected), actual)
-        for filename, digest in expected.items():
-            self.assertEqual(hashlib.sha256((PROTOCOL / filename).read_bytes()).hexdigest(), digest)
+        assert_manifest_holds(self, PROTOCOL)
 
 
 class FlatVerifierTests(unittest.TestCase):
