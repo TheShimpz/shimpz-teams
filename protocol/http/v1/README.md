@@ -363,22 +363,22 @@ run now; a claimed run carries its `active_seconds` budget, which grows with its
 
 A Supervisor's `GET /v1/teams/:team_id/routines` lists each Routine (`routine_notice.canonical_routine_view`), its live runs
 (`routine_notice.canonical_run_view`, a frozen one with its call's `position` and `steps`), and its unresolved `incidents`, at
-most `routine_notice.MAX_UNRESOLVED_INCIDENTS` (`routine_notice.canonical_incident_view`): each held run's id, Routine, name, creation
-instant, and call, which outlive a deleted Routine. `POST /v1/teams/:team_id/routines/incidents/:incident_id/card` with
+most `routine_notice.MAX_UNRESOLVED_INCIDENTS` (`routine_notice.canonical_incident_view`): each held run's id, Routine,
+name, the instant its run was held, and call. `POST /v1/teams/:team_id/routines/incidents/:incident_id/card` with
 `{}` opens that run's recovery card (`routine_run.canonical_card`): the call it stopped at by `position` of `steps` in the
 plan the run executed, that revision, the `evidence` of its failure (`recorded`, with the held operation's latest
-sanitized `diagnostic` of the same call; `absent` when none is kept; or `unavailable` when it could not be read), a
-one-use 32-hex `nonce`, `expires_in` of 300 seconds, and exactly the choices `run` and `delete` in that order, none
-recommended. The card is bound to the authenticated person, the Team incarnation, the Routine and its current revision,
-the run, and its operation. `POST .../answer` with exactly `{nonce, choice}` (`routine_run.canonical_card_answer_request`)
-answers it once with `run`; `delete` is never a card answer but the Routine's own confirmed deletion.
-`routine_run.canonical_card_answer` says what it did. Rodar (`run`) sets the held run aside without verifying it and
-requests one fresh run of the current revision, answering `requested`; it carries no model credential. It refuses while
-the held attempt's workload is not proven stopped (`routine-workload-unquiesced`), while another run of the Routine is
-live (`routine-busy`), once it is deleted (`routine-not-found`), or when the Routine's Assistant contracts changed
-(`routine-contracts-changed`). Anything refused changes nothing. An expired, foreign, or reused card is
-`routine-card-expired`, and one whose Routine revision, Team incarnation, held generation, or operation changed since it
-opened is `routine-card-stale`; every answer is checked and applied in the Team's execution slot, and its write checks
+sanitized `diagnostic` of the same call; `absent` when none is kept; or `unavailable` when it could not be read), and its
+`tag`, 64 hex: an entity tag over exactly the state its answer must still find (the Team incarnation, the run, its
+Routine and the revision it executed, its held generation and operation, and the Routine's current revision). Rodar and
+Excluir are the card's two choices, none recommended. `POST .../answer` with exactly `{tag, choice}`
+(`routine_run.canonical_card_answer_request`) answers it with `run`, as an HTTP If-Match names the entity it expects;
+`delete` is never a card answer but the Routine's own confirmed deletion. `routine_run.canonical_card_answer` says what
+it did. Rodar (`run`) sets the held run aside without verifying it and requests one fresh run of the current revision,
+answering `requested`; it carries no model credential. It refuses while the held attempt's workload is not proven stopped
+(`routine-workload-unquiesced`), while another run of the Routine is live (`routine-busy`), once it is deleted
+(`routine-not-found`), or when the Routine's Assistant contracts changed (`routine-contracts-changed`). Anything refused
+changes nothing. A tag that no longer matches is `routine-card-stale`, and a run no longer held is
+`routine-incident-not-unresolved`; every answer is checked and applied in the Team's execution slot, and its write checks
 the same state again. `POST /v1/teams/:team_id/routines/:routine_id/pause` with `{}` turns a Routine's dispatch off,
 while a run already going finishes; `POST /v1/teams/:team_id/routines/:routine_id/resume` with `{}` turns dispatch back
 on and starts a fresh failure streak; an unresolved incident still holds the Routine until its card settles it. Deleting

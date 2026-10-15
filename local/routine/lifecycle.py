@@ -20,7 +20,6 @@ def delete_team_routines(self, team_id: str) -> None:
     self.routine_human_challenges.cancel_team(team_id)
     self.routine_proposals.drop(team_id)
     self.routine_recordings.drop(team_id)
-    self.routine_cards.drop(team_id)
 
 
 def _delete_team_routines(self, team_id: str) -> None:
@@ -61,7 +60,6 @@ def delete_all_routines(self) -> None:
     self.routine_proposals.clear()
     self.routine_recordings.clear()
     self.routine_protections.clear()
-    self.routine_cards.clear()
     with self.routine_store.exclusive():
         try:
             teams = self.routine_store.teams()

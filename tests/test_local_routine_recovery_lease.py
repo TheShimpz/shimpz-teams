@@ -109,7 +109,7 @@ class AtomicCardTests(AutomaticCase):
 
     def answer(self, service, run_id: str, card: dict[str, object], choice: str) -> dict[str, object]:
         with local_audit.bind_request_principal(PERSON):
-            return service.answer_routine_card("team_1", run_id, {"nonce": card["nonce"], "choice": choice})
+            return service.answer_routine_card("team_1", run_id, {"tag": card["tag"], "choice": choice})
 
     def test_rodar_applies_only_to_the_exact_state_the_card_was_opened_on(self) -> None:
         for choice in ("run",):
@@ -118,6 +118,7 @@ class AtomicCardTests(AutomaticCase):
                 with tempfile.TemporaryDirectory() as directory, self.subTest(choice=choice, change=change):
                     service, _brain, value, run_id = self.held(directory, assistant)
                     card = self.card(service, run_id)
+                    opened = routine_card._tagged(service, "team_1", run_id)
                     if change == "generation":
                         # A continuation and a new hold since the card opened leave the same incident id.
                         held = routine_hold.incident(self.state(service), run_id)
@@ -135,13 +136,7 @@ class AtomicCardTests(AutomaticCase):
                         routine_fixture.update_routine(service, value.routine_id, revision=2)
                     # Even a check that let it through is refused by the transition's own write.
                     with (
-                        mock.patch.object(
-                            routine_card,
-                            "_bound",
-                            side_effect=lambda _service, _team, bound: routine_hold.Expected(
-                                bound.revision, bound.generation, bound.current
-                            ),
-                        ),
+                        mock.patch.object(routine_card, "_tagged", return_value=opened),
                         self.assertRaises(local_app.ApiProblem) as caught,
                     ):
                         self.answer(service, run_id, card, choice)
@@ -150,7 +145,7 @@ class AtomicCardTests(AutomaticCase):
                     self.assertEqual(record.incidents(state)[0].status, "unresolved")
                     self.assertFalse(record.routine(state, value.routine_id).paused)
 
-    def test_an_answer_waits_for_the_execution_slot_without_spending_its_card(self) -> None:
+    def test_an_answer_waits_for_the_execution_slot_and_its_tag_still_answers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             card = self.card(service, run_id)

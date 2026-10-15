@@ -13,11 +13,11 @@ else:  # The protocol verifier runs every module of this directory flat.
     import routine
 
 
-# A held run's recovery card (ADR-0092 section 7, ADR-0101): exactly Rodar and Excluir, in this order, none
-# recommended. Team answers only Rodar; Excluir is the Routine's own confirmed deletion.
+# A held run's recovery card (ADR-0092 section 7, ADR-0101): Rodar and Excluir, none recommended. Team answers only
+# Rodar; Excluir is the Routine's own confirmed deletion. The card's entity tag is the digest of exactly the state its
+# answer must still find, which the answer names as an HTTP If-Match does (RFC 9110 section 13.1.1).
 CARD_ANSWERS = ("run",)
-CARD_SECONDS = 300
-NONCE_RE = re.compile(r"[0-9a-f]{32}\Z")
+TAG_RE = re.compile(r"[0-9a-f]{64}\Z")
 # What an answer did: Rodar set the held run aside and requested one fresh run.
 CARD_STATUSES = {"run": "requested"}
 # Whether the held call's failure has a diagnostic: recorded (and shown), none kept, or one that could not be read.
@@ -40,9 +40,9 @@ def _card_evidence(value: dict[str, object]) -> bool:
 
 
 def canonical_card(value: object) -> dict[str, object] | None:
-    """An opened recovery card: the call it stopped at, its failure as recorded, its one-use nonce, and its choices."""
-    fields = {"team_id", "incident_id", "routine_id", "revision", "assistant_id", "action", "nonce", "expires_in"}
-    if not isinstance(value, dict) or set(value) != fields | {"position", "steps", "evidence", "diagnostic", "choices"}:
+    """An opened recovery card: the call it stopped at, its failure as recorded, and its entity tag."""
+    fields = {"team_id", "incident_id", "routine_id", "revision", "assistant_id", "action", "tag"}
+    if not isinstance(value, dict) or set(value) != fields | {"position", "steps", "evidence", "diagnostic"}:
         return None
     valid = (
         routine.valid_team(value["team_id"])
@@ -53,20 +53,17 @@ def canonical_card(value: object) -> dict[str, object] | None:
         and routine.valid_action(value["action"])
         and routine.canonical_position(value["position"], value["steps"]) is not None
         and _card_evidence(value)
-        and routine.matches(value["nonce"], NONCE_RE)
-        and value["expires_in"] == CARD_SECONDS
-        and type(value["expires_in"]) is int
-        and value["choices"] == list(routine_notice.CARD_CHOICES)
+        and routine.matches(value["tag"], TAG_RE)
     )
     return copy.deepcopy(value) if valid else None
 
 
 def canonical_card_answer_request(value: object) -> dict[str, str] | None:
-    """A person's answer to one card: its nonce and Rodar; Excluir is never a card answer."""
-    if not isinstance(value, dict) or set(value) != {"nonce", "choice"}:
+    """A person's answer to one card: the tag it was opened with, and Rodar; Excluir is never a card answer."""
+    if not isinstance(value, dict) or set(value) != {"tag", "choice"}:
         return None
-    valid = routine.matches(value["nonce"], NONCE_RE) and value["choice"] in CARD_ANSWERS
-    return {"nonce": value["nonce"], "choice": value["choice"]} if valid else None
+    valid = routine.matches(value["tag"], TAG_RE) and value["choice"] in CARD_ANSWERS
+    return {"tag": value["tag"], "choice": value["choice"]} if valid else None
 
 
 def canonical_card_answer(value: object) -> dict[str, object] | None:

@@ -207,8 +207,7 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
         return state, (runs, held)
 
     runs, held = routine_state.update(self, team_id, begin)
-    # No card of a deleting Routine can be answered any more, nor a proposal that would replace it.
-    self.routine_cards.drop_routine(team_id, routine_id)
+    # No proposal that would replace a deleting Routine can be confirmed any more.
     self.routine_proposals.drop_routine(team_id, routine_id)
     for value in runs:
         if value.status == "leased":

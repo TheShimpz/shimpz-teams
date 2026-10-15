@@ -67,7 +67,6 @@ class ChatTurnService:
         self.routine_proposals = dependencies.routine_proposals or local_routine_proposal.ProposalBook()
         self.routine_protections = dependencies.routine_protections or local_routine_protection.RunProtections()
         # Recovery cards of held runs, each answerable once by the person it was opened for (ADR-0092).
-        self.routine_cards = dependencies.routine_cards or local_routine_card.CardBook()
         # Routine challenges live apart from chat's one per Team, so a frozen run never blocks chat (ADR-0086).
         self.routine_human_challenges = dependencies.routine_human_challenges or action_challenges.HumanChallengeStore()
         self._lock = dependencies.lock_for

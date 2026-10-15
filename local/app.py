@@ -86,7 +86,6 @@ from local.install.runtime import AssistantSpec
 from local.labels import (
     IMAGE_LABEL as _LOCAL_IMAGE_LABEL,
 )
-from local.routine import card as local_routine_card
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import lifecycle as local_routine_lifecycle
 from local.routine import proposal as local_routine_proposal
@@ -317,13 +316,11 @@ class LocalController:
             retain_expired=True
         )
         self.routine_human_challenges = action_challenges.HumanChallengeStore()
-        # Recording turns and Routine cards live in this process only; destroying a Team or resetting drops them, and
-        # so does a new incarnation of a Team (ADR-0101).
+        # Recording turns and Routine proposals live in this process only; destroying a Team or resetting drops them,
+        # and so does a new incarnation of a Team (ADR-0101).
         self.routine_recordings = local_routine_recorder.RecordingBook()
         self.routine_proposals = local_routine_proposal.ProposalBook()
         self.routine_protections = local_routine_protection.RunProtections()
-        # One book of open recovery cards, shared with chat, so destroying a Team or resetting the Space drops them.
-        self.routine_cards = local_routine_card.CardBook()
         self.oauth_pkce = dependencies.oauth_pkce or integration_pkce.OAuthPKCEChallengeStore()
         self.oauth_broker = dependencies.oauth_broker or integration_broker.OAuthBrokerClient(
             transport=_account_egress_transport(),
@@ -400,7 +397,6 @@ class LocalController:
                 routine_recordings=self.routine_recordings,
                 routine_proposals=self.routine_proposals,
                 routine_protections=self.routine_protections,
-                routine_cards=self.routine_cards,
                 oauth_pkce=self.oauth_pkce,
                 oauth_service=self.oauth_service,
                 chat_continuations=self.chat_continuations,

@@ -14,7 +14,6 @@ from routine_fixture import KEY, NETWORK, NINE, STEP
 from action import challenges as action_challenges
 from action import journal as action_journal
 from local.errors import ApiProblemError
-from local.routine import card as routine_card
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import lifecycle as routine_lifecycle
 from local.routine import proposal as routine_proposal
@@ -63,7 +62,6 @@ class RoutineLifecycleTests(unittest.TestCase):
             routine_recordings=routine_recorder.RecordingBook(),
             routine_proposals=routine_proposal.ProposalBook(),
             routine_protections=routine_protection.RunProtections(),
-            routine_cards=routine_card.CardBook(),
         )
 
     def test_a_teams_routine_threads_generations_and_state_are_deleted(self):

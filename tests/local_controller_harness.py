@@ -26,7 +26,6 @@ from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
-from local.routine import card as local_routine_card
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import proposal as local_routine_proposal
 from local.routine import protection as local_routine_protection
@@ -46,7 +45,6 @@ def routine_books(controller) -> None:
     controller.routine_recordings = local_routine_recorder.RecordingBook()
     controller.routine_proposals = local_routine_proposal.ProposalBook()
     controller.routine_protections = local_routine_protection.RunProtections()
-    controller.routine_cards = local_routine_card.CardBook()
 
 
 # Every controller input LocalController._wire_collaborators hands its collaborators.
@@ -73,7 +71,6 @@ _COLLABORATOR_INPUTS = (
     "routine_recordings",
     "routine_proposals",
     "routine_protections",
-    "routine_cards",
     "oauth_pkce",
     "oauth_service",
     "chat_continuations",

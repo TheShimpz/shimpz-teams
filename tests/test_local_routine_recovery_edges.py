@@ -10,7 +10,6 @@ from test_local_routine_recovery import RECORD, Assistant, RecoveryCase, failed
 
 from inference import config as inference_config
 from local import app as local_app
-from local.routine import card as routine_card
 from local.routine import compiled as routine_compiled
 from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
@@ -198,24 +197,13 @@ class ContinuationEdgeTests(RecoveryCase):
 
 
 class CardEdgeTests(RecoveryCase):
-    def test_a_book_drops_and_clears_its_cards_and_refuses_a_foreign_nonce(self) -> None:
-        book = routine_card.CardBook(now=lambda: 0.0)
-        card = routine_card.Card("p", "a" * 64, "i" * 32, "r" * 32, 1, 1, "g", None, "n" * 32, 10.0)
-        book.open("team_1", card)
-        self.assertIsNone(book.take("team_1", card.incident_id, None, "p"))
-        book.open("team_2", card)
-        book.drop("team_1")
-        self.assertIsNone(book.take("team_1", card.incident_id, card.nonce, "p"))
-        book.clear()
-        self.assertIsNone(book.take("team_2", card.incident_id, card.nonce, "p"))
-
-    def test_a_drifted_step_still_offers_its_two_choices_and_a_set_aside_one_has_no_card(self) -> None:
+    def test_a_drifted_step_still_opens_its_card_and_a_set_aside_one_has_no_card(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
             with mock.patch.object(routine_plan, "admit", side_effect=routine_plan.PlanError("plan-pin-drift")):
                 card = self.as_card(service, run_id)
             # Drift never keeps the card from opening: the person may still run it again or delete the Routine.
-            self.assertEqual(card["choices"], ["run", "delete"])
+            self.assertEqual(card["incident_id"], run_id)
             routine_fixture.set_aside(service, "team_1", run_id)
             with self.assertRaises(local_app.ApiProblem) as caught:
                 self.as_card(service, run_id)
