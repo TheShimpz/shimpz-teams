@@ -293,7 +293,6 @@ class AddTests(unittest.TestCase):
             dataclasses.replace(good, routine_id="A" * 32),
             dataclasses.replace(good, name=""),
             dataclasses.replace(good, plan={}),
-            dataclasses.replace(good, plan=routine_fixture.plan_document(timezone="Europe/Lisbon")),
             dataclasses.replace(good, plan=routine_fixture.plan_document("web")),
             dataclasses.replace(good, confirmation=None),
             dataclasses.replace(good, confirmation={**good.confirmation, "principal": "x"}),
@@ -308,7 +307,7 @@ class AddTests(unittest.TestCase):
                 good, permitted=(*good.permitted, {**good.permitted[0], "action": "zzz-extra", "read_only": False})
             ),
             dataclasses.replace(good, schedule={"kind": "daily", "time": "25:00"}),
-            dataclasses.replace(good, timezone="Mars/Olympus"),
+            dataclasses.replace(good, plan={**good.plan, "timezone": "Mars/Olympus"}),
             dataclasses.replace(good, assistants=()),
             dataclasses.replace(good, assistants=(("dns", DIGEST), ("dns", "sha256:" + "d" * 64))),
             dataclasses.replace(good, assistants=(("web", DIGEST), ("dns", DIGEST))),
@@ -518,7 +517,7 @@ class ConfirmedChangeTests(unittest.TestCase):
         unzoned = dataclasses.replace(routine(schedule=EVERY_HOUR), timezone_source="none")
         state = record.create(record.TeamRoutines(), unzoned, NINE)
         lisbon = {**unzoned.plan, "timezone": "Europe/Lisbon"}
-        zoned = dataclasses.replace(unzoned, timezone="Europe/Lisbon", timezone_source="person", plan=lisbon)
+        zoned = dataclasses.replace(unzoned, timezone_source="person", plan=lisbon)
         zoned = record.scheduled(zoned, NINE)
         state = record.update(state, zoned, 1, NINE + 1)
         state, _runs = record.begin_delete(state, "a" * 32)
@@ -586,7 +585,9 @@ class ConfirmedChangeTests(unittest.TestCase):
 
 class DefinitionZoneTests(unittest.TestCase):
     def test_a_definition_out_of_its_zone_or_revision_is_invalid(self):
-        self.assertFalse(record.definition_valid(dataclasses.replace(routine(), timezone="Mars/Olympus")))
+        self.assertFalse(
+            record.definition_valid(dataclasses.replace(routine(), plan={**routine().plan, "timezone": "Mars/Olympus"}))
+        )
         # A Routine with no known zone runs on UTC by convention, its run date included; it is never another zone.
         unzoned = dataclasses.replace(routine(schedule=EVERY_HOUR), timezone_source="none")
         self.assertTrue(record.definition_valid(unzoned))
@@ -595,9 +596,7 @@ class DefinitionZoneTests(unittest.TestCase):
         clocked = copy.deepcopy(unzoned.plan)
         clocked["steps"][0]["input"] = {"day": {"kind": "run_clock", "format": "date"}}
         self.assertTrue(record.definition_valid(dataclasses.replace(unzoned, plan=clocked)))
-        lisbon = dataclasses.replace(
-            unzoned, timezone="Europe/Lisbon", plan={**unzoned.plan, "timezone": "Europe/Lisbon"}
-        )
+        lisbon = dataclasses.replace(unzoned, plan={**unzoned.plan, "timezone": "Europe/Lisbon"})
         self.assertFalse(record.definition_valid(lisbon))
         self.assertFalse(record.definition_valid(dataclasses.replace(routine(), revision=0)))
         self.assertTrue(record.definition_valid(routine()))

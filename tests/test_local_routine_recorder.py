@@ -467,13 +467,13 @@ class CardTests(unittest.TestCase):
         )
         candidate = record.scheduled(
             record.Routine(
-                "d" * 32, "Zonas", {"kind": "daily", "time": "09:00"}, "UTC", (), document, 0, 0, permitted=permitted
+                "d" * 32, "Zonas", {"kind": "daily", "time": "09:00"}, (), document, 0, 0, permitted=permitted
             ),
             1_800_000_000,
         )
         origins = {"s1": {}, "s2": {"day": "clock", "zone": "step"}}
         recorded = routine_recording.Recorded(
-            document, origins, permitted, {"kind": "daily", "time": "09:00"}, "UTC", "browser"
+            document, origins, permitted, {"kind": "daily", "time": "09:00"}, "browser"
         )
         view = routine_proposal.card("e" * 32, candidate, recorded, (None, 1_800_000_900), "Lista o DNS.")
         # A confirmation binds the description the person read, like every other part of the card.

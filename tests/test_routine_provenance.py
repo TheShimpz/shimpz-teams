@@ -110,7 +110,7 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(recorded.origins["s1"]["query"], "clock")
         later = datetime.datetime.fromtimestamp(STARTED + 86_400, datetime.UTC)
         self.assertEqual(
-            routine_dates.clock_value(query, later, recorded.timezone),
+            routine_dates.clock_value(query, later, recorded.document["timezone"]),
             "notícias inteligência artificial hoje 6 outubro 2026",
         )
         # The day the person wrote stays that day, and a result that holds the text is still its source.
@@ -126,7 +126,7 @@ class ClassificationTests(unittest.TestCase):
         calls = [("cloudflare/list-dns-records", {"zone_id": "z", "per_page": "2026-10-05"}, {})]
         recorded = _recorded(_send(*calls, timezone=None))
         self.assertEqual(_input(recorded)["per_page"], {"kind": "run_clock", "format": "date"})
-        self.assertEqual((recorded.timezone, recorded.timezone_source), ("UTC", "none"))
+        self.assertEqual((recorded.document["timezone"], recorded.timezone_source), ("UTC", "none"))
 
     def test_a_value_at_one_position_is_copied_by_pointer(self) -> None:
         source, origin = self.classify("zone-123", "x", {"zone": {"a/b": "zone-123"}})

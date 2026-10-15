@@ -156,7 +156,6 @@ class RoutineServiceCase(LocalContractCase):
             name="Daily zones",
             plan=document,
             schedule={"kind": "daily", "time": time.strftime("%H:%M", time.gmtime(fired))},
-            timezone="UTC",
             assistants=tuple(sorted(contracts.items())),
             anchor=int(time.time()) - 3 * 86_400,
             next_run_at=0,

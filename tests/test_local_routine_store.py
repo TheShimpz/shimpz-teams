@@ -45,7 +45,6 @@ def changes_routine(routine_id: str = "d" * 32) -> record.Routine:
     value = dataclasses.replace(
         routine(routine_id),
         plan=plan,
-        timezone="UTC",
         schedule={"kind": "continuous", "gap": 3600},
         rollup_usage={"duration_ms": 5, "models": []},
     )
@@ -264,7 +263,7 @@ class TamperTests(StoreCase):
             ),
             "output digest": lambda value: value["routines"][0].update(output_digest="x"),
             "schedule": lambda value: value["routines"][0].update(schedule={"kind": "daily", "time": "25:00"}),
-            "timezone": lambda value: value["routines"][0].update(timezone="../etc"),
+            "timezone": lambda value: value["routines"][0]["plan"].update(timezone="../etc"),
             "assistants": lambda value: value["routines"][0].update(assistants=[["dns", "md5"]]),
             "reconfirm type": lambda value: value["routines"][0].update(needs_reconfirm=1),
             "negative instant": lambda value: value["routines"][0].update(next_run_at=-1),

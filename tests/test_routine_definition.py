@@ -49,7 +49,6 @@ def _defined(**changes: object) -> record.Routine:
             routine_id="a" * 32,
             name="DNS",
             schedule={"kind": "continuous", "gap": 864},
-            timezone="UTC",
             assistants=(),
             plan=routine_fixture.plan_document(),
             anchor=0,

@@ -10,7 +10,6 @@ import routine_fixture
 from test_routine_incident import IncidentNoticeTests
 from test_routine_record import EVERY_HOUR, KEY, NINE, added, at, bound, claimed, routine
 
-from protocol.http.v1 import routine as http_routine
 from routine import claim as routine_claim
 from routine import hold as routine_hold
 from routine import plan as routine_plan

@@ -69,7 +69,6 @@ _ROUTINE_FIELDS = frozenset(
         "name",
         "plan",
         "schedule",
-        "timezone",
         "timezone_source",
         "assistants",
         "anchor",

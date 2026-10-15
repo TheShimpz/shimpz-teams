@@ -67,7 +67,6 @@ class Routine:
     routine_id: str
     name: str
     schedule: dict[str, object]
-    timezone: str
     # (assistant_id, scope pin) of each Assistant the plan uses, pinned at creation, sorted by assistant id.
     assistants: tuple[tuple[str, str], ...]
     # The canonical recorded plan document: its ordered steps, each Action's complete pin, and every input source.
@@ -105,6 +104,11 @@ class Routine:
     # The keyed digest of the result the last queued notice showed, which a ``changes`` Routine compares each completed
     # run's result with; empty until one is shown, and again after every change of the Routine.
     output_digest: str = ""
+
+    @property
+    def timezone(self) -> str:
+        """The zone the Routine fires and dates its runs in, which only its plan holds."""
+        return self.plan["timezone"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,6 +336,8 @@ def _assistants(value: Routine) -> bool:
 def definition_valid(value: Routine) -> bool:
     """Whether a Routine's definition is in its closed contract: identity, plan, scope, confirmation, and schedule."""
     canonical = http_routine.canonical_schedule(value.schedule)
+    if not routine_plan.well_formed(value.plan):
+        return False
     try:
         schedule.zone(value.timezone)
     except schedule.ScheduleError:
@@ -339,8 +345,6 @@ def definition_valid(value: Routine) -> bool:
     return (
         http_routine.ROUTINE_ID_RE.fullmatch(value.routine_id) is not None
         and http_routine.canonical_name(value.name) is not None
-        and routine_plan.well_formed(value.plan)
-        and value.plan["timezone"] == value.timezone
         and http_routine.zoned(value.timezone, value.timezone_source)
         and canonical is not None
         and _permitted(value)

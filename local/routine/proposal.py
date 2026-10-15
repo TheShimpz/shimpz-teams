@@ -283,7 +283,6 @@ def _candidate(self, response: object, intent: routine_recorder.Intent) -> tuple
         routine_id,
         intent.name,
         dict(recorded.schedule),
-        recorded.timezone,
         tuple(
             sorted((assistant, scopes[assistant]) for assistant in {item["assistant"] for item in recorded.permitted})
         ),
@@ -374,7 +373,6 @@ def _digest(candidate: record.Routine, view: dict[str, object], expected_revisio
         "routine_id": candidate.routine_id,
         "name": candidate.name,
         "schedule": candidate.schedule,
-        "timezone": candidate.timezone,
         "timezone_source": candidate.timezone_source,
         "assistants": [list(pair) for pair in candidate.assistants],
         "plan": candidate.plan,

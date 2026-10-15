@@ -746,7 +746,6 @@ class IncidentRecordTests(IncidentCase):
                 "a" * 32,
                 "N",
                 {"kind": "daily", "time": "09:00"},
-                "UTC",
                 (("dns", "sha256:" + "0" * 64),),
                 routine_fixture.plan_document(),
                 0,

@@ -73,7 +73,7 @@ def record(
     timezone, source = context.zone
     document["timezone"] = timezone
     permitted = _permitted([(step["assistant"], step["action"]) for step in document["steps"]], contracts)
-    return routine_recording.Recorded(document, origins, permitted, when, timezone, source)
+    return routine_recording.Recorded(document, origins, permitted, when, source)
 
 
 def _repairing(question: routine_recording.Question, stated: str | None) -> bool:
@@ -225,7 +225,7 @@ def _kept(
     timezone, source = context.zone
     document["timezone"] = timezone
     actions = [(step["assistant"], step["action"]) for step in steps]
-    return routine_recording.Recorded(document, origins, _permitted(actions, context.contracts), when, timezone, source)
+    return routine_recording.Recorded(document, origins, _permitted(actions, context.contracts), when, source)
 
 
 def _document(steps: list[dict[str, object]], last: str | None, mode: str) -> dict[str, object]:

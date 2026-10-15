@@ -61,7 +61,6 @@ def routine(
             name=name,
             plan=plan or plan_document(timezone=timezone),
             schedule=dict(schedule or {"kind": "daily", "time": "09:00"}),
-            timezone=timezone,
             assistants=(),
             anchor=anchor,
             next_run_at=0,

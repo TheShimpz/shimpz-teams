@@ -228,13 +228,12 @@ class Existing:
 
 @dataclass(frozen=True, slots=True)
 class Recorded:
-    """The recorded plan document, each input's origin by step and member, the permitted Actions, and when it runs."""
+    """The recorded plan document (its zone included), each input's origin, the permitted Actions, and when it runs."""
 
     document: dict[str, object]
     origins: dict[str, dict[str, str]]
     permitted: tuple[dict[str, object], ...]
     schedule: dict[str, object]
-    timezone: str
     timezone_source: str
 
 

@@ -15,7 +15,6 @@ from test_local_routine_service import Runtime
 
 from local.routine import contracts as routine_contracts
 from local.routine import run as routine_run
-from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_notice as http_routine_notice
 from routine import claim as routine_claim
 from routine import record
@@ -129,7 +128,6 @@ class ServiceLoadTests(RoutineHttpCase):
             name="Zones",
             plan=plan,
             schedule={"kind": "continuous", "gap": gap},
-            timezone="UTC",
             assistants=tuple(sorted(contracts.items())),
             anchor=now - 60,
             next_run_at=0,
