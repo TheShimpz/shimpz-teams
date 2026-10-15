@@ -23,12 +23,14 @@ from local_controller_harness import (
 
 from assistant import spec as assistant_registry
 from inference import config as inference_config
+from inference import token as brain_runtime_token_store
 from local import app as local_app
 from local import audit as local_audit
 from local import healthcheck as local_healthcheck
 from local import names as local_names
 from local import token as local_token_store
 from local import validation as local_validation
+from local.assistant import egress as local_egress
 from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat import service as local_chat_service
@@ -51,13 +53,15 @@ class LocalContractTests(LocalContractCase):
             Path("/var/lib/shimpz-local/action-journal/journal.sqlite3"),
         )
         self.assertEqual(
-            local_app.LOCAL_CHAT_CONTINUATIONS_STATE_PATH,
             local_chat_continuation_store.STATE_PATH,
+            Path("/var/lib/shimpz-local/chat-continuations/state/continuations.json"),
         )
         self.assertEqual(
-            local_app.LOCAL_CHAT_CONTINUATIONS_KEY_PATH,
             local_chat_continuation_store.KEY_PATH,
+            Path("/var/lib/shimpz-local/chat-continuations/key/aes256.key"),
         )
+        self.assertEqual(local_egress.ASSISTANT_EGRESS_POLICY_DIR, Path("/var/lib/shimpz-local/assistant-egress"))
+        self.assertEqual(brain_runtime_token_store.TOKEN_PATH, Path("/run/shimpz-brain-runtime/token"))
 
     def test_routine_diagnostics_stay_inside_the_mounted_routine_volumes(self) -> None:
         # The Local graph mounts exactly these two Routine volumes; Team's root filesystem is read-only.

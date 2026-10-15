@@ -116,24 +116,7 @@ _FILE_DOWNLOADS = threading.BoundedSemaphore(MAX_FILE_DOWNLOADS)
 DOCKER_SOCKET_URL = "unix:///var/run/docker.sock"
 STORAGE_ROOT = Path("/var/lib/shimpz-local/storage")
 INFERENCE_ROOT = Path("/var/lib/shimpz-local/inference")
-LOCAL_ACTION_JOURNAL_PATH = Path(
-    os.environ.get(
-        "SHIMPZ_LOCAL_ACTION_JOURNAL_PATH",
-        "/var/lib/shimpz-local/action-journal/journal.sqlite3",
-    )
-)
-LOCAL_CHAT_CONTINUATIONS_STATE_PATH = Path(
-    os.environ.get(
-        "SHIMPZ_LOCAL_CHAT_CONTINUATIONS_STATE_PATH",
-        str(local_chat_continuation_store.STATE_PATH),
-    )
-)
-LOCAL_CHAT_CONTINUATIONS_KEY_PATH = Path(
-    os.environ.get(
-        "SHIMPZ_LOCAL_CHAT_CONTINUATIONS_KEY_PATH",
-        str(local_chat_continuation_store.KEY_PATH),
-    )
-)
+LOCAL_ACTION_JOURNAL_PATH = Path("/var/lib/shimpz-local/action-journal/journal.sqlite3")
 LOCAL_PUBLICATION_BINDINGS_PATH = Path("/var/lib/shimpz-local/publications/bindings.json")
 LOCAL_PUBLICATION_ICONS_PATH = Path("/var/lib/shimpz-local/publications/icons")
 LOCAL_ASSISTANT_UPDATES_PATH = Path("/var/lib/shimpz-local/publications/updates")
@@ -351,11 +334,7 @@ class LocalController:
             broker=self.oauth_broker,
         )
         self.chat_continuations = (
-            dependencies.chat_continuations
-            or local_chat_continuation_store.EncryptedContinuationStore(
-                LOCAL_CHAT_CONTINUATIONS_STATE_PATH,
-                LOCAL_CHAT_CONTINUATIONS_KEY_PATH,
-            )
+            dependencies.chat_continuations or local_chat_continuation_store.EncryptedContinuationStore()
         )
         if (
             dependencies.developers is None

@@ -4,7 +4,6 @@ The policy is Team's own route for the Assistant's provider calls: the token Tea
 proxy and the reviewed hosts the proxy admits for it. No Assistant workload holds it (ADR-0106).
 """
 
-import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http import HTTPStatus
@@ -23,12 +22,7 @@ from local.validation import space_prefix as _space_prefix
 from local.validation import validate_team_name
 
 ASSISTANT_EGRESS_POLICY_GID = 10017
-ASSISTANT_EGRESS_POLICY_DIR = Path(
-    os.environ.get(
-        "SHIMPZ_ASSISTANT_EGRESS_POLICY_DIR",
-        "/var/lib/shimpz-local/assistant-egress",
-    )
-)
+ASSISTANT_EGRESS_POLICY_DIR = Path("/var/lib/shimpz-local/assistant-egress")
 
 
 def _egress_store() -> egress_policy.EgressPolicyStore:

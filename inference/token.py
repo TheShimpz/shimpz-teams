@@ -6,7 +6,7 @@ from pathlib import Path
 
 from storage import private_state
 
-TOKEN_PATH = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))
+TOKEN_PATH = Path("/run/shimpz-brain-runtime/token")
 TOKEN_GROUP_GID = 10016
 TOKEN_BYTES = 32
 DIRECTORY_MODE = 0o750
