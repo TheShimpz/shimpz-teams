@@ -23,44 +23,50 @@ from local import app as local_app
 from local import labels as local_labels
 
 
+def _controller(events: list[object], assistants: dict[str, object], networks: list[object]):
+    """A bare Local controller whose Space reset reaches only these Assistants and networks."""
+    controller = object.__new__(local_app.LocalController)
+    controller.space_id = "local-space"
+    controller.chat_continuations = SimpleNamespace(clear=lambda: 0)
+    controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
+    controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
+    controller._locks = (threading.RLock(),)
+    controller._names_lock = threading.RLock()
+    controller.team_names = SimpleNamespace(delete_all=lambda: events.append("delete-names"))
+    controller.registry = TestAssistantRegistry(assistants)
+    controller.client = SimpleNamespace(
+        containers=SimpleNamespace(list=lambda **_kwargs: []),
+        networks=SimpleNamespace(list=lambda **_kwargs: networks),
+    )
+    controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
+    controller.inference_store = SimpleNamespace(delete_all=lambda: events.append("delete-inference"))
+    routine_books(controller)
+    _record_routine_state(controller, events)
+    controller.brain_runtime = SimpleNamespace(
+        delete_thread=lambda thread_id: events.append(("delete-thread", thread_id))
+    )
+    controller.action_state = SimpleNamespace(purge=lambda generation: events.append(("purge-action", generation)))
+    wire_collaborators(controller)
+    controller.chat_turn_service._delete_all_private_state = lambda: events.append("delete-private-state")
+    controller.assistant_lifecycle._remove_egress_policy = lambda team_id, assistant_id: events.append(
+        ("remove-policy", team_id, assistant_id)
+    )
+    controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
+    return controller
+
+
 class LocalSpaceResetTests(LocalContractCase):
     def test_reset_removes_orphan_egress_authority_for_owned_teams(self) -> None:
         events: list[object] = []
-        controller = object.__new__(local_app.LocalController)
-        controller.space_id = "local-space"
-        controller.chat_continuations = SimpleNamespace(clear=lambda: 0)
-        controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
-        controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
-        controller._locks = (threading.RLock(),)
-        controller._names_lock = threading.RLock()
-        controller.team_names = SimpleNamespace(delete_all=lambda: events.append("delete-names"))
-        controller.registry = TestAssistantRegistry({"shimpz-cloudflare": SimpleNamespace()})
         network = SimpleNamespace(
             id="a" * 64,
             attrs={"Labels": {local_labels.TEAM_LABEL: "team_1"}},
             remove=lambda: events.append("network-remove"),
         )
-        controller.client = SimpleNamespace(
-            containers=SimpleNamespace(list=lambda **_kwargs: []),
-            networks=SimpleNamespace(list=lambda **_kwargs: [network]),
-        )
-        controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
-        controller.inference_store = SimpleNamespace(delete_all=lambda: events.append("delete-inference"))
-        routine_books(controller)
-        _record_routine_state(controller, events)
-        controller.brain_runtime = SimpleNamespace(
-            delete_thread=lambda thread_id: events.append(("delete-thread", thread_id))
-        )
-        controller.action_state = SimpleNamespace(purge=lambda generation: events.append(("purge-action", generation)))
-        wire_collaborators(controller)
+        controller = _controller(events, {"shimpz-cloudflare": SimpleNamespace()}, [network])
         controller.assistant_lifecycle._validate_network = lambda _network, team_id, **_kwargs: events.append(
             ("validate-network", team_id)
         )
-        controller.chat_turn_service._delete_all_private_state = lambda: events.append("delete-private-state")
-        controller.assistant_lifecycle._remove_egress_policy = lambda team_id, assistant_id: events.append(
-            ("remove-policy", team_id, assistant_id)
-        )
-        controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
         # Recording turns, cards, and run protection live in memory only; a reset forgets every one.
         recording = open_recording_and_card(controller)
         bound = controller.routine_protections.bind("b" * 32).grow(("protected-value",))
@@ -82,32 +88,13 @@ class LocalSpaceResetTests(LocalContractCase):
 
     def test_reset_queues_removed_assistant_images_before_the_final_sweep(self) -> None:
         events: list[object] = []
-        controller = object.__new__(local_app.LocalController)
-        controller.space_id = "local-space"
-        controller.chat_continuations = SimpleNamespace(clear=lambda: 0)
-        controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
-        controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
-        controller._locks = (threading.RLock(),)
-        controller._names_lock = threading.RLock()
-        controller.team_names = SimpleNamespace(delete_all=lambda: events.append("delete-names"))
         spec = SimpleNamespace(
             assistant_id="shimpz-cloudflare",
             image=CURRENT_ASSISTANT_IMAGE,
             allowed_hosts=(),
             provenance="published",
         )
-        controller.registry = TestAssistantRegistry({spec.assistant_id: spec})
-        controller.client = SimpleNamespace(
-            containers=SimpleNamespace(list=lambda **_kwargs: []),
-            networks=SimpleNamespace(list=lambda **_kwargs: []),
-        )
-        controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
-        controller.inference_store = SimpleNamespace(delete_all=lambda: None)
-        routine_books(controller)
-        _record_routine_state(controller, events)
-        controller.brain_runtime = SimpleNamespace(delete_thread=lambda _thread_id: None)
-        controller.action_state = SimpleNamespace(purge=lambda _generation: None)
-        wire_collaborators(controller)
+        controller = _controller(events, {spec.assistant_id: spec}, [])
         labels = controller.assistant_lifecycle._assistant_labels("team_1", spec)
         container = SimpleNamespace(
             id="assistant-container",
@@ -117,12 +104,7 @@ class LocalSpaceResetTests(LocalContractCase):
             remove=lambda *, force: events.append(("container-remove", force)),
         )
         controller.client.containers.list = lambda **_kwargs: [container]
-        controller.chat_turn_service._delete_all_private_state = lambda: events.append("delete-private-state")
-        controller.assistant_lifecycle._remove_egress_policy = lambda team_id, assistant_id: events.append(
-            ("remove-policy", team_id, assistant_id)
-        )
         controller.assistant_lifecycle._queue_residue = lambda image_id: events.append(("residue-add", image_id))
-        controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
         controller._clear_team_runtime_state = lambda team_id: events.append(("clear-runtime", team_id))
 
         result = controller.reset_space()
