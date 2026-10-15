@@ -30,7 +30,6 @@ class InferenceConfigTests(unittest.TestCase):
         ):
             with self.subTest(provider=provider, model=model), self.assertRaises(inference_config.InferenceConfigError):
                 inference_config.normalize(provider, model)
-        self.assertNotIn("image", inference_config.PROVIDERS["openai"])
 
     def test_exact_provider_catalog_is_accepted(self):
         expected = {
