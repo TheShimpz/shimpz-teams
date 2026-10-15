@@ -304,7 +304,7 @@ class RoutineListBoundTests(unittest.TestCase):
             "request_kind": "integrations",
             "assistant_id": ASSISTANT,
             "action": ACTION,
-            "position": {"phase": "replay", "step": routine.MAX_ROUTINE_STEPS},
+            "position": routine.MAX_ROUTINE_STEPS,
             "steps": routine.MAX_ROUTINE_STEPS,
         }
         incident = {
@@ -314,7 +314,7 @@ class RoutineListBoundTests(unittest.TestCase):
             "created_at": "2026-10-05T09:00:00Z",
             "assistant_id": ASSISTANT,
             "action": ACTION,
-            "position": {"phase": "replay", "step": routine.MAX_ROUTINE_STEPS},
+            "position": routine.MAX_ROUTINE_STEPS,
             "steps": routine.MAX_ROUTINE_STEPS,
         }
         listed = {

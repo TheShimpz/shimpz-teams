@@ -128,8 +128,8 @@ class Run:
     notice_version: int = 0
     # The human requests the logical run has answered, through every freeze, hold, and continuation; never reset.
     requests_used: int = 0
-    # A frozen run's call by position ({"phase", "step"}) and its plan's step count; None and 0 otherwise.
-    position: dict[str, object] | None = None
+    # A frozen run's call by its 1-based step position and its plan's step count; None and 0 otherwise.
+    position: int | None = None
     steps: int = 0
     # The run's active time and model usage so far, through every freeze, hold, and continuation (ADR-0101 §10).
     usage: dict[str, object] = dataclasses.field(default_factory=lambda: {"duration_ms": 0, "models": []})
@@ -180,8 +180,8 @@ class Incident:
     action: str = ""
     # The run's active time left when it was held, which its continuation goes on from; a hold never refills it.
     active_seconds_left: int = routine_plan.SHORT_ACTIVE_SECONDS
-    # The held call's position and its plan's step count; None and 0 when none was sealed.
-    position: dict[str, object] | None = None
+    # The held call's 1-based step position and its plan's step count; None and 0 when none was sealed.
+    position: int | None = None
     steps: int = 0
     # The held run's answered human requests, usage, and protection, which its continuation goes on from.
     requests_used: int = 0

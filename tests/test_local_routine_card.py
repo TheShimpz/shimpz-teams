@@ -62,7 +62,7 @@ class CardViewTests(CardCase):
             card = self.card(service, run_id)
         self.assertEqual(
             (card["choices"], card["assistant_id"], card["action"], card["revision"], card["position"], card["steps"]),
-            (["run", "delete"], ASSISTANT, "create-record", value.revision, {"phase": "replay", "step": 2}, 2),
+            (["run", "delete"], ASSISTANT, "create-record", value.revision, 2, 2),
         )
         failure = card["diagnostic"]["failure"]
         self.assertEqual(

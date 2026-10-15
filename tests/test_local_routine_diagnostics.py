@@ -44,7 +44,7 @@ def _diagnostic(**changes: object) -> diagnostics.Diagnostic:
         attempt=1,
         assistant_id="shimpz-cloudflare",
         action="replace-dns-record",
-        position={"phase": "replay", "step": 1},
+        position=1,
         recorded_at=NOW,
         failure=FAILURE,
     )
@@ -313,7 +313,7 @@ INPUTS = [{"member": "page", "source": "literal", "value": "1"}]
 
 
 def _step(step: int = 1, status: str = "done", **changes: object) -> diagnostics.StepRecord:
-    placed = {"phase": "replay", "step": step}
+    placed = step
     value = diagnostics.StepRecord(BINDING, placed, "shimpz-cloudflare", "list-zones", status, 1, 812, NOW, INPUTS)
     return dataclasses.replace(value, **changes)
 
@@ -401,7 +401,7 @@ class StepRecordTests(StepRecordCase):
             page = self.page(snapshot, offset)
             self.assertLessEqual(http_routine.encoded_bytes(page["steps"]), http_routine.MAX_PAGE_BYTES)
             self.assertLess(http_routine.encoded_bytes({**page, "trace_id": "f" * 32}), 128 * 1024)
-            positions.extend(step["position"]["step"] for step in page["steps"])
+            positions.extend(step["position"] for step in page["steps"])
             snapshot, offset = page["snapshot"], page["next"]
         self.assertEqual(positions, list(range(1, 201)))
 
@@ -437,8 +437,8 @@ class StepRecordTests(StepRecordCase):
         invalid = (
             *invalid,
             _step(1, "unknown"),
-            _step(1, position={"phase": "replay", "step": True}),
-            _step(1, position={"phase": "planning", "step": 1}),
+            _step(1, position=True),
+            _step(1, position="1"),
         )
         for item in invalid:
             with self.subTest(item=item), self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "invalid"):
@@ -527,11 +527,6 @@ class RunPageEdgeTests(StepRecordCase):
                 with self.assertRaises(ApiProblemError) as caught:
                     self.page()
                 self.assertEqual(caught.exception.code, "routine-state-unavailable")
-
-    def test_a_record_keys_by_its_replay_step_and_anything_else_by_none(self) -> None:
-        self.assertEqual(diagnostics.position_key({"phase": "replay", "step": 3}), 3)
-        self.assertEqual(diagnostics.position_key(None), 0)
-        self.assertEqual(diagnostics.position_key({"phase": "replay"}), 0)
 
 
 class FailureEvidenceTests(unittest.TestCase):

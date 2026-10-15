@@ -189,7 +189,7 @@ class RunFaultTests(RoutineServiceCase):
             self.assertEqual(
                 self.state(service).notices[-1].detail,
                 # The run ends at the step that asked, by its position.
-                {"code": "request-unavailable", "actions": [], "position": {"phase": "replay", "step": 1}, "steps": 1},
+                {"code": "request-unavailable", "actions": [], "position": 1, "steps": 1},
             )
             self.assertEqual(service.routine_store.continuations("team_1"), ())
 
@@ -279,7 +279,7 @@ class RunFaultTests(RoutineServiceCase):
             # It fails at the step that asked, by its position.
             self.assertEqual(
                 (detail["code"], detail["position"], detail["steps"]),
-                ("freeze-unavailable", {"phase": "replay", "step": 1}, 1),
+                ("freeze-unavailable", 1, 1),
             )
             self.assertEqual(service.routine_store.continuations("team_1"), ())
 

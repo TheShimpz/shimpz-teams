@@ -17,7 +17,7 @@ from routine import record
 
 # The call a held run stopped at: its Assistant, Action, position, and its plan's step count; all empty when the run
 # sealed no cursor (ADR-0092 amendment, 2026-10-05, scale; ADR-0101 positions).
-HeldStep = tuple[str, str, dict[str, object] | None, int]
+HeldStep = tuple[str, str, int | None, int]
 UNKNOWN_STEP: HeldStep = ("", "", None, 0)
 
 

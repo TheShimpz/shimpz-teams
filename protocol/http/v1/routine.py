@@ -215,22 +215,15 @@ def _scope_changed(detail: dict[str, object]) -> bool:
     )
 
 
-# Where one Action call stands in a run (ADR-0101 section 10): a replay step by its 1-based position among its plan's
-# steps. Notices, incidents, freezes, cards, and run records use it.
-PHASES = ("replay",)
-
-
+# Where one Action call stands in a run (ADR-0101 section 10): its step's 1-based position among its plan's steps.
+# Notices, incidents, freezes, cards, and run records use it.
 def _position(value: object, maximum: int = MAX_ROUTINE_STEPS) -> bool:
     return type(value) is int and 1 <= value <= maximum
 
 
-def canonical_position(value: object, steps: object) -> dict[str, object] | None:
-    """A call's position: a replay step among ``steps``; or None."""
-    if not isinstance(value, dict) or not _whole(steps, 0, MAX_ROUTINE_STEPS):
-        return None
-    if value.get("phase") == "replay" and set(value) == {"phase", "step"} and _position(value["step"], steps):
-        return {"phase": "replay", "step": value["step"]}
-    return None
+def canonical_position(value: object, steps: object) -> int | None:
+    """A call's position among a plan's ``steps``, or None."""
+    return value if _whole(steps, 0, MAX_ROUTINE_STEPS) and _position(value, steps) else None
 
 
 # A Routine's plan as a Supervisor inspects it (ADR-0092): each step's Action, every input's source, and the Stored

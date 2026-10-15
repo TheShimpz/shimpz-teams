@@ -317,7 +317,7 @@ class SessionRouteTests(RoutineHttpCase):
                 attempt=1,
                 assistant_id="shimpz-cloudflare",
                 action="list-zones",
-                position={"phase": "replay", "step": 1},
+                position=1,
                 recorded_at=int(time.time()),
                 condition="stderr-output",
             )

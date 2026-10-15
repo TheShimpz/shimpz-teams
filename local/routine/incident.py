@@ -232,7 +232,7 @@ def _held_step(self, team_id: str, snapshot: Recovery | None) -> routine_hold.He
 def held_call(cursor: routine_cursor.Cursor, steps: list) -> routine_hold.HeldStep:
     """The call a sealed cursor stopped at: its current replay step, the last one once every step completed."""
     index = min(cursor.step, len(steps) - 1)
-    return steps[index]["assistant"], steps[index]["action"], {"phase": "replay", "step": index + 1}, len(steps)
+    return steps[index]["assistant"], steps[index]["action"], index + 1, len(steps)
 
 
 def reconcile_team(self, team_id: str) -> None:

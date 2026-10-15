@@ -241,8 +241,7 @@ class CompiledRuntime:
         ended = _STEP_CLOCK() if attempt.ended is None else attempt.ended
         elapsed = None if status in ("waiting", "recovered") else int((ended - attempt.started) * 1000)
         self._attempt = None
-        position = {"phase": "replay", "step": attempt.position}
-        made = (position, step.assistant_id, step.action, status, max(cursor.attempts, 1), elapsed)
+        made = (attempt.position, step.assistant_id, step.action, status, max(cursor.attempts, 1), elapsed)
         record = routine_diagnostics.StepRecord(run, *made, int(time.time()), inputs)
         if http_routine.encoded_bytes(record.view()) > http_routine.MAX_STEP_VIEW_BYTES:
             record = dataclasses.replace(record, inputs=None)
@@ -310,7 +309,7 @@ class CompiledRuntime:
             self.cursor.attempts,
             request.assistant_id,
             request.action,
-            {"phase": "replay", "step": self.cursor.step + 1},
+            self.cursor.step + 1,
             int(time.time()),
             *found,
         )
@@ -634,7 +633,7 @@ def _at(segment: RoutineSegment | None) -> dict[str, object]:
     if segment is None or segment.runtime.cursor.operation_id is None:
         return {"position": None, "steps": None}
     runtime = segment.runtime
-    return {"position": {"phase": "replay", "step": runtime.cursor.step + 1}, "steps": len(runtime.plan.steps)}
+    return {"position": runtime.cursor.step + 1, "steps": len(runtime.plan.steps)}
 
 
 def execute(
@@ -658,7 +657,7 @@ def execute(
         return routine_run.finished(self, run, value, lambda: _sealed_done(self, run.team_id, value), shown)
     # The run waits at its current step, which its notice and its step record name by position.
     segment.runtime.record_step("waiting")
-    return routine_run.suspended(self, run, outcome, {"phase": "replay", "step": segment.runtime.cursor.step + 1})
+    return routine_run.suspended(self, run, outcome, segment.runtime.cursor.step + 1)
 
 
 def run_routine(

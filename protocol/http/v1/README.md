@@ -330,8 +330,8 @@ at most `routine.MAX_OUTPUT_BYTES` (16 KiB); `cut`, `omitted`, `elided`, and `tr
 Routine publishes a completed run only when its result differs from the last one shown, and `none` publishes no
 completion of its own; a run that already has a notice always gets its terminal version.
 
-Every call is placed by a position (`routine.canonical_position`): `{"phase": "replay", "step": n}`, a replay step's
-1-based position among the plan's `steps`; no other phase is admitted. `held` names the call whose effect is unresolved as `{assistant_id, action,
+Every call is placed by its position (`routine.canonical_position`): its step's 1-based position, an integer, among
+the plan's `steps`. `held` names the call whose effect is unresolved as `{assistant_id, action,
 position, steps}`, all `null` when the run sealed no plan cursor; a `frozen` run names its call the same way with its
 `request_kind`: `human` or `integrations`. The same run's notice then goes on as `paused`, the same call plus a `reason`
 (`exhausted`, `policy`, or `evidence`, recovery evidence Team never classified), or `user-skipped` when a

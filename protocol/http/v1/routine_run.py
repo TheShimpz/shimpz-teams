@@ -263,7 +263,7 @@ def _run_input(value: object) -> bool:
     )
 
 
-def canonical_run_step(value: object, position: dict[str, object], steps: int) -> dict[str, object] | None:
+def canonical_run_step(value: object, position: int, steps: int) -> dict[str, object] | None:
     """One entry at ``position``: what its attempt did, or only that it never ran or cannot be shown."""
     if not isinstance(value, dict) or set(value) != RUN_STEP_FIELDS or value.get("position") != position:
         return None
@@ -290,11 +290,6 @@ def canonical_run_step(value: object, position: dict[str, object], steps: int) -
     return copy.deepcopy(value) if valid else None
 
 
-def run_position(index: int) -> dict[str, object]:
-    """The position of a run page's ``index``-th entry (1-based): its replay step."""
-    return {"phase": "replay", "step": index}
-
-
 def canonical_run_steps(value: object) -> dict[str, object] | None:
     """One page of a run's entries from ``offset``: whole consecutive steps of its own revision's run.
 
@@ -312,6 +307,6 @@ def canonical_run_steps(value: object) -> dict[str, object] | None:
         and routine._identity(value["plan_digest"], routine.PLAN_DIGEST_RE)
         and routine._identity(value["snapshot"], SNAPSHOT_RE)
         and type(value["ended"]) is bool
-        and routine._paged(value, lambda item, index: canonical_run_step(item, run_position(index), total))
+        and routine._paged(value, lambda item, index: canonical_run_step(item, index, total))
     )
     return copy.deepcopy(value) if valid else None

@@ -100,7 +100,7 @@ def put_frozen_run(
         request_kind="human",
         assistant_id=assistant_id,
         action="list-zones",
-        position={"phase": "replay", "step": step},
+        position=step,
         steps=steps,
     )
     service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, runs=(run,)), None))

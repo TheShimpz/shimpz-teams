@@ -83,7 +83,7 @@ class AutomaticTests(AutomaticCase):
         self.assertFalse(record.routine(state, value.routine_id).paused)
         self.assertEqual((cursor.remaining("episodes"), cursor.remaining("verifications")), (0, 0))
         # The held run's one notice says it is held at its step, for the person's card.
-        step = {"assistant_id": ASSISTANT, "action": "create-record", "position": {"phase": "replay", "step": 2}}
+        step = {"assistant_id": ASSISTANT, "action": "create-record", "position": 2}
         notice = state.notices[-1]
         self.assertEqual((notice.notice_id, notice.outcome, notice.detail), (run_id, "held", {**step, "steps": 2}))
 

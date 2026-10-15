@@ -314,10 +314,10 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             value["routine_position"]["invalid"] = []
 
         def rejected_position(value: dict[str, object]) -> None:
-            value["routine_position"]["valid"] = [{"value": {"phase": "replay", "step": 2}, "steps": 1}]
+            value["routine_position"]["valid"] = [{"value": 2, "steps": 1}]
 
         def accepted_position(value: dict[str, object]) -> None:
-            value["routine_position"]["invalid"] = [{"value": {"phase": "replay", "step": 1}, "steps": 1}]
+            value["routine_position"]["invalid"] = [{"value": 1, "steps": 1}]
 
         def missing_generated(value: dict[str, object]) -> None:
             value["routine_proposal"]["generated"] = ["largest-unicode"]

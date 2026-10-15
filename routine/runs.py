@@ -79,7 +79,7 @@ def freeze(
         or http_identifiers.canonical_assistant_id(assistant_id) is None
         or http_identifiers.canonical_action_id(action) is None
         or placed is None
-        or (steps[placed["step"] - 1]["assistant"], steps[placed["step"] - 1]["action"]) != (assistant_id, action)
+        or (steps[placed - 1]["assistant"], steps[placed - 1]["action"]) != (assistant_id, action)
     ):
         raise record.RoutineStateError("freeze-invalid")
     if sum(item.status == "frozen" for item in state.runs) >= record.MAX_FROZEN_RUNS:

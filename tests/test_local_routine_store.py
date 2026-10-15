@@ -60,7 +60,7 @@ def busy_state() -> record.TeamRoutines:
     state, first = routine_claim.claim(state, now, KEY)
     lease = record.lease_of(first.lease_token, KEY)
     state = routine_claim.bind_generation(state, first.run.run_id, lease, now, NETWORK)
-    position = {"phase": "replay", "step": 1}
+    position = 1
     state = routine_runs.freeze(state, first.run.run_id, lease, now, ("human", "dns", "check", position))
     state, second = routine_claim.claim(state, now, KEY)
     lease = record.lease_of(second.lease_token, KEY)
@@ -294,13 +294,9 @@ class TamperTests(StoreCase):
             "notice protection type": lambda value: value["notices"][0].update(protection_lost=1),
             "run usage": lambda value: value["runs"][0].update(usage={"duration_ms": 1}),
             "run protection type": lambda value: value["runs"][0].update(protection_lost=0),
-            "frozen position past its plan": lambda value: value["runs"][frozen].update(
-                position={"phase": "replay", "step": 2}
-            ),
+            "frozen position past its plan": lambda value: value["runs"][frozen].update(position=2),
             "frozen without a position": lambda value: value["runs"][frozen].update(position=None),
-            "held with a position": lambda value: value["runs"][held].update(
-                position={"phase": "replay", "step": 1}, steps=1
-            ),
+            "held with a position": lambda value: value["runs"][held].update(position=1, steps=1),
             "run notice version": lambda value: value["runs"][0].update(notice_version=-1),
             "run member outside its shape": lambda value: value["runs"][held].update(unexpected=None),
             "discard shape": lambda value: value["discards"][0].append("x"),
@@ -345,7 +341,7 @@ class TamperTests(StoreCase):
     def test_an_altered_incident_fails_closed(self):
         state = busy_state()
         held = next(item for item in state.runs if item.status == "held")
-        step = ("dns", "check", {"phase": "replay", "step": 1}, 1)
+        step = ("dns", "check", 1, 1)
         routine_fixture.put(self.store, "team_1", routine_hold.settle_hold(state, held.run_id, NINE, 1, step))
         base = json.loads(self.state_file().read_text())
         self.assertEqual(base["incidents"][0]["assistant_id"], "dns")
@@ -358,10 +354,10 @@ class TamperTests(StoreCase):
             "time type": {"active_seconds_left": True},
             "answered requests past the turn's": {"requests_used": 17},
             "a call with no position": {"position": None},
-            "a position past its plan": {"position": {"phase": "replay", "step": 2}, "steps": 1},
+            "a position past its plan": {"position": 2, "steps": 1},
             "a plan of too many steps": {"steps": 257},
-            "position type": {"position": {"phase": "replay", "step": True}},
-            "an unknown position phase": {"position": {"phase": "planning", "step": 1}, "steps": 1},
+            "position type": {"position": True},
+            "position text": {"position": "1", "steps": 1},
             "no call but a position": {"assistant_id": "", "action": "", "steps": 1},
             "no call with a boolean count": {"assistant_id": "", "action": "", "position": None, "steps": False},
             "no call with a float count": {"assistant_id": "", "action": "", "position": None, "steps": 0.0},

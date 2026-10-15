@@ -33,7 +33,7 @@ class CardBindingTests(CardCase):
 
             self.assertEqual(self.card(service, run_id)["evidence"], "recorded")
             cards = []
-            for change in ({"action": "x"}, {"position": {"phase": "replay", "step": 1}}):
+            for change in ({"action": "x"}, {"position": 1}):
                 with mock.patch.object(service.routine_diagnostics, "read", side_effect=elsewhere(change)):
                     cards.append(self.card(service, run_id))
         self.assertEqual([(card["evidence"], card["diagnostic"]) for card in cards], [("absent", None)] * 2)

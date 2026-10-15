@@ -89,12 +89,7 @@ class RunLifecycleTests(unittest.TestCase):
                 self.assertRaisesRegex(record.RoutineStateError, "freeze-invalid"),
             ):
                 routine_runs.freeze(state, claim.run.run_id, lease, NINE, (kind, assistant, action, STEP))
-        for position in (
-            {"phase": "replay", "step": 2},
-            {"phase": "replay", "step": 0},
-            {"phase": "other", "step": 1},
-            1,
-        ):
+        for position in (2, 0, "1"):
             with self.subTest(position=position), self.assertRaisesRegex(record.RoutineStateError, "freeze-invalid"):
                 routine_runs.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", position))
         with self.assertRaisesRegex(record.RoutineStateError, "freeze-invalid"):

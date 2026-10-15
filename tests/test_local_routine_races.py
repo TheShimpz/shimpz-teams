@@ -94,7 +94,7 @@ class NoticeTests(FrozenCase):
                     "request_kind": "human",
                     "assistant_id": ASSISTANT,
                     "action": "list-zones",
-                    "position": {"phase": "replay", "step": 1},
+                    "position": 1,
                     "steps": 1,
                 },
             )

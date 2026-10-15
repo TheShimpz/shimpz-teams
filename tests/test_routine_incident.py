@@ -34,7 +34,7 @@ class IncidentNoticeTests(unittest.TestCase):
                 {
                     "assistant_id": "dns",
                     "action": "replace-dns-record",
-                    "position": {"phase": "replay", "step": 1},
+                    "position": 1,
                     "steps": 1,
                 },
                 1,
@@ -50,7 +50,7 @@ class IncidentNoticeTests(unittest.TestCase):
                 {
                     "assistant_id": "dns",
                     "action": "replace-dns-record",
-                    "position": {"phase": "replay", "step": 1},
+                    "position": 1,
                     "steps": 1,
                     "reason": "exhausted",
                 },
@@ -111,7 +111,7 @@ class IncidentNoticeTests(unittest.TestCase):
             {
                 "assistant_id": "dns",
                 "action": "replace-dns-record",
-                "position": {"phase": "replay", "step": 1},
+                "position": 1,
                 "steps": 1,
                 "choice": "delete",
             },

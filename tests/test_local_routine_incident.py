@@ -822,7 +822,7 @@ class HeldCallTests(unittest.TestCase):
                 action, position = expected
                 self.assertEqual(
                     routine_incident.held_call(self.cursor(step=step), HELD_STEPS),
-                    ("dns", action, {"phase": "replay", "step": position}, 2),
+                    ("dns", action, position, 2),
                 )
 
 

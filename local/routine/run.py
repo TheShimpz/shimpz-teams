@@ -264,7 +264,7 @@ def _deadline_cut(self, run: _Run) -> bool:
         return registration is not None and registration.token == run.token and registration.overdue
 
 
-def suspended(self, run: _Run, segment, step: dict[str, object]) -> str:
+def suspended(self, run: _Run, segment, step: int) -> str:
     """A run paused for a person or an Integration at the call ``step``: keep its continuation, freeze it."""
     outcome = segment.outcome
     pending = PendingLocalChat(
@@ -366,7 +366,7 @@ def _unshowable(self, run_id: str, segment) -> bool:
     )
 
 
-def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: dict[str, object]) -> str:
+def _freeze(self, run: _Run, pending: PendingLocalChat, segment, step: int) -> str:
     """Keep a paused run for a human: its continuation first, then the frozen record commits the freeze."""
     team_id, run_id = run.team_id, run.run_id
     frozen = _frozen_request(segment)

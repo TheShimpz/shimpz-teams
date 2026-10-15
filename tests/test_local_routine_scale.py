@@ -190,7 +190,7 @@ class StepRecordEdgeTests(RoutineServiceCase):
             with mock.patch.object(routine_compiled.http_routine, "MAX_STEP_VIEW_BYTES", 64):
                 runtime.record_step("done")
             self.assertIsNone(kept[0][2].inputs)
-            self.assertEqual(kept[0][2].position, {"phase": "replay", "step": 1})
+            self.assertEqual(kept[0][2].position, 1)
             broken = self.runtime(service, value, mock.Mock(record_step=failing))
             broken._attempt = routine_compiled._Attempt(1, 0.0, {"page": 1, "per_page": 5}, ())
             with mock.patch.object(routine_compiled.local_audit, "record_request") as audited:
@@ -266,7 +266,7 @@ class StepRecordEdgeTests(RoutineServiceCase):
                 runtime.record_step("done")
             self.assertEqual((kept[-1].status, kept[-1].duration_ms), ("done", 500))
             at = routine_compiled._at(SimpleNamespace(runtime=runtime))
-            self.assertEqual(at, {"position": {"phase": "replay", "step": 1}, "steps": 1})
+            self.assertEqual(at, {"position": 1, "steps": 1})
             # Stop cutting the Action's call records it as stopped, never as failed.
             runtime.dispatching(request, operation)
             with mock.patch.object(routine_compiled.routine_diagnostics, "protected", return_value=()):
@@ -304,7 +304,7 @@ class StepRecordEdgeTests(RoutineServiceCase):
             detail = self.state(service).notices[-1].detail
         self.assertEqual(
             (detail["code"], detail["position"], detail["steps"]),
-            ("team-context-changed", {"phase": "replay", "step": 37}, 120),
+            ("team-context-changed", 37, 120),
         )
 
     def test_a_deleting_routine_shows_no_steps(self) -> None:
@@ -375,8 +375,6 @@ class ProtectionLossTests(RoutineServiceCase):
             ):
                 runtime.failed(request, mock.Mock(operation_id=operation), problem)
         diagnostic = store.record.call_args.args[2]
-        self.assertEqual(
-            (diagnostic.position, diagnostic.failure["http_status"]), ({"phase": "replay", "step": 1}, 404)
-        )
+        self.assertEqual((diagnostic.position, diagnostic.failure["http_status"]), (1, 404))
         self.assertEqual(audited.call_args.args[0], "routine-diagnostic")
         self.assertEqual(store.record_step.call_args.args[2].status, "failed")

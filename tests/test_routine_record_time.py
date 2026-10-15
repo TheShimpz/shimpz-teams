@@ -17,7 +17,7 @@ from routine import plan as routine_plan
 from routine import record
 from routine import runs as routine_runs
 
-REPLAY = {"phase": "replay", "step": 1}
+REPLAY = 1
 
 
 class ScaleClaimTests(unittest.TestCase):
@@ -56,9 +56,9 @@ class ScaleClaimTests(unittest.TestCase):
     def test_a_freeze_names_exactly_the_step_of_the_plan_it_waits_at(self):
         state, claim, lease = claimed()
         for request in (
-            ("human", "dns", "check", {"phase": "replay", "step": 2}),
-            ("human", "dns", "check", {"phase": "replay", "step": 0}),
-            ("human", "dns", "other", {"phase": "replay", "step": 1}),
+            ("human", "dns", "check", 2),
+            ("human", "dns", "check", 0),
+            ("human", "dns", "other", 1),
         ):
             with self.subTest(request=request), self.assertRaisesRegex(record.RoutineStateError, "freeze-invalid"):
                 routine_runs.freeze(state, claim.run.run_id, lease, NINE, request)

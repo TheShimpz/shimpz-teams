@@ -27,7 +27,7 @@ HOURLY = {"kind": "hourly", "every": 1}
 WEEKLY = {"kind": "weekly", "weekday": 0, "time": "09:00"}
 CONTINUOUS = {"kind": "continuous", "gap": 5, "cap": 17_280}
 BATCH = ("net_1:routine:" + "f" * 32, "d" * 64)
-STEP = {"phase": "replay", "step": 1}
+STEP = 1
 
 
 def epoch(*parts: int) -> int:
@@ -110,14 +110,14 @@ class ContractTests(unittest.TestCase):
             "held": {
                 "assistant_id": "dns",
                 "action": "replace-dns-record",
-                "position": {"phase": "replay", "step": 2},
+                "position": 2,
                 "steps": 2,
             },
             "paused": {"assistant_id": None, "action": None, "position": None, "steps": None, "reason": "exhausted"},
             "user-skipped": {
                 "assistant_id": "dns",
                 "action": "replace-dns-record",
-                "position": {"phase": "replay", "step": 2},
+                "position": 2,
                 "steps": 2,
                 "choice": "run",
             },
@@ -127,7 +127,7 @@ class ContractTests(unittest.TestCase):
             "failed": {
                 "code": "assistant-rpc-failed",
                 "actions": [["dns", "list-zones"]],
-                "position": {"phase": "replay", "step": 2},
+                "position": 2,
                 "steps": 3,
             },
             "denied": {"actions": []},
@@ -136,7 +136,7 @@ class ContractTests(unittest.TestCase):
                 "request_kind": "human",
                 "assistant_id": "dns",
                 "action": "replace-dns-record",
-                "position": {"phase": "replay", "step": 2},
+                "position": 2,
                 "steps": 2,
             },
             "created": DEFINED,
@@ -163,38 +163,38 @@ class ContractTests(unittest.TestCase):
             ),
             ("done", {"reply": "Done."}),
             ("recovered", {"plan": {**SUMMARY, "actions": [["dns"]]}, "output": None}),
-            ("held", {"assistant_id": "dns", "action": None, "position": {"phase": "replay", "step": 1}, "steps": 1}),
-            ("held", {"assistant_id": "Bad", "action": "x", "position": {"phase": "replay", "step": 1}, "steps": 1}),
+            ("held", {"assistant_id": "dns", "action": None, "position": 1, "steps": 1}),
+            ("held", {"assistant_id": "Bad", "action": "x", "position": 1, "steps": 1}),
             ("held", {"assistant_id": "dns", "action": "x"}),
             ("held", {"assistant_id": "dns", "action": "x", "position": None, "steps": None}),
-            ("held", {"assistant_id": "dns", "action": "x", "position": {"phase": "replay", "step": 3}, "steps": 2}),
-            ("held", {"assistant_id": "dns", "action": "x", "position": {"phase": "replay", "step": 0}, "steps": 2}),
-            ("held", {"assistant_id": "dns", "action": "x", "position": {"phase": "replay", "step": 1}, "steps": 257}),
-            ("held", {"assistant_id": None, "action": None, "position": {"phase": "replay", "step": 1}, "steps": 1}),
+            ("held", {"assistant_id": "dns", "action": "x", "position": 3, "steps": 2}),
+            ("held", {"assistant_id": "dns", "action": "x", "position": 0, "steps": 2}),
+            ("held", {"assistant_id": "dns", "action": "x", "position": 1, "steps": 257}),
+            ("held", {"assistant_id": None, "action": None, "position": 1, "steps": 1}),
             (
                 "paused",
                 {
                     "assistant_id": "dns",
                     "action": "x",
-                    "position": {"phase": "replay", "step": 1},
+                    "position": 1,
                     "steps": 1,
                     "reason": "tired",
                 },
             ),
-            ("paused", {"assistant_id": "dns", "action": "x", "position": {"phase": "replay", "step": 1}, "steps": 1}),
+            ("paused", {"assistant_id": "dns", "action": "x", "position": 1, "steps": 1}),
             (
                 "user-skipped",
                 {
                     "assistant_id": "dns",
                     "action": "x",
-                    "position": {"phase": "replay", "step": 1},
+                    "position": 1,
                     "steps": 1,
                     "input": {},
                 },
             ),
             (
                 "user-skipped",
-                {"assistant_id": "dns", "action": "x", "position": {"phase": "replay", "step": 1}, "steps": 1},
+                {"assistant_id": "dns", "action": "x", "position": 1, "steps": 1},
             ),
             ("skipped", {"missed": 0}),
             ("skipped", {"missed": True}),
@@ -214,7 +214,7 @@ class ContractTests(unittest.TestCase):
                     "request_kind": "email",
                     "assistant_id": "dns",
                     "action": "x",
-                    "position": {"phase": "replay", "step": 1},
+                    "position": 1,
                     "steps": 1,
                 },
             ),
@@ -224,7 +224,7 @@ class ContractTests(unittest.TestCase):
                     "request_kind": "human",
                     "assistant_id": "Bad",
                     "action": "x",
-                    "position": {"phase": "replay", "step": 1},
+                    "position": 1,
                     "steps": 1,
                 },
             ),
@@ -234,7 +234,7 @@ class ContractTests(unittest.TestCase):
                     "request_kind": "human",
                     "assistant_id": "dns",
                     "action": ["x"],
-                    "position": {"phase": "replay", "step": 1},
+                    "position": 1,
                     "steps": 1,
                 },
             ),
@@ -243,7 +243,7 @@ class ContractTests(unittest.TestCase):
                 {
                     "request_kind": "human",
                     "assistant_id": "dns",
-                    "position": {"phase": "replay", "step": 1},
+                    "position": 1,
                     "steps": 1,
                 },
             ),

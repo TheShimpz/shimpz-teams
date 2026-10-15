@@ -107,7 +107,7 @@ class Diagnostic:
     assistant_id: str
     action: str
     # The attempt's call: a replay step by its position in the plan (ADR-0101).
-    position: dict[str, object]
+    position: int
     recorded_at: int
     failure: dict[str, object] | None = None
     condition: str | None = None
@@ -165,7 +165,7 @@ class StepRecord:
     """What one step's attempt did: its status, how long it took, and the redacted inputs it was given."""
 
     binding: RunBinding
-    position: dict[str, object]
+    position: int
     assistant_id: str
     action: str
     status: str
@@ -357,7 +357,7 @@ class DiagnosticStore:
                     run = opened
                     continue
                 sequence = int(match["sequence"])
-                key = position_key(opened.get("position"))
+                key = opened["position"]
                 if key not in steps or steps[key][0] < sequence:
                     steps[key] = (sequence, opened)
         return snapshot, {key: item for key, (_sequence, item) in steps.items()}, run
@@ -481,11 +481,6 @@ def _snapshot(directory: Path, retained: list[tuple[str, str, re.Match[str], int
     return digest.hexdigest()[:32]
 
 
-def position_key(position: object) -> int:
-    """A record's replay step, which keys it; 0 for anything else, which no admitted record has."""
-    return position.get("step", 0) if isinstance(position, dict) else 0
-
-
 def _bound(document: dict[str, object]) -> bool:
     return (
         http_routine.ROUTINE_ID_RE.fullmatch(str(document.get("routine_id"))) is not None
@@ -590,7 +585,7 @@ def run_diagnostics(self, team_id: str, run_id: str, now: int) -> dict[str, obje
     return view
 
 
-def _gap(position: dict[str, object], status: str) -> dict[str, object]:
+def _gap(position: int, status: str) -> dict[str, object]:
     return {
         "position": position,
         "status": status,
@@ -617,12 +612,11 @@ def _binding_of(records: dict, run: dict[str, object] | None) -> dict[str, objec
     return json.loads(bindings.pop()) if bindings else None
 
 
-def _entry(records: dict, reached: tuple[int, bool] | None, position: dict[str, object]) -> dict[str, object]:
+def _entry(records: dict, reached: tuple[int, bool] | None, position: int) -> dict[str, object]:
     """One step's latest record, or the gap the run's own records prove: not run, or unavailable."""
-    step = position_key(position)
-    if step in records:
-        return {name: records[step][name] for name in http_routine_run.RUN_STEP_FIELDS}
-    if reached is not None and (step > reached[0] + 1 or (step == reached[0] + 1 and not reached[1])):
+    if position in records:
+        return {name: records[position][name] for name in http_routine_run.RUN_STEP_FIELDS}
+    if reached is not None and (position > reached[0] + 1 or (position == reached[0] + 1 and not reached[1])):
         return _gap(position, "not_run")
     return _gap(position, "unavailable")
 
@@ -633,7 +627,7 @@ def _page_steps(records, run, total: int, offset: int) -> list[dict[str, object]
     chosen: list[dict[str, object]] = []
     used = 2
     for index in range(offset + 1, total + 1):
-        entry = _entry(records, reached, http_routine_run.run_position(index))
+        entry = _entry(records, reached, index)
         cost = http_routine.encoded_bytes(entry) + 1
         if chosen and (len(chosen) == http_routine.MAX_PAGE_STEPS or used + cost > http_routine.MAX_PAGE_BYTES):
             break
