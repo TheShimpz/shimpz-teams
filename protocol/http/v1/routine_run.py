@@ -139,6 +139,13 @@ def canonical_segment_request(value: object) -> dict[str, object] | None:
     return {"revision": value["revision"], "plan_digest": plan_digest} if valid else None
 
 
+# How a run stands once a segment, or a person's answer that resumed it, returns: `held` when Team holds a replayed run
+# as an incident, and `recovered` when its recovery completed it (ADR-0092).
+SEGMENT_STATUSES = frozenset({"done", "recovered", "failed", "denied", "stopped", "frozen", "held"})
+# One notice acknowledgment admits at most this many deliveries.
+MAX_ACK_DELIVERIES = 256
+
+
 # Per-execution diagnostics (ADR-0092 section 8): one Team-sanitized handled failure, or one safe transport condition,
 # per attempt of one logical operation of a Routine run. Text members are literal evidence that Admin renders escaped,
 # never as Markdown or HTML, and they are never effect proof or authority.

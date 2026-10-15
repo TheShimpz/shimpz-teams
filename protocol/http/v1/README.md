@@ -485,7 +485,10 @@ token, lease expiry, and the Routine `revision` and `plan_digest` it was claimed
 earliest epoch second a Routine of a Team Admin can run becomes due (`null` when none will), so Admin wakes then while
 still reconciling on its own interval. The run's signed segment request, `POST
 /v1/teams/:team_id/routines/runs/:run_id/segment`, carries exactly that `{revision, plan_digest}`
-(`routine_run.canonical_segment_request`); any other is refused as `routine-revision-stale` before anything runs. No
+(`routine_run.canonical_segment_request`); any other is refused as `routine-revision-stale` before anything runs. The
+segment, and a person's answer that resumes a frozen run, answers `{team_id, run_id, status}` with one of
+`routine_run.SEGMENT_STATUSES`. Admin acknowledges delivered notices in requests of at most
+`routine_run.MAX_ACK_DELIVERIES` deliveries. No
 run, recovery, or frozen run's answer asks a model, so none carries a model credential (ADR-0092 amendment,
 2026-10-15).
 

@@ -12,9 +12,8 @@ from local.routine import state as routine_state
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_notice as http_routine_notice
+from protocol.http.v1 import routine_run as http_routine_run
 from routine import record
-
-MAX_DELIVERIES = 256
 
 
 def _notice(team_id: str, notice: record.Notice) -> dict[str, object]:
@@ -69,7 +68,7 @@ def routine_notices(self) -> dict[str, object]:
 
 def _deliveries(body: object) -> dict[str, frozenset[tuple[str, int]]]:
     deliveries = body.get("deliveries") if isinstance(body, dict) and set(body) == {"deliveries"} else None
-    if not isinstance(deliveries, list) or not 0 < len(deliveries) <= MAX_DELIVERIES:
+    if not isinstance(deliveries, list) or not 0 < len(deliveries) <= http_routine_run.MAX_ACK_DELIVERIES:
         raise local_errors.routine_deliveries_invalid()
     by_team: dict[str, set[tuple[str, int]]] = {}
     for item in deliveries:
