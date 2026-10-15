@@ -1,4 +1,4 @@
-"""Fail-closed HTTP parsing primitives shared by both Team profiles."""
+"""Fail-closed HTTP parsing primitives for the Team HTTP boundary."""
 
 import hashlib
 import hmac

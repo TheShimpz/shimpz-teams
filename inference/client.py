@@ -150,7 +150,7 @@ class RuntimeTurn:
     actions: tuple[ActionRequest, ...]
     # One closed multiple-choice question that ended a completed turn (ADR-0081), or None.
     clarification: dict[str, object] | None = None
-    # The memory changes a completed turn proposed; the profile saves them only when its reply commits (ADR-0084).
+    # The memory changes a completed turn proposed; Team saves them only when its reply commits (ADR-0084).
     memory: tuple[dict[str, str], ...] = ()
     # The chat agent's one Routine ``record`` that ended a completed turn (ADR-0101), or None; Local Team admits it.
     routine: object = None

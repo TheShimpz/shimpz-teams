@@ -1,4 +1,4 @@
-"""Private, canonical egress-policy storage shared by both Team profiles.
+"""Private, canonical egress-policy storage for Team.
 
 Each Assistant's policy is a Team-held token and the reviewed hosts the Assistant egress proxy admits for it. Team
 presents the token for the Assistant's provider calls; no workload ever receives it (ADR-0106).

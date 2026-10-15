@@ -203,8 +203,8 @@ def prepare_attachments(
 ) -> tuple[Attachment, ...]:
     """Prepare every selected file, starting the helper only when an image or PDF needs it.
 
-    ``admission`` is held before the first original is read and until the helper is gone, so a profile can bound how
-    many originals and derivatives its controller holds at once. ``interrupt`` raises once the turn is stopped and runs
+    ``admission`` is held before the first original is read and until the helper is gone, so the caller can bound how
+    many originals and derivatives the controller holds at once. ``interrupt`` raises once the turn is stopped and runs
     before every file, so a stopped turn reads nothing further. An original larger than every readable type's source
     ceiling is never read: it is opaque without allocating its bytes.
     """

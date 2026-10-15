@@ -22,7 +22,7 @@ MAX_BYTES = action_protocol.MAX_BYTES
 # One Action payload nests at most this deep below its root object. Admission refuses anything deeper, so every Team
 # store that keeps an admitted payload, such as a paused local chat continuation, can restore it under the same bound.
 MAX_PAYLOAD_DEPTH = 32
-# The protocol's matcher and reference walk, which Team's Routine compiler applies to admitted schemas as well.
+# The protocol's matcher and reference walk, which Team's Routine plan admission applies to admitted schemas as well.
 PatternError = action_protocol.PatternError
 pattern_matches = action_protocol.pattern_matches
 pattern_work_budget = action_protocol.pattern_work_budget

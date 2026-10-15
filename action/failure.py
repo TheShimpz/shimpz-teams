@@ -83,7 +83,7 @@ class ActionFailure:
 
 
 class ActionFailedError(RuntimeError):
-    """An Assistant reported a handled failure; Controllers raise their public problem from it."""
+    """An Assistant reported a handled failure; the controller raises its public problem from it."""
 
     def __init__(self, failure: ActionFailure) -> None:
         super().__init__("Assistant Action failed")
