@@ -56,7 +56,7 @@ class IncidentNoticeTests(unittest.TestCase):
                 2,
             ),
         )
-        with self.assertRaisesRegex(record.RoutineStateError, "incident-not-unresolved"):
+        with self.assertRaisesRegex(ValueError, "unknown Routine pause reason"):
             routine_hold.pause_incident(state, run_id, NINE, "bored")
         # A person setting this run aside is never the Routine's missed-schedule skip.
         skipped = routine_hold.skip_incident(paused, run_id, NINE + 3, choice="run")
@@ -66,7 +66,7 @@ class IncidentNoticeTests(unittest.TestCase):
             ("user-skipped", run_id, 3),
         )
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-unresolved"):
-            routine_hold.pause_incident(skipped, run_id, NINE, "person")
+            routine_hold.pause_incident(skipped, run_id, NINE, "exhausted")
         self.assertEqual(skipped.notices[-1].name, routine().name)
 
     def test_rodar_keeps_one_fresh_run_pending_through_any_delay_and_never_moves_the_cadence(self):

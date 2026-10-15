@@ -175,8 +175,10 @@ def run_incident(state: record.TeamRoutines, incident_id: str, now: int, expecte
 
 def pause_incident(state: record.TeamRoutines, incident_id: str, now: int, reason: str) -> record.TeamRoutines:
     """Recovery paused the Routine an unresolved incident holds, and the run's notice says why."""
+    if reason not in record.PAUSE_REASONS:
+        raise ValueError("unknown Routine pause reason")
     value = incident(state, incident_id)
-    if value.status != "unresolved" or reason not in record.PAUSE_REASONS:
+    if value.status != "unresolved":
         raise record.RoutineStateError("incident-not-unresolved")
     state = record.set_paused(state, value.routine_id, True)
     detail = {**step_detail(held_step(value)), "reason": reason}
