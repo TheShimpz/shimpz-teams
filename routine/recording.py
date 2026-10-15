@@ -7,7 +7,9 @@ recording span: the person's consecutive fresh sends in one Team incarnation, ea
 own words in it, the untruncated earlier sends its conversation window carried, its browser timezone, its start, and
 its successful Action calls in dispatch order.
 
-The work is the calls of the latest send that ran any Action; earlier sends only provide sources. Each top-level input
+The work is the calls of the one send the record call's intent selected (``local.routine.recorder.selected_work``): the
+send that ran Actions, or, for an answer that ran none, the send its intent already selected; earlier sends only
+provide sources. Each top-level input
 member of a plan call is classified by the first rule that applies:
 
 1. a secret (withheld, credential-shaped, protected by the span, or bound for a secret destination) refuses;
