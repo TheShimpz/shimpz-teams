@@ -56,8 +56,8 @@ HUMAN_REQUEST_KINDS = frozenset(
     }
 )
 AUTHORIZATION_REQUEST_KINDS = frozenset({"approval", "auth:passkey", "auth:password", "auth:totp"})
-VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
-_CREATOR_RE = re.compile(r"@[a-z0-9][a-z0-9-]{1,30}[a-z0-9]\Z")
+VERSION_RE = http_payload.ASSISTANT_VERSION_RE
+_CREATOR_RE = http_payload.LOCAL_ASSISTANT_CREATOR_RE
 _GITHUB_RE = re.compile(
     r"https://github\.com/[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/"
     r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?\Z"
