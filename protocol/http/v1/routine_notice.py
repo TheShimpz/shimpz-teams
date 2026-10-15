@@ -50,8 +50,8 @@ def _held_step(detail: dict[str, object]) -> bool:
     if detail["assistant_id"] is None:
         return detail["action"] is None and detail["position"] is None and detail["steps"] is None
     return (
-        routine._assistant(detail["assistant_id"])
-        and routine._action(detail["action"])
+        routine.valid_assistant(detail["assistant_id"])
+        and routine.valid_action(detail["action"])
         and routine.canonical_position(detail["position"], detail["steps"]) is not None
     )
 
@@ -94,18 +94,18 @@ _DETAILS = {
         {"runs"},
         lambda detail: type(detail["runs"]) is int and 1 <= detail["runs"] <= routine.MAX_ROLLUP_RUNS,
     ),
-    "scope-changed": ({"assistants"}, routine._scope_changed),
+    "scope-changed": ({"assistants"}, routine.scope_changed),
     "frozen": ({"request_kind"} | _STEP_FIELDS, _frozen),
     "failed": (
         {"code", "actions", "position", "steps"},
         lambda detail: (
-            routine._identity(detail["code"], routine.ERROR_CODE_RE)
-            and routine._actions(detail["actions"])
+            routine.matches(detail["code"], routine.ERROR_CODE_RE)
+            and routine.valid_actions(detail["actions"])
             and _failed_at(detail)
         ),
     ),
-    "denied": ({"actions"}, lambda detail: routine._actions(detail["actions"])),
-    "stopped": ({"actions"}, lambda detail: routine._actions(detail["actions"])),
+    "denied": ({"actions"}, lambda detail: routine.valid_actions(detail["actions"])),
+    "stopped": ({"actions"}, lambda detail: routine.valid_actions(detail["actions"])),
     "created": (_DEFINED_FIELDS, _defined),
     "changed": (_DEFINED_FIELDS, _defined),
     "deleted": (set(), lambda _detail: True),
@@ -132,7 +132,7 @@ LEASE_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 _INSTANT_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
 
 
-def _instant(value: object) -> bool:
+def instant(value: object) -> bool:
     """A real UTC instant in whole seconds, written ``YYYY-MM-DDTHH:MM:SSZ``."""
     if not isinstance(value, str) or _INSTANT_RE.fullmatch(value) is None:
         return False
@@ -147,13 +147,13 @@ def _assistant_ids(value: object, *, minimum: int) -> bool:
     return (
         isinstance(value, list)
         and minimum <= len(value) <= routine.MAX_NOTICE_ASSISTANTS
-        and all(routine._assistant(item) for item in value)
+        and all(routine.valid_assistant(item) for item in value)
         and value == sorted(set(value))
     )
 
 
-def _optional(value: object, pattern: re.Pattern[str]) -> bool:
-    return value is None or routine._identity(value, pattern)
+def optional(value: object, pattern: re.Pattern[str]) -> bool:
+    return value is None or routine.matches(value, pattern)
 
 
 def canonical_routine_view(value: object) -> dict[str, object] | None:
@@ -164,7 +164,7 @@ def canonical_routine_view(value: object) -> dict[str, object] | None:
         return None
     summary = routine.canonical_summary(value["plan"])
     valid = (
-        routine._identity(value["routine_id"], routine.ROUTINE_ID_RE)
+        routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
         and routine.canonical_name(value["name"]) == value["name"]
         and summary is not None
         and _disposed(value["output"], summary["steps"])
@@ -172,7 +172,7 @@ def canonical_routine_view(value: object) -> dict[str, object] | None:
         and routine.canonical_schedule(value["schedule"]) == value["schedule"]
         and routine.zoned(value["timezone"], value["timezone_source"])
         and _assistant_ids(value["assistant_ids"], minimum=0)
-        and _instant(value["next_run_at"])
+        and instant(value["next_run_at"])
         and type(value["needs_reconfirm"]) is bool
         and type(value["deleting"]) is bool
         and _scope(value)
@@ -189,14 +189,14 @@ def canonical_run_view(value: object) -> dict[str, object] | None:
     request = (value["request_kind"], value["assistant_id"], value["action"], value["position"], value["steps"])
     frozen = (
         request[0] in REQUEST_KINDS
-        and routine._assistant(request[1])
-        and routine._action(request[2])
+        and routine.valid_assistant(request[1])
+        and routine.valid_action(request[2])
         and routine.canonical_position(request[3], request[4]) is not None
     )
     valid = (
-        routine._identity(value["run_id"], routine.ROUTINE_ID_RE)
-        and routine._identity(value["routine_id"], routine.ROUTINE_ID_RE)
-        and _instant(value["scheduled_at"])
+        routine.matches(value["run_id"], routine.ROUTINE_ID_RE)
+        and routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
+        and instant(value["scheduled_at"])
         and isinstance(status, str)
         and status in RUN_STATUSES
         and (frozen if status == "frozen" else request == (None, None, None, None, None))
@@ -210,10 +210,10 @@ def canonical_incident_view(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict) or set(value) != fields:
         return None
     valid = (
-        routine._identity(value["incident_id"], routine.ROUTINE_ID_RE)
-        and routine._identity(value["routine_id"], routine.ROUTINE_ID_RE)
+        routine.matches(value["incident_id"], routine.ROUTINE_ID_RE)
+        and routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
         and routine.canonical_name(value["name"]) == value["name"]
-        and _instant(value["created_at"])
+        and instant(value["created_at"])
         and _held_step(value)
     )
     return copy.deepcopy(value) if valid else None
@@ -247,17 +247,17 @@ def canonical_notice(value: object) -> dict[str, object] | None:
     outcome = value["outcome"]
     used = outcome not in routine.ROUTINE_OUTCOMES or outcome == "healthy"
     valid = (
-        routine._team(value["team_id"])
-        and routine._identity(value["notice_id"], routine.ROUTINE_ID_RE)
+        routine.valid_team(value["team_id"])
+        and routine.matches(value["notice_id"], routine.ROUTINE_ID_RE)
         and type(value["version"]) is int
         and value["version"] >= 1
-        and routine._identity(value["routine_id"], routine.ROUTINE_ID_RE)
+        and routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
         and routine.canonical_name(value["name"]) == value["name"]
-        and _optional(value["run_id"], routine.ROUTINE_ID_RE)
+        and optional(value["run_id"], routine.ROUTINE_ID_RE)
         and (value["run_id"] is None) == (outcome in routine.ROUTINE_OUTCOMES)
         # A run's one notice is keyed by its run id.
         and value["run_id"] in (None, value["notice_id"])
-        and _instant(value["created_at"])
+        and instant(value["created_at"])
         and canonical_notice_detail(outcome, value["detail"]) is not None
         and (routine.canonical_run_usage(value["usage"]) is not None if used else value["usage"] is None)
         and type(value["protection_lost"]) is bool

@@ -27,7 +27,7 @@ def _members_listed(value: object, limit: int, maximum: int) -> bool:
     return (
         isinstance(value, list)
         and len(value) <= limit
-        and all(routine._plain(item, maximum) for item in value)
+        and all(routine.plain(item, maximum) for item in value)
         and value == sorted(set(value))
     )
 
@@ -46,8 +46,8 @@ def _listed_step(value: object) -> bool:
         and set(value) == {"id", "assistant", "action", "inputs"}
         and isinstance(value["id"], str)
         and ROUTINE_STEP_ID_RE.fullmatch(value["id"]) is not None
-        and routine._assistant(value["assistant"])
-        and routine._action(value["action"])
+        and routine.valid_assistant(value["assistant"])
+        and routine.valid_action(value["action"])
         and _members_listed(value["inputs"], routine.MAX_STEP_INPUTS, routine.MAX_MEMBER_CHARS)
     )
 
@@ -58,12 +58,12 @@ def canonical_routine_listing(value: object) -> dict[str, object] | None:
         return None
     steps = value["steps"]
     valid = (
-        routine._identity(value["routine_id"], routine.ROUTINE_ID_RE)
+        routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
         and routine.canonical_name(value["name"]) == value["name"]
         and routine.canonical_schedule(value["schedule"]) == value["schedule"]
         and routine.zoned(value["timezone"], value["timezone_source"])
-        and routine._whole(value["revision"], 1, 2**31 - 1)
-        and routine._whole(value["daily_steps"], 1, MAX_LISTED_DAILY_STEPS)
+        and routine.whole(value["revision"], 1, 2**31 - 1)
+        and routine.whole(value["daily_steps"], 1, MAX_LISTED_DAILY_STEPS)
         and isinstance(steps, list)
         and len(steps) <= routine.MAX_ROUTINE_STEPS
         and _listed_output(value["output"], len(steps))
@@ -112,8 +112,8 @@ def _rerun_source(value: object) -> bool:
     return (
         isinstance(value, dict)
         and set(value) == {"assistant", "action"}
-        and routine._assistant(value["assistant"])
-        and routine._action(value["action"])
+        and routine.valid_assistant(value["assistant"])
+        and routine.valid_action(value["action"])
     )
 
 
@@ -127,7 +127,7 @@ def _rerun_input(value: object) -> bool:
         valid = shown is None and chosen is False and (source is None or _rerun_source(source))
     else:
         valid = kind == "clock" and shown is None and chosen is False and source is None
-    return valid and routine._plain(value["member"], MAX_RERUN_MEMBER_CHARS)
+    return valid and routine.plain(value["member"], MAX_RERUN_MEMBER_CHARS)
 
 
 def _rerun_entry(value: object) -> bool:
@@ -135,9 +135,9 @@ def _rerun_entry(value: object) -> bool:
         return False
     inputs = value["inputs"]
     return (
-        routine._assistant(value["assistant"])
-        and routine._action(value["action"])
-        and routine._whole(value["count"], 1, MAX_RERUN_CALLS)
+        routine.valid_assistant(value["assistant"])
+        and routine.valid_action(value["action"])
+        and routine.whole(value["count"], 1, MAX_RERUN_CALLS)
         and isinstance(inputs, list)
         and len(inputs) <= MAX_RERUN_INPUTS
         and all(_rerun_input(item) for item in inputs)

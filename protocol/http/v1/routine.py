@@ -79,7 +79,7 @@ _FIELDS = {
 }
 
 
-def _whole(value: object, low: int, high: int) -> bool:
+def whole(value: object, low: int, high: int) -> bool:
     return type(value) is int and low <= value <= high
 
 
@@ -88,8 +88,8 @@ def _wall_clock(value: dict[str, object]) -> bool:
     return (
         isinstance(value["time"], str)
         and _TIME_RE.fullmatch(value["time"]) is not None
-        and (kind != "weekly" or _whole(value["weekday"], 0, 6))
-        and (kind != "monthly" or _whole(value["day"], 1, 28))
+        and (kind != "weekly" or whole(value["weekday"], 0, 6))
+        and (kind != "monthly" or whole(value["day"], 1, 28))
     )
 
 
@@ -103,7 +103,7 @@ def canonical_schedule(value: object) -> dict[str, object] | None:
     if not isinstance(kind, str) or kind not in SCHEDULE_KINDS or set(value) != _FIELDS[kind]:
         return None
     if kind == "continuous":
-        valid = _whole(value["gap"], MIN_CONTINUOUS_GAP_SECONDS, MAX_CONTINUOUS_GAP_SECONDS)
+        valid = whole(value["gap"], MIN_CONTINUOUS_GAP_SECONDS, MAX_CONTINUOUS_GAP_SECONDS)
     else:
         valid = _wall_clock(value)
     return dict(value) if valid else None
@@ -169,39 +169,40 @@ def daily_cap(schedule: dict[str, object]) -> int:
     return math.ceil(daily_rate(schedule))
 
 
-def _assistant(value: object) -> bool:
+def valid_assistant(value: object) -> bool:
     return identifiers.canonical_assistant_id(value) is not None
 
 
-def _action(value: object) -> bool:
+def valid_action(value: object) -> bool:
     return identifiers.canonical_action_id(value) is not None
 
 
-def _team(value: object) -> bool:
+def valid_team(value: object) -> bool:
     return identifiers.canonical_team_id(value) is not None
 
 
-def _actions(value: object) -> bool:
+def valid_actions(value: object) -> bool:
     """Bounded Assistant and Action identities only: a notice never carries an Action's input or result."""
     return (
         isinstance(value, list)
         and len(value) <= MAX_NOTICE_ACTIONS
         and all(
-            isinstance(pair, list) and len(pair) == 2 and _assistant(pair[0]) and _action(pair[1]) for pair in value
+            isinstance(pair, list) and len(pair) == 2 and valid_assistant(pair[0]) and valid_action(pair[1])
+            for pair in value
         )
     )
 
 
-def _identity(value: object, pattern: re.Pattern[str]) -> bool:
+def matches(value: object, pattern: re.Pattern[str]) -> bool:
     return isinstance(value, str) and pattern.fullmatch(value) is not None
 
 
-def _scope_changed(detail: dict[str, object]) -> bool:
+def scope_changed(detail: dict[str, object]) -> bool:
     assistants = detail["assistants"]
     return (
         isinstance(assistants, list)
         and 0 < len(assistants) <= MAX_NOTICE_ASSISTANTS
-        and all(_assistant(item) for item in assistants)
+        and all(valid_assistant(item) for item in assistants)
     )
 
 
@@ -213,7 +214,7 @@ def _position(value: object, maximum: int = MAX_ROUTINE_STEPS) -> bool:
 
 def canonical_position(value: object, steps: object) -> int | None:
     """A call's position among a plan's ``steps``, or None."""
-    return value if _whole(steps, 0, MAX_ROUTINE_STEPS) and _position(value, steps) else None
+    return value if whole(steps, 0, MAX_ROUTINE_STEPS) and _position(value, steps) else None
 
 
 # A Routine's plan as a Supervisor inspects it (ADR-0092): each step's Action, every input's source, and the Stored
@@ -237,7 +238,7 @@ MAX_PAGE_BYTES = 96 * 1024
 PLAN_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
 # A lone surrogate is unsafe too: it has no UTF-8 encoding, so it is escaped in a preview and refused elsewhere.
-_PLAN_UNSAFE_RE = re.compile(r"[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ud800-\udfff\ufeff]")
+PLAN_UNSAFE_RE = re.compile(r"[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ud800-\udfff\ufeff]")
 _INPUT_FIELDS = {
     "literal": frozenset({"member", "source", "value"}),
     "run_clock": frozenset({"member", "source", "value"}),
@@ -247,7 +248,7 @@ _INPUT_FIELDS = {
 
 def escaped(text: str) -> str:
     """Text with every control or invisible character, and a lone surrogate, written as its JSON unicode escape."""
-    return _PLAN_UNSAFE_RE.sub(lambda match: f"\\u{ord(match.group()):04x}", text)
+    return PLAN_UNSAFE_RE.sub(lambda match: f"\\u{ord(match.group()):04x}", text)
 
 
 def literal_preview(value: object) -> str:
@@ -261,8 +262,8 @@ def preview(text: str) -> str:
     return text if len(text) <= MAX_PREVIEW_CHARS else text[: MAX_PREVIEW_CHARS - 1] + "…"
 
 
-def _plain(value: object, maximum: int) -> bool:
-    return isinstance(value, str) and 0 < len(value) <= maximum and _PLAN_UNSAFE_RE.search(value) is None
+def plain(value: object, maximum: int) -> bool:
+    return isinstance(value, str) and 0 < len(value) <= maximum and PLAN_UNSAFE_RE.search(value) is None
 
 
 def _pointer(value: object) -> bool:
@@ -270,7 +271,7 @@ def _pointer(value: object) -> bool:
         isinstance(value, str)
         and len(value) <= MAX_POINTER_CHARS
         and _POINTER_RE.fullmatch(value) is not None
-        and _PLAN_UNSAFE_RE.search(value) is None
+        and PLAN_UNSAFE_RE.search(value) is None
     )
 
 
@@ -279,7 +280,7 @@ def _where(value: object) -> bool:
     if not isinstance(value, dict) or set(value) != {"member", "value_json"}:
         return False
     text = value["value_json"]
-    if not _plain(value["member"], MAX_MEMBER_CHARS) or not _plain(text, MAX_WHERE_CHARS):
+    if not plain(value["member"], MAX_MEMBER_CHARS) or not plain(text, MAX_WHERE_CHARS):
         return False
     try:
         constant = json.loads(text)
@@ -293,7 +294,7 @@ def where_text(constant: str | int) -> str:
     return escaped(json.dumps(constant, ensure_ascii=False))
 
 
-def _reference(value: dict[str, object], position: int) -> bool:
+def reference(value: dict[str, object], position: int) -> bool:
     """A copied value: an earlier position and its pointer, and through an array item its selector and item pointer."""
     selected = value["where"] is not None
     return (
@@ -307,17 +308,17 @@ def _input(value: object, position: int) -> bool:
     source = value.get("source") if isinstance(value, dict) else None
     if not isinstance(source, str) or source not in _INPUT_FIELDS or set(value) != _INPUT_FIELDS[source]:
         return False
-    if not _plain(value["member"], MAX_MEMBER_CHARS):
+    if not plain(value["member"], MAX_MEMBER_CHARS):
         return False
     if source == "literal":
-        return _plain(value["value"], MAX_PREVIEW_CHARS)
+        return plain(value["value"], MAX_PREVIEW_CHARS)
     if source == "run_clock":
         # The run date, or the preview of a dated text's template as a person reads it.
-        return _plain(value["value"], MAX_PREVIEW_CHARS)
-    return _reference(value, position)
+        return plain(value["value"], MAX_PREVIEW_CHARS)
+    return reference(value, position)
 
 
-def _members(items: object, admit: Callable[[object], bool]) -> bool:
+def members(items: object, admit: Callable[[object], bool]) -> bool:
     """A step's inputs: at most MAX_STEP_INPUTS, each admitted, in member order with no member twice."""
     return (
         isinstance(items, list)
@@ -337,10 +338,10 @@ def canonical_step(value: object, position: int) -> dict[str, object] | None:
         _position(position)
         and value["position"] == position
         and type(value["position"]) is int
-        and _assistant(value["assistant"])
-        and _action(value["action"])
+        and valid_assistant(value["assistant"])
+        and valid_action(value["action"])
         and type(value["read_only"]) is bool
-        and _members(inputs, lambda item: _input(item, position))
+        and members(inputs, lambda item: _input(item, position))
         and isinstance(stored, list)
         and len(stored) <= MAX_STEP_STORED_INPUTS
         and all(identifiers.canonical_identifier(item) is not None for item in stored)
@@ -350,11 +351,11 @@ def canonical_step(value: object, position: int) -> dict[str, object] | None:
     return copy.deepcopy(value) if valid else None
 
 
-def _paged(value: dict[str, object], step: Callable[[object, int], object]) -> bool:
+def paged(value: dict[str, object], step: Callable[[object, int], object]) -> bool:
     """Whole consecutive entries of ``total`` from ``offset``, the next offset or null, within the page's bounds."""
     total, offset, steps = value["total"], value["offset"], value["steps"]
     return (
-        _whole(total, 1, MAX_ROUTINE_STEPS)
+        whole(total, 1, MAX_ROUTINE_STEPS)
         and type(offset) is int
         and 0 <= offset < total
         and isinstance(steps, list)
@@ -371,10 +372,10 @@ def canonical_page(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict) or set(value) != fields:
         return None
     valid = (
-        _identity(value["routine_id"], ROUTINE_ID_RE)
-        and _revision(value["revision"])
-        and _identity(value["plan_digest"], PLAN_DIGEST_RE)
-        and _paged(value, canonical_step)
+        matches(value["routine_id"], ROUTINE_ID_RE)
+        and valid_revision(value["revision"])
+        and matches(value["plan_digest"], PLAN_DIGEST_RE)
+        and paged(value, canonical_step)
     )
     return copy.deepcopy(value) if valid else None
 
@@ -390,13 +391,17 @@ def canonical_summary(value: object) -> dict[str, object] | None:
         return None
     runs, more, total = value["actions"], value["more"], value["steps"]
     valid = (
-        _revision(value["revision"])
-        and _identity(value["plan_digest"], PLAN_DIGEST_RE)
-        and _whole(total, 1, MAX_ROUTINE_STEPS)
+        valid_revision(value["revision"])
+        and matches(value["plan_digest"], PLAN_DIGEST_RE)
+        and whole(total, 1, MAX_ROUTINE_STEPS)
         and isinstance(runs, list)
         and 0 < len(runs) <= MAX_SUMMARY_RUNS
         and all(
-            isinstance(run, list) and len(run) == 3 and _assistant(run[0]) and _action(run[1]) and _position(run[2])
+            isinstance(run, list)
+            and len(run) == 3
+            and valid_assistant(run[0])
+            and valid_action(run[1])
+            and _position(run[2])
             for run in runs
         )
         and all(runs[index][:2] != runs[index - 1][:2] for index in range(1, len(runs)))
@@ -420,7 +425,7 @@ def canonical_disposition(value: object, total: object) -> dict[str, object] | N
     if not isinstance(value, dict) or set(value) != {"mode", "step"} or value["mode"] not in OUTPUT_MODES:
         return None
     mode, shown = value["mode"], value["step"]
-    if not _whole(total, 1, MAX_ROUTINE_STEPS):
+    if not whole(total, 1, MAX_ROUTINE_STEPS):
         return None
     valid = _position(shown, total) if mode in SHOWN_MODES else shown is None
     return {"mode": mode, "step": shown} if valid else None
@@ -469,7 +474,7 @@ def _scalar_node(value: dict[str, object]) -> bool:
 
 
 def _plain_text(value: object, maximum: int) -> bool:
-    return isinstance(value, str) and len(value) <= maximum and _PLAN_UNSAFE_RE.search(value) is None
+    return isinstance(value, str) and len(value) <= maximum and PLAN_UNSAFE_RE.search(value) is None
 
 
 def _output_node(value: object, depth: int) -> bool:
@@ -496,7 +501,7 @@ def _output_node(value: object, depth: int) -> bool:
         and all(
             isinstance(field, list)
             and len(field) == 2
-            and _plain(field[0], MAX_OUTPUT_KEY_CHARS)
+            and plain(field[0], MAX_OUTPUT_KEY_CHARS)
             and _output_node(field[1], depth + 1)
             for field in fields
         )
@@ -530,7 +535,7 @@ def canonical_permitted(value: object) -> dict[str, int] | None:
     """
     if not isinstance(value, dict) or set(value) != {"total", "changes"}:
         return None
-    valid = _whole(value["total"], 1, MAX_PERMITTED) and _whole(value["changes"], 0, value["total"])
+    valid = whole(value["total"], 1, MAX_PERMITTED) and whole(value["changes"], 0, value["total"])
     return {"total": value["total"], "changes": value["changes"]} if valid else None
 
 
@@ -539,5 +544,5 @@ def encoded_bytes(value: object) -> int:
     return len(json.dumps(value, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8"))
 
 
-def _revision(value: object) -> bool:
+def valid_revision(value: object) -> bool:
     return type(value) is int and 1 <= value < 2**31

@@ -45,15 +45,15 @@ def canonical_card(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict) or set(value) != fields | {"position", "steps", "evidence", "diagnostic", "choices"}:
         return None
     valid = (
-        routine._team(value["team_id"])
-        and routine._identity(value["incident_id"], routine.ROUTINE_ID_RE)
-        and routine._identity(value["routine_id"], routine.ROUTINE_ID_RE)
-        and routine._revision(value["revision"])
-        and routine._assistant(value["assistant_id"])
-        and routine._action(value["action"])
+        routine.valid_team(value["team_id"])
+        and routine.matches(value["incident_id"], routine.ROUTINE_ID_RE)
+        and routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
+        and routine.valid_revision(value["revision"])
+        and routine.valid_assistant(value["assistant_id"])
+        and routine.valid_action(value["action"])
         and routine.canonical_position(value["position"], value["steps"]) is not None
         and _card_evidence(value)
-        and routine._identity(value["nonce"], NONCE_RE)
+        and routine.matches(value["nonce"], NONCE_RE)
         and value["expires_in"] == CARD_SECONDS
         and type(value["expires_in"]) is int
         and value["choices"] == list(routine_notice.CARD_CHOICES)
@@ -65,7 +65,7 @@ def canonical_card_answer_request(value: object) -> dict[str, str] | None:
     """A person's answer to one card: its nonce and Rodar; Excluir is never a card answer."""
     if not isinstance(value, dict) or set(value) != {"nonce", "choice"}:
         return None
-    valid = routine._identity(value["nonce"], NONCE_RE) and value["choice"] in CARD_ANSWERS
+    valid = routine.matches(value["nonce"], NONCE_RE) and value["choice"] in CARD_ANSWERS
     return {"nonce": value["nonce"], "choice": value["choice"]} if valid else None
 
 
@@ -74,8 +74,8 @@ def canonical_card_answer(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict) or set(value) != {"team_id", "incident_id", "choice", "status"}:
         return None
     valid = (
-        routine._team(value["team_id"])
-        and routine._identity(value["incident_id"], routine.ROUTINE_ID_RE)
+        routine.valid_team(value["team_id"])
+        and routine.matches(value["incident_id"], routine.ROUTINE_ID_RE)
         and value["choice"] in CARD_ANSWERS
         and value["status"] == CARD_STATUSES[value["choice"]]
     )
@@ -124,14 +124,14 @@ def canonical_claim(value: object) -> dict[str, object] | None:
         and set(run) == fields | {"revision", "plan_digest"}
         and type(run["active_seconds"]) is int
         and 0 < run["active_seconds"] <= MAX_ACTIVE_SECONDS
-        and routine._team(run["team_id"])
-        and routine._identity(run["run_id"], routine.ROUTINE_ID_RE)
-        and routine._identity(run["routine_id"], routine.ROUTINE_ID_RE)
-        and routine._identity(run["lease_token"], routine_notice.LEASE_TOKEN_RE)
+        and routine.valid_team(run["team_id"])
+        and routine.matches(run["run_id"], routine.ROUTINE_ID_RE)
+        and routine.matches(run["routine_id"], routine.ROUTINE_ID_RE)
+        and routine.matches(run["lease_token"], routine_notice.LEASE_TOKEN_RE)
         and type(run["lease_expires_at"]) is int
         and run["lease_expires_at"] > 0
-        and routine._revision(run["revision"])
-        and routine._identity(run["plan_digest"], routine.PLAN_DIGEST_RE)
+        and routine.valid_revision(run["revision"])
+        and routine.matches(run["plan_digest"], routine.PLAN_DIGEST_RE)
     )
     return copy.deepcopy(value) if valid else None
 
@@ -143,7 +143,7 @@ def canonical_segment_request(value: object) -> dict[str, object] | None:
     # A request body reaches only the fixed-length digest pattern, never the shared identifier patterns.
     plan_digest = value["plan_digest"]
     valid = (
-        routine._revision(value["revision"])
+        routine.valid_revision(value["revision"])
         and isinstance(plan_digest, str)
         and routine.PLAN_DIGEST_RE.fullmatch(plan_digest) is not None
     )
@@ -188,9 +188,9 @@ def canonical_failure(value: object) -> dict[str, object] | None:
         return None
     provider, status, excerpt = value["provider"], value["http_status"], value["response_excerpt"]
     valid = (
-        routine._identity(value["error_type"], ERROR_TYPE_RE)
+        routine.matches(value["error_type"], ERROR_TYPE_RE)
         and _diagnostic_text(value["message"])
-        and (provider is None or (routine._identity(provider, PROVIDER_RE) and len(provider) <= 253))
+        and (provider is None or (routine.matches(provider, PROVIDER_RE) and len(provider) <= 253))
         and (status is None or (type(status) is int and 100 <= status <= 599))
         and (excerpt is None or _diagnostic_text(excerpt))
         and type(value["redacted"]) is bool
@@ -205,16 +205,16 @@ def canonical_diagnostic(value: object) -> dict[str, object] | None:
         return None
     failure, condition = value["failure"], value["condition"]
     valid = (
-        routine._identity(value["operation_id"], OPERATION_ID_RE)
+        routine.matches(value["operation_id"], OPERATION_ID_RE)
         and type(value["attempt"]) is int
         and 1 <= value["attempt"] <= MAX_DIAGNOSTIC_ATTEMPTS
-        and routine._assistant(value["assistant_id"])
-        and routine._action(value["action"])
+        and routine.valid_assistant(value["assistant_id"])
+        and routine.valid_action(value["action"])
         and routine.canonical_position(value["position"], routine.MAX_ROUTINE_STEPS) is not None
-        and routine_notice._instant(value["recorded_at"])
+        and routine_notice.instant(value["recorded_at"])
         and (failure is None) != (condition is None)
         and (failure is None or canonical_failure(failure) is not None)
-        and (condition is None or routine._identity(condition, CONDITION_RE))
+        and (condition is None or routine.matches(condition, CONDITION_RE))
     )
     return copy.deepcopy(value) if valid else None
 
@@ -225,8 +225,8 @@ def canonical_diagnostics(value: object) -> dict[str, object] | None:
         return None
     entries = value["diagnostics"]
     if (
-        not routine._team(value["team_id"])
-        or not routine._identity(value["run_id"], routine.ROUTINE_ID_RE)
+        not routine.valid_team(value["team_id"])
+        or not routine.matches(value["run_id"], routine.ROUTINE_ID_RE)
         or not isinstance(entries, list)
         or len(entries) > MAX_RUN_DIAGNOSTICS
     ):
@@ -256,10 +256,10 @@ def _run_input(value: object) -> bool:
     return (
         isinstance(value, dict)
         and set(value) == {"member", "source", "value"}
-        and routine._plain(value["member"], routine.MAX_MEMBER_CHARS)
+        and routine.plain(value["member"], routine.MAX_MEMBER_CHARS)
         and isinstance(value["source"], str)
         and value["source"] in RUN_INPUT_SOURCES
-        and (value["value"] is None or routine._plain(value["value"], routine.MAX_PREVIEW_CHARS))
+        and (value["value"] is None or routine.plain(value["value"], routine.MAX_PREVIEW_CHARS))
     )
 
 
@@ -273,14 +273,14 @@ def canonical_run_step(value: object, position: int, steps: int) -> dict[str, ob
     else:
         valid = (
             status in RUN_STEP_STATUSES
-            and routine._assistant(value["assistant_id"])
-            and routine._action(value["action"])
+            and routine.valid_assistant(value["assistant_id"])
+            and routine.valid_action(value["action"])
             and type(value["attempt"]) is int
             and 1 <= value["attempt"] <= MAX_DIAGNOSTIC_ATTEMPTS
             and (duration is None or (type(duration) is int and 0 <= duration < 2**53))
             and (status != "recovered" or duration is None)
-            and routine_notice._instant(value["recorded_at"])
-            and (value["inputs"] is None or routine._members(value["inputs"], _run_input))
+            and routine_notice.instant(value["recorded_at"])
+            and (value["inputs"] is None or routine.members(value["inputs"], _run_input))
         )
     valid = (
         valid
@@ -300,13 +300,13 @@ def canonical_run_steps(value: object) -> dict[str, object] | None:
         return None
     total = value["total"]
     valid = (
-        routine._team(value["team_id"])
-        and routine._identity(value["run_id"], routine.ROUTINE_ID_RE)
-        and routine._identity(value["routine_id"], routine.ROUTINE_ID_RE)
-        and routine._revision(value["revision"])
-        and routine._identity(value["plan_digest"], routine.PLAN_DIGEST_RE)
-        and routine._identity(value["snapshot"], SNAPSHOT_RE)
+        routine.valid_team(value["team_id"])
+        and routine.matches(value["run_id"], routine.ROUTINE_ID_RE)
+        and routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
+        and routine.valid_revision(value["revision"])
+        and routine.matches(value["plan_digest"], routine.PLAN_DIGEST_RE)
+        and routine.matches(value["snapshot"], SNAPSHOT_RE)
         and type(value["ended"]) is bool
-        and routine._paged(value, lambda item, index: canonical_run_step(item, index, total))
+        and routine.paged(value, lambda item, index: canonical_run_step(item, index, total))
     )
     return copy.deepcopy(value) if valid else None
