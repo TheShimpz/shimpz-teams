@@ -60,11 +60,7 @@ def issue_token(path: Path = TOKEN_PATH) -> str:
             raise RuntimeError("the local controller token directory has unsafe ownership")
         temporary.chmod(0o440)
         temporary.replace(path)
-        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        private_state.fsync_directory(path.parent)
     finally:
         if temporary.exists():
             temporary.unlink()
