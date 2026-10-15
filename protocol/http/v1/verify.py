@@ -380,6 +380,10 @@ if set(routine_proposal.ANSWER_REPLIES) != set(routine.LOCALES) or any(
 if routine_proposal.answer_reply(None) != routine_proposal.ANSWER_REPLIES["en"]:
     fail("a chat without an interface language does not get the English answer reply")
 
+latest = routine_proposal.SPLIT_LATEST
+if set(latest) != set(routine.LOCALES) or any(routine.canonical_name(label) != label for label in latest.values()):
+    fail("the Routine split answer that keeps the latest work does not cover every interface language")
+
 choices = routine_proposal.OUTPUT_CHOICES
 if set(choices) != set(routine.LOCALES) or any(
     tuple(labels) != routine_proposal.OUTPUT_KINDS

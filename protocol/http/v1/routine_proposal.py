@@ -220,6 +220,26 @@ OUTPUT_CHOICES = {
 }
 
 
+# The answer to a split-work question that keeps only the work of the latest send that ran any (ADR-0101): the person
+# replaces what earlier sends ran instead of combining it, so Team records that latest work with no model call. Admin
+# offers this label in the interface language beside the answer that runs everything again.
+SPLIT_LATEST = {
+    "ar": "استخدم عمل الرسالة الأخيرة فقط",
+    "de": "Nur die Arbeit der letzten Nachricht verwenden",
+    "en": "Use only the latest message's work",
+    "es": "Usar solo el trabajo del último mensaje",
+    "fr": "Utiliser seulement le travail du dernier message",
+    "ja": "最後のメッセージの作業だけを使う",
+    "pt": "Usar só o trabalho da última mensagem",
+    "zh": "只使用最后一条消息的工作",
+}
+
+
+def keeps_latest_work(answer: str) -> bool:
+    """Whether a split-work answer is one interface language's label for keeping only the latest work."""
+    return answer.strip().casefold() in {label.casefold() for label in SPLIT_LATEST.values()}
+
+
 # The reply of a send that answers Team's pending question, which Team then records without asking the Brain: one
 # fixed text in each interface language, and the English one for a chat without one (ADR-0101).
 ANSWER_REPLIES = {

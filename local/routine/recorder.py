@@ -30,6 +30,7 @@ from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import phrase
 from protocol.http.v1 import routine_context as http_routine_context
+from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import pin as routine_pin
 from routine import recording as routine_recording
 from routine import rerun as routine_rerun
@@ -254,7 +255,8 @@ def answered(span: Span | None) -> Intent | None:
     """The intent to record again when the span's latest send is Admin's composed answer that binds its question.
 
     It binds a schedule question when it states a schedule, an output question when it states an output, an interval
-    question when it states an interval, and a target question when it is exactly one target's JSON text. Anything
+    question when it states an interval, a target question when it is exactly one target's JSON text, and a split-work
+    question when it keeps only the latest work. Anything
     else, typed freely or not binding, is the Brain's to read.
     """
     if span is None or span.intent is None or span.asked is None or span.refused:
@@ -272,6 +274,8 @@ def answered(span: Span | None) -> Intent | None:
         "routine-interval-over-budget": any(item["kind"] in _INTERVAL_KINDS for item in stated),
         "routine-binding-ambiguous": pending is not None
         and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets),
+        # Keeping only the latest work needs nothing run again.
+        "routine-work-split": http_routine_proposal.keeps_latest_work(answer),
     }
     return span.intent if bound.get(asked.code, False) else None
 

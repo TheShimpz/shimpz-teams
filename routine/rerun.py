@@ -4,6 +4,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import plan as routine_plan
 from routine import provenance as routine_provenance
 from routine import recording as routine_recording
@@ -101,6 +102,19 @@ def _slot_input(
     ):
         return member, "fresh", value
     return member, "value", value
+
+
+def kept_latest(sends: Sequence[routine_recording.Send], asked: routine_recording.Asked) -> int | None:
+    """The send whose work alone the person kept by answering a split question so, or None while they did not.
+
+    Every call before that send stays a possible source but no longer counts as split work.
+    """
+    if asked.code != "routine-work-split" or not any(
+        http_routine_proposal.keeps_latest_work(segment) for send in sends[asked.after :] for segment in send.person
+    ):
+        return None
+    worked = [position for position, send in enumerate(sends[: asked.after]) if send.occurrences]
+    return worked[-1] if worked else None
 
 
 def settlement(sends: Sequence[routine_recording.Send], asked: routine_recording.Asked) -> int | None:

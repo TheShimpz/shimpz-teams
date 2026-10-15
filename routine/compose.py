@@ -27,8 +27,9 @@ def record(
 ) -> routine_recording.Recorded | routine_recording.Question:
     """The plan a recording span defines, or the question to ask first; raises RecordingError when it cannot be one.
 
-    A pending rerun question stands until one later send's calls satisfy its manifest; that send is then the new
-    ``frontier``, and no call before it counts as split work any more, though each may still be a source.
+    A pending rerun question stands until one later send's calls satisfy its manifest, or, for split work, until the
+    person keeps only the latest work; that send is then the new ``frontier``, and no call before it counts as split
+    work any more, though each may still be a source.
     """
     _admit(recording, contracts)
     if protection.lost:
@@ -37,7 +38,8 @@ def record(
     stated = recording.mode or _output(sends, existing)
     recording = dataclasses.replace(recording, mode=_OUTPUT_MODES.get(stated or "show", stated))
     if asked is not None and asked.manifest is not None:
-        settled = routine_rerun.settlement(sends, asked)
+        kept = routine_rerun.kept_latest(sends, asked)
+        settled = kept if kept is not None else routine_rerun.settlement(sends, asked)
         if settled is None:
             question = routine_recording.Question(
                 asked.code, pending=asked.pending, manifest=asked.manifest, frontier=frontier

@@ -186,6 +186,9 @@ class RecordingBookTests(unittest.TestCase):
             ("routine-binding-ambiguous", "a-zone", None),
             ("routine-binding-ambiguous", '"123"', None),
             ("routine-binding-unsourced", "a cada hora", None),
+            # Keeping only the latest work runs nothing again; running it all again is the Brain's.
+            ("routine-work-split", http_routine_proposal.SPLIT_LATEST["pt"], intent),
+            ("routine-work-split", "Executar tudo de novo", None),
         ]
         for code, answer, expected in cases:
             with self.subTest(code=code, answer=answer):

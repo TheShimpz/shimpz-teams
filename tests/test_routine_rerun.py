@@ -26,6 +26,8 @@ from test_routine_recording import (
     _send,
 )
 
+from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import recording, trace
 
 
@@ -150,6 +152,23 @@ class RerunTests(unittest.TestCase):
                 earlier = _send(("cloudflare/list-dns-records", given, RECORDS[2]), message=message)
                 asked = _record(earlier, _send(ZONES_CALL, work, message="Faça isso a cada hora para shimpz.com"))
                 self.assertEqual(asked.code, "routine-work-split")
+
+    def test_a_split_answered_by_keeping_only_the_latest_work_records_it_alone(self) -> None:
+        other = "9a7806061c88ada191ed06f989cc3dac"
+        earlier = _send(("cloudflare/list-dns-records", {"zone_id": other}, RECORDS[2]), message="DNS de example.com")
+        latest = _send(ZONES_CALL, RECORDS, message="Faça isso a cada hora para shimpz.com")
+        asked = _record(earlier, latest)
+        self.assertEqual(asked.code, "routine-work-split")
+        pending = _pending(asked, 2)
+        # Any answer but keeping the latest work leaves the question standing; that one records the latest work.
+        self.assertEqual(_record(earlier, latest, _send(message="Rodar tudo de novo"), asked=pending).code, asked.code)
+        for label in http_routine_proposal.SPLIT_LATEST.values():
+            composed = http_payload.compose_clarified("Faça isso a cada hora para shimpz.com", "Dividido?", label, "pt")
+            with self.subTest(label=label):
+                recorded = _recorded(earlier, latest, _send(message=composed), asked=pending)
+                self.assertEqual(
+                    (_actions(recorded), _input(recorded)["zone_id"]), (["list-zones", "list-dns-records"], SELECTED)
+                )
 
     def test_work_split_with_a_withheld_input_is_never_frozen(self) -> None:
         for action in ("reports/post", "reports/fetch"):
