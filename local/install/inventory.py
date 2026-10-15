@@ -33,14 +33,12 @@ class LocalSnapshotInventory:
         loader: ListingLoader = _load_listing,
         clock_ns: Callable[[], int] = time.time_ns,
         monotonic: Callable[[], float] = time.monotonic,
-        max_age_seconds: float = MAX_CACHE_AGE_SECONDS,
     ) -> None:
         self._client = client
         self._platform = platform
         self._loader = loader
         self._clock_ns = clock_ns
         self._monotonic = monotonic
-        self._max_age_seconds = max_age_seconds
         self._condition = threading.Condition()
         self._listing: snapshots.Listing | None = None
         self._cursor_ns = 0
@@ -64,7 +62,7 @@ class LocalSnapshotInventory:
             with self._condition:
                 if self._cursor_ns != cursor_ns or self._listing is None:
                     continue
-                expired = self._monotonic() - self._loaded_at >= self._max_age_seconds
+                expired = self._monotonic() - self._loaded_at >= MAX_CACHE_AGE_SECONDS
             if expired:
                 if self._claim_refresh(cursor_ns):
                     return self._refresh()
