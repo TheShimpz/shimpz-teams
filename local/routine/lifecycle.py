@@ -28,14 +28,8 @@ def _delete_team_routines(self, team_id: str) -> None:
         state = self.routine_store.load(team_id)
     except routine_store.RoutineStoreError as exc:
         raise local_errors.routine_state_unavailable() from exc
-    # Live runs and the ended runs whose removal is still queued; the state that names them goes only after both.
-    held = dict.fromkeys(
-        (
-            *((run.run_id, run.generation) for run in state.runs),
-            *state.discards,
-            *((item.incident_id, item.generation) for item in state.incidents),
-        )
-    )
+    # Live and held runs and the ended runs whose removal is still queued; the state that names them goes only after.
+    held = dict.fromkeys((*((run.run_id, run.generation) for run in state.runs), *state.discards))
     for _run_id, generation in held:
         if not generation:
             continue

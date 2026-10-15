@@ -68,7 +68,7 @@ class ClassificationTests(unittest.TestCase):
 
 def cursor_action(state: record.TeamRoutines) -> str:
     """The Action the held run's incident names."""
-    return state.incidents[0].action
+    return record.incidents(state)[0].action
 
 
 class PolicyHoldTests(AutomaticCase):

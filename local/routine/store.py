@@ -1,6 +1,6 @@
 """Local Routine persistence: one private state file per Team and its sealed run records (ADR-0086, ADR-0092).
 
-A Team's Routines, runs, notices, and incident index live in one private JSON file that every transition replaces
+A Team's Routines, runs and their incidents, and notices live in one private JSON file that every transition replaces
 atomically. A frozen run's secret-free continuation, a run's cursor, its recovery snapshot, and an incident's compact
 evidence are each encrypted separately, bound by their AAD to exactly what they belong to; each is written before the
 state that relies on it, so a crash leaves at worst an unreferenced one, which recovery removes.
@@ -41,17 +41,17 @@ from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state")
 KEY_PATH = Path("/var/lib/shimpz-local/routines/key/aes256.key")
-SCHEMA = 10
+SCHEMA = 11
 # Every bound below derives from the plan's admission budget and the encoders' worst cases (ADR-0092 amendment,
 # 2026-10-05, scale), which tests build through the real encoders. The state file holds every definition at the Team's
-# aggregate budget, each Routine's other fields, every undelivered notice, and every start, discard, and incident, each
-# at its own bound.
+# aggregate budget, each Routine's other fields, every undelivered notice, and every run, start, and discard, each at
+# its own bound.
 # A notice at most: its shown output, its plan summary, its usage, and every other field.
 MAX_NOTICE_BYTES = http_routine.MAX_OUTPUT_BYTES + http_routine_notice.MAX_SUMMARY_BYTES + 8 * 1024
 _NOTICES_BYTES = (record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES) * MAX_NOTICE_BYTES
 _RECORDS_BYTES = routine_starts.MAX_STARTS * 64 + record.MAX_DISCARDS * 256
 _ROUTINES_BYTES = routine_plan.TEAM_DEFINITION_BYTES + record.MAX_ROUTINES * 18 * 1024
-MAX_STATE_BYTES = _ROUTINES_BYTES + _NOTICES_BYTES + _RECORDS_BYTES + record.MAX_INCIDENTS * 4 * 1024 + 64 * 1024
+MAX_STATE_BYTES = _ROUTINES_BYTES + _NOTICES_BYTES + _RECORDS_BYTES + record.MAX_RUNS * 4 * 1024 + 64 * 1024
 # The state bytes whose decoded Routine state is kept for reuse across every Team: room for one largest state.
 MAX_DECODED_STATE_BYTES = MAX_STATE_BYTES
 # Reads of one state file that may race its atomic replace before a failure is taken as real.
@@ -110,31 +110,13 @@ _RUN_FIELDS = frozenset(
         "steps",
         "usage",
         "protection_lost",
+        "revision",
+        "held_at",
     }
 )
 _NOTICE_FIELDS = frozenset(
     {"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version", "name", "usage"}
     | {"protection_lost"}
-)
-_INCIDENT_FIELDS = frozenset(
-    {
-        "incident_id",
-        "routine_id",
-        "generation",
-        "created_at",
-        "revision",
-        "status",
-        "notice_version",
-        "name",
-        "assistant_id",
-        "action",
-        "active_seconds_left",
-        "position",
-        "steps",
-        "requests_used",
-        "usage",
-        "protection_lost",
-    }
 )
 _STATE_FIELDS = frozenset(
     {
@@ -146,7 +128,6 @@ _STATE_FIELDS = frozenset(
         "served_at",
         "starts",
         "discards",
-        "incidents",
     }
 )
 
@@ -231,7 +212,6 @@ def _encode(state: record.TeamRoutines, team_id: str) -> bytes:
         "served_at": state.served_at,
         "starts": [list(item) for item in state.starts],
         "discards": [list(item) for item in state.discards],
-        "incidents": [{name: getattr(item, name) for name in _INCIDENT_FIELDS} for item in state.incidents],
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
 
@@ -287,39 +267,74 @@ def _decode_run(value: object) -> record.Run:
         and type(value["notice_version"]) is int
         and value["notice_version"] >= 0
         and _requests_used(value["requests_used"])
+        and type(value["revision"]) is int
+        and 1 <= value["revision"] < 2**31
+        and type(value["steps"]) is int
     )
     _require(
         http_routine.canonical_run_usage(value["usage"]) == value["usage"] and type(value["protection_lost"]) is bool
     )
-    unleased = value["lease_sha256"] == "" and value["lease_key"] == "" and value["lease_expires_at"] == 0
-    position, steps = value["position"], value["steps"]
-    _require(type(steps) is int)
-    no_request = (value["request_kind"], value["assistant_id"], value["action"], position, steps) == (
+    instants = {name: _instant(value[name]) for name in ("scheduled_at", "lease_expires_at", "held_at")}
+    _require(_STATUSES.get(value["status"], lambda _value: False)(value))
+    return record.Run(**({name: value[name] for name in _RUN_FIELDS} | instants))
+
+
+def _no_request(value: dict[str, object]) -> bool:
+    return (value["request_kind"], value["assistant_id"], value["action"], value["position"], value["steps"]) == (
         "",
         "",
         "",
         None,
         0,
     )
-    # Each status admits exactly its own fields, so teardown and recovery never act on a mixed record.
-    _require(
-        {
-            "leased": http_payload.SHA256_RE.fullmatch(value["lease_sha256"]) is not None
-            and (
-                value["lease_key"] == record.HUMAN_LEASE
-                or http_payload.SHA256_RE.fullmatch(value["lease_key"]) is not None
-            )
-            and no_request,
-            "frozen": unleased
-            and value["request_kind"] in http_routine_notice.REQUEST_KINDS
-            and http_identifiers.canonical_assistant_id(value["assistant_id"]) is not None
-            and http_identifiers.canonical_action_id(value["action"]) is not None
-            and http_routine.canonical_position(position, steps) is not None,
-            "held": unleased and no_request and value["generation"] != "",
-        }.get(value["status"], False)
+
+
+def _unleased(value: dict[str, object]) -> bool:
+    return value["lease_sha256"] == "" and value["lease_key"] == "" and value["lease_expires_at"] == 0
+
+
+def _call(value: dict[str, object]) -> bool:
+    """A named Assistant Action and its position among its plan's steps."""
+    return (
+        http_identifiers.canonical_assistant_id(value["assistant_id"]) is not None
+        and http_identifiers.canonical_action_id(value["action"]) is not None
+        and http_routine.canonical_position(value["position"], value["steps"]) is not None
     )
-    instants = {name: _instant(value[name]) for name in ("scheduled_at", "lease_expires_at")}
-    return record.Run(**({name: value[name] for name in _RUN_FIELDS} | instants))
+
+
+def _incident(value: dict[str, object]) -> bool:
+    """A held run's incident: unleased, indexed, of its held generation, at its held call or none sealed."""
+    return (
+        _unleased(value)
+        and value["held_at"] > 0
+        and value["generation"] != ""
+        and value["request_kind"] == ""
+        and (_no_request(value) or _call(value))
+    )
+
+
+# Each status admits exactly its own fields, so teardown and recovery never act on a mixed record.
+_STATUSES = {
+    "leased": lambda value: (
+        http_payload.SHA256_RE.fullmatch(value["lease_sha256"]) is not None
+        and (
+            value["lease_key"] == record.HUMAN_LEASE or http_payload.SHA256_RE.fullmatch(value["lease_key"]) is not None
+        )
+        and _no_request(value)
+        and value["held_at"] == 0
+    ),
+    "frozen": lambda value: (
+        _unleased(value)
+        and value["request_kind"] in http_routine_notice.REQUEST_KINDS
+        and _call(value)
+        and value["held_at"] == 0
+    ),
+    "held": lambda value: (
+        _unleased(value) and _no_request(value) and value["generation"] != "" and value["held_at"] == 0
+    ),
+    "unresolved": _incident,
+    "skipped": _incident,
+}
 
 
 def _decode_notice(value: object) -> record.Notice:
@@ -348,8 +363,7 @@ def _decode_notice(value: object) -> record.Notice:
 
 def _generation_of(run_id: str, generation: object) -> bool:
     return isinstance(generation, str) and (
-        generation == ""
-        or re.fullmatch(rf"[0-9a-f]{{64}}:routine:{run_id}(?::s1)?", generation) is not None
+        generation == "" or re.fullmatch(rf"[0-9a-f]{{64}}:routine:{run_id}(?::s1)?", generation) is not None
     )
 
 
@@ -362,42 +376,6 @@ def _decode_discard(value: object) -> tuple[str, str]:
         and _generation_of(value[0], value[1])
     )
     return value[0], value[1]
-
-
-def _decode_incident(value: object) -> record.Incident:
-    _require(
-        isinstance(value, dict)
-        and set(value) == _INCIDENT_FIELDS
-        and isinstance(value["incident_id"], str)
-        and http_routine.ROUTINE_ID_RE.fullmatch(value["incident_id"]) is not None
-        and isinstance(value["routine_id"], str)
-        and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
-        and value["generation"] != ""
-        and _generation_of(value["incident_id"], value["generation"])
-        and value["status"] in ("unresolved", "skipped", "released")
-        and type(value["revision"]) is int
-        and 1 <= value["revision"] < 2**31
-        and http_routine.canonical_name(value["name"]) is not None
-        and type(value["active_seconds_left"]) is int
-        and value["active_seconds_left"] <= record.ACTIVE_SECONDS
-        and _requests_used(value["requests_used"])
-        and http_routine.canonical_run_usage(value["usage"]) == value["usage"]
-        and type(value["protection_lost"]) is bool
-        and isinstance(value["assistant_id"], str)
-        and isinstance(value["action"], str)
-        # The held call and its position: all named, or all empty when the run sealed no cursor before it was held.
-        and type(value["steps"]) is int
-        and (
-            (value["assistant_id"], value["action"], value["position"], value["steps"]) == ("", "", None, 0)
-            or (
-                http_identifiers.canonical_assistant_id(value["assistant_id"]) is not None
-                and http_identifiers.canonical_action_id(value["action"]) is not None
-                and http_routine.canonical_position(value["position"], value["steps"]) is not None
-            )
-        )
-    )
-    checked = {"created_at": _instant(value["created_at"]), "notice_version": _count(value["notice_version"])}
-    return record.Incident(**({name: value[name] for name in _INCIDENT_FIELDS} | checked))
 
 
 def _decode_start(value: object) -> tuple[str, int, int]:
@@ -427,15 +405,13 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         and isinstance(value["routines"], list)
         and len(value["routines"]) <= record.MAX_ROUTINES
         and isinstance(value["runs"], list)
-        and len(value["runs"]) <= record.MAX_ROUTINES
+        and len(value["runs"]) <= record.MAX_RUNS
         and isinstance(value["notices"], list)
         and len(value["notices"]) <= record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES
         and isinstance(value["starts"], list)
         and len(value["starts"]) <= routine_starts.MAX_STARTS
         and isinstance(value["discards"], list)
         and len(value["discards"]) <= record.MAX_DISCARDS
-        and isinstance(value["incidents"], list)
-        and len(value["incidents"]) <= record.MAX_INCIDENTS
     )
     state = record.TeamRoutines(
         routines=tuple(_decode_routine(item) for item in value["routines"]),
@@ -444,7 +420,6 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         served_at=_instant(value["served_at"]),
         starts=tuple(_decode_start(item) for item in value["starts"]),
         discards=tuple(_decode_discard(item) for item in value["discards"]),
-        incidents=tuple(_decode_incident(item) for item in value["incidents"]),
     )
     identifiers = [item.routine_id for item in state.routines]
     _require(
@@ -455,8 +430,9 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         and len({item.run_id for item in state.runs}) == len(state.runs)
         and len({item.notice_id for item in state.notices}) == len(state.notices)
         and len(set(state.discards)) == len(state.discards)
-        and len({item.incident_id for item in state.incidents}) == len(state.incidents)
-        and sum(item.status == "unresolved" for item in state.incidents) <= record.MAX_UNRESOLVED_INCIDENTS
+        and len(record.live_runs(state)) <= record.MAX_ROUTINES
+        and sum(item.status == "unresolved" for item in state.runs) <= record.MAX_UNRESOLVED_INCIDENTS
+        # No run record outlives its Routine: a deletion completes only once each of its incidents was released.
         and all(item.routine_id in identifiers for item in state.runs)
     )
     return state

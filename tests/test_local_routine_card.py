@@ -50,7 +50,7 @@ class CardCase(RecoveryCase):
         self.assertEqual(caught.exception.code, code)
         # Nothing changed: the run is still held, its Routine at the same revision, and a fresh card opens.
         state = self.state(service)
-        self.assertEqual([item.status for item in state.incidents], ["unresolved"])
+        self.assertEqual([item.status for item in record.incidents(state)], ["unresolved"])
         self.card(service, run_id)
 
 
@@ -145,7 +145,7 @@ class RodarTests(CardCase):
             claim = service.claim_routine_run()
             claimed = self.state(service)
         self.assertEqual(answered["status"], "requested")
-        self.assertEqual([item.status for item in state.incidents], ["released"])
+        self.assertEqual(record.incidents(state), ())
         notice = next(item for item in state.notices if item.notice_id == run_id)
         self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "run"))
         self.assertEqual((requested.paused, requested.failures, requested.next_run_at), (False, 0, before.next_run_at))
@@ -208,14 +208,14 @@ class CorrectionTests(CardCase):
             state = self.state(service)
             # Deletion is in progress: the set-aside incident and its cursor stay while the writer is registered.
             self.assertFalse(deleting["deleted"])
-            self.assertEqual([item.status for item in state.incidents], ["skipped"])
+            self.assertEqual([item.status for item in record.incidents(state)], ["skipped"])
             self.assertEqual(service.routine_store.cursors("team_1"), (run_id,))
             self.assertEqual([item.routine_id for item in state.routines], [value.routine_id])
             routine_run.unregister_routine_run(service, run_id)
             routine_watchdog.check(service)
             state = self.state(service)
             again = service.delete_routine("team_1", value.routine_id)
-        self.assertEqual(([item.status for item in state.incidents], state.routines), (["released"], ()))
+        self.assertEqual((record.incidents(state), state.routines), ((), ()))
         self.assertEqual(again["deleted"], True)
 
 
@@ -271,5 +271,5 @@ class CardBookBoundTests(CardCase):
             routine_run.unregister_routine_run(service, run_id)
             routine_watchdog.check(service)
             state = self.state(service)
-        self.assertEqual([item.status for item in state.incidents], ["released"])
+        self.assertEqual(record.incidents(state), ())
         self.assertEqual(service.routine_cards._cards, {})

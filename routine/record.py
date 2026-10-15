@@ -35,9 +35,7 @@ MAX_COUNTED_MISSES = 24 * 400
 HUMAN_LEASE = "human"
 _PERIOD_SECONDS = {"daily": 86_400, "weekly": 7 * 86_400, "monthly": 28 * 86_400}
 SUFFIX_RE = re.compile(r"[sv]1\Z")
-GENERATION_RE = re.compile(
-    r"(?P<network>[A-Za-z0-9][A-Za-z0-9._/-]{0,127}):routine:(?P<run>[0-9a-f]{32})(?::[sv]1)?\Z"
-)
+GENERATION_RE = re.compile(r"(?P<network>[A-Za-z0-9][A-Za-z0-9._/-]{0,127}):routine:(?P<run>[0-9a-f]{32})(?::[sv]1)?\Z")
 # From a frozen run only these outcomes are possible: nobody answered it, or someone refused or stopped it.
 FROZEN_OUTCOMES = frozenset({"denied", "stopped", "failed"})
 # A worker ends its run done or failed; a completed continuation after a hold ends recovered.
@@ -49,9 +47,12 @@ PAUSE_REASONS = http_routine.PAUSE_REASONS
 MAX_DISCARDS = 2 * MAX_ROUTINES
 # Unresolved incidents a Team may hold (ADR-0092); a claim reserves one for every run that could still be held.
 MAX_UNRESOLVED_INCIDENTS = http_routine_notice.MAX_UNRESOLVED_INCIDENTS
-# Incident records kept in all; a released one gives way, oldest first, but an unresolved one, or a skipped one whose
-# cleanup is still pending, never does.
-MAX_INCIDENTS = 2 * MAX_UNRESOLVED_INCIDENTS
+# Run records a Team keeps in all: its live runs and its incidents, unresolved or set aside and still releasing what
+# they kept. A claim reserves its run's record, so a hold never needs room it lacks.
+MAX_RUNS = 2 * MAX_UNRESOLVED_INCIDENTS
+# A live run: it may run a segment, waits for a person, or is fenced while its hold settles. Any other run record is an
+# incident: ``unresolved``, held for recovery or a person, or ``skipped``, set aside and releasing what it kept.
+LIVE = frozenset({"leased", "frozen", "held"})
 # Undelivered Routine outcomes beside every run's: a created or changed notice and, once, a deleted one per Routine.
 MAX_ROUTINE_NOTICES = 2 * MAX_ROUTINES
 # Consecutive no-effect failures that pause a Routine (ADR-0092 section 6).
@@ -113,16 +114,23 @@ class Routine:
 
 @dataclass(frozen=True, slots=True)
 class Run:
+    """One run of a Routine, live or held as its incident: one record with a status (ADR-0092 section 5).
+
+    A held run's incident is the same record, so it keeps everything the run had and is resumed in place.
+    """
+
     run_id: str
     routine_id: str
-    # "leased": may run a segment; "frozen": waits for a human; "held": fenced for an incident that recovery or a
-    # person must resolve (ADR-0092).
+    # "leased": may run a segment; "frozen": waits for a human; "held": fenced while its incident is indexed;
+    # "unresolved": its incident, which recovery or a person resolves; "skipped": set aside, releasing what it kept.
     status: str
     scheduled_at: int
     lease_sha256: str = ""
     lease_key: str = ""
     lease_expires_at: int = 0
     active_seconds_left: int = routine_plan.SHORT_ACTIVE_SECONDS
+    # A frozen run's request kind, and the Assistant Action it waits at or, as an incident, was held at; all empty
+    # otherwise, or when an incident sealed no cursor.
     request_kind: str = ""
     assistant_id: str = ""
     action: str = ""
@@ -132,13 +140,17 @@ class Run:
     notice_version: int = 0
     # The human requests the logical run has answered, through every freeze, hold, and continuation; never reset.
     requests_used: int = 0
-    # A frozen run's call by its 1-based step position and its plan's step count; None and 0 otherwise.
+    # That call by its 1-based step position and its plan's step count; None and 0 otherwise.
     position: int | None = None
     steps: int = 0
     # The run's active time so far, through every freeze, hold, and continuation (ADR-0101 §10).
     usage: dict[str, object] = dataclasses.field(default_factory=lambda: {"duration_ms": 0})
     # The run lost the protection of its secret values, so nothing it produced since may be shown (section 6.2).
     protection_lost: bool = False
+    # The Routine revision the run executes, which its claim names and its cursor binds (ADR-0092).
+    revision: int = 1
+    # When the run's incident was indexed; 0 while the run is live.
+    held_at: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,41 +171,6 @@ class Notice:
 
 
 @dataclass(frozen=True, slots=True)
-class Incident:
-    """The compact index of one held run's incident; its evidence is sealed apart, and it never expires.
-
-    It names its Routine even after that Routine is deleted, so it stays resolvable, but resolving it never recreates
-    the Routine or dispatches a cycle.
-    """
-
-    incident_id: str
-    routine_id: str
-    generation: str
-    created_at: int
-    # The Routine revision the held run executed, which its cursor binding names (ADR-0092).
-    revision: int = 1
-    # "unresolved" holds its Routine; "skipped" (Pular) permits future cycles while its possible effects stay unknown
-    # and its archive marker, cursor, and evidence are still being released; "released" has nothing left to release.
-    status: str = "unresolved"
-    # The held run's last notice version, which its continuation goes on from so Admin replaces the same row.
-    notice_version: int = 0
-    # The Routine's name when the run was held, so the incident's notices still name the work after it is deleted.
-    name: str = ""
-    # The call the run was held at, as its sealed cursor names it; both empty when no snapshot was sealed.
-    assistant_id: str = ""
-    action: str = ""
-    # The run's active time left when it was held, which its continuation goes on from; a hold never refills it.
-    active_seconds_left: int = routine_plan.SHORT_ACTIVE_SECONDS
-    # The held call's 1-based step position and its plan's step count; None and 0 when none was sealed.
-    position: int | None = None
-    steps: int = 0
-    # The held run's answered human requests, usage, and protection, which its continuation goes on from.
-    requests_used: int = 0
-    usage: dict[str, object] = dataclasses.field(default_factory=lambda: {"duration_ms": 0})
-    protection_lost: bool = False
-
-
-@dataclass(frozen=True, slots=True)
 class TeamRoutines:
     routines: tuple[Routine, ...] = ()
     runs: tuple[Run, ...] = ()
@@ -203,7 +180,6 @@ class TeamRoutines:
     starts: routine_starts.Starts = ()
     # (run_id, generation) of ended runs whose journal generation, continuation, and cursor are still held.
     discards: tuple[tuple[str, str], ...] = ()
-    incidents: tuple[Incident, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,6 +202,16 @@ class Lease:
 
     sha256: str
     key: str
+
+
+def live_runs(state: TeamRoutines) -> tuple[Run, ...]:
+    """The Team's live runs: each holds its Routine's one slot."""
+    return tuple(item for item in state.runs if item.status in LIVE)
+
+
+def incidents(state: TeamRoutines) -> tuple[Run, ...]:
+    """The Team's held runs' incidents, unresolved or set aside."""
+    return tuple(item for item in state.runs if item.status not in LIVE)
 
 
 def lease_of(token: str, key: str) -> Lease:
@@ -424,14 +410,15 @@ def update(state: TeamRoutines, value: Routine, expected_revision: int, now: int
     """Replace a Routine's definition as its next revision, with its changed notice.
 
     Only the revision the card saw changes, never while a run is live or it is being deleted; it clears a scope hold,
-    keeps a pause and the minute rollup, and restarts its schedule.
+    keeps a pause and the minute rollup, and restarts its schedule. An incident of an earlier revision stays, and can
+    no longer resume.
     """
     current = routine(state, value.routine_id)
     if current.deleting:
         raise RoutineStateError("routine-not-found")
     if current.revision != expected_revision:
         raise RoutineStateError("routine-revision-changed")
-    if any(item.routine_id == current.routine_id for item in state.runs):
+    if any(item.routine_id == current.routine_id for item in live_runs(state)):
         raise RoutineStateError("routine-busy")
     admitted = _admitted(value, current.revision + 1)
     _budgets(tuple(item for item in state.routines if item.routine_id != current.routine_id), admitted)
@@ -487,16 +474,19 @@ def replace_run(state: TeamRoutines, updated: Run) -> TeamRoutines:
 
 
 def without_run(state: TeamRoutines, run_id: str, now: int) -> TeamRoutines:
-    """Remove an ended run and, in the same write, queue the removal of everything it held.
+    """Remove an ended run and, in the same write, queue the removal of everything it held."""
+    value = run(state, run_id)
+    return ended(
+        dataclasses.replace(state, runs=tuple(item for item in state.runs if item.run_id != run_id)), value, now
+    )
+
+
+def ended(state: TeamRoutines, value: Run, now: int) -> TeamRoutines:
+    """Queue the removal of what a run's generation held, as the run ends or is held.
 
     A continuous Routine keeps its cadence from this run's start, so its runs never overlap or drift.
     """
-    value = run(state, run_id)
-    state = dataclasses.replace(
-        state,
-        runs=tuple(item for item in state.runs if item.run_id != run_id),
-        discards=(*state.discards, (run_id, value.generation)),
-    )
+    state = dataclasses.replace(state, discards=(*state.discards, (value.run_id, value.generation)))
     return rebase_continuous(state, value.routine_id, now, cadence=True)
 
 
@@ -518,43 +508,25 @@ def discarded(state: TeamRoutines, run_id: str, generation: str) -> TeamRoutines
     return dataclasses.replace(state, discards=tuple(item for item in state.discards if item != (run_id, generation)))
 
 
-def next_run_notice(
-    state: TeamRoutines,
-    run_id: str,
-    value: Run | Incident,
-    outcome: str,
-    now: int,
-    detail: dict[str, object],
-    name: str = "",
-) -> TeamRoutines:
-    """Publish the next version of a run's one notice, keyed by its run id, with the run's usage and protection.
+def run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail: dict[str, object]):
+    """Publish the next version of the run's one notice, keyed by its run id, with the run's usage and protection.
 
-    ``value`` is the live run or, once it is held, its incident; ``name`` is the Routine's name to keep, or the current
-    one when empty.
+    Returns the state and the run carrying that version. A completed or recovered run resets its Routine's failure
+    streak; a failed one extends it, the third pausing it.
     """
     version = value.notice_version + 1
     notice = Notice(
-        run_id,
+        value.run_id,
         value.routine_id,
-        run_id,
+        value.run_id,
         outcome,
         now,
         detail,
         version,
-        name,
-        copy.deepcopy(value.usage),
-        value.protection_lost,
+        usage=copy.deepcopy(value.usage),
+        protection_lost=value.protection_lost,
     )
-    return put_notice(state, notice)
-
-
-def run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail: dict[str, object]):
-    """Publish the next version of the run's one notice; returns the state and the run carrying that version.
-
-    A completed or recovered run resets its Routine's failure streak; a failed one extends it, the third pausing it.
-    """
-    version = value.notice_version + 1
-    state = next_run_notice(state, value.run_id, value, outcome, now, detail)
+    state = put_notice(state, notice)
     if outcome in {"done", "recovered", "failed"}:
         current = routine(state, value.routine_id)
         failures = current.failures + 1 if outcome == "failed" else 0
@@ -604,19 +576,20 @@ def acknowledge(state: TeamRoutines, delivered: frozenset[tuple[str, int]]) -> T
 
 
 def begin_delete(state: TeamRoutines, routine_id: str) -> tuple[TeamRoutines, tuple[Run, ...]]:
-    """Mark a Routine as deleting, so it is never claimed or resumed again; its runs are returned for the caller to end.
+    """Mark a Routine as deleting, so it is never claimed or resumed again; its live runs are returned for the caller.
 
-    A held run settles into its incident, which outlives the Routine (ADR-0092).
+    A held run is set aside as its incident is indexed (ADR-0092).
     """
     value = routine(state, routine_id)
-    runs = tuple(item for item in state.runs if item.routine_id == routine_id)
+    runs = tuple(item for item in live_runs(state) if item.routine_id == routine_id)
     return replace_routine(state, dataclasses.replace(value, deleting=True)), runs
 
 
 def complete_delete(state: TeamRoutines, routine_id: str, now: int) -> TeamRoutines:
     """Remove a deleting Routine once none of its runs remains, publishing its ``deleted`` notice in the same write.
 
-    The notice names the Routine as it was and closes its timeline; it and every undelivered notice outlive the record.
+    None remains once every set-aside incident released what it kept, so no run record outlives its Routine. The notice
+    names the Routine as it was and closes its timeline; it and every undelivered notice outlive the record.
     """
     value = routine(state, routine_id)
     if not value.deleting or any(item.routine_id == routine_id for item in state.runs):

@@ -23,8 +23,8 @@ PERSON = local_audit.AuditPrincipal("a" * 32, "human")
 
 
 def held_incident(service) -> str:
-    (incident,) = service.routine_store.load("team_1").incidents
-    return incident.incident_id
+    (incident,) = record.incidents(service.routine_store.load("team_1"))
+    return incident.run_id
 
 
 class RecoveryLeaseTests(AutomaticCase):
@@ -45,8 +45,8 @@ class RecoveryLeaseTests(AutomaticCase):
         state = self.state(service)
         # Nothing continued: the operation ran once, and the incident and its evidence stay for the person.
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
-        self.assertEqual(([item.incident_id for item in state.incidents], state.runs), ([run_id], ()))
-        self.assertEqual(state.incidents[0].status, "unresolved")
+        self.assertEqual(([item.run_id for item in record.incidents(state)], record.live_runs(state)), ([run_id], ()))
+        self.assertEqual(record.incidents(state)[0].status, "unresolved")
         self.assertIsNotNone(service.routine_store.incident("team_1", run_id))
 
     def interrupting(self, interrupt):
@@ -71,7 +71,7 @@ class RecoveryLeaseTests(AutomaticCase):
             state = self.state(service)
         # The deletion set the held run aside; the operation ran once and never again.
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
-        self.assertEqual((state.routines, [item.status for item in state.incidents]), ((), ["released"]))
+        self.assertEqual((state.routines, record.incidents(state)), ((), ()))
         notice = next(item for item in state.notices if item.notice_id == run_id)
         self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "delete"))
 
@@ -127,7 +127,7 @@ class AtomicCardTests(AutomaticCase):
                         service.routine_store.update(
                             "team_1",
                             lambda state, held=held, moved=moved: (
-                                routine_hold._replace_incident(state, dataclasses.replace(held, generation=moved)),
+                                record.replace_run(state, dataclasses.replace(held, generation=moved)),
                                 None,
                             ),
                         )
@@ -147,7 +147,7 @@ class AtomicCardTests(AutomaticCase):
                         self.answer(service, run_id, card, choice)
                     state = self.state(service)
                     self.assertEqual(caught.exception.code, "routine-card-stale")
-                    self.assertEqual(state.incidents[0].status, "unresolved")
+                    self.assertEqual(record.incidents(state)[0].status, "unresolved")
                     self.assertFalse(record.routine(state, value.routine_id).paused)
 
     def test_an_answer_waits_for_the_execution_slot_without_spending_its_card(self) -> None:
@@ -192,7 +192,7 @@ class StopPrecedenceTests(AutomaticCase):
             service.routine_store.update(
                 "team_1",
                 lambda state: (
-                    routine_hold._replace_incident(
+                    record.replace_run(
                         state, dataclasses.replace(routine_hold.incident(state, run_id), active_seconds_left=0)
                     ),
                     None,
@@ -268,7 +268,7 @@ class StopPrecedenceTests(AutomaticCase):
                     outcome = routine_recovery.automatic(service, run)
                 state = self.state(service)
                 self.assertEqual(outcome, "held")
-                self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+                self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
                 self.assertEqual(state.notices[-1].outcome, "held")
                 self.assertFalse(record.routine(state, value.routine_id).paused)
 
@@ -302,7 +302,7 @@ class StopPrecedenceTests(AutomaticCase):
                 service.routine_store.update(
                     "team_1",
                     lambda state, run_id=run_id, balance=balance: (
-                        routine_hold._replace_incident(
+                        record.replace_run(
                             state,
                             dataclasses.replace(routine_hold.incident(state, run_id), active_seconds_left=balance),
                         ),

@@ -54,13 +54,13 @@ def run_view(value: record.Run) -> dict[str, object]:
     }
 
 
-def incident_view(value: record.Incident) -> dict[str, object]:
-    """An unresolved incident a recovery card settles: its Routine and the call whose effect is unknown."""
+def incident_view(value: record.Run, name: str) -> dict[str, object]:
+    """An unresolved incident a card settles: its Routine, named ``name``, and the call whose effect is unknown."""
     return {
-        "incident_id": value.incident_id,
+        "incident_id": value.run_id,
         "routine_id": value.routine_id,
-        "name": value.name,
-        "created_at": instant.text(value.created_at),
+        "name": name,
+        "created_at": instant.text(value.held_at),
         **routine_hold.step_detail(routine_hold.held_step(value)),
     }
 
@@ -92,8 +92,12 @@ def list_routines(self, team_id: str) -> dict[str, object]:
     return {
         "team_id": team_id,
         "routines": [routine_view(item) for item in state.routines],
-        "runs": [run_view(item) for item in state.runs],
-        "incidents": [incident_view(item) for item in state.incidents if item.status == "unresolved"],
+        "runs": [run_view(item) for item in record.live_runs(state)],
+        "incidents": [
+            incident_view(item, record.routine(state, item.routine_id).name)
+            for item in state.runs
+            if item.status == "unresolved"
+        ],
     }
 
 
@@ -146,8 +150,8 @@ def drain(self, team_id: str) -> None:
     is removed while the run could still resume.
     """
     state = routine_state.load(self, team_id)
-    incidents = {item.incident_id for item in state.incidents if item.status != "released"}
-    live = {item.run_id for item in state.runs}
+    incidents = {item.run_id for item in record.incidents(state)}
+    live = {item.run_id for item in record.live_runs(state)}
     for run_id, generation in state.discards:
         _discard(self, team_id, run_id, generation, incident=run_id in incidents, live=run_id in live)
         routine_state.update(
@@ -196,9 +200,7 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
             return state, ((), ())
         state, runs = record.begin_delete(state, routine_id)
         held = tuple(
-            item.incident_id
-            for item in state.incidents
-            if item.routine_id == routine_id and item.status == "unresolved"
+            item.run_id for item in state.runs if item.routine_id == routine_id and item.status == "unresolved"
         )
         for incident_id in held:
             state = routine_hold.skip_incident(state, incident_id, now, choice="delete")
@@ -220,14 +222,14 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
     for incident_id in held:
         # A verification or recovery episode still in progress is stopped; it changes nothing after this.
         self._stop_routine_run(team_id, incident_id)
-    for item in routine_state.load(self, team_id).incidents:
-        if item.incident_id in held and item.status == "skipped":
+    for item in record.incidents(routine_state.load(self, team_id)):
+        if item.run_id in held and item.status == "skipped":
             routine_incident.settled(self, team_id, item)
     return {"team_id": team_id, "routine_id": routine_id, "deleted": settle(self, team_id, routine_id)}
 
 
 def complete_deletion(self, team_id: str, routine_id: str) -> bool:
-    """Remove a deleting Routine once none of its runs remains and its set-aside runs are released; False until then.
+    """Remove a deleting Routine once none of its runs remains, set-aside ones released included; False until then.
 
     Its diagnostic bodies go first, while the Routine is still listed as deleting, so a failure keeps it as the
     watchdog's retry target and never leaves residue behind a removed record. The write that removes it publishes its
@@ -235,10 +237,8 @@ def complete_deletion(self, team_id: str, routine_id: str) -> bool:
     """
     state = routine_state.load(self, team_id)
     value = next((item for item in state.routines if item.routine_id == routine_id), None)
-    if value is not None and (not value.deleting or any(item.routine_id == routine_id for item in state.runs)):
-        return False
     # A set-aside run still releasing what it kept, such as a stopped recovery unwinding, keeps the deletion going.
-    if any(item.routine_id == routine_id and item.status == "skipped" for item in state.incidents):
+    if value is not None and (not value.deleting or any(item.routine_id == routine_id for item in state.runs)):
         return False
     # A Routine already gone keeps nothing either: any residue a failed earlier attempt left is removed again.
     try:

@@ -14,6 +14,7 @@ from local import app as local_app
 from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
 from routine import cursor as routine_cursor
+from routine import record
 
 RECORD = {"record": {"id": "rec-1"}}
 NOT_FOUND = action_failure.ActionFailure("HTTPStatusError", "Not Found", "api.cloudflare.com", 404, None, False, False)
@@ -120,7 +121,7 @@ class VerificationTests(RecoveryCase):
         self.assertEqual((len(creates), creates[0]), (2, creates[1]))
         self.assertEqual(verified, creates[:1])
         self.assertEqual([action for action, _id in assistant.calls].count("list-zones"), 1)
-        self.assertEqual((brain.calls, state.incidents, state.runs), ([], (), ()))
+        self.assertEqual((brain.calls, record.incidents(state), state.runs), ([], (), ()))
         self.assertEqual(state.notices[-1].outcome, "recovered")
 
     def test_a_not_found_failure_alone_never_proves_absence(self) -> None:
@@ -133,7 +134,7 @@ class VerificationTests(RecoveryCase):
         # The uncertain operation is never passed: the run stays held instead of repeating it.
         self.assertEqual(resumed, "held")
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
-        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
 
     def test_a_proven_occurrence_completes_the_step_with_its_recovered_result(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])

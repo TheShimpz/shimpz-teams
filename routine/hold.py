@@ -1,9 +1,11 @@
 """Holding a Routine run and settling its incident, without I/O (ADR-0092 sections 5 and 7, ADR-0101).
 
-A held run's incident is indexed as the run ends, keeps the run's notice, name, held call, remaining active time, usage,
-and lost protection, and outlives a deleted Routine's record only until it is released. It is resumed as a
-continuation under a fresh internal lease after Team-admitted evidence, or set aside by a person: Rodar, which requests
-one fresh run, or the Routine's deletion. A person's card checks the exact state it was opened on in the same write.
+A held run becomes its own incident in the write that indexes it: the same record, ``unresolved``, keeping the run's
+notice, held call, remaining active time, usage, and lost protection, while its generation's removal is queued like an
+ended run's. It is resumed in place as the run's continuation, under a fresh internal lease, after Team-admitted
+evidence, or set aside (``skipped``) by a person: Rodar, which requests one fresh run, or the Routine's deletion. A
+set-aside record goes once what it kept is released, and a Routine's deletion completes only after that, so no run
+record outlives its Routine. A person's card checks the exact state it was opened on in the same write.
 """
 
 import dataclasses
@@ -21,54 +23,38 @@ UNKNOWN_STEP: HeldStep = ("", "", None, 0)
 
 
 def settle_hold(
-    state: record.TeamRoutines, run_id: str, now: int, revision: int | None = None, step: HeldStep = UNKNOWN_STEP
+    state: record.TeamRoutines, run_id: str, now: int, step: HeldStep = UNKNOWN_STEP
 ) -> record.TeamRoutines:
-    """A held run's incident is durable and its batch archived: index the incident and end the run in one write.
+    """A held run's incident is durable and its batch archived: index the run as its incident in one write.
 
-    The run's live state is queued for removal like any ended run's; its archived journal marker stays with the
-    incident. A claim reserved this incident's room, so it never displaces an unresolved one. ``revision`` is the one
-    the run's recovery snapshot binds; without one, the run executed the Routine's current revision. ``step`` is the
-    Assistant Action its sealed cursor stopped at, with its position, which the run's held notice names.
+    The run's live state is queued for removal like an ended run's; its archived journal marker stays with the
+    incident. ``step`` is the Assistant Action its sealed cursor stopped at, with its position, which the run's held
+    notice names.
     """
     value = record.run(state, run_id)
     if value.status != "held":
         raise record.RoutineStateError("run-not-held")
-    current = record.routine(state, value.routine_id)
-    executed = current.revision if revision is None else revision
-    if type(executed) is not int or executed < 1:
-        raise record.RoutineStateError("incident-invalid")
+    deleting = record.routine(state, value.routine_id).deleting
     state, value = record.run_notice(state, value, "held", now, step_detail(step))
-    incident = record.Incident(
-        run_id,
-        value.routine_id,
-        value.generation,
-        now,
-        executed,
-        notice_version=value.notice_version,
-        name=current.name,
-        assistant_id=step[0],
-        action=step[1],
-        active_seconds_left=value.active_seconds_left,
-        position=step[2],
-        steps=step[3],
-        requests_used=value.requests_used,
-        usage=value.usage,
-        protection_lost=value.protection_lost,
+    assistant_id, action, position, steps = step
+    indexed = dataclasses.replace(
+        value,
+        status="unresolved",
+        held_at=now,
+        assistant_id=assistant_id,
+        action=action,
+        position=position,
+        steps=steps,
     )
-    kept = list(state.incidents)
-    while len(kept) >= record.MAX_INCIDENTS:
-        released = next((item for item in kept if item.status == "released"), None)
-        if released is None:
-            raise record.RoutineStateError("incident-limit")
-        kept.remove(released)
-    state = record.without_run(dataclasses.replace(state, incidents=(*kept, incident)), run_id, now)
+    state = record.ended(record.replace_run(state, indexed), indexed, now)
     # A Routine being deleted keeps no incident for a person to settle: its run is set aside as it is indexed.
-    return skip_incident(state, run_id, now, choice="delete") if current.deleting else state
+    return skip_incident(state, run_id, now, choice="delete") if deleting else state
 
 
-def incident(state: record.TeamRoutines, incident_id: str) -> record.Incident:
-    for item in state.incidents:
-        if item.incident_id == incident_id:
+def incident(state: record.TeamRoutines, incident_id: str) -> record.Run:
+    """The held run's incident, unresolved or set aside."""
+    for item in record.incidents(state):
+        if item.run_id == incident_id:
             return item
     raise record.RoutineStateError("incident-not-found")
 
@@ -76,11 +62,11 @@ def incident(state: record.TeamRoutines, incident_id: str) -> record.Incident:
 def reopen_incident(
     state: record.TeamRoutines, incident_id: str, now: int, generation: str
 ) -> tuple[record.TeamRoutines, str]:
-    """Resume a held run after Team-admitted evidence, as a continuation in its own ``generation`` (ADR-0092).
+    """Resume a held run in place after Team-admitted evidence, as its continuation in ``generation`` (ADR-0092).
 
-    Only the revision the run executed, of a Routine still listed, not paused, and with no other run, may continue.
-    The incident gives way in the same write, and its archived generation is queued for removal; the continuation runs
-    under a fresh internal lease that no machine assertion knows, and goes on with the run's notice.
+    Only the revision the run executed, of a Routine still listed, not paused, and with no live run, may continue. Its
+    archived generation is queued for removal in the same write; the continuation runs under a fresh internal lease
+    that no machine assertion knows, and goes on with the run's notice.
     """
     value = incident(state, incident_id)
     if value.status != "unresolved":
@@ -91,37 +77,28 @@ def reopen_incident(
     if value.active_seconds_left <= 0:
         raise record.RoutineStateError("run-time-exhausted")
     if (
-        any(item.routine_id == value.routine_id for item in state.runs)
+        any(item.routine_id == value.routine_id for item in record.live_runs(state))
         or routine_claim.network_of(generation, incident_id) is None
     ):
         raise record.RoutineStateError("routine-busy")
     token = secrets.token_urlsafe(32)
-    resumed = record.Run(
-        incident_id,
-        value.routine_id,
-        "leased",
-        value.created_at,
+    resumed = dataclasses.replace(
+        value,
+        status="leased",
         lease_sha256=record.lease_sha256(token),
         lease_key=record.HUMAN_LEASE,
         # The continuation runs at once, over the run's active time left.
         lease_expires_at=now + value.active_seconds_left + routine_plan.LEASE_MARGIN_SECONDS,
-        active_seconds_left=value.active_seconds_left,
         generation=generation,
-        notice_version=value.notice_version,
-        requests_used=value.requests_used,
-        usage=value.usage,
-        protection_lost=value.protection_lost,
+        assistant_id="",
+        action="",
+        position=None,
+        steps=0,
+        held_at=0,
     )
-    return (
-        dataclasses.replace(
-            state,
-            incidents=tuple(item for item in state.incidents if item.incident_id != incident_id),
-            runs=(*state.runs, resumed),
-            # The hold queued its generation already unless that removal has run since.
-            discards=tuple(dict.fromkeys((*state.discards, (incident_id, value.generation)))),
-        ),
-        token,
-    )
+    # The hold queued its generation already unless that removal has run since.
+    discards = tuple(dict.fromkeys((*state.discards, (incident_id, value.generation))))
+    return dataclasses.replace(record.replace_run(state, resumed), discards=discards), token
 
 
 def step_detail(step: HeldStep) -> dict[str, object]:
@@ -131,22 +108,8 @@ def step_detail(step: HeldStep) -> dict[str, object]:
     return {"assistant_id": assistant_id, "action": action, "position": position, "steps": steps}
 
 
-def held_step(value: record.Incident) -> HeldStep:
+def held_step(value: record.Run) -> HeldStep:
     return (value.assistant_id, value.action, value.position, value.steps)
-
-
-def _incident_notice(
-    state: record.TeamRoutines, value: record.Incident, outcome: str, now: int, detail: dict[str, object]
-) -> tuple[record.TeamRoutines, record.Incident]:
-    """Publish the next version of the held run's one notice, which outlives a deleted Routine with the incident."""
-    state = record.next_run_notice(state, value.incident_id, value, outcome, now, detail, value.name)
-    return state, dataclasses.replace(value, notice_version=value.notice_version + 1)
-
-
-def _replace_incident(state: record.TeamRoutines, updated: record.Incident) -> record.TeamRoutines:
-    return dataclasses.replace(
-        state, incidents=tuple(updated if item.incident_id == updated.incident_id else item for item in state.incidents)
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,7 +124,7 @@ class Expected:
     current: int
 
 
-def _expect(state: record.TeamRoutines, value: record.Incident, expected: Expected | None) -> None:
+def _expect(state: record.TeamRoutines, value: record.Run, expected: Expected | None) -> None:
     """Refuse a card's transition when the incident or its Routine changed since the card opened."""
     if expected is None:
         return
@@ -187,9 +150,9 @@ def skip_incident(
         raise record.RoutineStateError("incident-not-unresolved")
     _expect(state, value, expected)
     detail = {**step_detail(held_step(value)), "choice": choice}
-    state, value = _incident_notice(state, value, "user-skipped", now, detail)
+    state, value = record.run_notice(state, value, "user-skipped", now, detail)
     state = record.rebase_continuous(state, value.routine_id, now)
-    return _replace_incident(state, dataclasses.replace(value, status="skipped"))
+    return record.replace_run(state, dataclasses.replace(value, status="skipped"))
 
 
 def run_incident(state: record.TeamRoutines, incident_id: str, now: int, expected: Expected) -> record.TeamRoutines:
@@ -213,21 +176,18 @@ def pause_incident(state: record.TeamRoutines, incident_id: str, now: int, reaso
         raise record.RoutineStateError("incident-not-unresolved")
     state = record.set_paused(state, value.routine_id, True)
     detail = {**step_detail(held_step(value)), "reason": reason}
-    state, value = _incident_notice(state, value, "paused", now, detail)
-    return _replace_incident(state, value)
+    state, value = record.run_notice(state, value, "paused", now, detail)
+    return record.replace_run(state, value)
 
 
 def release_incident(state: record.TeamRoutines, incident_id: str) -> record.TeamRoutines:
-    """A skipped incident's archive marker, cursor, and evidence are gone: only now may its record give way."""
-    value = incident(state, incident_id)
-    if value.status == "released":
+    """A skipped incident's archive marker, cursor, and evidence are gone: its record goes; one gone is released."""
+    value = next((item for item in state.runs if item.run_id == incident_id), None)
+    if value is None:
         return state
     if value.status != "skipped":
         raise record.RoutineStateError("incident-not-skipped")
-    released = dataclasses.replace(value, status="released")
-    return dataclasses.replace(
-        state, incidents=tuple(released if item.incident_id == incident_id else item for item in state.incidents)
-    )
+    return dataclasses.replace(state, runs=tuple(item for item in state.runs if item.run_id != incident_id))
 
 
 def _held(state: record.TeamRoutines, value: record.Run) -> record.TeamRoutines:

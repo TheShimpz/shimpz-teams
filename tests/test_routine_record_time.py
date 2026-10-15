@@ -89,7 +89,7 @@ class HoldTimeTests(unittest.TestCase):
         state, claim, lease = bound()
         run_id = claim.run.run_id
         state = routine_runs.spend(state, run_id, lease, NINE, (250, 250_400))
-        state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
+        state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1)
         self.assertEqual(routine_hold.incident(state, run_id).active_seconds_left, ONE_STEP - 250)
         self.assertEqual(routine_hold.incident(state, run_id).usage, {"duration_ms": 250_400})
         reopened, _token = routine_hold.reopen_incident(
@@ -97,8 +97,8 @@ class HoldTimeTests(unittest.TestCase):
         )
         self.assertEqual(record.run(reopened, run_id).active_seconds_left, ONE_STEP - 250)
         self.assertEqual(record.run(reopened, run_id).usage["duration_ms"], 250_400)
-        spent = dataclasses.replace(
-            state, incidents=(dataclasses.replace(routine_hold.incident(state, run_id), active_seconds_left=0),)
+        spent = record.replace_run(
+            state, dataclasses.replace(routine_hold.incident(state, run_id), active_seconds_left=0)
         )
         with self.assertRaisesRegex(record.RoutineStateError, "run-time-exhausted"):
             routine_hold.reopen_incident(spent, run_id, NINE + 2, routine_claim.generation_for("net_1", run_id, "s1"))
@@ -107,7 +107,7 @@ class HoldTimeTests(unittest.TestCase):
         state, claim, lease = bound()
         run_id = claim.run.run_id
         state = record.replace_run(state, dataclasses.replace(record.run(state, run_id), requests_used=15))
-        state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
+        state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1)
         self.assertEqual(routine_hold.incident(state, run_id).requests_used, 15)
         reopened, _token = routine_hold.reopen_incident(
             state, run_id, NINE + 2, routine_claim.generation_for("net_1", run_id, "s1")
@@ -225,7 +225,7 @@ class UsageAndProtectionTests(unittest.TestCase):
         run_id = claim.run.run_id
         state = routine_runs.spend(state, run_id, lease, NINE, (1, 1500))
         state = routine_runs.lose_protection(state, run_id)
-        state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
+        state = routine_hold.settle_hold(routine_hold.fence(state, run_id, lease, NINE), run_id, NINE + 1)
         held = state.notices[-1]
         self.assertEqual((held.outcome, held.protection_lost, held.usage["duration_ms"]), ("held", True, 1500))
         incident = routine_hold.incident(state, run_id)

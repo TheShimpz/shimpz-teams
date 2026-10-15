@@ -166,7 +166,7 @@ class ExecutionTests(CompiledRunCase):
             state = self.state(service)
         self.assertEqual(invoked, [])
         self.assertEqual(
-            (state.notices[-1].detail, state.incidents),
+            (state.notices[-1].detail, record.incidents(state)),
             ({"code": "plan-pin-drift", "actions": [], "position": None, "steps": None}, ()),
         )
 
@@ -218,7 +218,7 @@ class ExecutionTests(CompiledRunCase):
             state = self.state(service)
             recovered = routine_incident.open_recovery(service, "team_1", run_id)
         self.assertEqual((resumed["status"], brain.calls, calls), ("held", [], ["list-zones", "list-dns-records"]))
-        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
         # The unreadable cursor leaves the held notice without a step; it never blocks the incident.
         self.assertEqual(
             state.notices[-1].detail, {"assistant_id": None, "action": None, "position": None, "steps": None}
@@ -260,7 +260,7 @@ class SelectorFailureTests(CompiledRunCase):
         with tempfile.TemporaryDirectory() as directory:
             result, state, actions = self.run_with(directory, "/zones/9/id", True)
         self.assertEqual((result["status"], actions), ("failed", ["list-zones"]))
-        self.assertEqual((state.runs, state.incidents), ((), ()))
+        self.assertEqual((state.runs, record.incidents(state)), ((), ()))
         (notice,) = state.notices
         self.assertEqual((notice.outcome, notice.detail["code"]), ("failed", "plan-reference-missing"))
 
@@ -268,7 +268,7 @@ class SelectorFailureTests(CompiledRunCase):
         with tempfile.TemporaryDirectory() as directory:
             result, state, actions = self.run_with(directory, "/zones/9/id", False)
         self.assertEqual((result["status"], actions), ("held", ["list-zones"]))
-        self.assertEqual(len(state.incidents), 1)
+        self.assertEqual(len(record.incidents(state)), 1)
 
     def test_unreadable_or_changed_evidence_never_proves_a_read_only_prefix(self) -> None:
         run = record.Run("e" * 32, "f" * 32, "leased", 0, generation="g")
@@ -453,9 +453,9 @@ class WatchdogRecoveryTests(CompiledRunCase):
             service, run_id, actions = self.crashed(directory, patch)
             state = self.state(service)
             opened = routine_incident.open_recovery(service, "team_1", run_id)
-            archived = service.action_state.current_batch(state.incidents[0].generation)
-        self.assertEqual((actions, state.runs), (["list-zones"], ()))
-        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+            archived = service.action_state.current_batch(record.incidents(state)[0].generation)
+        self.assertEqual((actions, record.live_runs(state)), (["list-zones"], ()))
+        self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
         self.assertEqual((opened.cursor.step, archived[1]), (0, "archived"))
         self.assertIsNotNone(opened.cursor.operation_id)
 
@@ -464,8 +464,8 @@ class WatchdogRecoveryTests(CompiledRunCase):
             service, run_id, actions = self.crashed(directory, _crash_after_cursor_step_one)
             state = self.state(service)
             opened = routine_incident.open_recovery(service, "team_1", run_id)
-        self.assertEqual((actions, state.runs), (["list-zones"], ()))
-        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual((actions, record.live_runs(state)), (["list-zones"], ()))
+        self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
         self.assertEqual((opened.cursor.step, opened.cursor.operation_id), (1, None))
         self.assertEqual(opened.cursor.selections(), {("zones", "/zones/0/id", "", ""): ZONE})
 
@@ -474,7 +474,7 @@ class WatchdogRecoveryTests(CompiledRunCase):
             service, _run_id, actions = self.crashed(directory, _crash_before_terminal_commit)
             state = self.state(service)
             leftovers = (service.routine_store.cursors("team_1"), service.routine_store.recoveries("team_1"))
-        self.assertEqual((actions, state.runs, state.incidents), (["list-zones", "list-dns-records"], (), ()))
+        self.assertEqual((actions, state.runs, record.incidents(state)), (["list-zones", "list-dns-records"], (), ()))
         self.assertEqual([item.outcome for item in state.notices], ["done"])
         self.assertEqual(leftovers, ((), ()))
         # The same Team process still holds the run's protection, so its result is shown.
@@ -498,7 +498,7 @@ class WatchdogRecoveryTests(CompiledRunCase):
             service, run_id, _actions = self.crashed(directory, _crash_after_cursor_step_one, restarted=True)
             state = self.state(service)
             opened = routine_incident.open_recovery(service, "team_1", run_id)
-        (incident,) = state.incidents
+        (incident,) = record.incidents(state)
         self.assertTrue(incident.protection_lost)
         self.assertTrue(opened.cursor.protection_lost)
         self.assertTrue(all(item.protection_lost for item in state.notices))
@@ -538,8 +538,8 @@ class WatchdogRecoveryTests(CompiledRunCase):
         with tempfile.TemporaryDirectory() as directory:
             service, run_id, actions = self.crashed(directory, patch)
             state = self.state(service)
-        self.assertEqual((actions, state.runs), (["list-zones", "list-dns-records"], ()))
-        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual((actions, record.live_runs(state)), (["list-zones", "list-dns-records"], ()))
+        self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
         self.assertNotIn("done", [item.outcome for item in state.notices])
 
     def test_a_restart_before_any_dispatch_fails_the_run_interrupted_as_having_lost_its_protection(self) -> None:
@@ -589,7 +589,7 @@ class WatchdogRecoveryTests(CompiledRunCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _run_id, actions = self.crashed(directory, patch)
             state = self.state(service)
-        self.assertEqual((actions, state.incidents), ([], ()))
+        self.assertEqual((actions, record.incidents(state)), ([], ()))
         self.assertEqual(
             [item.detail for item in state.notices],
             [{"code": "interrupted", "actions": [], "position": None, "steps": None}],
@@ -666,7 +666,7 @@ class StopTests(CompiledRunCase):
             state = self.state(service)
         # The stopped Action's effect is unknown, so the run is held for recovery instead of ending stopped.
         self.assertEqual(
-            (outcome, [item.incident_id for item in state.incidents], brain.calls), ("held", [claim["run_id"]], [])
+            (outcome, [item.run_id for item in record.incidents(state)], brain.calls), ("held", [claim["run_id"]], [])
         )
 
     def test_pausing_during_a_run_lets_that_run_finish_and_starts_no_next_one_until_resumed(self) -> None:

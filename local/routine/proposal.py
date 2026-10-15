@@ -299,7 +299,7 @@ def _candidate(self, response: object, intent: routine_recorder.Intent) -> tuple
         raise _AskedError(_room(candidate, others), recording.protection.values)
     if refused is not None or not routine_definition.fits(candidate):
         raise RefusedError(refused or "routine-too-large")
-    if existing is not None and any(item.routine_id == existing.routine_id for item in state.runs):
+    if existing is not None and any(item.routine_id == existing.routine_id for item in record.live_runs(state)):
         raise RefusedError("routine-busy")
     return recording, candidate, recorded, existing
 

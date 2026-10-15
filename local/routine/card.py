@@ -205,7 +205,7 @@ def restartable(self, team_id: str, card: Card) -> record.Routine:
     current = next((item for item in state.routines if item.routine_id == card.routine_id), None)
     if current is None or current.deleting or card.current == 0:
         raise ApiProblem(HTTPStatus.CONFLICT, "Routine is unavailable", code="routine-not-found")
-    if any(item.routine_id == card.routine_id for item in state.runs):
+    if any(item.routine_id == card.routine_id for item in record.live_runs(state)):
         raise ApiProblem(HTTPStatus.CONFLICT, "another run of this Routine is live", code="routine-busy")
     if not routine_recovery.workload_stopped(
         self, team_id, routine_incident.open_recovery(self, team_id, card.incident_id)

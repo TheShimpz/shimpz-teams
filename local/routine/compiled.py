@@ -423,9 +423,11 @@ def protection_lost(self, team_id: str, value: record.Run) -> bool:
 
 
 def lost_runs(self, team_id: str) -> frozenset[str]:
-    """The Team's runs that lost their protection, each loss sealed in its run's cursor first (ADR-0101 section 6)."""
+    """The Team's live runs that lost their protection, each loss sealed in its run's cursor first (ADR-0101 §6)."""
     return frozenset(
-        item.run_id for item in self.routine_store.load(team_id).runs if protection_lost(self, team_id, item)
+        item.run_id
+        for item in record.live_runs(self.routine_store.load(team_id))
+        if protection_lost(self, team_id, item)
     )
 
 

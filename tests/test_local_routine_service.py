@@ -336,7 +336,7 @@ class RunTests(RoutineServiceCase):
                 with self.broken_registry(service, directory, f"{damage}-run"):
                     self.assertEqual(self.run_claim(service, claim)["status"], "failed")
                 state = self.state(service)
-                self.assertEqual(state.runs, ())
+                self.assertEqual(record.live_runs(state), ())
                 self.assertFalse(record.routine(state, value.routine_id).needs_reconfirm)
                 self.assertEqual(
                     state.notices[-1].detail,
@@ -367,15 +367,17 @@ class RunTests(RoutineServiceCase):
             claim = service.claim_routine_run()
             self.assertEqual(self.run_claim(service, claim)["status"], "held")
             state = self.state(service)
-            (incident,) = state.incidents
-            self.assertEqual((state.runs, incident.incident_id, incident.status), ((), claim["run_id"], "unresolved"))
+            (incident,) = record.incidents(state)
+            self.assertEqual(
+                (record.live_runs(state), incident.run_id, incident.status), ((), claim["run_id"], "unresolved")
+            )
             self.assertIn(value.routine_id, routine_claim.held_routines(state))
             # Its cursor and recovery snapshot survive for verification; nothing is claimed while it holds.
             self.assertEqual(service.routine_store.cursors("team_1"), (claim["run_id"],))
             self.assertIsNone(service.claim_routine_run())
             # Deleting the Routine sets its held run aside; nothing is rolled back and nothing waits for an answer.
             self.assertTrue(service.delete_routine("team_1", value.routine_id)["deleted"])
-            self.assertEqual(self.state(service).incidents[0].status, "released")
+            self.assertEqual(record.incidents(self.state(service)), ())
 
     def test_deleting_an_absent_routine_succeeds_and_a_malformed_one_is_not_found(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -680,8 +682,8 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
             state = self.state(service)
             archived = controller.action_state.current_batch(generation)
         # The run's incident keeps the evidence and its batch is archived.
-        self.assertEqual(state.runs, ())
-        self.assertEqual([item.incident_id for item in state.incidents], [claim["run_id"]])
+        self.assertEqual(record.live_runs(state), ())
+        self.assertEqual([item.run_id for item in record.incidents(state)], [claim["run_id"]])
         self.assertEqual(archived, (batch.fingerprint, "archived"))
 
     def test_the_watchdog_survives_a_failed_audit_and_runs_its_next_pass(self) -> None:

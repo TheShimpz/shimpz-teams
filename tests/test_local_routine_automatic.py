@@ -61,7 +61,7 @@ class AutomaticTests(AutomaticCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _value, _run_id = self.run_held(directory, assistant)
             state = self.state(service)
-        self.assertEqual((self.status, state.incidents, state.runs), ("recovered", (), ()))
+        self.assertEqual((self.status, record.incidents(state), state.runs), ("recovered", (), ()))
         creates = [operation for action, operation in assistant.calls if action == "create-record"]
         self.assertEqual((len(creates), creates[0]), (2, creates[1]))
 
@@ -70,7 +70,7 @@ class AutomaticTests(AutomaticCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _value, _run_id = self.run_held(directory, assistant)
             state = self.state(service)
-        self.assertEqual((self.status, state.incidents), ("recovered", ()))
+        self.assertEqual((self.status, record.incidents(state)), ("recovered", ()))
 
     def test_inconclusive_evidence_holds_for_the_card(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
@@ -79,7 +79,7 @@ class AutomaticTests(AutomaticCase):
             state = self.state(service)
             cursor = self.cursor(service, run_id)
         self.assertEqual(self.status, "held")
-        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
         self.assertFalse(record.routine(state, value.routine_id).paused)
         self.assertTrue(cursor.episode)
         # The held run's one notice says it is held at its step, for the person's card.
@@ -170,7 +170,7 @@ class BalanceCase(AutomaticCase):
         service.routine_store.update(
             "team_1",
             lambda state: (
-                routine_hold._replace_incident(
+                record.replace_run(
                     state, dataclasses.replace(routine_hold.incident(state, run_id), active_seconds_left=seconds)
                 ),
                 None,
@@ -329,7 +329,7 @@ class ContinuationDeadlineTests(BalanceCase):
             cursor = self.cursor(service, run_id)
         # Never ended as stopped: the partial run is held with its evidence and its Routine runs no further cycle.
         self.assertEqual(self.status, "held")
-        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
         self.assertEqual(cursor.step, 2)
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
         self.assertTrue(record.routine(state, value.routine_id).paused)
@@ -399,7 +399,7 @@ class ContinuationDeadlineTests(BalanceCase):
         ((active, handed),) = balances
         self.assertEqual(active, 5)
         self.assertTrue(0 < handed <= 5)
-        self.assertEqual((state.incidents, state.runs, state.notices[-1].outcome), ((), (), "recovered"))
+        self.assertEqual((record.incidents(state), state.runs, state.notices[-1].outcome), ((), (), "recovered"))
 
     def test_a_deadline_just_before_the_continuation_registers_still_holds_and_pauses(self) -> None:
         fired: list[object] = []
@@ -412,7 +412,7 @@ class ContinuationDeadlineTests(BalanceCase):
             if len(calls) == 2:
                 # The verifier asked first; now the run was reopened, and the deadline passes before its continuation
                 # registers.
-                self.assertEqual(service.routine_store.load(team_id).incidents, ())
+                self.assertEqual(record.incidents(service.routine_store.load(team_id)), ())
                 fired[-1]()
             return real_provider(service, team_id)
 
@@ -426,7 +426,7 @@ class ContinuationDeadlineTests(BalanceCase):
             state = self.state(service)
         # Out of time, not stopped: the partial run is held again and its Routine pauses as exhausted.
         self.assertEqual(self.status, "held")
-        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
         self.assertTrue(record.routine(state, value.routine_id).paused)
 
@@ -450,7 +450,7 @@ class ContinuationDeadlineTests(BalanceCase):
             state = self.state(service)
         # The refused continuation is no plain hold: the incident and its evidence stay, and the Routine pauses.
         self.assertEqual(self.status, "held")
-        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
         self.assertTrue(record.routine(state, value.routine_id).paused)
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
@@ -533,7 +533,7 @@ class ContinuationDeadlineTests(BalanceCase):
 
     def test_a_deadline_after_the_last_step_records_completion_from_the_sealed_cursor(self) -> None:
         state, routine_value = self.cut_after_the_last_step("deadline")
-        self.assertEqual((self.status, state.incidents), ("recovered", ()))
+        self.assertEqual((self.status, record.incidents(state)), ("recovered", ()))
         # Recorded complete from the sealed cursor, with its Actions, and its failure streak reset.
         self.assertEqual(state.notices[-1].outcome, "recovered")
         self.assertEqual(state.notices[-1].detail["plan"]["actions"][-1][:2], ["shimpz-cloudflare", "create-record"])
@@ -541,7 +541,7 @@ class ContinuationDeadlineTests(BalanceCase):
 
     def test_a_persons_stop_after_the_last_step_still_stops_the_run(self) -> None:
         state, routine_value = self.cut_after_the_last_step("person")
-        self.assertEqual((self.status, state.incidents, state.notices[-1].outcome), ("stopped", (), "stopped"))
+        self.assertEqual((self.status, record.incidents(state), state.notices[-1].outcome), ("stopped", (), "stopped"))
         # A person's Stop is neither success nor failure: the streak stays as it was.
         self.assertEqual(routine_value.failures, 2)
 

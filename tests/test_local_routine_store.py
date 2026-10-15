@@ -185,15 +185,27 @@ class RoundTripTests(StoreCase):
         largest_detail = max(len(json.dumps(item.detail).encode()) for item in notices)
         self.assertGreater(largest_detail, routine_store.MAX_NOTICE_BYTES // 3)
         self.assertLessEqual(largest_detail, routine_store.MAX_NOTICE_BYTES)
-        incidents = tuple(
-            record.Incident(f"{index:032x}", "a" * 32, f"{NETWORK}:routine:{index:032x}", NINE, name=name, usage=USAGE)
-            for index in range(record.MAX_INCIDENTS)
+        runs = tuple(
+            record.Run(
+                f"{index:032x}",
+                "a" * 32,
+                "unresolved",
+                NINE,
+                assistant_id="a" * 40,
+                action="b" * 128,
+                generation=f"{NETWORK}:routine:{index:032x}:s1",
+                position=256,
+                steps=256,
+                usage=USAGE,
+                held_at=NINE,
+            )
+            for index in range(record.MAX_RUNS)
         )
         worst = dataclasses.replace(
             state,
             notices=notices,
             starts=tuple(("a" * 32, NINE + index, 256) for index in range(record.routine_starts.MAX_STARTS)),
-            incidents=incidents,
+            runs=runs,
             discards=tuple(
                 (f"{index:032x}", f"{NETWORK}:routine:{index:032x}") for index in range(record.MAX_DISCARDS)
             ),
@@ -325,11 +337,15 @@ class TamperTests(StoreCase):
         state = busy_state()
         held = next(item for item in state.runs if item.status == "held")
         step = ("dns", "check", 1, 1)
-        routine_fixture.put(self.store, "team_1", routine_hold.settle_hold(state, held.run_id, NINE, 1, step))
+        routine_fixture.put(self.store, "team_1", routine_hold.settle_hold(state, held.run_id, NINE, step))
         base = json.loads(self.state_file().read_text())
-        self.assertEqual(base["incidents"][0]["assistant_id"], "dns")
+        index = next(position for position, item in enumerate(base["runs"]) if item["run_id"] == held.run_id)
+        self.assertEqual((base["runs"][index]["status"], base["runs"][index]["assistant_id"]), ("unresolved", "dns"))
         mutations = {
-            "name": {"name": ""},
+            "never indexed": {"held_at": 0},
+            "a request on an incident": {"request_kind": "human"},
+            "a lease on an incident": {"lease_sha256": "a" * 64},
+            "no held generation": {"generation": ""},
             "assistant": {"assistant_id": "Bad"},
             "half a call": {"action": ""},
             "action type": {"action": 1},
@@ -351,12 +367,12 @@ class TamperTests(StoreCase):
         for name, change in mutations.items():
             with self.subTest(name=name):
                 value = json.loads(json.dumps(base))
-                value["incidents"][0].update(change)
+                value["runs"][index].update(change)
                 self.assert_refused(value)
         value = json.loads(json.dumps(base))
-        value["incidents"][0].update(assistant_id="", action="", position=None, steps=0)
+        value["runs"][index].update(assistant_id="", action="", position=None, steps=0)
         self.write(value)
-        self.assertEqual(self.store.load("team_1").incidents[0].action, "")
+        self.assertEqual(record.incidents(self.store.load("team_1"))[0].action, "")
 
     def test_a_state_file_that_is_not_private_fails_closed(self):
         routine_fixture.put(self.store, "team_1", busy_state())

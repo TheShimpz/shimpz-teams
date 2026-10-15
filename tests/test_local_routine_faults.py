@@ -380,7 +380,9 @@ class FrozenFaultTests(RoutineServiceCase):
             resumed = self.answer_human(service, claim["run_id"], opened["challenge_id"])
             self.assertEqual(resumed["status"], "held")
             state = self.state(service)
-            self.assertEqual((state.runs, [item.incident_id for item in state.incidents]), ((), [claim["run_id"]]))
+            self.assertEqual(
+                (record.live_runs(state), [item.run_id for item in record.incidents(state)]), ((), [claim["run_id"]])
+            )
 
     def test_deleting_a_routine_stops_its_frozen_run_and_the_watchdog_keeps_a_frozen_continuation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

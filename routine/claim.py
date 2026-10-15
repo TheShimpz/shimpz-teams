@@ -123,8 +123,9 @@ def claimable(state: record.TeamRoutines, now: int, long: bool = True) -> record
     """
     if _backpressured(state) or _segment_leased(state):
         return None
-    busy = {item.routine_id for item in state.runs} | held_routines(state)
-    due = [item for item in _ready(state, busy, long) if _due_at(item) <= now and free_at(state, item, now) <= now]
+    due = [
+        item for item in _ready(state, _busy(state), long) if _due_at(item) <= now and free_at(state, item, now) <= now
+    ]
     return min(due, key=lambda item: (_due_at(item), item.routine_id)) if due else None
 
 
@@ -137,25 +138,28 @@ def next_due(state: record.TeamRoutines, now: int) -> int | None:
     if _backpressured(state) or _segment_leased(state):
         # Nothing starts until notices are delivered or ended runs are cleaned up; the next reconciliation retries.
         return None
-    busy = {item.routine_id for item in state.runs} | held_routines(state)
-    due = [max(_due_at(item), free_at(state, item, now)) for item in _ready(state, busy)]
+    due = [max(_due_at(item), free_at(state, item, now)) for item in _ready(state, _busy(state))]
     return min((item for item in due if item > now), default=None)
 
 
 def held_routines(state: record.TeamRoutines) -> set[str]:
     """Routines an unresolved incident holds: no cycle of theirs starts, whatever else resumes them."""
-    return {item.routine_id for item in state.incidents if item.status == "unresolved"}
+    return {item.routine_id for item in state.runs if item.status == "unresolved"}
+
+
+def _busy(state: record.TeamRoutines) -> set[str]:
+    """Routines a live run or an unresolved incident holds; a set-aside incident holds nothing."""
+    return {item.routine_id for item in record.live_runs(state)} | held_routines(state)
 
 
 def incident_capacity(state: record.TeamRoutines) -> bool:
     """Whether one more run may start, reserving the room its incident would need.
 
-    Each run that could be held reserves an unresolved incident's and a record's room, so a hold never displaces one.
+    Each live run could be held, so each reserves an unresolved incident's room, and every run keeps its own record.
     """
-    unresolved = sum(item.status == "unresolved" for item in state.incidents)
-    retained = sum(item.status != "released" for item in state.incidents)
-    runs = len(state.runs) + 1
-    return unresolved + runs <= record.MAX_UNRESOLVED_INCIDENTS and retained + runs <= record.MAX_INCIDENTS
+    unresolved = sum(item.status == "unresolved" for item in state.runs)
+    live = len(record.live_runs(state)) + 1
+    return unresolved + live <= record.MAX_UNRESOLVED_INCIDENTS and len(state.runs) + 1 <= record.MAX_RUNS
 
 
 def claim(
@@ -207,6 +211,7 @@ def _lease(
         lease_key=key_fingerprint,
         lease_expires_at=now + record.LEASE_SECONDS,
         active_seconds_left=routine_plan.active_seconds(units),
+        revision=due.revision,
     )
     state = dataclasses.replace(
         record.replace_routine(state, due),

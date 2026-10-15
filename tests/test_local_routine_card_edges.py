@@ -62,7 +62,6 @@ class DeletionRaceTests(CardCase):
             deleting = dataclasses.replace(
                 current,
                 runs=(),
-                incidents=(),
                 routines=tuple(dataclasses.replace(item, deleting=True) for item in current.routines),
             )
             with mock.patch.object(routine_manage.routine_state, "load", return_value=deleting):

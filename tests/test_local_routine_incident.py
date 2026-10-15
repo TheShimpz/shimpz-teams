@@ -65,9 +65,9 @@ class HoldTests(IncidentCase):
             _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
             state = self.state(service)
-            self.assertEqual(state.runs, ())
+            self.assertEqual(record.live_runs(state), ())
             self.assertEqual(
-                [(item.incident_id, item.routine_id, item.status) for item in state.incidents],
+                [(item.run_id, item.routine_id, item.status) for item in record.incidents(state)],
                 [(run_id, value.routine_id, "unresolved")],
             )
             self.assertEqual(service.action_state.current_batch(generation), (batch.fingerprint, "archived"))
@@ -103,7 +103,7 @@ class HoldTests(IncidentCase):
                     routine_watchdog.check(service)
                 self.assertFalse(routine_incident.reconcile(service, "team_1", run_id))
                 state = self.state(service)
-                self.assertEqual([item.status for item in state.incidents], ["unresolved"])
+                self.assertEqual([item.status for item in record.incidents(state)], ["unresolved"])
                 self.assertEqual(service.action_state.current_batch(generation), (batch.fingerprint, "archived"))
 
     def test_a_run_held_before_any_action_holds_without_a_batch(self) -> None:
@@ -174,7 +174,7 @@ class ResolutionTests(IncidentCase):
             self.assertEqual(service.action_state.current_batch(generation), (batch.fingerprint, "archived"))
             routine_fixture.set_aside(service, "team_1", run_id)
             state = self.state(service)
-            self.assertEqual([item.status for item in state.incidents], ["released"])
+            self.assertEqual(record.incidents(state), ())
             self.assertNotIn(value.routine_id, routine_claim.held_routines(state))
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertIsNone(service.routine_store.cursor("team_1", binding))
@@ -237,7 +237,7 @@ class ResolutionTests(IncidentCase):
             routine_watchdog.check(service)
             state = self.state(service)
             self.assertEqual((state.routines, state.starts), ((), starts))
-            self.assertEqual([item.status for item in state.incidents], ["released"])
+            self.assertEqual(record.incidents(state), ())
             notice = next(item for item in state.notices if item.notice_id == run_id)
             self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "delete"))
             self.assertIsNone(service.action_state.current_batch(generation))
@@ -276,6 +276,13 @@ class RecoverySnapshotTests(IncidentCase):
             _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
             # The run executes revision 3; the Routine is updated to revision 4 while the run is held.
             routine_fixture.update_routine(service, value.routine_id, confirm=True, revision=3)
+            service.routine_store.update(
+                "team_1",
+                lambda state: (
+                    record.replace_run(state, dataclasses.replace(record.run(state, run_id), revision=3)),
+                    None,
+                ),
+            )
             snapshot, cursor = self.compiled(service, value, run_id, generation, 3)
             # A live run keeps its snapshot through every pass.
             routine_watchdog.check(service)
@@ -283,7 +290,7 @@ class RecoverySnapshotTests(IncidentCase):
             self.fence(service, run_id, lease)
             routine_fixture.update_routine(service, value.routine_id, confirm=True, revision=4)
             routine_incident.reconcile(service, "team_1", run_id)
-            self.assertEqual([item.revision for item in self.state(service).incidents], [3])
+            self.assertEqual([item.revision for item in record.incidents(self.state(service))], [3])
             routine_watchdog.check(service)
             self.assertEqual(service.routine_store.recoveries("team_1"), ())
             # A restart reopens every store from disk; only the incident's own sealed copy names the binding.
@@ -445,8 +452,6 @@ class RecoverySnapshotTests(IncidentCase):
             foreign = routine_incident.Recovery(routine_cursor.Binding(incarnation, "f" * 32, 1, run_id), "Q", {})
             with self.assertRaises(local_app.ApiProblem):
                 routine_incident.read_evidence(routine_incident.evidence(run_id, held, None, (), foreign), run_id)
-            with self.assertRaises(record.RoutineStateError):
-                routine_hold.settle_hold(self.state(service), run_id, 0, 0)
             for payload in (b"", None, b"x" * (routine_store.MAX_RECOVERY_BYTES + 1)):
                 with self.subTest(payload=payload), self.assertRaisesRegex(routine_store.RoutineStoreError, "invalid"):
                     service.routine_store.put_recovery("team_1", run_id, payload)
@@ -458,11 +463,11 @@ class RecoverySnapshotTests(IncidentCase):
             service.routine_store.delete_recovery("team_1", run_id)
             routine_watchdog.check(service)
             self.assertEqual(service.routine_store.recoveries("team_1"), ())
-            self.assertEqual([item.incident_id for item in self.state(service).incidents], [run_id])
+            self.assertEqual([item.run_id for item in record.incidents(self.state(service))], [run_id])
 
 
 class CapacityTests(IncidentCase):
-    def test_an_interrupted_release_at_capacity_is_never_evicted_or_orphaned(self) -> None:
+    def test_an_interrupted_release_keeps_its_record_until_a_pass_finishes_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
@@ -472,45 +477,25 @@ class CapacityTests(IncidentCase):
                 service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("crash")
             ):
                 routine_fixture.set_aside(service, "team_1", run_id)
-            self.assertEqual([item.status for item in self.state(service).incidents], ["skipped"])
-            # Fill the index to its bound with released records and give the Team a second held run.
-            filler = tuple(
-                record.Incident(
-                    f"{index:032x}",
-                    value.routine_id,
-                    f"{'f' * 64}:routine:{index:032x}",
-                    index,
-                    1,
-                    "released",
-                    name=value.name,
-                )
-                for index in range(1, record.MAX_INCIDENTS)
-            )
+            self.assertEqual([item.status for item in record.incidents(self.state(service))], ["skipped"])
+            # A second run of the Team is held meanwhile, as its own incident beside the pending one.
             second = "e" * 32
             held = record.Run(
                 second, value.routine_id, "held", 0, generation=routine_claim.generation_for("f" * 64, second)
             )
             service.routine_store.update(
-                "team_1",
-                lambda state: (
-                    dataclasses.replace(state, incidents=(*state.incidents, *filler), runs=(held,)),
-                    None,
-                ),
+                "team_1", lambda state: (dataclasses.replace(state, runs=(*state.runs, held)), None)
             )
             self.assertTrue(routine_incident.reconcile(service, "team_1", second))
-            incidents = {item.incident_id: item.status for item in self.state(service).incidents}
-            self.assertEqual(len(incidents), record.MAX_INCIDENTS)
-            self.assertEqual(incidents[run_id], "skipped")
-            self.assertEqual(incidents[second], "unresolved")
+            statuses = {item.run_id: item.status for item in record.incidents(self.state(service))}
+            self.assertEqual(statuses, {run_id: "skipped", second: "unresolved"})
             self.assertEqual(service.action_state.current_batch(generation), (batch.fingerprint, "archived"))
-            # A restart's pass finishes the interrupted cleanup; only then may that record give way.
+            # A restart's pass finishes the interrupted cleanup; only then does that record go.
             service.action_state.close()
             controller.action_state = service.action_state = action_journal.ActionJournal(service.action_state.path)
             self.addCleanup(service.action_state.close)
             routine_watchdog.check(service, startup=True)
-            self.assertEqual(
-                {item.incident_id: item.status for item in self.state(service).incidents}[run_id], "released"
-            )
+            self.assertEqual([item.run_id for item in record.incidents(self.state(service))], [second])
             self.assertIsNone(service.action_state.current_batch(generation))
             routine_lifecycle._delete_team_routines(controller, "team_1")
             self.assertEqual(service.routine_store.load("team_1"), record.TeamRoutines())
@@ -525,7 +510,7 @@ class CapacityTests(IncidentCase):
             service.action_state.release_archive(generation, batch.fingerprint)
             service.routine_store.delete_incident("team_1", run_id)
             routine_incident.reconcile_team(service, "team_1")
-            self.assertEqual([item.status for item in self.state(service).incidents], ["released"])
+            self.assertEqual(record.incidents(self.state(service)), ())
 
     def test_deleting_the_team_purges_a_pending_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -535,7 +520,7 @@ class CapacityTests(IncidentCase):
                 service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("crash")
             ):
                 routine_fixture.set_aside(service, "team_1", run_id)
-            self.assertEqual([item.status for item in self.state(service).incidents], ["skipped"])
+            self.assertEqual([item.status for item in record.incidents(self.state(service))], ["skipped"])
             routine_lifecycle._delete_team_routines(controller, "team_1")
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertIsNone(service.routine_store.incident("team_1", run_id))
@@ -687,7 +672,7 @@ class SealedStateTests(IncidentCase):
             self.assertEqual(service.routine_store.cursor("team_1", binding).step, 1)
             self.assertIsNone(service.action_state.current_batch(generation))
 
-    def test_routine_state_version_ten_admits_held_runs_incidents_plans_confirmations_and_output_digests(
+    def test_routine_state_version_eleven_admits_incidents_plans_confirmations_and_output_digests(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -696,7 +681,7 @@ class SealedStateTests(IncidentCase):
             routine_incident.set_paused(service, "team_1", value.routine_id, True)
             path = service.routine_store._team_dir("team_1") / "state.json"
             document = json.loads(path.read_bytes())
-            self.assertEqual(document["schema"], 10)
+            self.assertEqual(document["schema"], 11)
             self.assertEqual(document["routines"][0]["run_requested"], 0)
             self.assertEqual(document["routines"][0]["output_digest"], "")
             self.assertEqual(document["routines"][0]["plan"]["version"], 4)
@@ -705,11 +690,15 @@ class SealedStateTests(IncidentCase):
                 routine_store._decode(json.dumps(digest).encode(), "team_1").routines[0].output_digest, "d" * 64
             )
             self.assertEqual(document["routines"][0]["revision"], 1)
-            self.assertEqual(document["incidents"][0]["status"], "unresolved")
+            self.assertEqual(document["runs"][0]["status"], "unresolved")
             for mutate in (
-                lambda value: value["incidents"][0].update(status="resolved"),
-                lambda value: value["incidents"][0].update(generation=""),
-                lambda value: value["incidents"].append(dict(value["incidents"][0])),
+                lambda value: value["runs"][0].update(status="resolved"),
+                lambda value: value["runs"][0].update(generation=""),
+                lambda value: value["runs"][0].update(held_at=0),
+                lambda value: value["runs"][0].update(request_kind="human"),
+                lambda value: value["runs"][0].update(revision=0),
+                lambda value: value["runs"].append(dict(value["runs"][0])),
+                lambda value: value.update(incidents=[]),
                 lambda value: value["routines"][0].update(revision=0),
                 lambda value: value["routines"][0].update(paused="yes"),
                 lambda value: value["routines"][0].update(run_requested=-1),
@@ -745,44 +734,31 @@ class IncidentRecordTests(IncidentCase):
             )
         )
         unresolved = tuple(
-            record.Incident(f"{index:032x}", "a" * 32, f"{'b' * 64}:routine:{index:032x}", index)
+            record.Run(
+                f"{index:032x}", "a" * 32, "unresolved", 0, generation=f"{'b' * 64}:routine:{index:032x}", held_at=1
+            )
             for index in range(record.MAX_UNRESOLVED_INCIDENTS)
         )
-        full = dataclasses.replace(base, routines=(routine,), incidents=unresolved)
+        full = dataclasses.replace(base, routines=(routine,), runs=unresolved)
         self.assertFalse(routine_claim.incident_capacity(full))
         self.assertIsNone(routine_claim.claimable(full, 10))
-        held = record.Run("c" * 32, "a" * 32, "held", 0, generation=f"{'b' * 64}:routine:{'c' * 32}")
-        with self.assertRaisesRegex(record.RoutineStateError, "incident-limit"):
-            routine_hold.settle_hold(dataclasses.replace(full, runs=(held,), incidents=unresolved * 2), "c" * 32, 1)
-
-        def renamed(status: str) -> tuple[record.Incident, ...]:
-            return tuple(
-                dataclasses.replace(item, incident_id=f"{index + 100:032x}", status=status)
-                for index, item in enumerate(unresolved * 2)
-            )
-
-        # A skipped incident whose cleanup is pending never gives way; a released one does, oldest first.
-        with self.assertRaisesRegex(record.RoutineStateError, "incident-limit"):
-            routine_hold.settle_hold(dataclasses.replace(full, runs=(held,), incidents=renamed("skipped")), "c" * 32, 1)
-        settled = routine_hold.settle_hold(
-            dataclasses.replace(full, runs=(held,), incidents=renamed("released")), "c" * 32, 1
+        # A set-aside incident whose cleanup is pending keeps its record's room until it is released.
+        skipped = tuple(
+            dataclasses.replace(item, run_id=f"{index + 100:032x}", status="skipped")
+            for index, item in enumerate(unresolved * 2)
         )
-        self.assertEqual(len(settled.incidents), record.MAX_INCIDENTS)
-        self.assertEqual(settled.incidents[-1].incident_id, "c" * 32)
-        self.assertNotIn(f"{100:032x}", {item.incident_id for item in settled.incidents})
-        pending = dataclasses.replace(base, routines=(routine,), incidents=renamed("skipped"))
+        pending = dataclasses.replace(base, routines=(routine,), runs=skipped)
         self.assertFalse(routine_claim.incident_capacity(pending))
-        self.assertTrue(routine_claim.incident_capacity(dataclasses.replace(pending, incidents=renamed("released"))))
+        self.assertTrue(routine_claim.incident_capacity(dataclasses.replace(pending, runs=skipped[1:])))
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-skipped"):
-            routine_hold.release_incident(full, unresolved[0].incident_id)
+            routine_hold.release_incident(full, unresolved[0].run_id)
         released = routine_hold.release_incident(
-            routine_hold.skip_incident(full, unresolved[0].incident_id, 1, choice="run"), unresolved[0].incident_id
+            routine_hold.skip_incident(full, unresolved[0].run_id, 1, choice="run"), unresolved[0].run_id
         )
-        self.assertEqual(routine_hold.release_incident(released, unresolved[0].incident_id), released)
+        self.assertEqual(routine_hold.release_incident(released, unresolved[0].run_id), released)
+        held = record.Run("c" * 32, "a" * 32, "frozen", 0, generation=f"{'b' * 64}:routine:{'c' * 32}")
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-held"):
-            routine_hold.settle_hold(
-                dataclasses.replace(full, runs=(dataclasses.replace(held, status="frozen"),)), "c" * 32, 1
-            )
+            routine_hold.settle_hold(dataclasses.replace(full, runs=(held,)), "c" * 32, 1)
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-found"):
             routine_hold.skip_incident(full, "f" * 32, 1, choice="run")
         unbound = record.Run(

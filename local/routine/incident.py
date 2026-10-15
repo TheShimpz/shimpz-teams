@@ -3,13 +3,13 @@
 A run seals its immutable recovery snapshot before its first dispatch: the exact cursor binding (Team incarnation,
 Routine and revision, run), the confirmed plan, and the Routine's name (ADR-0101). A hold is four durable steps: the
 run's live lease is fenced, its incident's compact evidence is sealed with its own copy of that snapshot, its journal
-batch is archived, and the incident is indexed as the run ends. Each step is idempotent
+batch is archived, and the run is indexed as its own incident. Each step is idempotent
 and ``reconcile`` resumes from whichever came last, so every crash window recovers without dispatching anything. An
-incident is not an active run or discard work; it outlives its Routine, never expires, and holds the Routine until a
-person resolves it. Because it holds its snapshot independently of the Routine record and the archived journal rows, it
-can still reopen the run's cursor for verification after Team restarts. A person sets the run aside through its card's
-Rodar, or by deleting its Routine; only then, once nothing executes for it any more, are its cursor, evidence, and
-archive marker released.
+incident is the held run's record with its own status, not an active run or discard work; it never expires, and holds
+the Routine until it is resolved. Because it holds its snapshot independently of the Routine record and the archived
+journal rows, it can still reopen the run's cursor for verification after Team restarts. A person sets the run aside
+through its card's Rodar, or by deleting its Routine; only then, once nothing executes for it any more, are its cursor,
+evidence, and archive marker released and its record removed.
 """
 
 import contextlib
@@ -204,13 +204,8 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
         raise local_errors.action_state_unavailable() from exc
     now = int(time.time())
 
-    snapshot = held["recovery"]
-    revision = None if snapshot is None else snapshot.binding.revision
-    step = _held_step(self, team_id, snapshot)
-
-    return routine_state.applied(
-        self, team_id, lambda state: routine_hold.settle_hold(state, run_id, now, revision, step)
-    )
+    step = _held_step(self, team_id, held["recovery"])
+    return routine_state.applied(self, team_id, lambda state: routine_hold.settle_hold(state, run_id, now, step))
 
 
 def _held_step(self, team_id: str, snapshot: Recovery | None) -> routine_hold.HeldStep:
@@ -238,7 +233,7 @@ def held_call(cursor: routine_cursor.Cursor, steps: list) -> routine_hold.HeldSt
 def reconcile_team(self, team_id: str) -> None:
     """Release what every set-aside incident still keeps once nothing executes for it, then finish every held run."""
     state = routine_state.load(self, team_id)
-    for item in state.incidents:
+    for item in record.incidents(state):
         if item.status == "skipped":
             release(self, team_id, item)
     for value in state.runs:
@@ -260,7 +255,7 @@ def set_aside(
     team_id: str,
     incident_id: str,
     change: Callable[[record.TeamRoutines], record.TeamRoutines],
-) -> record.Incident:
+) -> record.Run:
     """Apply a person's transition that sets the incident aside, then release what it kept.
 
     The transition checks the card's state in its own write and never replays or fabricates output; any effect the run
@@ -268,7 +263,7 @@ def set_aside(
     watchdog's next pass: it never reads as nothing having changed.
     """
 
-    def mark(state: record.TeamRoutines) -> tuple[record.TeamRoutines, record.Incident | str]:
+    def mark(state: record.TeamRoutines) -> tuple[record.TeamRoutines, record.Run | str]:
         try:
             changed = change(state)
         except record.RoutineStateError as exc:
@@ -288,37 +283,37 @@ def executing(self, incident_id: str) -> bool:
         return incident_id in self._routine_runs
 
 
-def release(self, team_id: str, item: record.Incident) -> None:
+def release(self, team_id: str, item: record.Run) -> None:
     """Release a set-aside incident unless something still executes for it; the watchdog's next pass retries."""
-    if not executing(self, item.incident_id):
+    if not executing(self, item.run_id):
         _release(self, team_id, item)
 
 
-def settled(self, team_id: str, item: record.Incident) -> None:
+def settled(self, team_id: str, item: record.Run) -> None:
     """After a person's committed transition: release now if possible, and otherwise leave it to the watchdog."""
     with contextlib.suppress(ApiProblem):
         release(self, team_id, item)
 
 
-def _release(self, team_id: str, item: record.Incident) -> None:
-    """Remove what a skipped incident no longer needs, then mark it released.
+def _release(self, team_id: str, item: record.Run) -> None:
+    """Remove what a skipped incident no longer needs, then its record.
 
     Each step is idempotent, so a crash leaves the incident skipped and the next pass retries it.
     """
-    sealed = routine_state.call(lambda: self.routine_store.incident(team_id, item.incident_id))
+    sealed = routine_state.call(lambda: self.routine_store.incident(team_id, item.run_id))
     if sealed is not None:
-        held = read_evidence(sealed, item.incident_id)
-        seal_terminal(self, team_id, item.incident_id, held["recovery"])
+        held = read_evidence(sealed, item.run_id)
+        seal_terminal(self, team_id, item.run_id, held["recovery"])
         fingerprint = held["fingerprint"]
         if fingerprint is not None:
             try:
                 self.action_state.release_archive(item.generation, fingerprint)
             except action_journal.ActionJournalError as exc:
                 raise local_errors.action_state_unavailable() from exc
-    routine_state.call(lambda: self.routine_store.delete_cursor(team_id, item.incident_id))
-    routine_state.call(lambda: self.routine_store.delete_incident(team_id, item.incident_id))
-    routine_state.update(self, team_id, lambda state: (routine_hold.release_incident(state, item.incident_id), None))
-    self.routine_cards.discard(team_id, item.incident_id)
+    routine_state.call(lambda: self.routine_store.delete_cursor(team_id, item.run_id))
+    routine_state.call(lambda: self.routine_store.delete_incident(team_id, item.run_id))
+    routine_state.update(self, team_id, lambda state: (routine_hold.release_incident(state, item.run_id), None))
+    self.routine_cards.discard(team_id, item.run_id)
 
 
 def seal_terminal(self, team_id: str, run_id: str, snapshot: Recovery | None) -> None:
@@ -346,7 +341,7 @@ def seal_terminal(self, team_id: str, run_id: str, snapshot: Recovery | None) ->
         local_audit.record_request("routine-run-record", result="error", team_id=team_id, detail=run_id)
 
 
-def unresolved(self, team_id: str, incident_id: str) -> record.Incident:
+def unresolved(self, team_id: str, incident_id: str) -> record.Run:
     """The Team's indexed incident, which must still be unresolved."""
     try:
         value = routine_hold.incident(routine_state.load(self, team_id), incident_id)

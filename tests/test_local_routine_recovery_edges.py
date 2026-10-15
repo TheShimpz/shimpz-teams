@@ -125,7 +125,7 @@ class ContinuationEdgeTests(RecoveryCase):
             self.assertEqual(self.resume(service, value, run_id), "held")
             state = self.state(service)
         # Neither continued the run: its incident stays for the person's card.
-        self.assertEqual([item.status for item in state.incidents], ["unresolved"])
+        self.assertEqual([item.status for item in record.incidents(state)], ["unresolved"])
 
     def test_reopening_refuses_a_settled_incident_a_changed_routine_or_a_busy_one(self) -> None:
         state = record.TeamRoutines()
@@ -139,7 +139,7 @@ class ContinuationEdgeTests(RecoveryCase):
             changed = record.replace_routine(
                 state, dataclasses.replace(record.routine(state, value.routine_id), revision=2)
             )
-            busy = dataclasses.replace(state, runs=(record.Run("b" * 32, value.routine_id, "frozen", 0),))
+            busy = dataclasses.replace(state, runs=(*state.runs, record.Run("b" * 32, value.routine_id, "frozen", 0)))
             for subject, target, code in (
                 (skipped, generation, "incident-not-unresolved"),
                 (changed, generation, "routine-not-resumable"),
@@ -296,14 +296,13 @@ class RunTimeTests(RecoveryCase):
             service.routine_store.update(
                 "team_1",
                 lambda state: (
-                    dataclasses.replace(
-                        state,
-                        incidents=tuple(dataclasses.replace(item, active_seconds_left=0) for item in state.incidents),
-                    ),
+                    record.replace_run(state, dataclasses.replace(record.run(state, run_id), active_seconds_left=0)),
                     None,
                 ),
             )
             resumed = self.resume(service, value, run_id)
             state = self.state(service)
         self.assertEqual(resumed, "held")
-        self.assertEqual(([item.status for item in state.incidents], state.runs), (["unresolved"], ()))
+        self.assertEqual(
+            ([item.status for item in record.incidents(state)], record.live_runs(state)), (["unresolved"], ())
+        )
