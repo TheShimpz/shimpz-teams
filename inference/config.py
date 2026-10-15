@@ -6,7 +6,6 @@ import re
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TypedDict
 
 from core import identifier
 from protocol.http.v1 import payload as http_payload
@@ -19,14 +18,10 @@ MAX_CONFIG_BYTES = 4096
 MAX_KNOWLEDGE_BYTES = 1024 * 1024
 
 
-class ProviderDefinition(TypedDict):
-    models: frozenset[str]
-
-
 _MODEL_CATALOG = json.loads(Path(__file__).with_name("model_catalog.json").read_text(encoding="utf-8"))
-PROVIDERS: dict[str, ProviderDefinition] = {
-    provider["id"]: {"models": frozenset(model["id"] for model in provider["models"])}
-    for provider in _MODEL_CATALOG["providers"]
+# Each catalog provider's id and the exact model ids it admits.
+PROVIDERS: dict[str, frozenset[str]] = {
+    provider["id"]: frozenset(model["id"] for model in provider["models"]) for provider in _MODEL_CATALOG["providers"]
 }
 # Every name this store writes: a Team's configuration, its learned knowledge, and their interrupted temp files.
 OWNED_NAME_RE = re.compile(
@@ -52,7 +47,7 @@ def normalize(provider: object, model: object) -> InferenceConfig:
     """Admit exactly one catalog provider and one of its catalog models; nothing is defaulted or coerced."""
     if not isinstance(provider, str) or provider not in PROVIDERS:
         raise InferenceConfigError(f"provider must be one of {sorted(PROVIDERS)}")
-    if not isinstance(model, str) or model not in PROVIDERS[provider]["models"]:
+    if not isinstance(model, str) or model not in PROVIDERS[provider]:
         raise InferenceConfigError("model is not supported by the selected provider")
     return InferenceConfig(provider=provider, model=model)
 

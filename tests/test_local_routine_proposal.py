@@ -520,7 +520,7 @@ class RecordedRoutineTests(LocalContractCase):
     def test_each_routine_model_is_one_its_provider_offers(self) -> None:
         self.assertEqual(local_segment.ROUTINE_MODELS, {"openai": "gpt-6.1-sol", "anthropic": "claude-opus-5-5"})
         for provider, model in local_segment.ROUTINE_MODELS.items():
-            self.assertIn(model, inference_config.PROVIDERS[provider]["models"])
+            self.assertIn(model, inference_config.PROVIDERS[provider])
 
     def test_a_routine_mode_turn_on_anthropic_reasons_with_the_routine_model(self) -> None:
         runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))

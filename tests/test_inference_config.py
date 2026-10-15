@@ -39,7 +39,7 @@ class InferenceConfigTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            {provider: set(definition["models"]) for provider, definition in inference_config.PROVIDERS.items()},
+            {provider: set(models) for provider, models in inference_config.PROVIDERS.items()},
             expected,
         )
         for provider, models in expected.items():

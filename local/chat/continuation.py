@@ -642,9 +642,7 @@ def _pending(value: object) -> PendingLocalChat:
     if recording is not None and (not isinstance(recording, str) or _RECORDING_RE.fullmatch(recording) is None):
         raise ContinuationCodecError("pending recording is malformed")
     model = raw["model"]
-    if model is not None and (
-        not isinstance(model, str) or model not in inference_config.PROVIDERS[provider]["models"]
-    ):
+    if model is not None and (not isinstance(model, str) or model not in inference_config.PROVIDERS[provider]):
         raise ContinuationCodecError("pending model is malformed")
     return PendingLocalChat(
         continuation=_continuation(raw["continuation"]),
