@@ -219,25 +219,29 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
     )
     config = scope.config
     mutable = _routine_mutable(request)
+    routines = _listed(self, request) if mutable else None
+    # The recording span, read once after the listing kept the Routines this send's Brain is shown.
+    span = self.routine_recordings.live(request.team_id, request.recording)
+    recorded = span if mutable else None
     return brain_runtime_client.RuntimeContext(
         thread_id=scope.thread_id,
         team_name=scope.team_name,
         assistants=runtime_assistants,
         # A Routine run's runtime answers from its plan and reads neither.
         provider="" if config is None else config.provider,
-        model="" if config is None else _turn_model(self, request, config),
+        model="" if config is None else _turn_model(request, config, span),
         api_key=request.api_key,
         memories=None if routine is not None else tuple(memories),
         skills=None if routine is not None else chat_knowledge.turn_skills(skills, runtime_assistants),
-        routines=_listed(self, request) if mutable else None,
-        routine_question=_pending_question(self, request) if mutable else None,
-        routine_mode=mutable and routine_recorder.routine_mode(_span(self, request)),
-        routine_rerun=routine_recorder.rerun_work(_span(self, request)) if mutable else None,
-        routine_schedule=routine_recorder.stated_schedule(_span(self, request)) if mutable else None,
-        routine_output=routine_recorder.stated_output(_span(self, request)) if mutable else None,
-        routine_output_answer=mutable and routine_recorder.output_answer(_span(self, request)),
+        routines=routines,
+        routine_question=None if recorded is None or recorded.asked is None else recorded.asked.wire,
+        routine_mode=mutable and routine_recorder.routine_mode(recorded),
+        routine_rerun=routine_recorder.rerun_work(recorded) if mutable else None,
+        routine_schedule=routine_recorder.stated_schedule(recorded) if mutable else None,
+        routine_output=routine_recorder.stated_output(recorded) if mutable else None,
+        routine_output_answer=mutable and routine_recorder.output_answer(recorded),
         locale=request.locale,
-        turn_clock=_turn_clock(_span(self, request)) if mutable else None,
+        turn_clock=_turn_clock(recorded),
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),
     )
 
@@ -250,7 +254,9 @@ def _turn_clock(span: routine_recorder.Span | None) -> tuple[str, str] | None:
     return datetime.datetime.fromtimestamp(span.started_at, zoneinfo.ZoneInfo(zone)).date().isoformat(), zone
 
 
-def _turn_model(self, request: SegmentRequest, config: inference_config.InferenceConfig) -> str:
+def _turn_model(
+    request: SegmentRequest, config: inference_config.InferenceConfig, span: routine_recorder.Span | None
+) -> str:
     """The model a turn's start pinned, or for a start the Team's, except a chat turn about a Routine."""
     if request.model is not None:
         return request.model
@@ -258,7 +264,7 @@ def _turn_model(self, request: SegmentRequest, config: inference_config.Inferenc
         request.routine is None
         and request.recording is not None
         and config.provider in ROUTINE_MODELS
-        and routine_recorder.routine_mode(_span(self, request))
+        and routine_recorder.routine_mode(span)
     )
     return ROUTINE_MODELS[config.provider] if routed else config.model
 
@@ -269,16 +275,6 @@ def _listed(self, request: SegmentRequest) -> tuple[dict[str, object], ...]:
     revisions = ((item["routine_id"], item["revision"]) for item in routines)
     self.routine_recordings.listed(request.team_id, request.recording, revisions)
     return routines
-
-
-def _span(self, request: SegmentRequest) -> routine_recorder.Span | None:
-    return self.routine_recordings.live(request.team_id, request.recording)
-
-
-def _pending_question(self, request: SegmentRequest) -> dict[str, object] | None:
-    """The question Team asked in the recording this send continues, which the Brain sees beside the person's words."""
-    span = _span(self, request)
-    return None if span is None or span.asked is None else span.asked.wire
 
 
 def _runtime(self, request: SegmentRequest) -> object:

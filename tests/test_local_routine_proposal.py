@@ -514,7 +514,6 @@ class RecordedRoutineTests(LocalContractCase):
         book = local_routine_recorder.RecordingBook()
         started = local_routine_recorder.Started("A cada 30 segundos", (), None)
         recording = book.start("team_1", (PRINCIPAL, "i"), started, int(time.time()))
-        controller = SimpleNamespace(routine_recordings=book)
         config = inference_config.normalize("openai", "gpt-6-luna")
         sol = local_segment.ROUTINE_MODELS["openai"]
         cases = (
@@ -526,12 +525,12 @@ class RecordedRoutineTests(LocalContractCase):
         for model, routine, expected in cases:
             request = SimpleNamespace(team_id="team_1", recording=recording, model=model, routine=routine)
             with self.subTest(model=model, routine=routine):
-                self.assertEqual(local_segment._turn_model(controller, request, config), expected)
+                self.assertEqual(local_segment._turn_model(request, config, book.live("team_1", recording)), expected)
         book.drop("team_1")
         for model, expected in ((None, "gpt-6-luna"), (sol, sol)):
             request = SimpleNamespace(team_id="team_1", recording=recording, model=model, routine=None)
             with self.subTest(model=model, span=None):
-                self.assertEqual(local_segment._turn_model(controller, request, config), expected)
+                self.assertEqual(local_segment._turn_model(request, config, book.live("team_1", recording)), expected)
 
     def test_only_a_target_chosen_by_its_exact_json_text_skips_the_brain(self) -> None:
         original = "Liste os registros DNS a cada 30 segundos e mostre o resultado"
