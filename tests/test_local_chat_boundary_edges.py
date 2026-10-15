@@ -324,10 +324,10 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             _chat_identity=lambda *current: current,
         )
         self.assertEqual(
-            local_chat_api._pending_chat_continuation(subject, "team_1"),
+            local_chat_api.pending_chat_continuation(subject, "team_1"),
             {"human": human},
         )
-        self.assertEqual(local_chat_api._pending_chat_continuation(subject, "team_1", "pt"), {"human": human})
+        self.assertEqual(local_chat_api.pending_chat_continuation(subject, "team_1", "pt"), {"human": human})
         self.assertEqual(relocalized.call_args_list, [mock.call(human, "fr"), mock.call(human, "pt")])
         subject.human_challenges.current = lambda _team_id: None
         # The Integration gate is validated against the provider and context its own turn paused with.
@@ -335,7 +335,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             local_chat_api.local_chat_pause, "_paused_setup", return_value=(pending, ("identity",))
         ) as setup:
             self.assertEqual(
-                local_chat_api._pending_chat_continuation(subject, "team_1"),
+                local_chat_api.pending_chat_continuation(subject, "team_1"),
                 {"integration": integration},
             )
         setup.assert_called_once_with(subject, "team_1", "anthropic", integration)
@@ -364,7 +364,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             mock.patch.object(local_chat_api.chat_turn_engine, "dispatch", invalid_pending),
             self.assertRaises(AssertionError),
         ):
-            local_chat_api._segment_response(subject, response)
+            local_chat_api.segment_response(subject, response)
 
         terminal = types.SimpleNamespace(
             reply="reply",
@@ -381,7 +381,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             mock.patch.object(local_chat_api.chat_turn_engine, "dispatch", conflicting_terminal),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_chat_api._segment_response(subject, response)
+            local_chat_api.segment_response(subject, response)
         self.assertEqual(caught.exception.code, "chat-stopped")
         # Stop won the commit, so the turn's card was admitted but never kept, and its span went on unchanged.
         subject._routine_record.assert_called_once()
@@ -395,7 +395,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             mock.patch.object(local_chat_api.chat_turn_engine, "dispatch", conflicting_terminal),
             self.assertRaises(local_app.ApiProblem),
         ):
-            local_chat_api._segment_response(subject, response)
+            local_chat_api.segment_response(subject, response)
         write.assert_not_called()
 
         def committing(_team_id, _token, apply):
@@ -404,7 +404,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
 
         subject._commit_chat_terminal = committing
         with mock.patch.object(local_chat_api.chat_turn_engine, "dispatch", conflicting_terminal):
-            body = local_chat_api._segment_response(subject, response)
+            body = local_chat_api.segment_response(subject, response)
         # The card or its refusal is written with the reply and carried beside it.
         write.assert_called_once_with()
         self.assertEqual(
@@ -420,7 +420,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_chat_api._segment_response(subject, response)
+            local_chat_api.segment_response(subject, response)
         self.assertEqual(caught.exception.code, "internal-error")
 
     def test_a_card_whose_terminal_line_outgrows_its_bound_is_refused_never_cut(self) -> None:

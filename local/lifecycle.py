@@ -55,21 +55,21 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
 )
 
 
-def _purge_action_generation(self, generation: str) -> None:
+def purge_action_generation(self, generation: str) -> None:
     try:
         self.action_state.purge(generation)
     except action_journal.ActionJournalError as exc:
         raise action_state_unavailable() from exc
 
 
-def _team_assistant_containers(self, team_id: str) -> list:
+def team_assistant_containers(self, team_id: str) -> list:
     try:
         return self.client.containers.list(**self.assistant_lifecycle._assistant_filters(team_id))
     except DockerException as exc:
         raise docker_unavailable() from exc
 
 
-def _validate_destroy_containers(self, containers: list, team_id: str, network) -> None:
+def validate_destroy_containers(self, containers: list, team_id: str, network) -> None:
     for container in containers:
         assistant_id = container.labels.get(ASSISTANT_LABEL)
         spec = self.registry.get(team_id, assistant_id)
@@ -78,7 +78,7 @@ def _validate_destroy_containers(self, containers: list, team_id: str, network) 
         self.assistant_lifecycle._validate_container_profile(container, team_id, spec, network.name)
 
 
-def _delete_team_conversation(self, team_id: str, network) -> None:
+def delete_team_conversation(self, team_id: str, network) -> None:
     if network is None:
         return
     thread_id = _brain_thread_id(self.space_id, team_id, network.id)
@@ -96,7 +96,7 @@ def _remove_team_helpers(self, team_id: str) -> None:
         raise team_destroy_failed() from exc
 
 
-def _remove_team_assistants(self, team_id: str, containers: list) -> int:
+def remove_team_assistants(self, team_id: str, containers: list) -> int:
     for container in containers:
         assistant_id = container.labels[ASSISTANT_LABEL]
         spec = self.registry.get(team_id, assistant_id)
@@ -123,7 +123,7 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
     return len(containers)
 
 
-def _delete_team_persistence(self, team_id: str) -> bool:
+def delete_team_persistence(self, team_id: str) -> bool:
     try:
         storage_removed = self.storage.destroy(team_id)
     except team_storage.StorageError as exc:
@@ -135,11 +135,11 @@ def _delete_team_persistence(self, team_id: str) -> bool:
     return storage_removed
 
 
-def _delete_team_private_state(self, team_id: str) -> None:
+def delete_team_private_state(self, team_id: str) -> None:
     self.chat_turn_service._delete_team_private_state(team_id)
 
 
-def _remove_team_network(self, network) -> bool:
+def remove_team_network(self, network) -> bool:
     if network is None:
         return False
     try:
@@ -149,7 +149,7 @@ def _remove_team_network(self, network) -> bool:
     return True
 
 
-def _clear_team_runtime_state(self, team_id: str) -> None:
+def clear_team_runtime_state(self, team_id: str) -> None:
     with self.chat_turn_service._active_chat_guard:
         token = self.chat_turn_service._active_chat_tokens.pop(team_id, None)
         self.chat_turn_service._active_action_containers.pop(team_id, None)
@@ -237,7 +237,7 @@ def _destroy_confirmed_team(self, team_id: str) -> dict[str, object]:
         chat_lock.release()
 
 
-def _validate_reset_container(self, container) -> None:
+def validate_reset_container(self, container) -> None:
     container.reload()
     labels = container.attrs.get("Config", {}).get("Labels") or {}
     team_id = labels.get(TEAM_LABEL)
@@ -254,7 +254,7 @@ def _validate_reset_container(self, container) -> None:
         raise space_resource_ownership_conflict()
 
 
-def _reset_inventory(self) -> tuple[list, list]:
+def reset_inventory(self) -> tuple[list, list]:
     containers = self.client.containers.list(
         all=True,
         filters={"label": local_labels.label_filter(local_labels.ownership_labels(self.space_id, "assistant"))},
@@ -267,7 +267,7 @@ def _reset_inventory(self) -> tuple[list, list]:
     return containers, networks
 
 
-def _reset_assistant_identities(self, containers: list, networks: list) -> set[tuple[str, str]]:
+def reset_assistant_identities(self, containers: list, networks: list) -> set[tuple[str, str]]:
     owned_assistants = {
         (
             container.attrs["Config"]["Labels"][TEAM_LABEL],
@@ -288,7 +288,7 @@ def _reset_assistant_identities(self, containers: list, networks: list) -> set[t
     return owned_assistants
 
 
-def _remove_space_resources(
+def remove_space_resources(
     self,
     containers: list,
     networks: list,

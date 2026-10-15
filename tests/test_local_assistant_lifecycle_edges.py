@@ -15,7 +15,7 @@ from local.install import snapshots
 
 
 def _create_container(subject: object, spec: object) -> object:
-    return assistant_lifecycle._create_assistant_container(
+    return assistant_lifecycle.create_assistant_container(
         subject, "team_1", spec, types.SimpleNamespace(name="network"), types.SimpleNamespace(id="sha256:" + "a" * 64)
     )
 
@@ -63,7 +63,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
         )
         spec = types.SimpleNamespace(assistant_id="assistant")
         self.assertIsNone(
-            assistant_lifecycle._rollback_assistant_install(
+            assistant_lifecycle.rollback_assistant_install(
                 subject,
                 "team_1",
                 spec,
@@ -80,7 +80,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             "unavailable",
             code="egress-policy-unavailable",
         )
-        problem = assistant_lifecycle._rollback_assistant_install(
+        problem = assistant_lifecycle.rollback_assistant_install(
             subject,
             "team_1",
             spec,
@@ -140,7 +140,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
         subject._wait_ready = mock.Mock()
         subject._active_assistant_genesis = mock.Mock()
         authorize = mock.Mock()
-        assistant_lifecycle._create_assistant_container(
+        assistant_lifecycle.create_assistant_container(
             subject,
             "team_1",
             spec,
@@ -181,7 +181,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
         spec = types.SimpleNamespace(assistant_id="assistant")
         network = types.SimpleNamespace(name="network")
         with self.assertRaises(local_app.ApiProblem) as caught:
-            assistant_lifecycle._replace_unready_assistant(
+            assistant_lifecycle.replace_unready_assistant(
                 subject,
                 "team_1",
                 spec,
@@ -192,7 +192,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
 
         existing.remove.side_effect = None
         authorize = mock.Mock()
-        assistant_lifecycle._replace_unready_assistant(
+        assistant_lifecycle.replace_unready_assistant(
             subject,
             "team_1",
             spec,
@@ -206,7 +206,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
         )
 
         subject._create_assistant_container.reset_mock()
-        assistant_lifecycle._replace_unready_assistant(
+        assistant_lifecycle.replace_unready_assistant(
             subject,
             "team_1",
             spec,
@@ -225,7 +225,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
         network = types.SimpleNamespace(name="network")
         subject._has_current_assistant_artifact.return_value = True
         with self.assertRaises(local_app.ApiProblem) as caught:
-            assistant_lifecycle._replace_outdated_assistant(
+            assistant_lifecycle.replace_outdated_assistant(
                 subject,
                 "team_1",
                 spec,
@@ -237,7 +237,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
         subject._has_current_assistant_artifact.return_value = False
         existing.remove.side_effect = DockerException("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
-            assistant_lifecycle._replace_outdated_assistant(
+            assistant_lifecycle.replace_outdated_assistant(
                 subject,
                 "team_1",
                 spec,
@@ -248,7 +248,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
 
         existing.remove.side_effect = None
         authorize = mock.Mock()
-        assistant_lifecycle._replace_outdated_assistant(
+        assistant_lifecycle.replace_outdated_assistant(
             subject,
             "team_1",
             spec,
@@ -273,7 +273,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             )
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
-            assistant_lifecycle._restore_previous_assistant(
+            assistant_lifecycle.restore_previous_assistant(
                 subject,
                 "team_1",
                 object(),
@@ -290,14 +290,14 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
                 )
             ),
         )
-        self.assertTrue(assistant_lifecycle._binding_uses_image(subject, "target"))
+        self.assertTrue(assistant_lifecycle.binding_uses_image(subject, "target"))
 
         subject.registry.images = mock.Mock(side_effect=bindings.DynamicAssistantError("unavailable"))
-        self.assertIsNone(assistant_lifecycle._binding_uses_image(subject, "target"))
+        self.assertIsNone(assistant_lifecycle.binding_uses_image(subject, "target"))
 
         subject.registry.images = lambda: ("other",)
         subject.client.images.get = lambda _image: types.SimpleNamespace(id="other")
-        self.assertFalse(assistant_lifecycle._binding_uses_image(subject, "target"))
+        self.assertFalse(assistant_lifecycle.binding_uses_image(subject, "target"))
 
     def test_retired_image_deletion_inventory_and_journal_errors_are_deferred(self) -> None:
         subject = types.SimpleNamespace(
@@ -310,20 +310,20 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             ),
             _binding_uses_image=lambda _image_id: False,
         )
-        self.assertTrue(assistant_lifecycle._delete_retired_image(subject, "image"))
+        self.assertTrue(assistant_lifecycle.delete_retired_image(subject, "image"))
         subject.client.images.get.side_effect = None
         subject.client.images.get.return_value = types.SimpleNamespace(attrs={"Config": {"Labels": None}})
         subject.client.images.remove.side_effect = ImageNotFound("gone")
-        self.assertTrue(assistant_lifecycle._delete_retired_image(subject, "image"))
+        self.assertTrue(assistant_lifecycle.delete_retired_image(subject, "image"))
         subject.client.images.remove.side_effect = DockerException("referenced")
-        self.assertFalse(assistant_lifecycle._delete_retired_image(subject, "image"))
-        self.assertFalse(assistant_lifecycle._remove_retired_image(subject, "image"))
+        self.assertFalse(assistant_lifecycle.delete_retired_image(subject, "image"))
+        self.assertFalse(assistant_lifecycle.remove_retired_image(subject, "image"))
         subject.client.containers.list.assert_called_once_with(all=True, sparse=True, filters={"ancestor": "image"})
 
         subject.updates = types.SimpleNamespace(
             clear=mock.Mock(side_effect=bindings.DynamicAssistantError("unavailable"))
         )
-        self.assertIsNone(assistant_lifecycle._clear_update(subject, object()))
+        self.assertIsNone(assistant_lifecycle.clear_update(subject, object()))
 
     def test_retired_image_cleanup_preserves_current_local_snapshots(self) -> None:
         remove = mock.Mock()
@@ -342,13 +342,13 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             client=types.SimpleNamespace(images=types.SimpleNamespace(get=get, remove=remove))
         )
 
-        self.assertTrue(assistant_lifecycle._delete_retired_image(subject, "image"))
+        self.assertTrue(assistant_lifecycle.delete_retired_image(subject, "image"))
         remove.assert_not_called()
 
         get.return_value = types.SimpleNamespace(attrs={"Config": {"Labels": "invalid"}})
-        self.assertFalse(assistant_lifecycle._delete_retired_image(subject, "image"))
+        self.assertFalse(assistant_lifecycle.delete_retired_image(subject, "image"))
         get.side_effect = DockerException("unavailable")
-        self.assertFalse(assistant_lifecycle._delete_retired_image(subject, "image"))
+        self.assertFalse(assistant_lifecycle.delete_retired_image(subject, "image"))
 
     def test_residue_sweep_and_queue_defer_unavailable_state(self) -> None:
         subject = types.SimpleNamespace(
@@ -371,10 +371,10 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
 
         subject.residues.add = mock.Mock(side_effect=OSError("unavailable"))
         subject._remove_retired_image = mock.Mock(return_value=False)
-        assistant_lifecycle._queue_residue(subject, "image")
+        assistant_lifecycle.queue_residue(subject, "image")
         subject._remove_retired_image.assert_called_once_with("image")
         subject._remove_retired_image.return_value = True
-        assistant_lifecycle._queue_residue(subject, "image")
+        assistant_lifecycle.queue_residue(subject, "image")
 
 
 class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
@@ -472,10 +472,10 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         published = types.SimpleNamespace(provenance="published", binding_digest="published-binding")
         local = types.SimpleNamespace(provenance="local", binding_digest="local-binding")
 
-        assistant_lifecycle._commit_replacement(subject, "team_1", published, {"kind": "published"})
-        assistant_lifecycle._commit_replacement(subject, "team_1", local, {"kind": "local"})
-        assistant_lifecycle._queue_published_residue(subject, local, "sha256:" + "a" * 64)
-        assistant_lifecycle._queue_published_residue(subject, published, "sha256:" + "b" * 64)
+        assistant_lifecycle.commit_replacement(subject, "team_1", published, {"kind": "published"})
+        assistant_lifecycle.commit_replacement(subject, "team_1", local, {"kind": "local"})
+        assistant_lifecycle.queue_published_residue(subject, local, "sha256:" + "a" * 64)
+        assistant_lifecycle.queue_published_residue(subject, published, "sha256:" + "b" * 64)
 
         registry.commit_replacement.assert_called_once_with(
             "team_1",
@@ -489,7 +489,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         )
         subject._queue_residue.assert_called_once_with("sha256:" + "b" * 64)
         with self.assertRaisesRegex(bindings.DynamicAssistantConflictError, "provenance cannot be replaced"):
-            assistant_lifecycle._commit_replacement(
+            assistant_lifecycle.commit_replacement(
                 subject,
                 "team_1",
                 types.SimpleNamespace(provenance="unknown", binding_digest="invalid"),
@@ -540,7 +540,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
             _assistant_image=mock.Mock(return_value=object()),
             _create_assistant_container=mock.Mock(),
         )
-        assistant_lifecycle._recover_update_target(subject, update, target)
+        assistant_lifecycle.recover_update_target(subject, update, target)
         subject._create_assistant_container.assert_called_once()
 
         existing = types.SimpleNamespace(
@@ -559,21 +559,21 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         subject._validate_container_security = mock.Mock()
         subject._wait_ready = mock.Mock()
         subject._active_assistant_genesis = mock.Mock()
-        assistant_lifecycle._recover_update_target(subject, update, target)
+        assistant_lifecycle.recover_update_target(subject, update, target)
         existing.start.assert_called_once_with()
 
         existing.start.side_effect = DockerException("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
-            assistant_lifecycle._recover_update_target(subject, update, target)
+            assistant_lifecycle.recover_update_target(subject, update, target)
         self.assertEqual(caught.exception.code, "docker-start-failed")
 
         existing.start.side_effect = None
         existing.status = "running"
-        assistant_lifecycle._recover_update_target(subject, update, target)
+        assistant_lifecycle.recover_update_target(subject, update, target)
 
         subject._has_current_assistant_artifact.side_effect = (False, False, False)
         with self.assertRaises(local_app.ApiProblem) as caught:
-            assistant_lifecycle._recover_update_target(subject, update, target)
+            assistant_lifecycle.recover_update_target(subject, update, target)
         self.assertEqual(caught.exception.code, "assistant-update-conflict")
 
         actual = previous
@@ -582,14 +582,14 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         subject._has_current_assistant_artifact.side_effect = (False, True, True)
         existing.remove.side_effect = DockerException("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
-            assistant_lifecycle._recover_update_target(subject, update, target)
+            assistant_lifecycle.recover_update_target(subject, update, target)
         self.assertEqual(caught.exception.code, "docker-remove-failed")
 
         subject._has_current_assistant_artifact.side_effect = (False, True, True)
         existing.remove.side_effect = None
         subject._remove_egress_policy = mock.Mock()
         subject._create_assistant_container.reset_mock()
-        assistant_lifecycle._recover_update_target(subject, update, target)
+        assistant_lifecycle.recover_update_target(subject, update, target)
         subject._remove_egress_policy.assert_called_once()
         subject._create_assistant_container.assert_called_once()
 

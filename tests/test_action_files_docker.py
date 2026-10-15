@@ -113,8 +113,8 @@ class RealFileDeliveryTests(unittest.TestCase):
         self.addCleanup(self.container.remove, force=True)
         # Team's own Local fail-stop: stop, then kill, and prove the workload no longer runs.
         controller = SimpleNamespace(client=self.client, _blocked_action_workloads=set())
-        controller._action_not_running = local_assistant_rpc._action_not_running
-        controller._fail_stop_action = lambda container: local_assistant_rpc._fail_stop_action(controller, container)
+        controller._action_not_running = local_assistant_rpc.action_not_running
+        controller._fail_stop_action = lambda container: local_assistant_rpc.fail_stop_action(controller, container)
         controller._close_exec_stream = action_execution.close_exec_stream
         self.controller = controller
 
@@ -160,7 +160,7 @@ class RealFileDeliveryTests(unittest.TestCase):
                 if transcript.responses:
                     payload["responses"] = transcript.payloads()
                 try:
-                    raw = local_assistant_rpc._rpc(self.controller, self.container, action_id, payload)
+                    raw = local_assistant_rpc.rpc(self.controller, self.container, action_id, payload)
                 except ApiProblemError as exc:
                     raw = exc
             finished = time.monotonic()

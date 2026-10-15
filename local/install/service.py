@@ -433,7 +433,7 @@ def _discard_icon(self, source_digest: str) -> None:
         raise assistant_icon_unavailable() from exc
 
 
-def _install_bound_publication(
+def install_bound_publication(
     self,
     team_id: str,
     assistant_id: str,

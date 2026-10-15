@@ -32,7 +32,7 @@ from routine import schedule as routine_schedule
 MAX_CHAT_MESSAGE_CHARS = http_payload.MAX_CHAT_MESSAGE_CHARS
 
 
-def _pending_chat_continuation(self, team_id: str, locale: str | None = None) -> dict[str, object] | None:
+def pending_chat_continuation(self, team_id: str, locale: str | None = None) -> dict[str, object] | None:
     """The Team's pending challenge; a human one is returned in the chat's interface language when it names one.
 
     Either challenge is validated against the context the turn left before it is returned; a drifted one ends its turn.
@@ -77,7 +77,7 @@ def _line_bytes(line: dict[str, object]) -> int:
     return len(json.dumps(line, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
 
 
-def _segment_response(
+def segment_response(
     self,
     response: _ResponseRequest,
 ) -> dict[str, object]:

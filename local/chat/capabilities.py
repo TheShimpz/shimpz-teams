@@ -73,10 +73,10 @@ def _capability_plan_input(
         ) from exc
 
 
-def _capability_plan_snapshot(self, team_id: str, provider: str) -> CapabilityPlanSnapshot:
+def capability_plan_snapshot(self, team_id: str, provider: str) -> CapabilityPlanSnapshot:
     with self._lock(team_id):
-        _team_name, network_id, _active = local_chat_state._team_assistants(self, team_id, scan=False)
-        config = local_chat_state._turn_inference(self, team_id, provider)
+        _team_name, network_id, _active = local_chat_state.team_assistants(self, team_id, scan=False)
+        config = local_chat_state.turn_inference(self, team_id, provider)
         return CapabilityPlanSnapshot(network_id, config.provider, config.model)
 
 

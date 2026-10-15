@@ -41,7 +41,7 @@ log = logging.getLogger("shimpz-team-local")
 MAX_CHAT_FILES = http_payload.MAX_CHAT_FILES
 
 
-def _chat_file_metadata(
+def chat_file_metadata(
     self,
     team_id: str,
     file_ids: object,
@@ -63,7 +63,7 @@ def _chat_file_metadata(
         self._raise_storage_problem(exc)
 
 
-def _team_assistants(self, team_id: str, *, scan: bool = True) -> tuple[str, str, dict[str, _ActiveAssistant]]:
+def team_assistants(self, team_id: str, *, scan: bool = True) -> tuple[str, str, dict[str, _ActiveAssistant]]:
     """The Team's name, network id, and running Assistants by id, read under its lifecycle lock.
 
     An Assistant absent from the result is proven not running for the Team; a Team that cannot be read raises.
@@ -78,7 +78,7 @@ def _team_assistants(self, team_id: str, *, scan: bool = True) -> tuple[str, str
     return team_name, network_id, {active.spec.assistant_id: active for active in active_assistants}
 
 
-def _turn_inference(self, team_id: str, provider: str) -> inference_config.InferenceConfig:
+def turn_inference(self, team_id: str, provider: str) -> inference_config.InferenceConfig:
     """The Team's model configuration, refused when it is absent or bound to another provider than the turn's."""
     try:
         config = self.inference_store.load(team_id)
@@ -89,7 +89,7 @@ def _turn_inference(self, team_id: str, provider: str) -> inference_config.Infer
     return config
 
 
-def _chat_setup(
+def chat_setup(
     self,
     team_id: str,
     file_ids: object,
@@ -106,7 +106,7 @@ def _chat_setup(
     inference_config.InferenceConfig,
 ]:
     with self._lock(team_id):
-        team_name, network_id, active_by_id = _team_assistants(
+        team_name, network_id, active_by_id = team_assistants(
             self, team_id, scan=bool(scan_empty_scope or assistant_ids)
         )
         try:
@@ -118,11 +118,11 @@ def _chat_setup(
                 code="assistant-unavailable",
             ) from None
         files = self._chat_file_metadata(team_id, file_ids, metadata_connection)
-        config = _turn_inference(self, team_id, provider)
+        config = turn_inference(self, team_id, provider)
     return team_name, network_id, assistants, files, config
 
 
-def _active_assistant_genesis(self, active: _ActiveAssistant) -> str:
+def active_assistant_genesis(self, active: _ActiveAssistant) -> str:
     container = active.container
     if container is None:
         try:
@@ -149,7 +149,7 @@ def _active_assistant_genesis(self, active: _ActiveAssistant) -> str:
         ) from exc
 
 
-def _assistant_language(self, active: _ActiveAssistant) -> assistant_language.LanguagePack:
+def assistant_language_pack(self, active: _ActiveAssistant) -> assistant_language.LanguagePack:
     """The verified language pack of the active container generation and its reviewed binding (ADR-0091)."""
     container = active.container
     if getattr(container, "id", None) != active.container_id:
@@ -166,7 +166,7 @@ def _assistant_language(self, active: _ActiveAssistant) -> assistant_language.La
         raise assistant_manifest_invalid() from exc
 
 
-def _admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tuple[str, ...]:
+def admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tuple[str, ...]:
     try:
         reviewed = assistant_manifest.reviewed_manifest_contract(
             allowed_hosts=spec.allowed_hosts,
@@ -188,7 +188,7 @@ def _admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tupl
         return declared.allowed_hosts
 
 
-def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_ActiveAssistant, ...]:
+def active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_ActiveAssistant, ...]:
     active: list[_ActiveAssistant] = []
     lifecycle = self.assistant_lifecycle
     filters = lifecycle._assistant_filters(team_id)
@@ -221,25 +221,25 @@ def _stored_input_state[T](self, change: Callable[[action_stored_input.StoredInp
         raise stored_input_unavailable() from exc
 
 
-def _delete_assistant_private_state(self, team_id: str, assistant_id: str) -> None:
+def delete_assistant_private_state(self, team_id: str, assistant_id: str) -> None:
     """Delete one Assistant's Integration tokens, then its Stored Inputs."""
     _integration_state(self, lambda store: store.delete_assistant(team_id, assistant_id))
     _stored_input_state(self, lambda store: store.delete_assistant(team_id, assistant_id))
 
 
-def _delete_team_private_state(self, team_id: str) -> None:
+def delete_team_private_state(self, team_id: str) -> None:
     """Delete one Team's Integration tokens, then its Stored Inputs."""
     _integration_state(self, lambda store: store.delete_team(team_id))
     _stored_input_state(self, lambda store: store.delete_team(team_id))
 
 
-def _delete_all_private_state(self) -> None:
+def delete_all_private_state(self) -> None:
     """Delete every Integration token, then every Stored Input, during an owned Space reset."""
     _integration_state(self, lambda store: store.delete_all())
     _stored_input_state(self, lambda store: store.delete_all())
 
 
-def _retain_declared_private_state(self, team_id: str, spec: AssistantSpec) -> None:
+def retain_declared_private_state(self, team_id: str, spec: AssistantSpec) -> None:
     """Keep only the Integrations and Stored Inputs the Assistant's current release declares.
 
     Pruning a token ends the Team's Integration challenge and its paused chat, which may have waited on that token.
@@ -252,7 +252,7 @@ def _retain_declared_private_state(self, team_id: str, spec: AssistantSpec) -> N
     _stored_input_state(self, lambda store: store.retain_declared(team_id, spec.assistant_id, stored_inputs))
 
 
-def _raise_chat_continuation_problem(exc: Exception) -> NoReturn:
+def raise_chat_continuation_problem(exc: Exception) -> NoReturn:
     raise ApiProblem(
         HTTPStatus.SERVICE_UNAVAILABLE,
         "Team chat continuation state is unavailable",
@@ -260,7 +260,7 @@ def _raise_chat_continuation_problem(exc: Exception) -> NoReturn:
     ) from exc
 
 
-def _persist_chat_continuation(
+def persist_chat_continuation(
     self,
     kind: str,
     challenge: object,
@@ -291,7 +291,7 @@ def _persist_chat_continuation(
         self._raise_chat_continuation_problem(exc)
 
 
-def _restore_chat_continuation(
+def restore_chat_continuation(
     self,
     stored: local_chat_continuation_store.StoredContinuation,
 ) -> None:
@@ -329,7 +329,7 @@ def _restore_chat_continuation(
         self._raise_chat_continuation_problem(exc)
 
 
-def _purge_expired_human_continuation(
+def purge_expired_human_continuation(
     self,
     stored: local_chat_continuation_store.StoredContinuation,
 ) -> None:
@@ -344,7 +344,7 @@ def _purge_expired_human_continuation(
     self._purge_human_pending(decoded.pending)
 
 
-def _restore_all_chat_continuations(self) -> None:
+def restore_all_chat_continuations(self) -> None:
     try:
         expired = self.chat_continuations.drain_expired()
         stored = self.chat_continuations.active()
@@ -356,7 +356,7 @@ def _restore_all_chat_continuations(self) -> None:
         self._restore_chat_continuation(continuation)
 
 
-def _delete_chat_continuation(
+def delete_chat_continuation(
     self,
     team_id: str,
     challenge_id: str | None = None,
@@ -367,7 +367,7 @@ def _delete_chat_continuation(
         self._raise_chat_continuation_problem(exc)
 
 
-def _delete_withdrawn_continuation(self, team_id: str, challenge: object) -> bool:
+def delete_withdrawn_continuation(self, team_id: str, challenge: object) -> bool:
     """Delete the continuation of one withdrawn challenge; another challenge's continuation belongs to a newer turn."""
     try:
         return self.chat_continuations.delete(team_id, challenge.id)
@@ -377,7 +377,7 @@ def _delete_withdrawn_continuation(self, team_id: str, challenge: object) -> boo
         self._raise_chat_continuation_problem(exc)
 
 
-def _clear_chat_continuations(self) -> int:
+def clear_chat_continuations(self) -> int:
     try:
         return self.chat_continuations.clear()
     except local_chat_continuation_store.ContinuationStoreError as exc:

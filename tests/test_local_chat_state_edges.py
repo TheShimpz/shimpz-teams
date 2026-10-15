@@ -45,7 +45,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
     def test_file_metadata_validates_shape_and_maps_storage_failures(self) -> None:
         subject = types.SimpleNamespace()
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._chat_file_metadata(subject, "team_1", object())
+            local_chat_state.chat_file_metadata(subject, "team_1", object())
         self.assertEqual(caught.exception.code, "invalid-files")
 
         cases = (
@@ -66,7 +66,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
                     ),
                 )
                 with self.assertRaises(local_app.ApiProblem) as caught:
-                    local_chat_state._chat_file_metadata(subject, "team_1", [])
+                    local_chat_state.chat_file_metadata(subject, "team_1", [])
                 self.assertEqual(caught.exception.code, expected_code)
 
     @staticmethod
@@ -91,12 +91,12 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             id=None,
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._chat_setup(subject, "team_1", [], "openai", ())
+            local_chat_state.chat_setup(subject, "team_1", [], "openai", ())
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
         subject = self._setup_subject()
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._chat_setup(
+            local_chat_state.chat_setup(
                 subject,
                 "team_1",
                 [],
@@ -108,13 +108,13 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         subject = self._setup_subject()
         subject.inference_store.load = mock.Mock(side_effect=inference_config.InferenceConfigError("unavailable"))
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._chat_setup(subject, "team_1", [], "openai", ())
+            local_chat_state.chat_setup(subject, "team_1", [], "openai", ())
         self.assertEqual(caught.exception.code, "inference-not-configured")
 
         subject = self._setup_subject()
         subject.inference_store.load = lambda _team_id: types.SimpleNamespace(provider="anthropic")
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._chat_setup(subject, "team_1", [], "openai", ())
+            local_chat_state.chat_setup(subject, "team_1", [], "openai", ())
         self.assertEqual(caught.exception.code, "inference-provider-mismatch")
 
     def test_genesis_resolution_rejects_docker_identity_and_contract_drift(self) -> None:
@@ -126,12 +126,12 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             )
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._active_assistant_genesis(subject, active)
+            local_chat_state.active_assistant_genesis(subject, active)
         self.assertEqual(caught.exception.code, "assistant-genesis-unavailable")
 
         active = ActiveAssistant(spec, "container", types.SimpleNamespace(id="different"))
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._active_assistant_genesis(subject, active)
+            local_chat_state.active_assistant_genesis(subject, active)
         self.assertEqual(caught.exception.code, "assistant-genesis-drift")
 
         container = types.SimpleNamespace(id="container")
@@ -140,7 +140,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             get=mock.Mock(side_effect=assistant_genesis.GenesisError("invalid"))
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._active_assistant_genesis(subject, active)
+            local_chat_state.active_assistant_genesis(subject, active)
         self.assertEqual(caught.exception.code, "assistant-genesis-invalid")
 
     def test_active_assistant_inventory_fails_closed_on_docker_registry_and_blocking(self) -> None:
@@ -152,7 +152,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         )
         subject = types.SimpleNamespace(assistant_lifecycle=lifecycle, registry=TestAssistantRegistry())
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._active_chat_assistants(subject, "team_1", "network")
+            local_chat_state.active_chat_assistants(subject, "team_1", "network")
         self.assertEqual(caught.exception.code, "docker-unavailable")
 
         container = types.SimpleNamespace(
@@ -164,7 +164,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         lifecycle.client.containers.list.return_value = [container]
         subject.registry = TestAssistantRegistry()
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._active_chat_assistants(subject, "team_1", "network")
+            local_chat_state.active_chat_assistants(subject, "team_1", "network")
         self.assertEqual(caught.exception.code, "assistant-registry-drift")
 
         spec = types.SimpleNamespace(assistant_id="assistant")
@@ -172,19 +172,19 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         lifecycle._validate_container = mock.Mock()
         lifecycle._blocked_action_workloads = {"container"}
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._active_chat_assistants(subject, "team_1", "network")
+            local_chat_state.active_chat_assistants(subject, "team_1", "network")
         self.assertEqual(caught.exception.code, "assistant-action-blocked")
 
         lifecycle._blocked_action_workloads = set()
         container.status = "exited"
         self.assertEqual(
-            local_chat_state._active_chat_assistants(subject, "team_1", "network"),
+            local_chat_state.active_chat_assistants(subject, "team_1", "network"),
             (),
         )
 
         container.labels = {local_app.ASSISTANT_LABEL: "Malformed!"}
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._active_chat_assistants(subject, "team_1", "network")
+            local_chat_state.active_chat_assistants(subject, "team_1", "network")
         self.assertEqual(caught.exception.code, "assistant-registry-drift")
 
     def test_private_state_mutations_map_each_store_failure(self) -> None:
@@ -192,10 +192,10 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         stored_input_failure = action_stored_input.StoredInputStoreError("unavailable")
         spec = types.SimpleNamespace(assistant_id="assistant", integrations={}, stored_inputs={})
         operations = (
-            (local_chat_state._delete_assistant_private_state, "delete_assistant", ("team_1", "assistant")),
-            (local_chat_state._delete_team_private_state, "delete_team", ("team_1",)),
-            (local_chat_state._delete_all_private_state, "delete_all", ()),
-            (local_chat_state._retain_declared_private_state, "retain_declared", ("team_1", spec)),
+            (local_chat_state.delete_assistant_private_state, "delete_assistant", ("team_1", "assistant")),
+            (local_chat_state.delete_team_private_state, "delete_team", ("team_1",)),
+            (local_chat_state.delete_all_private_state, "delete_all", ()),
+            (local_chat_state.retain_declared_private_state, "retain_declared", ("team_1", spec)),
         )
         for operation, method, arguments in operations:
             # The Integration store fails first and the Stored Input store is never reached.
@@ -238,19 +238,19 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             integration_challenges=types.SimpleNamespace(cancel_team=lambda _team_id: events.append("challenge")),
             _delete_chat_continuation=lambda _team_id: events.append("continuation"),
         )
-        local_chat_state._retain_declared_private_state(subject, "team_1", spec)
+        local_chat_state.retain_declared_private_state(subject, "team_1", spec)
         self.assertEqual(events, ["integrations", "challenge", "continuation", "stored-inputs"])
         subject.assistant_integrations.retain_declared.assert_called_once_with("team_1", "assistant", ("a", "b"))
         subject.assistant_stored_inputs.retain_declared.assert_called_once_with("team_1", "assistant", ("k",))
 
     def test_persistence_validates_lifetime_and_maps_codec_or_store_failures(self) -> None:
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._raise_chat_continuation_problem(continuation_store.ContinuationStoreError("unavailable"))
+            local_chat_state.raise_chat_continuation_problem(continuation_store.ContinuationStoreError("unavailable"))
         self.assertEqual(caught.exception.code, "chat-state-unavailable")
 
         subject = types.SimpleNamespace(_raise_chat_continuation_problem=mock.Mock(side_effect=_unavailable_problem()))
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._persist_chat_continuation(
+            local_chat_state.persist_chat_continuation(
                 subject,
                 "human",
                 object(),
@@ -273,7 +273,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(local_app.ApiProblem),
         ):
-            local_chat_state._persist_chat_continuation(
+            local_chat_state.persist_chat_continuation(
                 subject,
                 "human",
                 challenge,
@@ -285,7 +285,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         subject = types.SimpleNamespace()
         with mock.patch.object(local_chat_state.time, "time", return_value=2_000):
             self.assertIsNone(
-                local_chat_state._restore_chat_continuation(
+                local_chat_state.restore_chat_continuation(
                     subject,
                     _stored(expires_at=2_000),
                 )
@@ -302,7 +302,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             mock.patch.object(local_continuation, "decode", return_value=decoded),
             self.assertRaises(local_app.ApiProblem),
         ):
-            local_chat_state._restore_chat_continuation(subject, _stored())
+            local_chat_state.restore_chat_continuation(subject, _stored())
 
         decoded.kind = "human"
         decoded.requirements = (object(),)
@@ -311,7 +311,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             mock.patch.object(local_chat_state.time, "time", return_value=1_000),
             mock.patch.object(local_continuation, "decode", return_value=decoded),
         ):
-            local_chat_state._restore_chat_continuation(subject, _stored())
+            local_chat_state.restore_chat_continuation(subject, _stored())
         subject.human_challenges.restore.assert_called_once()
 
         decoded.kind = "unknown"
@@ -320,7 +320,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             mock.patch.object(local_continuation, "decode", return_value=decoded),
             self.assertRaises(local_app.ApiProblem),
         ):
-            local_chat_state._restore_chat_continuation(subject, _stored())
+            local_chat_state.restore_chat_continuation(subject, _stored())
 
         decoded.kind = "integrations"
         subject.integration_challenges = types.SimpleNamespace(
@@ -331,31 +331,31 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             mock.patch.object(local_continuation, "decode", return_value=decoded),
             self.assertRaises(local_app.ApiProblem),
         ):
-            local_chat_state._restore_chat_continuation(subject, _stored())
+            local_chat_state.restore_chat_continuation(subject, _stored())
 
     def test_withdrawn_continuation_deletion_is_exact_and_fails_closed(self) -> None:
         challenge = types.SimpleNamespace(id="c" * 32)
         delete = mock.Mock(return_value=True)
         subject = types.SimpleNamespace(
             chat_continuations=types.SimpleNamespace(delete=delete),
-            _raise_chat_continuation_problem=local_chat_state._raise_chat_continuation_problem,
+            _raise_chat_continuation_problem=local_chat_state.raise_chat_continuation_problem,
         )
-        self.assertTrue(local_chat_state._delete_withdrawn_continuation(subject, "team_1", challenge))
+        self.assertTrue(local_chat_state.delete_withdrawn_continuation(subject, "team_1", challenge))
         delete.assert_called_once_with("team_1", "c" * 32)
 
         # A continuation of another challenge belongs to a newer turn and stays.
         delete.side_effect = continuation_store.ContinuationNotFoundError("another challenge")
-        self.assertFalse(local_chat_state._delete_withdrawn_continuation(subject, "team_1", challenge))
+        self.assertFalse(local_chat_state.delete_withdrawn_continuation(subject, "team_1", challenge))
 
         delete.side_effect = continuation_store.ContinuationStoreError("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._delete_withdrawn_continuation(subject, "team_1", challenge)
+            local_chat_state.delete_withdrawn_continuation(subject, "team_1", challenge)
         self.assertEqual(caught.exception.code, "chat-state-unavailable")
 
     def test_expired_human_purge_and_collection_adapters_fail_closed(self) -> None:
         subject = types.SimpleNamespace(_purge_human_pending=mock.Mock())
         self.assertIsNone(
-            local_chat_state._purge_expired_human_continuation(
+            local_chat_state.purge_expired_human_continuation(
                 subject,
                 _stored(kind="integrations"),
             )
@@ -367,12 +367,12 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             mock.patch.object(local_continuation, "decode", return_value=decoded),
             self.assertRaises(local_app.ApiProblem),
         ):
-            local_chat_state._purge_expired_human_continuation(subject, _stored())
+            local_chat_state.purge_expired_human_continuation(subject, _stored())
 
         failure = continuation_store.ContinuationStoreError("unavailable")
         subject.chat_continuations = types.SimpleNamespace(drain_expired=mock.Mock(side_effect=failure))
         with self.assertRaises(local_app.ApiProblem):
-            local_chat_state._restore_all_chat_continuations(subject)
+            local_chat_state.restore_all_chat_continuations(subject)
 
         expired = _stored()
         active = _stored(kind="integrations")
@@ -382,13 +382,13 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         )
         subject._purge_expired_human_continuation = mock.Mock()
         subject._restore_chat_continuation = mock.Mock()
-        local_chat_state._restore_all_chat_continuations(subject)
+        local_chat_state.restore_all_chat_continuations(subject)
         subject._purge_expired_human_continuation.assert_called_once_with(expired)
         subject._restore_chat_continuation.assert_called_once_with(active)
 
         for operation, method, arguments in (
-            (local_chat_state._delete_chat_continuation, "delete", ("team_1",)),
-            (local_chat_state._clear_chat_continuations, "clear", ()),
+            (local_chat_state.delete_chat_continuation, "delete", ("team_1",)),
+            (local_chat_state.clear_chat_continuations, "clear", ()),
         ):
             with self.subTest(operation=operation.__name__):
                 subject.chat_continuations = types.SimpleNamespace(**{method: mock.Mock(side_effect=failure)})

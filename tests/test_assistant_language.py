@@ -156,13 +156,13 @@ class LanguagePackBindingAdmissionTests(unittest.TestCase):
             description=catalog_fixtures.ASSISTANT_DESCRIPTION,
             pack_digest=DIGEST,
         )
-        self.assertEqual(local_chat_state._admit_assistant_allowed_hosts(subject, PackContainer("good", RAW), spec), ())
+        self.assertEqual(local_chat_state.admit_assistant_allowed_hosts(subject, PackContainer("good", RAW), spec), ())
         for container, status, code in (
             (PackContainer("incomplete", _incomplete()), HTTPStatus.CONFLICT, "assistant-manifest-invalid"),
             (PackContainer("missing", None), HTTPStatus.SERVICE_UNAVAILABLE, "assistant-manifest-unavailable"),
         ):
             with self.subTest(code=code), self.assertRaises(ApiProblemError) as refused:
-                local_chat_state._admit_assistant_allowed_hosts(subject, container, spec)
+                local_chat_state.admit_assistant_allowed_hosts(subject, container, spec)
             self.assertEqual((refused.exception.status, refused.exception.code), (status, code))
 
     def test_local_rendering_reads_the_pack_of_the_exact_active_generation(self) -> None:
@@ -173,7 +173,7 @@ class LanguagePackBindingAdmissionTests(unittest.TestCase):
             return types.SimpleNamespace(spec=spec, container=container, container_id=container_id)
 
         good = PackContainer("generation", RAW)
-        self.assertEqual(local_chat_state._assistant_language(subject, active(good)).pack_digest, DIGEST)
+        self.assertEqual(local_chat_state.assistant_language_pack(subject, active(good)).pack_digest, DIGEST)
         for container, container_id, status, code in (
             (None, "generation", HTTPStatus.CONFLICT, "assistant-language-drift"),
             (good, "other-generation", HTTPStatus.CONFLICT, "assistant-language-drift"),
@@ -186,7 +186,7 @@ class LanguagePackBindingAdmissionTests(unittest.TestCase):
             ),
         ):
             with self.subTest(code=code, container_id=container_id), self.assertRaises(ApiProblemError) as refused:
-                local_chat_state._assistant_language(subject, active(container, container_id))
+                local_chat_state.assistant_language_pack(subject, active(container, container_id))
             self.assertEqual((refused.exception.status, refused.exception.code), (status, code))
 
     def test_a_local_request_whose_copy_cannot_render_from_its_binding_ends_the_turn(self) -> None:

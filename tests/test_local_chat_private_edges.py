@@ -48,7 +48,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_chat_pause._human_response(object(), object())
+            local_chat_pause.human_response(object(), object())
         self.assertEqual(caught.exception.code, "human-request-invalid")
 
         purge_batch = mock.Mock(side_effect=action_journal.ActionJournalError("unavailable"))
@@ -59,12 +59,12 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
             _pending(),
         ):
             with self.subTest(pending=pending), self.assertRaises(local_app.ApiProblem) as caught:
-                local_chat_pause._purge_human_pending(subject, pending)
+                local_chat_pause.purge_human_pending(subject, pending)
             self.assertEqual(caught.exception.code, "team-context-changed")
         purge_batch.assert_not_called()
 
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_pause._purge_human_pending(subject, dataclasses.replace(_pending(), paused_batch="f" * 64))
+            local_chat_pause.purge_human_pending(subject, dataclasses.replace(_pending(), paused_batch="f" * 64))
         self.assertEqual(caught.exception.code, "action-state-unavailable")
         purge_batch.assert_called_once_with("a" * 64, "f" * 64)
 
@@ -77,7 +77,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         )
         pending = dataclasses.replace(_pending(), recording="b" * 32)
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_pause._terminal_human_failure(subject, "team_1", "token", pending, "denied")
+            local_chat_pause.terminal_human_failure(subject, "team_1", "token", pending, "denied")
         self.assertEqual(caught.exception.code, "chat-stopped")
 
     def test_human_pause_rejects_invalid_secret_and_auth_sequences(self) -> None:
@@ -87,7 +87,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         payload = _pending()
 
         self.assertEqual(
-            local_chat_pause._pause_human(
+            local_chat_pause.pause_human(
                 subject,
                 "team_1",
                 "token",
@@ -102,7 +102,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         auth_request = types.SimpleNamespace(kind="auth:totp")
         auth_outcome = types.SimpleNamespace(request=auth_request)
         auth_requirement = types.SimpleNamespace(request=auth_request)
-        local_chat_pause._pause_human(
+        local_chat_pause.pause_human(
             subject,
             "team_1",
             "token",
@@ -125,7 +125,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
             ),
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_pause._pause_human(
+            local_chat_pause.pause_human(
                 subject,
                 "team_1",
                 "token",
@@ -146,7 +146,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         )
         subject._purge_human_pending = mock.Mock()
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_pause._pause_human(
+            local_chat_pause.pause_human(
                 subject,
                 "team_1",
                 "token",
@@ -171,7 +171,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_chat_pause._integration_response(subject, challenge)
+            local_chat_pause.integration_response(subject, challenge)
         self.assertEqual(caught.exception.code, "assistant-integration-contract-invalid")
 
         subject = types.SimpleNamespace(
@@ -182,7 +182,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
             ),
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_pause._pause_integration(
+            local_chat_pause.pause_integration(
                 subject,
                 "team_1",
                 "token",
@@ -202,7 +202,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
             )
         )
         with self.assertRaises(local_app.ApiProblem):
-            local_chat_pause._pause_integration(
+            local_chat_pause.pause_integration(
                 subject,
                 "team_1",
                 "token",
@@ -216,7 +216,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         subject._commit_suspension = mock.Mock()
         subject._integration_response = mock.Mock(return_value={"pending": True})
         self.assertEqual(
-            local_chat_pause._pause_integration(
+            local_chat_pause.pause_integration(
                 subject,
                 "team_1",
                 "token",
@@ -244,7 +244,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             _refresh_oauth_integration=mock.Mock(),
         )
         with self.assertRaises(action_journal.ActionJournalConflictError):
-            local_chat_private._action_integration_generations(
+            local_chat_private.action_integration_generations(
                 subject,
                 "team_1",
                 active,
@@ -259,7 +259,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_chat_private._resolve_action_integrations(
+            local_chat_private.resolve_action_integrations(
                 subject,
                 "team_1",
                 active.spec,
@@ -273,12 +273,12 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
         active.spec.actions = {"action": types.SimpleNamespace(stored_inputs=("token",))}
         active.spec.stored_inputs = {"token": types.SimpleNamespace(kind="password")}
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_private._resolve_action_stored_inputs(subject, "team_1", active.spec, "action")
+            local_chat_private.resolve_action_stored_inputs(subject, "team_1", active.spec, "action")
         self.assertEqual(caught.exception.code, "assistant-stored-input-state-unavailable")
 
         request = brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {})
         with self.assertRaises(action_journal.ActionJournalConflictError):
-            local_chat_private._action_stored_input_generations(subject, "team_1", active, request)
+            local_chat_private.action_stored_input_generations(subject, "team_1", active, request)
 
     def test_rpc_envelope_and_inventory_errors_are_mapped(self) -> None:
         request = brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {})
@@ -292,7 +292,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_chat_private._require_action_rpc_envelope(
+            local_chat_private.require_action_rpc_envelope(
                 subject,
                 "team_1",
                 {"assistant": active},
@@ -317,7 +317,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
                         _assistant_specs=lambda _team_id: (),
                     ),
                     assistant_integrations=object(),
-                    _raise_integration_problem=local_chat_private._raise_integration_problem,
+                    _raise_integration_problem=local_chat_private.raise_integration_problem,
                 )
                 with (
                     mock.patch.object(
@@ -394,7 +394,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
 
         running = types.SimpleNamespace(reload=mock.Mock(), attrs={"Config": {}})
         self.assertIs(
-            local_chat_private._current_integration_declaration(
+            local_chat_private.current_integration_declaration(
                 subject(container=running), "team_1", "assistant", "integration"
             ),
             declaration,
@@ -402,7 +402,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
         running.reload.assert_called_once_with()
 
         with self.assertRaises(integration_service.OAuthIntegrationDeclarationError):
-            local_chat_private._current_integration_declaration(
+            local_chat_private.current_integration_declaration(
                 subject(assistant_specs=(types.SimpleNamespace(assistant_id="other"),), container=running),
                 "team_1",
                 "assistant",
@@ -410,7 +410,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             )
 
         with self.assertRaises(integration_service.OAuthIntegrationDeclarationError):
-            local_chat_private._current_integration_declaration(
+            local_chat_private.current_integration_declaration(
                 subject(assistant_specs=()),
                 "team_1",
                 "assistant",
@@ -419,7 +419,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
 
         spec.integrations = {}
         with self.assertRaises(integration_service.OAuthIntegrationDeclarationError):
-            local_chat_private._current_integration_declaration(
+            local_chat_private.current_integration_declaration(
                 subject(),
                 "team_1",
                 "assistant",
@@ -432,7 +432,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             attrs={},
         )
         with self.assertRaises(integration_service.OAuthIntegrationDeclarationError):
-            local_chat_private._current_integration_declaration(
+            local_chat_private.current_integration_declaration(
                 subject(container=failing),
                 "team_1",
                 "assistant",
@@ -443,7 +443,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             with self.subTest(attrs=attrs, current=current):
                 container = types.SimpleNamespace(reload=mock.Mock(), attrs=attrs)
                 with self.assertRaises(integration_service.OAuthIntegrationDeclarationError):
-                    local_chat_private._current_integration_declaration(
+                    local_chat_private.current_integration_declaration(
                         subject(container=container, current=current),
                         "team_1",
                         "assistant",

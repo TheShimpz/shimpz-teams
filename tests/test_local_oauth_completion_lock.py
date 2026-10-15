@@ -81,7 +81,7 @@ class LocalOAuthCompletionLockTests(unittest.TestCase):
             ),
         )
         self.subject._current_integration_declaration = lambda *args: (
-            local_chat_private._current_integration_declaration(self.subject, *args)
+            local_chat_private.current_integration_declaration(self.subject, *args)
         )
 
     def _state(self) -> str:

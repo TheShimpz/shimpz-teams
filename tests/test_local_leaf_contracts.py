@@ -359,28 +359,28 @@ class LocalLeafContractTests(unittest.TestCase):
     def test_assistant_rpc_maps_absence_encoding_and_readiness_states(self) -> None:
         missing = mock.Mock()
         missing.stop.side_effect = NotFound("missing")
-        assistant_rpc._fail_stop_action(types.SimpleNamespace(), missing)
+        assistant_rpc.fail_stop_action(types.SimpleNamespace(), missing)
 
         killed = mock.Mock()
         killed.stop.side_effect = DockerException("stop failed")
         killed.kill.side_effect = NotFound("missing")
         controller = types.SimpleNamespace(_action_not_running=lambda _container: False)
-        assistant_rpc._fail_stop_action(controller, killed)
+        assistant_rpc.fail_stop_action(controller, killed)
 
         absent = mock.Mock()
         absent.reload.side_effect = NotFound("missing")
-        self.assertTrue(assistant_rpc._action_not_running(absent))
+        self.assertTrue(assistant_rpc.action_not_running(absent))
 
         rpc_controller = types.SimpleNamespace()
         with (
             mock.patch.object(action_execution, "encode_rpc_invocation", side_effect=ValueError("large")),
             self.assertRaisesRegex(ApiProblemError, "request is too large"),
         ):
-            assistant_rpc._rpc(rpc_controller, types.SimpleNamespace(), "action", {})
+            assistant_rpc.rpc(rpc_controller, types.SimpleNamespace(), "action", {})
 
         running = mock.Mock(status="running")
         with mock.patch.object(assistant_rpc.time, "monotonic", side_effect=(0, 0)):
-            assistant_rpc._wait_ready(types.SimpleNamespace(), running, object())
+            assistant_rpc.wait_ready(types.SimpleNamespace(), running, object())
 
         created = mock.Mock(status="created")
         with (
@@ -388,14 +388,14 @@ class LocalLeafContractTests(unittest.TestCase):
             mock.patch.object(assistant_rpc.time, "sleep"),
             self.assertRaisesRegex(ApiProblemError, "did not become ready"),
         ):
-            assistant_rpc._wait_ready(types.SimpleNamespace(), created, object())
+            assistant_rpc.wait_ready(types.SimpleNamespace(), created, object())
 
         exited = mock.Mock(status="exited")
         with (
             mock.patch.object(assistant_rpc.time, "monotonic", side_effect=(0, 0)),
             self.assertRaisesRegex(ApiProblemError, "did not become ready"),
         ):
-            assistant_rpc._wait_ready(types.SimpleNamespace(), exited, object())
+            assistant_rpc.wait_ready(types.SimpleNamespace(), exited, object())
 
 
 if __name__ == "__main__":

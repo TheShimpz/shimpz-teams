@@ -44,8 +44,8 @@ def _timed(cache: inventory.LocalSnapshotInventory) -> tuple[float, int]:
 
 def _event_count(client: docker.DockerClient, start_ns: int, end_ns: int) -> int:
     stream = client.events(
-        since=inventory._docker_timestamp(start_ns),
-        until=inventory._docker_timestamp(end_ns),
+        since=inventory.docker_timestamp(start_ns),
+        until=inventory.docker_timestamp(end_ns),
         filters={"type": "image"},
         decode=True,
     )

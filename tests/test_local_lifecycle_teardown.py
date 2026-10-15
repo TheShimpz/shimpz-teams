@@ -209,7 +209,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
                 with icon_store.retained(resolution, ICON, registry.bindings):
                     pass
             lifecycle = mock.Mock(registry=registry, icons=icon_store)
-            lifecycle._retire_binding = functools.partial(local_assistant_lifecycle._retire_binding, lifecycle)
+            lifecycle._retire_binding = functools.partial(local_assistant_lifecycle.retire_binding, lifecycle)
             controller = SimpleNamespace(registry=registry, assistant_lifecycle=lifecycle)
             assistant_id = str(own["assistant_id"])
 
@@ -217,18 +217,18 @@ class LocalLifecycleTeardownTests(LocalContractCase):
                 mock.patch.object(Path, "unlink", side_effect=OSError("read-only")),
                 self.assertRaises(local_app.ApiProblem) as caught,
             ):
-                local_team_lifecycle._remove_team_assistants(controller, "team_1", [])
+                local_team_lifecycle.remove_team_assistants(controller, "team_1", [])
             self.assertEqual(caught.exception.code, "assistant-icon-unavailable")
             self.assertIsNotNone(registry.binding("team_1", assistant_id))
             self.assertEqual(icon_store.read(own), ICON)
 
-            self.assertEqual(local_team_lifecycle._remove_team_assistants(controller, "team_1", []), 0)
+            self.assertEqual(local_team_lifecycle.remove_team_assistants(controller, "team_1", []), 0)
             self.assertIsNone(registry.binding("team_1", assistant_id))
             with self.assertRaises(AssistantIconError):
                 icon_store.read(own)
             # Another Team's binding of the same publication keeps its icon.
             registry.put("team_1", shared)
-            local_team_lifecycle._remove_team_assistants(controller, "team_1", [])
+            local_team_lifecycle.remove_team_assistants(controller, "team_1", [])
             self.assertEqual(icon_store.read(shared), ICON)
 
     def test_uninstall_discards_the_icon_before_the_binding_and_retries_both_after_a_failure(self) -> None:

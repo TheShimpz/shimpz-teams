@@ -19,7 +19,7 @@ from local.errors import ApiProblemError as ApiProblem
 from local.errors import action_state_unavailable, chat_stopped, human_request_invalid, team_context_changed
 
 
-def _commit_suspension(
+def commit_suspension(
     self,
     team_id: str,
     token: str,
@@ -45,7 +45,7 @@ def _commit_suspension(
     )
 
 
-def _human_response(
+def human_response(
     self,
     challenge: action_challenges.PendingHumanChallenge,
 ) -> dict[str, object]:
@@ -55,7 +55,7 @@ def _human_response(
         raise human_request_invalid() from exc
 
 
-def _purge_human_pending(self, pending: _PendingLocalChat) -> None:
+def purge_human_pending(self, pending: _PendingLocalChat) -> None:
     """Remove exactly the Action batch the paused turn holds; a newer turn's batch in its generation stays."""
     generation = pending.identity[1] if len(pending.identity) == 5 else None
     if not isinstance(generation, str) or not isinstance(pending.paused_batch, str):
@@ -66,7 +66,7 @@ def _purge_human_pending(self, pending: _PendingLocalChat) -> None:
         raise action_state_unavailable() from exc
 
 
-def _terminal_human_failure(
+def terminal_human_failure(
     self,
     team_id: str,
     token: str,
@@ -85,7 +85,7 @@ def _terminal_human_failure(
     }
 
 
-def _pause_human(
+def pause_human(
     self,
     team_id: str,
     token: str,
@@ -118,7 +118,7 @@ def _pause_human(
     return self._human_response(challenge)
 
 
-def _integration_response(
+def integration_response(
     self,
     challenge: integration_challenges.PendingIntegrationChallenge,
 ) -> dict[str, object]:
@@ -136,7 +136,7 @@ def _integration_response(
         ) from exc
 
 
-def _pause_integration(
+def pause_integration(
     self,
     team_id: str,
     token: str,

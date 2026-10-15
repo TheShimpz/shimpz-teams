@@ -34,24 +34,24 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         controller = self._controller()
         controller.client.containers.get.side_effect = NotFound("missing")
         with self.assertRaisesRegex(ApiProblemError, "not installed"):
-            resources._assistant_container(controller, "team_1", "helper")
-        self.assertIsNone(resources._assistant_container(controller, "team_1", "helper", required=False))
+            resources.assistant_container(controller, "team_1", "helper")
+        self.assertIsNone(resources.assistant_container(controller, "team_1", "helper", required=False))
         container = object()
         controller.client.containers.get.side_effect = None
         controller.client.containers.get.return_value = container
-        self.assertIs(resources._assistant_container(controller, "team_1", "helper"), container)
+        self.assertIs(resources.assistant_container(controller, "team_1", "helper"), container)
 
     def test_assistant_inventory_rejects_docker_registry_identity_and_duplicate_drift(self) -> None:
         controller = self._controller()
         controller.client.containers.list.side_effect = DockerException("unavailable")
         with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
-            resources._assistant_specs(controller, "team_1")
+            resources.assistant_specs(controller, "team_1")
 
         controller.client.containers.list.side_effect = None
         missing = types.SimpleNamespace(labels={}, name="unknown", status="running")
         controller.client.containers.list.return_value = [missing]
         with self.assertRaisesRegex(ApiProblemError, "no longer allowlisted"):
-            resources._assistant_specs(controller, "team_1")
+            resources.assistant_specs(controller, "team_1")
 
         binding = types.SimpleNamespace(assistant_id="helper")
         invalid = types.SimpleNamespace(
@@ -62,31 +62,31 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         controller.client.containers.list.return_value = [invalid]
         controller.registry.team_bindings.return_value = (binding,)
         with self.assertRaisesRegex(ApiProblemError, "isolation profile"):
-            resources._assistant_specs(controller, "team_1")
+            resources.assistant_specs(controller, "team_1")
 
         labels = {"team": "team_1", "kind": "assistant", resources.ASSISTANT_LABEL: "helper"}
         stopped = types.SimpleNamespace(labels=labels, name="team_1-helper", status="exited")
         controller.client.containers.list.return_value = [stopped]
-        self.assertEqual(resources._assistant_specs(controller, "team_1", running_only=True), ())
+        self.assertEqual(resources.assistant_specs(controller, "team_1", running_only=True), ())
         controller.registry.team_bindings.return_value = ()
         with self.assertRaisesRegex(ApiProblemError, "no longer allowlisted"):
-            resources._assistant_specs(controller, "team_1", running_only=True)
+            resources.assistant_specs(controller, "team_1", running_only=True)
         controller.registry.team_bindings.return_value = (binding,)
 
         controller.client.containers.list.return_value = [stopped, stopped]
         with self.assertRaisesRegex(ApiProblemError, "isolation profile"):
-            resources._assistant_specs(controller, "team_1", running_only=True)
+            resources.assistant_specs(controller, "team_1", running_only=True)
 
         duplicate = types.SimpleNamespace(labels=labels, name="team_1-helper", status="running")
         controller.client.containers.list.return_value = [duplicate, duplicate]
         with self.assertRaisesRegex(ApiProblemError, "isolation profile"):
-            resources._assistant_specs(controller, "team_1")
+            resources.assistant_specs(controller, "team_1")
 
     def test_resolution_and_image_trust_fail_closed(self) -> None:
         controller = self._controller()
         controller.registry.get.return_value = None
         with self.assertRaisesRegex(ApiProblemError, "not allowlisted"):
-            resources._resolve(controller, "team_1", "helper")
+            resources.resolve(controller, "team_1", "helper")
 
         spec = types.SimpleNamespace(
             image="registry/image@sha256:digest",
@@ -100,49 +100,49 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
             },
             reload=mock.Mock(),
         )
-        controller._image_labels_valid = resources._image_labels_valid
+        controller._image_labels_valid = resources.image_labels_valid
         controller.client.images.get.side_effect = ImageNotFound("missing")
         controller.client.images.pull.return_value = image
-        self.assertIs(resources._trusted_image(controller, spec), image)
+        self.assertIs(resources.trusted_image(controller, spec), image)
         controller.client.images.get.assert_called_once_with(spec.image)
         controller.client.images.pull.assert_called_once_with(spec.image)
         image.reload.assert_not_called()
 
         image.attrs["RepoDigests"] = []
         with self.assertRaisesRegex(ApiProblemError, "trusted contract"):
-            resources._trusted_image(controller, spec)
+            resources.trusted_image(controller, spec)
         image.attrs["RepoDigests"] = [spec.image]
 
         controller.client.images.get.side_effect = None
         controller.client.images.get.return_value = image
         controller.client.images.get.reset_mock()
         controller.client.images.pull.reset_mock()
-        self.assertIs(resources._trusted_image(controller, spec), image)
+        self.assertIs(resources.trusted_image(controller, spec), image)
         controller.client.images.get.assert_called_once_with(spec.image)
         controller.client.images.pull.assert_not_called()
         image.reload.assert_not_called()
 
         image.attrs["Config"]["Labels"][snapshots.LOCAL_STAGE_LABEL] = snapshots.LOCAL_STAGE_VALUE
         with self.assertRaisesRegex(ApiProblemError, "trusted contract"):
-            resources._trusted_image(controller, spec)
+            resources.trusted_image(controller, spec)
         image.attrs["Config"]["Labels"].pop(snapshots.LOCAL_STAGE_LABEL)
 
         controller.client.images.get.side_effect = ImageNotFound("missing")
         controller.client.images.pull.side_effect = DockerException("pull failed")
         with self.assertRaisesRegex(ApiProblemError, "could not be pulled"):
-            resources._trusted_image(controller, spec)
+            resources.trusted_image(controller, spec)
 
         controller.client.images.get.side_effect = DockerException("unavailable")
         with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
-            resources._trusted_image(controller, spec)
+            resources.trusted_image(controller, spec)
 
         local_spec = types.SimpleNamespace(provenance="local")
         with self.assertRaisesRegex(ApiProblemError, "published image provenance"):
-            resources._trusted_image(controller, local_spec)
+            resources.trusted_image(controller, local_spec)
 
     def test_staged_image_never_pulls_and_requires_exact_local_identity(self) -> None:
         controller = self._controller()
-        controller._image_labels_valid = resources._image_labels_valid
+        controller._image_labels_valid = resources.image_labels_valid
         spec = types.SimpleNamespace(
             assistant_id="fixture-assistant",
             image="sha256:" + ("a" * 64),
@@ -163,14 +163,14 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         )
         controller.client.images.get.return_value = image
 
-        self.assertIs(resources._staged_image(controller, spec), image)
+        self.assertIs(resources.staged_image(controller, spec), image)
         controller.client.images.get.assert_called_once_with(spec.image)
         # A bound snapshot runs both while it is the Assistant's current tag and after a restage supersedes it.
         image.attrs["RepoTags"] = ["shimpz-local/fixture-assistant:staged"]
-        self.assertIs(resources._staged_image(controller, spec), image)
+        self.assertIs(resources.staged_image(controller, spec), image)
         # A containerd image store reports the local image's own digest under its repository.
         image.attrs["RepoDigests"] = [f"shimpz-local/fixture-assistant@{spec.image}"]
-        self.assertIs(resources._staged_image(controller, spec), image)
+        self.assertIs(resources.staged_image(controller, spec), image)
         image.attrs["RepoDigests"] = []
         image.attrs["RepoTags"] = []
         controller.client.images.pull.assert_not_called()
@@ -188,31 +188,31 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
                 original = image.attrs[key]
                 image.attrs[key] = invalid
                 with self.assertRaisesRegex(ApiProblemError, "does not match"):
-                    resources._staged_image(controller, spec)
+                    resources.staged_image(controller, spec)
                 image.attrs[key] = original
         image.attrs["Config"]["Labels"]["local"] = "wrong"
         with self.assertRaisesRegex(ApiProblemError, "does not match"):
-            resources._staged_image(controller, spec)
+            resources.staged_image(controller, spec)
         image.attrs["Config"]["Labels"]["local"] = "assistant-v1"
 
         controller.client.images.get.side_effect = ImageNotFound("missing")
         with self.assertRaisesRegex(ApiProblemError, "no longer available"):
-            resources._staged_image(controller, spec)
+            resources.staged_image(controller, spec)
         controller.client.images.pull.assert_not_called()
 
         controller.client.images.get.side_effect = DockerException("unavailable")
         with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
-            resources._staged_image(controller, spec)
+            resources.staged_image(controller, spec)
 
         published = types.SimpleNamespace(provenance="published")
         with self.assertRaisesRegex(ApiProblemError, "Local image provenance"):
-            resources._staged_image(controller, published)
+            resources.staged_image(controller, published)
         controller._trusted_image = mock.Mock(return_value="published")
         controller._staged_image = mock.Mock(return_value="local")
-        self.assertEqual(resources._assistant_image(controller, published), "published")
-        self.assertEqual(resources._assistant_image(controller, spec), "local")
+        self.assertEqual(resources.assistant_image(controller, published), "published")
+        self.assertEqual(resources.assistant_image(controller, spec), "local")
         with self.assertRaisesRegex(ApiProblemError, "provenance is invalid"):
-            resources._assistant_image(controller, types.SimpleNamespace(provenance="unknown"))
+            resources.assistant_image(controller, types.SimpleNamespace(provenance="unknown"))
 
     def test_egress_contract_rejects_invalid_manifest_and_environment(self) -> None:
         controller = types.SimpleNamespace(
@@ -220,11 +220,11 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         )
         invalid_spec = types.SimpleNamespace(allowed_hosts=("INVALID",))
         with self.assertRaisesRegex(ApiProblemError, "allowed_hosts contract is invalid"):
-            resources._validate_container_egress_environment(controller, "team_1", invalid_spec, {})
+            resources.validate_container_egress_environment(controller, "team_1", invalid_spec, {})
 
         direct_spec = types.SimpleNamespace(allowed_hosts=())
         with self.assertRaisesRegex(ApiProblemError, "isolation profile"):
-            resources._validate_container_egress_environment(
+            resources.validate_container_egress_environment(
                 controller,
                 "team_1",
                 direct_spec,

@@ -99,8 +99,8 @@ class LocalSnapshotInventory:
         stream = None
         try:
             stream = self._client.events(
-                since=_docker_timestamp(cursor_ns),
-                until=_docker_timestamp(next_cursor_ns),
+                since=docker_timestamp(cursor_ns),
+                until=docker_timestamp(next_cursor_ns),
                 filters={"type": "image"},
                 decode=True,
             )
@@ -165,6 +165,6 @@ class LocalSnapshotInventory:
             log.warning("Local Assistant snapshot inventory background refresh deferred", exc_info=True)
 
 
-def _docker_timestamp(value_ns: int) -> str:
+def docker_timestamp(value_ns: int) -> str:
     seconds, nanoseconds = divmod(value_ns, _NANOSECONDS_PER_SECOND)
     return f"{seconds}.{nanoseconds:09d}"

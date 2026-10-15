@@ -214,16 +214,16 @@ class ChatTurnService:
                 self._cancelled_chat_tokens.discard(token)
             lock.release()
 
-    _pending_chat_continuation = local_chat_api._pending_chat_continuation
+    _pending_chat_continuation = local_chat_api.pending_chat_continuation
     _turn_started = local_chat_attachments.turn_started
     _turn_completed = local_chat_attachments.turn_completed
     _turn_failed = local_chat_attachments.turn_failed
     _file_deletion_slot = local_chat_attachments.deletion_slot
     _forget_file = local_chat_attachments.forget_file
-    _segment_response = local_chat_api._segment_response
+    _segment_response = local_chat_api.segment_response
     chat = local_chat_api.chat
     capability_plan = local_chat_capabilities.capability_plan
-    _capability_plan_snapshot = local_chat_capabilities._capability_plan_snapshot
+    _capability_plan_snapshot = local_chat_capabilities.capability_plan_snapshot
     intent_route = local_chat_capabilities.intent_route
     resume_chat_integrations = local_chat_api.resume_chat_integrations
     resume_chat_human = local_chat_human.resume_chat_human
@@ -265,26 +265,26 @@ class ChatTurnService:
     _require_chat_private_inputs = local_chat_execution._require_chat_private_inputs
     _validate_chat_context = local_chat_execution._validate_chat_context
 
-    _commit_suspension = local_chat_pause._commit_suspension
-    _integration_response = local_chat_pause._integration_response
-    _human_response = local_chat_pause._human_response
-    _purge_human_pending = local_chat_pause._purge_human_pending
-    _terminal_human_failure = local_chat_pause._terminal_human_failure
-    _pause_integration = local_chat_pause._pause_integration
-    _pause_human = local_chat_pause._pause_human
+    _commit_suspension = local_chat_pause.commit_suspension
+    _integration_response = local_chat_pause.integration_response
+    _human_response = local_chat_pause.human_response
+    _purge_human_pending = local_chat_pause.purge_human_pending
+    _terminal_human_failure = local_chat_pause.terminal_human_failure
+    _pause_integration = local_chat_pause.pause_integration
+    _pause_human = local_chat_pause.pause_human
 
-    _action_integration_generations = local_chat_private._action_integration_generations
-    _action_stored_input_generations = local_chat_private._action_stored_input_generations
-    _refresh_oauth_integration = local_chat_private._refresh_oauth_integration
-    _resolve_action_integrations = local_chat_private._resolve_action_integrations
-    _resolve_action_stored_inputs = local_chat_private._resolve_action_stored_inputs
-    _require_action_rpc_envelope = local_chat_private._require_action_rpc_envelope
-    _raise_integration_problem = staticmethod(local_chat_private._raise_integration_problem)
+    _action_integration_generations = local_chat_private.action_integration_generations
+    _action_stored_input_generations = local_chat_private.action_stored_input_generations
+    _refresh_oauth_integration = local_chat_private.refresh_oauth_integration
+    _resolve_action_integrations = local_chat_private.resolve_action_integrations
+    _resolve_action_stored_inputs = local_chat_private.resolve_action_stored_inputs
+    _require_action_rpc_envelope = local_chat_private.require_action_rpc_envelope
+    _raise_integration_problem = staticmethod(local_chat_private.raise_integration_problem)
     list_assistant_integrations = local_chat_private.list_assistant_integrations
     list_assistant_stored_inputs = local_chat_private.list_assistant_stored_inputs
     clear_assistant_stored_input = local_chat_private.clear_assistant_stored_input
     start_assistant_integration_authorization = local_chat_private.start_assistant_integration_authorization
-    _current_integration_declaration = local_chat_private._current_integration_declaration
+    _current_integration_declaration = local_chat_private.current_integration_declaration
     complete_cloudflare_oauth_callback = local_chat_private.complete_cloudflare_oauth_callback
     cancel_assistant_integration_authorization = local_chat_private.cancel_assistant_integration_authorization
     disconnect_assistant_integration = local_chat_private.disconnect_assistant_integration
@@ -295,9 +295,9 @@ class ChatTurnService:
     _run_chat_segment = local_chat_segment._run_chat_segment
     _run_chat_segment_with_metadata = local_chat_segment._run_chat_segment_with_metadata
 
-    _chat_file_metadata = local_chat_state._chat_file_metadata
-    _chat_setup = local_chat_state._chat_setup
-    _team_assistants = local_chat_state._team_assistants
+    _chat_file_metadata = local_chat_state.chat_file_metadata
+    _chat_setup = local_chat_state.chat_setup
+    _team_assistants = local_chat_state.team_assistants
 
     def _active_assistant_genesis(self, active):
         return self.assistant_lifecycle._active_assistant_genesis(active)
@@ -308,16 +308,16 @@ class ChatTurnService:
     def _admit_assistant_allowed_hosts(self, container, spec):
         return self.assistant_lifecycle._admit_assistant_allowed_hosts(container, spec)
 
-    _active_chat_assistants = local_chat_state._active_chat_assistants
-    _delete_assistant_private_state = local_chat_state._delete_assistant_private_state
-    _delete_team_private_state = local_chat_state._delete_team_private_state
-    _delete_all_private_state = local_chat_state._delete_all_private_state
-    _retain_declared_private_state = local_chat_state._retain_declared_private_state
-    _raise_chat_continuation_problem = staticmethod(local_chat_state._raise_chat_continuation_problem)
-    _persist_chat_continuation = local_chat_state._persist_chat_continuation
-    _restore_chat_continuation = local_chat_state._restore_chat_continuation
-    _purge_expired_human_continuation = local_chat_state._purge_expired_human_continuation
-    _delete_withdrawn_continuation = local_chat_state._delete_withdrawn_continuation
-    _restore_all_chat_continuations = local_chat_state._restore_all_chat_continuations
-    _delete_chat_continuation = local_chat_state._delete_chat_continuation
-    _clear_chat_continuations = local_chat_state._clear_chat_continuations
+    _active_chat_assistants = local_chat_state.active_chat_assistants
+    _delete_assistant_private_state = local_chat_state.delete_assistant_private_state
+    _delete_team_private_state = local_chat_state.delete_team_private_state
+    _delete_all_private_state = local_chat_state.delete_all_private_state
+    _retain_declared_private_state = local_chat_state.retain_declared_private_state
+    _raise_chat_continuation_problem = staticmethod(local_chat_state.raise_chat_continuation_problem)
+    _persist_chat_continuation = local_chat_state.persist_chat_continuation
+    _restore_chat_continuation = local_chat_state.restore_chat_continuation
+    _purge_expired_human_continuation = local_chat_state.purge_expired_human_continuation
+    _delete_withdrawn_continuation = local_chat_state.delete_withdrawn_continuation
+    _restore_all_chat_continuations = local_chat_state.restore_all_chat_continuations
+    _delete_chat_continuation = local_chat_state.delete_chat_continuation
+    _clear_chat_continuations = local_chat_state.clear_chat_continuations

@@ -43,19 +43,19 @@ def _raise_egress_problem(exc: egress_policy.EgressPolicyError) -> NoReturn:
     ) from exc
 
 
-def _base_labels(self, team_id: str, kind: str) -> dict[str, str]:
+def base_labels(self, team_id: str, kind: str) -> dict[str, str]:
     return local_labels.ownership_labels(self.space_id, kind, team_id)
 
 
-def _network_name(self, team_id: str) -> str:
+def network_name(self, team_id: str) -> str:
     return f"shimpz-local-{_space_prefix(self.space_id)}-team-{team_id}"
 
 
-def _container_name(self, team_id: str, assistant_id: str) -> str:
+def container_name(self, team_id: str, assistant_id: str) -> str:
     return f"shimpz-local-{_space_prefix(self.space_id)}-{team_id}-assistant-{assistant_id}"
 
 
-def _egress_policy_identity(self, team_id: str, assistant_id: str) -> str:
+def egress_policy_identity(self, team_id: str, assistant_id: str) -> str:
     return f"{self.space_id}\0{team_id}\0{assistant_id}"
 
 
@@ -68,12 +68,12 @@ def _egress_problems() -> Iterator[None]:
         _raise_egress_problem(exc)
 
 
-def _egress_token(self, team_id: str, assistant_id: str, *, create: bool) -> str | None:
+def egress_token(self, team_id: str, assistant_id: str, *, create: bool) -> str | None:
     with _egress_problems():
         return _egress_store().token(self._egress_policy_identity(team_id, assistant_id), create=create)
 
 
-def _write_egress_policy(self, team_id: str, spec: AssistantSpec, allowed_hosts: tuple[str, ...]) -> None:
+def write_egress_policy(self, team_id: str, spec: AssistantSpec, allowed_hosts: tuple[str, ...]) -> None:
     with _egress_problems():
         store = _egress_store()
         token = store.token(self._egress_policy_identity(team_id, spec.assistant_id), create=True)
@@ -82,24 +82,24 @@ def _write_egress_policy(self, team_id: str, spec: AssistantSpec, allowed_hosts:
         store.write(token, allowed_hosts)
 
 
-def _validate_egress_policy(self, team_id: str, spec: AssistantSpec, allowed_hosts: tuple[str, ...]) -> None:
+def validate_egress_policy(self, team_id: str, spec: AssistantSpec, allowed_hosts: tuple[str, ...]) -> None:
     admitted = self._read_admitted_egress_policy(team_id, spec.assistant_id)
     with _egress_problems():
         _egress_store().validate_admitted(admitted, allowed_hosts)
 
 
-def _read_admitted_egress_policy(self, team_id: str, assistant_id: str) -> tuple[str, tuple[str, ...]] | None:
+def read_admitted_egress_policy(self, team_id: str, assistant_id: str) -> tuple[str, tuple[str, ...]] | None:
     """Read only a canonical policy previously admitted and owned by this controller."""
     with _egress_problems():
         return _egress_store().admitted(self._egress_policy_identity(team_id, assistant_id))
 
 
-def _remove_egress_policy(self, team_id: str, assistant_id: str) -> None:
+def remove_egress_policy(self, team_id: str, assistant_id: str) -> None:
     with _egress_problems():
         _egress_store().remove(self._egress_policy_identity(team_id, assistant_id))
 
 
-def _managed_team_networks(self) -> list:
+def managed_team_networks(self) -> list:
     labels = local_labels.label_filter(local_labels.ownership_labels(self.space_id, "team"))
     try:
         return self.client.networks.list(filters={"label": labels})
@@ -107,7 +107,7 @@ def _managed_team_networks(self) -> list:
         raise docker_unavailable() from exc
 
 
-def _validate_network(self, network, team_id: str, *, refresh: bool = True) -> str:
+def validate_network(self, network, team_id: str, *, refresh: bool = True) -> str:
     if refresh:
         network.reload()
     attrs = network.attrs
@@ -127,7 +127,7 @@ def _validate_network(self, network, team_id: str, *, refresh: bool = True) -> s
         raise ownership_conflict() from exc
 
 
-def _network(self, team_id: str, *, required: bool = True):
+def team_network(self, team_id: str, *, required: bool = True):
     try:
         network = self.client.networks.get(self._network_name(team_id))
     except NotFound:

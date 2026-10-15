@@ -70,7 +70,7 @@ class Subject:
                 )
             ),
         )
-        self._capability_plan_snapshot = lambda team_id, provider: capabilities._capability_plan_snapshot(
+        self._capability_plan_snapshot = lambda team_id, provider: capabilities.capability_plan_snapshot(
             self,
             team_id,
             provider,
@@ -166,17 +166,17 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         subject = Subject()
         subject.network.id = None
         with self.assertRaises(ApiProblemError) as ownership:
-            capabilities._capability_plan_snapshot(subject, "team_1", "openai")
+            capabilities.capability_plan_snapshot(subject, "team_1", "openai")
         self.assertEqual(ownership.exception.code, "ownership-conflict")
 
         subject = Subject()
         with self.assertRaises(ApiProblemError) as mismatch:
-            capabilities._capability_plan_snapshot(subject, "team_1", "anthropic")
+            capabilities.capability_plan_snapshot(subject, "team_1", "anthropic")
         self.assertEqual(mismatch.exception.code, "inference-provider-mismatch")
 
         subject.inference_store.load.side_effect = inference_config.InferenceConfigError("private state")
         with self.assertRaises(ApiProblemError) as unavailable:
-            capabilities._capability_plan_snapshot(subject, "team_1", "openai")
+            capabilities.capability_plan_snapshot(subject, "team_1", "openai")
         self.assertEqual(unavailable.exception.code, "inference-not-configured")
 
     def test_intent_route_projects_only_the_closed_stateless_result(self) -> None:

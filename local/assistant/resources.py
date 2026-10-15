@@ -19,7 +19,7 @@ from local.labels import (
 )
 
 
-def _assistant_filters(self, team_id: str) -> dict[str, list[str] | bool]:
+def assistant_filters(self, team_id: str) -> dict[str, list[str] | bool]:
     return {
         "all": True,
         "filters": {
@@ -28,7 +28,7 @@ def _assistant_filters(self, team_id: str) -> dict[str, list[str] | bool]:
     }
 
 
-def _assistant_container(self, team_id: str, assistant_id: str, *, required: bool = True):
+def assistant_container(self, team_id: str, assistant_id: str, *, required: bool = True):
     name = self._container_name(team_id, assistant_id)
     try:
         container = self.client.containers.get(name)
@@ -69,7 +69,7 @@ def bound_containers(
     return bound
 
 
-def _assistant_specs(self, team_id: str, *, running_only: bool = False) -> tuple[AssistantSpec, ...]:
+def assistant_specs(self, team_id: str, *, running_only: bool = False) -> tuple[AssistantSpec, ...]:
     """Return Team specs after ownership, label, and uniqueness gates; no deep container or artifact admission."""
     self._network(team_id)
     seen: set[str] = set()
@@ -93,7 +93,7 @@ def _assistant_specs(self, team_id: str, *, running_only: bool = False) -> tuple
     return tuple(sorted(specs, key=lambda item: item.assistant_id))
 
 
-def _resolve(self, team_id: str, assistant_id: str) -> AssistantSpec:
+def resolve(self, team_id: str, assistant_id: str) -> AssistantSpec:
     spec = self.registry.get(team_id, assistant_id)
     if spec is None:
         # Resolution is intentionally completed before any image lookup/pull.
@@ -101,12 +101,12 @@ def _resolve(self, team_id: str, assistant_id: str) -> AssistantSpec:
     return spec
 
 
-def _image_labels_valid(image, spec: AssistantSpec) -> bool:
+def image_labels_valid(image, spec: AssistantSpec) -> bool:
     labels = (image.attrs.get("Config") or {}).get("Labels") or {}
     return all(labels.get(key) == value for key, value in spec.required_image_labels)
 
 
-def _trusted_image(self, spec: AssistantSpec):
+def trusted_image(self, spec: AssistantSpec):
     if spec.provenance != "published":
         raise ApiProblem(
             HTTPStatus.CONFLICT,
@@ -141,7 +141,7 @@ def _trusted_image(self, spec: AssistantSpec):
     return image
 
 
-def _staged_image(self, spec: AssistantSpec):
+def staged_image(self, spec: AssistantSpec):
     if spec.provenance != "local":
         raise ApiProblem(
             HTTPStatus.CONFLICT,
@@ -177,7 +177,7 @@ def _staged_image(self, spec: AssistantSpec):
     return image
 
 
-def _assistant_image(self, spec: AssistantSpec):
+def assistant_image(self, spec: AssistantSpec):
     if spec.provenance == "published":
         return self._trusted_image(spec)
     if spec.provenance == "local":
@@ -189,13 +189,13 @@ def _assistant_image(self, spec: AssistantSpec):
     )
 
 
-def _assistant_labels(self, team_id: str, spec: AssistantSpec) -> dict[str, str]:
+def assistant_labels(self, team_id: str, spec: AssistantSpec) -> dict[str, str]:
     labels = self._base_labels(team_id, "assistant")
     labels.update({ASSISTANT_LABEL: spec.assistant_id, IMAGE_LABEL: spec.image})
     return labels
 
 
-def _validate_container_profile(
+def validate_container_profile(
     self,
     container,
     team_id: str,
@@ -222,7 +222,7 @@ def _validate_container_profile(
     return admitted
 
 
-def _validate_container_egress_environment(
+def validate_container_egress_environment(
     self,
     team_id: str,
     spec: AssistantSpec,
@@ -244,7 +244,7 @@ def _validate_container_egress_environment(
     return reviewed_hosts
 
 
-def _validate_container_isolation(
+def validate_container_isolation(
     self,
     container,
     team_id: str,
@@ -264,7 +264,7 @@ def _validate_container_isolation(
     return config
 
 
-def _validate_container_security(
+def validate_container_security(
     self,
     container,
     team_id: str,
@@ -278,12 +278,12 @@ def _validate_container_security(
     return config
 
 
-def _has_current_assistant_artifact(config: dict, spec: AssistantSpec) -> bool:
+def has_current_assistant_artifact(config: dict, spec: AssistantSpec) -> bool:
     labels = config.get("Labels") or {}
     return config.get("Image") == spec.image and labels.get(IMAGE_LABEL) == spec.image
 
 
-def _validate_current_assistant_artifact(self, config: dict, spec: AssistantSpec) -> None:
+def validate_current_assistant_artifact(self, config: dict, spec: AssistantSpec) -> None:
     if not self._has_current_assistant_artifact(config, spec):
         raise ApiProblem(
             HTTPStatus.CONFLICT,
@@ -292,7 +292,7 @@ def _validate_current_assistant_artifact(self, config: dict, spec: AssistantSpec
         )
 
 
-def _validate_container(
+def validate_container(
     self,
     container,
     team_id: str,

@@ -47,7 +47,7 @@ def _retired_image_id(container) -> str | None:
     return image_id
 
 
-def _remove_assistant_container(self, container, binding: bindings.DynamicAssistantBinding | None) -> None:
+def remove_assistant_container(self, container, binding: bindings.DynamicAssistantBinding | None) -> None:
     """Remove one validated Assistant container and forget all this controller holds for it.
 
     Unless the binding proves the container ran a Local image, its retired image is queued for cleanup. A Docker
@@ -67,7 +67,7 @@ def _serialize_against_local_team_chat(
     """Reject Assistant mutation before its first side effect while a Team turn owns the slot."""
 
     def guarded(controller, team_id: str, *args, **kwargs) -> dict[str, object]:
-        return _run_against_local_team_chat(
+        return run_against_local_team_chat(
             controller,
             team_id,
             lambda: operation(controller, team_id, *args, **kwargs),
@@ -76,7 +76,7 @@ def _serialize_against_local_team_chat(
     return guarded
 
 
-def _run_against_local_team_chat(
+def run_against_local_team_chat(
     self,
     team_id: str,
     operation: Callable[[], dict[str, object]],
@@ -95,7 +95,7 @@ def _run_against_local_team_chat(
         lock.release()
 
 
-def _rollback_assistant_install(
+def rollback_assistant_install(
     self,
     team_id: str,
     spec: AssistantSpec,
@@ -129,7 +129,7 @@ def _rollback_assistant_install(
     return None
 
 
-def _create_assistant_container(
+def create_assistant_container(
     self,
     team_id: str,
     spec: AssistantSpec,
@@ -213,7 +213,7 @@ def _create_assistant_container(
         ) from exc
 
 
-def _replace_unready_assistant(
+def replace_unready_assistant(
     self,
     team_id: str,
     spec: AssistantSpec,
@@ -234,7 +234,7 @@ def _replace_unready_assistant(
     self._create_assistant_container(team_id, spec, network, image, authorize_start=authorize_start)
 
 
-def _replace_outdated_assistant(
+def replace_outdated_assistant(
     self,
     team_id: str,
     spec: AssistantSpec,
@@ -262,7 +262,7 @@ def _replace_outdated_assistant(
     self._create_assistant_container(team_id, spec, network, image, authorize_start=authorize_start)
 
 
-def _restore_previous_assistant(self, team_id: str, spec: AssistantSpec, network, image) -> None:
+def restore_previous_assistant(self, team_id: str, spec: AssistantSpec, network, image) -> None:
     try:
         self._create_assistant_container(team_id, spec, network, image)
     except ApiProblem as exc:
@@ -273,7 +273,7 @@ def _restore_previous_assistant(self, team_id: str, spec: AssistantSpec, network
         ) from exc
 
 
-def _binding_uses_image(self, image_id: str) -> bool | None:
+def binding_uses_image(self, image_id: str) -> bool | None:
     try:
         for image in self.registry.images():
             try:
@@ -307,7 +307,7 @@ def _inspect_retired_image(self, image_id: str) -> tuple[bool, bool] | None:
     return True, is_local_snapshot
 
 
-def _delete_retired_image(self, image_id: str) -> bool:
+def delete_retired_image(self, image_id: str) -> bool:
     inspection = _inspect_retired_image(self, image_id)
     if inspection is None:
         return False
@@ -324,7 +324,7 @@ def _delete_retired_image(self, image_id: str) -> bool:
     return True
 
 
-def _remove_retired_image(self, image_id: str) -> bool:
+def remove_retired_image(self, image_id: str) -> bool:
     binding_use = self._binding_uses_image(image_id)
     if binding_use is None or binding_use:
         return False
@@ -338,7 +338,7 @@ def _remove_retired_image(self, image_id: str) -> bool:
     return self._delete_retired_image(image_id)
 
 
-def _clear_update(self, update) -> None:
+def clear_update(self, update) -> None:
     try:
         self.updates.clear(update)
     except bindings.DynamicAssistantError:
@@ -360,7 +360,7 @@ def sweep_residues(self) -> None:
             log.warning("Assistant update residue record cleanup deferred")
 
 
-def _queue_residue(self, image_id: str) -> None:
+def queue_residue(self, image_id: str) -> None:
     try:
         self.residues.add(image_id)
     except bindings.DynamicAssistantError, OSError:
@@ -369,7 +369,7 @@ def _queue_residue(self, image_id: str) -> None:
             log.warning("Assistant update left one unqueued image residue")
 
 
-def _queue_published_residue(
+def queue_published_residue(
     self,
     binding: bindings.DynamicAssistantBinding,
     image_id: str,
@@ -378,7 +378,7 @@ def _queue_published_residue(
         self._queue_residue(image_id)
 
 
-def _commit_replacement(
+def commit_replacement(
     self,
     team_id: str,
     previous: bindings.DynamicAssistantBinding,
@@ -485,7 +485,7 @@ def update_assistant(
         return {"assistant": successor.assistant_id, "installed": False, "updated": True}
 
 
-def _recover_update_target(self, update, target: AssistantSpec) -> None:
+def recover_update_target(self, update, target: AssistantSpec) -> None:
     team_id = update.team_id
     network = self._network(team_id)
     existing = self._assistant_container(team_id, target.assistant_id, required=False)
@@ -579,7 +579,7 @@ def resume_assistants(self) -> None:
             )
 
 
-def _install_assistant_unguarded(
+def install_assistant_unguarded(
     self,
     team_id: str,
     assistant_id: str,
@@ -643,7 +643,7 @@ def install_assistant(
     *,
     authorize_start: Callable[[], None] | None = None,
 ) -> dict[str, object]:
-    return _install_assistant_unguarded(
+    return install_assistant_unguarded(
         self,
         team_id,
         assistant_id,
@@ -651,7 +651,7 @@ def install_assistant(
     )
 
 
-def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dict[str, object]:
+def uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dict[str, object]:
     """Confirm the Assistant is absent from the Team; an Assistant already absent is success, not an error."""
     binding = self.registry.binding(team_id, assistant_id)
     self.chat_turn_service._delete_chat_continuation(team_id)
@@ -668,7 +668,7 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
                 raise assistant_registry_drift()
             self._validate_container_profile(container, team_id, spec, network.name)
             try:
-                _remove_assistant_container(self, container, binding)
+                remove_assistant_container(self, container, binding)
             except DockerException as exc:
                 raise ApiProblem(
                     HTTPStatus.SERVICE_UNAVAILABLE,
@@ -678,12 +678,12 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
             if spec.allowed_hosts:
                 self._remove_egress_policy(team_id, assistant_id)
         self.chat_turn_service._delete_assistant_private_state(team_id, assistant_id)
-        _retire_binding(self, team_id, assistant_id, binding)
+        retire_binding(self, team_id, assistant_id, binding)
         self.sweep_residues()
         return {"assistant": assistant_id, "uninstalled": container is not None}
 
 
-def _retire_binding(self, team_id: str, assistant_id: str, binding) -> None:
+def retire_binding(self, team_id: str, assistant_id: str, binding) -> None:
     """Retire the binding and its unreferenced icon together; a failed icon removal keeps the binding to retry."""
     if binding is None:
         self.registry.delete(team_id, assistant_id)
@@ -696,7 +696,7 @@ def _retire_binding(self, team_id: str, assistant_id: str, binding) -> None:
 
 @_serialize_against_local_team_chat
 def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, object]:
-    return _uninstall_assistant_unguarded(self, team_id, assistant_id)
+    return uninstall_assistant_unguarded(self, team_id, assistant_id)
 
 
 @_serialize_against_local_team_chat

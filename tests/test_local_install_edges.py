@@ -278,7 +278,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
             mock.patch.object(install_service, "is_successor", return_value=False),
             self.assertRaises(developers.PublicationNotInstallableError),
         ):
-            install_service._install_bound_publication(
+            install_service.install_bound_publication(
                 controller,
                 "team_1",
                 "helper",
@@ -292,7 +292,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
             mock.patch.object(install_service, "is_successor", return_value=True),
             self.assertRaises(bindings.DynamicAssistantConflictError),
         ):
-            install_service._install_bound_publication(
+            install_service.install_bound_publication(
                 controller,
                 "team_1",
                 "helper",

@@ -17,11 +17,11 @@ HEALTH_TIMEOUT_SECONDS = 15
 ASSISTANT_WORKDIR = str(Path("/") / "tmp")
 
 
-def _close_exec_stream(stream) -> None:
+def close_exec_stream(stream) -> None:
     action_execution.close_exec_stream(stream)
 
 
-def _fail_stop_action(self, container) -> None:
+def fail_stop_action(self, container) -> None:
     """Stop, then kill if needed, and prove an ambiguous local Action cannot keep running."""
     try:
         container.stop(timeout=3)
@@ -47,7 +47,7 @@ def _fail_stop_action(self, container) -> None:
     )
 
 
-def _action_not_running(container) -> bool:
+def action_not_running(container) -> bool:
     try:
         container.reload()
     except NotFound:
@@ -58,7 +58,7 @@ def _action_not_running(container) -> bool:
     return isinstance(state, dict) and state.get("Running") is False
 
 
-def _rpc(
+def rpc(
     self,
     container,
     action_id: str,
@@ -124,7 +124,7 @@ def _exchange(
         raise ApiProblem(status, message, code=code) from exc
 
 
-def _wait_ready(self, container, _spec: AssistantSpec) -> None:
+def wait_ready(self, container, _spec: AssistantSpec) -> None:
     deadline = time.monotonic() + HEALTH_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         container.reload()

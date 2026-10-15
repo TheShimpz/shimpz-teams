@@ -683,7 +683,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 return_value=b"request",
             ) as encode,
         ):
-            local_assistant_rpc._rpc(
+            local_assistant_rpc.rpc(
                 fake,
                 SimpleNamespace(id="assistant-container"),
                 "test",
@@ -714,7 +714,7 @@ class RpcMessageTests(unittest.TestCase):
             ),
             self.assertRaises(local_assistant_rpc.ApiProblem) as caught,
         ):
-            local_assistant_rpc._rpc(
+            local_assistant_rpc.rpc(
                 fake,
                 SimpleNamespace(id="c"),
                 "p",

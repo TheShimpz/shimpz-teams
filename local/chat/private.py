@@ -29,7 +29,7 @@ from local.install.runtime import AssistantSpec
 from local.validation import validate_team_id
 
 
-def _action_integration_generations(
+def action_integration_generations(
     self,
     team_id: str,
     active: _ActiveAssistant,
@@ -50,7 +50,7 @@ def _action_integration_generations(
         raise action_journal.ActionJournalConflictError("Action integration state is unavailable") from exc
 
 
-def _resolve_action_stored_inputs(
+def resolve_action_stored_inputs(
     self,
     team_id: str,
     spec: AssistantSpec,
@@ -72,7 +72,7 @@ def _resolve_action_stored_inputs(
         raise stored_input_unavailable() from exc
 
 
-def _action_stored_input_generations(
+def action_stored_input_generations(
     self,
     team_id: str,
     active: _ActiveAssistant,
@@ -96,7 +96,7 @@ def _action_stored_input_generations(
         raise action_journal.ActionJournalConflictError("Action Stored Input state is unavailable") from exc
 
 
-def _refresh_oauth_integration(
+def refresh_oauth_integration(
     self,
     provider: str,
     scopes: tuple[str, ...],
@@ -111,7 +111,7 @@ def _refresh_oauth_integration(
     )
 
 
-def _resolve_action_integrations(
+def resolve_action_integrations(
     self,
     team_id: str,
     spec: AssistantSpec,
@@ -133,7 +133,7 @@ def _resolve_action_integrations(
         ) from exc
 
 
-def _require_action_rpc_envelope(
+def require_action_rpc_envelope(
     self,
     team_id: str,
     bindings: dict[str, _ActiveAssistant],
@@ -164,7 +164,7 @@ def _require_action_rpc_envelope(
         ) from exc
 
 
-def _raise_integration_problem(exc: integration_store.OAuthIntegrationStoreError) -> NoReturn:
+def raise_integration_problem(exc: integration_store.OAuthIntegrationStoreError) -> NoReturn:
     raise ApiProblem(
         HTTPStatus.SERVICE_UNAVAILABLE,
         "Assistant integration state is unavailable",
@@ -264,7 +264,7 @@ def start_assistant_integration_authorization(
     return {"authorization_url": authorization_url}
 
 
-def _current_integration_declaration(
+def current_integration_declaration(
     self,
     team_id: str,
     assistant_id: str,

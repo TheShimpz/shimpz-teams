@@ -432,7 +432,7 @@ def _chat_span_summary(
 
 def _host_list_probe(flow: flow_fixture.DockerFlow, installed: bool) -> dict[str, object]:
     try:
-        filters = assistant_resources._assistant_filters(SimpleNamespace(space_id=flow.space_id), "demo_team")
+        filters = assistant_resources.assistant_filters(SimpleNamespace(space_id=flow.space_id), "demo_team")
     except (AttributeError, TypeError, ValueError) as exc:
         raise MeasurementError("host Docker list probe filter construction changed") from exc
     selected = filters.get("filters") if isinstance(filters, dict) else None

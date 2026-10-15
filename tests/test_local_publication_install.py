@@ -308,7 +308,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
             )
 
             with mock.patch.object(store, "_read", side_effect=read_bindings) as read:
-                active = local_chat_state._active_chat_assistants(subject, "team_1", "network")
+                active = local_chat_state.active_chat_assistants(subject, "team_1", "network")
 
             self.assertEqual(read.call_count, 1)
             self.assertEqual(order, ["docker", "registry"])
@@ -319,7 +319,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
             lifecycle.client.containers.list.side_effect = None
             lifecycle.client.containers.list.return_value = []
             with mock.patch.object(store, "_read", wraps=store._read) as read:
-                self.assertEqual(local_chat_state._active_chat_assistants(subject, "team_1", "network"), ())
+                self.assertEqual(local_chat_state.active_chat_assistants(subject, "team_1", "network"), ())
             read.assert_not_called()
 
     def test_spec_enumeration_uses_one_team_scoped_registry_snapshot(self) -> None:
@@ -339,7 +339,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 mock.patch.object(store, "_read", side_effect=read_bindings) as read,
                 mock.patch.object(local_registry, "_spec", wraps=local_registry._spec) as convert,
             ):
-                actual = local_resources._assistant_specs(lifecycle, "team_1")
+                actual = local_resources.assistant_specs(lifecycle, "team_1")
 
             self.assertEqual(
                 tuple(spec.assistant_id for spec in actual),
@@ -354,7 +354,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
             containers.clear()
             with mock.patch.object(store, "_read", wraps=store._read) as read:
-                self.assertEqual(local_resources._assistant_specs(lifecycle, "team_1"), ())
+                self.assertEqual(local_resources.assistant_specs(lifecycle, "team_1"), ())
             read.assert_not_called()
 
             containers.append(
@@ -369,12 +369,12 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 )
             )
             with self.assertRaises(ApiProblemError) as caught:
-                local_resources._assistant_specs(lifecycle, "team_1")
+                local_resources.assistant_specs(lifecycle, "team_1")
             self.assertEqual((caught.exception.status, caught.exception.code), (409, "assistant-registry-drift"))
 
             containers[0].labels[local_app.ASSISTANT_LABEL] = "Bad_Id"
             with self.assertRaises(ApiProblemError) as caught:
-                local_resources._assistant_specs(lifecycle, "team_1")
+                local_resources.assistant_specs(lifecycle, "team_1")
             self.assertEqual((caught.exception.status, caught.exception.code), (409, "assistant-registry-drift"))
 
     def test_private_inventories_reuse_one_team_scoped_spec_snapshot(self) -> None:
@@ -386,7 +386,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
             order, list_containers, read_bindings = _ordered_reads(store, containers)
 
             lifecycle = _spec_lifecycle(store, list_containers)
-            lifecycle._assistant_specs = lambda team_id: local_resources._assistant_specs(lifecycle, team_id)
+            lifecycle._assistant_specs = lambda team_id: local_resources.assistant_specs(lifecycle, team_id)
             subject = SimpleNamespace(
                 _lock=lambda _team_id: nullcontext(),
                 assistant_lifecycle=lifecycle,
@@ -595,13 +595,13 @@ class LocalPublicationInstallTests(unittest.TestCase):
             )
             lifecycle = SimpleNamespace(
                 client=SimpleNamespace(images=SimpleNamespace(get=mock.Mock(return_value=image))),
-                _image_labels_valid=local_resources._image_labels_valid,
+                _image_labels_valid=local_resources.image_labels_valid,
             )
 
-            self.assertIs(local_resources._trusted_image(lifecycle, spec), image)
+            self.assertIs(local_resources.trusted_image(lifecycle, spec), image)
             image.attrs["Config"]["Labels"]["org.shimpz.source.digest"] = "sha256:" + ("0" * 64)
             with self.assertRaises(local_app.ApiProblem) as caught:
-                local_resources._trusted_image(lifecycle, spec)
+                local_resources.trusted_image(lifecycle, spec)
 
         self.assertEqual(caught.exception.code, "image-contract-mismatch")
 

@@ -420,7 +420,7 @@ class TransportEdgeTests(unittest.TestCase):
             mock.patch.object(action_execution, "encode_rpc_invocation", return_value=b"{}"),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_assistant_rpc._rpc(subject, SimpleNamespace(id="container"), "upload", payload)
+            local_assistant_rpc.rpc(subject, SimpleNamespace(id="container"), "upload", payload)
         self.assertEqual(caught.exception.code, "action-file-unavailable")
         subject.client.api.exec_create.assert_not_called()
 
@@ -440,7 +440,7 @@ class LocalPreflightTests(unittest.TestCase):
         upload = SimpleNamespace(spec=SimpleNamespace(actions={"upload": UPLOAD}))
         request = brain_runtime_client.ActionRequest("interrupt-1", "docs", "upload", {"document": FILE_ID})
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_private._require_action_rpc_envelope(SimpleNamespace(), "team_1", {"docs": upload}, request, {})
+            local_chat_private.require_action_rpc_envelope(SimpleNamespace(), "team_1", {"docs": upload}, request, {})
         self.assertEqual(caught.exception.code, "action-file-unavailable")
 
 

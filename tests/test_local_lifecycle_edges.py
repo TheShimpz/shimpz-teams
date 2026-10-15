@@ -44,9 +44,9 @@ def _assistant_lifecycle(registry: TestAssistantRegistry, **members: object) -> 
         }
     )
     lifecycle._remove_assistant_container = functools.partial(
-        local_assistant_lifecycle._remove_assistant_container, lifecycle
+        local_assistant_lifecycle.remove_assistant_container, lifecycle
     )
-    lifecycle._retire_binding = functools.partial(local_assistant_lifecycle._retire_binding, lifecycle)
+    lifecycle._retire_binding = functools.partial(local_assistant_lifecycle.retire_binding, lifecycle)
     return lifecycle
 
 
@@ -59,28 +59,28 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             assistant_lifecycle=types.SimpleNamespace(_assistant_filters=lambda _team_id: {}),
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_lifecycle._team_assistant_containers(subject, "team_1")
+            local_lifecycle.team_assistant_containers(subject, "team_1")
         self.assertEqual(caught.exception.code, "docker-unavailable")
 
         container = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: "assistant"})
         subject.registry = TestAssistantRegistry({})
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_lifecycle._validate_destroy_containers(subject, [container], "team_1", object())
+            local_lifecycle.validate_destroy_containers(subject, [container], "team_1", object())
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
         subject.registry = TestAssistantRegistry({"assistant": object()})
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_lifecycle._validate_destroy_containers(subject, [container], "team_1", None)
+            local_lifecycle.validate_destroy_containers(subject, [container], "team_1", None)
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
-        self.assertIsNone(local_lifecycle._delete_team_conversation(subject, "team_1", None))
+        self.assertIsNone(local_lifecycle.delete_team_conversation(subject, "team_1", None))
 
         subject.space_id = "local-space"
         subject.brain_runtime = types.SimpleNamespace(
             delete_thread=mock.Mock(side_effect=brain_runtime_client.BrainRuntimeError("unavailable"))
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_lifecycle._delete_team_conversation(
+            local_lifecycle.delete_team_conversation(
                 subject,
                 "team_1",
                 types.SimpleNamespace(id="a" * 64),
@@ -97,7 +97,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         lifecycle = _assistant_lifecycle(TestAssistantRegistry({}))
         subject = types.SimpleNamespace(registry=lifecycle.registry, assistant_lifecycle=lifecycle)
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_lifecycle._remove_team_assistants(subject, "team_1", [container])
+            local_lifecycle.remove_team_assistants(subject, "team_1", [container])
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
         subject.registry = lifecycle.registry = _bound_registry(
@@ -105,12 +105,12 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         )
         container.remove.side_effect = DockerException("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_lifecycle._remove_team_assistants(subject, "team_1", [container])
+            local_lifecycle.remove_team_assistants(subject, "team_1", [container])
         self.assertEqual(caught.exception.code, "docker-remove-failed")
 
         container.remove.side_effect = None
         self.assertEqual(
-            local_lifecycle._remove_team_assistants(subject, "team_1", [container]),
+            local_lifecycle.remove_team_assistants(subject, "team_1", [container]),
             1,
         )
         lifecycle._queue_residue.assert_not_called()
@@ -120,7 +120,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         )
         lifecycle._assistant_language_cache.add("container")
         self.assertEqual(
-            local_lifecycle._remove_team_assistants(subject, "team_1", [container]),
+            local_lifecycle.remove_team_assistants(subject, "team_1", [container]),
             1,
         )
         lifecycle._queue_residue.assert_called_once_with(IMAGE_ID)
@@ -133,7 +133,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         subject.registry = lifecycle.registry = _bound_registry(
             {"assistant": types.SimpleNamespace(provenance="local", allowed_hosts=("api.example.com",))}
         )
-        local_lifecycle._remove_team_assistants(subject, "team_1", [container])
+        local_lifecycle.remove_team_assistants(subject, "team_1", [container])
         lifecycle._remove_egress_policy.assert_called_once_with("team_1", "assistant")
 
     def test_binding_only_assistants_are_removed_for_the_exact_team(self) -> None:
@@ -149,7 +149,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         lifecycle = _assistant_lifecycle(registry)
         subject = types.SimpleNamespace(registry=registry, assistant_lifecycle=lifecycle)
 
-        self.assertEqual(local_lifecycle._remove_team_assistants(subject, "team_1", []), 0)
+        self.assertEqual(local_lifecycle.remove_team_assistants(subject, "team_1", []), 0)
 
         lifecycle._remove_egress_policy.assert_called_once_with("team_1", "own")
         self.assertIsNone(registry.get("team_1", "own"))
@@ -159,7 +159,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         missing.identities = lambda: {("team_1", "missing")}
         subject.registry = missing
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_lifecycle._remove_team_assistants(subject, "team_1", [])
+            local_lifecycle.remove_team_assistants(subject, "team_1", [])
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
     def test_persistence_and_network_failures_are_mapped(self) -> None:
@@ -175,7 +175,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             ),
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_lifecycle._delete_team_persistence(unavailable_storage, "team_1")
+            local_lifecycle.delete_team_persistence(unavailable_storage, "team_1")
         self.assertEqual(caught.exception.code, "storage-unavailable")
 
         unavailable_inference = types.SimpleNamespace(
@@ -192,14 +192,14 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             ),
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_lifecycle._delete_team_persistence(unavailable_inference, "team_1")
+            local_lifecycle.delete_team_persistence(unavailable_inference, "team_1")
         self.assertEqual(caught.exception.code, "inference-config-unavailable")
 
         subject = types.SimpleNamespace(assistant_lifecycle=types.SimpleNamespace())
-        self.assertFalse(local_lifecycle._remove_team_network(subject, None))
+        self.assertFalse(local_lifecycle.remove_team_network(subject, None))
         network = types.SimpleNamespace(remove=mock.Mock(side_effect=DockerException("unavailable")))
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_lifecycle._remove_team_network(subject, network)
+            local_lifecycle.remove_team_network(subject, network)
         self.assertEqual(caught.exception.code, "docker-remove-failed")
 
     def test_destroy_requires_lock_and_complete_teardown_proof(self) -> None:
@@ -252,13 +252,13 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             )
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_lifecycle._validate_reset_container(subject, invalid_container)
+            local_lifecycle.validate_reset_container(subject, invalid_container)
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
         network = types.SimpleNamespace(attrs={"Labels": {local_labels.TEAM_LABEL: 7}})
         subject.registry = TestAssistantRegistry({})
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_lifecycle._reset_assistant_identities(subject, [], [network])
+            local_lifecycle.reset_assistant_identities(subject, [], [network])
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
     def test_space_resource_removal_handles_images_without_cleanup_identity(self) -> None:
@@ -297,7 +297,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         )
 
         subject.registry = subject.assistant_lifecycle.registry
-        storage_removed, absent = local_lifecycle._remove_space_resources(
+        storage_removed, absent = local_lifecycle.remove_space_resources(
             subject,
             [container],
             [network],
