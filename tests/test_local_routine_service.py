@@ -299,9 +299,7 @@ class RunTests(RoutineServiceCase):
                 self.assertIsNone(service.claim_routine_run())
             state = self.state(service)
         self.assertTrue(record.routine(state, value.routine_id).needs_reconfirm)
-        self.assertEqual(
-            [(item.outcome, item.detail) for item in state.notices], [("scope-changed", {"assistants": [ASSISTANT]})]
-        )
+        self.assertEqual([(item.outcome, item.detail) for item in state.notices], [("scope-changed", {})])
 
     def test_unreadable_contracts_never_mark_the_routine_changed(self) -> None:
         down = local_app.ApiProblem(503, "Docker is unavailable", code="docker-unavailable")
@@ -320,7 +318,7 @@ class RunTests(RoutineServiceCase):
         self.assertFalse(record.routine(state, value.routine_id).needs_reconfirm)
         self.assertEqual(
             [(item.outcome, item.detail) for item in state.notices],
-            [("failed", {"code": "team-context-unavailable", "actions": [], "position": None, "steps": None})],
+            [("failed", {"code": "team-context-unavailable"})],
         )
 
     def test_an_unreadable_or_malformed_registry_never_marks_the_routine_changed_or_strands_a_run(self) -> None:
@@ -340,7 +338,7 @@ class RunTests(RoutineServiceCase):
                 self.assertFalse(record.routine(state, value.routine_id).needs_reconfirm)
                 self.assertEqual(
                     state.notices[-1].detail,
-                    {"code": "team-context-unavailable", "actions": [], "position": None, "steps": None},
+                    {"code": "team-context-unavailable"},
                 )
 
     def test_an_assistant_the_team_no_longer_runs_marks_the_routine_changed(self) -> None:
@@ -351,9 +349,7 @@ class RunTests(RoutineServiceCase):
                 self.assertIsNone(service.claim_routine_run())
             state = self.state(service)
         self.assertTrue(record.routine(state, value.routine_id).needs_reconfirm)
-        self.assertEqual(
-            [(item.outcome, item.detail) for item in state.notices], [("scope-changed", {"assistants": [ASSISTANT]})]
-        )
+        self.assertEqual([(item.outcome, item.detail) for item in state.notices], [("scope-changed", {})])
 
     def test_a_failing_action_holds_the_run_as_an_incident_that_holds_its_routine(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -657,7 +653,7 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
             state = self.state(service)
             self.assertEqual(
                 (state.runs, state.notices[-1].detail),
-                ((), {"code": "interrupted", "actions": [], "position": None, "steps": None}),
+                ((), {"code": "interrupted"}),
             )
             self.assertEqual(service.routine_store.continuations("team_1"), ())
             self.routine(service)

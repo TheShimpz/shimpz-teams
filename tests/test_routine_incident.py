@@ -30,12 +30,7 @@ class IncidentNoticeTests(unittest.TestCase):
             (
                 run_id,
                 "held",
-                {
-                    "assistant_id": "dns",
-                    "action": "replace-dns-record",
-                    "position": 1,
-                    "steps": 1,
-                },
+                {},
                 1,
             ),
         )
@@ -46,20 +41,14 @@ class IncidentNoticeTests(unittest.TestCase):
             (paused.notices[-1].outcome, paused.notices[-1].detail, paused.notices[-1].version),
             (
                 "paused",
-                {
-                    "assistant_id": "dns",
-                    "action": "replace-dns-record",
-                    "position": 1,
-                    "steps": 1,
-                    "reason": "exhausted",
-                },
+                {"reason": "exhausted"},
                 2,
             ),
         )
         with self.assertRaisesRegex(ValueError, "unknown Routine pause reason"):
             routine_hold.pause_incident(state, run_id, NINE, "bored")
         # A person setting this run aside is never the Routine's missed-schedule skip.
-        skipped = routine_hold.skip_incident(paused, run_id, NINE + 3, choice="run")
+        skipped = routine_hold.skip_incident(paused, run_id, NINE + 3)
         self.assertEqual(routine_hold.incident(skipped, run_id).status, "skipped")
         self.assertEqual(
             (skipped.notices[-1].outcome, skipped.notices[-1].run_id, skipped.notices[-1].version),
@@ -81,7 +70,7 @@ class IncidentNoticeTests(unittest.TestCase):
             (requested.paused, requested.run_requested, requested.next_run_at), (False, NINE + 10, cadence)
         )
         notice = asked.notices[-1]
-        self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "run"))
+        self.assertEqual((notice.outcome, notice.detail), ("user-skipped", {}))
         self.assertEqual(routine_claim.next_due(asked, NINE + 5), NINE + 10)
         # A Team catching up its notices waits; the request outlasts the schedule's own grace and is never missed.
         late = cadence - 60
@@ -103,16 +92,7 @@ class IncidentNoticeTests(unittest.TestCase):
         state, _runs = record.begin_delete(state, "a" * 32)
         state = routine_hold.settle_hold(state, run_id, NINE + 1, ("dns", "replace-dns-record", STEP, 1))
         self.assertEqual(routine_hold.incident(state, run_id).status, "skipped")
-        self.assertEqual(
-            state.notices[-1].detail,
-            {
-                "assistant_id": "dns",
-                "action": "replace-dns-record",
-                "position": 1,
-                "steps": 1,
-                "choice": "delete",
-            },
-        )
+        self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail), ("user-skipped", {}))
 
     def test_a_resume_starts_a_fresh_streak_and_a_deleting_routine_never_pauses_or_resumes(self):
         state = added(routine())
@@ -156,9 +136,7 @@ class IncidentNoticeTests(unittest.TestCase):
     def test_a_hold_without_a_sealed_cursor_names_no_step(self):
         state, run_id = held()
         state = routine_hold.settle_hold(state, run_id, NINE + 1)
-        self.assertEqual(
-            state.notices[-1].detail, {"assistant_id": None, "action": None, "position": None, "steps": None}
-        )
+        self.assertEqual(routine_hold.held_step(routine_hold.incident(state, run_id)), routine_hold.UNKNOWN_STEP)
 
     def test_a_completed_continuation_is_recovered_and_resets_the_streak(self):
         state, claim, lease = bound()
@@ -197,10 +175,10 @@ class HoldEdgeTests(unittest.TestCase):
             routine_hold.reopen_incident(paused, run_id, NINE + 2, generation)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-busy"):
             routine_hold.reopen_incident(state, run_id, NINE + 2, "net_1:routine:" + "0" * 32)
-        skipped = routine_hold.skip_incident(state, run_id, NINE + 2, choice="run")
+        skipped = routine_hold.skip_incident(state, run_id, NINE + 2)
         for transition in (
             lambda: routine_hold.reopen_incident(skipped, run_id, NINE + 3, generation),
-            lambda: routine_hold.skip_incident(skipped, run_id, NINE + 3, choice="run"),
+            lambda: routine_hold.skip_incident(skipped, run_id, NINE + 3),
             lambda: routine_hold.release_incident(state, run_id),
         ):
             with self.subTest(transition=transition), self.assertRaises(record.RoutineStateError):

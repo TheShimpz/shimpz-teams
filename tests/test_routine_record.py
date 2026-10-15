@@ -47,10 +47,15 @@ SUMMARY = {
 
 class ContractTests(unittest.TestCase):
     def test_notice_identities_follow_the_protocol_identifier_grammar(self):
-        stopped = {"actions": [["dns", "list.zones_v2"]]}
-        self.assertEqual(http_routine_notice.canonical_notice_detail("stopped", stopped), stopped)
-        long_assistant = {"actions": [["d" * (http_payload.MAX_ASSISTANT_ID_CHARS + 1), "x"]]}
-        self.assertIsNone(http_routine_notice.canonical_notice_detail("stopped", long_assistant))
+        actions = [["dns", "list.zones_v2", 1], ["dns", "replace-dns-record", 1]]
+        done = {"plan": {**SUMMARY, "actions": actions}, "output": None}
+        self.assertEqual(http_routine_notice.canonical_notice_detail("done", done), done)
+        long_assistant = [["d" * (http_payload.MAX_ASSISTANT_ID_CHARS + 1), "x", 2]]
+        self.assertIsNone(
+            http_routine_notice.canonical_notice_detail(
+                "done", {**done, "plan": {**SUMMARY, "actions": long_assistant}}
+            )
+        )
 
     def test_the_challenge_open_locales_match_the_chat_locales(self):
         self.assertEqual(http_routine.LOCALES, http_payload.CHAT_LOCALES)
@@ -59,38 +64,16 @@ class ContractTests(unittest.TestCase):
         valid = {
             "done": {"plan": SUMMARY, "output": None},
             "recovered": {"plan": SUMMARY, "output": None},
-            "held": {
-                "assistant_id": "dns",
-                "action": "replace-dns-record",
-                "position": 2,
-                "steps": 2,
-            },
-            "paused": {"assistant_id": None, "action": None, "position": None, "steps": None, "reason": "exhausted"},
-            "user-skipped": {
-                "assistant_id": "dns",
-                "action": "replace-dns-record",
-                "position": 2,
-                "steps": 2,
-                "choice": "run",
-            },
+            "held": {},
+            "paused": {"reason": "exhausted"},
+            "user-skipped": {},
             "skipped": {"missed": 3},
             "healthy": {"runs": http_routine.MAX_ROLLUP_RUNS},
-            "scope-changed": {"assistants": ["dns"]},
-            "failed": {
-                "code": "assistant-rpc-failed",
-                "actions": [["dns", "list-zones"]],
-                "position": 2,
-                "steps": 3,
-            },
-            "denied": {"actions": []},
-            "stopped": {"actions": [["dns", "list-zones"]]},
-            "frozen": {
-                "request_kind": "human",
-                "assistant_id": "dns",
-                "action": "replace-dns-record",
-                "position": 2,
-                "steps": 2,
-            },
+            "scope-changed": {},
+            "failed": {"code": "assistant-rpc-failed"},
+            "denied": {},
+            "stopped": {},
+            "frozen": {"request_kind": "human"},
             "created": {},
             "changed": {},
             "deleted": {},
@@ -119,95 +102,22 @@ class ContractTests(unittest.TestCase):
             ),
             ("done", {"reply": "Done."}),
             ("recovered", {"plan": {**SUMMARY, "actions": [["dns"]]}, "output": None}),
-            ("held", {"assistant_id": "dns", "action": None, "position": 1, "steps": 1}),
-            ("held", {"assistant_id": "Bad", "action": "x", "position": 1, "steps": 1}),
-            ("held", {"assistant_id": "dns", "action": "x"}),
-            ("held", {"assistant_id": "dns", "action": "x", "position": None, "steps": None}),
-            ("held", {"assistant_id": "dns", "action": "x", "position": 3, "steps": 2}),
-            ("held", {"assistant_id": "dns", "action": "x", "position": 0, "steps": 2}),
-            ("held", {"assistant_id": "dns", "action": "x", "position": 1, "steps": 257}),
-            ("held", {"assistant_id": None, "action": None, "position": 1, "steps": 1}),
-            (
-                "paused",
-                {
-                    "assistant_id": "dns",
-                    "action": "x",
-                    "position": 1,
-                    "steps": 1,
-                    "reason": "tired",
-                },
-            ),
-            ("paused", {"assistant_id": "dns", "action": "x", "position": 1, "steps": 1}),
-            (
-                "user-skipped",
-                {
-                    "assistant_id": "dns",
-                    "action": "x",
-                    "position": 1,
-                    "steps": 1,
-                    "input": {},
-                },
-            ),
-            (
-                "user-skipped",
-                {"assistant_id": "dns", "action": "x", "position": 1, "steps": 1},
-            ),
+            ("held", {"assistant_id": "dns", "action": "x", "position": 1, "steps": 1}),
+            ("paused", {"reason": "tired"}),
+            ("paused", {}),
+            ("user-skipped", {"choice": "run"}),
             ("skipped", {"missed": 0}),
             ("skipped", {"missed": True}),
             ("healthy", {"runs": 0}),
             ("healthy", {"runs": http_routine.MAX_ROLLUP_RUNS + 1}),
             ("healthy", {"runs": 1, "actions": [["dns", "list-zones"]]}),
-            ("scope-changed", {"assistants": []}),
-            ("scope-changed", {"assistants": ["Bad"]}),
-            ("failed", {"code": "Bad Code", "actions": [], "position": None, "steps": None}),
-            ("failed", {"code": "x", "actions": [["dns"]]}),
-            ("stopped", {"actions": [["dns", {"input": 1}]]}),
-            ("stopped", {"actions": "dns"}),
-            ("interrupted", {"actions": []}),
-            (
-                "frozen",
-                {
-                    "request_kind": "email",
-                    "assistant_id": "dns",
-                    "action": "x",
-                    "position": 1,
-                    "steps": 1,
-                },
-            ),
-            (
-                "frozen",
-                {
-                    "request_kind": "human",
-                    "assistant_id": "Bad",
-                    "action": "x",
-                    "position": 1,
-                    "steps": 1,
-                },
-            ),
-            (
-                "frozen",
-                {
-                    "request_kind": "human",
-                    "assistant_id": "dns",
-                    "action": ["x"],
-                    "position": 1,
-                    "steps": 1,
-                },
-            ),
-            (
-                "frozen",
-                {
-                    "request_kind": "human",
-                    "assistant_id": "dns",
-                    "position": 1,
-                    "steps": 1,
-                },
-            ),
-            ("frozen", {"request_kind": "human", "assistant_id": "dns", "action": "x"}),
-            (
-                "frozen",
-                {"request_kind": "human", "assistant_id": "dns", "action": "x", "position": None, "steps": None},
-            ),
+            ("scope-changed", {"assistants": ["dns"]}),
+            ("failed", {"code": "Bad Code"}),
+            ("failed", {"code": "x", "actions": []}),
+            ("stopped", {"actions": []}),
+            ("interrupted", {}),
+            ("frozen", {"request_kind": "email"}),
+            ("frozen", {"request_kind": "human", "assistant_id": "dns"}),
             (["done"], {"reply": "x"}),
             ("done", ["reply"]),
             ("created", {"name": "Daily DNS summary"}),
@@ -471,7 +381,7 @@ class ConfirmedChangeTests(unittest.TestCase):
 
     def test_an_update_is_the_next_revision_of_exactly_the_revision_the_card_saw(self):
         state = dataclasses.replace(added(routine(), routine("b" * 32)))
-        state = record.mark_scope_changed(state, "a" * 32, NINE, ["dns"])
+        state = record.mark_scope_changed(state, "a" * 32, NINE)
         state = record.set_paused(state, "a" * 32, True)
         changed = record.scheduled(dataclasses.replace(routine(), name="DNS summary", schedule=WEEKLY), NINE)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-revision-changed"):

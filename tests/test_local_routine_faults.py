@@ -190,7 +190,7 @@ class RunFaultTests(RoutineServiceCase):
             self.assertEqual(
                 self.state(service).notices[-1].detail,
                 # The run ends at the step that asked, by its position.
-                {"code": "request-unavailable", "actions": [], "position": 1, "steps": 1},
+                {"code": "request-unavailable"},
             )
             self.assertEqual(service.routine_store.continuations("team_1"), ())
 
@@ -276,12 +276,7 @@ class RunFaultTests(RoutineServiceCase):
             _controller, service, claim = self.asking(directory)
             with mock.patch.object(routine_runs, "freeze", side_effect=record.RoutineStateError("frozen-limit")):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
-            detail = self.state(service).notices[-1].detail
-            # It fails at the step that asked, by its position.
-            self.assertEqual(
-                (detail["code"], detail["position"], detail["steps"]),
-                ("freeze-unavailable", 1, 1),
-            )
+            self.assertEqual(self.state(service).notices[-1].detail, {"code": "freeze-unavailable"})
             self.assertEqual(service.routine_store.continuations("team_1"), ())
 
     def test_a_missing_integration_freezes_the_run_and_a_resume_continues_it(self) -> None:
@@ -308,7 +303,7 @@ class RunFaultTests(RoutineServiceCase):
             claim = service.claim_routine_run()
             with mock.patch.object(service, "_commit_chat_terminal", return_value=False):
                 self.assertEqual(self.run_claim(service, claim)["status"], "stopped")
-            self.assertEqual(self.state(service).notices[-1].detail, {"actions": []})
+            self.assertEqual(self.state(service).notices[-1].detail, {})
         with tempfile.TemporaryDirectory() as directory:
             controller, service = self.service(directory, Runtime())
             controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
@@ -512,7 +507,7 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
             service.routine_store.update(
                 "team_1",
                 lambda state: (
-                    routine_runs.end(state, claim["run_id"], int(time.time()), "stopped", {"actions": []}),
+                    routine_runs.end(state, claim["run_id"], int(time.time()), "stopped", {}),
                     None,
                 ),
             )
@@ -537,7 +532,7 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
             self.bind(controller, service, claim, now)
             service.routine_store.update(
                 "team_1",
-                lambda state: (routine_runs.end(state, claim["run_id"], now, "stopped", {"actions": []}), None),
+                lambda state: (routine_runs.end(state, claim["run_id"], now, "stopped", {}), None),
             )
             self.routine(service)
             down = action_journal.ActionJournalError("down")
@@ -624,7 +619,7 @@ class TeamIsolationTests(RoutineServiceCase):
             state = self.state(service)
             self.assertEqual(
                 (state.runs, state.notices[-1].detail),
-                ((), {"code": "interrupted", "actions": [], "position": None, "steps": None}),
+                ((), {"code": "interrupted"}),
             )
             local_app.local_audit.record.assert_any_call(
                 "routine-watchdog",

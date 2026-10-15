@@ -28,14 +28,14 @@ def settle_hold(
     """A held run's incident is durable and its batch archived: index the run as its incident in one write.
 
     The run's live state is queued for removal like an ended run's; its archived journal marker stays with the
-    incident. ``step`` is the Assistant Action its sealed cursor stopped at, with its position, which the run's held
-    notice names.
+    incident. ``step`` is the Assistant Action its sealed cursor stopped at, with its position, which its incident
+    names.
     """
     value = record.run(state, run_id)
     if value.status != "held":
         raise record.RoutineStateError("run-not-held")
     deleting = record.routine(state, value.routine_id).deleting
-    state, value = record.run_notice(state, value, "held", now, step_detail(step))
+    state, value = record.run_notice(state, value, "held", now, {})
     assistant_id, action, position, steps = step
     indexed = dataclasses.replace(
         value,
@@ -48,7 +48,7 @@ def settle_hold(
     )
     state = record.ended(record.replace_run(state, indexed), indexed, now)
     # A Routine being deleted keeps no incident for a person to settle: its run is set aside as it is indexed.
-    return skip_incident(state, run_id, now, choice="delete") if deleting else state
+    return skip_incident(state, run_id, now) if deleting else state
 
 
 def incident(state: record.TeamRoutines, incident_id: str) -> record.Run:
@@ -144,20 +144,18 @@ def _expect(state: record.TeamRoutines, value: record.Run, expected: Expected | 
 
 
 def skip_incident(
-    state: record.TeamRoutines, incident_id: str, now: int, expected: Expected | None = None, *, choice: str
+    state: record.TeamRoutines, incident_id: str, now: int, expected: Expected | None = None
 ) -> record.TeamRoutines:
     """A person sets the held run aside, never verified, replayed, or fabricated; its possible effects stay unresolved.
 
-    ``choice`` is how: Rodar (``run``) or deleting the Routine (``delete``), which the run's
-    ``user-skipped`` notice names; it is distinct from the Routine's own missed-schedule skip. A card's ``expected``
-    state is checked in the same write.
+    Rodar or deleting the Routine does it; the run's ``user-skipped`` notice is distinct from the Routine's own
+    missed-schedule skip. A card's ``expected`` state is checked in the same write.
     """
     value = incident(state, incident_id)
     if value.status != "unresolved":
         raise record.RoutineStateError("incident-not-unresolved")
     _expect(state, value, expected)
-    detail = {**step_detail(held_step(value)), "choice": choice}
-    state, value = record.run_notice(state, value, "user-skipped", now, detail)
+    state, value = record.run_notice(state, value, "user-skipped", now, {})
     return record.replace_run(state, dataclasses.replace(value, status="skipped"))
 
 
@@ -168,7 +166,7 @@ def run_incident(state: record.TeamRoutines, incident_id: str, now: int, expecte
     starts it now, under every start cap and without moving its cadence.
     """
     value = incident(state, incident_id)
-    state = record.set_paused(skip_incident(state, incident_id, now, expected, choice="run"), value.routine_id, False)
+    state = record.set_paused(skip_incident(state, incident_id, now, expected), value.routine_id, False)
     current = record.routine(state, value.routine_id)
     return record.replace_routine(state, dataclasses.replace(current, run_requested=now))
 
@@ -181,8 +179,7 @@ def pause_incident(state: record.TeamRoutines, incident_id: str, now: int, reaso
     if value.status != "unresolved":
         raise record.RoutineStateError("incident-not-unresolved")
     state = record.set_paused(state, value.routine_id, True)
-    detail = {**step_detail(held_step(value)), "reason": reason}
-    state, value = record.run_notice(state, value, "paused", now, detail)
+    state, value = record.run_notice(state, value, "paused", now, {"reason": reason})
     return record.replace_run(state, value)
 
 

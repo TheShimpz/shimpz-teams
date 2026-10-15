@@ -52,7 +52,7 @@ def busy_state() -> record.TeamRoutines:
     state, second, lease = routine_fixture.claim_bound(state, now)
     state = routine_hold.fence(state, second.run.run_id, lease, now)
     state, third, _lease = routine_fixture.claim_bound(state, now)
-    return routine_runs.end(state, third.run.run_id, now, "stopped", {"actions": []})
+    return routine_runs.end(state, third.run.run_id, now, "stopped", {})
 
 
 class StoreCase(unittest.TestCase):

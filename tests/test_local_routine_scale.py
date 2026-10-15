@@ -254,9 +254,6 @@ class StepRecordEdgeTests(RoutineServiceCase):
             _controller, service = self.service(directory, Runtime())
             value = self.routine(service)
             runtime = self.runtime(service, value, mock.Mock(record_step=lambda *args: kept.append(args[2])))
-            # Nothing was dispatched yet: a failure names no step.
-            at = routine_compiled._at(SimpleNamespace(runtime=runtime))
-            self.assertEqual(at, {"position": None, "steps": None})
             request = runtime.start(None, "").actions[0]
             # The Action returned 500 ms after it started; sealing and projecting it later never counts.
             with mock.patch.object(routine_compiled, "_STEP_CLOCK", side_effect=[10.0, 10.5]):
@@ -265,8 +262,6 @@ class StepRecordEdgeTests(RoutineServiceCase):
                 runtime.returned()
                 runtime.record_step("done")
             self.assertEqual((kept[-1].status, kept[-1].duration_ms), ("done", 500))
-            at = routine_compiled._at(SimpleNamespace(runtime=runtime))
-            self.assertEqual(at, {"position": 1, "steps": 1})
             # Stop cutting the Action's call records it as stopped, never as failed.
             runtime.dispatching(request, operation)
             with mock.patch.object(routine_compiled.routine_diagnostics, "protected", return_value=()):
@@ -301,11 +296,8 @@ class StepRecordEdgeTests(RoutineServiceCase):
             value = self.routine(service, plan=_scaled_plan(service), next_run_at=int(time.time()) + 3600)
             frozen = routine_fixture.put_frozen_run(service, value.routine_id, ASSISTANT, step=37, steps=120)
             routine_human._end_changed(service, "team_1", frozen)
-            detail = self.state(service).notices[-1].detail
-        self.assertEqual(
-            (detail["code"], detail["position"], detail["steps"]),
-            ("team-context-changed", 37, 120),
-        )
+            notice = self.state(service).notices[-1]
+        self.assertEqual((notice.outcome, notice.detail), ("failed", {"code": "team-context-changed"}))
 
     def test_a_deleting_routine_shows_no_steps(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -70,9 +70,7 @@ def _recover(service, team_id: str, value: record.Run) -> str | None:
             return routine_runs.complete_recovered(state, value.run_id, value.lease_sha256, now, shown), "done"
         if progress == "partial":
             return routine_hold.hold_recovered(state, value.run_id, value.lease_sha256), "held"
-        return routine_runs.end(
-            state, value.run_id, now, "failed", {"code": "interrupted", "actions": [], "position": None, "steps": None}
-        ), "failed"
+        return routine_runs.end(state, value.run_id, now, "failed", {"code": "interrupted"}), "failed"
 
     return service.routine_store.update(team_id, routine_state.reconciled(service, team_id, recover))
 

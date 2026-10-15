@@ -202,7 +202,7 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
             item.run_id for item in state.runs if item.routine_id == routine_id and item.status == "unresolved"
         )
         for incident_id in held:
-            state = routine_hold.skip_incident(state, incident_id, now, choice="delete")
+            state = routine_hold.skip_incident(state, incident_id, now)
         return state, (runs, held)
 
     runs, held = routine_state.update(self, team_id, begin)
@@ -215,7 +215,7 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
             # Serialized with an opening by the Team lifecycle lock, as Stop is: no challenge outlives the run.
             with self._lock(team_id):
                 self._cancel_routine_challenge(team_id, value.run_id)
-                end_frozen(self, team_id, value.run_id, "stopped", {"actions": []})
+                end_frozen(self, team_id, value.run_id, "stopped", {})
         # A held run is set aside as its incident is indexed; that ending completes the deletion.
     for incident_id in held:
         # A verification or recovery episode still in progress is stopped; it changes nothing after this.

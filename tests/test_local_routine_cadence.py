@@ -53,7 +53,7 @@ class SimulatedDayTests(unittest.TestCase):
                     # A second claim while it runs finds nothing: one run at a time.
                     self.assertIsNone(routine_claim.claim(state, now, key)[1])
             elif now >= starts[-1] + 3:
-                state = routine_runs.end(state, running, now, "stopped", {"actions": []})
+                state = routine_runs.end(state, running, now, "stopped", {})
                 state = caught_up(state)
                 running = None
                 # The next run is due exactly its gap after this one started, not after it ended.
@@ -74,7 +74,7 @@ class SimulatedDayTests(unittest.TestCase):
             state, claim = routine_claim.claim(state, now, key)
             order.append(claim.run.routine_id)
             now += 3
-            state = caught_up(routine_runs.end(state, claim.run.run_id, now, "stopped", {"actions": []}))
+            state = caught_up(routine_runs.end(state, claim.run.run_id, now, "stopped", {}))
             now = routine_claim.next_due(state, now) or now
         # Neither continuous Routine ever starves the other.
         self.assertEqual(order, ["a" * 32, "b" * 32] * 3)
@@ -82,7 +82,7 @@ class SimulatedDayTests(unittest.TestCase):
     def test_undelivered_notices_hold_every_start_and_every_wake_until_delivered(self) -> None:
         state = record.add_routine(record.TeamRoutines(), continuous(at=1_800_000_000))
         notices = tuple(
-            record.Notice(f"{index:032x}", "a" * 32, f"{index:032x}", "stopped", 1, {"actions": []}, 1, "q")
+            record.Notice(f"{index:032x}", "a" * 32, f"{index:032x}", "stopped", 1, {}, 1, "q")
             for index in range(record.MAX_UNDELIVERED_NOTICES)
         )
         full = dataclasses.replace(state, notices=notices)

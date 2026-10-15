@@ -217,7 +217,7 @@ def large_completion() -> dict[str, object]:
     }
 
 
-def set_aside(service, team_id: str, incident_id: str, choice: str = "run"):
+def set_aside(service, team_id: str, incident_id: str):
     """A person sets a held run aside, as a card answer or a deletion does, without starting anything new."""
     import time
 
@@ -225,6 +225,6 @@ def set_aside(service, team_id: str, incident_id: str, choice: str = "run"):
     from routine import hold as routine_hold
 
     def change(state):
-        return routine_hold.skip_incident(state, incident_id, int(time.time()), choice=choice)
+        return routine_hold.skip_incident(state, incident_id, int(time.time()))
 
     return routine_incident.set_aside(service, team_id, incident_id, change)

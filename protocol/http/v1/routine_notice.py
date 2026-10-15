@@ -38,61 +38,37 @@ def _held_step(detail: dict[str, object]) -> bool:
     )
 
 
-_STEP_FIELDS = {"assistant_id", "action", "position", "steps"}
-# How a person set a held run aside: Rodar on its card, or deleting its Routine.
-SET_ASIDE_CHOICES = ("run", "delete")
 # What a frozen run waits for: a person's answer to a declared human request, or an Integration.
 REQUEST_KINDS = ("human", "integrations")
 
 
-def _frozen(detail: dict[str, object]) -> bool:
-    """The one request a frozen run waits for: its kind, the Assistant Action that asked, and that call's position."""
-    return detail["request_kind"] in REQUEST_KINDS and detail["assistant_id"] is not None and _held_step(detail)
-
-
-def _failed_at(detail: dict[str, object]) -> bool:
-    """The call a failed run stopped at, by position, or both null when it failed before any call."""
-    if (detail["position"], detail["steps"]) == (None, None):
-        return True
-    return routine.canonical_position(detail["position"], detail["steps"]) is not None
+def _empty(_detail: dict[str, object]) -> bool:
+    return True
 
 
 _COMPLETED_FIELDS = {"plan", "output"}
-# Each outcome's exact detail fields and check: denied and stopped name the Actions that completed; held, paused, and
-# user-skipped name the call whose effects are unresolved, and user-skipped the card choice that set the run aside.
+# Each outcome's exact detail fields and check: exactly what Admin keeps of it, which is what a view renders. A run's
+# calls are read from its run records and a held one's from its incident, so no notice names an Action.
 _DETAILS = {
     "done": (_COMPLETED_FIELDS, _completed),
     "recovered": (_COMPLETED_FIELDS, _completed),
-    "held": (_STEP_FIELDS, _held_step),
-    "paused": (
-        _STEP_FIELDS | {"reason"},
-        lambda detail: _held_step(detail) and detail["reason"] in routine.PAUSE_REASONS,
-    ),
-    "user-skipped": (
-        _STEP_FIELDS | {"choice"},
-        lambda detail: _held_step(detail) and detail["choice"] in SET_ASIDE_CHOICES,
-    ),
+    "held": (set(), _empty),
+    "paused": ({"reason"}, lambda detail: detail["reason"] in routine.PAUSE_REASONS),
+    "user-skipped": (set(), _empty),
     "skipped": ({"missed"}, lambda detail: type(detail["missed"]) is int and detail["missed"] >= 1),
     "healthy": (
         {"runs"},
         lambda detail: type(detail["runs"]) is int and 1 <= detail["runs"] <= routine.MAX_ROLLUP_RUNS,
     ),
-    "scope-changed": ({"assistants"}, routine.scope_changed),
-    "frozen": ({"request_kind"} | _STEP_FIELDS, _frozen),
-    "failed": (
-        {"code", "actions", "position", "steps"},
-        lambda detail: (
-            routine.matches(detail["code"], routine.ERROR_CODE_RE)
-            and routine.valid_actions(detail["actions"])
-            and _failed_at(detail)
-        ),
-    ),
-    "denied": ({"actions"}, lambda detail: routine.valid_actions(detail["actions"])),
-    "stopped": ({"actions"}, lambda detail: routine.valid_actions(detail["actions"])),
+    "scope-changed": (set(), _empty),
+    "frozen": ({"request_kind"}, lambda detail: detail["request_kind"] in REQUEST_KINDS),
+    "failed": ({"code"}, lambda detail: routine.matches(detail["code"], routine.ERROR_CODE_RE)),
+    "denied": (set(), _empty),
+    "stopped": (set(), _empty),
     # A Routine's creation, change, and deletion say nothing beyond the notice's own name (ADR-0101).
-    "created": (set(), lambda _detail: True),
-    "changed": (set(), lambda _detail: True),
-    "deleted": (set(), lambda _detail: True),
+    "created": (set(), _empty),
+    "changed": (set(), _empty),
+    "deleted": (set(), _empty),
     "streak-paused": (
         {"failures"},
         lambda detail: type(detail["failures"]) is int and 1 <= detail["failures"] <= routine.MAX_FAILURE_STREAK,

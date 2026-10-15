@@ -92,8 +92,7 @@ def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str, l
         # Nothing is proven: the Routine stays due, unchanged, and the next claim checks it again.
         return state, None
     if current != pinned:
-        changed = sorted(assistant for assistant, digest in pinned.items() if current.get(assistant) != digest)
-        return record.mark_scope_changed(state, due.routine_id, now, changed), None
+        return record.mark_scope_changed(state, due.routine_id, now), None
     return routine_claim.claim(state, now, key, long)
 
 
@@ -188,12 +187,7 @@ def _finish(self, run: LeasedRun, outcome: str, detail: dict[str, object], shown
                 run.run_id,
                 now,
                 "failed",
-                {
-                    "code": "lease-expired",
-                    "actions": [],
-                    "position": None,
-                    "steps": None,
-                },
+                {"code": "lease-expired"},
             ), "failed"
 
     return routine_state.update(self, run.team_id, finish)
@@ -212,7 +206,7 @@ def finished(
     if not self._commit_chat_terminal(run.team_id, run.token):
         if _deadline_cut(self, run) and sealed_done():
             return complete_sealed(self, run, shown)
-        return end_run(self, run.team_id, run.run_id, "stopped", {"actions": []})
+        return end_run(self, run.team_id, run.run_id, "stopped", {})
     return complete(self, run, value, shown)
 
 
@@ -361,8 +355,7 @@ def _freeze(self, run: LeasedRun, pending: PendingLocalChat, segment, step: int)
     # public copy hiding every protected value is never shown (ADR-0101 section 6).
     if frozen is None or _unshowable(self, run_id, segment):
         self._commit_chat_terminal(team_id, run.token)
-        placed = {"position": step, "steps": len(run.routine.plan["steps"])}
-        return end_run(self, team_id, run_id, "failed", {"code": "request-unavailable", "actions": [], **placed})
+        return end_run(self, team_id, run_id, "failed", {"code": "request-unavailable"})
     kind, requirements, assistant_id, action = frozen
     bindings, payload = local_chat_continuations.encode(
         kind, requirements, pending, limit=local_chat_continuations.MAX_ROUTINE_PLAINTEXT_BYTES
@@ -381,11 +374,8 @@ def _freeze(self, run: LeasedRun, pending: PendingLocalChat, segment, step: int)
         except record.RoutineStateError as exc:
             if str(exc) == "routine-deleting":
                 # The deletion stops every run it saw leased; one reaching its pause meanwhile ends stopped.
-                return routine_runs.end(state, run_id, now, "stopped", {"actions": []}), "stopped"
-            placed = {"position": step, "steps": len(run.routine.plan["steps"])}
-            return routine_runs.end(
-                state, run_id, now, "failed", {"code": "freeze-unavailable", "actions": [], **placed}
-            ), ("failed")
+                return routine_runs.end(state, run_id, now, "stopped", {}), "stopped"
+            return routine_runs.end(state, run_id, now, "failed", {"code": "freeze-unavailable"}), "failed"
 
     outcome: list[str] = []
     # The freeze is written under the guard a Stop cancels under: a Stop either wins first and the run ends stopped,
@@ -393,7 +383,7 @@ def _freeze(self, run: LeasedRun, pending: PendingLocalChat, segment, step: int)
     if not self._commit_chat_terminal(
         team_id, run.token, lambda: outcome.append(routine_state.update(self, team_id, freeze))
     ):
-        return end_run(self, team_id, run_id, "stopped", {"actions": []})
+        return end_run(self, team_id, run_id, "stopped", {})
     return outcome[0]
 
 
@@ -507,7 +497,7 @@ def halt_routine_run(self, team_id: str, run_id: str) -> bool:
         return routine_state.applied(
             self,
             team_id,
-            lambda state: routine_runs.end(state, run_id, now, "stopped", {"actions": []}, status="leased"),
+            lambda state: routine_runs.end(state, run_id, now, "stopped", {}, status="leased"),
         )
     finally:
         with self._active_chat_guard:

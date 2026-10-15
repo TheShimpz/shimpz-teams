@@ -602,14 +602,12 @@ def _ended(
                 # Out of time, not stopped by a person, after its sealed cursor completed every step: it is complete.
                 return routine_run.complete_sealed(self, run, sealed_shown(self, run.team_id, value))
         elif not uncertain:
-            return routine_run.end_run(self, run.team_id, run.run_id, "stopped", {"actions": []})
+            return routine_run.end_run(self, run.team_id, run.run_id, "stopped", {})
     if not uncertain and (
         progress(self, run.team_id, value) == "none"
         or (code in UNRESOLVED_INPUTS and _read_only_prefix(self, run.team_id, value))
     ):
-        return routine_run.end_run(
-            self, run.team_id, run.run_id, "failed", {"code": code, "actions": [], **_at(segment)}
-        )
+        return routine_run.end_run(self, run.team_id, run.run_id, "failed", {"code": code})
     routine_incident.hold(self, run.team_id, run.run_id, run.lease)
     return "held"
 
@@ -634,14 +632,6 @@ def _read_only_prefix(self, team_id: str, value: record.Run) -> bool:
     dispatched = snapshot.plan["steps"][: cursor.step + (cursor.operation_id is not None)]
     read_only = {(item["assistant"], item["action"]) for item in current.permitted if item["read_only"]}
     return all((step["assistant"], step["action"]) in read_only for step in dispatched)
-
-
-def _at(segment: RoutineSegment | None) -> dict[str, object]:
-    """The step a failed run stopped at, by position among its plan's steps, only once that step was dispatched."""
-    if segment is None or segment.runtime.cursor.operation_id is None:
-        return {"position": None, "steps": None}
-    runtime = segment.runtime
-    return {"position": runtime.cursor.step + 1, "steps": len(runtime.plan.steps)}
 
 
 def execute(
@@ -693,9 +683,7 @@ def run_routine(
         # Rechecked in the slot: an Assistant changed since the claim never runs under a contract nobody pinned.
         refused = routine_run.context_refusal(self, team_id, dict(routine.assistants))
         if refused is not None:
-            outcome = routine_run.end_run(
-                self, team_id, run_id, "failed", {"code": refused, "actions": [], "position": None, "steps": None}
-            )
+            outcome = routine_run.end_run(self, team_id, run_id, "failed", {"code": refused})
         else:
             generation = routine_run.bind_run(self, team_id, run_id, lease)
             bound = dataclasses.replace(value, generation=generation)

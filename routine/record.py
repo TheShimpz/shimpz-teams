@@ -305,7 +305,7 @@ def _assistants(value: Routine) -> bool:
     used = sorted({item["assistant"] for item in value.permitted})
     return (
         [item for item, _pin in assistants] == used
-        and len(assistants) <= http_routine.MAX_NOTICE_ASSISTANTS
+        and len(assistants) <= http_routine.MAX_ROUTINE_ASSISTANTS
         and list(assistants) == sorted(set(assistants))
         and all(
             http_identifiers.canonical_assistant_id(assistant) is not None
@@ -596,8 +596,8 @@ def complete_delete(state: TeamRoutines, routine_id: str, now: int) -> TeamRouti
     return dataclasses.replace(state, routines=tuple(item for item in state.routines if item.routine_id != routine_id))
 
 
-def mark_scope_changed(state: TeamRoutines, routine_id: str, now: int, assistants: list[str]) -> TeamRoutines:
+def mark_scope_changed(state: TeamRoutines, routine_id: str, now: int) -> TeamRoutines:
     """The Routine's Assistants no longer match its pins: no claim until an authenticated update."""
     value = routine(state, routine_id)
-    state = put_notice(state, Notice(new_id(), routine_id, "", "scope-changed", now, {"assistants": assistants}))
+    state = put_notice(state, Notice(new_id(), routine_id, "", "scope-changed", now, {}))
     return replace_routine(state, dataclasses.replace(value, needs_reconfirm=True))

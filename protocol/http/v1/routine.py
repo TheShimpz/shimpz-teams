@@ -30,8 +30,8 @@ MAX_CONTINUOUS_CAP = -(-DAY_SECONDS // MIN_CONTINUOUS_GAP_SECONDS)
 # The healthy runs one minute bucket rolls up: runs start their gap apart, but a run that outlasted it or a confirmed
 # change starts the next at once, so the bound is one a second.
 MAX_ROLLUP_RUNS = 60
-MAX_NOTICE_ACTIONS = 16
-MAX_NOTICE_ASSISTANTS = 16
+# The Assistants one Routine pins at most.
+MAX_ROUTINE_ASSISTANTS = 16
 # A Routine's permitted Actions: every Action its replay steps call, each once (ADR-0101).
 MAX_PERMITTED = MAX_ROUTINE_STEPS
 OUTCOMES = frozenset(
@@ -185,29 +185,8 @@ def valid_team(value: object) -> bool:
     return identifiers.canonical_team_id(value) is not None
 
 
-def valid_actions(value: object) -> bool:
-    """Bounded Assistant and Action identities only: a notice never carries an Action's input or result."""
-    return (
-        isinstance(value, list)
-        and len(value) <= MAX_NOTICE_ACTIONS
-        and all(
-            isinstance(pair, list) and len(pair) == 2 and valid_assistant(pair[0]) and valid_action(pair[1])
-            for pair in value
-        )
-    )
-
-
 def matches(value: object, pattern: re.Pattern[str]) -> bool:
     return isinstance(value, str) and pattern.fullmatch(value) is not None
-
-
-def scope_changed(detail: dict[str, object]) -> bool:
-    assistants = detail["assistants"]
-    return (
-        isinstance(assistants, list)
-        and 0 < len(assistants) <= MAX_NOTICE_ASSISTANTS
-        and all(valid_assistant(item) for item in assistants)
-    )
 
 
 # Where one Action call stands in a run (ADR-0101 section 10): its step's 1-based position among its plan's steps.

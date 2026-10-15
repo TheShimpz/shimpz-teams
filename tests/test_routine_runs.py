@@ -1,5 +1,6 @@
 """A claimed run spends, freezes, thaws, and ends exactly once, with its notice (ADR-0086, ADR-0092, ADR-0101)."""
 
+import copy
 import dataclasses
 import unittest
 
@@ -109,13 +110,13 @@ class RunLifecycleTests(unittest.TestCase):
     def test_team_ends_runs_without_their_lease_by_state(self):
         state, claim, _lease = bound()
         run_id = claim.run.run_id
-        self.assertEqual(routine_runs.end(state, run_id, NINE, "stopped", {"actions": []}).runs, ())
+        self.assertEqual(routine_runs.end(state, run_id, NINE, "stopped", {}).runs, ())
         for outcome in ("done", "denied", "uncertain"):
             with self.subTest(outcome=outcome), self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
                 routine_runs.end(state, run_id, NINE, outcome, {"actions": [["dns", "x"]]})
         state, claim, lease = bound()
         frozen = routine_runs.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", STEP))
-        denied = routine_runs.end(frozen, claim.run.run_id, NINE, "denied", {"actions": []})
+        denied = routine_runs.end(frozen, claim.run.run_id, NINE, "denied", {})
         self.assertEqual(denied.notices[0].outcome, "denied")
         with self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
             routine_runs.end(frozen, claim.run.run_id, NINE, "done", routine_fixture.DONE)
@@ -128,18 +129,16 @@ class RunLifecycleTests(unittest.TestCase):
             with self.subTest(outcome=outcome), self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
                 routine_runs.finish(state, claim.run.run_id, lease, NINE, outcome, {"missed": 1})
         with self.assertRaisesRegex(record.RoutineStateError, "notice-invalid"):
-            routine_runs.finish(
-                state, claim.run.run_id, lease, NINE, "stopped", {"actions": [["dns", "check"]], "result": {}}
-            )
+            routine_runs.finish(state, claim.run.run_id, lease, NINE, "stopped", {"result": {}})
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-found"):
             record.run(done, claim.run.run_id)
 
     def test_a_stored_notice_is_a_deep_copy_and_versions_are_positive(self):
-        actions = [["dns", "list-zones"]]
-        state, claim, lease = claimed()
-        state = routine_runs.finish(state, claim.run.run_id, lease, NINE, "stopped", {"actions": actions})
-        actions[0][1] = "replace-dns-record"
-        self.assertEqual(state.notices[0].detail, {"actions": [["dns", "list-zones"]]})
+        detail = copy.deepcopy(routine_fixture.DONE)
+        state, _claim, _lease = claimed()
+        state = record.put_notice(state, record.Notice("n" * 32, "a" * 32, "", "done", NINE, detail, 1))
+        detail["plan"]["actions"][0][1] = "replace-dns-record"
+        self.assertEqual(state.notices[-1].detail, routine_fixture.DONE)
         with self.assertRaisesRegex(record.RoutineStateError, "notice-invalid"):
             record.put_notice(state, record.Notice("n" * 32, "a" * 32, "", "skipped", NINE, {"missed": 1}, 0))
 
@@ -152,7 +151,7 @@ class RunLifecycleTests(unittest.TestCase):
             state, notices=full_notices(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES)
         )
         with self.assertRaisesRegex(record.RoutineStateError, "notices-full"):
-            record.mark_scope_changed(over, "a" * 32, NINE, ["dns"])
+            record.mark_scope_changed(over, "a" * 32, NINE)
 
     def test_leases_and_active_time_expire(self):
         state, claim, lease = claimed()
@@ -169,13 +168,13 @@ class RunLifecycleTests(unittest.TestCase):
 
     def test_deletion_keeps_runs_until_they_end_and_keeps_notices(self):
         state, claim, lease = claimed()
-        state = routine_runs.finish(state, claim.run.run_id, lease, NINE, "stopped", {"actions": []})
+        state = routine_runs.finish(state, claim.run.run_id, lease, NINE, "stopped", {})
         state, again = routine_claim.claim(at(state, "a" * 32, NINE + 86_400), NINE + 86_400, KEY)
         state, runs = record.begin_delete(state, "a" * 32)
         self.assertEqual([item.run_id for item in runs], [again.run.run_id])
         with self.assertRaisesRegex(record.RoutineStateError, "routine-busy"):
             record.complete_delete(state, "a" * 32, NINE)
-        state = routine_runs.end(state, again.run.run_id, NINE + 86_400, "stopped", {"actions": []})
+        state = routine_runs.end(state, again.run.run_id, NINE + 86_400, "stopped", {})
         state = record.complete_delete(state, "a" * 32, NINE + 86_400)
         self.assertEqual(
             (state.routines, [item.outcome for item in state.notices]), ((), ["stopped"] * 2 + ["deleted"])
@@ -204,7 +203,7 @@ class FailureStreakTests(unittest.TestCase):
                     claim.run.run_id,
                     NINE + index,
                     outcome,
-                    {"code": "x", "actions": [], "position": None, "steps": None},
+                    {"code": "x"},
                 )
                 if (outcome == "failed")
                 else routine_runs.finish(
@@ -237,9 +236,7 @@ class FailureStreakTests(unittest.TestCase):
             KEY,
         )
         paused = record.set_paused(claimed_state, "a" * 32, True)
-        failed = routine_runs.end(
-            paused, claim.run.run_id, NINE, "failed", {"code": "x", "actions": [], "position": None, "steps": None}
-        )
+        failed = routine_runs.end(paused, claim.run.run_id, NINE, "failed", {"code": "x"})
         self.assertEqual(len([item for item in failed.notices if item.outcome == "streak-paused"]), 1)
         # A Stop or a denial is no execution failure.
         claimed_state, claim = routine_claim.claim(
@@ -253,7 +250,7 @@ class FailureStreakTests(unittest.TestCase):
             NINE,
             KEY,
         )
-        stopped = routine_runs.end(claimed_state, claim.run.run_id, NINE, "stopped", {"actions": []})
+        stopped = routine_runs.end(claimed_state, claim.run.run_id, NINE, "stopped", {})
         self.assertEqual(record.routine(stopped, "a" * 32).failures, 2)
 
 
@@ -302,7 +299,7 @@ class TransitionEdgeTests(unittest.TestCase):
         state, claim, lease = bound()
         run_id = claim.run.run_id
         with self.assertRaisesRegex(record.RoutineStateError, "run-changed"):
-            routine_runs.end(state, run_id, NINE, "stopped", {"actions": []}, status="frozen")
+            routine_runs.end(state, run_id, NINE, "stopped", {}, status="frozen")
         deleting, _runs = record.begin_delete(state, "a" * 32)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-deleting"):
             routine_runs.freeze(deleting, run_id, lease, NINE, ("human", "dns", "check", STEP))

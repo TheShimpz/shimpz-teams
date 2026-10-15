@@ -82,10 +82,14 @@ class AutomaticTests(AutomaticCase):
         self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
         self.assertFalse(record.routine(state, value.routine_id).paused)
         self.assertTrue(cursor.episode)
-        # The held run's one notice says it is held at its step, for the person's card.
-        step = {"assistant_id": ASSISTANT, "action": "create-record", "position": 2}
+        # The held run's one notice says it is held; its incident names its step, for the person's card.
+        (incident,) = record.incidents(state)
         notice = state.notices[-1]
-        self.assertEqual((notice.notice_id, notice.outcome, notice.detail), (run_id, "held", {**step, "steps": 2}))
+        self.assertEqual((notice.notice_id, notice.outcome, notice.detail), (run_id, "held", {}))
+        self.assertEqual(
+            (incident.assistant_id, incident.action, incident.position, incident.steps),
+            (ASSISTANT, "create-record", 2, 2),
+        )
 
     def test_the_episode_runs_once_and_the_retry_never_repeats(self) -> None:
         assistant = Assistant([failed(), failed()], [{"outcome": "not_occurred"}, {"outcome": "not_occurred"}])

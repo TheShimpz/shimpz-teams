@@ -338,19 +338,20 @@ Routine publishes a completed run only when its result differs from the last one
 completion of its own; a run that already has a notice always gets its terminal version.
 
 Every call is placed by its position (`routine.canonical_position`): its step's 1-based position, an integer, among
-the plan's `steps`. `held` names the call whose effect is unresolved as `{assistant_id, action,
-position, steps}`, all `null` when the run sealed no plan cursor; a `frozen` run names its call the same way with its
-`request_kind`: `human` or `integrations`. The same run's notice then goes on as `paused`, the same call plus a `reason`
-(`exhausted`, `policy`, or `evidence`, recovery evidence Team never classified), or `user-skipped` when a
-person set the run aside, the same call plus the `choice` that did it (`run`, or `delete`, a deletion of its Routine). A
+the plan's `steps`. A notice's detail is exactly what Admin keeps of it, so no notice names an Action: a held run's call
+is its incident's, and what a run did is its step records'. `held` carries `{}`; a `frozen` run carries its
+`request_kind`: `human` or `integrations`. The same run's notice then goes on as `paused` with a `reason`
+(`exhausted`, `policy`, or `evidence`, recovery evidence Team never classified), or `user-skipped` (`{}`) when a person
+set the run aside, by Rodar or by deleting its Routine. A
 person's `user-skipped` is a run outcome; the Routine outcome `skipped` reports missed firings and has no run id. A
 continuous Routine's healthy runs that show nothing, each completed with no earlier notice, share one versioned
 `healthy` Routine notice per minute bucket instead: its instant is the minute's start and its `runs`, at most
 `routine.MAX_ROLLUP_RUNS`, counts them and is also its version. Every other outcome stays one notice per run. The rollup
 minute only moves forward: a run whose clock fell back into an earlier minute keeps its own notice. A Routine change
 keeps its minute's count and usage, and the `routine_rollup_delivery` vectors pin exact delivery sequences, with the
-transcript rows Admin must end with. `failed` names its code, the Actions that completed, and the `position` it stopped
-at of `steps` (both `null` when it failed before any call); a run whose failed call may have acted is held instead.
+transcript rows Admin must end with. `failed` names its `code`, and `denied` and `stopped` carry `{}`; a run whose
+failed call may have acted is held instead. The Routine outcome `scope-changed` (`{}`) says its Assistants no longer
+match its pins.
 
 What a run did step by step is read page by page from `GET
 /v1/teams/:team_id/routines/runs/:run_id/steps/:snapshot/:offset` (`routine_run.canonical_run_steps`), bound to the run's own

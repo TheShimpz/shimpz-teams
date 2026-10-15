@@ -87,16 +87,7 @@ class NoticeTests(FrozenCase):
                 (notice.notice_id, notice.run_id, notice.outcome, notice.version),
                 (claim["run_id"], claim["run_id"], "frozen", 1),
             )
-            self.assertEqual(
-                notice.detail,
-                {
-                    "request_kind": "human",
-                    "assistant_id": ASSISTANT,
-                    "action": "list-zones",
-                    "position": 1,
-                    "steps": 1,
-                },
-            )
+            self.assertEqual(notice.detail, {"request_kind": "human"})
             service.acknowledge_routine_notices(
                 {"deliveries": [{"team_id": "team_1", "notice_id": claim["run_id"], "version": 1}]}
             )
@@ -154,7 +145,7 @@ class ExecutionBoundTests(RoutineServiceCase):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(
                 self.state(service).notices[-1].detail,
-                {"code": "team-context-changed", "actions": [], "position": None, "steps": None},
+                {"code": "team-context-changed"},
             )
             self.assertEqual(runtime.contexts, [])
 
@@ -175,7 +166,7 @@ class ExecutionBoundTests(RoutineServiceCase):
             self.assertEqual(outcome, "failed")
             self.assertEqual(
                 self.state(service).notices[-1].detail,
-                {"code": "active-time-exceeded", "actions": [], "position": None, "steps": None},
+                {"code": "active-time-exceeded"},
             )
 
 
@@ -189,7 +180,7 @@ class WatchdogRaceTests(RoutineServiceCase):
         def finish(state: record.TeamRoutines) -> tuple[record.TeamRoutines, None]:
             if not any(item.run_id == claim["run_id"] for item in state.runs):
                 return state, None
-            return routine_runs.end(state, claim["run_id"], now, "stopped", {"actions": []}), None
+            return routine_runs.end(state, claim["run_id"], now, "stopped", {}), None
 
         def worker_finishes(_generation):
             # The first journal read the pass makes finds the worker finishing; any later read finds it ended.

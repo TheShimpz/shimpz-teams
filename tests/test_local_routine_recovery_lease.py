@@ -73,7 +73,7 @@ class RecoveryLeaseTests(AutomaticCase):
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
         self.assertEqual((state.routines, record.incidents(state)), ((), ()))
         notice = next(item for item in state.notices if item.notice_id == run_id)
-        self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "delete"))
+        self.assertEqual((notice.outcome, notice.detail), ("user-skipped", {}))
 
     def test_stop_reaches_the_automatic_episode_and_fences_its_continuation(self) -> None:
         def stop(service) -> None:

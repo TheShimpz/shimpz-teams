@@ -126,7 +126,7 @@ class ContinuationEdgeTests(RecoveryCase):
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             state = self.state(service)
             generation = routine_claim.generation_for(self.cursor(service, run_id).binding.incarnation, run_id, "s1")
-            skipped = routine_hold.skip_incident(state, run_id, 0, choice="run")
+            skipped = routine_hold.skip_incident(state, run_id, 0)
             changed = record.replace_routine(
                 state, dataclasses.replace(record.routine(state, value.routine_id), revision=2)
             )

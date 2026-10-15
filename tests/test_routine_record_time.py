@@ -61,7 +61,7 @@ class ScaleClaimTests(unittest.TestCase):
             with self.subTest(request=request), self.assertRaisesRegex(record.RoutineStateError, "freeze-invalid"):
                 routine_runs.freeze(state, claim.run.run_id, lease, NINE, request)
         frozen = routine_runs.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", REPLAY))
-        self.assertEqual(frozen.notices[-1].detail["position"], REPLAY)
+        self.assertEqual(frozen.notices[-1].detail, {"request_kind": "human"})
         self.assertEqual(record.run(frozen, claim.run.run_id).position, REPLAY)
         thawed, _token = routine_runs.thaw(frozen, claim.run.run_id, NINE + 1, 0)
         self.assertEqual(
@@ -155,7 +155,7 @@ class ContinuousTests(unittest.TestCase):
         self.assertEqual(routine_claim.claimable(ended, NINE + 40).routine_id, "a" * 32)
         # A shorter run keeps the interval from its own start; any ending counts, a Team-decided one included.
         state, claim = routine_claim.claim(ended, NINE + 40, KEY)
-        stopped = routine_runs.end(state, claim.run.run_id, NINE + 42, "stopped", {"actions": []})
+        stopped = routine_runs.end(state, claim.run.run_id, NINE + 42, "stopped", {})
         self.assertEqual(record.routine(stopped, "a" * 32).next_run_at, NINE + 45)
         self.assertIsNone(routine_claim.claimable(stopped, NINE + 44))
         self.assertEqual(routine_claim.next_due(stopped, NINE + 42), NINE + 45)
@@ -172,7 +172,7 @@ class ContinuousTests(unittest.TestCase):
             state = at(state, "a" * 32, now)
             state, claim = routine_claim.claim(state, now, KEY)
             starts.append(now)
-            state = routine_runs.end(state, claim.run.run_id, now + 1, "stopped", {"actions": []})
+            state = routine_runs.end(state, claim.run.run_id, now + 1, "stopped", {})
         # Its third start waits until its first leaves the rolling window, exactly.
         boundary = starts[0] + 86_400
         self.assertIsNone(routine_claim.claimable(state, boundary - 1))

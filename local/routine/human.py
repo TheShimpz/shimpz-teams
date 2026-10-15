@@ -92,8 +92,7 @@ def _end_changed(self, team_id: str, value: record.Run) -> None:
         team_id,
         value.run_id,
         "failed",
-        # The run failed at the step it was frozen at.
-        {"code": "team-context-changed", "actions": [], "position": value.position, "steps": value.steps},
+        {"code": "team-context-changed"},
     ):
         raise _not_frozen()
     cancel_routine_challenge(self, team_id, value.run_id)
@@ -218,7 +217,7 @@ def _deny(self, team_id: str, value: record.Run, routine: record.Routine, challe
     """End the frozen run denied in the Team's execution slot, consuming its challenge only once the run ends."""
 
     def end() -> None:
-        if not routine_manage.end_frozen(self, team_id, value.run_id, "denied", {"actions": []}):
+        if not routine_manage.end_frozen(self, team_id, value.run_id, "denied", {}):
             raise _not_frozen()
 
     with self._exclusive_chat_turn(team_id, routine.routine_id), self._lock(team_id):

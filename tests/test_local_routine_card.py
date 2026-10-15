@@ -169,7 +169,7 @@ class RodarTests(CardCase):
         self.assertEqual(again.exception.code, "routine-incident-unavailable")
         self.assertEqual(record.incidents(state), ())
         notice = next(item for item in state.notices if item.notice_id == run_id)
-        self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "run"))
+        self.assertEqual((notice.outcome, notice.detail), ("user-skipped", {}))
         self.assertEqual((requested.paused, requested.failures, requested.next_run_at), (False, 0, before.next_run_at))
         self.assertGreater(requested.run_requested, 0)
         # The fresh run is a new run with new operations; the standing cadence is unchanged.

@@ -167,7 +167,7 @@ class ExecutionTests(CompiledRunCase):
         self.assertEqual(invoked, [])
         self.assertEqual(
             (state.notices[-1].detail, record.incidents(state)),
-            ({"code": "plan-pin-drift", "actions": [], "position": None, "steps": None}, ()),
+            ({"code": "plan-pin-drift"}, ()),
         )
 
     def test_a_human_request_freezes_mid_plan_and_the_answer_never_reruns_the_prefix(self) -> None:
@@ -228,15 +228,9 @@ class ExecutionTests(CompiledRunCase):
             ("routine-state-unavailable", [], ["list-zones", "list-dns-records"]),
         )
         self.assertEqual([item.run_id for item in record.incidents(state)], [run_id])
-        # The watchdog's next pass indexed the incident with the call its notice names.
-        self.assertEqual(
-            (
-                state.notices[-1].detail["action"],
-                state.notices[-1].detail["position"],
-                state.notices[-1].detail["steps"],
-            ),
-            ("list-dns-records", 2, 2),
-        )
+        # The watchdog's next pass indexed the incident with the call it stopped at.
+        (incident,) = record.incidents(state)
+        self.assertEqual((incident.action, incident.position, incident.steps), ("list-dns-records", 2, 2))
         # The completed first step and the dispatched second one stay as evidence, never cleaned up as a failure.
         self.assertEqual(recovered.cursor.step, 1)
         self.assertIsNotNone(recovered.cursor.operation_id)
@@ -606,7 +600,7 @@ class WatchdogRecoveryTests(CompiledRunCase):
         self.assertEqual((actions, record.incidents(state)), ([], ()))
         self.assertEqual(
             [item.detail for item in state.notices],
-            [{"code": "interrupted", "actions": [], "position": None, "steps": None}],
+            [{"code": "interrupted"}],
         )
 
 

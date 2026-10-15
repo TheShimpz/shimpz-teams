@@ -161,9 +161,7 @@ class RoutineLifecycleTests(unittest.TestCase):
     def test_queued_discards_are_cleaned_before_state_and_kept_when_cleanup_fails(self):
         # An ended run leaves the runs list and queues what it held; an interrupted drain leaves that queue behind.
         state, run_id = two_runs()
-        state = routine_runs.end(
-            state, run_id, NINE, "failed", {"code": "lease-expired", "actions": [], "position": None, "steps": None}
-        )
+        state = routine_runs.end(state, run_id, NINE, "failed", {"code": "lease-expired"})
         generation = f"{NETWORK}:routine:{run_id}"
         self.assertEqual(state.discards, ((run_id, generation),))
         routine_fixture.put(self.subject.routine_store, "team_1", state)

@@ -51,11 +51,9 @@ class ClaimTests(unittest.TestCase):
         self.assertEqual(after.starts[-1], ("b" * 32, first + 86_400, 1))
 
     def test_reconfirmation_and_deletion_stop_claims(self):
-        state = record.mark_scope_changed(at(added(routine()), "a" * 32, NINE), "a" * 32, NINE, ["dns"])
+        state = record.mark_scope_changed(at(added(routine()), "a" * 32, NINE), "a" * 32, NINE)
         self.assertIsNone(routine_claim.claimable(state, NINE))
-        self.assertEqual(
-            [(notice.outcome, notice.detail) for notice in state.notices], [("scope-changed", {"assistants": ["dns"]})]
-        )
+        self.assertEqual([(notice.outcome, notice.detail) for notice in state.notices], [("scope-changed", {})])
         deleting, runs = record.begin_delete(at(added(routine()), "a" * 32, NINE), "a" * 32)
         self.assertEqual((runs, routine_claim.claimable(deleting, NINE)), ((), None))
 

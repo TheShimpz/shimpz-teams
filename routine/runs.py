@@ -74,12 +74,10 @@ def freeze(
         raise record.RoutineStateError("freeze-invalid")
     if sum(item.status == "frozen" for item in state.runs) >= record.MAX_FROZEN_RUNS:
         raise record.RoutineStateError("frozen-limit")
-    fields = {"request_kind": request_kind, "assistant_id": assistant_id, "action": action, "position": placed}
-    state, value = record.run_notice(state, value, "frozen", now, {**fields, "steps": len(steps)})
+    state, value = record.run_notice(state, value, "frozen", now, {"request_kind": request_kind})
     unleased = {"lease_sha256": "", "lease_key": "", "lease_expires_at": 0}
-    return record.replace_run(
-        state, dataclasses.replace(value, status="frozen", **unleased, **fields, steps=len(steps))
-    )
+    call = {"request_kind": request_kind, "assistant_id": assistant_id, "action": action, "position": placed}
+    return record.replace_run(state, dataclasses.replace(value, status="frozen", **unleased, **call, steps=len(steps)))
 
 
 def thaw(state: record.TeamRoutines, run_id: str, now: int, requests_used: int) -> tuple[record.TeamRoutines, str]:
