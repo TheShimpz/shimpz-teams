@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from action import result as action_result
+from core import canonical_json
 from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
@@ -381,7 +382,7 @@ class ActionJournal:
         supplied = [item.operation_id for item in selected if item.operation_id is not None]
         if len(set(supplied)) != len(supplied):
             raise ActionJournalConflictError("Action batch repeats an operation id")
-        payload = json.dumps(
+        payload = canonical_json.encode(
             {
                 "generation": safe_generation,
                 "operations": [
@@ -389,10 +390,8 @@ class ActionJournal:
                     for item in selected
                 ],
                 "thread": hashlib.sha256(safe_thread.encode("utf-8")).hexdigest(),
-            },
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("ascii")
+            }
+        )
         return Batch(safe_generation, hashlib.sha256(payload).hexdigest(), selected)
 
     @staticmethod

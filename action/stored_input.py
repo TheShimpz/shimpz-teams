@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from core import identifier
+from core import canonical_json, identifier
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
 from storage import private_state
@@ -149,16 +149,7 @@ def _aad(
     record: Mapping[str, object],
 ) -> bytes:
     kind, generation = _record_metadata(record)
-    return json.dumps(
-        [
-            "shimpz-stored-input-v1",
-            *reference,
-            kind,
-            generation,
-        ],
-        ensure_ascii=True,
-        separators=(",", ":"),
-    ).encode("ascii")
+    return canonical_json.encode(["shimpz-stored-input-v1", *reference, kind, generation])
 
 
 def _declarations(value: object) -> dict[str, tuple[str, str, str]]:

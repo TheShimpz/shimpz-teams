@@ -58,6 +58,14 @@ class ActionJournalTests(unittest.TestCase):
         self.first = operation("interrupt-1", "validated-input-1")
         self.second = operation("interrupt-2", "validated-input-2")
 
+    def test_batch_fingerprint_hashes_its_canonical_identity(self) -> None:
+        # Stored batches carry this fingerprint, so its bytes are part of the journal's contract.
+        batch = self.journal().prepare_batch("generation-1", "thread-1", [self.first])
+        thread = hashlib.sha256(b"thread-1").hexdigest()
+        identity = f'{{"generation":"generation-1","operations":[["interrupt-1","{self.first.fingerprint}"]],'
+        identity += f'"thread":"{thread}"}}'
+        self.assertEqual(batch.fingerprint, hashlib.sha256(identity.encode("ascii")).hexdigest())
+
     def journal(self, **limits: int) -> action_journal.ActionJournal:
         journal = action_journal.ActionJournal(self.path, **limits)
         self.addCleanup(journal.close)

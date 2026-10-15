@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from core import identifier
+from core import canonical_json, identifier
 from integrations import providers as integration_providers
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
@@ -296,7 +296,7 @@ def _aad(
     record: Mapping[str, object],
 ) -> bytes:
     provider, scopes, expires_at, status, generation = _record_metadata(record)
-    return json.dumps(
+    return canonical_json.encode(
         [
             "shimpz-oauth-integration-v1",
             team_id,
@@ -307,10 +307,8 @@ def _aad(
             expires_at,
             status,
             generation,
-        ],
-        ensure_ascii=True,
-        separators=(",", ":"),
-    ).encode("ascii")
+        ]
+    )
 
 
 def _declarations(value: object) -> dict[str, tuple[str, tuple[str, ...]]]:
