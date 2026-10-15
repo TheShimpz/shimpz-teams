@@ -1,5 +1,6 @@
 """Runtime-only Assistant fixture; no product registry or installation authority."""
 
+from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from local.install.runtime import AssistantSpec
 from tests import catalog_fixtures, human_request_fixtures
@@ -71,7 +72,8 @@ def assistant_spec(image: str) -> AssistantSpec:
         ),
     }
     integrations = {
-        "cloudflare": assistant_registry.IntegrationSpec(
+        "cloudflare": assistant_manifest.IntegrationDeclaration(
+            id="cloudflare",
             provider="cloudflare",
             scopes=("dns.read", "offline_access", "zone.read"),
         )

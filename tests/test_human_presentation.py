@@ -11,7 +11,6 @@ import test_local_chat_continuations
 from action import challenges as action_challenges
 from action import human as action_human
 from assistant import manifest as assistant_manifest
-from assistant import spec as assistant_registry
 from local.chat import continuation
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
@@ -82,9 +81,8 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(
             assistant_manifest.stored_input_declarations_from_documents(documents, ("api.exa.ai",)), (declared,)
         )
-        spec = assistant_registry.StoredInputSpec(**declared.metadata())
         contract = assistant_manifest.reviewed_manifest_contract(
-            allowed_hosts=["api.exa.ai"], integrations={}, stored_inputs={"exa-api-key": spec}
+            allowed_hosts=["api.exa.ai"], integrations={}, stored_inputs={"exa-api-key": declared}
         )
         self.assertEqual(contract.stored_inputs, (declared,))
 
@@ -113,7 +111,9 @@ class DeclarationTests(unittest.TestCase):
 
 class ChallengeTests(unittest.TestCase):
     def test_only_the_named_reviewed_stored_input_supplies_its_help(self) -> None:
-        declarations = {"exa-api-key": assistant_registry.StoredInputSpec("password", "Key", HELP, HELP_URL)}
+        declarations = {
+            "exa-api-key": assistant_manifest.StoredInputDeclaration("exa-api-key", "password", "Key", HELP, HELP_URL)
+        }
         stored = _request("input:password", stored_input="exa-api-key")
         self.assertEqual(action_challenges.declared_help(stored, declarations), (HELP, HELP_URL))
         self.assertIsNone(action_challenges.declared_help(_request("approval"), declarations))

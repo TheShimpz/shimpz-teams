@@ -10,7 +10,8 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
-from assistant.spec import ActionSpec, IntegrationSpec
+from assistant.manifest import IntegrationDeclaration
+from assistant.spec import ActionSpec
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
@@ -103,8 +104,8 @@ def _spec() -> AssistantSpec:
             ("org.shimpz.source.digest", "sha256:" + ("a" * 64)),
         ),
         integrations={
-            "cloudflare-read": IntegrationSpec("cloudflare", read_scopes),
-            "cloudflare-write": IntegrationSpec("cloudflare", write_scopes),
+            "cloudflare-read": IntegrationDeclaration("cloudflare-read", "cloudflare", read_scopes),
+            "cloudflare-write": IntegrationDeclaration("cloudflare-write", "cloudflare", write_scopes),
         },
     )
 
@@ -135,7 +136,8 @@ def _cloudflare_spec() -> AssistantSpec:
             ("org.shimpz.source.digest", "sha256:" + ("b" * 64)),
         ),
         integrations={
-            "cloudflare": IntegrationSpec(
+            "cloudflare": IntegrationDeclaration(
+                "cloudflare",
                 "cloudflare",
                 ("dns.read", "dns.write", "offline_access", "zone.read"),
             ),

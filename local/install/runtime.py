@@ -4,7 +4,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
-from assistant.spec import ActionSpec, IntegrationSpec, StoredInputSpec, digest_is_bound
+from assistant.manifest import IntegrationDeclaration, StoredInputDeclaration
+from assistant.spec import ActionSpec, digest_is_bound
 
 _DIGEST_REF = re.compile(
     r"(?:[a-z0-9.-]+(?::[0-9]{1,5})?/)?"
@@ -23,8 +24,8 @@ class AssistantSpec:
     actions: dict[str, ActionSpec]
     allowed_hosts: tuple[str, ...]
     required_image_labels: tuple[tuple[str, str], ...]
-    integrations: dict[str, IntegrationSpec] = field(default_factory=dict)
-    stored_inputs: dict[str, StoredInputSpec] = field(default_factory=dict)
+    integrations: dict[str, IntegrationDeclaration] = field(default_factory=dict)
+    stored_inputs: dict[str, StoredInputDeclaration] = field(default_factory=dict)
     machine_contract: dict[str, object] = field(default_factory=dict)
     # The reviewed binding's language-pack digest; the pack itself is admitted from the exact image (ADR-0091).
     pack_digest: str = ""

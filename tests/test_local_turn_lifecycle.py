@@ -15,6 +15,7 @@ from local_controller_harness import LOOKUP_INPUT, LOOKUP_RESULT, LocalContractC
 
 from action import execution as action_execution
 from action import human as action_human
+from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_spec
 from inference import client as brain_runtime_client
 from local import app as local_app
@@ -226,8 +227,12 @@ class LocalTurnLifecycleTests(LocalContractCase):
                     ),
                 },
                 stored_inputs={
-                    "exa-api-key": assistant_spec.StoredInputSpec(
-                        "password", "Exa API key", catalog_fixtures.STORED_INPUT_HELP, catalog_fixtures.HELP_URL
+                    "exa-api-key": assistant_manifest.StoredInputDeclaration(
+                        "exa-api-key",
+                        "password",
+                        "Exa API key",
+                        catalog_fixtures.STORED_INPUT_HELP,
+                        catalog_fixtures.HELP_URL,
                     )
                 },
             )
@@ -290,8 +295,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
             spec = controller.registry["shimpz-cloudflare"]
-            declaration = assistant_spec.StoredInputSpec(
-                "password", "Exa API key", catalog_fixtures.STORED_INPUT_HELP, catalog_fixtures.HELP_URL
+            declaration = assistant_manifest.StoredInputDeclaration(
+                "exa-api-key", "password", "Exa API key", catalog_fixtures.STORED_INPUT_HELP, catalog_fixtures.HELP_URL
             )
             controller.registry["shimpz-cloudflare"] = replace(
                 spec,

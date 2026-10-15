@@ -1,7 +1,7 @@
 """Shared reviewed Assistant contract primitives."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from assistant import manifest as assistant_manifest
@@ -42,34 +42,13 @@ def action_spec(action: Mapping[str, Any]) -> ActionSpec:
 
 
 @dataclass(frozen=True, slots=True)
-class IntegrationSpec:
-    provider: str
-    scopes: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class StoredInputSpec:
-    kind: str
-    label: str
-    description: str
-    help_url: str
-    # Its placement and reviewed routes (ADR-0106 and its 2026-10-09 amendment).
-    host: str = ""
-    header: str | None = None
-    query: str | None = None
-    scheme: str | None = None
-    hmac: str | None = None
-    routes: list[dict[str, object]] = field(default_factory=list)
-
-
-@dataclass(frozen=True, slots=True)
 class RuntimeContract:
     """The admitted runtime contract of one Assistant binding document."""
 
     actions: dict[str, ActionSpec]
     allowed_hosts: tuple[str, ...]
-    integrations: dict[str, IntegrationSpec]
-    stored_inputs: dict[str, StoredInputSpec]
+    integrations: dict[str, assistant_manifest.IntegrationDeclaration]
+    stored_inputs: dict[str, assistant_manifest.StoredInputDeclaration]
     machine_contract: dict[str, Any]
     presentation: assistant_manifest.ManifestPresentation
 
@@ -102,13 +81,8 @@ def runtime_contract(document: Mapping[str, Any]) -> RuntimeContract:
     )
     if machine_contract != document["machine_contract"]:
         raise assistant_manifest.ManifestError("machine contract is not canonical")
-    integrations = {
-        integration.id: IntegrationSpec(provider=integration.provider, scopes=integration.scopes)
-        for integration in declarations
-    }
-    stored_inputs = {
-        stored_input.id: StoredInputSpec(**stored_input.metadata()) for stored_input in stored_input_declarations
-    }
+    integrations = {integration.id: integration for integration in declarations}
+    stored_inputs = {stored_input.id: stored_input for stored_input in stored_input_declarations}
     reviewed = assistant_manifest.reviewed_manifest_contract(
         allowed_hosts=document["allowed_hosts"],
         integrations=integrations,

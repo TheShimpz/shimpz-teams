@@ -7,6 +7,7 @@ import json
 import unittest
 from unittest import mock
 
+from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from local.chat import segment as local_chat_segment
 from local.chat.types import ActiveAssistant
@@ -113,10 +114,12 @@ def _spec(**changes: object) -> AssistantSpec:
             ("org.shimpz.assistant.id", "shimpz-cloudflare"),
             ("org.shimpz.source.digest", "sha256:" + "b" * 64),
         ),
-        integrations={"cloudflare": assistant_registry.IntegrationSpec("cloudflare", ("dns.edit",))},
+        integrations={
+            "cloudflare": assistant_manifest.IntegrationDeclaration("cloudflare", "cloudflare", ("dns.edit",))
+        },
         stored_inputs={
-            "api-key": assistant_registry.StoredInputSpec(
-                "password", "API key", catalog_fixtures.STORED_INPUT_HELP, catalog_fixtures.HELP_URL
+            "api-key": assistant_manifest.StoredInputDeclaration(
+                "api-key", "password", "API key", catalog_fixtures.STORED_INPUT_HELP, catalog_fixtures.HELP_URL
             )
         },
         machine_contract=_contract(),
@@ -163,12 +166,14 @@ class RoutinePinTests(unittest.TestCase):
             "integrations": _edited(lambda spec: _action(spec, "create-record").update(integrations=[])),
             "catalog": _edited(lambda spec: spec.machine_contract["messages"].pop()),
             "integration scopes": _spec(
-                integrations={"cloudflare": assistant_registry.IntegrationSpec("cloudflare", ("dns.read",))}
+                integrations={
+                    "cloudflare": assistant_manifest.IntegrationDeclaration("cloudflare", "cloudflare", ("dns.read",))
+                }
             ),
             "stored input declaration": _spec(
                 stored_inputs={
-                    "api-key": assistant_registry.StoredInputSpec(
-                        "password", "Key", catalog_fixtures.STORED_INPUT_HELP, catalog_fixtures.HELP_URL
+                    "api-key": assistant_manifest.StoredInputDeclaration(
+                        "api-key", "password", "Key", catalog_fixtures.STORED_INPUT_HELP, catalog_fixtures.HELP_URL
                     )
                 }
             ),

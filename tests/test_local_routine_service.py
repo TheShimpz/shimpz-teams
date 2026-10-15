@@ -17,7 +17,7 @@ from routine_fixture import KEY
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 
 from action import human as action_human
-from assistant import spec as assistant_spec
+from assistant import manifest as assistant_manifest
 from inference import client as brain_runtime_client
 from install.bindings import DynamicAssistantStore
 from local import app as local_app
@@ -416,7 +416,8 @@ class FreezeTests(RoutineServiceCase):
             action = dataclasses.replace(
                 spec.actions["list-zones"], stored_inputs=(request.stored_input,), human_requests=("input:password",)
             )
-            declaration = assistant_spec.StoredInputSpec(
+            declaration = assistant_manifest.StoredInputDeclaration(
+                "exa-api-key",
                 "password",
                 "Exa API key",
                 catalog_fixtures.STORED_INPUT_HELP,
