@@ -27,7 +27,7 @@ from pathlib import Path
 
 from action import execution as action_execution
 from action import failure as action_failure
-from core import canonical_json
+from core import canonical_json, instant
 from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_team_id
@@ -35,7 +35,6 @@ from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_run as http_routine_run
 from protocol.http.v1 import strict_json
-from routine import record
 from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state/diagnostics")
@@ -120,7 +119,7 @@ class Diagnostic:
             "assistant_id": self.assistant_id,
             "action": self.action,
             "position": self.position,
-            "recorded_at": record.instant_text(self.recorded_at),
+            "recorded_at": instant.text(self.recorded_at),
             "failure": self.failure,
             "condition": self.condition,
         }
@@ -183,7 +182,7 @@ class StepRecord:
             "action": self.action,
             "attempt": self.attempt,
             "duration_ms": self.duration_ms,
-            "recorded_at": record.instant_text(self.recorded_at),
+            "recorded_at": instant.text(self.recorded_at),
             "inputs": self.inputs,
         }
 

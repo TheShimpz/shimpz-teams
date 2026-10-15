@@ -22,6 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from http import HTTPStatus
 
+from core import instant
 from local import audit as local_audit
 from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
@@ -359,7 +360,7 @@ def card(
     ]
     return {
         "proposal_id": proposal_id,
-        "expires_at": record.instant_text(int(expires_at)),
+        "expires_at": instant.text(int(expires_at)),
         "replaces": replaces,
         "name": candidate.name,
         "description": description,

@@ -4,6 +4,7 @@ import time
 from http import HTTPStatus
 
 from action import journal as action_journal
+from core import instant
 from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import diagnostics as routine_diagnostics
@@ -31,7 +32,7 @@ def routine_view(value: record.Routine) -> dict[str, object]:
         "timezone": value.timezone,
         "timezone_source": value.timezone_source,
         "assistant_ids": [assistant for assistant, _digest in value.assistants],
-        "next_run_at": record.instant_text(value.next_run_at),
+        "next_run_at": instant.text(value.next_run_at),
         "needs_reconfirm": value.needs_reconfirm,
         "deleting": value.deleting,
         **routine_definition.scope(value),
@@ -44,7 +45,7 @@ def run_view(value: record.Run) -> dict[str, object]:
         "run_id": value.run_id,
         "routine_id": value.routine_id,
         "status": value.status,
-        "scheduled_at": record.instant_text(value.scheduled_at),
+        "scheduled_at": instant.text(value.scheduled_at),
         "request_kind": value.request_kind or None,
         "assistant_id": value.assistant_id or None,
         "action": value.action or None,
@@ -59,7 +60,7 @@ def incident_view(value: record.Incident) -> dict[str, object]:
         "incident_id": value.incident_id,
         "routine_id": value.routine_id,
         "name": value.name,
-        "created_at": record.instant_text(value.created_at),
+        "created_at": instant.text(value.created_at),
         **routine_hold.step_detail(routine_hold.held_step(value)),
     }
 

@@ -8,11 +8,10 @@ envelope only at the last private boundary before an Assistant invocation.
 import math
 import time
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, datetime
 from typing import Protocol
 
 from assistant import manifest as assistant_manifest
-from core import identifier, text
+from core import identifier, instant, text
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import providers as integration_providers
@@ -385,7 +384,7 @@ def _expiry_payload(value: object) -> str | None:
     if type(value) is not int or not 1 <= value <= 2**53 - 1:
         raise IntegrationFlowError("OAuth integration expiry is invalid")
     try:
-        return datetime.fromtimestamp(value, UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+        return instant.text(value)
     except (OSError, OverflowError, ValueError) as exc:
         raise IntegrationFlowError("OAuth integration expiry is invalid") from exc
 

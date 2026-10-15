@@ -4,6 +4,7 @@ Admin's automatic delivery only reads notices and acknowledges exact versions; i
 settled through its recovery card instead (ADR-0092).
 """
 
+from core import instant
 from local import audit as local_audit
 from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
@@ -25,7 +26,7 @@ def _notice(team_id: str, notice: record.Notice) -> dict[str, object]:
         "name": notice.name,
         "run_id": notice.run_id or None,
         "outcome": notice.outcome,
-        "created_at": record.instant_text(notice.created_at),
+        "created_at": instant.text(notice.created_at),
         "detail": notice.detail,
         "usage": notice.usage,
         "protection_lost": notice.protection_lost,
