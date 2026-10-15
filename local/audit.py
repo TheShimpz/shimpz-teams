@@ -109,9 +109,9 @@ def record_request(
     )
 
 
-def record_action(result: str, team_id: str, assistant_id: str, detail: str) -> str:
+def record_action(result: str, team_id: str, assistant_id: str, detail: str) -> None:
     """Record one Assistant Action event's metadata under the verified request principal."""
-    return record_request("assistant-action", result=result, team_id=team_id, assistant=assistant_id, detail=detail)
+    record_request("assistant-action", result=result, team_id=team_id, assistant=assistant_id, detail=detail)
 
 
 def _safe_file(path: Path) -> None:
