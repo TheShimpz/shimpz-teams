@@ -1,9 +1,7 @@
 """Reusable exact-image fixtures for Local snapshot boundary tests."""
 
 import hashlib
-import io
 import json
-import tarfile
 from types import SimpleNamespace
 from unittest import mock
 
@@ -13,6 +11,7 @@ from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from local.install import snapshots, source_package
 from tests import catalog_fixtures
+from tests.assistant_archive_fixtures import archive
 from tests.test_assistant_manifest import manifest
 from tests.test_local_source_package import _packages
 
@@ -41,16 +40,6 @@ def fresh_installing_lifecycle(install_assistant: mock.Mock) -> SimpleNamespace:
         lifecycle.install_assistant
     )
     return lifecycle
-
-
-def archive(name: str, contents: bytes) -> bytes:
-    output = io.BytesIO()
-    with tarfile.open(fileobj=output, mode="w") as bundle:
-        member = tarfile.TarInfo(name)
-        member.size = len(contents)
-        member.mode = 0o444
-        bundle.addfile(member, io.BytesIO(contents))
-    return output.getvalue()
 
 
 def _package(fixture_manifest: bytes) -> tuple[bytes, bytes, bytes]:
@@ -101,7 +90,7 @@ def _container(files: dict[str, bytes]):
             raise NotFound(f"Could not find the file {path} in container")
         contents = files[path]
         name = path.rsplit("/", 1)[1]
-        return iter((archive(name, contents),)), {"name": name, "size": len(contents), "mode": 0o444}
+        return iter((archive(contents, name=name),)), {"name": name, "size": len(contents), "mode": 0o444}
 
     container.get_archive.side_effect = get_archive
     return container

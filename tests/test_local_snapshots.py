@@ -20,8 +20,8 @@ from local.install import admission, service, snapshots, source_package
 from local.install import registry as assistant_registry
 from protocol.http.v1 import payload as http_payload
 from tests import catalog_fixtures
+from tests.assistant_archive_fixtures import archive as _archive
 from tests.local_snapshot_fixtures import CREATED, IMAGE_ID
-from tests.local_snapshot_fixtures import archive as _archive
 from tests.local_snapshot_fixtures import client as _client
 from tests.local_snapshot_fixtures import fresh_installing_lifecycle as _fresh_installing_lifecycle
 from tests.test_local_publication_install import _runtime_resolution
@@ -290,7 +290,7 @@ class LocalSnapshotTests(unittest.TestCase):
 
         def drift_manifest(path: str):
             if path == assistant_manifest.MANIFEST_PATH:
-                return iter((_archive("shimpz.toml", b"different"),)), {
+                return iter((_archive(b"different", name="shimpz.toml"),)), {
                     "name": "shimpz.toml",
                     "size": len(b"different"),
                     "mode": 0o444,

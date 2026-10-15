@@ -12,7 +12,8 @@ from chat import turn as chat_turn
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
-from tests.test_assistant_genesis import Container, manifest
+from tests.assistant_archive_fixtures import ManifestContainer as Container
+from tests.test_assistant_genesis import manifest
 from tests.test_chat_orchestrator import FakeRuntime, accept_input, context, strategy, suspended, suspension
 
 

@@ -1,4 +1,3 @@
-import io
 import json
 import tarfile
 import unittest
@@ -9,6 +8,7 @@ from unittest import mock
 from assistant import action_schema
 from assistant import manifest as assistant_manifest
 from tests import catalog_fixtures
+from tests.assistant_archive_fixtures import FileContainer, ManifestContainer, archive
 
 FIXTURE_MANIFEST = Path(__file__).resolve().parent / "fixtures" / "reference-assistant" / "shimpz.toml"
 FIXTURE_SUMMARY = "List Cloudflare zones and inspect their DNS records through OAuth."
@@ -82,56 +82,18 @@ def _stored(label: str, **placement: object) -> dict[str, object]:
     }
 
 
-def archive(
-    content: bytes,
-    *,
-    name: str = "shimpz.toml",
-    member_type: bytes | None = None,
-    mode: int = 0o444,
-) -> bytes:
-    output = io.BytesIO()
-    with tarfile.open(fileobj=output, mode="w") as bundle:
-        member = tarfile.TarInfo(name)
-        member.size = len(content)
-        member.mode = mode
-        if member_type is not None:
-            member.type = member_type
-        bundle.addfile(member, io.BytesIO(content))
-    return output.getvalue()
+class ContractContainer(FileContainer):
+    """A container generation serving its fixed SDK machine contract."""
 
-
-class Container:
     def __init__(self, container_id: str, content: bytes) -> None:
-        self.id = container_id
-        self.content = content
-        self.reads = 0
-
-    def get_archive(self, path: str):
-        self.reads += 1
-        if path != assistant_manifest.MANIFEST_PATH:
-            raise AssertionError(f"unexpected archive path: {path}")
-        payload = archive(self.content)
-        return (
-            iter((payload[:113], payload[113:])),
-            {"name": "shimpz.toml", "size": len(self.content), "mode": 0o444},
-        )
+        super().__init__(container_id, assistant_manifest.CONTRACT_PATH, content, name="shimpz.contract.json")
 
 
-class ContractContainer:
+class Container(ManifestContainer):
+    """A container generation serving its manifest in two chunks, so a read must join them."""
+
     def __init__(self, container_id: str, content: bytes) -> None:
-        self.id = container_id
-        self.content = content
-        self.reads = 0
-
-    def get_archive(self, path: str):
-        self.reads += 1
-        if path != assistant_manifest.CONTRACT_PATH:
-            raise AssertionError(f"unexpected archive path: {path}")
-        payload = archive(self.content, name="shimpz.contract.json")
-        return (
-            iter((payload,)),
-            {"name": "shimpz.contract.json", "size": len(self.content), "mode": 0o444},
-        )
+        super().__init__(container_id, content, split_at=113)
 
 
 class AssistantManifestTests(unittest.TestCase):

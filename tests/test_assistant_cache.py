@@ -5,16 +5,17 @@ import threading
 import unittest
 from unittest import mock
 
-from test_assistant_genesis import Container, archive, manifest
+from test_assistant_genesis import manifest
 
 from assistant import cache as assistant_cache
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
+from tests.assistant_archive_fixtures import ManifestContainer, archive
 
 WAIT = 10
 
 
-class BlockedContainer(Container):
+class BlockedContainer(ManifestContainer):
     """A container whose Docker archive read blocks until the test opens its gate."""
 
     def __init__(self, container_id: str, content: bytes, *, fail: bool = False) -> None:
@@ -34,7 +35,11 @@ class BlockedContainer(Container):
             raise OSError("Docker archive read failed")
         if path != assistant_genesis.assistant_manifest.MANIFEST_PATH:
             raise AssertionError(path)
-        return iter((archive(self.content),)), {"name": "shimpz.toml", "size": len(self.content), "mode": 0o444}
+        return iter((archive(self.content, name=self.name),)), {
+            "name": self.name,
+            "size": len(self.content),
+            "mode": 0o444,
+        }
 
 
 class ArrivalEvent(threading.Event):
@@ -92,7 +97,7 @@ class ContainerCacheTests(unittest.TestCase):
         content, cases = caches()
         for name, get, expected in cases:
             with self.subTest(cache=name):
-                warm = Container("warm", content)
+                warm = ManifestContainer("warm", content)
                 cold = BlockedContainer("cold", content)
                 self.assertEqual(get(warm), expected)
                 calls = Calls()

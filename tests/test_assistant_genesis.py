@@ -1,8 +1,7 @@
-import io
-import tarfile
 import unittest
 
 from assistant import genesis as assistant_genesis
+from tests.assistant_archive_fixtures import ManifestContainer as Container
 
 
 def manifest(genesis: str = "Use only the declared Actions.") -> bytes:
@@ -23,34 +22,6 @@ genesis = \"\"\"
 [network]
 allowed_hosts = []
 """.encode()
-
-
-def archive(content: bytes) -> bytes:
-    output = io.BytesIO()
-    with tarfile.open(fileobj=output, mode="w") as bundle:
-        member = tarfile.TarInfo("shimpz.toml")
-        member.size = len(content)
-        member.mode = 0o444
-        bundle.addfile(member, io.BytesIO(content))
-    return output.getvalue()
-
-
-class Container:
-    def __init__(self, container_id: str, content: bytes) -> None:
-        self.id = container_id
-        self.content = content
-        self.reads = 0
-
-    def get_archive(self, path: str):
-        self.reads += 1
-        if path != assistant_genesis.assistant_manifest.MANIFEST_PATH:
-            raise AssertionError(path)
-        payload = archive(self.content)
-        return iter((payload,)), {
-            "name": "shimpz.toml",
-            "size": len(self.content),
-            "mode": 0o444,
-        }
 
 
 class AssistantGenesisTests(unittest.TestCase):

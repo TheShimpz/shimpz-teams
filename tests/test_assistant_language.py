@@ -1,9 +1,7 @@
 """Language packs travel with the verified artifact and stay with the reviewed binding (ADR-0091)."""
 
 import hashlib
-import io
 import json
-import tarfile
 import types
 import unittest
 from http import HTTPStatus
@@ -18,6 +16,7 @@ from local.errors import ApiProblemError
 from local.install import snapshots
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from tests import catalog_fixtures, human_request_fixtures, local_snapshot_fixtures
+from tests.assistant_archive_fixtures import FileContainer
 
 MESSAGES = catalog_fixtures.messages()
 CONTRACT = {"version": 1, "actions": [], "messages": MESSAGES}
@@ -25,33 +24,11 @@ RAW = catalog_fixtures.pack_bytes(MESSAGES)
 DIGEST = catalog_validator.pack_digest(RAW)
 
 
-def _archive(contents: bytes, *, mode: int = 0o444) -> bytes:
-    output = io.BytesIO()
-    with tarfile.open(fileobj=output, mode="w") as bundle:
-        member = tarfile.TarInfo("shimpz.pack.json")
-        member.size = len(contents)
-        member.mode = mode
-        bundle.addfile(member, io.BytesIO(contents))
-    return output.getvalue()
-
-
-class PackContainer:
+class PackContainer(FileContainer):
     """One immutable container generation that serves only its fixed pack path."""
 
     def __init__(self, container_id: str, contents: bytes | None, *, mode: int = 0o444) -> None:
-        self.id = container_id
-        self.contents = contents
-        self.mode = mode
-        self.reads = 0
-
-    def get_archive(self, path: str):
-        self.reads += 1
-        if path != assistant_language.PACK_PATH or self.contents is None:
-            raise FileNotFoundError(path)
-        return (
-            iter((_archive(self.contents, mode=self.mode),)),
-            {"name": "shimpz.pack.json", "size": len(self.contents), "mode": self.mode},
-        )
+        super().__init__(container_id, assistant_language.PACK_PATH, contents, name="shimpz.pack.json", mode=mode)
 
 
 def _tampered() -> bytes:
