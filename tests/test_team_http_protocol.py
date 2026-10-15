@@ -175,34 +175,6 @@ class RoutineListBoundTests(unittest.TestCase):
         self.assertLess(routine.encoded_bytes({**page, "trace_id": "f" * 32}), 128 * 1024)
         self.assertIsNone(routine.canonical_page({**page, "steps": [*steps, _bounded_step(4)], "next": 4}))
 
-    def test_a_created_notice_of_the_largest_summary_fits_a_batch_many_times(self) -> None:
-        notice = {
-            "team_id": "t" * 40,
-            "notice_id": "0" * 32,
-            "version": 1,
-            "routine_id": "1" * 32,
-            "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
-            "run_id": None,
-            "outcome": "created",
-            "created_at": "2026-10-05T09:00:00Z",
-            "detail": {
-                "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
-                "plan": _largest_summary(),
-                "output": {"mode": "changes", "step": routine.MAX_ROUTINE_STEPS},
-                "schedule": {"kind": "weekly", "weekday": 6, "time": "23:59"},
-                "timezone": "/".join(["Z" * 32] * 3),
-                "timezone_source": "browser",
-                "state": "paused",
-                "permitted": {"total": routine.MAX_PERMITTED, "changes": routine.MAX_PERMITTED},
-            },
-            "usage": None,
-            "protection_lost": False,
-        }
-        self.assertLessEqual(routine.encoded_bytes(_largest_summary()), routine_notice.MAX_SUMMARY_BYTES)
-        notices = [{**notice, "notice_id": f"{index:032x}"} for index in range(20)]
-        batch = {"notices": notices, "more": False}
-        self.assertEqual(routine_notice.canonical_notice_batch(batch), batch)
-
     def test_the_largest_run_notice_fits_a_batch_twice(self) -> None:
         """A completed run at every bound: its shown output, summary, and usage."""
         output = {
@@ -254,12 +226,10 @@ class RoutineListBoundTests(unittest.TestCase):
             "schedule": {"kind": "continuous", "gap": routine.MAX_CONTINUOUS_GAP_SECONDS},
             "timezone": "/".join(["Z" * 32] * 3),
             "timezone_source": "browser",
-            "assistant_ids": sorted(f"a{index:02d}" + "a" * 37 for index in range(routine.MAX_NOTICE_ASSISTANTS)),
             "next_run_at": "2026-10-05T09:00:00Z",
             "needs_reconfirm": False,
             "deleting": False,
             "state": "paused",
-            "permitted": {"total": routine.MAX_PERMITTED, "changes": routine.MAX_PERMITTED},
         }
         run = {
             "run_id": "1" * 32,

@@ -119,11 +119,6 @@ def disposition(plan: Mapping[str, object]) -> dict[str, object]:
     return {"mode": output["mode"], "step": None if shown is None else step_positions(plan)[shown]}
 
 
-def permitted_summary(permitted: Sequence[Mapping[str, object]]) -> dict[str, int]:
-    """How many Actions a Routine may call, and how many of them change something."""
-    return {"total": len(permitted), "changes": sum(not item["read_only"] for item in permitted)}
-
-
 def page(
     routine_id: str, revision: int, plan: Mapping[str, object], permitted: Sequence[Mapping[str, object]], offset: int
 ) -> dict[str, object]:
@@ -147,24 +142,6 @@ def page(
         "offset": offset,
         "steps": chosen,
         "next": None if following == total else following,
-    }
-
-
-def scope(value: object) -> dict[str, object]:
-    """A Routine's standing scope as views and notices carry it."""
-    return {"state": state(value), "permitted": permitted_summary(value.permitted)}
-
-
-def detail(value: object) -> dict[str, object]:
-    """What a created or changed notice says a Routine does: its name, its plan's summary, when, and its scope."""
-    return {
-        "name": value.name,
-        "plan": summary(value.plan, value.revision),
-        "output": disposition(value.plan),
-        "schedule": dict(value.schedule),
-        "timezone": value.timezone,
-        "timezone_source": value.timezone_source,
-        **scope(value),
     }
 
 

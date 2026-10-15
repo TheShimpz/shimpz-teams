@@ -18,24 +18,6 @@ def _disposed(value: object, steps: int) -> bool:
     return admitted is not None and admitted == value
 
 
-def _scope(value: dict[str, object]) -> bool:
-    """A Routine's standing scope: whether it runs, and its permitted Actions."""
-    return value["state"] in ROUTINE_STATES and routine.canonical_permitted(value["permitted"]) == value["permitted"]
-
-
-def _defined(detail: dict[str, object]) -> bool:
-    """What a created or changed Routine does: name, plan summary, disposition, schedule, and its standing scope."""
-    summary = routine.canonical_summary(detail["plan"])
-    return (
-        routine.canonical_name(detail["name"]) == detail["name"]
-        and summary is not None
-        and _disposed(detail["output"], summary["steps"])
-        and routine.canonical_schedule(detail["schedule"]) == detail["schedule"]
-        and routine.zoned(detail["timezone"], detail["timezone_source"])
-        and _scope(detail)
-    )
-
-
 def _completed(detail: dict[str, object]) -> bool:
     """A completed run: its plan's summary and its shown result if any."""
     summary = routine.canonical_summary(detail["plan"])
@@ -74,7 +56,6 @@ def _failed_at(detail: dict[str, object]) -> bool:
 
 
 _COMPLETED_FIELDS = {"plan", "output"}
-_DEFINED_FIELDS = {"name", "plan", "output", "schedule", "timezone", "timezone_source", "state", "permitted"}
 # Each outcome's exact detail fields and check: denied and stopped name the Actions that completed; held, paused, and
 # user-skipped name the call whose effects are unresolved, and user-skipped the card choice that set the run aside.
 _DETAILS = {
@@ -106,8 +87,9 @@ _DETAILS = {
     ),
     "denied": ({"actions"}, lambda detail: routine.valid_actions(detail["actions"])),
     "stopped": ({"actions"}, lambda detail: routine.valid_actions(detail["actions"])),
-    "created": (_DEFINED_FIELDS, _defined),
-    "changed": (_DEFINED_FIELDS, _defined),
+    # A Routine's creation, change, and deletion say nothing beyond the notice's own name (ADR-0101).
+    "created": (set(), lambda _detail: True),
+    "changed": (set(), lambda _detail: True),
     "deleted": (set(), lambda _detail: True),
     "streak-paused": (
         {"failures"},
@@ -147,24 +129,14 @@ def instant(value: object) -> bool:
     return True
 
 
-def _assistant_ids(value: object, *, minimum: int) -> bool:
-    return (
-        isinstance(value, list)
-        and minimum <= len(value) <= routine.MAX_NOTICE_ASSISTANTS
-        and all(routine.valid_assistant(item) for item in value)
-        and value == sorted(set(value))
-    )
-
-
 def optional(value: object, pattern: re.Pattern[str]) -> bool:
     return value is None or routine.matches(value, pattern)
 
 
 def canonical_routine_view(value: object) -> dict[str, object] | None:
-    """One Routine as a Supervisor sees it: its plan summary (steps are paged), disposition, and standing scope."""
-    fields = {"routine_id", "name", "schedule", "timezone", "timezone_source", "assistant_ids", "next_run_at"}
-    scope = {"needs_reconfirm", "state", "permitted"}
-    if not isinstance(value, dict) or set(value) != fields | scope | {"deleting", "plan", "output"}:
+    """One Routine as a Supervisor sees it: its plan summary (steps are paged), disposition, and state."""
+    fields = {"routine_id", "name", "schedule", "timezone", "timezone_source", "next_run_at"}
+    if not isinstance(value, dict) or set(value) != fields | {"needs_reconfirm", "state", "deleting", "plan", "output"}:
         return None
     summary = routine.canonical_summary(value["plan"])
     valid = (
@@ -175,11 +147,10 @@ def canonical_routine_view(value: object) -> dict[str, object] | None:
         and value["schedule"] is not None
         and routine.canonical_schedule(value["schedule"]) == value["schedule"]
         and routine.zoned(value["timezone"], value["timezone_source"])
-        and _assistant_ids(value["assistant_ids"], minimum=0)
         and instant(value["next_run_at"])
         and type(value["needs_reconfirm"]) is bool
         and type(value["deleting"]) is bool
-        and _scope(value)
+        and value["state"] in ROUTINE_STATES
     )
     return copy.deepcopy(value) if valid else None
 

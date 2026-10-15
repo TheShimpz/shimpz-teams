@@ -5,7 +5,6 @@ import unittest
 
 import routine_fixture
 
-from protocol.http.v1 import routine_notice as http_routine_notice
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
@@ -73,21 +72,6 @@ class DefinitionTests(unittest.TestCase):
     def test_a_routine_is_active_or_paused(self) -> None:
         self.assertEqual(routine_definition.state(_defined()), "active")
         self.assertEqual(routine_definition.state(_defined(paused=True)), "paused")
-
-    def test_views_and_notices_carry_the_standing_scope_as_a_summary(self) -> None:
-        changing = (
-            *routine_fixture.permitted(PLAN),
-            {**routine_fixture.permitted(PLAN)[0], "action": "delete-record", "read_only": False},
-        )
-        self.assertEqual(routine_definition.permitted_summary(changing), {"total": 3, "changes": 1})
-        value = _defined()
-        self.assertEqual(
-            routine_definition.scope(value),
-            {"state": "active", "permitted": {"total": 1, "changes": 0}},
-        )
-        detail = routine_definition.detail(value)
-        self.assertEqual(detail["output"], {"mode": "show", "step": 1})
-        self.assertEqual(http_routine_notice.canonical_notice_detail("created", detail), detail)
 
     def test_definition_bytes_count_the_plan_and_every_standing_part(self) -> None:
         value = _defined()

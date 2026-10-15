@@ -31,11 +31,10 @@ def routine_view(value: record.Routine) -> dict[str, object]:
         "schedule": dict(value.schedule),
         "timezone": value.timezone,
         "timezone_source": value.timezone_source,
-        "assistant_ids": [assistant for assistant, _digest in value.assistants],
         "next_run_at": instant.text(value.next_run_at),
         "needs_reconfirm": value.needs_reconfirm,
         "deleting": value.deleting,
-        **routine_definition.scope(value),
+        "state": routine_definition.state(value),
     }
 
 

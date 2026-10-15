@@ -402,9 +402,7 @@ def change_room(state: TeamRoutines, notices: int) -> str | None:
 def create(state: TeamRoutines, value: Routine, now: int) -> TeamRoutines:
     """Add a confirmed Routine with its created notice in one transition; its minted id never exists twice."""
     state = add_routine(state, value)
-    admitted = routine(state, value.routine_id)
-    detail = routine_definition.detail(admitted)
-    return put_notice(state, Notice(new_id(), admitted.routine_id, "", "created", now, detail))
+    return put_notice(state, Notice(new_id(), value.routine_id, "", "created", now, {}))
 
 
 def update(state: TeamRoutines, value: Routine, expected_revision: int, now: int) -> TeamRoutines:
@@ -433,9 +431,7 @@ def update(state: TeamRoutines, value: Routine, expected_revision: int, now: int
         rollup_usage=current.rollup_usage,
     )
     state = replace_routine(state, changed)
-    return put_notice(
-        state, Notice(new_id(), changed.routine_id, "", "changed", now, routine_definition.detail(changed))
-    )
+    return put_notice(state, Notice(new_id(), changed.routine_id, "", "changed", now, {}))
 
 
 def add_routine(state: TeamRoutines, value: Routine) -> TeamRoutines:

@@ -281,14 +281,13 @@ derived, never carried: `routine.continuous_cap(gap)`, `ceil(86400 / gap)` (at m
 17,280), so the interval a person stated runs all day and no cap ever rewrites it (ADR-0101).
 `routine.daily_rate` is a schedule's runs per day and `routine.daily_cap` its whole rolling 24-hour cap; the Team's
 daily Action-step budget alone bounds what its Routines' caps may start together. A Routine is recorded from the work the ordinary chat agent did in one turn and exists only once a person
-confirms its card (ADR-0101). Its notice then has the Routine outcome `created` or `changed`, no run id, and exactly
-`{name, plan, output, schedule, timezone, timezone_source, state, permitted}`: the Routine's name
-(`routine.canonical_name`, 1 to 80 NFC printable characters on one line), its revision's summary, its output
+confirms its card (ADR-0101). Its notice then has the Routine outcome `created` or `changed`, no run id, and the empty
+detail `{}`: the notice's own `name` says which Routine. A Routine view (`routine_notice.canonical_routine_view`) carries
+its name (`routine.canonical_name`, 1 to 80 NFC printable characters on one line), its revision's summary, its output
 disposition (`routine.canonical_disposition`: `{mode, step}`, where `mode` is `show`, `changes`, or `none`, and `step`
 is the 1-based position of the shown step for `show` and `changes`), its schedule, zone, and the zone's source
 (`routine.zoned`: `browser`, `person`, a zone the person wrote, or `none`, when the Routine runs on `UTC` by convention,
-its run date included, which is never a claim about the person), and its standing scope: its `state` (`active` or `paused`) and its permitted Actions
-as `{total, changes}` (`routine.canonical_permitted`, 1 to `routine.MAX_PERMITTED`). A plan holds 1 to 256 steps; on the
+its run date included, which is never a claim about the person), its next run, and its `state` (`active` or `paused`). A plan holds 1 to 256 steps; on the
 wire a step is always named by its position, never by its internal id. The summary
 (`routine.canonical_summary`) is `{revision, plan_digest, steps, actions, more}`: the step count and the Actions as runs
 of consecutive equal `[assistant, action, count]`, at most 16 runs, with `more` counting the steps after them, within

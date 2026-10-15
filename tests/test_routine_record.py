@@ -35,16 +35,6 @@ WEEKLY = {"kind": "weekly", "weekday": 0, "time": "09:00"}
 CONTINUOUS = {"kind": "continuous", "gap": 5}
 
 
-DEFINED = {
-    "name": "Daily DNS summary",
-    "plan": routine_definition.summary(routine_fixture.plan_document(), 1),
-    "output": {"mode": "show", "step": 1},
-    "schedule": {"kind": "daily", "time": "09:00"},
-    "timezone": "UTC",
-    "timezone_source": "browser",
-    "state": "active",
-    "permitted": {"total": 1, "changes": 0},
-}
 # The compact summary of a run that carried out a list of zones, then replaced one DNS record.
 SUMMARY = {
     "revision": 1,
@@ -101,8 +91,8 @@ class ContractTests(unittest.TestCase):
                 "position": 2,
                 "steps": 2,
             },
-            "created": DEFINED,
-            "changed": DEFINED,
+            "created": {},
+            "changed": {},
             "deleted": {},
             "streak-paused": {"failures": http_routine.MAX_FAILURE_STREAK},
         }
@@ -220,17 +210,9 @@ class ContractTests(unittest.TestCase):
             ),
             (["done"], {"reply": "x"}),
             ("done", ["reply"]),
-            ("created", {**DEFINED, "name": ""}),
-            ("created", {**DEFINED, "plan": {**DEFINED["plan"], "steps": 0}}),
-            ("created", {**DEFINED, "unexpected": None}),
-            ("created", {**DEFINED, "plan": {**DEFINED["plan"], "actions": []}}),
-            ("created", {**DEFINED, "output": {"mode": "show", "step": 2}}),
-            ("created", {**DEFINED, "output": {"mode": "show", "step": "check"}}),
-            ("created", {**{key: value for key, value in DEFINED.items() if key != "plan"}, "steps": []}),
-            ("created", {key: value for key, value in DEFINED.items() if key != "plan"}),
-            ("changed", {**DEFINED, "schedule": {"kind": "daily"}}),
-            ("changed", {**DEFINED, "timezone": "../etc"}),
-            ("changed", {**DEFINED, "input": {"zone": "example.com"}}),
+            ("created", {"name": "Daily DNS summary"}),
+            ("changed", {"plan": SUMMARY}),
+            ("changed", {"input": {"zone": "example.com"}}),
         )
         for outcome, detail in invalid:
             with self.subTest(outcome=outcome, detail=detail):
@@ -473,23 +455,11 @@ class ConfirmedChangeTests(unittest.TestCase):
         state = record.create(record.TeamRoutines(), routine(), NINE)
         self.assertEqual([item.routine_id for item in state.routines], ["a" * 32])
         (notice,) = state.notices
-        self.assertEqual((notice.outcome, notice.run_id, notice.detail), ("created", "", DEFINED))
+        self.assertEqual((notice.outcome, notice.run_id, notice.detail), ("created", "", {}))
         self.assertEqual((notice.name, notice.usage, notice.protection_lost), ("Daily DNS summary", None, False))
         # A minted id never exists twice, so a repeated confirmation never creates twice.
         with self.assertRaisesRegex(record.RoutineStateError, "routine-exists"):
             record.create(state, routine(), NINE + 5)
-
-    def test_a_notice_keeps_the_timezone_source_it_was_written_with(self):
-        unzoned = dataclasses.replace(routine(schedule=EVERY_HOUR), timezone_source="none")
-        state = record.create(record.TeamRoutines(), unzoned, NINE)
-        lisbon = {**unzoned.plan, "timezone": "Europe/Lisbon"}
-        zoned = dataclasses.replace(unzoned, timezone_source="person", plan=lisbon)
-        zoned = record.scheduled(zoned, NINE)
-        state = record.update(state, zoned, 1, NINE + 1)
-        state, _runs = record.begin_delete(state, "a" * 32)
-        state = record.complete_delete(state, "a" * 32, NINE + 2)
-        details = [(item.outcome, item.detail.get("timezone_source")) for item in state.notices]
-        self.assertEqual(details, [("created", "none"), ("changed", "person"), ("deleted", None)])
 
     def test_room_for_a_change_counts_only_undelivered_notices(self):
         self.assertIsNone(record.change_room(record.TeamRoutines(), 1))
@@ -520,8 +490,6 @@ class ConfirmedChangeTests(unittest.TestCase):
             (current.revision, current.name, current.paused, current.needs_reconfirm), (2, changed.name, True, False)
         )
         self.assertEqual(after.notices[-1].outcome, "changed")
-        self.assertEqual(after.notices[-1].detail["schedule"], WEEKLY)
-        self.assertEqual(after.notices[-1].detail["state"], "paused")
         self.assertEqual(after.notices[-1].name, "DNS summary")
         # An earlier version keeps the name it was written with.
         self.assertEqual(after.notices[-2].name, "Daily DNS summary")

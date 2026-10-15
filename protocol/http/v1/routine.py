@@ -532,17 +532,6 @@ def canonical_output(value: object) -> dict[str, object] | None:
 canonical_run_usage = payload.canonical_run_usage
 
 
-def canonical_permitted(value: object) -> dict[str, int] | None:
-    """A Routine's permitted Actions as views and notices carry them: how many, and how many change something.
-
-    The card showed the complete set when the person confirmed it.
-    """
-    if not isinstance(value, dict) or set(value) != {"total", "changes"}:
-        return None
-    valid = whole(value["total"], 1, MAX_PERMITTED) and whole(value["changes"], 0, value["total"])
-    return {"total": value["total"], "changes": value["changes"]} if valid else None
-
-
 def encoded_bytes(value: object) -> int:
     """The UTF-8 size of a value in the Local API's JSON encoding."""
     return len(json.dumps(value, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8"))
