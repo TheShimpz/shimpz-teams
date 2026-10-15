@@ -180,7 +180,7 @@ def canonical_run_view(value: object) -> dict[str, object] | None:
 
 
 def canonical_incident_view(value: object) -> dict[str, object] | None:
-    """One unresolved incident of a held run, its held call by position; it outlives a deleted Routine."""
+    """One unresolved incident of a held run, its held call by position; it lasts until a person settles it."""
     fields = {"incident_id", "routine_id", "name", "created_at", "assistant_id", "action", "position", "steps"}
     if not isinstance(value, dict) or set(value) != fields:
         return None
