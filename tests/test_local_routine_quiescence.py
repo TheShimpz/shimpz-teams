@@ -60,7 +60,7 @@ class QuiescenceTests(RecoveryCase):
                 card = self.card(service, run_id)
                 # Nor may a person start the Routine again while it could: Rodar is refused and changes nothing.
                 with self.as_person(), self.assertRaises(local_app.ApiProblem) as refused:
-                    service.answer_routine_card("team_1", run_id, {"tag": card["tag"], "choice": "run"})
+                    service.answer_routine_card("team_1", run_id, {"tag": card["tag"]})
             self.assertEqual(refused.exception.code, "routine-workload-unquiesced")
             # No verifier ever ran while the original execution could still act.
             self.assertNotIn("find-record", [action for action, _id in assistant.calls])

@@ -195,7 +195,7 @@ class CardEdgeTests(RecoveryCase):
             with mock.patch.object(routine_plan, "admit", side_effect=routine_plan.PlanError("plan-pin-drift")):
                 card = self.as_card(service, run_id)
             # Drift never keeps the card from opening: the person may still run it again or delete the Routine.
-            self.assertEqual(card["incident_id"], run_id)
+            self.assertEqual(card["run_id"], run_id)
             routine_fixture.set_aside(service, "team_1", run_id)
             with self.assertRaises(local_app.ApiProblem) as caught:
                 self.as_card(service, run_id)

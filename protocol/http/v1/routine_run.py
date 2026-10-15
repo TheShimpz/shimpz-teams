@@ -14,12 +14,10 @@ else:  # The protocol verifier runs every module of this directory flat.
 
 
 # A held run's recovery card (ADR-0092 section 7, ADR-0101): Rodar and Excluir, none recommended. Team answers only
-# Rodar; Excluir is the Routine's own confirmed deletion. The card's entity tag is the digest of exactly the state its
-# answer must still find, which the answer names as an HTTP If-Match does (RFC 9110 section 13.1.1).
-CARD_ANSWERS = ("run",)
+# Rodar, so an answer is the card's entity tag alone; Excluir is the Routine's own confirmed deletion. The tag is the
+# digest of exactly the state its answer must still find, which the answer names as an HTTP If-Match does (RFC 9110
+# section 13.1.1).
 TAG_RE = re.compile(r"[0-9a-f]{64}\Z")
-# What an answer did: Rodar set the held run aside and requested one fresh run.
-CARD_STATUSES = {"run": "requested"}
 # Whether the held call's failure has a diagnostic: recorded (and shown), none kept, or one that could not be read.
 CARD_EVIDENCE = ("recorded", "absent", "unavailable")
 
@@ -41,12 +39,12 @@ def _card_evidence(value: dict[str, object]) -> bool:
 
 def canonical_card(value: object) -> dict[str, object] | None:
     """An opened recovery card: the call it stopped at, its failure as recorded, and its entity tag."""
-    fields = {"team_id", "incident_id", "routine_id", "revision", "assistant_id", "action", "tag"}
+    fields = {"team_id", "run_id", "routine_id", "revision", "assistant_id", "action", "tag"}
     if not isinstance(value, dict) or set(value) != fields | {"position", "steps", "evidence", "diagnostic"}:
         return None
     valid = (
         routine.valid_team(value["team_id"])
-        and routine.matches(value["incident_id"], routine.ROUTINE_ID_RE)
+        and routine.matches(value["run_id"], routine.ROUTINE_ID_RE)
         and routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
         and routine.valid_revision(value["revision"])
         and routine.valid_assistant(value["assistant_id"])
@@ -59,23 +57,17 @@ def canonical_card(value: object) -> dict[str, object] | None:
 
 
 def canonical_card_answer_request(value: object) -> dict[str, str] | None:
-    """A person's answer to one card: the tag it was opened with, and Rodar; Excluir is never a card answer."""
-    if not isinstance(value, dict) or set(value) != {"tag", "choice"}:
+    """A person's Rodar on one card: the tag it was opened with; Excluir is never a card answer."""
+    if not isinstance(value, dict) or set(value) != {"tag"} or not routine.matches(value["tag"], TAG_RE):
         return None
-    valid = routine.matches(value["tag"], TAG_RE) and value["choice"] in CARD_ANSWERS
-    return {"tag": value["tag"], "choice": value["choice"]} if valid else None
+    return {"tag": value["tag"]}
 
 
 def canonical_card_answer(value: object) -> dict[str, object] | None:
-    """What an answer did: Rodar requested one fresh run."""
-    if not isinstance(value, dict) or set(value) != {"team_id", "incident_id", "choice", "status"}:
+    """What an answer did: Rodar set the held run aside and requested one fresh run of its Routine."""
+    if not isinstance(value, dict) or set(value) != {"team_id", "run_id"}:
         return None
-    valid = (
-        routine.valid_team(value["team_id"])
-        and routine.matches(value["incident_id"], routine.ROUTINE_ID_RE)
-        and value["choice"] in CARD_ANSWERS
-        and value["status"] == CARD_STATUSES[value["choice"]]
-    )
+    valid = routine.valid_team(value["team_id"]) and routine.matches(value["run_id"], routine.ROUTINE_ID_RE)
     return copy.deepcopy(value) if valid else None
 
 

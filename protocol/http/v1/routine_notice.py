@@ -39,6 +39,8 @@ def _held_step(detail: dict[str, object]) -> bool:
 
 
 _STEP_FIELDS = {"assistant_id", "action", "position", "steps"}
+# How a person set a held run aside: Rodar on its card, or deleting its Routine.
+SET_ASIDE_CHOICES = ("run", "delete")
 # What a frozen run waits for: a person's answer to a declared human request, or an Integration.
 REQUEST_KINDS = ("human", "integrations")
 
@@ -68,7 +70,7 @@ _DETAILS = {
     ),
     "user-skipped": (
         _STEP_FIELDS | {"choice"},
-        lambda detail: _held_step(detail) and detail["choice"] in CARD_CHOICES,
+        lambda detail: _held_step(detail) and detail["choice"] in SET_ASIDE_CHOICES,
     ),
     "skipped": ({"missed"}, lambda detail: type(detail["missed"]) is int and detail["missed"] >= 1),
     "healthy": (
@@ -181,13 +183,13 @@ def canonical_run_view(value: object) -> dict[str, object] | None:
 
 def canonical_incident_view(value: object) -> dict[str, object] | None:
     """One unresolved incident of a held run, its held call by position; it lasts until a person settles it."""
-    fields = {"incident_id", "routine_id", "name", "created_at", "assistant_id", "action", "position", "steps"}
+    fields = {"run_id", "routine_id", "name", "created_at", "assistant_id", "action", "position", "steps"}
     if not isinstance(value, dict) or set(value) != fields:
         return None
     valid = (
-        routine.matches(value["incident_id"], routine.ROUTINE_ID_RE)
+        routine.matches(value["run_id"], routine.ROUTINE_ID_RE)
         and routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
-        and routine.canonical_name(value["name"]) == value["name"]
+        and routine.exact_name(value["name"])
         and instant(value["created_at"])
         and _held_step(value)
     )
@@ -204,7 +206,6 @@ MAX_SUMMARY_BYTES = 4 * 1024
 MAX_ROUTINE_LIST_BYTES = (
     routine.MAX_ROUTINES * (MAX_SUMMARY_BYTES + 8 * 1024 + 1024) + MAX_UNRESOLVED_INCIDENTS * 4 * 1024 + 4 * 1024
 )
-CARD_CHOICES = ("run", "delete")
 
 
 def canonical_notice(value: object) -> dict[str, object] | None:

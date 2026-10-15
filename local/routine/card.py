@@ -111,7 +111,7 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
         evidence = {"evidence": "absent", "diagnostic": None}
     return {
         "team_id": team_id,
-        "incident_id": incident_id,
+        "run_id": incident_id,
         "routine_id": value.routine_id,
         "revision": value.revision,
         "assistant_id": assistant_id,
@@ -143,7 +143,7 @@ def _contracts_changed() -> ApiProblem:
     return ApiProblem(HTTPStatus.CONFLICT, "the Routine's Assistants changed", code="routine-contracts-changed")
 
 
-def _run(self, team_id: str, tagged: _Tagged) -> str:
+def _run(self, team_id: str, tagged: _Tagged) -> None:
     """Rodar: set the held run aside and request one fresh run of the Routine's current revision."""
     current = restartable(self, team_id, tagged)
     if current.needs_reconfirm:
@@ -162,7 +162,6 @@ def _run(self, team_id: str, tagged: _Tagged) -> str:
         incident_id,
         lambda state: routine_hold.run_incident(state, incident_id, now, tagged.expected),
     )
-    return "requested"
 
 
 def answer_card(self, team_id: str, incident_id: str, body: object) -> dict[str, object]:
@@ -171,14 +170,13 @@ def answer_card(self, team_id: str, incident_id: str, body: object) -> dict[str,
     _principal()
     body = http_routine_run.canonical_card_answer_request(body)
     if body is None:
-        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "a card answer is its tag and Rodar", code="invalid-body")
-    choice = body["choice"]
+        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "a card answer is its tag", code="invalid-body")
     routine_id = routine_incident.unresolved(self, team_id, incident_id).routine_id
     # Every answer is checked and applied in the Team's execution slot, against the state its card's tag names.
     with self._exclusive_chat_turn(team_id, routine_id):
         tagged = _tagged(self, team_id, incident_id)
         if not secrets.compare_digest(tagged.tag, body["tag"]):
             raise local_errors.routine_card_stale()
-        status = _run(self, team_id, tagged)
-    local_audit.record_request("routine-card", result="ok", team_id=team_id, detail=f"{incident_id}:{choice}")
-    return {"team_id": team_id, "incident_id": incident_id, "choice": choice, "status": status}
+        _run(self, team_id, tagged)
+    local_audit.record_request("routine-card", result="ok", team_id=team_id, detail=f"{incident_id}:run")
+    return {"team_id": team_id, "run_id": incident_id}

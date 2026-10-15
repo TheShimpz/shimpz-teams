@@ -365,17 +365,17 @@ run now; a claimed run carries its `active_seconds` budget, which grows with its
 A Supervisor's `GET /v1/teams/:team_id/routines` lists each Routine (`routine_notice.canonical_routine_view`), its live runs
 (`routine_notice.canonical_run_view`, a frozen one with its call's `position` and `steps`), and its unresolved `incidents`, at
 most `routine_notice.MAX_UNRESOLVED_INCIDENTS` (`routine_notice.canonical_incident_view`): each held run's id, Routine,
-name, the instant its run was held, and call. `POST /v1/teams/:team_id/routines/incidents/:incident_id/card` with
+name, the instant its run was held, and call. `POST /v1/teams/:team_id/routines/incidents/:run_id/card` with
 `{}` opens that run's recovery card (`routine_run.canonical_card`): the call it stopped at by `position` of `steps` in the
 plan the run executed, that revision, the `evidence` of its failure (`recorded`, with the held operation's latest
 sanitized `diagnostic` of the same call; `absent` when none is kept; or `unavailable` when it could not be read), and its
 `tag`, 64 hex: an entity tag over exactly the state its answer must still find (the Team incarnation, the run, its
 Routine and the revision it executed, its held generation and operation, and the Routine's current revision). Rodar and
-Excluir are the card's two choices, none recommended. `POST .../answer` with exactly `{tag, choice}`
-(`routine_run.canonical_card_answer_request`) answers it with `run`, as an HTTP If-Match names the entity it expects;
-`delete` is never a card answer but the Routine's own confirmed deletion. `routine_run.canonical_card_answer` says what
-it did. Rodar (`run`) sets the held run aside without verifying it and requests one fresh run of the current revision,
-answering `requested`; it carries no model credential. It refuses while the held attempt's workload is not proven stopped
+Excluir are the card's two choices, none recommended. `POST .../answer` with exactly `{tag}`
+(`routine_run.canonical_card_answer_request`) answers it with Rodar, as an HTTP If-Match names the entity it expects;
+Excluir is never a card answer but the Routine's own confirmed deletion. Rodar sets the held run aside without verifying
+it and requests one fresh run of the current revision, answering `{team_id, run_id}`
+(`routine_run.canonical_card_answer`); it carries no model credential. It refuses while the held attempt's workload is not proven stopped
 (`routine-workload-unquiesced`), while another run of the Routine is live (`routine-busy`), once it is deleted
 (`routine-not-found`), or when the Routine's Assistant contracts changed (`routine-contracts-changed`). Anything refused
 changes nothing. A tag that no longer matches is `routine-card-stale`, and a run no longer held is

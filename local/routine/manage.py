@@ -56,7 +56,7 @@ def run_view(value: record.Run) -> dict[str, object]:
 def incident_view(value: record.Run, name: str) -> dict[str, object]:
     """An unresolved incident a card settles: its Routine, named ``name``, and the call whose effect is unknown."""
     return {
-        "incident_id": value.run_id,
+        "run_id": value.run_id,
         "routine_id": value.routine_id,
         "name": name,
         "created_at": instant.text(value.held_at),

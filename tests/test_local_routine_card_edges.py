@@ -42,14 +42,14 @@ class CardBindingTests(CardCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             routine_fixture.update_routine(service, value.routine_id, deleting=True)
-            self.refused(service, run_id, "run", "routine-not-found")
+            self.refused(service, run_id, "routine-not-found")
             self.assertTrue(record.routine(self.state(service), value.routine_id).deleting)
 
     def test_rodar_refuses_a_routine_that_awaits_reconfirmation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             routine_fixture.update_routine(service, value.routine_id, needs_reconfirm=True)
-            self.refused(service, run_id, "run", "routine-contracts-changed")
+            self.refused(service, run_id, "routine-contracts-changed")
             self.assertEqual(record.routine(self.state(service), value.routine_id).run_requested, 0)
 
 

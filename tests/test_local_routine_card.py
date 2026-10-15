@@ -38,15 +38,15 @@ class CardCase(RecoveryCase):
         self.assertEqual(http_routine_run.canonical_card(card), card)
         return card
 
-    def answer(self, service, run_id: str, card, choice: str):
+    def answer(self, service, run_id: str, card):
         with self.as_person():
-            answered = service.answer_routine_card("team_1", run_id, {"tag": card["tag"], "choice": choice})
+            answered = service.answer_routine_card("team_1", run_id, {"tag": card["tag"]})
         self.assertEqual(http_routine_run.canonical_card_answer(answered), answered)
         return answered
 
-    def refused(self, service, run_id: str, choice: str, code: str) -> None:
+    def refused(self, service, run_id: str, code: str) -> None:
         with self.assertRaises(local_app.ApiProblem) as caught:
-            self.answer(service, run_id, self.card(service, run_id), choice)
+            self.answer(service, run_id, self.card(service, run_id))
         self.assertEqual(caught.exception.code, code)
         # Nothing changed: the run is still held, its Routine at the same revision, and a fresh card opens.
         state = self.state(service)
@@ -110,9 +110,8 @@ class CardViewTests(CardCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             cases = (
-                (lambda card: self.answer(service, run_id, {**card, "tag": "0" * 64}, "run"), "routine-card-stale"),
-                # Excluir goes through the confirmed deletion route, never a card answer.
-                (lambda card: self.answer(service, run_id, card, "delete"), "invalid-body"),
+                (lambda card: self.answer(service, run_id, {**card, "tag": "0" * 64}), "routine-card-stale"),
+                (lambda card: self.answer(service, run_id, {**card, "tag": "x"}), "invalid-body"),
             )
             for attempt, code in cases:
                 with self.subTest(code=code), self.assertRaises(local_app.ApiProblem) as caught:
@@ -124,7 +123,7 @@ class CardViewTests(CardCase):
             # A Routine updated since the card opened makes it stale.
             routine_fixture.update_routine(service, value.routine_id, confirm=True, revision=2)
             with self.assertRaises(local_app.ApiProblem) as stale:
-                self.answer(service, run_id, card, "run")
+                self.answer(service, run_id, card)
             self.assertEqual(stale.exception.code, "routine-card-stale")
             with self.assertRaises(local_app.ApiProblem) as nobody:
                 service.open_routine_card("team_1", run_id)
@@ -142,15 +141,15 @@ class RodarTests(CardCase):
             routine_incident.pause(service, "team_1", run_id, "exhausted")
             before = record.routine(self.state(service), value.routine_id)
             card = self.card(service, run_id)
-            answered = self.answer(service, run_id, card, "run")
+            answered = self.answer(service, run_id, card)
             # The answered run is no longer held, so the same tag never answers twice.
             with self.assertRaises(local_app.ApiProblem) as again:
-                self.answer(service, run_id, card, "run")
+                self.answer(service, run_id, card)
             state = self.state(service)
             requested = record.routine(state, value.routine_id)
             claim = service.claim_routine_run()
             claimed = self.state(service)
-        self.assertEqual(answered["status"], "requested")
+        self.assertEqual(answered, {"team_id": "team_1", "run_id": run_id})
         self.assertEqual(again.exception.code, "routine-incident-unavailable")
         self.assertEqual(record.incidents(state), ())
         notice = next(item for item in state.notices if item.notice_id == run_id)
@@ -168,15 +167,15 @@ class RodarTests(CardCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             with mock.patch.object(routine_recovery, "workload_stopped", return_value=False):
-                self.refused(service, run_id, "run", "routine-workload-unquiesced")
+                self.refused(service, run_id, "routine-workload-unquiesced")
             with mock.patch.object(routine_contracts, "current_contracts", return_value={}):
-                self.refused(service, run_id, "run", "routine-contracts-changed")
+                self.refused(service, run_id, "routine-contracts-changed")
             with mock.patch.object(
                 routine_contracts, "current_contracts", side_effect=routine_contracts.ContractsUnavailableError
             ):
-                self.refused(service, run_id, "run", "team-context-unavailable")
+                self.refused(service, run_id, "team-context-unavailable")
             routine_fixture.put_frozen_run(service, value.routine_id, ASSISTANT, step=1, steps=1)
-            self.refused(service, run_id, "run", "routine-busy")
+            self.refused(service, run_id, "routine-busy")
             self.assertEqual(record.routine(self.state(service), value.routine_id).revision, value.revision)
 
 
@@ -193,7 +192,7 @@ class CorrectionTests(CardCase):
                 with mock.patch.object(
                     service.assistant_lifecycle, "_assistant_container", side_effect=DockerException("down")
                 ):
-                    self.refused(service, run_id, "run", "routine-workload-unquiesced")
+                    self.refused(service, run_id, "routine-workload-unquiesced")
 
     def test_a_transition_refused_by_its_state_names_its_own_budget_code_or_the_incident(self) -> None:
         self.assertEqual(

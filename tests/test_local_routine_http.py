@@ -383,7 +383,7 @@ class RecoveryRouteTests(RoutineHttpCase):
             value = self.routine(service)
             base = "/v1/teams/team_1/routines"
             incident = f"{base}/incidents/{'a' * 32}"
-            answer = '{"tag":"' + "b" * 64 + '","choice":"run"}'
+            answer = '{"tag":"' + "b" * 64 + '"}'
             with mock.patch.object(local_authority, "verify", return_value=self.session) as verify:
                 status, _type, raw = self.request("GET", base)
                 listed = json.loads(raw)
@@ -393,10 +393,8 @@ class RecoveryRouteTests(RoutineHttpCase):
                     (f"{base}/incidents/bad/card", EMPTY, 404, "routine-incident-unavailable"),
                     (incident + "/card", b'{"x":1}', 422, "invalid-body"),
                     (incident + "/card", EMPTY, 404, "routine-incident-unavailable"),
-                    (incident + "/answer", b'{"tag":"x","choice":"run"}', 422, "invalid-body"),
-                    (incident + "/answer", b'{"tag":"' + b"b" * 64 + b'","choice":"other"}', 422, "invalid-body"),
-                    # Excluir is the Routine's confirmed deletion, never a card answer.
-                    (incident + "/answer", b'{"tag":"' + b"b" * 64 + b'","choice":"delete"}', 422, "invalid-body"),
+                    (incident + "/answer", b'{"tag":"x"}', 422, "invalid-body"),
+                    (incident + "/answer", b'{"tag":"' + b"b" * 64 + b'","extra":1}', 422, "invalid-body"),
                     (incident + "/answer", answer.encode(), 404, "routine-incident-unavailable"),
                     (f"{base}/{'f' * 32}/resume", EMPTY, 404, "routine-not-found"),
                     (f"{base}/bad/resume", EMPTY, 404, "routine-not-found"),
@@ -423,10 +421,10 @@ class RecoveryRouteTests(RoutineHttpCase):
                 self.assertEqual(resumed, {"team_id": "team_1", "routine_id": value.routine_id, "paused": False})
                 self.assertFalse(record.routine(self.state(service), value.routine_id).paused)
                 # An opened card and its answer travel exactly as Team's recovery card produced them.
-                card = {"incident_id": "a" * 32}
+                card = {"run_id": "a" * 32}
                 with mock.patch.object(service, "open_routine_card", return_value=card) as opened:
                     status, _type, raw = self.request("POST", incident + "/card", EMPTY)
-                self.assertEqual((status, json.loads(raw)["incident_id"]), (200, "a" * 32))
+                self.assertEqual((status, json.loads(raw)["run_id"]), (200, "a" * 32))
                 self.assertEqual(opened.call_args.args, ("team_1", "a" * 32))
                 with mock.patch.object(service, "answer_routine_card", return_value=card) as answered:
                     status, _type, raw = self.request("POST", incident + "/answer", answer.encode())

@@ -113,7 +113,7 @@ class PolicyHoldTests(AutomaticCase):
         # Even a read-only Action is not admitted as absent while its workload may still run.
         self.assertEqual((verdict, cursor.fault, cursor.absent), ("unquiesced", "unquiesced", False))
         self.assertTrue(routine_recovery.blocked(cursor))
-        self.assertEqual(card["incident_id"], run_id)
+        self.assertEqual(card["run_id"], run_id)
 
     def restarted(self, directory: str, assistant: Assistant, brain: Brain):
         """A fresh controller over the same durable Team state, as after a Team restart."""
