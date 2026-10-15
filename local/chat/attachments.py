@@ -89,8 +89,8 @@ def turn_started(self, team_id: str, file_ids: Sequence[str]) -> tuple[str, ...]
 
 
 def turn_failed(self, team_id: str, added: Sequence[str]) -> None:
-    chat_attachments.release_failed_turn(lambda: self.storage, team_id, added)
+    chat_attachments.release_failed_turn(self.storage, team_id, added)
 
 
 def turn_completed(self, team_id: str, file_ids: Sequence[str]) -> None:
-    chat_attachments.settle_completed_turn(lambda: self.storage, team_id, file_ids)
+    chat_attachments.settle_completed_turn(self.storage, team_id, file_ids)

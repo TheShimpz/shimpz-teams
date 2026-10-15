@@ -80,26 +80,23 @@ def admitted_actions(
     }
 
 
-# A selected file's retention follows the turns that reference it (ADR-0093); each profile keeps its own failures,
-# challenge cancellation, Action evidence, and Brain thread identity around these rules.
-def release_failed_turn(storage: Callable[[], team_storage.TeamStorage], team_id: str, added: Sequence[str]) -> None:
+# A selected file's retention follows the turns that reference it (ADR-0093).
+def release_failed_turn(storage: team_storage.TeamStorage, team_id: str, added: Sequence[str]) -> None:
     """A turn that ended without an outcome leaves no continuation to read its files: release what it added.
 
-    The files earlier turns referenced stay referenced. A release that fails, including an unavailable storage that
-    ``storage`` opens, keeps them referenced, which never collects one early; the next completed turn releases them.
+    The files earlier turns referenced stay referenced. A release that fails keeps them referenced, which never
+    collects one early; the next completed turn releases them.
     """
     if added:
         with contextlib.suppress(team_storage.StorageError):
-            storage().release(team_id, added)
+            storage.release(team_id, added)
 
 
-def settle_completed_turn(
-    storage: Callable[[], team_storage.TeamStorage], team_id: str, file_ids: Sequence[str]
-) -> None:
+def settle_completed_turn(storage: team_storage.TeamStorage, team_id: str, file_ids: Sequence[str]) -> None:
     """A completed turn leaves its Brain thread referencing only this turn's files; the others start their grace.
 
-    The reply is already committed, so a release that fails, including an unavailable storage that ``storage`` opens,
-    keeps every file referenced, which never collects one early, and the next completed turn releases them.
+    The reply is already committed, so a release that fails keeps every file referenced, which never collects one
+    early, and the next completed turn releases them.
     """
     with contextlib.suppress(team_storage.StorageError):
-        storage().settle(team_id, file_ids)
+        storage.settle(team_id, file_ids)

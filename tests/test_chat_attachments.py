@@ -108,26 +108,21 @@ class RetentionRuleTests(unittest.TestCase):
             first = storage.put("team_1", "a.txt", b"a", "text/plain")["id"]
             second = storage.put("team_1", "b.txt", b"b", "text/plain")["id"]
             storage.reference("team_1", [first, second])
-            chat_attachments.release_failed_turn(lambda: storage, "team_1", (second,))
+            chat_attachments.release_failed_turn(storage, "team_1", (second,))
             self.assertEqual(storage_fixtures.referenced(storage, "team_1"), frozenset({first}))
-            chat_attachments.settle_completed_turn(lambda: storage, "team_1", [second])
+            chat_attachments.settle_completed_turn(storage, "team_1", [second])
             self.assertEqual(storage_fixtures.referenced(storage, "team_1"), frozenset({second}))
         unavailable = mock.Mock(
             release=mock.Mock(side_effect=team_storage.StorageError("unavailable")),
             settle=mock.Mock(side_effect=team_storage.StorageError("unavailable")),
         )
-        opened = mock.Mock(return_value=unavailable)
-        # Nothing newly referenced opens no storage at all.
-        chat_attachments.release_failed_turn(opened, "team_1", ())
-        opened.assert_not_called()
-        chat_attachments.release_failed_turn(opened, "team_1", ("a",))
-        chat_attachments.settle_completed_turn(opened, "team_1", ())
+        # Nothing newly referenced releases nothing; a failing release or settle leaves the turn standing.
+        chat_attachments.release_failed_turn(unavailable, "team_1", ())
+        unavailable.release.assert_not_called()
+        chat_attachments.release_failed_turn(unavailable, "team_1", ("a",))
+        unavailable.release.assert_called_once_with("team_1", ("a",))
+        chat_attachments.settle_completed_turn(unavailable, "team_1", ())
         unavailable.settle.assert_called_once_with("team_1", ())
-        # Storage that cannot even be opened fails like a release that fails: the turn stands, references stay.
-        closed = mock.Mock(side_effect=team_storage.StorageError("storage root is unavailable"))
-        chat_attachments.release_failed_turn(closed, "team_1", ("a",))
-        chat_attachments.settle_completed_turn(closed, "team_1", ())
-        self.assertEqual(closed.call_count, 2)
 
 
 if __name__ == "__main__":
