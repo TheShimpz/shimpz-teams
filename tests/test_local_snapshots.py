@@ -24,7 +24,7 @@ from tests.assistant_archive_fixtures import archive as _archive
 from tests.local_snapshot_fixtures import CREATED, FRESH_BINDING_CLEANUP_CASES, IMAGE_ID
 from tests.local_snapshot_fixtures import client as _client
 from tests.local_snapshot_fixtures import fresh_installing_lifecycle as _fresh_installing_lifecycle
-from tests.test_local_publication_install import _runtime_resolution
+from tests.test_local_publication_install import runtime_resolution
 
 
 def _registry(root: Path) -> assistant_registry.AssistantRegistry:
@@ -393,7 +393,7 @@ class LocalSnapshotTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             registry = _registry(Path(directory))
             for index in range(http_payload.MAX_TEAM_ASSISTANTS):
-                resolution = _runtime_resolution()
+                resolution = runtime_resolution()
                 resolution["assistant_id"] = f"helper-{index}"
                 registry.put("team_1", resolution)
             controller = _controller(client, registry, _fresh_installing_lifecycle(install))
@@ -793,7 +793,7 @@ class LocalSnapshotTests(unittest.TestCase):
     def test_registry_rejects_cross_provenance_replacements(self) -> None:
         client, _image_value, _container_value = _client()
         record = snapshots.admit(client, IMAGE_ID).record
-        publication = _runtime_resolution()
+        publication = runtime_resolution()
         publication["assistant_id"] = "fixture-assistant"
         with tempfile.TemporaryDirectory() as directory:
             registry = _registry(Path(directory))

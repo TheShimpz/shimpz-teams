@@ -38,7 +38,7 @@ NETWORK = types.SimpleNamespace(id="a" * 64)
 TOKEN = "-".join(("bearer", "test"))
 
 
-def _stored(name: str, data: bytes, *, size: int | None = None, reads: list[str] | None = None) -> object:
+def stored_file(name: str, data: bytes, *, size: int | None = None, reads: list[str] | None = None) -> object:
     def read() -> bytes:
         if reads is not None:
             reads.append(name)
@@ -47,7 +47,7 @@ def _stored(name: str, data: bytes, *, size: int | None = None, reads: list[str]
     return preparation.StoredFile("0" * 32, name, len(data) if size is None else size, "0" * 64, read)
 
 
-class _Helper:
+class WorkerHelper:
     """The real worker answering in process, or a fixed answer."""
 
     def __init__(self, answer: dict[str, object] | None = None) -> None:
@@ -95,9 +95,9 @@ class _Client:
 
 class RenditionTests(unittest.TestCase):
     def test_a_stored_image_becomes_the_bounded_derivative_without_its_metadata(self) -> None:
-        helper = _Helper()
+        helper = WorkerHelper()
         rendition = preparation.prepare_rendition(
-            _stored("photo.jpg", prepare_fixtures.oriented_jpeg((3000, 2000), 6)), helper, contextlib.nullcontext()
+            stored_file("photo.jpg", prepare_fixtures.oriented_jpeg((3000, 2000), 6)), helper, contextlib.nullcontext()
         )
         self.assertEqual(rendition.media_type, "image/jpeg")
         self.assertLessEqual(max(rendition.width, rendition.height), limits.DERIVATIVE_LONG_EDGE)
@@ -109,30 +109,34 @@ class RenditionTests(unittest.TestCase):
         self.assertNotIn(b"private-icc-profile", rendition.data)
         self.assertLessEqual(len(rendition.data), limits.MAX_DERIVATIVE_BYTES)
         transparent = preparation.prepare_rendition(
-            _stored("clip.png", prepare_fixtures.image("PNG", (40, 30), mode="RGBA")), helper, contextlib.nullcontext()
+            stored_file("clip.png", prepare_fixtures.image("PNG", (40, 30), mode="RGBA")),
+            helper,
+            contextlib.nullcontext(),
         )
         self.assertEqual((transparent.media_type, transparent.width, transparent.height), ("image/png", 40, 30))
 
     def test_the_kind_comes_from_the_bytes_and_anything_refused_has_no_rendition(self) -> None:
-        helper = _Helper()
+        helper = WorkerHelper()
         reads: list[str] = []
         none = contextlib.nullcontext()
         # An oversized original is never read, whatever its name says.
-        oversized = _stored("big.png", b"\x89PNG", size=limits.MAX_IMAGE_BYTES + 1, reads=reads)
+        oversized = stored_file("big.png", b"\x89PNG", size=limits.MAX_IMAGE_BYTES + 1, reads=reads)
         self.assertIsNone(preparation.prepare_rendition(oversized, helper, none))
         self.assertEqual(reads, [])
-        self.assertIsNone(preparation.prepare_rendition(_stored("photo.png", b"plain text"), helper, none))
-        self.assertIsNone(preparation.prepare_rendition(_stored("doc.png", b"%PDF-1.7"), helper, none))
+        self.assertIsNone(preparation.prepare_rendition(stored_file("photo.png", b"plain text"), helper, none))
+        self.assertIsNone(preparation.prepare_rendition(stored_file("doc.png", b"%PDF-1.7"), helper, none))
         self.assertIsNone(
-            preparation.prepare_rendition(_stored("a.webp", prepare_fixtures.animated_webp()), helper, none)
+            preparation.prepare_rendition(stored_file("a.webp", prepare_fixtures.animated_webp()), helper, none)
         )
         gif = prepare_fixtures.image("GIF", (8, 8))
-        self.assertIsNone(preparation.prepare_rendition(_stored("a.png", gif), helper, none))
-        self.assertIsNone(preparation.prepare_rendition(_stored("bad.png", b"\x89PNG\r\n\x1a\nbroken"), helper, none))
+        self.assertIsNone(preparation.prepare_rendition(stored_file("a.png", gif), helper, none))
+        self.assertIsNone(
+            preparation.prepare_rendition(stored_file("bad.png", b"\x89PNG\r\n\x1a\nbroken"), helper, none)
+        )
         # Only an image reached the helper.
         self.assertEqual(helper.opened, 2)
         # A short stored length that understates the bytes read is refused before the helper.
-        understated = _stored("a.png", b"\x89PNG\r\n\x1a\n" + b"0" * limits.MAX_IMAGE_BYTES, size=10)
+        understated = stored_file("a.png", b"\x89PNG\r\n\x1a\n" + b"0" * limits.MAX_IMAGE_BYTES, size=10)
         self.assertIsNone(preparation.prepare_rendition(understated, helper, none))
         self.assertEqual(helper.opened, 2)
 
@@ -143,7 +147,7 @@ class RenditionTests(unittest.TestCase):
         huge = {**lying, "width": limits.DERIVATIVE_LONG_EDGE + 1}
         for answer in (lying, huge, {"type": "opaque", "reason": "animated"}, {"type": "text", "text": "x"}):
             with self.subTest(answer=answer):
-                self.assertIsNone(preparation.prepare_rendition(_stored("a.png", png), _Helper(answer), none))
+                self.assertIsNone(preparation.prepare_rendition(stored_file("a.png", png), WorkerHelper(answer), none))
 
     def test_a_derivative_whose_bytes_declare_another_size_is_refused(self) -> None:
         none = contextlib.nullcontext()
@@ -153,10 +157,12 @@ class RenditionTests(unittest.TestCase):
             with self.subTest(media_type=media_type):
                 encoded = base64.b64encode(data).decode("ascii")
                 honest = {"type": "image", "media_type": media_type, "width": 64, "height": 48, "base64": encoded}
-                self.assertIsNotNone(preparation.prepare_rendition(_stored("a.png", png), _Helper(honest), none))
+                self.assertIsNotNone(
+                    preparation.prepare_rendition(stored_file("a.png", png), WorkerHelper(honest), none)
+                )
                 # A helper that understates the size a decoder would allocate is refused.
                 lying = {**honest, "width": 1, "height": 1}
-                self.assertIsNone(preparation.prepare_rendition(_stored("a.png", png), _Helper(lying), none))
+                self.assertIsNone(preparation.prepare_rendition(stored_file("a.png", png), WorkerHelper(lying), none))
 
     def test_the_encoded_size_is_read_from_the_header_alone(self) -> None:
         jpeg = prepare_fixtures.image("JPEG", (640, 481))
@@ -189,11 +195,11 @@ class RenditionTests(unittest.TestCase):
             if len(calls) >= 2:
                 raise EndedError
 
-        helper = _Helper()
+        helper = WorkerHelper()
         png = prepare_fixtures.image("PNG", (4, 4))
         with self.assertRaises(EndedError):
             preparation.prepare_rendition(
-                _stored("a.png", png, reads=reads), helper, contextlib.nullcontext(), interrupt
+                stored_file("a.png", png, reads=reads), helper, contextlib.nullcontext(), interrupt
             )
         self.assertEqual((reads, helper.opened), (["a.png"], 0))
 
@@ -205,7 +211,7 @@ class RenditionTests(unittest.TestCase):
                 raise EndedError
 
         with self.assertRaises(EndedError):
-            preparation.prepare_rendition(_stored("a.png", png), helper, contextlib.nullcontext(), after_helper)
+            preparation.prepare_rendition(stored_file("a.png", png), helper, contextlib.nullcontext(), after_helper)
         self.assertEqual(helper.opened, 1)
 
 
@@ -315,7 +321,7 @@ class PreviewBookTests(unittest.TestCase):
         gone.remove.assert_called_once_with(force=True)
 
 
-def _controller(directory: str, client: _Client | None = None) -> local_app.LocalController:
+def bare_controller(directory: str, client: _Client | None = None) -> local_app.LocalController:
     controller = object.__new__(local_app.LocalController)
     controller._locks = tuple(threading.RLock() for _ in range(64))
     controller.storage = team_storage.TeamStorage(Path(directory) / "teams")
@@ -340,7 +346,7 @@ class ControllerPreviewTests(unittest.TestCase):
 
     def test_a_listed_image_of_the_named_team_previews_through_the_helper(self) -> None:
         client = _Client()
-        controller = _controller(self.directory.name, client)
+        controller = bare_controller(self.directory.name, client)
         png = prepare_fixtures.image("PNG", (64, 48))
         stored = controller.storage.put("team_1", "photo.png", png, "image/png")
         with self._in_process():
@@ -356,7 +362,7 @@ class ControllerPreviewTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "file-not-found")
 
     def test_missing_collected_and_unsupported_files_have_no_preview(self) -> None:
-        controller = _controller(self.directory.name)
+        controller = bare_controller(self.directory.name)
         with self.assertRaises(ApiProblemError) as caught:
             controller.file_preview("team_1", "f" * 32)
         self.assertEqual((caught.exception.status, caught.exception.code), (HTTPStatus.NOT_FOUND, "file-not-found"))
@@ -378,7 +384,7 @@ class ControllerPreviewTests(unittest.TestCase):
             self.assertEqual(controller.storage.listed("team_1", text["id"])["size"], 10)
 
     def test_busy_unavailable_ended_and_changed_previews_map_to_their_outcome(self) -> None:
-        controller = _controller(self.directory.name)
+        controller = bare_controller(self.directory.name)
         stored = controller.storage.put("team_1", "photo.png", prepare_fixtures.image("PNG", (4, 4)), "image/png")
         outcomes = (
             (preparation.AdmissionBusyError("busy"), "file-preview-busy"),
@@ -400,7 +406,7 @@ class ControllerPreviewTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "file-not-found")
 
     def test_a_file_collected_while_it_was_prepared_is_not_answered(self) -> None:
-        controller = _controller(self.directory.name)
+        controller = bare_controller(self.directory.name)
         now = [1_000_000.0]
         controller.storage = team_storage.TeamStorage(Path(self.directory.name) / "teams", clock=lambda: now[0])
         png = prepare_fixtures.image("PNG", (4, 4))
@@ -420,7 +426,7 @@ class ControllerPreviewTests(unittest.TestCase):
 
     def test_a_queued_preview_ended_by_teardown_leaves_before_it_and_never_starts_a_helper(self) -> None:
         client = _Client()
-        controller = _controller(self.directory.name, client)
+        controller = bare_controller(self.directory.name, client)
         stored = controller.storage.put("team_1", "photo.png", prepare_fixtures.image("PNG", (4, 4)), "image/png")
         outcome: list[BaseException] = []
 
@@ -447,7 +453,7 @@ class ControllerPreviewTests(unittest.TestCase):
 
     def test_a_running_preview_ended_by_teardown_loses_its_helper_before_teardown_continues(self) -> None:
         client = _Client()
-        controller = _controller(self.directory.name, client)
+        controller = bare_controller(self.directory.name, client)
         stored = controller.storage.put("team_1", "photo.png", prepare_fixtures.image("PNG", (4, 4)), "image/png")
         running = threading.Event()
         removed = threading.Event()
@@ -495,7 +501,7 @@ class ControllerPreviewTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "file-preview-active")
 
 
-def _handler(path: str, controller: object, *, bearer: bool = True, assertion: bool = True) -> server.Handler:
+def get_handler(path: str, controller: object, *, bearer: bool = True, assertion: bool = True) -> server.Handler:
     handler = object.__new__(server.Handler)
     handler.command = "GET"
     handler.path = path
@@ -512,7 +518,7 @@ def _handler(path: str, controller: object, *, bearer: bool = True, assertion: b
     return handler
 
 
-def _evidence() -> authority.Evidence:
+def supervisor_evidence() -> authority.Evidence:
     return authority.Evidence(supervisor_id="a" * 32)
 
 
@@ -542,7 +548,7 @@ class PreviewRouteTests(unittest.TestCase):
         controller = types.SimpleNamespace(
             file_preview=mock.Mock(return_value=preparation.Rendition("image/png", 4, 4, png))
         )
-        head, body = self._respond(_handler(self.PATH, controller), return_value=_evidence())
+        head, body = self._respond(get_handler(self.PATH, controller), return_value=supervisor_evidence())
         self.assertIn(b" 200 OK\r\n", head)
         self.assertIn(b"Content-Type: image/png\r\n", head)
         self.assertIn(f"Content-Length: {len(png)}\r\n".encode(), head)
@@ -558,10 +564,12 @@ class PreviewRouteTests(unittest.TestCase):
 
     def test_neither_factor_alone_reaches_the_file(self) -> None:
         controller = types.SimpleNamespace(file_preview=mock.Mock())
-        head, _body = self._respond(_handler(self.PATH, controller, bearer=False), return_value=_evidence())
+        head, _body = self._respond(
+            get_handler(self.PATH, controller, bearer=False), return_value=supervisor_evidence()
+        )
         self.assertIn(b" 401 Unauthorized\r\n", head)
         head, body = self._respond(
-            _handler(self.PATH, controller, assertion=False), side_effect=authority.SupervisorDeniedError("absent")
+            get_handler(self.PATH, controller, assertion=False), side_effect=authority.SupervisorDeniedError("absent")
         )
         self.assertIn(b" 403 Forbidden\r\n", head)
         self.assertIn(b"invalid-supervisor", body)
@@ -572,15 +580,15 @@ class PreviewRouteTests(unittest.TestCase):
             HTTPStatus.SERVICE_UNAVAILABLE, "file preview capacity is busy", code="file-preview-busy"
         )
         head, body = self._respond(
-            _handler(self.PATH, types.SimpleNamespace(file_preview=mock.Mock(side_effect=busy))),
-            return_value=_evidence(),
+            get_handler(self.PATH, types.SimpleNamespace(file_preview=mock.Mock(side_effect=busy))),
+            return_value=supervisor_evidence(),
         )
         self.assertIn(b" 503 Service Unavailable\r\n", head)
         self.assertIn(b'"retry_after_ms":250', body)
         missing = ApiProblemError(HTTPStatus.NOT_FOUND, "file not found", code="file-not-found")
         head, body = self._respond(
-            _handler(self.PATH, types.SimpleNamespace(file_preview=mock.Mock(side_effect=missing))),
-            return_value=_evidence(),
+            get_handler(self.PATH, types.SimpleNamespace(file_preview=mock.Mock(side_effect=missing))),
+            return_value=supervisor_evidence(),
         )
         self.assertIn(b" 404 Not Found\r\n", head)
         self.assertNotIn(b"retry_after_ms", body)
@@ -591,8 +599,8 @@ class PreviewRouteTests(unittest.TestCase):
         ):
             with self.subTest(media_type=rendition.media_type, length=len(rendition.data)):
                 head, body = self._respond(
-                    _handler(self.PATH, types.SimpleNamespace(file_preview=mock.Mock(return_value=rendition))),
-                    return_value=_evidence(),
+                    get_handler(self.PATH, types.SimpleNamespace(file_preview=mock.Mock(return_value=rendition))),
+                    return_value=supervisor_evidence(),
                 )
                 self.assertIn(b" 500 Internal Server Error\r\n", head)
                 self.assertIn(b"file-preview-invalid", body)

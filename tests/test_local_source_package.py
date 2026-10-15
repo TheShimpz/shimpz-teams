@@ -29,7 +29,7 @@ def _authority_module() -> types.ModuleType:
     return module
 
 
-def _packages() -> list[tuple[dict[str, object], bytes, list[object]]]:
+def source_packages() -> list[tuple[dict[str, object], bytes, list[object]]]:
     authority = _authority_module()
     contract = authority.load_object(AUTHORITY / "contract.json")
     vectors = authority.load_object(AUTHORITY / "vectors.json")
@@ -61,7 +61,7 @@ def _gnu_sparse_header(name: str, declared: int) -> bytes:
 
 class LocalSourcePackageTests(unittest.TestCase):
     def test_admits_every_pinned_valid_vector(self) -> None:
-        for case, raw, entries in _packages():
+        for case, raw, entries in source_packages():
             with self.subTest(case=case["name"]):
                 admitted = source_package.admit(raw)
                 contents = {entry.path: entry.content.materialize() for entry in entries}
@@ -71,7 +71,7 @@ class LocalSourcePackageTests(unittest.TestCase):
                 self.assertRegex(admitted.digest, r"^sha256:[0-9a-f]{64}$")
 
     def test_rejects_noncanonical_order_duplicates_and_unknown_paths(self) -> None:
-        _case, raw, _entries = _packages()[0]
+        _case, raw, _entries = source_packages()[0]
         records = source_package._read_records(raw)
         mutations = (
             source_package._build_archive(tuple(reversed(records))),
@@ -91,7 +91,7 @@ class LocalSourcePackageTests(unittest.TestCase):
                 source_package.admit(mutation)
 
     def test_rejects_widened_truncated_and_noncanonical_archives(self) -> None:
-        _case, raw, _entries = _packages()[0]
+        _case, raw, _entries = source_packages()[0]
         noncanonical = bytearray(raw)
         noncanonical[100] = ord("0") if noncanonical[100] != ord("0") else ord("1")
 
@@ -100,7 +100,7 @@ class LocalSourcePackageTests(unittest.TestCase):
                 source_package.admit(mutation)
 
     def test_rejects_tampered_icon_structure(self) -> None:
-        _case, raw, _entries = _packages()[0]
+        _case, raw, _entries = source_packages()[0]
         records = list(source_package._read_records(raw))
         icon_index = next(index for index, record in enumerate(records) if record.path == "icon.png")
         icon = bytearray(records[icon_index].contents)
@@ -120,7 +120,7 @@ class LocalSourcePackageTests(unittest.TestCase):
         self.assertRegex(upstream["contract_files_sha256"], r"^[0-9a-f]{64}$")
 
     def test_tar_record_shapes_fail_closed(self) -> None:
-        _case, raw, _entries = _packages()[0]
+        _case, raw, _entries = source_packages()[0]
         with self.assertRaisesRegex(source_package.SourcePackageError, "invalid entries"):
             source_package._read_records(bytes(2 * source_package._BLOCK_BYTES))
 
@@ -186,7 +186,7 @@ class LocalSourcePackageTests(unittest.TestCase):
                 self.assertLess(peak, 64 * 1024)
 
     def test_source_record_inventory_fail_closed(self) -> None:
-        _case, raw, _entries = _packages()[0]
+        _case, raw, _entries = source_packages()[0]
         records = source_package._read_records(raw)
         files = tuple(record for record in records if not record.is_directory)
 

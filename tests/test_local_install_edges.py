@@ -16,14 +16,14 @@ from local.install import developers, snapshots
 from local.install import registry as publication_registry
 from local.install import service as install_service
 from tests import local_snapshot_fixtures
-from tests.test_local_publication_install import ICON, RESOLUTION, _Connection, _Response, _runtime_resolution
+from tests.test_local_publication_install import ICON, RESOLUTION, Connection, Response, runtime_resolution
 
 
 class LocalInstallEdgeTests(unittest.TestCase):
     def setUp(self) -> None:
-        _Connection.requests = []
-        _Connection.connections = []
-        _Connection.tunnels = []
+        Connection.requests = []
+        Connection.connections = []
+        Connection.tunnels = []
 
     def test_developers_client_rejects_invalid_requests_and_mismatched_responses(self) -> None:
         client = developers.DevelopersClient()
@@ -38,9 +38,9 @@ class LocalInstallEdgeTests(unittest.TestCase):
 
         mismatched = copy.deepcopy(RESOLUTION)
         mismatched["source_digest"] = f"sha256:{'9' * 64}"
-        _Connection.response = _Response(200, mismatched)
+        Connection.response = Response(200, mismatched)
         with (
-            mock.patch.object(developers.http.client, "HTTPSConnection", _Connection),
+            mock.patch.object(developers.http.client, "HTTPSConnection", Connection),
             self.assertRaisesRegex(developers.DevelopersProtocolError, "does not match"),
         ):
             client.resolve(RESOLUTION["source_digest"])
@@ -53,10 +53,10 @@ class LocalInstallEdgeTests(unittest.TestCase):
             (503, ICON, developers.DevelopersError),
             (200, b"wrong", developers.DevelopersError),
         ):
-            _Connection.response = _Response(status, None, raw=raw)
+            Connection.response = Response(status, None, raw=raw)
             with (
                 self.subTest(status=status, raw=raw),
-                mock.patch.object(developers.http.client, "HTTPSConnection", _Connection),
+                mock.patch.object(developers.http.client, "HTTPSConnection", Connection),
                 self.assertRaises(error),
             ):
                 client.icon(RESOLUTION["source_digest"], digest)
@@ -71,9 +71,9 @@ class LocalInstallEdgeTests(unittest.TestCase):
         connection.close.assert_called_once_with()
 
         oversized = b"x" * (developers._MAX_RESPONSE_BYTES + 1)
-        _Connection.response = _Response(200, None, raw=oversized)
+        Connection.response = Response(200, None, raw=oversized)
         with (
-            mock.patch.object(developers.http.client, "HTTPSConnection", _Connection),
+            mock.patch.object(developers.http.client, "HTTPSConnection", Connection),
             self.assertRaisesRegex(developers.DevelopersError, "too large"),
         ):
             client._request("/path")
@@ -103,7 +103,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
                     Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record
                 )
             )
-            resolution = _runtime_resolution()
+            resolution = runtime_resolution()
             spec = registry.put("team_1", resolution)
             binding = registry.binding("team_1", spec.assistant_id)
             assert binding is not None
@@ -254,7 +254,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
                         "helper",
                         RESOLUTION["source_digest"],
                         None,
-                        _runtime_resolution(),
+                        runtime_resolution(),
                     )
 
                 if should_delete:
@@ -384,7 +384,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
         controller.artifact_trust.verify.assert_called_once_with(RESOLUTION)
 
     def test_install_holds_the_icon_until_the_binding_commits_or_fails(self) -> None:
-        resolution = _runtime_resolution()
+        resolution = runtime_resolution()
         for failure in (None, ApiProblemError(503, "install failed", code="install-failed")):
             controller = self._service_controller()
             custody: list[object] = []

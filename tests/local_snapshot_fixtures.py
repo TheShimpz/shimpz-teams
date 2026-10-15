@@ -15,7 +15,7 @@ from local.install import snapshots, source_package
 from tests import catalog_fixtures
 from tests.assistant_archive_fixtures import archive
 from tests.test_assistant_manifest import manifest
-from tests.test_local_source_package import _packages
+from tests.test_local_source_package import source_packages
 
 IMAGE_ID = "sha256:" + ("a" * 64)
 BUILD_DIGEST = "sha256:" + ("b" * 64)
@@ -56,7 +56,7 @@ FRESH_BINDING_CLEANUP_CASES = (
 
 
 def _package(fixture_manifest: bytes) -> tuple[bytes, bytes, bytes]:
-    raw = _packages()[0][1]
+    raw = source_packages()[0][1]
     records = list(source_package._read_records(raw))
     manifest_index = next(index for index, record in enumerate(records) if record.path == "shimpz.toml")
     records[manifest_index] = source_package._Record("shimpz.toml", False, fixture_manifest)

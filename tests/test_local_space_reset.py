@@ -14,7 +14,7 @@ from local_controller_harness import (
     routine_books,
     wire_collaborators,
 )
-from test_local_team_destroy import _record_routine_state
+from test_local_team_destroy import record_routine_state
 from test_local_turn_lifecycle import LOCAL_TEAM_RESIDUES
 
 from integrations import challenges as integration_challenges
@@ -41,7 +41,7 @@ def _controller(events: list[object], assistants: dict[str, object], networks: l
     controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
     controller.inference_store = SimpleNamespace(delete_all=lambda: events.append("delete-inference"))
     routine_books(controller)
-    _record_routine_state(controller, events)
+    record_routine_state(controller, events)
     controller.brain_runtime = SimpleNamespace(
         delete_thread=lambda thread_id: events.append(("delete-thread", thread_id))
     )

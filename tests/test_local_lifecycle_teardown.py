@@ -18,7 +18,7 @@ from local_controller_harness import (
     invalid_listing,
     wire_collaborators,
 )
-from test_local_publication_install import ICON, _runtime_resolution
+from test_local_publication_install import ICON, runtime_resolution
 
 from install.bindings import DynamicAssistantStore
 from install.icons import AssistantIconError, AssistantIconStore
@@ -195,8 +195,8 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         self.assertNotIn(("remove", True), events)
 
     def test_team_deletion_discards_unreferenced_icons_and_keeps_the_binding_to_retry(self) -> None:
-        shared = _runtime_resolution()
-        own = {**_runtime_resolution(), "source_digest": "sha256:" + "e" * 64}
+        shared = runtime_resolution()
+        own = {**runtime_resolution(), "source_digest": "sha256:" + "e" * 64}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             registry = AssistantRegistry(
@@ -233,7 +233,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
     def test_uninstall_discards_the_icon_before_the_binding_and_retries_both_after_a_failure(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
-        resolution = _runtime_resolution()
+        resolution = runtime_resolution()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             registry = AssistantRegistry(

@@ -29,7 +29,7 @@ from protocol.http.v1 import content as http_content
 from protocol.http.v1 import preview as http_preview
 from tests import prepare_fixtures
 from tests import test_file_preview as preview_tests
-from tests.test_file_preview import _controller, _evidence, _handler, _Helper, _stored
+from tests.test_file_preview import WorkerHelper, bare_controller, get_handler, stored_file, supervisor_evidence
 
 
 def _page(data: bytes, number: int) -> dict[str, object]:
@@ -105,25 +105,29 @@ class PageRenditionTests(unittest.TestCase):
     def test_a_stored_pdf_page_becomes_a_rendition_with_its_page_count(self) -> None:
         pdf = prepare_fixtures.text_pdf("One", "Two", "Three")
         rendition = preparation.prepare_rendition(
-            _stored("brief.pdf", pdf), _Helper(), contextlib.nullcontext(), page=2
+            stored_file("brief.pdf", pdf), WorkerHelper(), contextlib.nullcontext(), page=2
         )
         self.assertEqual((rendition.media_type, rendition.page_count), ("image/png", 3))
         self.assertTrue(rendition.data.startswith(b"\x89PNG"))
         # An image's rendition has no page count, and a PDF has no image rendition.
         png = prepare_fixtures.image("PNG", (4, 4))
         self.assertIsNone(
-            preparation.prepare_rendition(_stored("a.png", png), _Helper(), contextlib.nullcontext()).page_count
+            preparation.prepare_rendition(
+                stored_file("a.png", png), WorkerHelper(), contextlib.nullcontext()
+            ).page_count
         )
-        self.assertIsNone(preparation.prepare_rendition(_stored("brief.pdf", pdf), _Helper(), contextlib.nullcontext()))
+        self.assertIsNone(
+            preparation.prepare_rendition(stored_file("brief.pdf", pdf), WorkerHelper(), contextlib.nullcontext())
+        )
 
     def test_only_a_pdf_within_its_ceiling_is_rendered_and_the_answer_is_validated(self) -> None:
         none = contextlib.nullcontext()
         reads: list[str] = []
-        oversized = _stored("big.pdf", b"%PDF", size=limits.MAX_PDF_BYTES + 1, reads=reads)
-        self.assertIsNone(preparation.prepare_rendition(oversized, _Helper(), none, page=1))
+        oversized = stored_file("big.pdf", b"%PDF", size=limits.MAX_PDF_BYTES + 1, reads=reads)
+        self.assertIsNone(preparation.prepare_rendition(oversized, WorkerHelper(), none, page=1))
         self.assertEqual(reads, [])
         png = prepare_fixtures.image("PNG", (4, 4))
-        self.assertIsNone(preparation.prepare_rendition(_stored("a.pdf", png), _Helper(), none, page=1))
+        self.assertIsNone(preparation.prepare_rendition(stored_file("a.pdf", png), WorkerHelper(), none, page=1))
         honest = {
             "type": "image",
             "media_type": "image/png",
@@ -141,15 +145,19 @@ class PageRenditionTests(unittest.TestCase):
             ["not", "an", "answer"],
         ):
             with self.subTest(answer=answer):
-                self.assertIsNone(preparation.prepare_rendition(_stored("a.pdf", pdf), _Helper(answer), none, page=1))
+                self.assertIsNone(
+                    preparation.prepare_rendition(stored_file("a.pdf", pdf), WorkerHelper(answer), none, page=1)
+                )
         # A page count below the page asked for is refused, as is a lying derivative with a valid count.
         self.assertIsNone(
-            preparation.prepare_rendition(_stored("a.pdf", pdf), _Helper({**honest, "page_count": 1}), none, page=2)
+            preparation.prepare_rendition(
+                stored_file("a.pdf", pdf), WorkerHelper({**honest, "page_count": 1}), none, page=2
+            )
         )
         lying = {**honest, "width": 1, "page_count": 1}
-        self.assertIsNone(preparation.prepare_rendition(_stored("a.pdf", pdf), _Helper(lying), none, page=1))
+        self.assertIsNone(preparation.prepare_rendition(stored_file("a.pdf", pdf), WorkerHelper(lying), none, page=1))
         counted = preparation.prepare_rendition(
-            _stored("a.pdf", pdf), _Helper({**honest, "page_count": 1}), none, page=1
+            stored_file("a.pdf", pdf), WorkerHelper({**honest, "page_count": 1}), none, page=1
         )
         self.assertEqual(counted.page_count, 1)
 
@@ -158,7 +166,7 @@ class ControllerContentTests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.controller = _controller(self.directory.name)
+        self.controller = bare_controller(self.directory.name)
 
     def test_a_listed_file_is_delivered_whole_and_verified_to_its_own_team_only(self) -> None:
         stored = self.controller.storage.put("team_1", "brief.pdf", b"%PDF-1.7 original", "application/pdf")
@@ -262,7 +270,7 @@ class PageAndContentRouteTests(unittest.TestCase):
         controller = types.SimpleNamespace(
             file_preview=mock.Mock(return_value=preparation.Rendition("image/png", 4, 4, png, 3))
         )
-        head, body = self._respond(_handler(self.PAGE_PATH, controller), return_value=_evidence())
+        head, body = self._respond(get_handler(self.PAGE_PATH, controller), return_value=supervisor_evidence())
         self.assertIn(b" 200 OK\r\n", head)
         self.assertIn(f"{http_preview.PAGE_COUNT_HEADER}: 3\r\n".encode(), head)
         self.assertIn(b"Content-Type: image/png\r\n", head)
@@ -274,14 +282,14 @@ class PageAndContentRouteTests(unittest.TestCase):
         for number in ("0", "51", "01", "x"):
             with self.subTest(page=number):
                 path = self.PAGE_PATH.replace("/2/", f"/{number}/")
-                head, body = self._respond(_handler(path, controller), return_value=_evidence())
+                head, body = self._respond(get_handler(path, controller), return_value=supervisor_evidence())
                 self.assertIn(b" 404 Not Found\r\n", head)
                 self.assertIn(b"file-not-found", body)
         controller.file_preview.assert_not_called()
         uncounted = preparation.Rendition("image/png", 4, 4, prepare_fixtures.image("PNG", (4, 4)))
         head, body = self._respond(
-            _handler(self.PAGE_PATH, types.SimpleNamespace(file_preview=mock.Mock(return_value=uncounted))),
-            return_value=_evidence(),
+            get_handler(self.PAGE_PATH, types.SimpleNamespace(file_preview=mock.Mock(return_value=uncounted))),
+            return_value=supervisor_evidence(),
         )
         self.assertIn(b" 500 Internal Server Error\r\n", head)
         self.assertIn(b"file-preview-invalid", body)
@@ -298,7 +306,7 @@ class PageAndContentRouteTests(unittest.TestCase):
     def test_the_original_is_sent_as_an_octet_stream_with_its_length_and_digest(self) -> None:
         content = b"%PDF-1.7 <script>alert(1)</script>"
         head, body = self._respond(
-            _handler(self.CONTENT_PATH, self._content_controller(content)), return_value=_evidence()
+            get_handler(self.CONTENT_PATH, self._content_controller(content)), return_value=supervisor_evidence()
         )
         digest = base64.b64encode(hashlib.sha256(content).digest()).decode()
         self.assertIn(b" 200 OK\r\n", head)
@@ -310,9 +318,9 @@ class PageAndContentRouteTests(unittest.TestCase):
         self.assertEqual(body, content)
 
     def test_the_release_is_audited_by_file_id_and_size_before_it_is_sent(self) -> None:
-        handler = _handler(self.CONTENT_PATH, self._content_controller(b"original"))
+        handler = get_handler(self.CONTENT_PATH, self._content_controller(b"original"))
         with (
-            mock.patch.object(authority, "verify", return_value=_evidence()),
+            mock.patch.object(authority, "verify", return_value=supervisor_evidence()),
             mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32) as recorded,
         ):
             handler._handle()
@@ -323,21 +331,22 @@ class PageAndContentRouteTests(unittest.TestCase):
     def test_busy_and_misframed_downloads_answer_json(self) -> None:
         busy = ApiProblemError(HTTPStatus.SERVICE_UNAVAILABLE, "busy", code="file-download-busy")
         head, body = self._respond(
-            _handler(self.CONTENT_PATH, types.SimpleNamespace(file_content=mock.Mock(side_effect=busy))),
-            return_value=_evidence(),
+            get_handler(self.CONTENT_PATH, types.SimpleNamespace(file_content=mock.Mock(side_effect=busy))),
+            return_value=supervisor_evidence(),
         )
         self.assertIn(b" 503 Service Unavailable\r\n", head)
         self.assertIn(b'"retry_after_ms":250', body)
         missing = ApiProblemError(HTTPStatus.NOT_FOUND, "file not found", code="file-not-found")
         head, body = self._respond(
-            _handler(self.CONTENT_PATH, types.SimpleNamespace(file_content=mock.Mock(side_effect=missing))),
-            return_value=_evidence(),
+            get_handler(self.CONTENT_PATH, types.SimpleNamespace(file_content=mock.Mock(side_effect=missing))),
+            return_value=supervisor_evidence(),
         )
         self.assertIn(b" 404 Not Found\r\n", head)
         for content, sha256 in ((b"", None), (b"original", "A" * 64)):
             with self.subTest(length=len(content)):
                 head, body = self._respond(
-                    _handler(self.CONTENT_PATH, self._content_controller(content, sha256)), return_value=_evidence()
+                    get_handler(self.CONTENT_PATH, self._content_controller(content, sha256)),
+                    return_value=supervisor_evidence(),
                 )
                 self.assertIn(b" 500 Internal Server Error\r\n", head)
                 self.assertIn(b"file-content-invalid", body)

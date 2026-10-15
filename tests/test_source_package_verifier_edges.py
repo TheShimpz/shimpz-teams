@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_protocol_verifier_edges import _png_chunk, assert_main_verifies_and_synchronizes
+from test_protocol_verifier_edges import assert_main_verifies_and_synchronizes, png_chunk
 
 SOURCE_PACKAGE = Path(__file__).resolve().parents[1] / "protocol/source-package/v1"
 
@@ -118,7 +118,7 @@ class SourcePackageVerifierEdgeTests(unittest.TestCase):
             b"not-png",
             signature + b"short",
             signature + (100).to_bytes(4, "big") + b"IHDR0000",
-            signature + _png_chunk(b"1234"),
+            signature + png_chunk(b"1234"),
         )
         for icon in invalid_icons:
             with self.subTest(icon=icon), self.assertRaisesRegex(self.api["ContractViolationError"], "invalid_icon"):
@@ -131,7 +131,7 @@ class SourcePackageVerifierEdgeTests(unittest.TestCase):
                 self.calls += 1
                 return 21 if self.calls >= 5 else 20
 
-        changing = ChangingLength(signature + _png_chunk(b"IEND"))
+        changing = ChangingLength(signature + png_chunk(b"IEND"))
         with self.assertRaisesRegex(self.api["ContractViolationError"], "invalid_icon"):
             self.api["parse_icon_chunks"](changing)
 

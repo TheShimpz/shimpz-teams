@@ -41,7 +41,7 @@ RESOLUTION = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())["fixtures
 ICON = b"canonical icon"
 
 
-def _runtime_resolution() -> dict[str, object]:
+def runtime_resolution() -> dict[str, object]:
     resolution = copy.deepcopy(RESOLUTION)
     resolution["icon_digest"] = f"sha256:{hashlib.sha256(ICON).hexdigest()}"
     action = resolution["machine_contract"]["actions"][0]
@@ -66,7 +66,7 @@ def _bind_helpers(store: DynamicAssistantStore) -> tuple[str, ...]:
     """Bind helper-0 through helper-3 to team_1 and return their ids."""
     assistant_ids = tuple(f"helper-{index}" for index in range(4))
     for assistant_id in assistant_ids:
-        resolution = _runtime_resolution()
+        resolution = runtime_resolution()
         resolution["assistant_id"] = assistant_id
         store.put("team_1", resolution)
     return assistant_ids
@@ -74,7 +74,7 @@ def _bind_helpers(store: DynamicAssistantStore) -> tuple[str, ...]:
 
 def _bind_foreign(store: DynamicAssistantStore, assistant_id: str = "helper-0", **fields: object) -> None:
     """Bind a homonymous or Team-foreign Assistant to team_2."""
-    foreign = _runtime_resolution()
+    foreign = runtime_resolution()
     foreign["assistant_id"] = assistant_id
     foreign.update(fields)
     store.put("team_2", foreign)
@@ -114,7 +114,7 @@ def _spec_container(assistant_id: str) -> SimpleNamespace:
     return SimpleNamespace(labels=labels, name=f"team_1-{assistant_id}", status="running")
 
 
-class _Response:
+class Response:
     def __init__(self, status: int, value: object, *, raw: bytes | None = None) -> None:
         self.status = status
         self._body = raw if raw is not None else json.dumps(value, separators=(",", ":")).encode()
@@ -123,8 +123,8 @@ class _Response:
         return self._body[:amount]
 
 
-class _Connection:
-    response = _Response(500, {})
+class Connection:
+    response = Response(500, {})
     requests: ClassVar[list[tuple[object, ...]]] = []
     connections: ClassVar[list[tuple[tuple[object, ...], dict[str, object]]]] = []
     tunnels: ClassVar[list[tuple[object, ...]]] = []
@@ -139,7 +139,7 @@ class _Connection:
     def set_tunnel(self, *args: object, **kwargs: object) -> None:
         self.tunnels.append((*args, kwargs))
 
-    def getresponse(self) -> _Response:
+    def getresponse(self) -> Response:
         return self.response
 
     def close(self) -> None:
@@ -148,29 +148,29 @@ class _Connection:
 
 class LocalPublicationInstallTests(unittest.TestCase):
     def setUp(self) -> None:
-        _Connection.requests = []
-        _Connection.connections = []
-        _Connection.tunnels = []
+        Connection.requests = []
+        Connection.connections = []
+        Connection.tunnels = []
 
     def test_resolves_exact_publication_through_fixed_release_proxy(self) -> None:
-        _Connection.response = _Response(200, copy.deepcopy(RESOLUTION))
+        Connection.response = Response(200, copy.deepcopy(RESOLUTION))
 
-        with mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection):
+        with mock.patch("local.install.developers.http.client.HTTPSConnection", Connection):
             resolved = DevelopersClient().resolve(RESOLUTION["source_digest"])
 
         self.assertEqual(resolved, RESOLUTION)
         self.assertEqual(
-            _Connection.connections[0][0],
+            Connection.connections[0][0],
             ("shimpz-assistant-release", 8888),
         )
-        connection_options = _Connection.connections[0][1]
+        connection_options = Connection.connections[0][1]
         self.assertEqual(connection_options["timeout"], 10)
         tls_context = connection_options["context"]
         self.assertIsInstance(tls_context, ssl.SSLContext)
         self.assertTrue(tls_context.check_hostname)
         self.assertEqual(tls_context.verify_mode, ssl.CERT_REQUIRED)
-        self.assertEqual(_Connection.tunnels, [("developers.shimpz.com", 443, {})])
-        method, path, request = _Connection.requests[0]
+        self.assertEqual(Connection.tunnels, [("developers.shimpz.com", 443, {})])
+        method, path, request = Connection.requests[0]
         self.assertEqual(method, "GET")
         self.assertEqual(path, f"/api/v1/assistant-publications/{RESOLUTION['source_digest']}")
         self.assertEqual(request, {"headers": {"Accept": "application/json"}})
@@ -179,45 +179,45 @@ class LocalPublicationInstallTests(unittest.TestCase):
         successor = copy.deepcopy(RESOLUTION)
         successor["assistant_version"] = "0.2.0"
         successor["source_digest"] = f"sha256:{'9' * 64}"
-        _Connection.response = _Response(200, successor)
+        Connection.response = Response(200, successor)
 
-        with mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection):
+        with mock.patch("local.install.developers.http.client.HTTPSConnection", Connection):
             resolved = DevelopersClient().latest(RESOLUTION["source_digest"])
 
         self.assertEqual(resolved, successor)
         self.assertEqual(
-            _Connection.requests[0][1],
+            Connection.requests[0][1],
             f"/api/v1/assistant-publications/{RESOLUTION['source_digest']}/latest",
         )
 
     def test_fetches_the_exact_digest_bound_icon(self) -> None:
         digest = f"sha256:{hashlib.sha256(ICON).hexdigest()}"
-        _Connection.response = _Response(200, None, raw=ICON)
-        with mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection):
+        Connection.response = Response(200, None, raw=ICON)
+        with mock.patch("local.install.developers.http.client.HTTPSConnection", Connection):
             value = DevelopersClient().icon(RESOLUTION["source_digest"], digest)
 
         self.assertEqual(value, ICON)
         self.assertEqual(
-            _Connection.requests[0][1],
+            Connection.requests[0][1],
             f"/api/v1/assistant-publications/{RESOLUTION['source_digest']}/icon.png",
         )
-        self.assertEqual(_Connection.requests[0][2], {"headers": {"Accept": "image/png"}})
+        self.assertEqual(Connection.requests[0][2], {"headers": {"Accept": "image/png"}})
 
     def test_resolution_fails_closed_for_missing_or_malformed_publication(self) -> None:
         for status, error in ((404, PublicationNotInstallableError), (503, DevelopersError)):
-            _Connection.response = _Response(status, {})
+            Connection.response = Response(status, {})
             with (
                 self.subTest(status=status),
-                mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection),
+                mock.patch("local.install.developers.http.client.HTTPSConnection", Connection),
                 self.assertRaises(error),
             ):
                 DevelopersClient().resolve(RESOLUTION["source_digest"])
 
         malformed = copy.deepcopy(RESOLUTION)
         malformed["assistant_id"] = "../escape"
-        _Connection.response = _Response(200, malformed)
+        Connection.response = Response(200, malformed)
         with (
-            mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection),
+            mock.patch("local.install.developers.http.client.HTTPSConnection", Connection),
             self.assertRaises(DevelopersProtocolError),
         ):
             DevelopersClient().resolve(RESOLUTION["source_digest"])
@@ -227,10 +227,10 @@ class LocalPublicationInstallTests(unittest.TestCase):
         missing_stored_inputs.pop("stored_inputs")
         for action in missing_stored_inputs["machine_contract"]["actions"]:
             action.pop("stored_inputs")
-        _Connection.response = _Response(200, missing_stored_inputs)
+        Connection.response = Response(200, missing_stored_inputs)
 
         with (
-            mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection),
+            mock.patch("local.install.developers.http.client.HTTPSConnection", Connection),
             self.assertRaises(DevelopersProtocolError) as raised,
         ):
             DevelopersClient().resolve(RESOLUTION["source_digest"])
@@ -244,8 +244,8 @@ class LocalPublicationInstallTests(unittest.TestCase):
                     Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record
                 )
             )
-            first = registry.put("team_1", _runtime_resolution())
-            second = registry.put("team_2", _runtime_resolution())
+            first = registry.put("team_1", runtime_resolution())
+            second = registry.put("team_2", runtime_resolution())
 
             self.assertEqual(first.assistant_id, RESOLUTION["assistant_id"])
             self.assertEqual(first.image, RESOLUTION["image_reference"])
@@ -271,7 +271,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
             )
 
     def test_registry_requires_a_string_version_before_runtime_conversion(self) -> None:
-        resolution = _runtime_resolution()
+        resolution = runtime_resolution()
         binding = binding_from_resolution("team_1", resolution)
 
         self.assertEqual(
@@ -487,7 +487,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
             read.assert_not_called()
 
     def test_catalog_selects_the_latest_bound_publication(self) -> None:
-        older = _runtime_resolution()
+        older = runtime_resolution()
         newer = copy.deepcopy(older)
         newer["assistant_version"] = "0.2.0"
         newer["source_digest"] = f"sha256:{'9' * 64}"
@@ -503,7 +503,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         self.assertEqual(catalog[0].version, "0.2.0")
 
     def test_controller_routes_a_newer_bound_publication_through_update(self) -> None:
-        current = _runtime_resolution()
+        current = runtime_resolution()
         successor = copy.deepcopy(current)
         successor["assistant_version"] = "0.2.0"
         successor["source_digest"] = f"sha256:{'9' * 64}"
@@ -539,7 +539,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         self.assertEqual(committed.resolution["source_digest"], successor["source_digest"])
 
     def test_controller_recovers_the_same_bound_publication_idempotently(self) -> None:
-        resolution = _runtime_resolution()
+        resolution = runtime_resolution()
         events: list[str] = []
         with tempfile.TemporaryDirectory() as directory:
             controller = _publication_controller(directory)
@@ -585,7 +585,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
                     Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record
                 )
             )
-            spec = registry.put("team_1", _runtime_resolution())
+            spec = registry.put("team_1", runtime_resolution())
             image = SimpleNamespace(
                 attrs={
                     "Config": {"Labels": dict(spec.required_image_labels)},
@@ -606,7 +606,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "image-contract-mismatch")
 
     def test_controller_verifies_and_reauthorizes_before_local_start(self) -> None:
-        resolution = _runtime_resolution()
+        resolution = runtime_resolution()
         events: list[str] = []
         with tempfile.TemporaryDirectory() as directory:
             controller = _publication_controller(directory)
@@ -636,7 +636,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         controller.artifact_trust.verify.assert_called_once_with(resolution)
 
     def test_controller_refuses_a_publication_changed_before_local_start(self) -> None:
-        resolution = _runtime_resolution()
+        resolution = runtime_resolution()
         changed = copy.deepcopy(resolution)
         changed["oci_digest"] = "sha256:" + ("0" * 64)
         with tempfile.TemporaryDirectory() as directory:
@@ -724,7 +724,7 @@ class LocalStartAuthorizationCompensationTests(unittest.TestCase):
         return controller
 
     def test_fresh_install_removes_the_unstarted_container_and_its_egress(self) -> None:
-        resolution = _runtime_resolution()
+        resolution = runtime_resolution()
         self.successor_image = resolution["image_reference"]
         events: list[object] = []
         with tempfile.TemporaryDirectory() as directory:
@@ -749,13 +749,13 @@ class LocalStartAuthorizationCompensationTests(unittest.TestCase):
         )
 
     def test_a_fresh_install_beyond_the_team_limit_is_refused_before_any_side_effect(self) -> None:
-        resolution = _runtime_resolution()
+        resolution = runtime_resolution()
         self.successor_image = resolution["image_reference"]
         events: list[object] = []
         with tempfile.TemporaryDirectory() as directory:
             controller = self._controller(directory, events, None)
             for index in range(http_payload.MAX_TEAM_ASSISTANTS):
-                installed = _runtime_resolution()
+                installed = runtime_resolution()
                 installed["assistant_id"] = f"helper-{index}"
                 controller.registry.put("team_1", installed)
             controller.developers.resolve.return_value = resolution
@@ -771,7 +771,7 @@ class LocalStartAuthorizationCompensationTests(unittest.TestCase):
         self.assertEqual(events, [])
 
     def test_update_restores_the_previous_generation_synchronously(self) -> None:
-        current = _runtime_resolution()
+        current = runtime_resolution()
         successor = copy.deepcopy(current)
         successor["assistant_version"] = "0.2.0"
         successor["source_digest"] = f"sha256:{'9' * 64}"

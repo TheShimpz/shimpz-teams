@@ -20,7 +20,7 @@ FIXTURE_DESCRIPTION = (
 FIXTURE_COPY = {"summary": FIXTURE_SUMMARY, "description": FIXTURE_DESCRIPTION}
 
 
-def _reviewed_contract() -> SimpleNamespace:
+def reviewed_contract() -> SimpleNamespace:
     """The reference Cloudflare Assistant's admitted contract, built only through Team's own admission functions."""
     integrations = assistant_manifest.canonical_integration_declarations(
         {"cloudflare": ["zone.read", "dns.read", "offline_access"]}
@@ -309,7 +309,7 @@ class AssistantManifestTests(unittest.TestCase):
 
     def test_reference_fixture_matches_the_reviewed_cloudflare_security_intent(self) -> None:
         declared = assistant_manifest.parse_manifest_contract(FIXTURE_MANIFEST.read_bytes())
-        reviewed_assistant = _reviewed_contract()
+        reviewed_assistant = reviewed_contract()
         reviewed = assistant_manifest.reviewed_manifest_contract(
             allowed_hosts=reviewed_assistant.allowed_hosts,
             integrations={integration.id: integration for integration in reviewed_assistant.integrations},
@@ -557,7 +557,7 @@ class AssistantManifestTests(unittest.TestCase):
                 cache.get(container, reviewed(drifted))
 
     def test_machine_contract_loader_accepts_reviewed_artifact_and_rejects_foreign_integrations(self) -> None:
-        reviewed = _reviewed_contract()
+        reviewed = reviewed_contract()
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
 
         self.assertEqual(
@@ -591,7 +591,7 @@ class AssistantManifestTests(unittest.TestCase):
             )
 
     def test_a_compiled_payload_validator_is_reused_without_recompiling(self) -> None:
-        reviewed = _reviewed_contract()
+        reviewed = reviewed_contract()
         [action] = [action for action in reviewed.machine_contract["actions"] if action["id"] == "list-zones"]
         validator = assistant_manifest.action_schema_validator(action["input_schema"])
         with (
@@ -608,7 +608,7 @@ class AssistantManifestTests(unittest.TestCase):
             assistant_manifest.validate_schema_payload(validator, [])
 
     def test_machine_contract_loader_rejects_malformed_schema_and_oversized_artifact(self) -> None:
-        reviewed = _reviewed_contract()
+        reviewed = reviewed_contract()
         malformed = json.loads(json.dumps(reviewed.machine_contract))
         malformed["actions"][0]["input_schema"] = {"type": "not-a-json-schema-type"}
 
@@ -623,7 +623,7 @@ class AssistantManifestTests(unittest.TestCase):
                 )
 
     def test_machine_contract_cache_reads_once_and_requires_exact_review(self) -> None:
-        reviewed = _reviewed_contract()
+        reviewed = reviewed_contract()
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
         container = ContractContainer("machine-generation", raw)
         cache = assistant_manifest.MachineContractCache()
@@ -693,7 +693,7 @@ class AssistantManifestTests(unittest.TestCase):
             )
 
     def test_machine_contract_shape_schema_and_usage_edges_fail_closed(self) -> None:
-        reviewed = _reviewed_contract()
+        reviewed = reviewed_contract()
         valid = json.loads(json.dumps(reviewed.machine_contract))
         variants = []
         variants.append({})
@@ -893,7 +893,7 @@ class AssistantManifestTests(unittest.TestCase):
         self.assertEqual(tuple(cache._cache._entries), ("second",))
         cache.discard(None)
 
-        reviewed = _reviewed_contract()
+        reviewed = reviewed_contract()
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
         machine = assistant_manifest.MachineContractCache(max_entries=1)
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "identity"):

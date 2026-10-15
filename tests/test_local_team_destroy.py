@@ -30,7 +30,7 @@ def _expired_human(team_id: str, generation: str) -> action_challenges.PendingHu
     return action_challenges.PendingHumanChallenge("e" * 32, team_id, 0.0, SimpleNamespace(), pending)
 
 
-def _record_routine_state(controller: local_app.LocalController, events: list[object]) -> None:
+def record_routine_state(controller: local_app.LocalController, events: list[object]) -> None:
     """Routine stores that record every deletion a destroy asks of them."""
     controller.routine_store = SimpleNamespace(
         load=lambda _team_id: routine_record.TeamRoutines(),
@@ -76,7 +76,7 @@ def _destroy_controller(
     controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
     controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
     routine_books(controller)
-    _record_routine_state(controller, events)
+    record_routine_state(controller, events)
     wire_collaborators(controller)
     controller.chat_turn_service._chat_lock = lambda _team_id: lock
     controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network
@@ -161,7 +161,7 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy") or True)
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
         routine_books(controller)
-        _record_routine_state(controller, events)
+        record_routine_state(controller, events)
         wire_collaborators(controller)
         # Human continuations that already expired, one of this Team's earlier generation and one of another Team.
         humans = controller.chat_turn_service.human_challenges

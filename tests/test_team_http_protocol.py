@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from protocol_manifest import assert_manifest_holds
-from test_protocol_verifier_edges import _flat_module_names, _fresh_modules
+from test_protocol_verifier_edges import flat_module_names, fresh_modules
 
 from protocol.http.v1 import challenge, identifiers, payload, routine, routine_notice, routine_proposal, routine_run
 
@@ -29,7 +29,7 @@ class FlatVerifierTests(unittest.TestCase):
     def test_the_verifier_imports_the_protocol_modules_flat_from_their_directory(self) -> None:
         output = io.StringIO()
         with (
-            _fresh_modules(*_flat_module_names(PROTOCOL)),
+            fresh_modules(*flat_module_names(PROTOCOL)),
             mock.patch.object(sys, "path", [str(PROTOCOL), *sys.path]),
             contextlib.redirect_stdout(output),
         ):
@@ -243,7 +243,7 @@ class RoutineListBoundTests(unittest.TestCase):
             "steps": routine.MAX_ROUTINE_STEPS,
         }
         incident = {
-            "incident_id": "2" * 32,
+            "run_id": "2" * 32,
             "routine_id": "0" * 32,
             "name": name,
             "created_at": "2026-10-05T09:00:00Z",

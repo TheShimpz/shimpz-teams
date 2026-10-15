@@ -25,7 +25,7 @@ INSTALL = ROOT / "protocol/install/v1"
 
 
 @contextlib.contextmanager
-def _fresh_modules(*names: str):
+def fresh_modules(*names: str):
     saved = {name: sys.modules.pop(name) for name in names if name in sys.modules}
     try:
         yield
@@ -35,7 +35,7 @@ def _fresh_modules(*names: str):
         sys.modules.update(saved)
 
 
-def _flat_module_names(directory: Path) -> tuple[str, ...]:
+def flat_module_names(directory: Path) -> tuple[str, ...]:
     """Every module a verifier in ``directory`` imports flat: the directory's own modules and its validators."""
     names = {path.stem for path in directory.glob("*.py")}
     validators = directory / "validators"
@@ -66,7 +66,7 @@ def _execute(
             return mirror / source.name if path.resolve() == source.resolve() else path
 
         with (
-            _fresh_modules(*_flat_module_names(source.parent)),
+            fresh_modules(*flat_module_names(source.parent)),
             mock.patch.object(sys, "path", [str(mirror), *sys.path]),
             mock.patch.dict(sys.modules, modules or {}),
             mock.patch.object(pathlib, "Path", redirected_path),
@@ -98,7 +98,7 @@ def assert_main_verifies_and_synchronizes(
 
 def _load_install_verifier() -> dict[str, object]:
     with (
-        _fresh_modules("schema_validator"),
+        fresh_modules("schema_validator"),
         mock.patch.object(sys, "path", [str(INSTALL), *sys.path]),
     ):
         return runpy.run_path(str(INSTALL / "verify.py"), run_name="install_protocol_verifier")
@@ -122,7 +122,7 @@ def _rehash(root: Path, filename: str) -> None:
     )
 
 
-def _png_chunk(kind: bytes, data: bytes = b"") -> bytes:
+def png_chunk(kind: bytes, data: bytes = b"") -> bytes:
     checksum = zlib.crc32(kind + data) & 0xFFFFFFFF
     return len(data).to_bytes(4, "big") + kind + data + checksum.to_bytes(4, "big")
 
