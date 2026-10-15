@@ -539,6 +539,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             routine_mode=True,
             routine_question=question,
             routine_rerun=rerun,
+            routine_schedule={"kind": "weekly", "weekday": 0, "time": "09:00"},
         )
         # Local Team admits the record's closed shape; the client only bounds where it may appear.
         self.assertEqual(client.start(chat, "Toda segunda às 9h, confira o DNS", conversation=()).routine, recorded)
@@ -550,6 +551,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         self.assertEqual(
             (sent["routine_mode"], sent["routine_question"], sent["routine_rerun"]), (True, question, [dict(rerun[0])])
         )
+        self.assertEqual(sent["routine_schedule"], {"kind": "weekly", "weekday": 0, "time": "09:00"})
         question = {
             "question": "Qual?",
             "options": [{"label": "A", "description": ""}, {"label": "B", "description": ""}],

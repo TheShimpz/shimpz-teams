@@ -116,6 +116,9 @@ class RuntimeContext:
     routine_mode: bool = False
     # The work a pending unsourced or rerun question asks to run again, in order, bounded and redacted; None otherwise.
     routine_rerun: tuple[Mapping[str, object], ...] | None = None
+    # The one schedule the recording span's person states, which the record call's description must say; None when the
+    # person states none or several (ADR-0101). Only beside ``routines``.
+    routine_schedule: Mapping[str, object] | None = None
     # False in a Routine run, whose memory and skills the Brain may read but never change.
     knowledge_writable: bool = True
     # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
@@ -345,6 +348,7 @@ class BrainRuntimeClient:
             "routine_question": None if context.routine_question is None else dict(context.routine_question),
             "routine_mode": context.routine_mode,
             "routine_rerun": None if context.routine_rerun is None else [dict(item) for item in context.routine_rerun],
+            "routine_schedule": None if context.routine_schedule is None else dict(context.routine_schedule),
             "knowledge_writable": context.knowledge_writable,
             "attachments": [dict(item) for item in context.attachments],
         }

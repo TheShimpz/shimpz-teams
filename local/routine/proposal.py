@@ -88,10 +88,6 @@ class ProposalBook:
             del self._cards[(team_id, principal)]
         return found if found.expires_at > self._now() else None
 
-    def revoke(self, team_id: str, proposal_id: str, principal: str) -> None:
-        """Drop the person's card with this id; an absent card is already revoked."""
-        self.take(team_id, proposal_id, principal)
-
     def drop_routine(self, team_id: str, routine_id: str) -> None:
         """Drop every card that would replace a Routine being deleted."""
         with self._guard:
@@ -567,8 +563,17 @@ def confirm(self, team_id: str, proposal_id: str) -> dict[str, object]:
 
 
 def revoke(self, team_id: str, proposal_id: str) -> dict[str, object]:
-    """Cancelar: drop the person's card; one already gone is already revoked."""
+    """Cancelar: drop the person's card; one already gone is already revoked, unless it was confirmed.
+
+    A card confirmed first answers with the Routine its confirmation committed, so a cancel sent after a confirmation
+    whose answer was lost never reports a Routine that exists as cancelled.
+    """
     team_id, principal = validate_team_id(team_id), _principal()
-    self.routine_proposals.revoke(team_id, proposal_id, principal)
+    with self._lock(team_id):
+        if self.routine_proposals.take(team_id, proposal_id, principal) is None:
+            incarnation = self.assistant_lifecycle._network(team_id).id
+            found = _confirmed(routine_state.load(self, team_id), proposal_id, principal, incarnation)
+            if found is not None:
+                return _answer(team_id, proposal_id, found.routine_id, "created" if found.revision == 1 else "changed")
     local_audit.record_request("routine-proposal", result="ok", team_id=team_id, detail=f"revoked:{proposal_id}")
     return _answer(team_id, proposal_id, None, "revoked")

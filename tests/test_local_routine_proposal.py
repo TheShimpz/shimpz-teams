@@ -414,20 +414,18 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(london["timezone"], "Europe/London")
         self.assertEqual((card["timezone"], card["timezone_source"]), ("Asia/Tokyo", "browser"))
 
-    def test_a_composed_answer_to_the_pending_question_records_without_the_brain(self) -> None:
+    def test_a_schedule_answer_reaches_the_brain_which_records_again_saying_how_often(self) -> None:
         original = "Liste os registros DNS de shimpz.com e mostre o resultado"
-        runtime = Sends((("list-zones", "list-dns-records"), _record()))
+        work = ("list-zones", "list-dns-records")
+        runtime = Sends((work, _record()), (work, _record()))
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
             asked = self.chat(service, _body(original))["routine_question"]
             answer = http_payload.compose_clarified(original, "Com que frequência?", "A cada 30 segundos", "pt")
             response = self.chat(service, _body(answer))
         self.assertEqual(asked["code"], "routine-schedule-unstated")
-        self.assertEqual(len(runtime.contexts), 1)
-        self.assertEqual(response["reply"], http_routine_proposal.ANSWER_REPLIES["pt"])
+        self.assertEqual(len(runtime.contexts), 2)
         self.assertEqual(response["routine_proposal"]["schedule"], CONTINUOUS)
-        # A card Team builds from the person's answer still shows what the agent wrote when it recorded.
-        self.assertEqual(response["routine_proposal"]["description"], _record()["description"])
 
     def test_the_output_is_the_persons_to_state_and_a_composed_answer_states_it_without_the_brain(self) -> None:
         original = "Liste os registros DNS de shimpz.com a cada 30 segundos"
@@ -615,6 +613,16 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(answer, repeated)
         self.assertEqual((answer["status"], answer["routine_id"]), ("revoked", None))
         self.assertEqual(caught.exception.code, "routine-proposal-expired")
+
+    def test_cancelling_a_card_already_confirmed_answers_with_its_routine(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, Recording(_record()))
+            card = self.chat(service)["routine_proposal"]
+            confirmed = self.confirm(service, card["proposal_id"])
+            with self.as_person():
+                answer = service.revoke_routine_proposal("team_1", card["proposal_id"])
+        self.assertEqual(answer, confirmed)
+        self.assertEqual(answer["status"], "created")
 
     def test_a_card_belongs_to_its_person_and_lasts_fifteen_minutes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

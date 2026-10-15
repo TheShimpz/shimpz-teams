@@ -77,6 +77,15 @@ def clarified_answer(message: str) -> tuple[str, str, str] | None:
     return None
 
 
+def stated_schedules(sends: Sequence[Send]) -> tuple[dict[str, object], ...]:
+    """Every schedule the latest authored segment stating any states; none when no segment does."""
+    latest: tuple[dict[str, object], ...] = ()
+    for send in sends:
+        for segment in send.person:
+            latest = phrase.stated(segment) or latest
+    return latest
+
+
 def zone(sends: Sequence[Send]) -> tuple[str, str]:
     """The Routine's zone and where it came from.
 

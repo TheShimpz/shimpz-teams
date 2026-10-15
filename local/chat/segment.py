@@ -230,6 +230,7 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         routine_question=_pending_question(self, request) if mutable else None,
         routine_mode=mutable and routine_recorder.routine_mode(_span(self, request)),
         routine_rerun=routine_recorder.rerun_work(_span(self, request)) if mutable else None,
+        routine_schedule=routine_recorder.stated_schedule(_span(self, request)) if mutable else None,
         knowledge_writable=routine is None,
         locale=request.locale,
         turn_clock=_turn_clock(_span(self, request)) if mutable else None,

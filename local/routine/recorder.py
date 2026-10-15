@@ -252,9 +252,9 @@ class RecordingBook:
 def answered(span: Span | None) -> Intent | None:
     """The intent to record again when the span's latest send is Admin's composed answer that binds its question.
 
-    It binds a schedule question when it states a schedule, an output question when it states an output, an interval
-    question when it states an interval, and a target question when it is exactly one target's JSON text. Anything
-    else, typed freely or not binding, is the Brain's to read.
+    It binds an output question when it states an output, and a target question when it is exactly one target's JSON
+    text, either only when it states no schedule. A schedule or interval answer, and anything else typed freely or not
+    binding, is the Brain's to read: it records again with a description that says how often the Routine runs.
     """
     if span is None or span.intent is None or span.asked is None or span.refused:
         return None
@@ -262,21 +262,22 @@ def answered(span: Span | None) -> Intent | None:
     if parsed is None:
         return None
     _original, _question, answer = parsed
-    asked = span.asked
-    stated = phrase.stated(answer)
-    pending = asked.pending
+    if phrase.stated(answer):
+        return None
+    pending = span.asked.pending
     bound = {
-        "routine-schedule-unstated": bool(stated),
         # A chain needs more work, which only the Brain can run.
         "routine-output-unstated": bool(phrase.outputs(answer)) and "chain" not in phrase.outputs(answer),
-        "routine-interval-over-budget": any(item["kind"] in _INTERVAL_KINDS for item in stated),
         "routine-binding-ambiguous": pending is not None
         and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets),
     }
-    return span.intent if bound.get(asked.code, False) else None
+    return span.intent if bound.get(span.asked.code, False) else None
 
 
-_INTERVAL_KINDS = frozenset({"continuous", "hourly"})
+def stated_schedule(span: Span | None) -> dict[str, object] | None:
+    """The one schedule the span's person states, as Team will record it, for the Brain's description; else None."""
+    found = () if span is None else routine_recording.stated_schedules(span.sends)
+    return dict(found[0]) if len(found) == 1 else None
 
 
 def routine_mode(span: Span | None) -> bool:

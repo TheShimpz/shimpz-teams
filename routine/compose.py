@@ -160,12 +160,7 @@ def _schedule(
 
     Every reading within one segment counts, so different schedules in one text are asked about.
     """
-    latest: tuple[dict[str, object], ...] = ()
-    for send in sends:
-        for segment in send.person:
-            found = phrase.stated(segment)
-            if found:
-                latest = found
+    latest = routine_recording.stated_schedules(sends)
     if len(latest) == 1:
         return dict(latest[0])
     if not latest and existing is not None:
