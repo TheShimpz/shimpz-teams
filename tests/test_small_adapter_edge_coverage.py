@@ -1,7 +1,6 @@
 """Complete failure coverage for small Team process, token, and HTTP adapters."""
 
 import io
-import json
 import os
 import re
 import stat
@@ -45,11 +44,6 @@ class SmallHttpAdapterCoverageTests(unittest.TestCase):
         self.assertEqual(stdlib.bearer_token(_Headers(authorization=["Bearer token"])), "token")
         self.assertTrue(stdlib.bearer_authorized(_Headers(authorization=["Bearer token"]), "token"))
         self.assertFalse(stdlib.bearer_authorized(_Headers(), "token"))
-
-        handler = mock.Mock()
-        handler.wfile = io.BytesIO()
-        stdlib.send_json(handler, 200, {"ok": True})
-        self.assertEqual(json.loads(handler.wfile.getvalue()), {"ok": True})
 
         self.assertEqual(stdlib.read_json_body(_Headers(), io.BytesIO(), max_bytes=10), {})
         self.assertEqual(

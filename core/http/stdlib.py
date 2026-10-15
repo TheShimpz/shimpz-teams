@@ -57,15 +57,6 @@ def bearer_authorized(headers: object, token: str) -> bool:
     return bool(supplied) and supplied.isascii() and hmac.compare_digest(supplied, token)
 
 
-def send_json(handler: object, status: HTTPStatus, payload: object) -> None:
-    body = json.dumps(payload).encode()
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json")
-    handler.send_header("Content-Length", str(len(body)))
-    handler.end_headers()
-    handler.wfile.write(body)
-
-
 def read_json_body(headers: object, stream: BinaryIO, *, max_bytes: int) -> dict[str, object]:
     raw_length = headers.get("Content-Length", "0") or "0"
     try:
