@@ -9,9 +9,9 @@ from docker.errors import DockerException
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from local import labels as local_labels
 from local import names as local_names
 from local import prepare as local_prepare
-from local.assistant.egress import PROFILE
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
     action_state_unavailable,
@@ -27,10 +27,6 @@ from local.errors import (
 from local.labels import (
     ASSISTANT_LABEL,
     IMAGE_LABEL,
-    KIND_LABEL,
-    MANAGED_LABEL,
-    PROFILE_LABEL,
-    SPACE_LABEL,
     TEAM_LABEL,
 )
 from local.validation import brain_thread_id as _brain_thread_id
@@ -260,16 +256,13 @@ def _validate_reset_container(self, container) -> None:
 
 
 def _reset_inventory(self) -> tuple[list, list]:
-    base_labels = [
-        f"{MANAGED_LABEL}=1",
-        f"{PROFILE_LABEL}={PROFILE}",
-        f"{SPACE_LABEL}={self.space_id}",
-    ]
     containers = self.client.containers.list(
         all=True,
-        filters={"label": [*base_labels, f"{KIND_LABEL}=assistant"]},
+        filters={"label": local_labels.label_filter(local_labels.ownership_labels(self.space_id, "assistant"))},
     )
-    networks = self.client.networks.list(filters={"label": [*base_labels, f"{KIND_LABEL}=team"]})
+    networks = self.client.networks.list(
+        filters={"label": local_labels.label_filter(local_labels.ownership_labels(self.space_id, "team"))}
+    )
     for container in containers:
         self._validate_reset_container(container)
     return containers, networks

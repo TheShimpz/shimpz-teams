@@ -15,8 +15,7 @@ from dataclasses import dataclass, field
 from docker.errors import DockerException
 from docker.types import LogConfig, Ulimit
 
-from local.assistant.egress import PROFILE
-from local.labels import KIND_LABEL, MANAGED_LABEL, PROFILE_LABEL, SPACE_LABEL, TEAM_LABEL
+from local import labels as local_labels
 from prepare import helper as preparation_helper
 from prepare import service as preparation
 
@@ -49,13 +48,7 @@ _UNSTOPPED = TurnStop()
 
 def helper_labels(space_id: str, team_id: str) -> dict[str, str]:
     """The exact ownership labels of one Local preparation helper."""
-    return {
-        MANAGED_LABEL: "1",
-        PROFILE_LABEL: PROFILE,
-        SPACE_LABEL: space_id,
-        KIND_LABEL: KIND,
-        TEAM_LABEL: team_id,
-    }
+    return local_labels.ownership_labels(space_id, KIND, team_id)
 
 
 def helper_kwargs(client: object, *, space_id: str, team_id: str, cpuset_cpus: str | None) -> dict[str, object]:
@@ -260,9 +253,7 @@ def prepare_rendition(
 
 def remove_helpers(client: object, space_id: str, team_id: str | None = None) -> int:
     """Remove every Local preparation helper of one Team, or of the whole Space; already-absent is success."""
-    filters = [f"{MANAGED_LABEL}=1", f"{PROFILE_LABEL}={PROFILE}", f"{SPACE_LABEL}={space_id}", f"{KIND_LABEL}={KIND}"]
-    if team_id is not None:
-        filters.append(f"{TEAM_LABEL}={team_id}")
+    filters = local_labels.label_filter(local_labels.ownership_labels(space_id, KIND, team_id))
     removed = 0
     for container in client.containers.list(all=True, filters={"label": filters}):
         try:

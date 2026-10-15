@@ -225,7 +225,7 @@ class AssistantLifecycle:
     _read_admitted_egress_policy = local_egress._read_admitted_egress_policy
     _remove_egress_policy = local_egress._remove_egress_policy
     _managed_team_networks = local_egress._managed_team_networks
-    _labels_include = staticmethod(local_egress._labels_include)
+    _labels_include = staticmethod(local_labels.labels_include)
     _validate_network = local_egress._validate_network
     _network = local_egress._network
 

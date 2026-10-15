@@ -20,6 +20,7 @@ from core.http import strict as strict_http
 from local import activity as local_activity
 from local import app as local_app
 from local import authority
+from local import labels as local_labels
 from local import lifecycle as local_lifecycle
 from local import prepare as local_prepare
 from local.errors import ApiProblemError
@@ -88,7 +89,7 @@ class _Client:
         )
 
     def _create(self, **kwargs: object) -> _Container:
-        self.events.append(("create", kwargs["labels"][local_prepare.TEAM_LABEL]))
+        self.events.append(("create", kwargs["labels"][local_labels.TEAM_LABEL]))
         return _Container(self, str(len(self.events)))
 
 

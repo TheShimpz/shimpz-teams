@@ -5,6 +5,7 @@ from pathlib import PurePosixPath
 
 from egress import policy as egress_policy
 from local.install.runtime import is_digest_ref
+from local.labels import IMAGE_LABEL, labels_include
 from protocol.http.v1 import payload as http_payload
 
 
@@ -61,13 +62,12 @@ def inspect_profile(
     config = attrs.get("Config") or {}
     host = attrs.get("HostConfig") or {}
     labels = config.get("Labels") or {}
-    installed_image = labels.get("com.shimpz.local.image")
+    installed_image = labels.get(IMAGE_LABEL)
     networks = (attrs.get("NetworkSettings") or {}).get("Networks") or {}
     environment = egress_policy.environment_map(config.get("Env"))
     if (
         environment is None
-        or not isinstance(labels, dict)
-        or not all(labels.get(key) == value for key, value in expected_labels.items())
+        or not labels_include(labels, expected_labels)
         or container_name != expected_name
         or not _installed_image_valid(installed_image, image_identity)
         or config.get("Image") != installed_image

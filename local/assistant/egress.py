@@ -12,21 +12,14 @@ from typing import NoReturn
 from docker.errors import DockerException, NotFound
 
 from egress import policy as egress_policy
+from local import labels as local_labels
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import docker_unavailable, ownership_conflict
 from local.install.runtime import AssistantSpec
-from local.labels import (
-    KIND_LABEL,
-    MANAGED_LABEL,
-    PROFILE_LABEL,
-    SPACE_LABEL,
-    TEAM_LABEL,
-    TEAM_NAME_LABEL,
-)
+from local.labels import TEAM_NAME_LABEL
 from local.validation import space_prefix as _space_prefix
 from local.validation import validate_team_name
 
-PROFILE = "local-v1"
 ASSISTANT_EGRESS_POLICY_GID = 10017
 ASSISTANT_EGRESS_POLICY_DIR = Path(
     os.environ.get(
@@ -55,13 +48,7 @@ def _raise_egress_problem(exc: egress_policy.EgressPolicyError) -> NoReturn:
 
 
 def _base_labels(self, team_id: str, kind: str) -> dict[str, str]:
-    return {
-        MANAGED_LABEL: "1",
-        PROFILE_LABEL: PROFILE,
-        SPACE_LABEL: self.space_id,
-        KIND_LABEL: kind,
-        TEAM_LABEL: team_id,
-    }
+    return local_labels.ownership_labels(self.space_id, kind, team_id)
 
 
 def _network_name(self, team_id: str) -> str:
@@ -161,20 +148,11 @@ def _remove_egress_policy(
 
 
 def _managed_team_networks(self) -> list:
-    labels = [
-        f"{MANAGED_LABEL}=1",
-        f"{PROFILE_LABEL}={PROFILE}",
-        f"{SPACE_LABEL}={self.space_id}",
-        f"{KIND_LABEL}=team",
-    ]
+    labels = local_labels.label_filter(local_labels.ownership_labels(self.space_id, "team"))
     try:
         return self.client.networks.list(filters={"label": labels})
     except DockerException as exc:
         raise docker_unavailable() from exc
-
-
-def _labels_include(actual: object, expected: dict[str, str]) -> bool:
-    return isinstance(actual, dict) and all(actual.get(key) == value for key, value in expected.items())
 
 
 def _validate_network(self, network, team_id: str, *, refresh: bool = True) -> str:

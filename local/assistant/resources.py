@@ -5,8 +5,8 @@ from http import HTTPStatus
 from docker.errors import DockerException, ImageNotFound, NotFound
 
 from assistant import manifest as assistant_manifest
+from local import labels as local_labels
 from local.assistant import isolation as local_container_policy
-from local.assistant.egress import PROFILE
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import assistant_isolation_drift, assistant_registry_drift, docker_unavailable
 from local.install import snapshots as local_snapshots
@@ -14,11 +14,6 @@ from local.install.runtime import AssistantSpec
 from local.labels import (
     ASSISTANT_LABEL,
     IMAGE_LABEL,
-    KIND_LABEL,
-    MANAGED_LABEL,
-    PROFILE_LABEL,
-    SPACE_LABEL,
-    TEAM_LABEL,
 )
 
 
@@ -26,13 +21,7 @@ def _assistant_filters(self, team_id: str) -> dict[str, list[str] | bool]:
     return {
         "all": True,
         "filters": {
-            "label": [
-                f"{MANAGED_LABEL}=1",
-                f"{PROFILE_LABEL}={PROFILE}",
-                f"{SPACE_LABEL}={self.space_id}",
-                f"{KIND_LABEL}=assistant",
-                f"{TEAM_LABEL}={team_id}",
-            ]
+            "label": local_labels.label_filter(local_labels.ownership_labels(self.space_id, "assistant", team_id))
         },
     }
 
