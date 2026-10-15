@@ -5,7 +5,6 @@ presents the token for the Assistant's provider calls; no workload ever receives
 """
 
 import hashlib
-import hmac
 import json
 import os
 import re
@@ -84,6 +83,11 @@ def _read_exact_private_file(
             os.close(descriptor)
 
 
+def _encoded_hosts(hosts: tuple[str, ...]) -> bytes:
+    """The exact policy bytes the Assistant egress proxy reads: the public hosts as one compact JSON array."""
+    return json.dumps(list(hosts), separators=(",", ":")).encode("ascii")
+
+
 @dataclass(frozen=True)
 class EgressPolicyStore:
     root: Path
@@ -158,7 +162,7 @@ class EgressPolicyStore:
             raise EgressPolicyDriftError("egress policy hosts are invalid") from exc
         if not canonical or canonical != hosts:
             raise EgressPolicyDriftError("egress policy hosts are not canonical")
-        return canonical, json.dumps(list(canonical), separators=(",", ":")).encode("ascii")
+        return canonical, _encoded_hosts(canonical)
 
     def write(self, token: str, hosts: tuple[str, ...]) -> None:
         if _TOKEN.fullmatch(token) is None:
@@ -189,10 +193,10 @@ class EgressPolicyStore:
         )
         try:
             hosts = assistant_manifest.canonical_allowed_hosts(json.loads(raw))
-            canonical = json.dumps(list(hosts), separators=(",", ":")).encode("ascii")
+            canonical = _encoded_hosts(hosts)
         except (UnicodeError, json.JSONDecodeError, RecursionError, assistant_manifest.ManifestError) as exc:
             raise EgressPolicyDriftError("egress policy content is invalid") from exc
-        if not hosts or not hmac.compare_digest(raw, canonical):
+        if not hosts or raw != canonical:
             raise EgressPolicyDriftError("egress policy content is not canonical")
         return token, hosts
 
@@ -208,10 +212,7 @@ class EgressPolicyStore:
         if admitted is None:
             raise EgressPolicyDriftError("egress policy is missing")
         token, actual_hosts = admitted
-        if not hmac.compare_digest(
-            json.dumps(list(actual_hosts), separators=(",", ":")),
-            json.dumps(list(expected_hosts), separators=(",", ":")),
-        ):
+        if actual_hosts != expected_hosts:
             raise EgressPolicyDriftError("egress policy hosts drifted")
         return token
 
@@ -235,6 +236,8 @@ class EgressPolicyStore:
                     raise EgressPolicyDriftError("egress policy metadata drifted")
                 policy_path.unlink()
             token_path.unlink()
+            private_state.fsync_directory(policy_path.parent)
+            private_state.fsync_directory(token_path.parent)
         except EgressPolicyDriftError:
             raise
         except OSError as exc:

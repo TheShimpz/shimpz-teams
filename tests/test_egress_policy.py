@@ -55,6 +55,13 @@ class SharedEgressPolicyTests(unittest.TestCase):
                 self.store.token("another-identity", create=True)
             with self.assertRaises(egress_policy.EgressPolicyUnavailableError):
                 self.store.write(token, ("example.com",))
+            # A removal is reported only once both directory entries are committed.
+            with self.assertRaises(egress_policy.EgressPolicyUnavailableError):
+                self.store.remove("identity")
+        synced.clear()
+        with mock.patch.object(os, "fsync", side_effect=observe):
+            self.store.remove("identity")
+        self.assertEqual(synced, ["directory"] * 2)
 
     def test_atomic_and_exact_file_io_fail_closed(self) -> None:
         target = self.root / "target"
