@@ -12,7 +12,6 @@ from core import canonical_json
 from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
-ROOT = Path(os.environ.get("SHIMPZ_TEAM_INFERENCE_DIR", "/var/lib/team/inference"))
 SCHEMA = 3
 KNOWLEDGE_SCHEMA = 1
 
@@ -79,7 +78,7 @@ def write_private_json(root: Path, target: Path, value: dict[str, object]) -> No
 
 
 class InferenceConfigStore:
-    def __init__(self, root: Path = ROOT) -> None:
+    def __init__(self, root: Path) -> None:
         self.root = root
 
     def _path(self, team_id: str) -> Path:
