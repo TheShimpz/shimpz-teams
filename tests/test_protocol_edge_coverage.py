@@ -119,9 +119,7 @@ class PayloadEdgeCoverageTests(unittest.TestCase):
             ({"team_id": "team"}, "unknown"),
         )
         for value, kind in cases:
-            self.assertIsNone(
-                payload.project_storage_response(value, kind=kind, expected_team_id="team")
-            )
+            self.assertIsNone(payload.project_storage_response(value, kind=kind, expected_team_id="team"))
 
 
 class ProgressEdgeCoverageTests(unittest.TestCase):
