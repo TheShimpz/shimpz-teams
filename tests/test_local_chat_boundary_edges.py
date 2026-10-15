@@ -73,7 +73,7 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
 
         subject.human_challenges.drain_expired = lambda _team_id: (_challenge(object()),)
         with self.assertRaises(AssertionError):
-            local_chat_human._expire_human_challenges(subject)
+            local_chat_human.expire_human_challenges(subject)
 
     def test_resume_body_rejects_unknown_decisions_and_fields(self) -> None:
         invalid = (
@@ -152,10 +152,10 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
             _delete_withdrawn_continuation=lambda _team_id, item: events.append(("delete", item.id)),
         )
         with self.assertRaises(AssertionError):
-            local_chat_pause._end_drifted_turn(subject, "team_1", object())
+            local_chat_pause.end_drifted_turn(subject, "team_1", object())
 
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_pause._end_drifted_turn(subject, "team_1", challenge)
+            local_chat_pause.end_drifted_turn(subject, "team_1", challenge)
         self.assertEqual(caught.exception.code, "team-context-changed")
         self.assertEqual(events, ["withdraw", "oauth", ("delete", "challenge")])
 
@@ -164,7 +164,7 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
             events.clear()
             live[0] = stale
             with self.assertRaises(local_app.ApiProblem) as caught:
-                local_chat_pause._end_drifted_turn(subject, "team_1", challenge)
+                local_chat_pause.end_drifted_turn(subject, "team_1", challenge)
             self.assertEqual(caught.exception.code, "team-context-changed")
             self.assertEqual(events, [])
 
@@ -314,7 +314,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         # Every reopening is validated against the binding, even one that keeps the challenge's own language.
         relocalized = mock.Mock(side_effect=lambda challenge, _locale: challenge)
         subject = types.SimpleNamespace(
-            _expire_human_challenges=mock.Mock(),
+            expire_human_challenges=mock.Mock(),
             _lock=lambda _team_id: nullcontext(),
             human_challenges=types.SimpleNamespace(current=lambda _team_id: human),
             integration_challenges=types.SimpleNamespace(current=lambda _team_id: integration),
@@ -332,7 +332,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         subject.human_challenges.current = lambda _team_id: None
         # The Integration gate is validated against the provider and context its own turn paused with.
         with mock.patch.object(
-            local_chat_api.local_chat_pause, "_paused_setup", return_value=(pending, ("identity",))
+            local_chat_api.local_chat_pause, "paused_setup", return_value=(pending, ("identity",))
         ) as setup:
             self.assertEqual(
                 local_chat_api.pending_chat_continuation(subject, "team_1"),
@@ -574,7 +574,7 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
             action_human.ActionTranscript(""),
             "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
         )
-        return local_chat_execution._invoke_chat_action(subject, "team_1", "token", request, container_id, evidence)
+        return local_chat_execution.invoke_chat_action(subject, "team_1", "token", request, container_id, evidence)
 
     def test_action_invocation_rejects_generation_and_turn_drift(self) -> None:
         request = types.SimpleNamespace(
@@ -636,17 +636,17 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
         )
         for reason, failure, expected_code in cases:
             with self.subTest(reason=reason), self.assertRaises(local_app.ApiProblem) as caught:
-                local_chat_execution._raise_chat_problem(reason, failure)
+                local_chat_execution.raise_chat_problem(reason, failure)
             self.assertEqual(caught.exception.code, expected_code)
 
         with self.assertRaises(AssertionError):
-            local_chat_execution._raise_chat_problem("unknown", None)
+            local_chat_execution.raise_chat_problem("unknown", None)
 
     def test_action_contract_and_integration_errors_are_mapped(self) -> None:
         active = types.SimpleNamespace(spec=types.SimpleNamespace(actions={}))
         bindings = {"assistant": active}
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_execution._validate_chat_action(bindings, "assistant", "missing", {})
+            local_chat_execution.validate_chat_action(bindings, "assistant", "missing", {})
         self.assertEqual(caught.exception.code, "invalid-action-input")
 
         active.spec.actions["action"] = object()
@@ -658,7 +658,7 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_chat_execution._validate_chat_action(bindings, "assistant", "action", {})
+            local_chat_execution.validate_chat_action(bindings, "assistant", "action", {})
         self.assertEqual(caught.exception.code, "invalid-action-input")
 
         requirements = chat_turn_engine.SegmentRequirements()
@@ -671,7 +671,7 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_chat_execution._require_chat_private_inputs(
+            local_chat_execution.require_chat_private_inputs(
                 subject,
                 "team_1",
                 bindings,
