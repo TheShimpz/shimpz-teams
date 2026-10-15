@@ -912,8 +912,6 @@ class ManifestContractCache:
     """Admit reviewed security intent once per immutable container generation."""
 
     def __init__(self, max_entries: int = DEFAULT_CACHE_ENTRIES) -> None:
-        if not isinstance(max_entries, int) or isinstance(max_entries, bool) or max_entries < 1:
-            raise ValueError("Assistant manifest cache size must be positive")
         self._cache: assistant_cache.ContainerReadCache[ManifestContract] = assistant_cache.ContainerReadCache(
             max_entries
         )
@@ -931,16 +929,13 @@ class ManifestContractCache:
         return declared
 
     def discard(self, container_id: object) -> None:
-        if isinstance(container_id, str):
-            self._cache.discard(container_id)
+        self._cache.discard(container_id)
 
 
 class MachineContractCache:
     """Admit the image-baked SDK artifact only when it equals controller review."""
 
     def __init__(self, max_entries: int = DEFAULT_CACHE_ENTRIES) -> None:
-        if not isinstance(max_entries, int) or isinstance(max_entries, bool) or max_entries < 1:
-            raise ValueError("Assistant machine contract cache size must be positive")
         self._cache: assistant_cache.ContainerReadCache[dict[str, Any]] = assistant_cache.ContainerReadCache(
             max_entries
         )
@@ -967,5 +962,4 @@ class MachineContractCache:
         return declared
 
     def discard(self, container_id: object) -> None:
-        if isinstance(container_id, str):
-            self._cache.discard(container_id)
+        self._cache.discard(container_id)

@@ -40,6 +40,8 @@ class ContainerReadCache[T]:
     """
 
     def __init__(self, max_entries: int) -> None:
+        if not isinstance(max_entries, int) or isinstance(max_entries, bool) or max_entries < 1:
+            raise ValueError("Assistant container cache size must be positive")
         self._max_entries = max_entries
         self._entries: OrderedDict[str, T] = OrderedDict()
         self._flights: dict[str, _Flight[T]] = {}
@@ -82,7 +84,10 @@ class ContainerReadCache[T]:
                         self._entries.popitem(last=False)
         flight.done.set()
 
-    def discard(self, key: str) -> None:
+    def discard(self, key: object) -> None:
+        """Forget one container's entry and any read in flight; a key that is not a container id names none."""
+        if not isinstance(key, str):
+            return
         with self._lock:
             self._entries.pop(key, None)
             self._flights.pop(key, None)
