@@ -197,12 +197,14 @@ targets `{value, label}`: `value` is the exact compact JSON text of the string o
 no client rounds a large integer, and `label` the item's name, or `null`), and work to run again
 (`routine-work-rerun`), for a value that no earlier result provides or a target the person chose instead. Only `routine-binding-ambiguous` has options, and only
 `routine-interval-over-budget` has a value. The schedule, over-budget, and output questions are the settings
-questions (`routine_proposal.SETTINGS_QUESTION_CODES`): an answer to one runs no work again unless it also changes the
-work. When the person's next send is Admin's composed answer to an ambiguous
+questions (`routine_proposal.SETTINGS_QUESTION_CODES`): an answer to one runs no work unless it changes the work, and
+then runs the whole recurring work it results in once. When the person's next send is Admin's composed answer to an ambiguous
 binding and its latest answer is exactly one target's JSON text that states no schedule, Team records again with the
 request's stored intent without asking the Brain, and its reply is empty. Every other answer goes to the Brain, which
 records again with a description that says it; a settings answer (`routine_settings_answer` below) runs no Action
-again and keeps the work its intent selected, and its reply is empty too. A completed turn's `reply` is empty only beside a `routine_proposal`,
+again and keeps the work its intent selected, and its reply is empty too. A record call whose send ran no Action and
+that replaces exactly what the stored intent replaces continues that intent whatever it names the Routine: it keeps
+the intent's work and the revision its replaced Routine was shown at. A completed turn's `reply` is empty only beside a `routine_proposal`,
 `routine_question`, or `routine_refusal`, which then says everything the person reads.
 
 What a person's own words state about a Routine is read here too, with no model, so Team and the Brain read the
