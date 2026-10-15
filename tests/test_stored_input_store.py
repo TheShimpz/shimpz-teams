@@ -309,7 +309,7 @@ class StoredInputStoreTests(unittest.TestCase):
         )
         for state in malformed_states:
             with self.subTest(state=state), self.assertRaises(stored_input.StoredInputStoreError):
-                stored_input._validate_state(state)
+                stored_input._POLICY.validate_state(state)
 
         malformed_assistants = (
             ("Team", {}),
@@ -320,23 +320,14 @@ class StoredInputStoreTests(unittest.TestCase):
         )
         for team, assistants in malformed_assistants:
             with self.subTest(team=team, assistants=assistants), self.assertRaises(stored_input.StoredInputStoreError):
-                stored_input._validate_assistants(team, assistants, 1)
+                stored_input._POLICY.validate_state({"schema": 1, "teams": {team: assistants}, "last_generation": 1})
 
-        with (
-            mock.patch.object(stored_input, "MAX_STORED_INPUTS_PER_ASSISTANT", 0),
-            self.assertRaises(stored_input.StoredInputStoreError),
-        ):
-            stored_input._validate_assistants("team_1", {"whatsapp": {"token": valid_record}}, 1)
-        with (
-            mock.patch.object(stored_input, "MAX_TOTAL_RECORDS", 0),
-            self.assertRaisesRegex(
-                stored_input.StoredInputStoreError,
-                "record limit",
-            ),
-        ):
-            stored_input._validate_state(
-                {"schema": 1, "teams": {"team_1": {"whatsapp": {"token": valid_record}}}, "last_generation": 1}
-            )
+        one_record = {"schema": 1, "teams": {"team_1": {"whatsapp": {"token": valid_record}}}, "last_generation": 1}
+        stored_input._POLICY.validate_state(one_record)
+        with self.assertRaises(stored_input.StoredInputStoreError):
+            replace(stored_input._POLICY, records_per_assistant=0).validate_state(one_record)
+        with self.assertRaisesRegex(stored_input.StoredInputStoreError, "record limit"):
+            replace(stored_input._POLICY, maximum_records=0).validate_state(one_record)
 
     def test_storage_operational_limits_and_cache_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

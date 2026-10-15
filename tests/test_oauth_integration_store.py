@@ -95,15 +95,15 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             store = open_store(Path(directory))
             put(store)
 
-            validate_state = mock.Mock(wraps=integration_store._validate_state)
-            with mock.patch.object(store, "_policy", replace(store._policy, validate_state=validate_state)):
+            record_generation = mock.Mock(wraps=integration_store._record_generation)
+            with mock.patch.object(store, "_policy", replace(store._policy, record_generation=record_generation)):
                 for _ in range(2):
                     self.assertEqual(
                         resolve(store, lambda *_args: self.fail("unexpired token must not refresh")),
                         ACCESS,
                     )
 
-            self.assertEqual(validate_state.call_count, 1)
+            self.assertEqual(record_generation.call_count, 1)
 
     def test_external_atomic_replacement_invalidates_cached_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -584,7 +584,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
         )
         for state in invalid_states:
             with self.subTest(state=state), self.assertRaises(integration_store.OAuthIntegrationStoreError):
-                integration_store._validate_state(state)
+                integration_store._POLICY.validate_state(state)
 
         with self.assertRaises(integration_store.OAuthIntegrationValidationError):
             integration_store._declarations([])
@@ -693,11 +693,8 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             store = open_store(root)
             store.put("team_1", "assistant", "integration", "cloudflare", SCOPES, tokens())
             state = json.loads(store.state_path.read_text(encoding="utf-8"))
-            with (
-                mock.patch.object(integration_store, "MAX_TOTAL_RECORDS", 0),
-                self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "record limit"),
-            ):
-                integration_store._validate_state(state)
+            with self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "record limit"):
+                replace(integration_store._POLICY, maximum_records=0).validate_state(state)
 
             with self.assertRaisesRegex(integration_store.OAuthIntegrationValidationError, "refresh callback"):
                 store.resolve("team_1", "assistant", "integration", "cloudflare", SCOPES, None)

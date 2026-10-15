@@ -8,7 +8,6 @@ generation through AES-GCM authenticated additional data (AAD).
 
 import json
 import logging
-import re
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -33,7 +32,6 @@ MAX_TOTAL_RECORDS = 4096
 MAX_INTEGRATION_ID_BYTES = 256
 MAX_INTEGRATION_TEXT_BYTES = 512
 REFRESH_WINDOW_SECONDS = 60
-_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
 _STORED_STATUSES = frozenset({"connected", "reauthorization-required"})
 StoredStatus = Literal["connected", "reauthorization-required"]
 IntegrationStatus = Literal[
@@ -279,7 +277,7 @@ def _validate_record(value: object) -> dict[str, object]:
         raise OAuthIntegrationStoreError("OAuth integration state record is malformed")
     _record_metadata(value)
     updated_at = value.get("updated_at")
-    if not isinstance(updated_at, str) or _TIMESTAMP.fullmatch(updated_at) is None:
+    if not isinstance(updated_at, str) or private_state.TIMESTAMP_RE.fullmatch(updated_at) is None:
         raise OAuthIntegrationStoreError("OAuth integration state record is malformed")
     _PRIVATE_STATE.check_identified_envelope(
         value.get("envelope"), MAX_PLAINTEXT_BYTES, "OAuth integration state record is malformed"
@@ -287,39 +285,8 @@ def _validate_record(value: object) -> dict[str, object]:
     return value
 
 
-def _validate_state(value: object) -> dict[str, object]:
-    if not isinstance(value, dict) or set(value) != {"schema", "teams", "last_generation"} or value.get("schema") != 1:
-        raise OAuthIntegrationStoreError("OAuth integration state has an unsupported shape")
-    teams = value.get("teams")
-    if not isinstance(teams, dict):
-        raise OAuthIntegrationStoreError("OAuth integration state is malformed")
-    last_generation = _PRIVATE_STATE.last_generation(value)
-    total = 0
-    for raw_team, raw_assistants in teams.items():
-        try:
-            _team_id(raw_team)
-        except OAuthIntegrationValidationError as exc:
-            raise OAuthIntegrationStoreError("OAuth integration state is malformed") from exc
-        if not isinstance(raw_assistants, dict):
-            raise OAuthIntegrationStoreError("OAuth integration state is malformed")
-        for raw_assistant, raw_integrations in raw_assistants.items():
-            try:
-                _assistant_id(raw_assistant)
-            except OAuthIntegrationValidationError as exc:
-                raise OAuthIntegrationStoreError("OAuth integration state is malformed") from exc
-            if not isinstance(raw_integrations, dict) or len(raw_integrations) > MAX_INTEGRATIONS_PER_ASSISTANT:
-                raise OAuthIntegrationStoreError("OAuth integration state is malformed")
-            for raw_integration, raw_record in raw_integrations.items():
-                try:
-                    _component_id(raw_integration, "integration id")
-                except OAuthIntegrationValidationError as exc:
-                    raise OAuthIntegrationStoreError("OAuth integration state is malformed") from exc
-                if _record_metadata(_validate_record(raw_record))[4] > last_generation:
-                    raise OAuthIntegrationStoreError("OAuth integration state is malformed")
-                total += 1
-                if total > MAX_TOTAL_RECORDS:
-                    raise OAuthIntegrationStoreError("OAuth integration state exceeds its record limit")
-    return value
+def _record_generation(value: object) -> int:
+    return _record_metadata(_validate_record(value))[4]
 
 
 def _aad(
@@ -376,7 +343,8 @@ _POLICY = private_state.RecordPolicy(
     assistant_id=_assistant_id,
     component_id=_component_id,
     decode_state=_strict_json,
-    validate_state=_validate_state,
+    record_generation=_record_generation,
+    maximum_records=MAX_TOTAL_RECORDS,
 )
 
 

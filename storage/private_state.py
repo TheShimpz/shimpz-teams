@@ -87,6 +87,10 @@ def directory_custody_holds(metadata: os.stat_result, *, uid: int | None, gid: i
     )
 
 
+# The exact form ``timestamp`` produces, which every stored record's ``updated_at`` must have.
+TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
+
+
 def timestamp() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -513,7 +517,43 @@ class RecordPolicy:
     assistant_id: Callable[[object], str]
     component_id: Callable[[object, str], str]
     decode_state: Callable[[bytes], object]
-    validate_state: Callable[[object], dict[str, object]]
+    # Admits one stored record and returns its generation.
+    record_generation: Callable[[object], int]
+    maximum_records: int
+
+    def validate_state(self, value: object) -> dict[str, object]:
+        """Admit a whole state file: its shape, every id, every record, its generations, and the record limit.
+
+        The limit is checked at each record, so an oversized file is refused as soon as it passes the limit.
+        """
+        private = self.private
+        if not isinstance(value, dict) or set(value) != {"schema", "teams", "last_generation"} or value["schema"] != 1:
+            raise private.error_class(f"{self.label} state has an unsupported shape")
+        teams = private._teams(value)
+        last_generation = private.last_generation(value)
+        total = 0
+        for raw_team, raw_assistants in teams.items():
+            self._stored_id(self.team_id, raw_team)
+            if not isinstance(raw_assistants, dict):
+                raise private.error_class(private.malformed_state)
+            for raw_assistant, raw_records in raw_assistants.items():
+                self._stored_id(self.assistant_id, raw_assistant)
+                if not isinstance(raw_records, dict) or len(raw_records) > self.records_per_assistant:
+                    raise private.error_class(private.malformed_state)
+                for raw_id, raw_record in raw_records.items():
+                    self._stored_id(lambda record_id: self.component_id(record_id, self.record_label), raw_id)
+                    if self.record_generation(raw_record) > last_generation:
+                        raise private.error_class(private.malformed_state)
+                    total += 1
+                    if total > self.maximum_records:
+                        raise private.error_class(f"{self.label} state exceeds its record limit")
+        return value
+
+    def _stored_id(self, admit: Callable[[object], str], value: object) -> None:
+        try:
+            admit(value)
+        except self.validation_error as exc:
+            raise self.private.error_class(self.private.malformed_state) from exc
 
     def declared_ids(self, value: object) -> tuple[str, ...]:
         """Admit the distinct record ids an Assistant release declares, as a mapping's keys or an iterable."""

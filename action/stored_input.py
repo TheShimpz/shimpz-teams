@@ -1,7 +1,6 @@
 """Encrypted Team custody for persistent Assistant-declared Action inputs."""
 
 import json
-import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,7 +19,6 @@ MAX_VALUE_BYTES = 16 * 1024
 MAX_PLAINTEXT_BYTES = MAX_VALUE_BYTES + 160
 MAX_STORED_INPUTS_PER_ASSISTANT = 8
 MAX_TOTAL_RECORDS = 4096
-_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
 StoredInputStatus = Literal["missing", "stored"]
 
 
@@ -134,7 +132,7 @@ def _validate_record(value: object) -> dict[str, object]:
         raise StoredInputStoreError("Stored Input state record is malformed")
     _record_metadata(value)
     updated_at = value.get("updated_at")
-    if not isinstance(updated_at, str) or _TIMESTAMP.fullmatch(updated_at) is None:
+    if not isinstance(updated_at, str) or private_state.TIMESTAMP_RE.fullmatch(updated_at) is None:
         raise StoredInputStoreError("Stored Input state record is malformed")
     _PRIVATE_STATE.check_identified_envelope(
         value.get("envelope"), MAX_PLAINTEXT_BYTES, "Stored Input state record is malformed"
@@ -142,45 +140,8 @@ def _validate_record(value: object) -> dict[str, object]:
     return value
 
 
-def _validate_state(value: object) -> dict[str, object]:
-    if not isinstance(value, dict) or set(value) != {"schema", "teams", "last_generation"} or value.get("schema") != 1:
-        raise StoredInputStoreError("Stored Input state has an unsupported shape")
-    teams = value.get("teams")
-    if not isinstance(teams, dict):
-        raise StoredInputStoreError("Stored Input state is malformed")
-    last_generation = _PRIVATE_STATE.last_generation(value)
-    total = 0
-    for raw_team, raw_assistants in teams.items():
-        total += _validate_assistants(raw_team, raw_assistants, last_generation)
-        if total > MAX_TOTAL_RECORDS:
-            raise StoredInputStoreError("Stored Input state exceeds its record limit")
-    return value
-
-
-def _validate_assistants(raw_team: object, raw_assistants: object, last_generation: int) -> int:
-    try:
-        _team_id(raw_team)
-    except StoredInputValidationError as exc:
-        raise StoredInputStoreError("Stored Input state is malformed") from exc
-    if not isinstance(raw_assistants, dict):
-        raise StoredInputStoreError("Stored Input state is malformed")
-    count = 0
-    for raw_assistant, raw_records in raw_assistants.items():
-        try:
-            _assistant_id(raw_assistant)
-        except StoredInputValidationError as exc:
-            raise StoredInputStoreError("Stored Input state is malformed") from exc
-        if not isinstance(raw_records, dict) or len(raw_records) > MAX_STORED_INPUTS_PER_ASSISTANT:
-            raise StoredInputStoreError("Stored Input state is malformed")
-        for raw_stored_input, raw_record in raw_records.items():
-            try:
-                _component_id(raw_stored_input, "Stored Input id")
-            except StoredInputValidationError as exc:
-                raise StoredInputStoreError("Stored Input state is malformed") from exc
-            if _record_metadata(_validate_record(raw_record))[1] > last_generation:
-                raise StoredInputStoreError("Stored Input state is malformed")
-            count += 1
-    return count
+def _record_generation(value: object) -> int:
+    return _record_metadata(_validate_record(value))[1]
 
 
 def _aad(
@@ -235,7 +196,8 @@ _POLICY = private_state.RecordPolicy(
     assistant_id=_assistant_id,
     component_id=_component_id,
     decode_state=_strict_json,
-    validate_state=_validate_state,
+    record_generation=_record_generation,
+    maximum_records=MAX_TOTAL_RECORDS,
 )
 
 
