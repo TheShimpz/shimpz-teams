@@ -28,6 +28,7 @@ from local.routine import recorder as local_routine_recorder
 from local.routine import store as routine_store
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import progress as http_progress
+from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_context as http_routine_context
 from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import compose as routine_compose
@@ -204,6 +205,14 @@ class RecordedRoutineTests(LocalContractCase):
         with self.as_person():
             return service.chat("team_1", body or _body(), "openai", "sk-test-0123456789")
 
+    @staticmethod
+    def candidate(service, card: dict[str, object]) -> record.Routine:
+        """The Routine a card proposes, as Team keeps it beside the card the person sees."""
+        (proposal,) = [
+            item for item in service.routine_proposals._cards.values() if item.proposal_id == card["proposal_id"]
+        ]
+        return proposal.routine
+
     def confirm(self, service, proposal_id: str, principal: str = PRINCIPAL) -> dict[str, object]:
         with self.as_person(principal):
             return service.confirm_routine_proposal("team_1", proposal_id)
@@ -235,6 +244,7 @@ class RecordedRoutineTests(LocalContractCase):
             service = self.controller(directory, Recording(_record()))
             response = self.chat(service)
             card = response["routine_proposal"]
+            candidate = self.candidate(service, card)
             self.assertEqual(service.routine_store.load("team_1").routines, ())
             answer = self.confirm(service, card["proposal_id"])
             again = self.confirm(service, card["proposal_id"])
@@ -242,7 +252,7 @@ class RecordedRoutineTests(LocalContractCase):
         self.assertEqual(http_routine_proposal.canonical_proposal(card), card)
         self.assertIsNone(http_routine_proposal.canonical_proposal({**card, "description": None}))
         self.assertEqual(card["description"], _record()["description"])
-        self.assertEqual((card["schedule"], card["timezone_source"]), (CONTINUOUS, "browser"))
+        self.assertEqual((candidate.schedule, candidate.timezone_source), (CONTINUOUS, "browser"))
         zones, records = card["steps"]
         self.assertEqual((zones["action"], records["action"]), ("list-zones", "list-dns-records"))
         zone_id = next(item for item in records["inputs"] if item["member"] == "zone_id")
@@ -317,10 +327,10 @@ class RecordedRoutineTests(LocalContractCase):
             ]
             card = self.chat(service, _body("A cada 30 segundos"))["routine_proposal"]
             span = service.routine_recordings._spans.get("team_1")
+            schedule = self.candidate(service, card).schedule
         self.assertEqual(asked, {"code": "routine-schedule-unstated", "options": [], "value": None})
         self.assertEqual(
-            (card["schedule"], [step["action"] for step in card["steps"]]),
-            (CONTINUOUS, ["list-zones", "list-dns-records"]),
+            (schedule, [step["action"] for step in card["steps"]]), (CONTINUOUS, ["list-zones", "list-dns-records"])
         )
         # The card ended the span.
         self.assertIsNone(span)
@@ -406,12 +416,14 @@ class RecordedRoutineTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
             london = self.chat(service, _body(f"{MESSAGE}\nNo fuso Europe/London"))["routine_proposal"]
+            london_zone = self.candidate(service, london).timezone
             routine_id = self.confirm(service, london["proposal_id"])["routine_id"]
             runtime.calls = False
             runtime.outcomes.append(_record(replaces=routine_id))
             card = self.chat(service, {**_body("Mantenha como está"), "timezone": "Asia/Tokyo"})["routine_proposal"]
-        self.assertEqual(london["timezone"], "Europe/London")
-        self.assertEqual((card["timezone"], card["timezone_source"]), ("Asia/Tokyo", "browser"))
+            tokyo = self.candidate(service, card)
+        self.assertEqual(london_zone, "Europe/London")
+        self.assertEqual((tokyo.timezone, tokyo.timezone_source), ("Asia/Tokyo", "browser"))
 
     def test_a_schedule_answer_reaches_the_brain_which_records_again_saying_how_often(self) -> None:
         original = "Liste os registros DNS de shimpz.com e mostre o resultado"
@@ -422,9 +434,10 @@ class RecordedRoutineTests(LocalContractCase):
             asked = self.chat(service, _body(original))["routine_question"]
             answer = http_payload.compose_clarified(original, "Com que frequência?", "A cada 30 segundos", "pt")
             response = self.chat(service, _body(answer))
+            schedule = self.candidate(service, response["routine_proposal"]).schedule
         self.assertEqual(asked["code"], "routine-schedule-unstated")
         self.assertEqual(len(runtime.contexts), 2)
-        self.assertEqual(response["routine_proposal"]["schedule"], CONTINUOUS)
+        self.assertEqual(schedule, CONTINUOUS)
 
     def test_the_output_is_the_persons_to_state_and_a_composed_answer_states_it_without_the_brain(self) -> None:
         original = "Liste os registros DNS de shimpz.com a cada 30 segundos"
@@ -435,8 +448,9 @@ class RecordedRoutineTests(LocalContractCase):
             choice = http_routine_proposal.OUTPUT_CHOICES["pt"]["changes"]
             answer = http_payload.compose_clarified(original, "O que fazer com o resultado?", choice, "pt")
             card = self.chat(service, _body(answer))["routine_proposal"]
+            output = self.candidate(service, card).plan["output"]["mode"]
         self.assertEqual(asked, {"code": "routine-output-unstated", "options": [], "value": None})
-        self.assertEqual((len(runtime.contexts), card["output"]), (1, {"mode": "changes"}))
+        self.assertEqual((len(runtime.contexts), output), (1, "changes"))
 
     def test_a_chain_answer_reaches_the_brain_which_runs_the_chained_work(self) -> None:
         original = "Liste as zonas de shimpz.com a cada 30 segundos"
@@ -447,10 +461,11 @@ class RecordedRoutineTests(LocalContractCase):
             choice = http_routine_proposal.OUTPUT_CHOICES["pt"]["chain"]
             answer = http_payload.compose_clarified(original, "O que fazer com o resultado?", choice, "pt")
             card = self.chat(service, _body(answer))["routine_proposal"]
+            output = self.candidate(service, card).plan["output"]["mode"]
         self.assertEqual(asked["code"], "routine-output-unstated")
         self.assertEqual(len(runtime.contexts), 2)
         self.assertEqual([step["action"] for step in card["steps"]], ["list-zones", "list-dns-records"])
-        self.assertEqual(card["output"], {"mode": "show"})
+        self.assertEqual(output, "show")
 
     def test_a_freely_typed_send_reaches_the_brain_with_the_pending_question(self) -> None:
         original = "Liste os registros DNS de shimpz.com"
@@ -750,7 +765,6 @@ class RecordedRoutineTests(LocalContractCase):
             denied = answer(service, second, "deny")
         self.assertEqual((paused["status"], paused["request"]["kind"]), ("human-required", "auth:password"))
         self.assertEqual([step["read_only"] for step in card["steps"]], [True, False])
-        self.assertIn({"assistant": ASSISTANT, "action": "list-dns-records", "read_only": False}, card["permitted"])
         self.assertEqual(created["status"], "created")
         # Nothing changes in a run before the person authorizes it again; the authorized change runs exactly once.
         self.assertEqual((frozen["status"], waiting, recorded), ("frozen", 1, 1))
@@ -788,25 +802,24 @@ class RecordedRoutineTests(LocalContractCase):
         unzoned = {**_body(), "timezone": None}
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
-            card = self.chat(service, unzoned)["routine_proposal"]
-        self.assertEqual((card["timezone"], card["timezone_source"]), ("UTC", "none"))
+            unzoned = self.candidate(service, self.chat(service, unzoned)["routine_proposal"])
+        self.assertEqual((unzoned.timezone, unzoned.timezone_source), ("UTC", "none"))
         daily = {**_body("DNS de shimpz.com todo dia às 9h, mostrar sempre"), "timezone": None}
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
-            card = self.chat(service, daily)["routine_proposal"]
-        self.assertEqual(
-            (card["schedule"]["kind"], card["timezone"], card["timezone_source"]), ("daily", "UTC", "none")
-        )
+            daily = self.candidate(service, self.chat(service, daily)["routine_proposal"])
+        self.assertEqual((daily.schedule["kind"], daily.timezone, daily.timezone_source), ("daily", "UTC", "none"))
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
             card = self.chat(service, _body(f"{MESSAGE}\nNo fuso Europe/Lisbon"))["routine_proposal"]
-        self.assertEqual((card["timezone"], card["timezone_source"]), ("Europe/Lisbon", "person"))
+            lisbon = self.candidate(service, card)
+        self.assertEqual((lisbon.timezone, lisbon.timezone_source), ("Europe/Lisbon", "person"))
 
     def test_a_stated_interval_is_never_lowered_and_one_over_the_budget_is_asked_about(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, Recording(_record()))
-            card = self.chat(service)["routine_proposal"]
-        self.assertEqual((card["schedule"], card["daily_cap"]), ({"kind": "continuous", "gap": 30}, 2880))
+            schedule = self.candidate(service, self.chat(service)["routine_proposal"]).schedule
+        self.assertEqual((schedule, http_routine.daily_cap(schedule)), ({"kind": "continuous", "gap": 30}, 2880))
         # Two steps every 30 seconds take 5,760 daily steps; with 5,758 left, every 31 seconds is the shortest fit.
         with mock.patch.object(routine_definition, "capacity", return_value=2 * 2879):
             asked = self.question(Recording(_record()))

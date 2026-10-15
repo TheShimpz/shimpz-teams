@@ -216,7 +216,7 @@ The Team→Brain Routine forms of a recording chat are defined here too, so the 
 them (ADR-0101). `routine_context.canonical_routine_listings` admits the Team's Routine listing: at most
 `routine.MAX_ROUTINES` entries, no Routine twice, each `routine_context.canonical_routine_listing` `{routine_id, name, schedule,
 timezone, timezone_source, revision, daily_steps, output, steps}`, where `daily_steps` is 1 to
-`routine_context.MAX_LISTED_DAILY_STEPS`, `output` is `{mode, when}` as on the card, and each of at most 256 steps is `{id,
+`routine_context.MAX_LISTED_DAILY_STEPS`, `output` is `{mode}` (a shown mode shows the last step), and each of at most 256 steps is `{id,
 assistant, action, inputs}` with its plan id (`routine_context.ROUTINE_STEP_ID_RE`) and at most 64 sorted input member names,
 never a value. The pending question the Brain sees is `routine_proposal.canonical_question`, exactly as the reply carried it.
 `routine_context.canonical_rerun` admits the work a pending unsourced or rerun question asks the Brain to repeat: 1 to
@@ -228,12 +228,11 @@ and whether it is a target the person chose; a `clock` input is the run's date; 
 and names the `{assistant, action}` whose earlier result held it, or `null`. Team sends no such work past these
 bounds. `routine_mode`, whether the chat is about a Routine, is a plain advisory boolean. `routine_proposal` is
 the Routine's confirmation card (`routine_proposal.canonical_proposal`), at most 160 KiB, which Team checks against the whole
-terminal line bound before publishing: `{proposal_id, expires_at, replaces, name, schedule, timezone, timezone_source,
-next_runs, daily_cap, output, steps, permitted}`. `replaces` is `null` for a new Routine or the id
-of the Routine it changes; `timezone_source` is `browser`, `person` (a zone the person wrote), or `none` (`routine.zoned`:
-the Routine then runs on `UTC` by convention, its run date included, which is never a claim about the person); `next_runs` holds one to three instants;
-`daily_cap` is exactly `routine.daily_cap` of the schedule; `output` is `{mode}`, and a shown mode shows the last
-step. Each step is `{position,
+terminal line bound before publishing: exactly `{proposal_id, expires_at, replaces, name, description, steps}` (ADR-0101
+amendment, 2026-10-15). `replaces` is `null` for a new Routine or the id of the Routine it changes; `description` is the
+recording agent's one plain paragraph, which states how often the Routine runs exactly as Team read it from the person
+and what is done with each run's result; the schedule, zone, output, and permitted Actions are Team's own, bound by the
+confirmation, never carried on the card. Each step is `{position,
 assistant, action, read_only, inputs}`, and each input `{member, origin, value, step, pointer, where, item}` names
 exactly where its value comes from: `request` (named in the person's request) or `assistant` (chosen by the assistant,
 the same on every run), each with the literal's complete JSON text escaped (never cut); `clock`, the date of each run
@@ -242,8 +241,7 @@ reads it, escaped: every literal brace doubled and each date in braces as its fo
 language and its offset in days, such as `{D month YYYY|pt}` or `{DD/MM/YYYY|+6}`);
 `step`, an earlier step's position and RFC 6901 pointer; or `selector`, the same through the one array item whose
 `where` member (`{member, value_json}`, the constant's JSON text as `routine.where_text` escapes it) matches, then that
-item's own pointer. `permitted` lists every Action the Routine may call, each once in identity order with whether its
-reviewed effect is read-only. A Supervisor answers the card once: `POST /v1/teams/:team_id/routines/proposals/:proposal_id` with `{}`
+item's own pointer. A Supervisor answers the card once: `POST /v1/teams/:team_id/routines/proposals/:proposal_id` with `{}`
 (Criar rotina) creates or changes the Routine, and `DELETE` on the same path (Cancelar) revokes the card; both answer
 `routine_proposal.canonical_proposal_answer`, `{team_id, proposal_id, routine_id, status}` with status `created`, `changed`, or
 `revoked` (whose `routine_id` is `null`). A revoked or already-consumed card is answered as such, never twice applied.
@@ -288,7 +286,8 @@ confirms its card (ADR-0101). Its notice then has the Routine outcome `created` 
 (`routine.canonical_name`, 1 to 80 NFC printable characters on one line), its revision's summary, its output
 disposition (`routine.canonical_disposition`: `{mode, step}`, where `mode` is `show`, `changes`, or `none`, and `step`
 is the 1-based position of the shown step for `show` and `changes`), its schedule, zone, and the zone's source
-(`routine.zoned`, as on the card), and its standing scope: its `state` (`active` or `paused`) and its permitted Actions
+(`routine.zoned`: `browser`, `person`, a zone the person wrote, or `none`, when the Routine runs on `UTC` by convention,
+its run date included, which is never a claim about the person), and its standing scope: its `state` (`active` or `paused`) and its permitted Actions
 as `{total, changes}` (`routine.canonical_permitted`, 1 to `routine.MAX_PERMITTED`). A plan holds 1 to 256 steps; on the
 wire a step is always named by its position, never by its internal id. The summary
 (`routine.canonical_summary`) is `{revision, plan_digest, steps, actions, more}`: the step count and the Actions as runs

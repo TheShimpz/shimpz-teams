@@ -496,7 +496,6 @@ class CardTests(unittest.TestCase):
             },
         )
         self.assertEqual((zone["origin"], zone["step"], zone["pointer"], zone["where"]), ("step", 1, "/zone", None))
-        self.assertEqual(len(view["next_runs"]), http_routine_proposal.MAX_NEXT_RUNS)
         self.assertEqual(http_routine_proposal.canonical_proposal(view), view)
 
 

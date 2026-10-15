@@ -13,12 +13,12 @@ else:  # The protocol verifier runs every module of this directory flat.
     import routine
 
 
-# The confirmation card of a recorded Routine (ADR-0101 section 5.2): every literal complete and escaped, every source
-# and selector described completely, the schedule, the output, and every permitted Action. It is the one thing a
-# person confirms, so nothing in it is paged or cut; a recording whose card does not fit is refused.
+# The confirmation card of a recorded Routine (ADR-0101 section 5.2, amended 2026-10-15): the recording agent's
+# description, which states the schedule and the output in the person's own words, and every step with its effect and
+# every literal complete and escaped, every source and selector described completely. It is the one thing a person
+# confirms, so nothing in it is paged or cut; a recording whose card does not fit is refused.
 MAX_PROPOSAL_BYTES = 160 * 1024
 INPUT_ORIGINS = ("request", "assistant", "clock", "step", "selector")
-MAX_NEXT_RUNS = 3
 _PROPOSAL_INPUT_FIELDS = frozenset({"member", "origin", "value", "step", "pointer", "where", "item"})
 
 
@@ -60,33 +60,8 @@ def _card_step(value: object, position: int) -> bool:
     )
 
 
-def _card_permitted(value: object) -> bool:
-    """Every permitted Action, each once, in identity order, with whether its reviewed effect is read-only."""
-    if not isinstance(value, list) or len(value) > routine.MAX_PERMITTED:
-        return False
-    if not all(
-        isinstance(item, dict)
-        and set(item) == {"assistant", "action", "read_only"}
-        and routine._assistant(item["assistant"])
-        and routine._action(item["action"])
-        and type(item["read_only"]) is bool
-        for item in value
-    ):
-        return False
-    identities = [(item["assistant"], item["action"]) for item in value]
-    return identities == sorted(set(identities))
-
-
-def _permits_exactly(permitted: list[dict[str, object]], steps: list[dict[str, object]]) -> bool:
-    """The permitted Actions are exactly the steps' Actions, each with the same reviewed effect as its steps."""
-    effects = {(item["assistant"], item["action"]): item["read_only"] for item in permitted}
-    return set(effects) == {(step["assistant"], step["action"]) for step in steps} and all(
-        effects[(step["assistant"], step["action"])] == step["read_only"] for step in steps
-    )
-
-
 def _card_output(value: object, total: int) -> bool:
-    """The card's output: its mode; a shown mode shows the last step."""
+    """A listed Routine's output: its mode; a shown mode shows the last step."""
     if not isinstance(value, dict) or set(value) != {"mode"}:
         return False
     shown = total if value["mode"] in routine.SHOWN_MODES else None
@@ -95,18 +70,10 @@ def _card_output(value: object, total: int) -> bool:
 
 def canonical_proposal(value: object) -> dict[str, object] | None:
     """One recorded Routine's confirmation card, within its byte bound."""
-    fields = {"proposal_id", "expires_at", "replaces", "name", "description", "schedule", "timezone", "timezone_source"}
-    fields |= {"next_runs"}
-    rest = {"daily_cap", "output", "steps", "permitted"}
-    if not isinstance(value, dict) or set(value) != fields | rest:
+    fields = {"proposal_id", "expires_at", "replaces", "name", "description", "steps"}
+    if not isinstance(value, dict) or set(value) != fields:
         return None
-    steps, runs = value["steps"], value["next_runs"]
-    if (
-        not isinstance(steps, list)
-        or len(steps) > routine.MAX_ROUTINE_STEPS
-        or not _card_output(value["output"], len(steps))
-    ):
-        return None
+    steps = value["steps"]
     valid = (
         routine._identity(value["proposal_id"], routine.ROUTINE_ID_RE)
         and routine_notice._instant(value["expires_at"])
@@ -114,17 +81,9 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
         and routine.canonical_name(value["name"]) == value["name"]
         and routine.canonical_description(value["description"]) is not None
         and routine.canonical_description(value["description"]) == value["description"]
-        and routine.canonical_schedule(value["schedule"]) == value["schedule"]
-        and routine.zoned(value["timezone"], value["timezone_source"])
-        and isinstance(runs, list)
-        and 1 <= len(runs) <= MAX_NEXT_RUNS
-        and all(routine_notice._instant(item) for item in runs)
-        and runs == sorted(runs)
-        and type(value["daily_cap"]) is int
-        and value["daily_cap"] == routine.daily_cap(value["schedule"])
+        and isinstance(steps, list)
+        and 0 < len(steps) <= routine.MAX_ROUTINE_STEPS
         and all(_card_step(item, index) for index, item in enumerate(steps, start=1))
-        and _card_permitted(value["permitted"])
-        and _permits_exactly(value["permitted"], steps)
         and routine.encoded_bytes(value) <= MAX_PROPOSAL_BYTES
     )
     return copy.deepcopy(value) if valid else None

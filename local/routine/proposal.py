@@ -3,9 +3,9 @@
 When a recording turn ends with the chat agent's ``record`` call, Team builds the plan from its own trace of that turn
 (``routine/recording.py``), admits it against the Team's exact current contracts and budgets, and keeps a proposal in
 memory, one per Team and person, for 15 minutes: the candidate definition, the Team incarnation and person it is bound
-to, and the confirmation card the reply carries, which shows every literal complete, every source and selector, the
-schedule, the output, and every permitted Action. A recording that cannot become a Routine answers a refusal code
-instead; the work the turn already did stands.
+to, and the confirmation card the reply carries, which shows the description of the work, every step and whether it
+changes something, every literal complete, and every source and selector. A recording that cannot become a Routine
+answers a refusal code instead; the work the turn already did stands.
 
 Only an authenticated Local Supervisor session confirms or cancels a card. Confirming consumes it first, then rechecks
 the person, the incarnation, every pin, the budgets, and a replaced Routine's revision, and commits the Routine with its
@@ -332,21 +332,14 @@ def _card_input(member: str, source: dict[str, object], origin: str, positions: 
     }
 
 
-def _next_runs(value: record.Routine) -> list[str]:
-    """When the Routine would first run, and for a fixed schedule the two firings after."""
-    runs = [value.next_run_at]
-    while len(runs) < http_routine_proposal.MAX_NEXT_RUNS and not record.continuous(value):
-        runs.append(record.next_after(value, runs[-1]))
-    return [record.instant_text(int(item)) for item in runs]
-
-
 def card(
     proposal_id: str, candidate: record.Routine, recorded, framing: tuple[str | None, bool, int], description: str
 ) -> dict:
-    """The confirmation card: every step, every input's complete value or source, the schedule, and the scope.
+    """The confirmation card: the description, and every step with its effect and each input's complete value or source.
 
-    Its description is the recording agent's plain-language account of the work, shown as the card's body; the facts
-    beside it are Team's own, so a description can never stand in for them.
+    Its description is the recording agent's plain-language account of the work, shown as the card's body, which states
+    the schedule and the output exactly as Team read them from the person (ADR-0101 amendment, 2026-10-15); the steps
+    beside it are Team's own, so a description can never stand in for them. The confirmation binds the whole candidate.
     """
     replaces, expires_at = framing
     document = candidate.plan
@@ -371,17 +364,7 @@ def card(
         "replaces": replaces,
         "name": candidate.name,
         "description": description,
-        "schedule": dict(candidate.schedule),
-        "timezone": candidate.timezone,
-        "timezone_source": candidate.timezone_source,
-        "next_runs": _next_runs(candidate),
-        "daily_cap": http_routine.daily_cap(candidate.schedule),
-        "output": {"mode": document["output"]["mode"]},
         "steps": steps,
-        "permitted": [
-            {"assistant": item["assistant"], "action": item["action"], "read_only": item["read_only"]}
-            for item in candidate.permitted
-        ],
     }
 
 

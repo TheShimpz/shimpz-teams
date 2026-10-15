@@ -23,9 +23,7 @@ class RoutineProtocolEdgeTests(unittest.TestCase):
         self.assertFalse(routine_proposal._card_input([], 1))
         self.assertFalse(routine_proposal._card_input({**CARD["steps"][1]["inputs"][0], "origin": "guess"}, 2))
         self.assertFalse(routine_proposal._card_input({**CARD["steps"][1]["inputs"][0], "member": "a\u2028b"}, 2))
-        self.assertFalse(routine_proposal._card_permitted({}))
-        self.assertFalse(routine_proposal._card_permitted([CARD["permitted"][0]] * (routine.MAX_PERMITTED + 1)))
-        self.assertFalse(routine_proposal._card_permitted([{**CARD["permitted"][0], "read_only": 1}]))
+        self.assertIsNone(routine_proposal.canonical_proposal({**CARD, "steps": []}))
 
     def test_a_request_identity_changes_a_routine_only_while_fresh(self) -> None:
         now = 2_000_000_000
