@@ -902,25 +902,6 @@ class ActionJournal:
             self._forget_generation(safe_generation)
         return ended
 
-    def end_settled_batch(self, generation: str, fingerprint: str) -> bool:
-        """End one exact open batch whose paused turn was cancelled, unless one of its operations may have acted.
-
-        False when that batch is absent, replaced, already ended, or archived; a newer batch of the generation stays.
-        """
-        safe_generation = _safe_id(generation, "generation")
-        fingerprint = _fingerprint(fingerprint)
-        with self._writing("paused Action batch could not be ended"):
-            operations = self._connection.execute(
-                """SELECT o.state FROM batches AS b
-                   JOIN operations AS o ON o.generation = b.generation
-                   WHERE b.generation = ? AND b.fingerprint = ? AND b.state = 'open'""",
-                (safe_generation, fingerprint),
-            ).fetchall()
-            ended = bool(operations) and self._end_settled(safe_generation, (row[0] for row in operations))
-        if ended:
-            self._forget_generation(safe_generation)
-        return ended
-
     def _end_settled(self, generation: str, states: Iterable[object]) -> bool:
         if "executing" in states:
             return False
