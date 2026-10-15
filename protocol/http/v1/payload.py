@@ -911,7 +911,6 @@ def project_storage_response(
     *,
     kind: str,
     expected_team_id: str,
-    expected_file_id: str | None = None,
     include_team_id: bool,
 ) -> dict[str, object] | None:
     if not isinstance(value, dict) or value.get("team_id") != expected_team_id:
@@ -935,18 +934,6 @@ def project_storage_response(
             if usage is not None and len(files) == len(ids) and len(ids) == len(set(ids))
             else None
         )
-    elif kind == "delete":
-        file_id = canonical_file_id(value.get("id"))
-        deleted = value.get("deleted")
-        usage = project_storage_usage(value)
-        if (
-            file_id is None
-            or (expected_file_id is not None and file_id != expected_file_id)
-            or not isinstance(deleted, bool)
-            or usage is None
-        ):
-            return None
-        projected = {"id": file_id, "deleted": deleted, **usage}
     else:
         return None
     if projected is None:

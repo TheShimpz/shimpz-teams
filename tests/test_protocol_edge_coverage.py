@@ -85,16 +85,6 @@ class PayloadEdgeCoverageTests(unittest.TestCase):
         )
         self.assertEqual(len(projected_list["files"]), 1)
 
-        deleted = {"team_id": "team", "id": "a" * 32, "deleted": True, **usage}
-        projected_delete = payload.project_storage_response(
-            deleted,
-            kind="delete",
-            expected_team_id="team",
-            expected_file_id="a" * 32,
-            include_team_id=False,
-        )
-        self.assertEqual(projected_delete["deleted"], True)
-
     def test_scalar_validators_and_filename_edges(self) -> None:
         self.assertIsNone(payload.canonical_source_digest(None))
         self.assertIsNone(payload.canonical_team_name("bad\nname"))
@@ -125,21 +115,14 @@ class PayloadEdgeCoverageTests(unittest.TestCase):
 
     def test_storage_response_rejects_each_invalid_shape(self) -> None:
         cases = (
-            (None, "list", None),
-            ({"team_id": "team", "file": None}, "upload", None),
-            ({"team_id": "team", "files": None}, "list", None),
-            ({"team_id": "team", "id": "a" * 32, "deleted": True}, "delete", None),
-            ({"team_id": "team"}, "unknown", None),
+            (None, "list"),
+            ({"team_id": "team", "file": None}, "upload"),
+            ({"team_id": "team", "files": None}, "list"),
+            ({"team_id": "team"}, "unknown"),
         )
-        for value, kind, file_id in cases:
+        for value, kind in cases:
             self.assertIsNone(
-                payload.project_storage_response(
-                    value,
-                    kind=kind,
-                    expected_team_id="team",
-                    expected_file_id=file_id,
-                    include_team_id=False,
-                )
+                payload.project_storage_response(value, kind=kind, expected_team_id="team", include_team_id=False)
             )
 
 
