@@ -33,7 +33,7 @@ import local_controller_docker_fixture as flow_fixture
 from test_local_controller_docker import DockerFlowTests
 
 from perf.brain_peer import CHAT_REPLY, OBJECTIVE, RESPONSE, SELECTED_ASSISTANT_ID, BrainPeer
-from perf.local_snapshot_inventory import _percentiles
+from perf.percentiles import nearest_rank
 
 SAMPLES = 12
 HOST_LIST_SAMPLES = 24
@@ -326,7 +326,7 @@ def _measure_chat(flow: flow_fixture.DockerFlow, *, selected: bool = False) -> d
             for name, value in _sample_chat(flow, delay, selected=selected).items():
                 samples[delay][name].append(value)
     return {
-        str(delay): {name: _percentiles(values) for name, values in samples[delay].items()} for delay in PEER_DELAYS_MS
+        str(delay): {name: nearest_rank(values) for name, values in samples[delay].items()} for delay in PEER_DELAYS_MS
     }
 
 
@@ -423,7 +423,7 @@ def _chat_span_summary(
     samples = [_chat_span_sample(record, installed) for record in selected[warmups:]]
     names = samples[0]
     return {
-        name: _percentiles([sample[name] for sample in samples])
+        name: nearest_rank([sample[name] for sample in samples])
         if not name.endswith("_calls")
         else {"min": min(sample[name] for sample in samples), "max": max(sample[name] for sample in samples)}
         for name in names
@@ -476,8 +476,8 @@ def _host_list_probe(flow: flow_fixture.DockerFlow, installed: bool) -> dict[str
         return {
             "matched": expected,
             "host_containers": before_count,
-            "raw": _percentiles(samples["raw"]),
-            "full": _percentiles(samples["full"]),
+            "raw": nearest_rank(samples["raw"]),
+            "full": nearest_rank(samples["full"]),
         }
     except DockerException as exc:
         raise MeasurementError("host Docker list probe failed") from exc
@@ -633,7 +633,7 @@ def _inventory_span_summary(records: list[dict[str, object]], installed: bool) -
     return {
         name: {"min": min(sample[name] for sample in samples), "max": max(sample[name] for sample in samples)}
         if name.endswith("_calls")
-        else _percentiles([sample[name] for sample in samples])
+        else nearest_rank([sample[name] for sample in samples])
         for name in samples[0]
     }
 
@@ -689,7 +689,7 @@ def _measure_inventory_route_block(
             samples.append(elapsed)
     if _host_container_count(runner) != host_containers:
         raise MeasurementError("host Docker container count changed during inventory route samples")
-    result: dict[str, object] = {"client_http_ms": _percentiles(samples), "host_containers": host_containers}
+    result: dict[str, object] = {"client_http_ms": nearest_rank(samples), "host_containers": host_containers}
     if spans:
         result["spans"] = _inventory_span_summary(_inventory_span_records(runner, flow)[before:], installed)
     return result
@@ -729,7 +729,7 @@ def _measure(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> dict[str
             values["peer_ms"].append(peer)
             values["residual_ms"].append(total - peer)
     return {
-        str(delay): {name: _percentiles(values) for name, values in samples[delay].items()} for delay in PEER_DELAYS_MS
+        str(delay): {name: nearest_rank(values) for name, values in samples[delay].items()} for delay in PEER_DELAYS_MS
     }
 
 
@@ -750,7 +750,7 @@ def _measure_team_create(runner: DockerFlowTests, flow: flow_fixture.DockerFlow)
         status, body = runner._api(flow.port, flow.token, "DELETE", f"/v1/teams/{team_id}")
         if status != 200 or not isinstance(body.get("residue_absent"), list):
             raise MeasurementError("measured Team cleanup failed")
-    return {name: _percentiles(values) for name, values in samples.items()}
+    return {name: nearest_rank(values) for name, values in samples.items()}
 
 
 def _sample_team_list(runner: DockerFlowTests, flow: flow_fixture.DockerFlow, expected: dict[str, str]) -> float:
@@ -777,7 +777,7 @@ def _measure_team_list(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -
             expected[team_id] = "List Team"
         for _ in range(2):
             _sample_team_list(runner, flow, expected)
-        results[str(count)] = _percentiles(
+        results[str(count)] = nearest_rank(
             [_sample_team_list(runner, flow, expected) for _ in range(TEAM_LIST_SAMPLES)]
         )
     for team_id in sorted(expected.keys() - {"demo_team"}):

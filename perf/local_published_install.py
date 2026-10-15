@@ -24,7 +24,6 @@ sys.path.insert(0, str(TEAM / "tests"))
 from local_controller_docker_fixture import DockerFlow
 from test_local_controller_docker import DockerFlowTests
 
-from perf.local_snapshot_inventory import _percentiles
 from perf.local_team_http import (
     TEAM_CPUS,
     TEAM_MEMORY_MIB,
@@ -32,6 +31,7 @@ from perf.local_team_http import (
     _bounded_controller_run,
     run_owned_flow,
 )
+from perf.percentiles import nearest_rank
 
 SPAN_PREFIX = "SHIMPZ-PERF-"
 SPAN_NAMES = frozenset(
@@ -251,14 +251,14 @@ def _attach_phase_spans(runner: DockerFlowTests, flow: DockerFlow, observations:
 def _phase_summary(arm: list[dict[str, object]], operation: str) -> dict[str, object]:
     phases = [item[f"{operation}_phases"] for item in arm]
     timing = {
-        key: _percentiles([float(phase[key]) for phase in phases])
+        key: nearest_rank([float(phase[key]) for phase in phases])
         for key in ("controller_ms", "transport_ms", "unattributed_ms")
     }
     names = sorted({name for phase in phases for name in phase["spans_exclusive_ms"]})
     exclusive = {
         name: {
             "calls": sum(phase["span_calls"].get(name, 0) for phase in phases),
-            **_percentiles(
+            **nearest_rank(
                 [float(phase["spans_exclusive_ms"][name]) for phase in phases if name in phase["spans_exclusive_ms"]]
             ),
         }
@@ -294,7 +294,7 @@ def _measure(runner: DockerFlowTests, flow: DockerFlow, samples: int, *, phase_s
     for cache in ("absent", "prepulled"):
         arm = [item for item in observations if item["cache"] == cache]
         summary[cache] = {
-            key: _percentiles([float(item[key]) for item in arm]) for key in ("install_http_ms", "uninstall_http_ms")
+            key: nearest_rank([float(item[key]) for item in arm]) for key in ("install_http_ms", "uninstall_http_ms")
         }
         if phase_spans:
             for operation in ("install", "uninstall"):

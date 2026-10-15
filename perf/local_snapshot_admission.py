@@ -16,7 +16,8 @@ from docker.errors import DockerException, NotFound
 from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from local.install import snapshots
-from perf.local_snapshot_inventory import _event_count, _percentiles
+from perf.local_snapshot_inventory import event_count
+from perf.percentiles import nearest_rank
 
 SAMPLES = 12
 SIZE_BUCKET_BYTES = 64 * 1024
@@ -188,7 +189,7 @@ def _measure(client: docker.DockerClient):
         for name, elapsed in recorder.spans.items():
             timings[name].append(elapsed)
     image_count_after = len(client.api.images(all=True))
-    events = _event_count(client, started_ns, time.time_ns())
+    events = event_count(client, started_ns, time.time_ns())
     if image_count_before != image_count_after or events != 0:
         raise ConfoundedMeasurementError("Docker image activity changed during admission")
     if any(len(values) != SAMPLES for values in timings.values()):
@@ -203,7 +204,7 @@ def _measure(client: docker.DockerClient):
         "failure_count": 0,
         "size_bucket_width_kib": SIZE_BUCKET_BYTES // 1024,
         "size_bucket_kib": {name: size // 1024 for name, size in sorted(buckets.items())},
-        "spans": {name: _percentiles(values) for name, values in sorted(timings.items())},
+        "spans": {name: nearest_rank(values) for name, values in sorted(timings.items())},
         "scope": "one host Docker staged image; excludes HTTP, Supervisor auth, and Assistant start",
     }
 

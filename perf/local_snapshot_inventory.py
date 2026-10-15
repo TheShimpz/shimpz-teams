@@ -8,7 +8,6 @@ Only timing and counts are printed; no image or Assistant metadata is emitted.
 
 import argparse
 import json
-import math
 import secrets
 import time
 
@@ -16,6 +15,7 @@ import docker
 from docker.errors import DockerException
 
 from local.install import inventory, snapshots
+from perf.percentiles import nearest_rank
 
 SAMPLES = 12
 WARM_GAP_SECONDS = 2
@@ -27,22 +27,13 @@ class ConfoundedMeasurementError(RuntimeError):
     """Image activity or candidate drift invalidated the measurement."""
 
 
-def _percentiles(values: list[float]) -> dict[str, float | int]:
-    ordered = sorted(values)
-    return {
-        "n": len(ordered),
-        "p50_ms": round(ordered[math.ceil(len(ordered) * 0.50) - 1], 2),
-        "p95_ms": round(ordered[math.ceil(len(ordered) * 0.95) - 1], 2),
-    }
-
-
 def _timed(cache: inventory.LocalSnapshotInventory) -> tuple[float, int]:
     started = time.perf_counter_ns()
     listing = cache.listing()
     return (time.perf_counter_ns() - started) / 1_000_000, len(listing.candidates)
 
 
-def _event_count(client: docker.DockerClient, start_ns: int, end_ns: int) -> int:
+def event_count(client: docker.DockerClient, start_ns: int, end_ns: int) -> int:
     stream = client.events(
         since=inventory.docker_timestamp(start_ns),
         until=inventory.docker_timestamp(end_ns),
@@ -106,9 +97,9 @@ def _samples(client: docker.DockerClient, platform: str) -> dict[str, object]:
     return {
         "candidate_count": candidate_counts.pop(),
         "cold_start_ms": round(cold_start_ms, 2),
-        "expired_synthetic": _percentiles(expired_ms),
-        "warm_after_2s": _percentiles(warm_ms),
-        "expired_real_31s": _percentiles(real_expiry_ms),
+        "expired_synthetic": nearest_rank(expired_ms),
+        "warm_after_2s": nearest_rank(warm_ms),
+        "expired_real_31s": nearest_rank(real_expiry_ms),
     }
 
 
@@ -144,7 +135,7 @@ def _filter_samples(client: docker.DockerClient) -> dict[str, object]:
     if counts["absent_key"] != {0} or counts["absent_value"] != {0}:
         raise ConfoundedMeasurementError("a nonmatching filter returned an image")
     return {
-        "filter_arms": {name: {"result_count": counts[name].pop(), **_percentiles(elapsed[name])} for name in names},
+        "filter_arms": {name: {"result_count": counts[name].pop(), **nearest_rank(elapsed[name])} for name in names},
     }
 
 
@@ -159,7 +150,7 @@ def main() -> int:
         image_count_before = len(client.api.images(all=True))
         samples = _filter_samples(client) if args.filter_attribution else _samples(client, platform)
         image_count_after = len(client.api.images(all=True))
-        events = _event_count(client, started_ns, time.time_ns())
+        events = event_count(client, started_ns, time.time_ns())
     except ConfoundedMeasurementError:
         print(json.dumps({"status": "confounded"}))
         return 2
