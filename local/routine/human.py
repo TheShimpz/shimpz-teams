@@ -63,14 +63,14 @@ def _decoded(self, team_id: str, run_id: str) -> local_chat_continuations.Decode
         return local_chat_continuations.decode_parts(
             envelope["kind"], base64.b64decode(envelope["payload"], validate=True), tuple(envelope["bindings"])
         )
-    except (routine_store.RoutineStoreError, local_chat_continuations.ContinuationCodecError) as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE, "Routine run state is unavailable", code="routine-state-unavailable"
-        ) from exc
-    except (ValueError, KeyError, TypeError) as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE, "Routine run state is unavailable", code="routine-state-unavailable"
-        ) from exc
+    except (
+        routine_store.RoutineStoreError,
+        local_chat_continuations.ContinuationCodecError,
+        ValueError,
+        KeyError,
+        TypeError,
+    ) as exc:
+        raise local_errors.routine_state_unavailable() from exc
 
 
 def _not_frozen() -> ApiProblem:

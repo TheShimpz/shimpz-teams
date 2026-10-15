@@ -125,6 +125,7 @@ routine_incident_not_unresolved = _problem(
 )
 routine_card_stale = _problem(_CONFLICT, "the recovery card is stale; open it again", "routine-card-stale")
 routine_deliveries_invalid = _problem(_INVALID, "Routine deliveries are invalid", "invalid-body")
+routine_state_unavailable = _problem(_UNAVAILABLE, "Team Routine state is unavailable", "routine-state-unavailable")
 routine_diagnostics_unavailable = _problem(
     _UNAVAILABLE, "Routine diagnostics are unavailable", "routine-state-unavailable"
 )

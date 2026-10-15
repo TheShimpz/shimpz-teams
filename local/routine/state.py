@@ -1,25 +1,18 @@
 """Reading and changing a Team's Routine state, failing closed with one retryable problem (ADR-0086)."""
 
 from collections.abc import Callable
-from http import HTTPStatus
 
-from local.errors import ApiProblemError as ApiProblem
+from local import errors as local_errors
 from local.routine import store as routine_store
 from routine import record
 from routine import runs as routine_runs
-
-
-def unavailable() -> ApiProblem:
-    return ApiProblem(
-        HTTPStatus.SERVICE_UNAVAILABLE, "Team Routine state is unavailable", code="routine-state-unavailable"
-    )
 
 
 def load(service, team_id: str) -> record.TeamRoutines:
     try:
         return service.routine_store.load(team_id)
     except routine_store.RoutineStoreError as exc:
-        raise unavailable() from exc
+        raise local_errors.routine_state_unavailable() from exc
 
 
 def reconciled[T](
@@ -46,7 +39,7 @@ def update[T](service, team_id: str, change: Callable[[record.TeamRoutines], tup
     try:
         return service.routine_store.update(team_id, reconciled(service, team_id, change))
     except routine_store.RoutineStoreError as exc:
-        raise unavailable() from exc
+        raise local_errors.routine_state_unavailable() from exc
 
 
 def applied(service, team_id: str, transition: Callable[[record.TeamRoutines], record.TeamRoutines]) -> bool:
@@ -66,4 +59,4 @@ def call[T](action: Callable[[], T]) -> T:
     try:
         return action()
     except routine_store.RoutineStoreError as exc:
-        raise unavailable() from exc
+        raise local_errors.routine_state_unavailable() from exc

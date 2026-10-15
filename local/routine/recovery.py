@@ -32,6 +32,7 @@ from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local import audit as local_audit
+from local import errors as local_errors
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import compiled as routine_compiled
@@ -129,14 +130,14 @@ def _seal(self, team_id: str, cursor: routine_cursor.Cursor) -> routine_cursor.C
     try:
         self.routine_store.put_cursor(team_id, cursor)
     except routine_store.RoutineStoreError as exc:
-        raise routine_state.unavailable() from exc
+        raise local_errors.routine_state_unavailable() from exc
     return cursor
 
 
 def _operation_state(self, team_id: str, incident_id: str, operation_id: str | None) -> str | None:
     sealed = routine_state.call(lambda: self.routine_store.incident(team_id, incident_id))
     if sealed is None:
-        raise routine_state.unavailable()
+        raise local_errors.routine_state_unavailable()
     operations = routine_incident.read_evidence(sealed, incident_id)["operations"]
     return next((item[2] for item in operations if isinstance(item, list) and item[1:2] == [operation_id]), None)
 

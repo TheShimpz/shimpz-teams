@@ -244,7 +244,7 @@ def complete_deletion(self, team_id: str, routine_id: str) -> bool:
     try:
         self.routine_diagnostics.delete_routine(team_id, routine_id)
     except routine_diagnostics.DiagnosticStoreError as exc:
-        raise routine_state.unavailable() from exc
+        raise local_errors.routine_state_unavailable() from exc
     now = int(time.time())
 
     def complete(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:

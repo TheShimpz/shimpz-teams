@@ -6,7 +6,6 @@ from action import journal as action_journal
 from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import diagnostics as routine_diagnostics
-from local.routine import state as routine_state
 from local.routine import store as routine_store
 
 
@@ -28,7 +27,7 @@ def _delete_team_routines(self, team_id: str) -> None:
     try:
         state = self.routine_store.load(team_id)
     except routine_store.RoutineStoreError as exc:
-        raise routine_state.unavailable() from exc
+        raise local_errors.routine_state_unavailable() from exc
     # Live runs and the ended runs whose removal is still queued; the state that names them goes only after both.
     held = dict.fromkeys(
         (
@@ -73,7 +72,7 @@ def delete_all_routines(self) -> None:
         try:
             teams = self.routine_store.teams()
         except routine_store.RoutineStoreError as exc:
-            raise routine_state.unavailable() from exc
+            raise local_errors.routine_state_unavailable() from exc
         for team_id in teams:
             _delete_team_routines(self, team_id)
         try:

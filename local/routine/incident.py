@@ -80,14 +80,14 @@ def read_recovery(value: object, run_id: str) -> Recovery:
         try:
             value = strict_json.loads(value)
         except (UnicodeDecodeError, ValueError) as exc:
-            raise routine_state.unavailable() from exc
+            raise local_errors.routine_state_unavailable() from exc
         if not isinstance(value, dict) or value.pop("version", None) != VERSION:
-            raise routine_state.unavailable()
+            raise local_errors.routine_state_unavailable()
     if not isinstance(value, dict) or set(value) != {"binding", "name", "plan"}:
-        raise routine_state.unavailable()
+        raise local_errors.routine_state_unavailable()
     binding = value["binding"]
     if not isinstance(binding, list) or len(binding) != 4:
-        raise routine_state.unavailable()
+        raise local_errors.routine_state_unavailable()
     snapshot = Recovery(routine_cursor.Binding(*binding), value["name"], value["plan"])
     if (
         not routine_cursor.binding_valid(snapshot.binding)
@@ -95,7 +95,7 @@ def read_recovery(value: object, run_id: str) -> Recovery:
         or http_routine.canonical_name(snapshot.name) != snapshot.name
         or not isinstance(snapshot.plan, dict)
     ):
-        raise routine_state.unavailable()
+        raise local_errors.routine_state_unavailable()
     return snapshot
 
 
@@ -135,19 +135,19 @@ def read_evidence(payload: bytes, incident_id: str) -> dict[str, object]:
     try:
         value = strict_json.loads(payload)
     except (UnicodeDecodeError, ValueError) as exc:
-        raise routine_state.unavailable() from exc
+        raise local_errors.routine_state_unavailable() from exc
     fields = {"version", "incident_id", "routine_id", "generation", "fingerprint", "operations", "recovery"}
     if not isinstance(value, dict) or set(value) != fields or value["version"] != VERSION:
-        raise routine_state.unavailable()
+        raise local_errors.routine_state_unavailable()
     if value["incident_id"] != incident_id or not isinstance(value["operations"], list):
-        raise routine_state.unavailable()
+        raise local_errors.routine_state_unavailable()
     if value["recovery"] is not None:
         snapshot = read_recovery(value["recovery"], incident_id)
         if (
             snapshot.binding.routine_id != value["routine_id"]
             or routine_claim.network_of(value["generation"], incident_id) != snapshot.binding.incarnation
         ):
-            raise routine_state.unavailable()
+            raise local_errors.routine_state_unavailable()
         value["recovery"] = snapshot
     return value
 
@@ -162,7 +162,7 @@ def _snapshot(self, team_id: str, value: record.Run) -> Recovery | None:
         snapshot.binding.routine_id != value.routine_id
         or routine_claim.network_of(value.generation, value.run_id) != snapshot.binding.incarnation
     ):
-        raise routine_state.unavailable()
+        raise local_errors.routine_state_unavailable()
     return snapshot
 
 
@@ -189,7 +189,7 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
         if sealed is None:
             if current is not None and current[1] == "archived":
                 # Archiving happens only after the evidence is durable, so this is lost evidence: never guess it.
-                raise routine_state.unavailable()
+                raise local_errors.routine_state_unavailable()
             operations = () if current is None else self.action_state.snapshot(value.generation, current[0])
             snapshot = _snapshot(self, team_id, value)
             sealed = evidence(run_id, value, None if current is None else current[0], operations, snapshot)
@@ -197,7 +197,7 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
         held = read_evidence(sealed, run_id)
         fingerprint = held["fingerprint"]
         if current is not None and current[0] != fingerprint:
-            raise routine_state.unavailable()
+            raise local_errors.routine_state_unavailable()
         if fingerprint is not None:
             self.action_state.archive(value.generation, fingerprint)
     except action_journal.ActionJournalError as exc:
@@ -366,20 +366,20 @@ def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:
     indexed = unresolved(self, team_id, incident_id)
     sealed = routine_state.call(lambda: self.routine_store.incident(team_id, incident_id))
     if sealed is None:
-        raise routine_state.unavailable()
+        raise local_errors.routine_state_unavailable()
     snapshot = read_evidence(sealed, incident_id)["recovery"]
     if snapshot is None:
         raise ApiProblem(
             HTTPStatus.CONFLICT, "Routine incident cannot be verified", code="routine-incident-unverifiable"
         )
     if (snapshot.binding.routine_id, snapshot.binding.revision) != (indexed.routine_id, indexed.revision):
-        raise routine_state.unavailable()
+        raise local_errors.routine_state_unavailable()
     try:
         cursor = self.routine_store.cursor(team_id, snapshot.binding)
     except routine_store.RoutineStoreError as exc:
-        raise routine_state.unavailable() from exc
+        raise local_errors.routine_state_unavailable() from exc
     if cursor is None or cursor.plan != snapshot.plan_digest:
-        raise routine_state.unavailable()
+        raise local_errors.routine_state_unavailable()
     return OpenedRecovery(snapshot, cursor)
 
 
