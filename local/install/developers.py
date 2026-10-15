@@ -6,13 +6,12 @@ import json
 import ssl
 from typing import Any
 
+from install import artifact_trust
 from install.contract import ContractValidationError, ContractValidator
 from protocol.http.v1 import payload as http_payload
 
 _HOST = "developers.shimpz.com"
 _PORT = 443
-_RELEASE_PROXY_HOST = "shimpz-assistant-release"
-_RELEASE_PROXY_PORT = 8888
 _TIMEOUT_SECONDS = 10
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _TLS_CONTEXT = ssl.create_default_context(cafile="/etc/ssl/certs/ca-certificates.crt")
@@ -68,8 +67,8 @@ class DevelopersClient:
     @staticmethod
     def _request(path: str, *, accept: str = "application/json") -> tuple[int, bytes]:
         connection = http.client.HTTPSConnection(
-            _RELEASE_PROXY_HOST,
-            _RELEASE_PROXY_PORT,
+            artifact_trust.RELEASE_PROXY_HOST,
+            artifact_trust.RELEASE_PROXY_PORT,
             timeout=_TIMEOUT_SECONDS,
             context=_TLS_CONTEXT,
         )

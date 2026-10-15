@@ -24,9 +24,9 @@ OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 _REGISTRY_HOST = "ghcr.io"
 _TRUST_NAME = "theshimpz/shimpz-assistant-trust"
 TRUST_REPOSITORY = f"{_REGISTRY_HOST}/{_TRUST_NAME}"
-_RELEASE_PROXY_HOST = "shimpz-assistant-release"
-_RELEASE_PROXY_PORT = 8888
-RELEASE_PROXY_URL = f"http://{_RELEASE_PROXY_HOST}:{_RELEASE_PROXY_PORT}"
+RELEASE_PROXY_HOST = "shimpz-assistant-release"
+RELEASE_PROXY_PORT = 8888
+RELEASE_PROXY_URL = f"http://{RELEASE_PROXY_HOST}:{RELEASE_PROXY_PORT}"
 SIGNATURE_PREDICATE = "https://sigstore.dev/cosign/sign/v1"
 PROVENANCE_PREDICATE = "https://slsa.dev/provenance/v1"
 _BUNDLE_ARTIFACT_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json"
@@ -267,8 +267,8 @@ def _registry_read(path: str, *, accept: str, token: str | None = None, digest: 
 
 def _tunnelled_get(host: str, path: str, headers: dict[str, str]) -> tuple[int, str | None, bytes]:
     connection = http.client.HTTPSConnection(
-        _RELEASE_PROXY_HOST,
-        _RELEASE_PROXY_PORT,
+        RELEASE_PROXY_HOST,
+        RELEASE_PROXY_PORT,
         timeout=_REGISTRY_TIMEOUT_SECONDS,
         context=_TLS_CONTEXT,
     )
