@@ -94,7 +94,6 @@ from local.routine import protection as local_routine_protection
 from local.routine import recorder as local_routine_recorder
 from local.routine import store as local_routine_store
 from local.routine import watchdog as local_routine_watchdog
-from local.validation import brain_thread_id as _local_brain_thread_id
 from local.validation import (
     half_cpu_set,
     validate_space_id,
@@ -106,7 +105,6 @@ from storage import files as team_storage
 
 IMAGE_LABEL = _LOCAL_IMAGE_LABEL
 ASSISTANT_LABEL = local_labels.ASSISTANT_LABEL
-_brain_thread_id = _local_brain_thread_id
 
 log = logging.getLogger("shimpz-team-local")
 

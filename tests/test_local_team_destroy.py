@@ -13,6 +13,7 @@ from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from local import app as local_app
+from local import validation as local_validation
 from local.chat.types import PendingLocalChat
 from local.routine import card as routine_card
 from local.routine import proposal as routine_proposal
@@ -212,7 +213,7 @@ class LocalTeamDestroyTests(LocalContractCase):
         result = controller.destroy_team("team_1", "Team One")
         self.assertEqual(_recording_or_card(controller, recording), (None, None))
 
-        expected_thread = local_app._brain_thread_id("local-space", "team_1", "a" * 64)
+        expected_thread = local_validation.brain_thread_id("local-space", "team_1", "a" * 64)
         self.assertEqual(
             events,
             [
@@ -296,7 +297,7 @@ class LocalTeamDestroyTests(LocalContractCase):
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.destroy_team("team_1", "Team One")
 
-        expected_thread = local_app._brain_thread_id("local-space", "team_1", "a" * 64)
+        expected_thread = local_validation.brain_thread_id("local-space", "team_1", "a" * 64)
         self.assertEqual(caught.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self.assertEqual(caught.exception.code, "action-state-unavailable")
         self.assertEqual(caught.exception.message, "Team Action execution state is unavailable")

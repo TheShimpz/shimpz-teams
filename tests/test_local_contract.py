@@ -28,6 +28,7 @@ from local import audit as local_audit
 from local import healthcheck as local_healthcheck
 from local import names as local_names
 from local import token as local_token_store
+from local import validation as local_validation
 from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat import service as local_chat_service
@@ -123,8 +124,8 @@ class LocalContractTests(LocalContractCase):
             self.assertEqual(caught.exception.status, HTTPStatus.UNPROCESSABLE_ENTITY)
 
     def test_local_thread_identity_is_scoped_to_the_network_generation(self) -> None:
-        first = local_app._brain_thread_id("local-space", "team_1", "a" * 64)
-        second = local_app._brain_thread_id("local-space", "team_1", "b" * 64)
+        first = local_validation.brain_thread_id("local-space", "team_1", "a" * 64)
+        second = local_validation.brain_thread_id("local-space", "team_1", "b" * 64)
 
         self.assertEqual(first, f"local:local-space:team_1:{'a' * 64}:default")
         self.assertNotEqual(first, second)
@@ -141,7 +142,7 @@ class LocalContractTests(LocalContractCase):
                 ),
                 self.assertRaises(local_app.ApiProblem) as caught,
             ):
-                local_app._brain_thread_id(space_id, team_id, network_id)
+                local_validation.brain_thread_id(space_id, team_id, network_id)
             self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
 
     def test_team_name_matches_the_admin_contract(self) -> None:

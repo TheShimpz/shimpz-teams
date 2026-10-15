@@ -19,6 +19,7 @@ from assistant import spec as assistant_spec
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local import audit as local_audit
+from local import validation as local_validation
 from tests import catalog_fixtures, human_request_fixtures
 
 LOCAL_TEAM_RESIDUES = [
@@ -718,7 +719,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             generation = "a" * 64
             batch = controller.action_state.prepare_batch(
                 generation,
-                local_app._brain_thread_id("local-space", "team_1", generation),
+                local_validation.brain_thread_id("local-space", "team_1", generation),
                 (operation,),
             )
             controller.action_state.begin(batch, operation)
