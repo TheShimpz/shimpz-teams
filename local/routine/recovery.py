@@ -347,7 +347,8 @@ def verify(
 ) -> str:
     """Verify a held run's failed step with no model, once, inside the run's one recovery episode.
 
-    Returns ``occurred``, ``absent``, ``none``, ``inconclusive``, or ``unverifiable``.
+    Returns ``occurred``, ``absent``, ``none``, ``inconclusive``, or ``unverifiable``; or ``policy``, ``unquiesced``,
+    or ``unclassified`` when verification may not run.
     """
     assessment = assess(self, team_id, incident_id)
     verdict = quiescence(self, team_id, assessment, proven(assessment))

@@ -49,7 +49,7 @@ def freeze(
     run_id: str,
     lease: record.Lease,
     now: int,
-    request: tuple[str, str, str, dict[str, object]],
+    request: tuple[str, str, str, int],
 ) -> record.TeamRoutines:
     """Park a run for a person; it keeps no lease, and the same Routine never fires while it is frozen.
 

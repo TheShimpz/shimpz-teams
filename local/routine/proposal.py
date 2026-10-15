@@ -325,7 +325,7 @@ def _card_input(member: str, source: dict[str, object], origin: str, positions: 
 
 
 def card(
-    proposal_id: str, candidate: record.Routine, recorded, framing: tuple[str | None, bool, int], description: str
+    proposal_id: str, candidate: record.Routine, recorded, framing: tuple[str | None, float], description: str
 ) -> dict:
     """The confirmation card: the description, and every step with its effect and each input's complete value or source.
 
