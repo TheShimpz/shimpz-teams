@@ -7,6 +7,11 @@ import hashlib
 import json
 import re
 
+if __package__:
+    from . import payload
+else:  # The protocol verifier runs every module of this directory flat.
+    import payload
+
 ASSERTION_HEADER = "X-Shimpz-Supervisor"
 ASSERTION_AUDIENCE = "team-local"
 ASSERTION_KEY_ID = "local-supervisor-v1"
@@ -31,7 +36,6 @@ _HEX_32 = re.compile(r"^[0-9a-f]{32}$")
 _HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 _PATH = re.compile(r"^/[a-z0-9_/-]+$")
 _PROVIDER = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
-_MEDIA_TYPE = re.compile(r"^[a-z0-9][a-z0-9!#$&^_.+\-]*/[a-z0-9][a-z0-9!#$&^_.+\-]*$")
 _METHODS = frozenset({"DELETE", "GET", "PATCH", "POST", "PUT"})
 ASSURANCE_KINDS = frozenset(
     {
@@ -98,17 +102,17 @@ def _body(value: object) -> dict[str, object]:
         if (
             set(value) != {"kind", "length", "filename", "media_type"}
             or type(length) is not int
-            or not 1 <= length <= 25 * 1024 * 1024
+            or not 1 <= length <= payload.MAX_FILE_UPLOAD_BYTES
             or not isinstance(filename, str)
             or not filename
             or filename != filename.strip()
             or filename in {".", ".."}
             or "/" in filename
             or "\\" in filename
-            or len(encoded_filename) > 255
+            or len(encoded_filename) > payload.MAX_FILENAME_BYTES
             or not isinstance(media_type, str)
-            or not 1 <= len(media_type) <= 127
-            or _MEDIA_TYPE.fullmatch(media_type) is None
+            or not 1 <= len(media_type) <= payload.MAX_MEDIA_TYPE_CHARS
+            or payload.MEDIA_TYPE_RE.fullmatch(media_type) is None
         ):
             raise SupervisorAssertionError("invalid file assertion body")
         return {
