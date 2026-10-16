@@ -83,7 +83,7 @@ def _action_pin(spec: object, actions: Mapping[str, Mapping[str, object]], catal
         "pack": spec.pack_digest,
         "locale": PIN_LOCALE,
     }
-    return "sha256:" + hashlib.sha256(routine_plan.canonical(document)).hexdigest()
+    return routine_plan.digest(document)
 
 
 def _integration(declaration: object) -> Mapping[str, object]:

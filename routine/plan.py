@@ -198,7 +198,7 @@ def admit(document: object, contracts: Mapping[tuple[str, str], ActionContract])
 
 
 def digest(document: Mapping[str, object]) -> str:
-    """A plan's digest, which binds every run, cursor, and claim to exactly the plan it runs."""
+    """The ``sha256:`` digest of a document's canonical bytes; a plan's binds every run, cursor, and claim to it."""
     return _digest(canonical(document))
 
 

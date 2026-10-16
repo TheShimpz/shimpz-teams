@@ -14,7 +14,6 @@ newer card, the replaced Routine's deletion, the Team's deletion or reset, and a
 """
 
 import dataclasses
-import hashlib
 import json
 import threading
 import time
@@ -389,7 +388,7 @@ def _digest(candidate: record.Routine, view: dict[str, object], expected_revisio
         "view": view,
         "expected_revision": expected_revision,
     }
-    return "sha256:" + hashlib.sha256(routine_plan.canonical(bound)).hexdigest()
+    return routine_plan.digest(bound)
 
 
 def admit(self, response: object, proposed: object) -> tuple[Callable[[], None], dict[str, object]]:
