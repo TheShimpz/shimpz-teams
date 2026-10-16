@@ -241,8 +241,10 @@ def canonical_claims(value: object, *, audience: str = ASSERTION_AUDIENCE) -> di
         "body": _body(value["body"]),
     }
     routine = audience == ROUTINE_AUDIENCE
-    if (result["authority"] == ROUTINE_AUTHORITY) != routine or (
-        not routine and result["authority"] not in AUTHORITY_KINDS
+    if (
+        not isinstance(result["authority"], str)
+        or (result["authority"] == ROUTINE_AUTHORITY) != routine
+        or (not routine and result["authority"] not in AUTHORITY_KINDS)
     ):
         raise SupervisorAssertionError("invalid Supervisor authority kind")
     if routine and ("model" in value or "decision" in value or "assurance" in value):

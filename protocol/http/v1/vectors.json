@@ -54,6 +54,7 @@
       }
     ],
     "invalid": [
+      {"v": 1, "aud": "team-local", "sub": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "authority": ["session"], "authority_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "jti": "cccccccccccccccccccccccccccccccc", "iat": 2200000000, "exp": 2200000015, "method": "PATCH", "path": "/v1/teams/team_1", "body": {"kind": "json", "length": 24, "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}},
       {"v": 1, "aud": "team-local", "sub": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "authority": "session", "authority_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "jti": "cccccccccccccccccccccccccccccccc", "iat": 2200000000, "exp": 2200000015, "method": "TRACE", "path": "/v1/teams/team_1", "body": {"kind": "json", "length": 24, "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}},
       {
         "v": 1,
