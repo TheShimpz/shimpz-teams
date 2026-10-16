@@ -63,10 +63,11 @@ def record(
         return dataclasses.replace(_asked(context, work, asking.question), repair_from=repair_from)
     if kept is None and not _chosen_used(context, work):
         raise routine_recording.RecordingError("routine-record-again")
-    if kept is not None:
-        return kept
-    permitted = _permitted([(step["assistant"], step["action"]) for step in document["steps"]], contracts)
-    return routine_recording.Recorded(document, origins, permitted, when, context.zone[1])
+    if kept is None:
+        permitted = _permitted([(step["assistant"], step["action"]) for step in document["steps"]], contracts)
+        kept = routine_recording.Recorded(document, origins, permitted, when, context.zone[1])
+    # A question Team still asks about the plan, such as its interval over the budget, keeps what the span settled.
+    return dataclasses.replace(kept, chosen=_settled(context), repair_from=repair_from)
 
 
 def _chosen_used(context: routine_recording.Context, work: list[routine_recording.Call]) -> bool:
@@ -90,21 +91,23 @@ def _asked(
 
     A choice the person answered exactly stays bound, whatever Team asks next.
     """
-    chosen = list(context.asked.chosen) if context.asked is not None else []
-    answered = context.asked.pending if context.asked is not None else None
-    if answered is not None:
-        selected = routine_provenance.selection(context, answered)
-        if selected is not None:
-            chosen.append(dataclasses.replace(answered, chosen=selected))
-    pending = question.pending
+    pending, now = question.pending, ()
     if pending is not None and pending.chosen is not None:
-        chosen.append(pending)
-        pending = None
-    kept = {(item.action, item.member, item.targets): item for item in chosen}
+        pending, now = None, (pending,)
+    chosen = _settled(context, *now)
     manifest = question.manifest
     if manifest is None and question.code == routine_recording.RERUN:
-        manifest = routine_rerun.manifest(context, work, tuple(kept.values()))
-    return dataclasses.replace(question, pending=pending, manifest=manifest, chosen=tuple(kept.values()))
+        manifest = routine_rerun.manifest(context, work, chosen)
+    return dataclasses.replace(question, pending=pending, manifest=manifest, chosen=chosen)
+
+
+def _settled(
+    context: routine_recording.Context, *chosen: routine_recording.Pending
+) -> tuple[routine_recording.Pending, ...]:
+    """Every target choice the person answered exactly, and any chosen now, the latest one for each choice."""
+    answered = [item for item in routine_provenance.target_choices(context) if item.chosen is not None]
+    kept = {(item.action, item.member, item.targets): item for item in (*answered, *chosen)}
+    return tuple(kept.values())
 
 
 def _permitted(

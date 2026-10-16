@@ -26,6 +26,7 @@ from local.routine import manage as routine_manage
 from local.routine import proposal as routine_proposal
 from local.routine import recorder as local_routine_recorder
 from local.routine import store as routine_store
+from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import progress as http_progress
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_context as http_routine_context
@@ -159,7 +160,11 @@ class Sends:
         action = self.calls[self.done]
         self.done += 1
         given = {"page": 1, "per_page": 25}
-        if action == "list-dns-records":
+        if isinstance(action, tuple):
+            # A call of one zone's records, by its id.
+            action, zone = action
+            given = {"zone_id": zone, **given}
+        elif action == "list-dns-records":
             # The agent remembers shimpz.com's id from a lookup, whenever it ran.
             given = {"zone_id": SHIMPZ, **given}
         request = brain_runtime_client.ActionRequest(f"i-{self.done}", ASSISTANT, action, given)
@@ -683,6 +688,29 @@ class RecordedRoutineTests(RecordingCase):
         self.assertEqual(asked, {"code": "routine-interval-over-budget", "options": [], "value": 31})
         with mock.patch.object(routine_definition, "capacity", return_value=1):
             self.assertEqual(self.refusal(Recording(_record())), "routine-step-budget")
+
+    def test_a_target_the_person_chose_stays_chosen_when_the_interval_is_asked_about_next(self) -> None:
+        first = "Faça isso a cada 30 segundos e mostre o resultado"
+        # The work read the records of both zones, so which one the Routine reads is the person's choice.
+        both = ("list-zones", ("list-dns-records", ZONES["zones"][0]["id"]), ("list-dns-records", SHIMPZ))
+        runtime = Sends((both, _record()), ((), _record()))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            asked = self.chat(service, _body(first))["routine_question"]
+            target = next(item["value"] for item in asked["options"] if item["label"] == "shimpz.com")
+            # Two steps every 30 seconds take 5,760 daily steps; with 5,758 left, Team asks about the interval next.
+            with mock.patch.object(routine_definition, "capacity", return_value=2 * 2879):
+                over = self.chat(service, _body(http_payload.compose_clarified(first, "Qual zona?", target, "pt")))
+                answer = http_payload.compose_clarified(first, "Qual intervalo?", "A cada 31 segundos", "pt")
+                card = self.chat(service, _body(answer))
+        self.assertEqual(asked["code"], "routine-binding-ambiguous")
+        self.assertEqual(over["routine_question"], {"code": "routine-interval-over-budget", "options": [], "value": 31})
+        # The zone the person chose is never asked about again: the card reads only its records, at the new interval.
+        self.assertNotIn("routine_question", card)
+        steps = card["routine_proposal"]["steps"]
+        self.assertEqual([step["action"] for step in steps], ["list-zones", "list-dns-records"])
+        zone_id = next(item for item in steps[1]["inputs"] if item["member"] == "zone_id")
+        self.assertEqual(zone_id["value"], f'"{SHIMPZ}"')
 
     def test_a_replacement_without_actions_keeps_the_steps_and_confirms_as_the_next_revision(self) -> None:
         every_hour = {"kind": "continuous", "gap": 3600}

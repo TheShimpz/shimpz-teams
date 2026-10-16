@@ -250,13 +250,19 @@ class Existing:
 
 @dataclass(frozen=True, slots=True)
 class Recorded:
-    """The recorded plan document (its zone included), each input's origin, the permitted Actions, and when it runs."""
+    """The recorded plan document (its zone included), each input's origin, the permitted Actions, and when it runs.
+
+    It also keeps what the span settled, which a question Team still asks about the plan carries on: every target
+    choice the person answered, and when the span first asked for its one repair.
+    """
 
     document: dict[str, object]
     origins: dict[str, dict[str, str]]
     permitted: tuple[dict[str, object], ...]
     schedule: dict[str, object]
     timezone_source: str
+    chosen: tuple[Pending, ...] = ()
+    repair_from: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -305,8 +305,10 @@ def _candidate(self, response: object, intent: routine_recorder.Intent) -> tuple
         raise RefusedError(str(exc)) from exc
     refused = routine_definition.over_budget(others, candidate) or record.change_room(state)
     if refused == "routine-step-budget":
-        # The person's interval stands; Team asks rather than run it less often than they said (ADR-0101).
-        raise _AskedError(_room(candidate, others), recording.protection.values)
+        # The person's interval stands; Team asks rather than run it less often than they said (ADR-0101). The question
+        # keeps every target the person chose and the span's repair, so their answer never reopens either.
+        asked = dataclasses.replace(_room(candidate, others), chosen=recorded.chosen, repair_from=recorded.repair_from)
+        raise _AskedError(asked, recording.protection.values)
     if refused is not None or not routine_definition.fits(candidate):
         raise RefusedError(refused or "routine-too-large")
     if existing is not None and any(item.routine_id == existing.routine_id for item in record.live_runs(state)):
