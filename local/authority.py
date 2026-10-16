@@ -358,11 +358,17 @@ def routine_key_fingerprint() -> str:
 def verify_routine(
     headers: Message,
     *,
-    request: RequestBinding,
+    method: str,
+    path: str,
+    body: dict[str, object],
     replay_guard: ReplayGuard | None = None,
     now: int | None = None,
 ) -> RoutineEvidence:
-    """Verify and consume a Routine assertion for one exact request; the caller then checks its run lease."""
+    """Verify and consume a Routine assertion for one exact request; the caller then checks its run lease.
+
+    A run asks no model and no person, so the request binds only the Routine authority beside its method, path, and
+    body.
+    """
     key = _public_key(ROUTINE_PUBLIC_KEY_FILE)
     claims = _verified_claims(
         _one_assertion(headers, contract.ROUTINE_ASSERTION_HEADER),
@@ -370,9 +376,7 @@ def verify_routine(
         jwt_header=contract.ROUTINE_JWT_HEADER,
         audience=contract.ROUTINE_AUDIENCE,
     )
-    routine_request = RequestBinding(
-        request.method, request.path, request.body, None, None, frozenset({contract.ROUTINE_AUTHORITY})
-    )
+    routine_request = RequestBinding(method, path, body, None, None, frozenset({contract.ROUTINE_AUTHORITY}))
     _bound(claims, routine_request, replay_guard, now)
     return RoutineEvidence(key_fingerprint=key_sha256(key), lease_sha256=str(claims["authority_sha256"]))
 

@@ -521,29 +521,29 @@ class LocalRoutineAuthorityTests(unittest.TestCase):
         headers[header or contract.ROUTINE_ASSERTION_HEADER] = f"Bearer {jwt}.{payload}.{signature}"
         return headers
 
-    def binding(self) -> authority.RequestBinding:
-        return _binding(method="POST", path=self.path, authority_kinds=frozenset({"session"}))
+    def request(self) -> dict[str, object]:
+        return {"method": "POST", "path": self.path, "body": BODY}
 
     def test_a_routine_assertion_yields_its_lease_and_key_once(self) -> None:
         guard = authority.ReplayGuard(capacity=2)
         headers = self.headers(self.claims())
-        evidence = authority.verify_routine(headers, request=self.binding(), replay_guard=guard, now=NOW)
+        evidence = authority.verify_routine(headers, **self.request(), replay_guard=guard, now=NOW)
         raw = self.routine_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
         self.assertEqual(evidence.key_fingerprint, hashlib.sha256(raw).hexdigest())
         self.assertEqual(evidence.key_fingerprint, authority.routine_key_fingerprint())
         self.assertEqual(evidence.lease_sha256, self.lease)
         with self.assertRaisesRegex(authority.SupervisorDeniedError, "replayed"):
-            authority.verify_routine(headers, request=self.binding(), replay_guard=guard, now=NOW)
+            authority.verify_routine(headers, **self.request(), replay_guard=guard, now=NOW)
 
     def test_human_and_routine_identities_never_substitute_for_each_other(self) -> None:
         guard = authority.ReplayGuard()
         signed_by_supervisor = self.headers(self.claims(), self.supervisor_key)
         with self.assertRaisesRegex(authority.SupervisorDeniedError, "signature"):
-            authority.verify_routine(signed_by_supervisor, request=self.binding(), replay_guard=guard, now=NOW)
+            authority.verify_routine(signed_by_supervisor, **self.request(), replay_guard=guard, now=NOW)
         supervisor_headers = Message()
         supervisor_headers[contract.ASSERTION_HEADER] = f"Bearer {_assertion(self.supervisor_key, _claims())}"
         with self.assertRaisesRegex(authority.SupervisorDeniedError, "required"):
-            authority.verify_routine(supervisor_headers, request=self.binding(), replay_guard=guard, now=NOW)
+            authority.verify_routine(supervisor_headers, **self.request(), replay_guard=guard, now=NOW)
         # A Routine assertion presented as a Supervisor assertion fails its header and audience.
         routine_as_human = self.headers(self.claims(jti="d" * 32), header=contract.ASSERTION_HEADER)
         with self.assertRaisesRegex(authority.SupervisorDeniedError, "header is invalid"):
@@ -556,7 +556,7 @@ class LocalRoutineAuthorityTests(unittest.TestCase):
             self.claims(jti="2" * 32, iat=NOW - 60, exp=NOW - 50),
         ):
             with self.subTest(claims=claims), self.assertRaises(authority.SupervisorDeniedError):
-                authority.verify_routine(self.headers(claims), request=self.binding(), replay_guard=guard, now=NOW)
+                authority.verify_routine(self.headers(claims), **self.request(), replay_guard=guard, now=NOW)
         # A run asks no model and no person, so it binds neither a model credential nor a human assurance.
         for bound in (
             {"assurance": {"kind": "auth:password", "challenge_id": "e" * 32}},

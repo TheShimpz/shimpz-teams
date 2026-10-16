@@ -224,15 +224,7 @@ def run(handler, parts: list[str], route: strict_http.ControllerRouteMatch, requ
     body = handler.capture_body(route.operation)
     try:
         evidence = local_authority.verify_routine(
-            handler.headers,
-            request=local_authority.RequestBinding(
-                method=handler.command,
-                path="/" + "/".join(parts),
-                body=body,
-                model=None,
-                assurance=None,
-                authority_kinds=frozenset(),
-            ),
+            handler.headers, method=handler.command, path="/" + "/".join(parts), body=body
         )
     except local_authority.SupervisorDeniedError as exc:
         request_audit.record("routine-authority", result="denied", detail="invalid-routine")
