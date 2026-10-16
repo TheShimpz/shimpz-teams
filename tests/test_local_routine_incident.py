@@ -820,21 +820,29 @@ class LostEvidenceTests(IncidentCase):
             detail=run_id,
         )
 
-    def test_a_lost_snapshot_is_audited_only_by_the_pass_that_sets_its_run_aside(self) -> None:
+    def test_a_lost_snapshot_is_audited_before_its_run_is_set_aside(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)
+            _controller, service, value, run_id, lease, _generation, _batch = self.held_run(directory)
             service.routine_store.put_recovery("team_1", run_id, b"{}")
             self.fence(service, run_id, lease)
             service.routine_store.update(
                 "team_1", lambda state: (record.begin_delete(state, value.routine_id)[0], None)
             )
-            # A pass an overlapping pass already set the run aside for audits nothing; the pass that sets it aside
-            # audits its loss once.
-            taken = record.RoutineStateError("run-not-held")
-            with mock.patch.object(routine_hold, "settle_hold", side_effect=taken):
-                self.assertFalse(routine_incident.reconcile(service, "team_1", run_id))
-            self.assertTrue(routine_incident.reconcile(service, "team_1", run_id))
-            self.assert_deleted_as_lost(service, value, run_id, generation)
+
+            class Crash(BaseException):
+                pass
+
+            # A crash before the set-aside lands never leaves the loss unaudited; a later pass may audit it again.
+            with mock.patch.object(routine_hold, "settle_hold", side_effect=Crash), self.assertRaises(Crash):
+                routine_incident.reconcile(service, "team_1", run_id)
+            local_app.local_audit.record.assert_called_with(
+                "routine-evidence-lost",
+                result="error",
+                principal=local_app.local_audit.TEAM,
+                team_id="team_1",
+                detail=run_id,
+            )
+            self.assertEqual(record.run(self.state(service), run_id).status, "held")
 
     def test_a_lost_snapshot_whose_set_aside_failed_to_write_is_still_audited(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

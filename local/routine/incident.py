@@ -202,17 +202,11 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
         found = _held_step(self, team_id, held["recovery"], deleting=deleting)
         lost = found is None
         step = routine_hold.UNKNOWN_STEP if found is None else found
-    # The pass that sets the run aside audits its loss, so an overlapping pass that finds it already set aside does
-    # not. A failed write may still have landed, after which no pass sees the loss again, so it audits too.
-    try:
-        settled = routine_state.applied(self, team_id, lambda state: routine_hold.settle_hold(state, run_id, now, step))
-    except ApiProblem:
-        if lost:
-            _lost(team_id, run_id)
-        raise
-    if settled and lost:
+    # The loss is audited before the write that sets the run aside, since once that write lands no pass sees the loss
+    # again: a crash in between must never leave it unaudited. A retried or overlapping pass may audit it again.
+    if lost:
         _lost(team_id, run_id)
-    return settled
+    return routine_state.applied(self, team_id, lambda state: routine_hold.settle_hold(state, run_id, now, step))
 
 
 def _held(self, team_id: str, value: record.Run, *, deleting: bool) -> tuple[dict[str, object] | None, bool]:
