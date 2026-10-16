@@ -432,7 +432,7 @@ class RecordedRoutineTests(RecordingCase):
         self.assertEqual({context.api_key for context in runtime.contexts}, {"sk-test-0123456789"})
 
     def test_each_routine_model_is_one_its_provider_offers(self) -> None:
-        self.assertEqual(local_segment.ROUTINE_MODELS, {"openai": "gpt-6.1-sol", "anthropic": "claude-opus-5-5"})
+        self.assertEqual(local_segment.ROUTINE_MODELS, {"openai": "gpt-6.1-sol", "anthropic": "claude-sonnet-5-5"})
         for provider, model in local_segment.ROUTINE_MODELS.items():
             self.assertIn(model, inference_config.PROVIDERS[provider])
 
@@ -440,13 +440,13 @@ class RecordedRoutineTests(RecordingCase):
         runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), None))
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
-            service.inference_store.save("team_1", inference_config.normalize("anthropic", "claude-sonnet-5-5"))
+            service.inference_store.save("team_1", inference_config.normalize("anthropic", "claude-opus-5-5"))
             with self.as_person():
                 for message in ("Liste os registros DNS de shimpz.com", "A cada 30 segundos"):
                     service.chat("team_1", _body(message), "anthropic", "sk-ant-test-0123456789")
         self.assertEqual(
             [(context.routine_mode, context.model) for context in runtime.contexts],
-            [(False, "claude-sonnet-5-5"), (True, "claude-opus-5-5")],
+            [(False, "claude-opus-5-5"), (True, "claude-sonnet-5-5")],
         )
 
     def test_a_turn_outside_routine_mode_keeps_the_team_model(self) -> None:

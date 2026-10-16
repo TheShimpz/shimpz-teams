@@ -36,7 +36,7 @@ from routine import recording as routine_recording
 
 # The model a chat turn about a Routine uses on an OpenAI or an Anthropic Team, with the Team's own key; every other
 # turn uses the Team's configured model.
-ROUTINE_MODELS = {"openai": "gpt-6.1-sol", "anthropic": "claude-opus-5-5"}
+ROUTINE_MODELS = {"openai": "gpt-6.1-sol", "anthropic": "claude-sonnet-5-5"}
 
 
 @dataclass(frozen=True, slots=True)
