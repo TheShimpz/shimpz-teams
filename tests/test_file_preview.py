@@ -446,8 +446,10 @@ class ControllerPreviewTests(unittest.TestCase):
                 threading.Event().wait(0.01)
             self.assertEqual(local_prepare._PREVIEW_ADMISSION._waiting, 1)
             with local_lifecycle.previews_closed("team_1"):
-                # Teardown proceeds only once the queued preview had left.
-                self.assertFalse(waiter.is_alive())
+                # Teardown proceeds only once the queued preview had left the queue.
+                self.assertEqual(local_prepare._PREVIEW_ADMISSION._waiting, 0)
+                self.assertFalse(local_prepare.PREVIEWS._previews)
+        waiter.join(5)
         self.assertEqual(outcome[0].code, "file-not-found")
         self.assertEqual(client.events, [])
 
@@ -482,7 +484,7 @@ class ControllerPreviewTests(unittest.TestCase):
             ticket.container.remove = removal
             with local_lifecycle.previews_closed("team_1"):
                 # Teardown proceeds only once the preview left, its helper removed.
-                self.assertFalse(waiter.is_alive())
+                self.assertFalse(local_prepare.PREVIEWS._previews)
                 self.assertIn(("remove", "running"), client.events)
                 with self.assertRaises(ApiProblemError) as caught:
                     controller.file_preview("team_1", stored["id"])
