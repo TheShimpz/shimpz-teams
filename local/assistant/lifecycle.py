@@ -110,7 +110,7 @@ def rollback_assistant_install(
             container.remove(force=True)
         except NotFound:
             pass
-        except DockerException:
+        except DOCKER_ERRORS:
             incomplete = True
             with suppress(ApiProblem):
                 self._fail_stop_action(container)
@@ -193,7 +193,7 @@ def create_assistant_container(
         self._validate_container(container, team_id, spec, network.name)
         self._wait_ready(container, spec)
         self._active_assistant_genesis(_ActiveAssistant(spec, container.id, container))
-    except (ApiProblem, DockerException) as exc:
+    except (ApiProblem, *DOCKER_ERRORS) as exc:
         cleanup_error = self._rollback_assistant_install(
             team_id,
             spec,
@@ -444,7 +444,7 @@ def update_assistant(
                 successor_image,
                 authorize_start=authorize_start,
             )
-        except (ApiProblem, DockerException) as exc:
+        except (ApiProblem, *DOCKER_ERRORS) as exc:
             self._restore_previous_assistant(team_id, previous, network, previous_image)
             self._queue_published_residue(previous_binding, successor_image.id)
             self._clear_update(transaction)

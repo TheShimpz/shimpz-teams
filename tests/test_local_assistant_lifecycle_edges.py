@@ -180,6 +180,35 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
                 self.assertFalse(assistant_lifecycle.delete_retired_image(subject, "image"))
                 self.assertFalse(assistant_lifecycle.remove_retired_image(subject, "image"))
 
+    def test_lost_or_slow_docker_still_compensates_an_install(self) -> None:
+        spec = types.SimpleNamespace(assistant_id="assistant", image="image@sha256:" + "a" * 64)
+        for failure in LOST_DOCKER:
+            with self.subTest(failure=type(failure).__name__):
+                subject = self._rollback_subject()
+                container = types.SimpleNamespace(id="container", remove=mock.Mock(side_effect=failure))
+                problem = assistant_lifecycle.rollback_assistant_install(
+                    subject, "team_1", spec, container, egress_prepared=False
+                )
+                self.assertEqual(problem.code, "assistant-install-rollback-incomplete")
+                subject._fail_stop_action.assert_called_once_with(container)
+
+                container = types.SimpleNamespace(id="container", reload=mock.Mock(side_effect=failure))
+                subject = types.SimpleNamespace(
+                    _rollback_assistant_install=mock.Mock(return_value=None),
+                    client=types.SimpleNamespace(
+                        containers=types.SimpleNamespace(create=mock.Mock(return_value=container))
+                    ),
+                    cpuset_cpus="0",
+                    _container_name=mock.Mock(return_value="container"),
+                    _assistant_labels=mock.Mock(return_value={}),
+                )
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    _create_container(subject, spec)
+                self.assertEqual(caught.exception.code, "docker-install-failed")
+                subject._rollback_assistant_install.assert_called_once_with(
+                    "team_1", spec, container, egress_prepared=False
+                )
+
     @staticmethod
     def _replacement_subject() -> types.SimpleNamespace:
         return types.SimpleNamespace(
@@ -453,6 +482,27 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         with self.assertRaises(local_app.ApiProblem) as caught:
             _update(controller, previous, successor, binding)
         self.assertEqual(caught.exception.code, "docker-remove-failed")
+
+    def test_lost_or_slow_docker_restores_the_previous_generation(self) -> None:
+        for failure in LOST_DOCKER:
+            with self.subTest(failure=type(failure).__name__):
+                controller, container, _events, previous, successor, binding = self._update_specs()
+                lifecycle = controller.assistant_lifecycle
+                previous_image = types.SimpleNamespace(id="sha256:" + "a" * 64)
+                lifecycle._validate_container_security = mock.Mock()
+                lifecycle._assistant_image = mock.Mock(return_value=types.SimpleNamespace(id="sha256:" + "b" * 64))
+                controller.client.images = types.SimpleNamespace(get=lambda _image, image=previous_image: image)
+                transaction = object()
+                lifecycle.updates = types.SimpleNamespace(begin=lambda *_args, current=transaction: current)
+                lifecycle._restore_previous_assistant = mock.Mock()
+                lifecycle._queue_residue = mock.Mock()
+                lifecycle._clear_update = mock.Mock()
+                container.remove = mock.Mock(side_effect=failure)
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    _update(controller, previous, successor, binding)
+                self.assertEqual(caught.exception.code, "docker-remove-failed")
+                lifecycle._restore_previous_assistant.assert_called_once()
+                lifecycle._clear_update.assert_called_once_with(transaction)
 
     def test_binding_commit_failure_rolls_back_or_reports_incomplete_cleanup(self) -> None:
         for cleanup_error in (
