@@ -550,7 +550,7 @@ def recover_updates(self) -> None:
                     self.chat_turn_service._retain_declared_private_state(update.team_id, target)
                     self._queue_published_residue(update.previous, update.previous_image_id)
                 self._clear_update(update)
-            except ApiProblem, RuntimeError, DockerException, bindings.DynamicAssistantError:
+            except (ApiProblem, RuntimeError, *DOCKER_ERRORS, bindings.DynamicAssistantError):
                 log.exception(
                     "Assistant update recovery deferred for %s/%s",
                     update.team_id,
@@ -568,7 +568,7 @@ def resume_assistants(self) -> None:
     for team_id, assistant_id in identities:
         try:
             self.install_assistant(team_id, assistant_id)
-        except ApiProblem, bindings.DynamicAssistantError, RuntimeError, DockerException:
+        except (ApiProblem, bindings.DynamicAssistantError, RuntimeError, *DOCKER_ERRORS):
             log.exception(
                 "Assistant startup recovery deferred for %s/%s",
                 team_id,

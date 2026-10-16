@@ -699,6 +699,36 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
             ],
         )
 
+    def test_lost_or_slow_docker_defers_only_one_assistant_at_startup(self) -> None:
+        for failure in LOST_DOCKER:
+            with self.subTest(failure=type(failure).__name__):
+                update = types.SimpleNamespace(
+                    team_id="team_1", assistant_id="lost", previous="binding", successor="other"
+                )
+                recovered = types.SimpleNamespace(
+                    team_id="team_1", assistant_id="next", previous="binding", successor="other"
+                )
+                subject = types.SimpleNamespace(
+                    updates=types.SimpleNamespace(list=lambda current=(update, recovered): current),
+                    _lock=lambda _team_id: nullcontext(),
+                    registry=types.SimpleNamespace(
+                        binding=lambda _team_id, _assistant_id: "binding",
+                        spec=lambda binding: binding,
+                        identities=lambda: {("team_1", "lost"), ("team_1", "next")},
+                    ),
+                    _recover_update_target=mock.Mock(side_effect=[failure, None]),
+                    _clear_update=mock.Mock(),
+                    sweep_residues=mock.Mock(),
+                    install_assistant=mock.Mock(side_effect=[failure, None]),
+                )
+                assistant_lifecycle.recover_updates(subject)
+                subject._clear_update.assert_called_once_with(recovered)
+                subject.sweep_residues.assert_called_once_with()
+                assistant_lifecycle.resume_assistants(subject)
+                self.assertEqual(
+                    subject.install_assistant.call_args_list, [mock.call("team_1", "lost"), mock.call("team_1", "next")]
+                )
+
     def test_startup_isolates_an_unavailable_binding_store(self) -> None:
         subject = types.SimpleNamespace(
             registry=types.SimpleNamespace(
