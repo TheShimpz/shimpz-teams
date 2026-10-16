@@ -830,6 +830,8 @@ class LostEvidenceTests(IncidentCase):
                 self.assert_deleted_as_lost(service, value, run_id, generation)
         self.assertIn(f"could not audit routine-evidence-lost/{run_id} (RuntimeError)", logs.output[0])
         self.assertNotIn("written", "".join(logs.output))
+        # Unreadable evidence beside its archived batch is one loss, audited once.
+        self.assertEqual(sum("routine-evidence-lost" in line for line in logs.output), 1)
 
     def test_an_archived_batch_no_evidence_names_keeps_a_set_aside_run_until_its_routine_is_deleted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
