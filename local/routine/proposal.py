@@ -459,18 +459,21 @@ def _answer(team_id: str, proposal_id: str, routine_id: str | None, status: str)
     return {"team_id": team_id, "proposal_id": proposal_id, "routine_id": routine_id, "status": status}
 
 
-def _confirmed(state: record.TeamRoutines, proposal_id: str, principal: str, incarnation: str) -> record.Routine | None:
-    """The Routine an earlier confirmation of this exact card committed, by its confirmation record."""
-    return next(
+def _answered(self, team_id: str, proposal_id: str, principal: str, incarnation: str) -> dict[str, object] | None:
+    """The answer an earlier confirmation of this exact card gave, by its confirmation record, or None."""
+    found = next(
         (
             item
-            for item in state.routines
+            for item in routine_state.load(self, team_id).routines
             if item.confirmation is not None
             and (item.confirmation["proposal_id"], item.confirmation["principal"], item.confirmation["incarnation"])
             == (proposal_id, principal, incarnation)
         ),
         None,
     )
+    if found is None:
+        return None
+    return _answer(team_id, proposal_id, found.routine_id, "created" if found.revision == 1 else "changed")
 
 
 def _changed() -> ApiProblem:
@@ -515,12 +518,12 @@ def confirm(self, team_id: str, proposal_id: str) -> dict[str, object]:
         proposal = self.routine_proposals.take(team_id, proposal_id, principal)
         incarnation = self.assistant_lifecycle._network(team_id).id
         if proposal is None:
-            found = _confirmed(routine_state.load(self, team_id), proposal_id, principal, incarnation)
-            if found is None:
+            answered = _answered(self, team_id, proposal_id, principal, incarnation)
+            if answered is None:
                 raise ApiProblem(
                     HTTPStatus.CONFLICT, "this Routine card expired; ask again", code="routine-proposal-expired"
                 )
-            return _answer(team_id, proposal_id, found.routine_id, "created" if found.revision == 1 else "changed")
+            return answered
         if proposal.incarnation != incarnation:
             raise _changed()
         _pinned(self, team_id, proposal)
@@ -541,8 +544,8 @@ def revoke(self, team_id: str, proposal_id: str) -> dict[str, object]:
     with self._lock(team_id):
         if self.routine_proposals.take(team_id, proposal_id, principal) is None:
             incarnation = self.assistant_lifecycle._network(team_id).id
-            found = _confirmed(routine_state.load(self, team_id), proposal_id, principal, incarnation)
-            if found is not None:
-                return _answer(team_id, proposal_id, found.routine_id, "created" if found.revision == 1 else "changed")
+            answered = _answered(self, team_id, proposal_id, principal, incarnation)
+            if answered is not None:
+                return answered
     local_audit.record_request("routine-proposal", result="ok", team_id=team_id, detail=f"revoked:{proposal_id}")
     return _answer(team_id, proposal_id, None, "revoked")
