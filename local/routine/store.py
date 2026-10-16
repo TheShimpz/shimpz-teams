@@ -153,7 +153,7 @@ class RoutineStoreError(RuntimeError):
 _PRIVATE = private_state.PrivateState(
     RoutineStoreError,
     "Routine state is malformed",
-    "Routine continuation is malformed",
+    "Routine record is malformed",
     # The largest sealed record, base64-encoded.
     (max(local_chat_continuation.MAX_ROUTINE_BYTES, MAX_INCIDENT_BYTES) * 2) + 128,
 )
@@ -461,10 +461,6 @@ def _recovery_aad(team_id: str, run_id: str) -> bytes:
     return json.dumps(["shimpz-local-routine-recovery-v1", team_id, run_id], separators=(",", ":")).encode()
 
 
-class RoutineRecordInvalidError(RoutineStoreError):
-    """A sealed record is malformed or fails authentication: proven unusable, unlike an unavailable one."""
-
-
 def _incident_aad(team_id: str, incident_id: str) -> bytes:
     return json.dumps(["shimpz-local-routine-incident-v1", team_id, incident_id], separators=(",", ":")).encode()
 
@@ -625,30 +621,22 @@ class RoutineStore:
             _PRIVATE.atomic_write(self._team_dir(team) / name, canonical_json.encode(envelope), label)
 
     def _sealed_read(self, team: str, name: str, aad: bytes, label: str, maximum: int) -> bytes | None:
-        """One sealed record, or None when absent.
-
-        A record that is malformed or fails authentication raises RoutineRecordInvalidError; an unreadable file, a
-        broken ownership contract, or an unavailable keyring raises plain RoutineStoreError.
-        """
+        """One sealed record, or None when absent; one that cannot be read, opened, or authenticated fails closed."""
         raw = _PRIVATE.read_private_file(self._team_dir(team) / name, maximum * 2 + 256, label)
         if raw is None:
             return None
         try:
             envelope = strict_json.loads(raw)
         except (UnicodeDecodeError, ValueError) as exc:
-            raise RoutineRecordInvalidError(f"{label} is malformed") from exc
+            raise RoutineStoreError(f"{label} is malformed") from exc
         if (
             not isinstance(envelope, dict)
             or set(envelope) != {"algorithm", "nonce", "ciphertext"}
             or envelope["algorithm"] != "AES-256-GCM"
         ):
-            raise RoutineRecordInvalidError(f"{label} is malformed")
+            raise RoutineStoreError(f"{label} is malformed")
         key = _PRIVATE.key(self.key_path, "Routine keyring")
-        # Only the record itself is proven unusable here: its parts and its authentication raise the record error.
-        record = private_state.PrivateState(
-            RoutineRecordInvalidError, f"{label} is malformed", f"{label} is malformed", _PRIVATE.maximum_encoded_part
-        )
-        return record.open_envelope(key, envelope, aad, maximum, f"{label} authentication failed")
+        return _PRIVATE.open_envelope(key, envelope, aad, maximum, f"{label} authentication failed")
 
     def _sealed_delete(self, team: str, name: str, label: str) -> None:
         try:
