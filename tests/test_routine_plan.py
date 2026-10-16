@@ -580,7 +580,11 @@ class ScaleTests(unittest.TestCase):
         plan = routine_plan.admit(document, CONTRACTS)
         self.assertEqual((len(plan.steps), plan.position("s255"), plan.shown().step_id), (256, 256, "s255"))
         self.assertTrue(routine_plan.well_formed(document))
-        over = {**document, "steps": [*steps, self._publish("s256", title={"kind": "literal", "value": "x"})]}
+        over = {
+            **document,
+            "steps": [*steps, self._publish("s256", title={"kind": "literal", "value": "x"})],
+            "output": {"mode": "changes", "step": "s256"},
+        }
         self.assertFalse(routine_plan.well_formed(over))
 
     def test_a_resolved_input_over_its_bound_is_refused_before_any_dispatch(self) -> None:

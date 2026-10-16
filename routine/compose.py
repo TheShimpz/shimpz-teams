@@ -178,7 +178,7 @@ def _kept(
     return routine_recording.Recorded(document, origins, _permitted(actions, context.contracts), when, context.zone[1])
 
 
-def _document(steps: list[dict[str, object]], last: str | None, mode: str, timezone: str) -> dict[str, object]:
+def _document(steps: list[dict[str, object]], last: str, mode: str, timezone: str) -> dict[str, object]:
     """The plan document of these steps, in the zone each run reads its dates in."""
     return {
         "version": routine_plan.VERSION,
@@ -219,9 +219,8 @@ def _plan(
     names = {node: f"s{position}" for position, node in enumerate(order, start=1)}
     steps = [_step(context, nodes[node], names) for node in order]
     origins = {names[node]: context.inputs[node][1] for node in order}
-    work_nodes = {context.classes[call.index] for call in work}
-    shown = next((names[node] for node in reversed(order) if node in work_nodes), None)
-    document = _document(steps, shown, mode, context.zone[0])
+    # Every other plan call is a source a later work call reads, so the last call in order is work, the one shown.
+    document = _document(steps, steps[-1]["id"], mode, context.zone[0])
     _verify(context, nodes, document, names)
     return document, origins
 

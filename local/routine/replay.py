@@ -368,7 +368,7 @@ def advance(
     result, protection = completed
     shown_step = plan.shown()
     slot = None
-    if not cursor.done(plan) and shown_step is not None and plan.steps[cursor.step].step_id == shown_step.step_id:
+    if shown_step is not None and cursor.step == len(plan.steps) - 1:
         slot = _slot(store, team_id, cursor.binding, (shown_step, cursor.step + 1), (result, protection))
     return routine_cursor.complete(cursor, plan, result, slot)
 

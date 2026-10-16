@@ -111,7 +111,7 @@ def disposition(plan: Mapping[str, object]) -> dict[str, object]:
     """The plan's output disposition on the wire: its shown step by position, or none."""
     output = plan["output"]
     shown = output["step"]
-    return {"mode": output["mode"], "step": None if shown is None else step_positions(plan)[shown]}
+    return {"mode": output["mode"], "step": None if shown is None else len(plan["steps"])}
 
 
 def page(

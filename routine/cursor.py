@@ -105,7 +105,7 @@ class Cursor:
     workload: str = ""
     dispatched_at: int = 0
     # The shown step's result as its notice shows it, and the keyed digest of its safe form, or None when no step
-    # shown so far: {"step", "output", "digest"}; it outlives later steps, holds, and continuations.
+    # shown so far: {"step", "output", "digest"}; it outlives holds and continuations.
     shown: dict[str, object] | None = None
     # The Team boot the run's protection was bound in (ADR-0101), and whether it was lost; never regained.
     boot: str = ""
@@ -201,7 +201,6 @@ def complete(cursor: Cursor, plan: routine_plan.Plan, result: object, shown: dic
     ):
         raise CursorError("cursor-shown-invalid")
     selected = (*cursor.selected, *((step_id, *key, value) for key, value in sorted(chosen.items())))
-    kept = cursor.shown if shown is None else shown
     return _checked(
         dataclasses.replace(
             cursor,
@@ -215,7 +214,7 @@ def complete(cursor: Cursor, plan: routine_plan.Plan, result: object, shown: dic
             fault="",
             workload="",
             dispatched_at=0,
-            shown=kept,
+            shown=shown,
         )
     )
 

@@ -139,7 +139,7 @@ class Plan:
         """The step whose result a completed run shows, or None when the plan shows none."""
         if self.output["mode"] not in http_routine.SHOWN_MODES:
             return None
-        return next(step for step in self.steps if step.step_id == self.output["step"])
+        return self.steps[-1]
 
     def references(self, step_id: str) -> tuple[Selector, ...]:
         """The complete selectors later steps apply to ``step_id``'s output, sorted, each once."""
