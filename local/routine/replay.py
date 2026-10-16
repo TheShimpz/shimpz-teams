@@ -419,11 +419,13 @@ def protection_lost(self, team_id: str, value: record.Run) -> bool:
     if not value.generation:
         return False
     try:
-        _batch, _snapshot, cursor = _sealed(self, team_id, value)
+        _batch, snapshot, cursor = _sealed(self, team_id, value)
+        # Without a snapshot the run's cursor cannot be bound; one left behind cannot prove the protection held.
+        unbound = snapshot is None and value.run_id in self.routine_store.cursors(team_id)
     except action_journal.ActionJournalError, routine_store.RoutineStoreError, ApiProblem:
         return True
     if cursor is None:
-        return False
+        return unbound
     if cursor.protection_lost:
         return True
     if not self.routine_protections.current(value.run_id, cursor.boot).lost:

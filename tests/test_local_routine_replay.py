@@ -525,10 +525,16 @@ class WatchdogRecoveryTests(ReplayRunCase):
                 with mock.patch.object(service.action_state, "current_batch", return_value=("batch", "open")):
                     begun = routine_replay.protection_lost(service, "team_1", run)
             ungenerated = routine_replay.protection_lost(service, "team_1", dataclasses.replace(run, generation=""))
+            # Without a snapshot only the cursor's absence proves nothing was dispatched to protect.
+            with mock.patch.object(routine_replay.routine_incident, "run_snapshot", return_value=None):
+                unsnapshotted = routine_replay.protection_lost(service, "team_1", run)
+                with mock.patch.object(service.routine_store, "cursors", return_value=()):
+                    undispatched = routine_replay.protection_lost(service, "team_1", run)
             replay.seal(routine_cursor.lose_protection(replay.cursor))
             sealed = routine_replay.protection_lost(service, "team_1", run)
         self.assertEqual(
-            (kept, unreadable, unbound, begun, ungenerated, sealed), (False, True, False, False, False, True)
+            (kept, unreadable, unbound, begun, ungenerated, unsnapshotted, undispatched, sealed),
+            (False, True, False, False, False, True, False, True),
         )
 
     def test_a_completed_cursor_of_another_plan_is_held_never_finished_done(self) -> None:
