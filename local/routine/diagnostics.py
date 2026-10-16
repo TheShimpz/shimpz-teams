@@ -323,11 +323,11 @@ class DiagnosticStore:
         found.sort(key=lambda item: (item.recorded_at, item.operation_id, item.attempt))
         return tuple(found[-http_routine_run.MAX_RUN_DIAGNOSTICS :])
 
-    def run_steps(self, team_id: str, incarnation: str, run_id: str, now: int, page: tuple[str, int]):
+    def run_steps(self, team_id: str, incarnation: str, run_id: str, now: int, snapshot: str):
         """One run's retained records as one snapshot, assembled under the guard: ``(snapshot, records, run)``.
 
-        ``page`` names the snapshot a reader holds (``latest`` for a fresh one) and its offset; a snapshot whose
-        retained bodies changed since, by expiry, eviction, or a new record, raises RunChangedError.
+        ``snapshot`` names the one a reader holds (``latest`` for a fresh one); a snapshot whose retained bodies changed
+        since, by expiry, eviction, or a new record, raises RunChangedError.
         """
         team, incarnation = validate_team_id(team_id), _incarnation(incarnation)
         directory = self._team_dir(team)
@@ -339,8 +339,8 @@ class DiagnosticStore:
                 and item[2]["run"] == run_id
                 and int(item[2]["at"]) > now - RETENTION_SECONDS
             ]
-            snapshot = _snapshot(directory, retained)
-            if page[0] not in ("latest", snapshot):
+            current = _snapshot(directory, retained)
+            if snapshot not in ("latest", current):
                 raise RunChangedError("Routine run records changed")
             steps: dict[int, tuple[int, dict[str, object]]] = {}
             run = None
@@ -359,7 +359,7 @@ class DiagnosticStore:
                 key = opened["position"]
                 if key not in steps or steps[key][0] < sequence:
                     steps[key] = (sequence, opened)
-        return snapshot, {key: item for key, (_sequence, item) in steps.items()}, run
+        return current, {key: item for key, (_sequence, item) in steps.items()}, run
 
     def _open(self, path: Path, team: str, incarnation: str, name: str, maximum: int) -> dict[str, object] | None:
         """Decrypt one body under the incarnation it names; another incarnation's authentic body is never shown.
@@ -643,7 +643,7 @@ def run_steps(self, team_id: str, run_id: str, snapshot: str, offset: int, now: 
     team_id = validate_team_id(team_id)
     incarnation = self.assistant_lifecycle._network(team_id).id
     try:
-        token, records, run = self.routine_diagnostics.run_steps(team_id, incarnation, run_id, now, (snapshot, offset))
+        token, records, run = self.routine_diagnostics.run_steps(team_id, incarnation, run_id, now, snapshot)
         binding = _binding_of(records, run)
     except RunChangedError as exc:
         raise ApiProblem(HTTPStatus.CONFLICT, "Routine run records changed", code="routine-run-changed") from exc
