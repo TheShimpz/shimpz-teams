@@ -159,7 +159,8 @@ def bounded_controller_run(runner: DockerFlowTests, flow: flow_fixture.DockerFlo
     return run, changed
 
 
-def _start(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
+def start_measured_controller(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
+    """Start the fixture controller under the measured limits; the caller checks the limits it relies on."""
     replacement, changed = bounded_controller_run(runner, flow)
     # The live suite's Local snapshot check stages snapshots in the daemon and expects no others; the host daemon a
     # measurement runs on may hold the person's own, so a measurement neither stages nor reads them.
@@ -170,6 +171,10 @@ def _start(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
         runner.start_controller(flow)
     if not changed[0]:
         raise MeasurementError("Team fixture controller was not started")
+
+
+def _start(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
+    start_measured_controller(runner, flow)
     metadata = json.loads(runner.docker("inspect", flow.controller).stdout)[0]["HostConfig"]
     if (
         metadata["NanoCpus"] != TEAM_CPUS * 1_000_000_000

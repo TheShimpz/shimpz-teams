@@ -14,7 +14,6 @@ import secrets
 import sys
 import time
 from pathlib import Path
-from unittest import mock
 
 from local.assistant.isolation import ASSISTANT_MEMORY, ASSISTANT_NANO_CPUS
 
@@ -28,8 +27,8 @@ from perf.local_team_http import (
     TEAM_CPUS,
     TEAM_MEMORY_MIB,
     MeasurementError,
-    bounded_controller_run,
     run_owned_flow,
+    start_measured_controller,
 )
 from perf.percentiles import nearest_rank
 
@@ -315,11 +314,7 @@ def _runner(*, phase_spans: bool) -> DockerFlowTests:
 
 
 def _start_bounded_controller(runner: DockerFlowTests, flow: DockerFlow) -> None:
-    bounded_run, changed = bounded_controller_run(runner, flow)
-    with mock.patch.object(runner, "docker", side_effect=bounded_run):
-        runner.start_controller(flow)
-    if not changed[0]:
-        raise MeasurementError("Team fixture controller was not started")
+    start_measured_controller(runner, flow)
     _verify_controller_limits(runner, flow)
 
 
