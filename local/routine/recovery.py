@@ -413,8 +413,10 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     if reopened is None:
         return "held"
     value, routine, lease_token = reopened
-    # The resolved hold's evidence goes; a later hold of this continuation seals its own.
-    routine_state.call(lambda: self.routine_store.delete_incident(team_id, incident_id))
+    # The resolved hold's evidence goes; a later hold of this continuation seals its own, and the earlier generation's
+    # evidence proves nothing about it, so the reopened run goes on and its end finishes a removal that fails now.
+    with contextlib.suppress(ApiProblem):
+        routine_state.call(lambda: self.routine_store.delete_incident(team_id, incident_id))
     lease = record.lease_of(lease_token, record.HUMAN_LEASE)
     # The logical run's answered human requests carry on; a continuation never gets a fresh allowance.
     run = routine_run.LeasedRun(team_id, incident_id, lease, token, routine, (), value.requests_used)

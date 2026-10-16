@@ -14,6 +14,7 @@ from test_local_routine_service import ASSISTANT
 
 from install import bindings
 from local.routine import recovery as routine_recovery
+from local.routine import store as routine_store
 from routine import hold as routine_hold
 from routine import record
 
@@ -65,6 +66,27 @@ class AutomaticTests(AutomaticCase):
         self.assertEqual((self.status, record.incidents(state), state.runs), ("recovered", (), ()))
         creates = [operation for action, operation in assistant.calls if action == "create-record"]
         self.assertEqual((len(creates), creates[0]), (2, creates[1]))
+
+    def test_a_reopened_run_retries_when_its_resolved_evidence_cannot_be_removed_yet(self) -> None:
+        assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
+        failures = [routine_store.RoutineStoreError("incident cannot be removed")]
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.mutating(directory, Brain(), assistant)
+            assistant.service = service
+            self.zone_record_routine(service)
+            real = service.routine_store.delete_incident
+
+            def once(*args):
+                if failures:
+                    raise failures.pop()
+                return real(*args)
+
+            with mock.patch.object(service.routine_store, "delete_incident", side_effect=once):
+                status = self.run_claim(service, service.claim_routine_run())["status"]
+            state = self.state(service)
+        # The continuation already reopened the run, so the retry runs; the run's end removes the evidence.
+        self.assertEqual((status, record.incidents(state), state.runs), ("recovered", (), ()))
+        self.assertEqual(len([action for action, _operation in assistant.calls if action == "create-record"]), 2)
 
     def test_a_proven_occurrence_continues(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
