@@ -14,7 +14,7 @@ Paused Routines count, so resuming one never needs room it lacks; a deleting one
 """
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from protocol.http.v1 import routine as http_routine
 from routine import dates as routine_dates
@@ -124,15 +124,7 @@ def page(
 ) -> dict[str, object]:
     """Whole consecutive projected steps from ``offset``, as many as fit one page, and where the next page starts."""
     total = len(plan["steps"])
-    chosen: list[dict[str, object]] = []
-    used = 2
-    for position in range(offset + 1, total + 1):
-        projected = step(plan, permitted, position)
-        cost = http_routine.encoded_bytes(projected) + 1
-        if chosen and (len(chosen) == http_routine.MAX_PAGE_STEPS or used + cost > http_routine.MAX_PAGE_BYTES):
-            break
-        chosen.append(projected)
-        used += cost
+    chosen = paged(lambda position: step(plan, permitted, position), offset, total)
     following = offset + len(chosen)
     return {
         "routine_id": routine_id,
@@ -143,6 +135,20 @@ def page(
         "steps": chosen,
         "next": None if following == total else following,
     }
+
+
+def paged(entry: Callable[[int], dict[str, object]], offset: int, total: int) -> list[dict[str, object]]:
+    """Whole consecutive entries from ``offset``, by 1-based position, as many as fit one page's count and bytes."""
+    chosen: list[dict[str, object]] = []
+    used = 2
+    for position in range(offset + 1, total + 1):
+        item = entry(position)
+        cost = http_routine.encoded_bytes(item) + 1
+        if chosen and (len(chosen) == http_routine.MAX_PAGE_STEPS or used + cost > http_routine.MAX_PAGE_BYTES):
+            break
+        chosen.append(item)
+        used += cost
+    return chosen
 
 
 def fits(value: object) -> bool:

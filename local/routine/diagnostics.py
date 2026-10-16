@@ -35,6 +35,7 @@ from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_run as http_routine_run
 from protocol.http.v1 import strict_json
+from routine import definition as routine_definition
 from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state/diagnostics")
@@ -621,16 +622,7 @@ def _entry(records: dict, reached: tuple[int, bool] | None, position: int) -> di
 def _page_steps(records, run, total: int, offset: int) -> list[dict[str, object]]:
     """Whole consecutive steps from ``offset``."""
     reached = None if run is None else (run["reached"], run["dispatched"])
-    chosen: list[dict[str, object]] = []
-    used = 2
-    for index in range(offset + 1, total + 1):
-        entry = _entry(records, reached, index)
-        cost = http_routine.encoded_bytes(entry) + 1
-        if chosen and (len(chosen) == http_routine.MAX_PAGE_STEPS or used + cost > http_routine.MAX_PAGE_BYTES):
-            break
-        chosen.append(entry)
-        used += cost
-    return chosen
+    return routine_definition.paged(lambda position: _entry(records, reached, position), offset, total)
 
 
 def run_steps(self, team_id: str, run_id: str, snapshot: str, offset: int, now: int) -> dict[str, object]:

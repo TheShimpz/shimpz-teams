@@ -356,9 +356,9 @@ def _decode_notice(value: object) -> record.Notice:
 
 
 def _generation_of(run_id: str, generation: object) -> bool:
-    return isinstance(generation, str) and (
-        generation == "" or re.fullmatch(rf"[0-9a-f]{{64}}:routine:{run_id}(?::s1)?", generation) is not None
-    )
+    """None yet, or exactly this run's own or continuation generation in a Team network; never a verification's."""
+    grammar = record.generation_grammar(r"[0-9a-f]{64}", re.escape(run_id), "s1")
+    return isinstance(generation, str) and (generation == "" or re.fullmatch(grammar, generation) is not None)
 
 
 def _decode_discard(value: object) -> tuple[str, str]:

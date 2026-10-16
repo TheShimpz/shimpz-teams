@@ -35,7 +35,17 @@ MAX_COUNTED_MISSES = 24 * 400
 HUMAN_LEASE = "human"
 _PERIOD_SECONDS = {"daily": 86_400, "weekly": 7 * 86_400, "monthly": 28 * 86_400}
 SUFFIX_RE = re.compile(r"[sv]1\Z")
-GENERATION_RE = re.compile(r"(?P<network>[A-Za-z0-9][A-Za-z0-9._/-]{0,127}):routine:(?P<run>[0-9a-f]{32})(?::[sv]1)?\Z")
+
+
+def generation_grammar(network: str, run: str, suffix: str) -> str:
+    """A run's journal generation: its Team network, the Routine marker, its run, and an optional own suffix."""
+    return rf"{network}:routine:{run}(?::{suffix})?"
+
+
+# Any of a run's journal generations, its verification's included; a persisted run admits only its own (the store).
+GENERATION_RE = re.compile(
+    generation_grammar(r"(?P<network>[A-Za-z0-9][A-Za-z0-9._/-]{0,127})", r"(?P<run>[0-9a-f]{32})", r"[sv]1") + r"\Z"
+)
 # From a frozen run only these outcomes are possible: nobody answered it, or someone refused or stopped it.
 FROZEN_OUTCOMES = frozenset({"denied", "stopped", "failed"})
 # Why recovery paused a held run's Routine; each is published on the run's notice.
