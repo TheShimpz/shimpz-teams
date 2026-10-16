@@ -325,6 +325,9 @@ def _sealed_loss(self, team_id: str, value: record.Run) -> bool:
         cursor = None if snapshot is None else self.routine_store.cursor(team_id, snapshot.binding)
     except routine_store.RoutineStoreError, ApiProblem:
         return True
+    if snapshot is not None and cursor is None:
+        # A replayed run's cursor that is gone may have recorded the loss, so it is taken as lost too.
+        return True
     # Evidence of another run, or a cursor of another plan, proves nothing about this run.
     bound = cursor is not None and snapshot.of_run(value.routine_id, value.generation) and snapshot.runs(cursor)
     return bound and cursor.protection_lost

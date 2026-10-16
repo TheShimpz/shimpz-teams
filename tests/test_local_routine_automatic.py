@@ -301,10 +301,11 @@ class AutomaticEdgeTests(AutomaticCase):
 
     def test_an_incidents_unreadable_evidence_or_cursor_is_taken_as_lost_on_its_notice(self) -> None:
         # The release that follows a set-aside may erase the cursor, so a notice never says a protection held unread.
-        for name in ("incident", "cursor"):
-            with self.subTest(read=name), tempfile.TemporaryDirectory() as directory:
+        failed = {"side_effect": routine_store.RoutineStoreError("x")}
+        for name, read in (("incident", failed), ("cursor", failed), ("cursor", {"return_value": None})):
+            with self.subTest(read=name, how=read), tempfile.TemporaryDirectory() as directory:
                 service, _value, run_id = self.held_unmarked(directory)
-                with mock.patch.object(service.routine_store, name, side_effect=routine_store.RoutineStoreError("x")):
+                with mock.patch.object(service.routine_store, name, **read):
                     routine_incident.pause(service, "team_1", run_id, "exhausted")
                 state = self.state(service)
                 self.assertEqual(
