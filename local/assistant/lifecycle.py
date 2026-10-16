@@ -556,7 +556,9 @@ def recover_update_target(self, update, target: AssistantSpec) -> None:
             "Assistant update recovery found an unknown generation",
             code="assistant-update-conflict",
         )
-    self._validate_container_security(existing, team_id, actual, network.name, refresh=False)
+    # Its profile and generation prove Team owns the container, and it is only removed, so neither its manifest nor
+    # its egress policy needs admission: a restore that met a successor container left by an unsettled create has
+    # already rewritten that policy for the previous generation.
     target_image = self._assistant_image(target)
     try:
         existing.remove(force=True)

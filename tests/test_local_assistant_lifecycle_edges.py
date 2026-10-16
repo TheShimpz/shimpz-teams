@@ -701,6 +701,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
 
         subject._has_current_assistant_artifact.side_effect = (False, True, True)
         existing.remove.side_effect = None
+        subject._validate_container_security.side_effect = local_app.ApiProblem(409, "x", code="egress-policy-drift")
         subject._remove_egress_policy = mock.Mock()
         subject._create_assistant_container.reset_mock()
         assistant_lifecycle.recover_update_target(subject, update, target)
