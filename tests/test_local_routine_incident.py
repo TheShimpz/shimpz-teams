@@ -815,6 +815,25 @@ class LostEvidenceTests(IncidentCase):
             detail=run_id,
         )
 
+    def test_a_lost_snapshot_is_audited_only_by_the_pass_that_sets_its_run_aside(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)
+            service.routine_store.put_recovery("team_1", run_id, b"{}")
+            self.fence(service, run_id, lease)
+            service.routine_store.update(
+                "team_1", lambda state: (record.begin_delete(state, value.routine_id)[0], None)
+            )
+            # A pass whose set-aside fails to write, and one an overlapping pass already set the run aside for, audit
+            # nothing; the pass that sets it aside audits its loss once.
+            failing = mock.patch.object(service.routine_store, "update", side_effect=routine_store.RoutineStoreError)
+            with failing, self.assertRaises(local_app.ApiProblem):
+                routine_incident.reconcile(service, "team_1", run_id)
+            taken = record.RoutineStateError("run-not-held")
+            with mock.patch.object(routine_hold, "settle_hold", side_effect=taken):
+                self.assertFalse(routine_incident.reconcile(service, "team_1", run_id))
+            self.assertTrue(routine_incident.reconcile(service, "team_1", run_id))
+            self.assert_deleted_as_lost(service, value, run_id, generation)
+
     def test_evidence_sealed_for_another_team_is_lost_when_its_routine_is_deleted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)

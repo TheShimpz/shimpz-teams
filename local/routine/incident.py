@@ -192,35 +192,42 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
         return False
     deleting = _deleting(state, value.routine_id)
     try:
-        held = _held(self, team_id, value, deleting=deleting)
+        held, lost = _held(self, team_id, value, deleting=deleting)
     except action_journal.ActionJournalError as exc:
         raise local_errors.action_state_unavailable() from exc
     now = int(time.time())
 
-    step = routine_hold.UNKNOWN_STEP if held is None else _held_step(self, team_id, held["recovery"], deleting=deleting)
-    return routine_state.applied(self, team_id, lambda state: routine_hold.settle_hold(state, run_id, now, step))
+    step = routine_hold.UNKNOWN_STEP
+    if held is not None:
+        found = _held_step(self, team_id, held["recovery"], deleting=deleting)
+        lost = found is None
+        step = routine_hold.UNKNOWN_STEP if found is None else found
+    settled = routine_state.applied(self, team_id, lambda state: routine_hold.settle_hold(state, run_id, now, step))
+    if settled and lost:
+        # Only the pass that sets the run aside audits its loss, so a retried or overlapping pass never audits it again.
+        _lost(team_id, run_id)
+    return settled
 
 
-def _held(self, team_id: str, value: record.Run, *, deleting: bool) -> dict[str, object] | None:
-    """The held run's evidence; None when a run of a Routine being deleted lost it, audited once.
+def _held(self, team_id: str, value: record.Run, *, deleting: bool) -> tuple[dict[str, object] | None, bool]:
+    """The held run's evidence, or None when a run of a Routine being deleted lost it; and whether to audit that here.
 
     Lost sealed evidence is audited by ``_release``, which reads it the same way once it releases the run; a loss only
-    sealing it now meets, such as a recovery snapshot that cannot be read, leaves nothing for it to read, so it is
-    audited here.
+    sealing it now meets, such as a recovery snapshot that cannot be read, leaves nothing for it to read, so the hold
+    audits it.
     """
     try:
         current, sealed = _sealed(self, team_id, value)
     except ApiProblem:
         if not deleting:
             raise
-        return None
+        return None, False
     try:
-        return _held_evidence(self, team_id, value, current, sealed)
+        return _held_evidence(self, team_id, value, current, sealed), False
     except ApiProblem:
         if not deleting:
             raise
-        _lost(team_id, value.run_id)
-        return None
+        return None, True
 
 
 def _sealed(self, team_id: str, value: record.Run) -> tuple[tuple[str, str] | None, dict[str, object] | None]:
@@ -274,13 +281,13 @@ def _lost(team_id: str, run_id: str) -> None:
     local_audit.record_team_error("routine-evidence-lost", run_id, team_id)
 
 
-def _held_step(self, team_id: str, snapshot: Recovery | None, *, deleting: bool) -> routine_hold.HeldStep:
+def _held_step(self, team_id: str, snapshot: Recovery | None, *, deleting: bool) -> routine_hold.HeldStep | None:
     """The Assistant Action the held run's sealed cursor stopped at; none when the run sealed no snapshot or cursor.
 
     A cursor that cannot be read now fails the hold's step, so the run stays held and the watchdog's next pass
     indexes it with its call; it is never indexed without the call its card must name. A run of a Routine being
-    deleted is set aside as it is indexed, so no card ever names its call: its unreadable cursor is lost and audited,
-    and the run is indexed without a call rather than keep the deletion waiting on a cursor that may never be read.
+    deleted is set aside as it is indexed, so no card ever names its call: its unreadable cursor is lost (None), and
+    the run is indexed without a call rather than keep the deletion waiting on a cursor that may never be read.
     """
     if snapshot is None:
         return routine_hold.UNKNOWN_STEP
@@ -288,8 +295,7 @@ def _held_step(self, team_id: str, snapshot: Recovery | None, *, deleting: bool)
         cursor = routine_state.call(lambda: self.routine_store.cursor(team_id, snapshot.binding))
     except ApiProblem:
         if deleting:
-            _lost(team_id, snapshot.binding.run_id)
-            return routine_hold.UNKNOWN_STEP
+            return None
         raise
     if cursor is None:
         return routine_hold.UNKNOWN_STEP
