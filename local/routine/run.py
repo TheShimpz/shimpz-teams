@@ -408,8 +408,11 @@ def registered(self, team_id: str, run_id: str, token: str, active_seconds: int)
 
 
 def bind_run(self, team_id: str, run_id: str, lease: record.Lease) -> str:
-    """Bind the run's own journal generation under its live lease."""
-    network_id = self.assistant_lifecycle._network(team_id).id
+    """Bind the run's own journal generation under its live lease; ContractsUnavailableError when the Team is unread."""
+    try:
+        network_id = self.assistant_lifecycle._network(team_id).id
+    except ApiProblem as exc:
+        raise routine_contracts.ContractsUnavailableError from exc
     now = int(time.time())
 
     def bind(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:

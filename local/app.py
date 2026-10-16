@@ -596,7 +596,10 @@ class LocalController:
             self.assistant_lifecycle._validate_container(container, team_id, spec, network.name)
             if container.id in self.assistant_lifecycle._blocked_action_workloads:
                 raise assistant_action_blocked()
-            container.reload()
+            try:
+                container.reload()
+            except DOCKER_ERRORS as exc:
+                raise docker_unavailable() from exc
             if container.status != "running":
                 raise ApiProblem(HTTPStatus.CONFLICT, "Assistant is not running", code="assistant-not-running")
             with self.chat_turn_service._active_chat_guard:

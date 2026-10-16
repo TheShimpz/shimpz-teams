@@ -28,6 +28,7 @@ from inference import config as inference_config
 from local import app as local_app
 from local import authority as local_authority
 from local.assistant import egress as local_egress
+from local.assistant import resources as local_resources
 from local.routine import contracts as routine_contracts
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import human as routine_human
@@ -43,6 +44,9 @@ from routine import record, trace
 from routine import runs as routine_runs
 from tests import human_request_fixtures
 
+# docker-py raises this, an OSError and no DockerException, while its socket is down.
+LOST = requests.exceptions.ConnectionError("Docker socket is down")
+
 
 def broken(*_args, **_kwargs):
     raise routine_store.RoutineStoreError("down")
@@ -50,13 +54,9 @@ def broken(*_args, **_kwargs):
 
 @contextmanager
 def _docker_down(controller):
-    """The real Team network read over a Docker client whose socket is down.
-
-    docker-py then raises requests' ConnectionError, an OSError and no DockerException.
-    """
+    """The real Team network read over a Docker client whose socket is down."""
     lifecycle = controller.assistant_lifecycle
-    lost = requests.exceptions.ConnectionError("Docker socket is down")
-    client = SimpleNamespace(networks=SimpleNamespace(get=mock.Mock(side_effect=lost)))
+    client = SimpleNamespace(networks=SimpleNamespace(get=mock.Mock(side_effect=LOST)))
     with (
         mock.patch.object(lifecycle, "client", client),
         mock.patch.object(lifecycle, "_network", functools.partial(local_egress.team_network, lifecycle)),
@@ -876,6 +876,42 @@ class LostDockerConnectionTests(RoutineServiceCase):
             self.assertEqual(record.live_runs(state), ())
             self.assertEqual(state.notices[-1].detail, {"code": "team-context-unavailable"})
 
+    def test_a_connection_lost_before_the_run_binds_fails_it_with_nothing_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service, claim = self.claimed(directory, Runtime())
+            lifecycle = controller.assistant_lifecycle
+            # The slot's context check still reads the network; the connection is lost before the run binds to it.
+            answers = mock.Mock(side_effect=[lifecycle._network("team_1"), LOST])
+            with (
+                mock.patch.object(lifecycle, "client", SimpleNamespace(networks=SimpleNamespace(get=answers))),
+                mock.patch.object(lifecycle, "_network", functools.partial(local_egress.team_network, lifecycle)),
+            ):
+                self.assertEqual(self.run_claim(service, claim)["status"], "failed")
+            self.assertEqual(answers.call_count, 2)
+            state = self.state(service)
+            self.assertEqual(record.live_runs(state), ())
+            self.assertEqual(state.notices[-1].detail, {"code": "team-context-unavailable"})
+
+    def test_a_connection_lost_at_dispatch_holds_the_run_at_once(self) -> None:
+        for read in ("container", "reload"):
+            with self.subTest(read=read), tempfile.TemporaryDirectory() as directory:
+                controller, service, claim = self.claimed(directory, Runtime(acting(), completed()))
+                lifecycle = controller.assistant_lifecycle
+                if read == "container":
+                    # The real container read over a client whose socket is down.
+                    client = SimpleNamespace(containers=SimpleNamespace(get=mock.Mock(side_effect=LOST)))
+                    owner = SimpleNamespace(client=client, _container_name=lifecycle._container_name)
+                    lifecycle._assistant_container = functools.partial(local_resources.assistant_container, owner)
+                else:
+                    # The dispatched container is found, then lost as the Action's invocation reloads it.
+                    container = SimpleNamespace(id="assistant-container", reload=mock.Mock(side_effect=LOST))
+                    lifecycle._assistant_container = mock.Mock(return_value=container)
+                # Held at once, with its active time charged and its recovery episode run, never left leased.
+                self.assertEqual(self.run_claim(service, claim)["status"], "held")
+                state = self.state(service)
+                self.assertEqual([run.status for run in state.runs], ["unresolved"])
+                self.assertEqual([notice.outcome for notice in state.notices], ["held"])
+
     def test_a_frozen_run_is_kept_for_a_retry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, service, claim = FrozenFaultTests.frozen(self, directory)
@@ -891,9 +927,7 @@ class LostDockerConnectionTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             controller, service, claim = self.claimed(directory, Runtime())
             run_id, now = claim["run_id"], int(time.time())
-            lease = record.lease_of(claim["lease_token"], KEY)
             reads = {
-                "bind": lambda: routine_run.bind_run(service, "team_1", run_id, lease),
                 "diagnostics": lambda: service.routine_run_diagnostics("team_1", run_id, now),
                 "steps": lambda: service.routine_run_steps("team_1", run_id, "0" * 64, 0, now),
                 "confirm": lambda: service.confirm_routine_proposal("team_1", "e" * 32),

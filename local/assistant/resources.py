@@ -40,6 +40,8 @@ def assistant_container(self, team_id: str, assistant_id: str, *, required: bool
                 code="assistant-not-found",
             ) from None
         return None
+    except DOCKER_ERRORS as exc:
+        raise docker_unavailable() from exc
     return container
 
 
@@ -205,7 +207,10 @@ def validate_container_profile(
     refresh: bool = True,
 ) -> tuple[dict, dict[str, str]]:
     if refresh:
-        container.reload()
+        try:
+            container.reload()
+        except DOCKER_ERRORS as exc:
+            raise docker_unavailable() from exc
     expected_labels = self._assistant_labels(team_id, spec)
     expected_labels.pop(IMAGE_LABEL)
     admitted = local_container_policy.inspect_profile(

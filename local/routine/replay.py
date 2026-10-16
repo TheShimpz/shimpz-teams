@@ -678,10 +678,15 @@ def run_routine(
     ):
         # Rechecked in the slot: an Assistant changed since the claim never runs under a contract nobody pinned.
         refused = routine_run.context_refusal(self, team_id, dict(routine.assistants))
+        if refused is None:
+            try:
+                generation = routine_run.bind_run(self, team_id, run_id, lease)
+            except routine_contracts.ContractsUnavailableError:
+                # The Team could not be read again to bind the run; nothing ran, so it fails like the check above.
+                refused = "team-context-unavailable"
         if refused is not None:
             outcome = routine_run.end_run(self, team_id, run_id, "failed", {"code": refused})
         else:
-            generation = routine_run.bind_run(self, team_id, run_id, lease)
             bound = dataclasses.replace(value, generation=generation)
             run = routine_run.LeasedRun(team_id, run_id, lease, token, routine)
             outcome = execute(self, run, bound, progress)

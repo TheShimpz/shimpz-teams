@@ -45,6 +45,19 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         controller.client.containers.get.return_value = container
         self.assertIs(resources.assistant_container(controller, "team_1", "helper"), container)
 
+    def test_a_lost_docker_connection_reading_a_container_is_docker_unavailable(self) -> None:
+        controller = self._controller()
+        for failure in (DockerException("unavailable"), LOST):
+            with self.subTest(failure=type(failure).__name__):
+                controller.client.containers.get.side_effect = failure
+                with self.assertRaises(ApiProblemError) as caught:
+                    resources.assistant_container(controller, "team_1", "helper", required=False)
+                self.assertEqual((caught.exception.status, caught.exception.code), (503, "docker-unavailable"))
+                container = types.SimpleNamespace(reload=mock.Mock(side_effect=failure))
+                with self.assertRaises(ApiProblemError) as refreshed:
+                    resources.validate_container_profile(controller, container, "team_1", object(), "team-network")
+                self.assertEqual((refreshed.exception.status, refreshed.exception.code), (503, "docker-unavailable"))
+
     def test_assistant_inventory_rejects_docker_registry_identity_and_duplicate_drift(self) -> None:
         controller = self._controller()
         for failure in (DockerException("unavailable"), LOST):
