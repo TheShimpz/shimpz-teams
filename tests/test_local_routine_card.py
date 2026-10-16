@@ -59,12 +59,11 @@ class CardCase(RecoveryCase):
 class CardViewTests(CardCase):
     def test_a_card_names_the_held_call_its_recorded_failure_and_exactly_two_choices(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            service, brain, value, run_id = self.held(directory, Assistant([failed()], []))
+            service, brain, _value, run_id = self.held(directory, Assistant([failed()], []))
             (incident,) = service.list_routines("team_1")["incidents"]
             card = self.card(service, run_id)
         self.assertEqual(
-            (card["assistant_id"], card["action"], card["revision"], card["position"], card["steps"]),
-            (ASSISTANT, "create-record", value.revision, 2, 2),
+            (card["assistant_id"], card["action"], card["position"], card["steps"]), (ASSISTANT, "create-record", 2, 2)
         )
         failure = card["diagnostic"]["failure"]
         self.assertEqual(
@@ -99,7 +98,7 @@ class CardViewTests(CardCase):
         with tempfile.TemporaryDirectory() as directory:
             service = self.mutating(directory, Brain(), Assistant([failed()], []))
             service._recover_routine_run = lambda _run, _progress=None: "held"
-            value = self.zone_record_routine(service)
+            self.zone_record_routine(service)
             claim = service.claim_routine_run()
             held_step = routine_incident._held_step
 
@@ -118,8 +117,7 @@ class CardViewTests(CardCase):
             card = self.card(service, claim["run_id"])
         self.assertEqual((incident.run_id, incident.status), (claim["run_id"], "unresolved"))
         self.assertEqual(
-            (card["assistant_id"], card["action"], card["revision"], card["position"], card["steps"]),
-            (ASSISTANT, "create-record", value.revision, 2, 2),
+            (card["assistant_id"], card["action"], card["position"], card["steps"]), (ASSISTANT, "create-record", 2, 2)
         )
 
     def test_a_cursor_never_readable_again_neither_strands_deletion_nor_stalls_the_watchdog(self) -> None:

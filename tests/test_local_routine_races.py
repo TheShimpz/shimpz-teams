@@ -104,7 +104,9 @@ class EndingRaceTests(FrozenCase):
         with tempfile.TemporaryDirectory() as directory:
             service, claim = self.frozen(directory)
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
-            service.routine_store.update("team_1", lambda state: record.begin_delete(state, claim["routine_id"]))
+            service.routine_store.update(
+                "team_1", lambda state: record.begin_delete(state, state.routines[0].routine_id)
+            )
             with self.assertRaises(local_app.ApiProblem) as caught:
                 self.answer_human(service, claim["run_id"], opened["challenge_id"])
             self.assertEqual(caught.exception.code, "routine-run-not-frozen")
@@ -123,7 +125,7 @@ class EndingRaceTests(FrozenCase):
                 mock.patch.object(
                     routine_human,
                     "_frozen",
-                    return_value=(snapshot, record.routine(self.state(service), claim["routine_id"])),
+                    return_value=(snapshot, self.state(service).routines[0]),
                 ),
                 self.assertRaises(local_app.ApiProblem) as denied,
             ):
@@ -236,7 +238,7 @@ class StopBeforeRegistrationTests(FrozenCase):
         with tempfile.TemporaryDirectory() as directory:
             runtime = Runtime(acting())
             _controller, service, claim = self.claimed(directory, runtime)
-            self.assertTrue(service.delete_routine("team_1", claim["routine_id"])["deleted"])
+            self.assertTrue(service.delete_routine("team_1", self.state(service).routines[0].routine_id)["deleted"])
             with self.assertRaises(local_app.ApiProblem) as late:
                 self.run_claim(service, claim)
             self.assertEqual(late.exception.code, "routine-lease-invalid")
@@ -269,7 +271,7 @@ class StopBeforeRegistrationTests(FrozenCase):
 
             def stopped_meanwhile(*args):
                 admit(*args)
-                self.assertTrue(service.delete_routine("team_1", claim["routine_id"])["deleted"])
+                self.assertTrue(service.delete_routine("team_1", self.state(service).routines[0].routine_id)["deleted"])
 
             with (
                 mock.patch.object(routine_human, "_current_context", side_effect=stopped_meanwhile),
@@ -329,7 +331,8 @@ class ChallengeEndingRaceTests(FrozenCase):
             service, claim = self.frozen(directory)
             with (
                 self.ending_meanwhile(
-                    service, lambda: service.delete_routine("team_1", claim["routine_id"])["deleted"]
+                    service,
+                    lambda: service.delete_routine("team_1", self.state(service).routines[0].routine_id)["deleted"],
                 ) as results,
                 contextlib.suppress(local_app.ApiProblem),
             ):
@@ -384,7 +387,9 @@ class FreezeRaceTests(RoutineServiceCase):
             _controller, service, claim = self.asking(directory)
             deletions: list[dict[str, object]] = []
             with self.committing(
-                service, lambda: None, lambda: deletions.append(service.delete_routine("team_1", claim["routine_id"]))
+                service,
+                lambda: None,
+                lambda: deletions.append(service.delete_routine("team_1", self.state(service).routines[0].routine_id)),
             ):
                 self.run_claim(service, claim)
             self.assertTrue(deletions[0]["deleted"])
@@ -398,7 +403,9 @@ class FreezeRaceTests(RoutineServiceCase):
             _controller, service, claim = self.asking(directory)
 
             def deleting() -> None:
-                service.routine_store.update("team_1", lambda state: record.begin_delete(state, claim["routine_id"]))
+                service.routine_store.update(
+                    "team_1", lambda state: record.begin_delete(state, state.routines[0].routine_id)
+                )
 
             with self.committing(service, deleting, lambda: None):
                 self.assertEqual(self.run_claim(service, claim)["status"], "stopped")

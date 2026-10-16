@@ -695,10 +695,11 @@ class StopTests(ReplayRunCase):
             routine_fixture.update_routine(service, value.routine_id, next_run_at=due)
             resumed = service.claim_routine_run()
             notices = [item.outcome for item in self.state(service).notices if item.run_id == claim["run_id"]]
+            resumed_routine = record.run(self.state(service), resumed["run_id"]).routine_id
         # The run already going finished on its own; only the next run waited for the Routine to be resumed.
         self.assertEqual((outcome, notices), ("done", ["done"]))
         self.assertIsNone(paused)
-        self.assertEqual(resumed["routine_id"], value.routine_id)
+        self.assertEqual(resumed_routine, value.routine_id)
 
 
 class RuntimeTests(ReplayRunCase):

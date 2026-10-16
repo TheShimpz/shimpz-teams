@@ -39,14 +39,12 @@ def _card_evidence(value: dict[str, object]) -> bool:
 
 def canonical_card(value: object) -> dict[str, object] | None:
     """An opened recovery card: the call it stopped at, its failure as recorded, and its entity tag."""
-    fields = {"team_id", "run_id", "routine_id", "revision", "assistant_id", "action", "tag"}
+    fields = {"team_id", "run_id", "assistant_id", "action", "tag"}
     if not isinstance(value, dict) or set(value) != fields | {"position", "steps", "evidence", "diagnostic"}:
         return None
     valid = (
         routine.valid_team(value["team_id"])
         and routine.matches(value["run_id"], routine.ROUTINE_ID_RE)
-        and routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
-        and routine.valid_revision(value["revision"])
         and routine.valid_assistant(value["assistant_id"])
         and routine.valid_action(value["action"])
         and routine.canonical_position(value["position"], value["steps"]) is not None
@@ -107,7 +105,7 @@ def canonical_claim(value: object) -> dict[str, object] | None:
     run, hint = value["run"], value["next_due_at"]
     if run is None:
         return {"run": None, "next_due_at": hint} if hint is None or (type(hint) is int and hint > 0) else None
-    fields = {"team_id", "run_id", "routine_id", "lease_token", "lease_expires_at", "active_seconds"}
+    fields = {"team_id", "run_id", "lease_token", "active_seconds"}
     valid = (
         hint is None
         and isinstance(run, dict)
@@ -116,10 +114,7 @@ def canonical_claim(value: object) -> dict[str, object] | None:
         and 0 < run["active_seconds"] <= MAX_ACTIVE_SECONDS
         and routine.valid_team(run["team_id"])
         and routine.matches(run["run_id"], routine.ROUTINE_ID_RE)
-        and routine.matches(run["routine_id"], routine.ROUTINE_ID_RE)
         and routine.matches(run["lease_token"], routine_notice.LEASE_TOKEN_RE)
-        and type(run["lease_expires_at"]) is int
-        and run["lease_expires_at"] > 0
         and routine.valid_revision(run["revision"])
         and routine.matches(run["plan_digest"], routine.PLAN_DIGEST_RE)
     )
@@ -242,20 +237,15 @@ def canonical_diagnostics(value: object) -> dict[str, object] | None:
 # one records snapshot.
 RUN_STEP_STATUSES = ("done", "recovered", "failed", "stopped", "waiting")
 RUN_STEP_GAPS = ("not_run", "unavailable")
-RUN_INPUT_SOURCES = frozenset({"literal", "run_clock", "step_output"})
 SNAPSHOT_RE = re.compile(r"[0-9a-f]{32}\Z")
-RUN_STEP_FIELDS = frozenset(
-    {"position", "status", "assistant_id", "action", "attempt", "duration_ms", "recorded_at", "inputs"}
-)
+RUN_STEP_FIELDS = frozenset({"position", "status", "assistant_id", "action", "attempt", "duration_ms", "inputs"})
 
 
 def _run_input(value: object) -> bool:
     return (
         isinstance(value, dict)
-        and set(value) == {"member", "source", "value"}
+        and set(value) == {"member", "value"}
         and routine.plain(value["member"], routine.MAX_MEMBER_CHARS)
-        and isinstance(value["source"], str)
-        and value["source"] in RUN_INPUT_SOURCES
         and (value["value"] is None or routine.plain(value["value"], routine.MAX_PREVIEW_CHARS))
     )
 
@@ -276,7 +266,6 @@ def canonical_run_step(value: object, position: int, steps: int) -> dict[str, ob
             and 1 <= value["attempt"] <= MAX_DIAGNOSTIC_ATTEMPTS
             and (duration is None or (type(duration) is int and 0 <= duration < 2**53))
             and (status != "recovered" or duration is None)
-            and routine_notice.instant(value["recorded_at"])
             and (value["inputs"] is None or routine.members(value["inputs"], _run_input))
         )
     valid = (
@@ -292,7 +281,7 @@ def canonical_run_steps(value: object) -> dict[str, object] | None:
 
     ``total`` is the revision's step count.
     """
-    fields = {"team_id", "run_id", "routine_id", "revision", "plan_digest", "total", "snapshot", "ended"}
+    fields = {"team_id", "run_id", "routine_id", "revision", "plan_digest", "total", "snapshot"}
     if not isinstance(value, dict) or set(value) != fields | {"offset", "steps", "next"}:
         return None
     total = value["total"]
@@ -303,7 +292,6 @@ def canonical_run_steps(value: object) -> dict[str, object] | None:
         and routine.valid_revision(value["revision"])
         and routine.matches(value["plan_digest"], routine.PLAN_DIGEST_RE)
         and routine.matches(value["snapshot"], SNAPSHOT_RE)
-        and type(value["ended"]) is bool
         and routine.paged(value, lambda item, index: canonical_run_step(item, index, total))
     )
     return copy.deepcopy(value) if valid else None

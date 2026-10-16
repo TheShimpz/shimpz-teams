@@ -110,8 +110,6 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
     return {
         "team_id": team_id,
         "run_id": incident_id,
-        "routine_id": value.routine_id,
-        "revision": value.revision,
         "assistant_id": assistant_id,
         "action": action,
         "position": position,

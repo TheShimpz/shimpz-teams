@@ -132,13 +132,11 @@ class ScaleJourneyTests(RoutineServiceCase):
         self.assertEqual(
             steps_view[41]["inputs"],
             [
-                {"member": "page", "source": "literal", "value": "42"},
-                {"member": "per_page", "source": "literal", "value": "5"},
+                {"member": "page", "value": "42"},
+                {"member": "per_page", "value": "5"},
             ],
         )
-        self.assertEqual(
-            steps_view[119]["inputs"][2], {"member": "zone_id", "source": "step_output", "value": f'"{ZONE}"'}
-        )
+        self.assertEqual(steps_view[119]["inputs"][2], {"member": "zone_id", "value": f'"{ZONE}"'})
 
     def _due(self, service, value: record.Routine) -> None:
         service.routine_store.update(
@@ -160,8 +158,7 @@ class ScaleJourneyTests(RoutineServiceCase):
             snapshot = page["snapshot"]
             steps.extend(page["steps"])
             offset = page["next"]
-            ended = page["ended"]
-        return steps if ended else []
+        return steps
 
 
 class StepRecordEdgeTests(RoutineServiceCase):

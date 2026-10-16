@@ -388,7 +388,7 @@ class FrozenFaultTests(RoutineServiceCase):
             _controller, service, claim = self.frozen(directory)
             routine_watchdog.check(service)
             self.assertEqual(service.routine_store.continuations("team_1"), (claim["run_id"],))
-            self.assertTrue(service.delete_routine("team_1", claim["routine_id"])["deleted"])
+            self.assertTrue(service.delete_routine("team_1", self.state(service).routines[0].routine_id)["deleted"])
             self.assertEqual(service.routine_store.continuations("team_1"), ())
             # The frozen run ends stopped, and the deletion's own notice closes the Routine's timeline after it.
             outcomes = [(item.outcome, item.run_id) for item in self.state(service).notices[-2:]]

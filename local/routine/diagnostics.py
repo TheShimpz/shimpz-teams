@@ -182,7 +182,6 @@ class StepRecord:
             "action": self.action,
             "attempt": self.attempt,
             "duration_ms": self.duration_ms,
-            "recorded_at": instant.text(self.recorded_at),
             "inputs": self.inputs,
         }
 
@@ -592,7 +591,6 @@ def _gap(position: int, status: str) -> dict[str, object]:
         "action": None,
         "attempt": None,
         "duration_ms": None,
-        "recorded_at": None,
         "inputs": None,
     }
 
@@ -661,7 +659,6 @@ def run_steps(self, team_id: str, run_id: str, snapshot: str, offset: int, now: 
             **{key: binding[key] for key in ("routine_id", "revision", "plan_digest")},
             "total": total,
             "snapshot": token,
-            "ended": run is not None,
             "offset": offset,
             "steps": steps,
             "next": None if following == total else following,

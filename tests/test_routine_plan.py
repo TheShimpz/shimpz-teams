@@ -649,7 +649,7 @@ class InputPreviewTests(unittest.TestCase):
             inputs = {"post_id": {"kind": "step_output", "step": "publish", "pointer": pointer}}
             with self.subTest(pointer=pointer):
                 shown = self.preview(inputs, {"post_id": "s3cr3t"}, {("publish", pointer, "", ""): "s3cr3t"})
-                self.assertEqual(shown, [{"member": "post_id", "source": "step_output", "value": None}])
+                self.assertEqual(shown, [{"member": "post_id", "value": None}])
 
     def test_a_secret_root_or_a_dependent_schema_on_the_way_withholds_the_copied_value(self) -> None:
         note = {"type": "object", "properties": {"note": {"type": "string"}}}
@@ -668,7 +668,7 @@ class InputPreviewTests(unittest.TestCase):
             with self.subTest(source=source):
                 selected = {("publish", "/meta/note", "", ""): "private"}
                 shown = self.preview(inputs, {"post_id": "private"}, selected, source=source)
-                self.assertEqual(shown, [{"member": "post_id", "source": "step_output", "value": None}])
+                self.assertEqual(shown, [{"member": "post_id", "value": None}])
 
     def test_a_schema_secret_is_redacted_by_its_original_key_before_any_key_is_renamed(self) -> None:
         meta = {
@@ -720,7 +720,7 @@ class InputPreviewTests(unittest.TestCase):
         }
         shown = self.preview(inputs, {"post_id": meta, "tags": ["a"]}, {("publish", "/meta", "", ""): meta})
         self.assertEqual(shown[0]["value"], '{"api_key":"[redacted]","label":"public"}')
-        self.assertEqual(shown[1], {"member": "tags", "source": "literal", "value": '["a"]'})
+        self.assertEqual(shown[1], {"member": "tags", "value": '["a"]'})
         destination = {
             "post_id": {"kind": "literal", "value": "p-1"},
             "secret_note": {"kind": "step_output", "step": "publish", "pointer": "/id"},
@@ -728,7 +728,7 @@ class InputPreviewTests(unittest.TestCase):
         shown = self.preview(
             destination, {"post_id": "p-1", "secret_note": "plain"}, {("publish", "/id", "", ""): "plain"}
         )
-        self.assertEqual(shown[1], {"member": "secret_note", "source": "step_output", "value": '"[redacted]"'})
+        self.assertEqual(shown[1], {"member": "secret_note", "value": '"[redacted]"'})
 
     def test_credentials_and_injected_values_are_redacted_before_any_cut(self) -> None:
         credential = "sk-" + "a" * 40
@@ -752,8 +752,8 @@ class InputPreviewTests(unittest.TestCase):
         self.assertEqual(
             shown,
             [
-                {"member": "post_id", "source": "step_output", "value": None},
-                {"member": "title", "source": "run_clock", "value": '"2026-10-05"'},
+                {"member": "post_id", "value": None},
+                {"member": "title", "value": '"2026-10-05"'},
             ],
         )
 
@@ -855,14 +855,14 @@ class SelectorAndDispositionTests(unittest.TestCase):
         plan = self.plan(self.selector())
         key = ("publish", "/result", '{"name":"shimpz.com"}', "/id")
         shown = routine_plan.input_preview(plan, plan.steps[1], {"post_id": "z2"}, {key: "z2"}, ())
-        self.assertEqual(shown, [{"member": "post_id", "source": "step_output", "value": '"z2"'}])
+        self.assertEqual(shown, [{"member": "post_id", "value": '"z2"'}])
         secret = {
             "type": "object",
             "properties": {"result": {"type": "array", "items": {"type": "object", "writeOnly": True}}},
         }
         withheld = self.plan(self.selector(), out=secret)
         shown = routine_plan.input_preview(withheld, withheld.steps[1], {"post_id": "z2"}, {key: "z2"}, ())
-        self.assertEqual(shown, [{"member": "post_id", "source": "step_output", "value": None}])
+        self.assertEqual(shown, [{"member": "post_id", "value": None}])
 
     def test_every_plan_runs_a_step_and_chain_is_no_disposition(self) -> None:
         self.assertIsNone(self.plan(self.selector(), {"mode": "none", "step": None}).shown())

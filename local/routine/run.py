@@ -149,9 +149,7 @@ def claim_routine_run(self, long: bool = True) -> dict[str, object] | None:
             return {
                 "team_id": team_id,
                 "run_id": claim.run.run_id,
-                "routine_id": claim.run.routine_id,
                 "lease_token": claim.lease_token,
-                "lease_expires_at": claim.run.lease_expires_at,
                 "revision": claim.revision,
                 "plan_digest": claim.plan_digest,
                 "active_seconds": claim.active_seconds,

@@ -371,9 +371,10 @@ retained records (`latest` asks for the current one; a page naming a snapshot wh
 `routine-run-changed`). Each entry
 (`routine_run.canonical_run_step`) has its `position` and is `done`, `recovered` (a verified occurrence, with no duration of
 its own), `failed` (its attempt failed; the run's notice says whether it was held), `stopped` (Stop or the run's
-deadline cut the attempt, which says nothing about whether it acted), or `waiting` (frozen for a person), with its Assistant Action, attempt, `duration_ms`, instant, and the inputs that attempt
-was given, each a redacted preview (`null` when its source's secrecy cannot be established). A step with no record is
-`not_run` only when the run's terminal record proves it never started (`ended`), and `unavailable` otherwise. The page is
+deadline cut the attempt, which says nothing about whether it acted), or `waiting` (frozen for a person), with its Assistant Action, attempt, `duration_ms`, and the inputs that attempt
+was given, each `{member, value}` with a redacted preview (`null` when its source's secrecy cannot be established). A
+step with no record is `not_run` only when the run's terminal record proves it never started, and `unavailable`
+otherwise. The page is
 self-contained and never needs the revision's plan, so it renders after any later change. Records expire after seven
 days. Each per-attempt diagnostic also names its `position`. Admin's claim is exactly `{long}`, whether it can take a long
 run now; a claimed run carries its `active_seconds` budget, which grows with its revision's steps
@@ -385,7 +386,7 @@ call), and its unresolved `incidents`, at most `routine_notice.MAX_UNRESOLVED_IN
 (`routine_notice.canonical_incident_view`): each held run's id, Routine, and the call it was held at by `position` of
 `steps`. `POST /v1/teams/:team_id/routines/incidents/:run_id/card` with
 `{}` opens that run's recovery card (`routine_run.canonical_card`): the call it stopped at by `position` of `steps` in the
-plan the run executed, that revision, the `evidence` of its failure (`recorded`, with the held operation's latest
+plan the run executed, the `evidence` of its failure (`recorded`, with the held operation's latest
 sanitized `diagnostic` of the same call; `absent` when none is kept; or `unavailable` when it could not be read), and its
 `tag`, 64 hex: an entity tag over exactly the state its answer must still find (the Team incarnation, the run, its
 Routine and the revision it executed, its held generation and operation, and the Routine's current revision). Rodar and
@@ -483,7 +484,7 @@ model, lifetime, and one-use nonce bindings as a Supervisor assertion, requires 
 Admin's scheduler claims under the Team bearer with `POST /v1/routines/claim` and exactly `{long}`
 (`routine_run.canonical_claim_request`): no model key gates a claim, because a healthy replayed run needs none (ADR-0092),
 and any Team with a configured model may be claimed. The answer (`routine_run.canonical_claim`) is one run with its lease
-token, lease expiry, and the Routine `revision` and `plan_digest` it was claimed at, or `null` with `next_due_at`, the
+token and the Routine `revision` and `plan_digest` it was claimed at, or `null` with `next_due_at`, the
 earliest epoch second a Routine of a Team Admin can run becomes due (`null` when none will), so Admin wakes then while
 still reconciling on its own interval. The run's signed segment request, `POST
 /v1/teams/:team_id/routines/runs/:run_id/segment`, carries exactly that `{revision, plan_digest}`

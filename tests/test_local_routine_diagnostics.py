@@ -309,7 +309,7 @@ class RunDiagnosticsViewTests(unittest.TestCase):
 
 
 BINDING = diagnostics.RunBinding(ROUTINE, RUN, 2, "sha256:" + "f" * 64, 4)
-INPUTS = [{"member": "page", "source": "literal", "value": "1"}]
+INPUTS = [{"member": "page", "value": "1"}]
 
 
 def _step(step: int = 1, status: str = "done", **changes: object) -> diagnostics.StepRecord:
@@ -347,7 +347,6 @@ class StepRecordTests(StepRecordCase):
         statuses = [(step["status"], step["attempt"]) for step in live["steps"]]
         # A live run proves nothing about the steps it has no record of.
         self.assertEqual(statuses, [("done", 2), ("recovered", 1), ("unavailable", None), ("unavailable", None)])
-        self.assertFalse(live["ended"])
         # Its terminal record proves the steps after the one it reached and dispatched never started.
         self.store.record_run("team_1", INCARNATION, diagnostics.RunRecord(BINDING, 2, True, NOW + 1))
         ended = self.page()
@@ -393,7 +392,7 @@ class StepRecordTests(StepRecordCase):
 
     def test_pages_of_many_steps_stay_within_their_bound(self) -> None:
         binding = dataclasses.replace(BINDING, total=200)
-        wide = [{"member": f"m{index:02d}", "source": "literal", "value": "x" * 120} for index in range(40)]
+        wide = [{"member": f"m{index:02d}", "value": "x" * 120} for index in range(40)]
         for position in range(1, 201):
             self.store.record_step("team_1", INCARNATION, _step(position, binding=binding, inputs=wide), ())
         positions, offset, snapshot = [], 0, "latest"
@@ -432,7 +431,7 @@ class StepRecordTests(StepRecordCase):
             _step(1, attempt=0),
             _step(1, binding=dataclasses.replace(BINDING, run_id="bad")),
             _step(1, binding=dataclasses.replace(BINDING, plan_digest="x")),
-            _step(1, inputs=[{"member": "page", "source": "secret", "value": "1"}]),
+            _step(1, inputs=[{"member": "page", "value": "1", "secret": True}]),
         )
         invalid = (
             *invalid,
@@ -447,7 +446,7 @@ class StepRecordTests(StepRecordCase):
             self.store.record_step("team_1", INCARNATION, _step(1), ("list-zones",))
         # A protected value is found however the body escapes it: as JSON text or as a preview's escapes.
         for value in ('a"b', "a\nb", "a\u200bb"):
-            escaped = _step(1, inputs=[{"member": "page", "source": "literal", "value": json.dumps(value)[1:-1]}])
+            escaped = _step(1, inputs=[{"member": "page", "value": json.dumps(value)[1:-1]}])
             with self.subTest(value=value), self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "protected"):
                 self.store.record_step("team_1", INCARNATION, escaped, (value,))
         with self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "invalid"):

@@ -861,16 +861,15 @@ INPUT_REDACTED = "[redacted]"
 def input_preview(
     plan: Plan, step: Step, resolved: Mapping[str, object], selected: Mapping[Key, object], protected
 ) -> list[dict[str, object]]:
-    """Each input member of one attempt, sorted, as ``{member, source, value}`` with a redacted preview or None."""
+    """Each input member of one attempt, sorted, as ``{member, value}`` with a redacted preview or None."""
     previews = []
     for member in sorted(step.inputs):
-        source = step.inputs[member]
         try:
             value = _shown_input(plan, step, member, resolved, selected, tuple(protected))
         except PlanError, RecursionError, KeyError, TypeError, ValueError:
             value = _WITHHELD
         preview = None if value is _WITHHELD else http_routine.literal_preview(value)
-        previews.append({"member": member, "source": source["kind"], "value": preview})
+        previews.append({"member": member, "value": preview})
     return previews
 
 
