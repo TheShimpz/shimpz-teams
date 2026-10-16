@@ -400,7 +400,7 @@ if (
 readings = vectors.get("routine_phrase", {})
 if not all(readings.get(name) for name in ("stated", "outputs", "zones", "team_asks", "requests_routine")):
     fail("routine phrase vectors are missing")
-if any(phrase.team_asks(case["text"]) is not case["asks"] for case in readings["team_asks"]):
+if any(phrase.team_asks(case["text"], case.get("language")) is not case["asks"] for case in readings["team_asks"]):
     fail("a routine phrase team_asks vector differs")
 if any(phrase.requests_routine(case["text"]) is not case["requests"] for case in readings["requests_routine"]):
     fail("a routine phrase requests_routine vector differs")

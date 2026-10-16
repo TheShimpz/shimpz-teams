@@ -211,15 +211,18 @@ the intent's work and the revision its replaced Routine was shown at. A complete
 What a person's own words state about a Routine is read here too, with no model, so Team and the Brain read the
 same words alike (`phrase.py`, ADR-0101): `phrase.stated` reads the canonical schedules a text states,
 `phrase.outputs` the output choices (`show`, `changes`, `none`), and `phrase.zones` the exact IANA zones it
-names. `phrase.team_asks(text)` is true when one clarification question or option label asks or states a schedule,
-an interval, an output choice, or how many times a Routine may run, which Team asks itself and the Brain never does.
+names. `phrase.team_asks(text, language)` is true when one clarification question or option label asks or states a
+schedule, an interval, an output choice, or how many times a Routine may run, which Team asks itself and the Brain
+never does.
 `phrase.requests_routine(text)` is true when the text names a Routine affirmatively ("cria uma rotina", "create a
 routine"), so a chat that asks for one is about a Routine before any schedule is stated.
 The tables cover the eight interface languages. A sentence that asks states nothing; a negation in any
-language rejects every reading it reaches, except that `phrase.stated(text, language)` reads a text known to be
-written in that interface language, such as a description the Brain's model writes in the chat's language, with only
-that language's negations, so Portuguese "no Cloudflare a cada 30 segundos" keeps its schedule; "show the result" qualified by "only when it changes" in its own clause is
-that one choice, while alternatives offer both. Vectors pin a reading for each language and kind.
+language rejects every reading it reaches, except that `phrase.stated(text, language)` and
+`phrase.team_asks(text, language)` read a text known to be written in that interface language, such as a description
+or a clarification the Brain's model writes in the chat's language, with only that language's negations, so
+Portuguese "no Cloudflare a cada 30 segundos" keeps its schedule. "Show the result" qualified by "only when it
+changes" in its own clause is that one choice, and so is showing it whenever it changes ("mostrar sempre que mudar"),
+while alternatives, or a condition on something else, offer both. Vectors pin a reading for each language and kind.
 
 The Team→Brain Routine forms of a recording chat are defined here too, so the Brain mirrors them instead of copying
 them (ADR-0101). `routine_context.canonical_routine_listings` admits the Team's Routine listing: at most
@@ -422,7 +425,7 @@ safe transport condition (`exit-status:<code>`, `stderr-output`, `timeout`, `fra
 `transport-failed`); raw child output is never reflected. After a run lost its protection, a failure keeps only its
 `http_status`: `error_type` is `withheld`, `message` empty, `provider` and `response_excerpt` `null`, and `redacted` true. Text is literal evidence that Admin renders escaped, never as
 Markdown or HTML, and a diagnostic is never effect proof or authority. Team keeps these bodies encrypted for at most
-seven days and 10 MiB per Team, readable only by the same Team incarnation; deleting the Routine or the Team removes
+seven days and 24 MiB per Team, readable only by the same Team incarnation; deleting the Routine or the Team removes
 them.
 
 Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle for an authenticated

@@ -297,6 +297,62 @@ class StatedOutputTests(unittest.TestCase):
         self.assertEqual(phrase.outputs("毎回表示しない"), ("none",))
         self.assertEqual(set(phrase.outputs("Mostrar sempre. Ou só quando mudar.")), {"show", "changes"})
 
+    def test_showing_it_whenever_it_changes_is_showing_it_when_it_changes_in_every_language(self) -> None:
+        for text in (
+            "Mostrar sempre que mudar",
+            "Mostrar o resultado sempre que houver mudança",
+            "Show it every time it changes",
+            "Show it always when it changes",
+            "Mostrar siempre que cambie",
+            "Afficher toujours quand ça change",
+            "Immer anzeigen wenn es sich ändert",
+            # German puts a comma before its condition.
+            "Immer anzeigen, wenn sich etwas ändert",
+            "変わるたびに結果を表示",
+            "每次变化时显示结果",
+            "اعرض دائماً كلما تغير",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(phrase.outputs(text), ("changes",))
+        # A condition that qualifies something else, or that is offered as an alternative, leaves both choices.
+        for text in (
+            "Show every run but change the DNS record only when it changes",
+            "Show every run but change the DNS record whenever it changes",
+            "Mostrar sempre, ou sempre que mudar",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(set(phrase.outputs(text)), {"show", "changes"})
+        for text, expected in (
+            ("Não mostrar sempre que mudar", ("none",)),
+            ("Ne pas afficher toujours quand ça change", ("none",)),
+            ("I don't want it every time it changes", ()),
+            ("Mostrar sempre que mudar?", ()),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(phrase.outputs(text), expected)
+
+    def test_a_portuguese_passive_or_gerund_shows_the_result_unless_it_is_negated(self) -> None:
+        for text in (
+            "Quero que o resultado seja mostrado em todas as execuções.",
+            "O resultado deve ser mostrado em todas as execuções.",
+            "Liste os registros a cada 30 segundos, mostrando o resultado em todas as execuções.",
+            "Quero ver o resultado em todas as execuções.",
+            # "Sem" elsewhere in the sentence negates only what it governs.
+            "Liste os registros, sem alterar nenhum, e mostre o resultado em todas as execuções.",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(phrase.outputs(text), ("show",))
+        self.assertEqual(phrase.outputs("O resultado será mostrado sempre que mudar."), ("changes",))
+        for text in (
+            "Não quero que o resultado seja mostrado em todas as execuções.",
+            "O resultado nunca deve ser mostrado em todas as execuções.",
+            "Sem o resultado ser mostrado em todas as execuções.",
+            "Sem que o resultado seja mostrado em todas as execuções.",
+            "Liste os registros sem ver o resultado em todas as execuções.",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(phrase.outputs(text), ())
+
 
 class RequestsRoutineTests(unittest.TestCase):
     def test_naming_a_routine_requests_one_in_every_language(self) -> None:
@@ -445,6 +501,19 @@ class TeamAsksTests(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 self.assertIs(phrase.team_asks(text), False)
+
+    def test_a_question_in_a_known_language_reads_its_schedule_with_only_that_languages_negations(self) -> None:
+        # Portuguese "no" ("in the") before the schedule is a Spanish and English negation, which no Portuguese
+        # question says, so the Brain's question in a Portuguese chat states its schedules.
+        for text in (
+            "Quer que eu liste os registros no Cloudflare a cada 30 segundos ou a cada minuto?",
+            "Qual zona você quer consultar no Cloudflare a cada 30 segundos?",
+        ):
+            with self.subTest(text=text):
+                self.assertIs(phrase.team_asks(text, "pt"), True)
+                self.assertIs(phrase.team_asks(text), False)
+        self.assertIs(phrase.team_asks("Devo listar os registros no Cloudflare?", "pt"), False)
+        self.assertIs(phrase.team_asks("¿No quieres listarlos cada 30 segundos?", "es"), False)
 
 
 class ZoneTokenTests(unittest.TestCase):

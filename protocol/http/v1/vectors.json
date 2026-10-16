@@ -7121,7 +7121,18 @@
       {"text": "显示结果，或者仅在变化时", "outputs": ["show", "changes"]},
       {"text": "不显示", "outputs": ["none"]},
       {"text": "اعرض النتيجة فقط عند التغيير", "outputs": ["changes"]},
-      {"text": "لا تعرض", "outputs": ["none"]}
+      {"text": "لا تعرض", "outputs": ["none"]},
+      {"text": "Mostrar sempre que mudar", "outputs": ["changes"]},
+      {"text": "Show it every time it changes", "outputs": ["changes"]},
+      {"text": "Mostrar siempre que cambie", "outputs": ["changes"]},
+      {"text": "Afficher toujours quand ça change", "outputs": ["changes"]},
+      {"text": "Immer anzeigen, wenn sich etwas ändert", "outputs": ["changes"]},
+      {"text": "変わるたびに結果を表示", "outputs": ["changes"]},
+      {"text": "每次变化时显示结果", "outputs": ["changes"]},
+      {"text": "اعرض دائماً كلما تغير", "outputs": ["changes"]},
+      {"text": "Show every run but change the DNS record only when it changes", "outputs": ["show", "changes"]},
+      {"text": "O resultado deve ser mostrado em todas as execuções.", "outputs": ["show"]},
+      {"text": "Sem o resultado ser mostrado em todas as execuções", "outputs": []}
     ],
     "zones": [
       {"text": "Run daily at 09:00 in Europe/London.", "zones": ["Europe/London"]},
@@ -7185,7 +7196,8 @@
       {"text": "في أي وقت؟", "asks": true},
       {"text": "Which start time should the report query use?", "asks": false},
       {"text": "09:00", "asks": false},
-      {"text": "18:00", "asks": false}
+      {"text": "18:00", "asks": false},
+      {"text": "Quer que eu liste os registros no Cloudflare a cada 30 segundos ou a cada minuto?", "language": "pt", "asks": true}
     ],
     "requests_routine": [
       {"text": "cria uma rotina pra mim, que lista os registros dns do dominio shimpz.com", "requests": true},

@@ -5,10 +5,11 @@ This is the one rule source: Team records with it and the Brain mirrors it, so b
 A Routine runs exactly when the person said, so Team reads it from the person's own text, never from the model. The
 table is bounded and closed: in each interface language, an interval of seconds, minutes, hours, days, or weeks ("a
 cada 30 segundos", "every hour", "every 2 weeks"), or a day, weekday, or day of the month with a time ("todo dia às 9h",
-"every Monday at 9am", "毎月5日9時"). A sentence that asks something (it ends with a question mark) states nothing,
-and a negation in any language rejects every reading it reaches, whichever language reads the same words. One text
-may state several schedules, which its reader then asks the person to choose between; a phrase this table does not read
-states nothing, so the person is asked again rather than guessed for.
+"every Monday at 9am", "毎月5日9時"). A sentence that asks something (it ends with a question mark) states nothing.
+A negation rejects every reading it reaches, whichever language reads the same words: in a person's own text, whose
+language nothing says, a negation in any language does; in a text known to be written in one interface language, only
+that language's negations do. One text may state several schedules, which its reader then asks the person to choose
+between; a phrase this table does not read states nothing, so the person is asked again rather than guessed for.
 
 An output choice is read the same way, from a bounded phrase table in the same languages that holds every localized
 choice label. A timezone is stated only as an exact, loadable IANA area zone such as "Europe/Lisbon", or "UTC".
@@ -30,7 +31,7 @@ _DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹０１２３４
 _SENTENCE_END_RE = re.compile(r"(?<=[!?;\n。！？؟])|(?<=(?<!\d)\.)")
 _ASKS = ("?", "？", "؟")
 
-# Each language's phrases; a phrase counts only in a sentence where that language says no negation.
+# Each language's negations: one before a reading, or anywhere where the negation trails, rejects it.
 _NEGATIONS = {
     "pt": r"\b(?:não|nunca|nem)\b",
     "en": r"\b(?:not|don't|dont|never|no)\b",
@@ -218,43 +219,71 @@ _TIMES = (
     r"(?:\bàs|\bas|\bat|\ba\s+las|\ba\s+la|\bà|\bum|الساعة)\s+(\d{1,2})(?::(\d{2}))?()(?!\s*\d)",
 )
 # What each run does with its result, by language: show it every run, only when it changes, or nothing. Each interface
-# language's choice labels (``routine_proposal.OUTPUT_CHOICES``) are among these
-# phrases. A plain "show the result" reads as showing it every run, unless its own clause says only when it changes.
+# language's choice labels (``routine_proposal.OUTPUT_CHOICES``) are among these phrases. A plain "show the result"
+# reads as showing it every run, unless its own clause says only when it changes. Showing it whenever it changes is
+# showing it when it changes: "always" or "every time" there is the condition's own word ("mostrar sempre que mudar").
+# A "negation" phrase states nothing and rejects the readings it overlaps, as "sem" ("without") does before a passive.
 _PT_SHOW = r"\b(?:mostrar|mostre|exibir|exiba)\s+"
 _ES_SHOW = r"\b(?:mostrar|muestra|muéstrame)\s+"
 _FR_SHOW = r"\b(?:afficher|affiche|montre(?:-moi)?)\s+"
 _OUTPUTS = (
     ("show", "pt", _PT_SHOW + r"(?:sempre|em\s+todas\s+as\s+execuções)\b"),
+    (
+        "show",
+        "pt",
+        r"\b(?:mostrad[oa]s?|exibid[oa]s?|mostrando|exibindo|ver)\s+(?:(?:o|os)\s+resultados?\s+)?"
+        r"(?:sempre|em\s+todas\s+as\s+execuções)\b",
+    ),
     ("result", "pt", _PT_SHOW + r"os?\s+resultados?\b"),
     ("changes", "pt", r"\b(?:só|somente|apenas)\s+(?:quando|se)\s+(?:mudar|alterar|houver\s+mudança)"),
+    ("changes", "pt", r"\b(?:sempre|toda\s+vez)\s+que\s+(?:algo\s+|houver\s+)?(?:mudar|alterar|mudança)"),
     ("none", "pt", r"\b(?:não|sem)\s+(?:precisa\s+)?(?:mostrar|exibir)\b"),
+    (
+        "negation",
+        "pt",
+        r"\bsem\s+(?:que\s+)?(?:(?:o|os)\s+resultados?\s+)?(?:ser|seja|sejam|serem|for|forem)\s+(?:mostrad|exibid)"
+        r"|\bsem\s+ver\b",
+    ),
     ("show", "en", r"\b(?:show|display)\s+(?:me\s+)?(?:it\s+)?(?:every\s+(?:run|time)|always)\b"),
     ("result", "en", r"\b(?:show|display)\s+(?:me\s+)?the\s+results?\b"),
     ("changes", "en", r"\bonly\s+(?:(?:when|if)\s+(?:it\s+)?changes|on\s+changes?)\b"),
+    ("changes", "en", r"\b(?:every\s+time|whenever|always\s+when)\s+(?:it|something|anything)\s+changes\b"),
     ("none", "en", r"\b(?:don't|do\s+not|no\s+need\s+to)\s+show\b|\bshow\s+nothing\b"),
     ("show", "es", _ES_SHOW + r"(?:siempre|en\s+cada\s+ejecución)"),
     ("result", "es", _ES_SHOW + r"(?:el\s+resultado|los\s+resultados)"),
     ("changes", "es", r"\bsolo\s+(?:cuando\s+cambie|si\s+cambia)\b"),
+    ("changes", "es", r"\b(?:siempre|cada\s+vez)\s+que\s+(?:algo\s+)?cambie\b"),
     ("none", "es", r"\b(?:no|sin)\s+mostrar\b"),
     ("show", "fr", _FR_SHOW + r"(?:toujours|à\s+chaque\s+exécution)"),
     ("result", "fr", _FR_SHOW + r"les?\s+résultats?"),
     ("changes", "fr", r"\b(?:seulement|uniquement)\s+(?:en\s+cas\s+de\s+changement|quand\s+(?:ça|il|elle)\s+change)"),
+    (
+        "changes",
+        "fr",
+        r"\b(?:toujours\s+(?:quand|lorsque)\s+|(?:à\s+)?chaque\s+fois\s+(?:que\s+|qu'))"
+        r"(?:ça|il|elle|cela|quelque\s+chose)\s+change",
+    ),
     ("none", "fr", r"\bne\s+(?:pas|rien)\s+afficher\b|\bsans\s+afficher\b"),
     ("show", "de", r"\b(?:immer|bei\s+jedem\s+lauf)\s+anzeigen\b"),
     ("result", "de", r"\bzeig\s+mir\s+das\s+ergebnis\b"),
     ("changes", "de", r"\bnur\s+(?:bei\s+änderung|wenn\s+(?:es\s+)?sich\s+(?:etwas\s+)?ändert)"),
+    # German shows before its condition, after its comma: "immer anzeigen, wenn sich etwas ändert".
+    ("changes", "de", r"\b(?:immer|anzeigen),?\s+wenn\s+(?:es\s+)?sich\s+(?:etwas\s+)?ändert"),
     ("none", "de", r"\b(?:nicht|nichts)\s+anzeigen\b"),
     ("show", "ja", r"毎回表示"),
     ("result", "ja", r"結果を表示"),
     ("changes", "ja", r"(?:変更|変化)(?:時|したとき)のみ|変わったときだけ"),
+    ("changes", "ja", r"(?:変わる|(?:変更|変化)(?:が)?ある)たびに"),
     ("none", "ja", r"表示しない|表示不要"),
     ("show", "zh", r"每次(?:运行都)?显示"),
     ("result", "zh", r"显示结果"),
     ("changes", "zh", r"(?:仅|只)在变化时"),
+    ("changes", "zh", r"每(?:次|当)(?:有|发生)?变化时?"),
     ("none", "zh", r"不(?:用)?显示"),
     ("show", "ar", r"اعرض\s+(?:في\s+كل\s+تشغيل|دائم)"),
     ("result", "ar", r"اعرض\s+النتيجة"),
     ("changes", "ar", r"فقط\s+عند\s+التغيير"),
+    ("changes", "ar", r"(?:دائماً?\s+)?كلما\s+(?:ت|ي)?تغير|دائماً?\s+عندما\s+(?:ت|ي)?تغير"),
     ("none", "ar", r"لا\s+تعرض|بدون\s+عرض"),
 )
 # A whole zone token: never part of a longer word, path, or offset ("UTC+3" names no zone), though it may close a
@@ -294,9 +323,9 @@ def _readings(sentence: str, language: str | None) -> dict[str, list[re.Match[st
     """
     tables = {"interval": _INTERVALS, "monthly": _MONTHLY, "weekly": _WEEKLY, "daily": _DAILY}
     found = [
-        (kind, language, match)
+        (kind, read, match)
         for kind, table in tables.items()
-        for language, pattern in table
+        for read, pattern in table
         for match in re.finditer(pattern, sentence)
     ]
     negated = [match.span() for _kind, read, match in found if _negated(language or read, sentence, match)]
@@ -396,15 +425,17 @@ def outputs(text: str) -> tuple[str, ...]:
     """Every distinct output choice one person-authored text states affirmatively, in the order first found.
 
     A "nothing" reading carries its own negation and stands; any other reading a negation reaches, in any language,
-    or that overlaps a "nothing" reading, states nothing. "Show the result" qualified by "only when it changes" in its
-    own clause is that one choice, while "show the result, or only when it changes" states both.
+    or that overlaps a "nothing" or "negation" reading, states nothing. "Show the result" qualified by "only when it
+    changes" in its own clause is that one choice, while "show the result, or only when it changes" states both.
+    "Show always" is showing it when it changes only where the condition takes its very words ("show it every time it
+    changes"); a condition elsewhere in the sentence, even in the same clause, leaves both choices for the person.
     """
     found: list[str] = []
     for sentence in _sentences(text):
         readings = [
             (kind, language, match) for kind, language, pattern in _OUTPUTS for match in re.finditer(pattern, sentence)
         ]
-        blocked = [match.span() for kind, _language, match in readings if kind == "none"]
+        blocked = [match.span() for kind, _language, match in readings if kind in ("none", "negation")]
         blocked += [
             match.span() for kind, language, match in readings if kind != "none" and _negated(language, sentence, match)
         ]
@@ -416,6 +447,8 @@ def outputs(text: str) -> tuple[str, ...]:
         changes = [span for kind, span in admitted if kind == "changes"]
         for kind, span in admitted:
             if kind == "result" and any(_one_clause(sentence, span, other) for other in changes):
+                continue
+            if kind == "show" and any(span[0] < end and start < span[1] for start, end in changes):
                 continue
             chosen = "show" if kind == "result" else kind
             if chosen not in found:
@@ -519,15 +552,16 @@ _BARE_PUNCTUATION = " ¿¡?？؟.!。"
 _QUESTION_MARKS = str.maketrans(dict.fromkeys(_ASKS, "."))
 
 
-def team_asks(text: str) -> bool:
+def team_asks(text: str, language: str | None = None) -> bool:
     """Whether a text asks or states what Team reads from the person's words, so the Brain never asks it.
 
     That is a schedule, an interval, an output choice, or how many times a Routine may run. The Brain's guard calls it
-    on one clarification question or option label. A stated reading counts even inside a question; a work or item
+    on one clarification question or option label, which its model writes in the chat's ``language``: its schedule is
+    read as ``stated`` reads a text in that language. A stated reading counts even inside a question; a work or item
     question ("qual zona?") does not.
     """
     plain = text.translate(_QUESTION_MARKS)
-    if stated(plain) or outputs(plain):
+    if stated(plain, language) or outputs(plain):
         return True
     folded = text.translate(_DIGITS).casefold().strip(_BARE_PUNCTUATION)
     return any(re.search(pattern, folded) for pattern in _ASK_PHRASES) or any(
