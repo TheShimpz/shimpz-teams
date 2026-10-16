@@ -405,6 +405,7 @@ class RecoverySnapshotTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)
             incarnation = generation.removesuffix(f":routine:{run_id}")
+            plan = _document()
             self.fence(service, run_id, lease)
             for binding in (
                 routine_cursor.Binding(incarnation, "f" * 32, 1, run_id),
@@ -412,56 +413,31 @@ class RecoverySnapshotTests(IncidentCase):
             ):
                 with self.subTest(binding=binding):
                     service.routine_store.delete_recovery("team_1", run_id)
-                    routine_incident.seal_recovery(service, "team_1", routine_incident.Recovery(binding, "Q", {}))
+                    routine_incident.seal_recovery(service, "team_1", routine_incident.Recovery(binding, "Q", plan))
                     with self.assertRaises(local_app.ApiProblem):
                         routine_incident.reconcile(service, "team_1", run_id)
             self.assertEqual(record.run(self.state(service), run_id).status, "held")
+            exact = {"version": 1, "binding": [incarnation, value.routine_id, 1, run_id], "name": "Q", "plan": plan}
+            # Each refused snapshot below differs from this admitted one in one way.
+            self.assertEqual(routine_incident.read_recovery(routine_plan.canonical(exact), run_id).plan, plan)
             for invalid in (
                 b"not json",
                 routine_plan.canonical({"version": 2}),
-                routine_plan.canonical({"version": 1, "binding": "x", "name": "Q", "plan": {}}),
-                routine_plan.canonical(
-                    {
-                        "version": 1,
-                        "binding": [incarnation, value.routine_id, 0, run_id],
-                        "name": "Q",
-                        "plan": {},
-                    }
-                ),
-                routine_plan.canonical(
-                    {
-                        "version": 1,
-                        "binding": [incarnation, value.routine_id, 1, run_id],
-                        "name": 1,
-                        "plan": {},
-                    }
-                ),
-                routine_plan.canonical(
-                    {
-                        "version": 1,
-                        "binding": [incarnation, value.routine_id, 1, run_id],
-                        "name": "Q",
-                        "plan": {},
-                        "unexpected": False,
-                    }
-                ),
-                routine_plan.canonical(
-                    {"version": 1, "binding": [incarnation, value.routine_id, 1, run_id], "unexpected": "Q", "plan": {}}
-                ),
-                routine_plan.canonical(
-                    {
-                        "version": 1,
-                        "binding": [incarnation, value.routine_id, 1, "e" * 32],
-                        "name": "Q",
-                        "plan": {},
-                    }
-                ),
+                routine_plan.canonical({**exact, "binding": "x"}),
+                routine_plan.canonical({**exact, "binding": [incarnation, value.routine_id, 0, run_id]}),
+                routine_plan.canonical({**exact, "name": 1}),
+                routine_plan.canonical({**exact, "unexpected": False}),
+                routine_plan.canonical({"version": 1, "binding": exact["binding"], "unexpected": "Q", "plan": plan}),
+                routine_plan.canonical({**exact, "binding": [incarnation, value.routine_id, 1, "e" * 32]}),
                 routine_plan.canonical({"version": 1, "extra": 1}),
+                # A plan without the closed shape of an admitted one, which its readers would index.
+                routine_plan.canonical({**exact, "plan": {}}),
+                routine_plan.canonical({**exact, "plan": {**plan, "steps": [{}]}}),
             ):
                 with self.subTest(invalid=invalid), self.assertRaises(local_app.ApiProblem):
                     routine_incident.read_recovery(invalid, run_id)
             held = record.run(self.state(service), run_id)
-            foreign = routine_incident.Recovery(routine_cursor.Binding(incarnation, "f" * 32, 1, run_id), "Q", {})
+            foreign = routine_incident.Recovery(routine_cursor.Binding(incarnation, "f" * 32, 1, run_id), "Q", plan)
             with self.assertRaises(local_app.ApiProblem):
                 routine_incident.read_evidence(routine_incident.evidence(run_id, held, None, (), foreign), run_id)
             for payload in (b"", None, b"x" * (routine_store.MAX_RECOVERY_BYTES + 1)):
@@ -469,7 +445,7 @@ class RecoverySnapshotTests(IncidentCase):
                     service.routine_store.put_recovery("team_1", run_id, payload)
             # A snapshot a crash left behind, whose run is gone, is removed by the next pass.
             orphan = routine_incident.Recovery(
-                routine_cursor.Binding(incarnation, value.routine_id, 1, "e" * 32), "Q", {}
+                routine_cursor.Binding(incarnation, value.routine_id, 1, "e" * 32), "Q", plan
             )
             routine_incident.seal_recovery(service, "team_1", orphan)
             service.routine_store.delete_recovery("team_1", run_id)
