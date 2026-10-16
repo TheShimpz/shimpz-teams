@@ -241,8 +241,8 @@ def canonical_claims(value: object, *, audience: str = ASSERTION_AUDIENCE) -> di
         not routine and result["authority"] not in AUTHORITY_KINDS
     ):
         raise SupervisorAssertionError("invalid Supervisor authority kind")
-    if routine and ("decision" in value or "assurance" in value):
-        raise SupervisorAssertionError("a Routine assertion binds no human assurance or decision")
+    if routine and ("model" in value or "decision" in value or "assurance" in value):
+        raise SupervisorAssertionError("a Routine assertion binds no model, human assurance, or decision")
     if "model" in value:
         result["model"] = _model(value["model"])
     if "decision" in value:

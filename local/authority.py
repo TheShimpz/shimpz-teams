@@ -371,12 +371,7 @@ def verify_routine(
         audience=contract.ROUTINE_AUDIENCE,
     )
     routine_request = RequestBinding(
-        request.method,
-        request.path,
-        request.body,
-        request.model,
-        None,
-        frozenset({contract.ROUTINE_AUTHORITY}),
+        request.method, request.path, request.body, None, None, frozenset({contract.ROUTINE_AUTHORITY})
     )
     _bound(claims, routine_request, replay_guard, now)
     return RoutineEvidence(key_fingerprint=key_sha256(key), lease_sha256=str(claims["authority_sha256"]))

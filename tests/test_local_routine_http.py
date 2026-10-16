@@ -115,7 +115,8 @@ class RoutineHttpCase(RoutineServiceCase):
         if model is not None:
             claims["model"] = model
         jwt = _segment(contract.canonical_json(contract.ROUTINE_JWT_HEADER))
-        payload = _segment(contract.claims_json(claims, audience=contract.ROUTINE_AUDIENCE))
+        # Encoded as given, so a forged claim set still reaches Team's own verification.
+        payload = _segment(contract.canonical_json(claims))
         signature = _segment((key or self.routine_key).sign(f"{jwt}.{payload}".encode("ascii")))
         return {contract.ROUTINE_ASSERTION_HEADER: f"Bearer {jwt}.{payload}.{signature}"}
 

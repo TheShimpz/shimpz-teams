@@ -557,11 +557,13 @@ class LocalRoutineAuthorityTests(unittest.TestCase):
         ):
             with self.subTest(claims=claims), self.assertRaises(authority.SupervisorDeniedError):
                 authority.verify_routine(self.headers(claims), request=self.binding(), replay_guard=guard, now=NOW)
-        with self.assertRaises(contract.SupervisorAssertionError):
-            contract.canonical_claims(
-                self.claims(assurance={"kind": "auth:password", "challenge_id": "e" * 32}),
-                audience=contract.ROUTINE_AUDIENCE,
-            )
+        # A run asks no model and no person, so it binds neither a model credential nor a human assurance.
+        for bound in (
+            {"assurance": {"kind": "auth:password", "challenge_id": "e" * 32}},
+            {"model": {"provider": "openai", "key_sha256": "e" * 64}},
+        ):
+            with self.subTest(bound=bound), self.assertRaisesRegex(contract.SupervisorAssertionError, "binds no"):
+                contract.canonical_claims(self.claims(**bound), audience=contract.ROUTINE_AUDIENCE)
         with self.assertRaisesRegex(contract.SupervisorAssertionError, "unsupported"):
             contract.canonical_claims(self.claims(), audience="team-unsupported")
 

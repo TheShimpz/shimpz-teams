@@ -479,8 +479,9 @@ zone of a Routine the message records when the person writes no zone of their ow
 A Routine run (ADR-0086) is started by a separate Local Routine identity, never a human Supervisor assertion. Its
 Ed25519 assertion travels in `X-Shimpz-Routine` with the JWT key id `local-routine-v1` and the audience
 `team-local-routine`; `supervisor.canonical_claims(value, audience=ROUTINE_AUDIENCE)` admits the same request, body,
-model, lifetime, and one-use nonce bindings as a Supervisor assertion, requires `authority: "routine"` with
-`authority_sha256` equal to the SHA-256 of the run's lease token, and refuses any human assurance or decision binding.
+lifetime, and one-use nonce bindings as a Supervisor assertion, requires `authority: "routine"` with
+`authority_sha256` equal to the SHA-256 of the run's lease token, and refuses any model, human assurance, or decision
+binding.
 Admin's scheduler claims under the Team bearer with `POST /v1/routines/claim` and exactly `{long}`
 (`routine_run.canonical_claim_request`): no model key gates a claim, because a healthy replayed run needs none (ADR-0092),
 and any Team with a configured model may be claimed. The answer (`routine_run.canonical_claim`) is one run with its lease
