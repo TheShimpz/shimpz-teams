@@ -12,6 +12,7 @@ from local.routine import incident as routine_incident
 from local.routine import state as routine_state
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
+from routine import claim as routine_claim
 from routine import definition as routine_definition
 from routine import hold as routine_hold
 from routine import record
@@ -104,7 +105,8 @@ def _discard(self, team_id: str, run_id: str, generation: str, *, incident: bool
     """Remove one ended run's journal generation, continuation, and cursor; each removal is idempotent.
 
     An archive marker, cursor, and evidence an unresolved incident still needs stay (ADR-0092). A generation a resumed
-    run left behind goes whole, archive marker included, while the files the live continuation shares stay.
+    run left behind goes whole, archive marker included, while the files the live continuation shares stay. A run that
+    ended for good also loses its verification's generation, whose own release may have failed.
     """
     if generation:
         try:
@@ -112,6 +114,8 @@ def _discard(self, team_id: str, run_id: str, generation: str, *, incident: bool
                 self.action_state.discard(generation)
             else:
                 self.action_state.purge(generation)
+            if not incident and not live:
+                self.action_state.purge(routine_claim.verification_of(generation, run_id))
         except action_journal.ActionJournalError as exc:
             raise local_errors.routine_state_unavailable() from exc
     if live:

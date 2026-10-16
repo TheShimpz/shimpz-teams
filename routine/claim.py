@@ -297,6 +297,21 @@ def network_of(generation: object, run_id: str) -> str | None:
     return match["network"] if match is not None and match["run"] == run_id else None
 
 
+# The suffix of the generation a held run's one verification runs in, released by the verification itself.
+VERIFY_SUFFIX = "v1"
+
+
+def verification_of(generation: str, run_id: str) -> str:
+    """The run's verification generation, in the network its own generation names.
+
+    The verification's own release may fail, so whatever removes the run's own generation removes this one too.
+    """
+    network = network_of(generation, run_id)
+    if network is None:
+        raise record.RoutineStateError("routine-generation-invalid")
+    return generation_for(network, run_id, VERIFY_SUFFIX)
+
+
 def bind_generation(
     state: record.TeamRoutines, run_id: str, lease: record.Lease, now: int, network_id: str
 ) -> record.TeamRoutines:

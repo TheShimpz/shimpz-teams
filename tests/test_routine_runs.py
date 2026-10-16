@@ -187,6 +187,10 @@ class RunLifecycleTests(unittest.TestCase):
             record.grace_seconds(routine(schedule={"kind": "monthly", "day": 1, "time": "09:00"})), 12 * 3600
         )
         self.assertEqual(routine_claim.generation_for("net_1", "a" * 32), "net_1:routine:" + "a" * 32)
+        continued = routine_claim.generation_for("net_1", "a" * 32, "s1")
+        self.assertEqual(routine_claim.verification_of(continued, "a" * 32), "net_1:routine:" + "a" * 32 + ":v1")
+        with self.assertRaises(record.RoutineStateError):
+            routine_claim.verification_of(continued, "b" * 32)
 
 
 class FailureStreakTests(unittest.TestCase):

@@ -15,8 +15,10 @@ from test_local_routine_service import ASSISTANT
 
 from action import journal as action_journal
 from install import bindings
+from local.routine import lifecycle as routine_lifecycle
 from local.routine import recovery as routine_recovery
 from local.routine import store as routine_store
+from routine import claim as routine_claim
 from routine import hold as routine_hold
 from routine import record
 
@@ -100,7 +102,7 @@ class AutomaticTests(AutomaticCase):
             verifications: list[str] = []
 
             def failing(generation):
-                if generation.endswith(":" + routine_recovery.VERIFY_SUFFIX) and not verifications:
+                if generation.endswith(":" + routine_claim.VERIFY_SUFFIX) and not verifications:
                     verifications.append(generation)
                     raise action_journal.ActionJournalError("Action generation could not be discarded")
                 return real(generation)
@@ -212,6 +214,36 @@ class AutomaticEdgeTests(AutomaticCase):
             mock.patch.object(routine_recovery, "_clock", return_value=1.0),
         ):
             self.assertIsNone(routine_recovery._open(None, "team_1", "a" * 32))
+
+    def test_a_verification_generation_its_own_release_left_goes_with_its_team(self) -> None:
+        # The verifier fails, then its generation's final release fails too: its ended batch is left behind.
+        ordinary = Assistant([failed()], [])
+
+        def answer(team, assistant_id, action, payload, evidence):
+            if action == "find-record":
+                raise failed()
+            return ordinary(team, assistant_id, action, payload, evidence)
+
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.mutating(directory, Brain(), answer)
+            self.zone_record_routine(service)
+            real = service.action_state.discard
+            verifications: list[str] = []
+
+            def leaving(generation):
+                if generation.endswith(":" + routine_claim.VERIFY_SUFFIX):
+                    verifications.append(generation)
+                    if len(verifications) == 2:
+                        raise action_journal.ActionJournalError("Action generation could not be discarded")
+                return real(generation)
+
+            with mock.patch.object(service.action_state, "discard", side_effect=leaving):
+                status = self.run_claim(service, service.claim_routine_run())["status"]
+            self.assertEqual((status, len(verifications)), ("held", 2))
+            self.assertEqual(service.action_state.current_batch(verifications[0])[1], "ended")
+            # Deleting the Team's Routines removes it with the run's own generation: nothing is left.
+            routine_lifecycle._delete_team_routines(service, "team_1")
+            self.assertIsNone(service.action_state.current_batch(verifications[0]))
 
     def test_a_verified_occurrence_that_loses_protection_completes_and_marks_the_run(self) -> None:
         # The recovered result holds more secret strings than one run may protect: protection is first lost here.

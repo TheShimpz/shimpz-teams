@@ -389,6 +389,8 @@ def _release(self, team_id: str, item: record.Run) -> None:
         elif deleting:
             # No evidence names an archived batch of the run any more: its deletion releases the whole generation.
             self.action_state.purge(item.generation)
+        # Its verification's generation goes too, whatever its own release left.
+        self.action_state.purge(routine_claim.verification_of(item.generation, item.run_id))
     except action_journal.ActionJournalError as exc:
         raise local_errors.action_state_unavailable() from exc
     routine_state.call(lambda: self.routine_store.delete_cursor(team_id, item.run_id))

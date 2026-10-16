@@ -47,7 +47,6 @@ from routine import hold as routine_hold
 from routine import plan as routine_plan
 from routine import record, trace
 
-VERIFY_SUFFIX = "v1"
 # The episode's active-time clock.
 _clock = time.monotonic
 VERIFY_INTERRUPT = "routine-verify"
@@ -286,7 +285,7 @@ def _call_verifier(self, team_id: str, token: str, assessment: Assessment, reque
     """Run the verifier in its own released generation; None when it failed, paused for a person, or was refused."""
     run_id = assessment.cursor.binding.run_id
     runtime = VerifierRuntime(request, lambda values: self.routine_protections.grow(run_id, values))
-    generation = routine_claim.generation_for(assessment.network_id, run_id, VERIFY_SUFFIX)
+    generation = routine_claim.generation_for(assessment.network_id, run_id, routine_claim.VERIFY_SUFFIX)
     segment = SegmentRequest(
         team_id=team_id,
         file_ids=[],

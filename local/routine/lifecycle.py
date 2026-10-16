@@ -1,9 +1,10 @@
-"""Remove a Team's Routines without residue: each run's journal generation, its state, and its diagnostics."""
+"""Remove a Team's Routines without residue: each run's journal generations, its state, and its diagnostics."""
 
 from action import journal as action_journal
 from local import errors as local_errors
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import store as routine_store
+from routine import claim as routine_claim
 
 
 def delete_team_routines(self, team_id: str) -> None:
@@ -26,11 +27,13 @@ def _delete_team_routines(self, team_id: str) -> None:
         raise local_errors.routine_state_unavailable() from exc
     # Live and held runs and the ended runs whose removal is still queued; the state that names them goes only after.
     held = dict.fromkeys((*((run.run_id, run.generation) for run in state.runs), *state.discards))
-    for _run_id, generation in held:
+    for run_id, generation in held:
         if not generation:
             continue
+        # A run's verification generation goes with its own, whatever the verification's own release left.
         try:
-            self.action_state.purge(generation)
+            for owned in (generation, routine_claim.verification_of(generation, run_id)):
+                self.action_state.purge(owned)
         except action_journal.ActionJournalError as exc:
             raise local_errors.action_state_unavailable() from exc
     # The values each run protected, such as its Stored Inputs, leave memory before the state naming the runs goes,
