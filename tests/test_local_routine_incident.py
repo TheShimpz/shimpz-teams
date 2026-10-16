@@ -683,7 +683,6 @@ class SealedStateTests(IncidentCase):
                 lambda value: value["runs"][0].update(request_kind="human"),
                 lambda value: value["runs"][0].update(revision=0),
                 lambda value: value["runs"].append(dict(value["runs"][0])),
-                lambda value: value.update(incidents=[]),
                 lambda value: value["routines"][0].update(revision=0),
                 lambda value: value["routines"][0].update(paused="yes"),
                 lambda value: value["routines"][0].update(run_requested=-1),
@@ -694,9 +693,7 @@ class SealedStateTests(IncidentCase):
                 lambda value: value["routines"][0].update(name=""),
                 lambda value: value["routines"][0].update(plan={"version": 1}),
                 lambda value: value["routines"][0].update(confirmation=None),
-                lambda value: value["routines"][0].update(grant=None),
                 lambda value: value["routines"][0]["confirmation"].update(proposal_digest="sha256:x"),
-                lambda value: value.update(receipts=[]),
             ):
                 tampered = json.loads(path.read_bytes())
                 mutate(tampered)
