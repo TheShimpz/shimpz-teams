@@ -691,7 +691,7 @@ class SealedStateTests(IncidentCase):
                 lambda value: value["routines"][0].update(output_digest="D" * 64),
                 lambda value: value["routines"][0].update(output_digest=None),
                 lambda value: value["routines"][0].update(name=""),
-                lambda value: value["routines"][0].update(plan={"version": 1}),
+                lambda value: value["routines"][0].update(plan={"version": routine_plan.VERSION}),
                 lambda value: value["routines"][0].update(confirmation=None),
                 lambda value: value["routines"][0]["confirmation"].update(proposal_digest="sha256:x"),
             ):

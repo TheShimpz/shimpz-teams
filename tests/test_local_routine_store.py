@@ -238,7 +238,7 @@ class TamperTests(StoreCase):
         frozen = next(index for index, item in enumerate(base["runs"]) if item["status"] == "frozen")
         held = next(index for index, item in enumerate(base["runs"]) if item["status"] == "held")
         mutations = {
-            "schema": lambda value: value.update(schema=1),
+            "schema": lambda value: value.update(schema=routine_store.SCHEMA + 1),
             "schema type": lambda value: value.update(schema=float(routine_store.SCHEMA)),
             "run steps type": lambda value: value["runs"][held].update(steps=False),
             "team": lambda value: value.update(team_id="team_2"),

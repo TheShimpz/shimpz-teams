@@ -59,7 +59,7 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
             with self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
                 self.store._read()
 
-        for document in ([], {}, {"version": 1, "bindings": []}, {"version": 2, "bindings": {}}):
+        for document in ([], {}, {"version": 99, "bindings": []}, {"version": 2, "bindings": {}}):
             with self.subTest(document=document):
                 self.path.write_text(json.dumps(document), encoding="utf-8")
                 with self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
@@ -320,13 +320,13 @@ class UpdateStoreEdgeCoverageTests(unittest.TestCase):
                     self.residues._read(path)
 
     def test_update_decode_rejects_shapes_and_cross_assistant_identity(self) -> None:
-        for value in (None, {"version": 1}):
+        for value in (None, {"version": 99}):
             with self.subTest(value=value), self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
                 update._decode(value, snapshots.validate_record)
 
         current = self.updates.begin(self.previous, _successor(), IMAGE_ID)
         encoded = update._encode(current)
-        encoded["version"] = 1
+        encoded["version"] = 99
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
             update._decode(encoded, snapshots.validate_record)
 

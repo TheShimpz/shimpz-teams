@@ -466,7 +466,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             local_chat_continuations.decode(drifted)
 
         malformed = stored_record(
-            "integrations", bindings, b'{"schema":1,"kind":"integrations","requirements":[],"pending":{}}'
+            "integrations", bindings, b'{"schema":99,"kind":"integrations","requirements":[],"pending":{}}'
         )
         with self.assertRaises(local_chat_continuations.ContinuationCodecError):
             local_chat_continuations.decode(malformed)

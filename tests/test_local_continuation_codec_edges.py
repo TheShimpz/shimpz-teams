@@ -350,16 +350,6 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation.decode(object())
 
-        body = {
-            "schema": 2,
-            "kind": "integrations",
-            "requirements": [],
-            "pending": self.raw_pending,
-        }
-        stored = _stored("integrations", body)
-        with self.assertRaises(continuation.ContinuationCodecError):
-            continuation.decode(stored)
-
         for kind in ("unknown", "integrations"):
             body = {
                 "schema": continuation.SCHEMA_VERSION,
@@ -372,7 +362,7 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
                 continuation.decode(stored)
 
         body = {
-            "schema": 1,
+            "schema": continuation.SCHEMA_VERSION + 1,
             "kind": "integrations",
             "requirements": [],
             "pending": self.raw_pending,
@@ -381,14 +371,8 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation.decode(stored)
 
-        body["schema"] = 2
         body["kind"] = "unknown"
         stored = _stored("unknown", body)
-        with self.assertRaises(continuation.ContinuationCodecError):
-            continuation.decode(stored)
-
-        body["kind"] = "integrations"
-        stored = _stored("integrations", body)
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation.decode(stored)
 
