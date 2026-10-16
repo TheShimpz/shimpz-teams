@@ -20,6 +20,10 @@ _LISTING_FIELDS = frozenset(
 )
 # A Routine's Action units in any rolling 24 hours: every start of its whole cap may use every unit.
 MAX_LISTED_DAILY_STEPS = routine.MAX_CONTINUOUS_CAP * routine.MAX_ROUTINE_STEPS
+# The listed steps' compact UTF-8 JSON: at most this for each Routine, and for the whole listing together. Team bounds a
+# Routine's plan, and every plan of a Team together, by these, and a listing's steps are a part of its plans.
+MAX_LISTED_STEPS_BYTES = 256 * 1024
+MAX_LISTING_STEPS_BYTES = 1024 * 1024
 
 
 def _members_listed(value: object, limit: int, maximum: int) -> bool:
@@ -73,12 +77,19 @@ def canonical_routine_listing(value: object) -> dict[str, object] | None:
     return copy.deepcopy(value) if valid else None
 
 
+def _steps_bytes(listed: dict[str, object]) -> int:
+    return len(json.dumps(listed["steps"], ensure_ascii=False, separators=(",", ":")).encode())
+
+
 def canonical_routine_listings(value: object) -> list[dict[str, object]] | None:
-    """The Team's whole Routine listing: at most MAX_ROUTINES, each admitted, no Routine twice."""
+    """The Team's whole Routine listing: at most MAX_ROUTINES, each admitted, none twice, within its byte bounds."""
     if not isinstance(value, list | tuple) or len(value) > routine.MAX_ROUTINES:
         return None
     listed = [canonical_routine_listing(item) for item in value]
     if any(item is None for item in listed) or len({item["routine_id"] for item in listed}) != len(listed):
+        return None
+    sizes = [_steps_bytes(item) for item in listed]
+    if any(size > MAX_LISTED_STEPS_BYTES for size in sizes) or sum(sizes) > MAX_LISTING_STEPS_BYTES:
         return None
     return listed if list(value) == listed else None
 

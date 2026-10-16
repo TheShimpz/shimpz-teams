@@ -232,7 +232,8 @@ them (ADR-0101). `routine_context.canonical_routine_listings` admits the Team's 
 timezone, timezone_source, revision, daily_steps, output, steps}`, where `daily_steps` is 1 to
 `routine_context.MAX_LISTED_DAILY_STEPS`, `output` is `{mode}` (a shown mode shows the last step), and each of at most 256 steps is `{id,
 assistant, action, inputs}` with its plan id (`routine_context.ROUTINE_STEP_ID_RE`) and at most 64 sorted input member names,
-never a value. The pending question the Brain sees is `routine_proposal.canonical_question`, exactly as the reply carried it.
+never a value. Each Routine's steps, as compact UTF-8 JSON, take at most `routine_context.MAX_LISTED_STEPS_BYTES` bytes and
+the whole listing's at most `routine_context.MAX_LISTING_STEPS_BYTES`; Team bounds its plans by these. The pending question the Brain sees is `routine_proposal.canonical_question`, exactly as the reply carried it.
 `routine_context.canonical_rerun` admits the work a pending rerun question asks the Brain to repeat: 1 to
 `routine_context.MAX_RERUN_ENTRIES` entries `{assistant, action, count, inputs}` in order, whose counts sum to at most
 `routine_context.MAX_RERUN_CALLS`; each has at most `routine_context.MAX_RERUN_INPUTS` inputs in member order, each `{member, kind,

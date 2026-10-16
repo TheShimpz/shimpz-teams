@@ -31,6 +31,31 @@ class RoutineProtocolEdgeTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 self.assertIsNone(routine_context.canonical_routine_listings([{**LISTED, "output": {"mode": mode}}]))
 
+    def test_a_listing_bounds_each_routines_encoded_steps_and_their_sum(self) -> None:
+        step = LISTED["steps"][0]
+        names = [f"{name:03d}" + "a" * 124 for name in range(routine.MAX_STEP_INPUTS)]
+
+        def listed(index: int, steps: int) -> dict:
+            return {
+                **LISTED,
+                "routine_id": f"{index:032x}",
+                "steps": [{**step, "id": f"s{number}", "inputs": names} for number in range(steps)],
+            }
+
+        def encoded(value: dict) -> int:
+            return len(json.dumps(value["steps"], ensure_ascii=False, separators=(",", ":")).encode())
+
+        fit = 1
+        while encoded(listed(0, fit + 1)) <= routine_context.MAX_LISTED_STEPS_BYTES:
+            fit += 1
+        self.assertIsNotNone(routine_context.canonical_routine_listings([listed(0, fit)]))
+        self.assertIsNone(routine_context.canonical_routine_listings([listed(0, fit + 1)]))
+        many = routine_context.MAX_LISTING_STEPS_BYTES // encoded(listed(0, fit)) + 1
+        self.assertIsNone(routine_context.canonical_routine_listings([listed(index, fit) for index in range(many)]))
+        self.assertIsNotNone(
+            routine_context.canonical_routine_listings([listed(index, fit) for index in range(many - 1)])
+        )
+
     def test_a_request_identity_changes_a_routine_only_while_fresh(self) -> None:
         now = 2_000_000_000
         self.assertTrue(payload.request_identity_fresh(now, now))

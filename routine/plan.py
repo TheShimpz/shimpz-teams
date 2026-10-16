@@ -49,13 +49,14 @@ VERSION = 4
 # rolling 24 hours are capped. The wire bounds live in the standalone Team HTTP protocol, which this reads, never the
 # reverse.
 MAX_STEPS = http_routine.MAX_ROUTINE_STEPS
-# The canonical plan document of one revision.
-MAX_PLAN_BYTES = 256 * 1024
+# The canonical plan document of one revision; the steps the Brain's listing shows of it fit the protocol's bound.
+MAX_PLAN_BYTES = http_routine_context.MAX_LISTED_STEPS_BYTES
 # One Routine's canonical plan and grant together; the grant repeats per input what granted it, so it is bounded here
 # rather than compacted.
 MAX_DEFINITION_BYTES = 512 * 1024
-# Every definition a Team holds, together: at most two Routines at their own bound, or many smaller ones.
-TEAM_DEFINITION_BYTES = 1024 * 1024
+# Every definition a Team holds, together: at most two Routines at their own bound, or many smaller ones. The steps
+# the Brain's listing shows of them fit the protocol's bound.
+TEAM_DEFINITION_BYTES = http_routine_context.MAX_LISTING_STEPS_BYTES
 # One step's fully resolved input, canonical: literals, run-clock tokens, and values earlier steps returned. A larger
 # one is refused before its dispatch, so a frozen run's continuation always holds its one pending request.
 MAX_RESOLVED_INPUT_BYTES = 128 * 1024
