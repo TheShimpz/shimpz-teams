@@ -143,7 +143,8 @@ def _operation_state(self, team_id: str, incident_id: str, operation_id: str | N
 def assess(self, team_id: str, incident_id: str) -> Assessment:
     """The held run's failed step under the Team's exact current contracts; any drift fails closed."""
     opened = routine_incident.open_recovery(self, team_id, incident_id)
-    _name, network_id, active = self._team_assistants(team_id)
+    with routine_contracts.registry_read():
+        _name, network_id, active = self._team_assistants(team_id)
     if network_id != opened.recovery.binding.incarnation:
         raise _drift()
     try:

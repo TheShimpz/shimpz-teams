@@ -9,6 +9,7 @@ from unittest import mock
 import routine_fixture
 from test_local_routine_recovery import RECORD, Assistant, RecoveryCase, failed
 
+from install import bindings
 from local import app as local_app
 from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
@@ -49,6 +50,19 @@ class AssessmentEdgeTests(RecoveryCase):
             self.assertIsNone(routine_recovery.assess(service, "team_1", run_id).action)
             self.assertEqual(self.verify(service, value, run_id), "none")
 
+    def test_an_unreadable_registry_is_a_retryable_team_read_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
+            unreadable = bindings.DynamicAssistantError("the dynamic Assistant registry cannot be read")
+            with (
+                mock.patch.object(service, "_team_assistants", side_effect=unreadable),
+                self.assertRaises(local_app.ApiProblem) as unavailable,
+            ):
+                routine_recovery.assess(service, "team_1", run_id)
+            self.assertEqual(
+                (unavailable.exception.status, unavailable.exception.code), (503, "team-context-unavailable")
+            )
+
     def test_an_input_that_no_longer_resolves_or_binds_makes_the_verifier_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
@@ -85,6 +99,12 @@ class VerifierCallEdgeTests(RecoveryCase):
             refused = local_app.ApiProblem(409, "x", code="team-context-changed")
             service.routine_store.put_cursor("team_1", fresh)
             with mock.patch.object(service, "_run_chat_segment", side_effect=refused):
+                self.assertEqual(self.verify(service, value, run_id), "inconclusive")
+            # The registry is lost after the assessment, as the verifier's own segment reads the Team.
+            service.routine_store.put_cursor("team_1", fresh)
+            unreadable = bindings.DynamicAssistantError("the dynamic Assistant registry cannot be read")
+            reads = [service._team_assistants("team_1"), unreadable]
+            with mock.patch.object(service, "_team_assistants", side_effect=reads):
                 self.assertEqual(self.verify(service, value, run_id), "inconclusive")
             paused = SimpleNamespace(outcome=object())
             service.routine_store.put_cursor("team_1", fresh)

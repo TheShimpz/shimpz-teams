@@ -6,6 +6,8 @@ read-only, and the Stored Inputs it uses by name. Pins are computed in one fixed
 language pack.
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from http import HTTPStatus
 
 from assistant import effect as action_effect
@@ -48,6 +50,15 @@ def context_unavailable() -> ApiProblem:
     )
 
 
+@contextmanager
+def registry_read() -> Iterator[None]:
+    """Read the Team's Assistant registry; one that cannot be read is a retryable Team read failure, never a crash."""
+    try:
+        yield
+    except bindings.DynamicAssistantError as exc:
+        raise context_unavailable() from exc
+
+
 def current_contracts(self, team_id: str, assistant_ids: tuple[str, ...]) -> dict[str, str]:
     """Each named Assistant's current Routine scope pin, exactly as a recording turn computes it.
 
@@ -56,13 +67,14 @@ def current_contracts(self, team_id: str, assistant_ids: tuple[str, ...]) -> dic
     changed scope.
     """
     try:
-        _name, _network, active_by_id = self._team_assistants(team_id)
+        with registry_read():
+            _name, _network, active_by_id = self._team_assistants(team_id)
         return {
             assistant_id: local_chat_segment.routine_scope(active, self._active_assistant_genesis(active))
             for assistant_id in assistant_ids
             if (active := active_by_id.get(assistant_id)) is not None
         }
-    except (ApiProblem, bindings.DynamicAssistantError) as exc:
+    except ApiProblem as exc:
         raise ContractsUnavailableError from exc
 
 

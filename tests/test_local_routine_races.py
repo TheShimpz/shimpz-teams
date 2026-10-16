@@ -15,6 +15,7 @@ from test_local_routine_service import (
 )
 
 from action import challenges as action_challenges
+from install import bindings
 from local import app as local_app
 from local.routine import contracts as routine_contracts
 from local.routine import human as routine_human
@@ -38,6 +39,19 @@ def held_elsewhere(lock) -> bool:
     thread.start()
     thread.join()
     return not acquired
+
+
+def _losing(read, lost_at: int):
+    """``read``, until the dynamic Assistant registry cannot be read from its ``lost_at``-th call on."""
+    calls: list[None] = []
+
+    def losing(*args, **kwargs):
+        calls.append(None)
+        if len(calls) >= lost_at:
+            raise bindings.DynamicAssistantError("the dynamic Assistant registry cannot be read")
+        return read(*args, **kwargs)
+
+    return losing
 
 
 class LockOrderTests(RoutineServiceCase):
@@ -150,6 +164,30 @@ class ExecutionBoundTests(RoutineServiceCase):
                 {"code": "team-context-changed"},
             )
             self.assertEqual(runtime.contexts, [])
+
+    def test_a_registry_lost_before_the_first_action_fails_the_run_with_nothing_run(self) -> None:
+        # The Team is read by the slot's context check, the plan's admission, the segment's setup, and its last check
+        # before the Action; the registry is lost from the given read on.
+        for lost_at in (1, 2, 3, 4):
+            with self.subTest(lost_at=lost_at), tempfile.TemporaryDirectory() as directory:
+                _controller, service, claim = self.claimed(directory, Runtime())
+                with mock.patch.object(service, "_team_assistants", _losing(service._team_assistants, lost_at)):
+                    self.assertEqual(self.run_claim(service, claim)["status"], "failed")
+                state = self.state(service)
+                self.assertEqual(record.live_runs(state), ())
+                self.assertEqual(state.notices[-1].detail, {"code": "team-context-unavailable"})
+
+    def test_a_registry_lost_at_dispatch_holds_the_run_at_once(self) -> None:
+        # Team resolves the Assistant as it dispatches the Action, then again as the invocation starts.
+        for lost_at in (1, 2):
+            with self.subTest(lost_at=lost_at), tempfile.TemporaryDirectory() as directory:
+                controller, service, claim = self.claimed(directory, Runtime())
+                lifecycle = controller.assistant_lifecycle
+                with mock.patch.object(lifecycle, "_resolve", _losing(lifecycle._resolve, lost_at)):
+                    self.assertEqual(self.run_claim(service, claim)["status"], "held")
+                state = self.state(service)
+                self.assertEqual([run.status for run in state.runs], ["unresolved"])
+                self.assertEqual([notice.outcome for notice in state.notices], ["held"])
 
     def test_a_segment_out_of_active_time_is_stopped_and_ends_failed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

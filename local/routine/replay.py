@@ -432,7 +432,8 @@ def lost_runs(self, team_id: str) -> frozenset[str]:
 
 def _plan(self, team_id: str, routine: record.Routine) -> routine_plan.Plan:
     """The Routine's plan, admitted again against the exact current contracts, so drift never runs."""
-    _name, _network, active_by_id = self._team_assistants(team_id)
+    with routine_contracts.registry_read():
+        _name, _network, active_by_id = self._team_assistants(team_id)
     contracts = routine_contracts.contracts(tuple(active_by_id.values()))
     try:
         return routine_plan.admit(routine.plan, contracts)

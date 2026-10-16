@@ -31,6 +31,7 @@ from local.errors import (
     stored_input_unavailable,
     team_context_changed,
 )
+from local.routine import contracts as routine_contracts
 
 
 def project_action_result(
@@ -142,7 +143,8 @@ def invoke_chat_action(
 ) -> object:
     assistant_id = action_request.assistant_id
     with self._lock(team_id):
-        spec = self.assistant_lifecycle._resolve(team_id, assistant_id)
+        with routine_contracts.registry_read():
+            spec = self.assistant_lifecycle._resolve(team_id, assistant_id)
         network = self.assistant_lifecycle._network(team_id)
         container = self.assistant_lifecycle._assistant_container(team_id, assistant_id)
         self.assistant_lifecycle._validate_container(container, team_id, spec, network.name)
@@ -187,7 +189,8 @@ def routine_setup(self, team_id: str, assistant_ids: tuple[str, ...]) -> tuple[s
 
     A Routine run reads no files and no model configuration: it asks no model (ADR-0092).
     """
-    team_name, network_id, active_by_id = self._team_assistants(team_id)
+    with routine_contracts.registry_read():
+        team_name, network_id, active_by_id = self._team_assistants(team_id)
     try:
         return team_name, network_id, tuple(active_by_id[assistant_id] for assistant_id in assistant_ids)
     except KeyError:

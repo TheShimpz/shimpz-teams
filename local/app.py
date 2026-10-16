@@ -84,6 +84,7 @@ from local.install import service as local_install_service
 from local.install import snapshots as local_snapshots
 from local.install.registry import AssistantRegistry
 from local.install.runtime import AssistantSpec
+from local.routine import contracts as local_routine_contracts
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import lifecycle as local_routine_lifecycle
 from local.routine import proposal as local_routine_proposal
@@ -580,7 +581,8 @@ class LocalController:
         evidence: action_execution.ActionInvocationEvidence | None = None,
     ) -> dict[str, object]:
         team_id = validate_team_id(team_id)
-        spec = self.assistant_lifecycle._resolve(team_id, assistant_id)
+        with local_routine_contracts.registry_read():
+            spec = self.assistant_lifecycle._resolve(team_id, assistant_id)
         action_spec = spec.actions.get(action)
         if action_spec is None:
             raise ApiProblem(

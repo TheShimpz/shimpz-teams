@@ -15,7 +15,6 @@ from http import HTTPStatus
 from action import challenges as action_challenges
 from action import human as action_human
 from chat import progress as chat_progress
-from install import bindings
 from local import errors as local_errors
 from local.chat import continuation as local_chat_continuations
 from local.chat import execution as local_chat_execution
@@ -126,7 +125,7 @@ def _current_context(
     """
     try:
         _name, network_id, assistants = local_chat_execution.routine_setup(self, team_id, pending.assistant_ids)
-    except (ApiProblem, bindings.DynamicAssistantError) as exc:
+    except ApiProblem as exc:
         if not _proven_changed(self, team_id, pending):
             raise routine_contracts.context_unavailable() from exc
         assistants = None
