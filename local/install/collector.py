@@ -4,9 +4,10 @@ import logging
 import time
 from collections.abc import Callable
 
-from docker.errors import DockerException, ImageNotFound
+from docker.errors import ImageNotFound
 
 from install import bindings
+from local.errors import DOCKER_ERRORS
 from local.install import snapshots
 
 # An install admits only an Assistant's current (tagged) snapshot, so once an image has been seen superseded,
@@ -65,7 +66,7 @@ class SupersededSnapshotCollector:
         # Only an untagged image can be superseded, and Docker lists those from its name index.
         try:
             summaries = self._client.api.images(filters={"dangling": ["true"]})
-        except DockerException:
+        except DOCKER_ERRORS:
             log.warning("Superseded snapshot collection deferred: Docker inventory is unavailable")
             return None
         if not isinstance(summaries, list):
@@ -96,7 +97,7 @@ class SupersededSnapshotCollector:
                     continue
             for container in self._client.api.containers(all=True):
                 retained.add(container["ImageID"])
-        except bindings.DynamicAssistantError, DockerException, KeyError, TypeError:
+        except (bindings.DynamicAssistantError, *DOCKER_ERRORS, KeyError, TypeError):
             log.warning("Superseded snapshot collection deferred: bindings or containers are unavailable")
             return None
         return retained
@@ -106,7 +107,7 @@ class SupersededSnapshotCollector:
             attrs = self._client.api.inspect_image(image_id)
         except ImageNotFound:
             return True
-        except DockerException:
+        except DOCKER_ERRORS:
             log.warning("Superseded snapshot collection deferred: image metadata is unavailable")
             return False
         config = attrs.get("Config") if isinstance(attrs, dict) else None
@@ -122,7 +123,7 @@ class SupersededSnapshotCollector:
             self._client.images.remove(image=image_id, force=False, noprune=True)
         except ImageNotFound:
             return True
-        except DockerException:
+        except DOCKER_ERRORS:
             log.warning("Superseded snapshot collection deferred: Docker refused the removal")
             return False
         return True

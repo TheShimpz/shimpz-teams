@@ -6,10 +6,9 @@ import threading
 import time
 from collections.abc import Callable
 
-from docker.errors import DockerException
-
 from install import bindings
 from local.activity import Activity
+from local.errors import DOCKER_ERRORS
 from local.errors import ApiProblemError as ApiProblem
 from local.install import developers, registry
 
@@ -101,7 +100,7 @@ class AutomaticAssistantUpdater:
                         str(target["source_digest"]),
                         expected_binding_digest=binding.binding_digest,
                     )
-            except (ApiProblem, DockerException, bindings.DynamicAssistantError) as exc:
+            except (ApiProblem, *DOCKER_ERRORS, bindings.DynamicAssistantError) as exc:
                 code = exc.code if isinstance(exc, ApiProblem) else "runtime-unavailable"
                 log.warning(
                     "Automatic Assistant update deferred for %s/%s: %s",
@@ -163,7 +162,7 @@ class AutomaticAssistantUpdater:
         while not self._stop.wait(delay):
             try:
                 succeeded = self.run_once()
-            except RuntimeError, DockerException, KeyError, TypeError, ValueError:
+            except (RuntimeError, *DOCKER_ERRORS, KeyError, TypeError, ValueError):
                 log.exception("Automatic Assistant updater recovered from an unexpected failure")
                 self._record_result(None, None, "error", "thread:runtime-unavailable")
                 succeeded = False

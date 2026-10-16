@@ -5,6 +5,7 @@ from contextlib import nullcontext
 from http import HTTPStatus
 from unittest import mock
 
+import requests
 from docker.errors import DockerException, ImageNotFound, NotFound
 from local_controller_harness import LocalContractCase
 
@@ -12,6 +13,12 @@ from install import bindings
 from local import app as local_app
 from local.assistant import lifecycle as assistant_lifecycle
 from local.install import snapshots
+
+# docker-py raises these, OSErrors and no DockerException, on a lost or slow Docker socket.
+LOST_DOCKER = (
+    requests.exceptions.ConnectionError("Docker socket is down"),
+    requests.exceptions.ReadTimeout("Docker did not answer in time"),
+)
 
 
 def _create_container(subject: object, spec: object) -> object:
@@ -151,6 +158,27 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             subject.client.containers.create.call_args.kwargs["log_config"],
             {"Type": "none", "Config": {}},
         )
+
+    def test_lost_or_slow_docker_defers_residue_cleanup(self) -> None:
+        for failure in LOST_DOCKER:
+            with self.subTest(failure=type(failure).__name__):
+                subject = types.SimpleNamespace(
+                    registry=types.SimpleNamespace(images=lambda: ("bound",)),
+                    client=types.SimpleNamespace(
+                        images=types.SimpleNamespace(
+                            get=mock.Mock(side_effect=failure),
+                            remove=mock.Mock(side_effect=failure),
+                        ),
+                        containers=types.SimpleNamespace(list=mock.Mock(side_effect=failure)),
+                    ),
+                    _binding_uses_image=lambda _image_id: False,
+                )
+                self.assertIsNone(assistant_lifecycle.binding_uses_image(subject, "image"))
+                self.assertFalse(assistant_lifecycle.delete_retired_image(subject, "image"))
+                subject.client.images.get.side_effect = None
+                subject.client.images.get.return_value = types.SimpleNamespace(attrs={"Config": {"Labels": None}})
+                self.assertFalse(assistant_lifecycle.delete_retired_image(subject, "image"))
+                self.assertFalse(assistant_lifecycle.remove_retired_image(subject, "image"))
 
     @staticmethod
     def _replacement_subject() -> types.SimpleNamespace:

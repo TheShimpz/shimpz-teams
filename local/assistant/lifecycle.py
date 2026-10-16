@@ -13,8 +13,8 @@ from assistant import manifest as assistant_manifest
 from install import bindings, icons
 from local.assistant import isolation as local_container_policy
 from local.chat.types import ActiveAssistant as _ActiveAssistant
+from local.errors import DOCKER_ERRORS, assistant_icon_unavailable, assistant_registry_drift, assistant_replace_failed
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import assistant_icon_unavailable, assistant_registry_drift, assistant_replace_failed
 from local.install import snapshots as local_snapshots
 from local.install.runtime import AssistantSpec
 from local.validation import validate_team_id
@@ -279,7 +279,7 @@ def binding_uses_image(self, image_id: str) -> bool | None:
                     return True
             except ImageNotFound:
                 continue
-    except bindings.DynamicAssistantError, DockerException:
+    except (bindings.DynamicAssistantError, *DOCKER_ERRORS):
         log.warning("Assistant update residue cleanup deferred: binding images are unavailable")
         return None
     return False
@@ -290,7 +290,7 @@ def _inspect_retired_image(self, image_id: str) -> tuple[bool, bool] | None:
         image = self.client.images.get(image_id)
     except ImageNotFound:
         return False, False
-    except DockerException:
+    except DOCKER_ERRORS:
         log.warning("Assistant update residue cleanup deferred: image metadata is unavailable")
         return None
     attributes = image.attrs
@@ -316,7 +316,7 @@ def delete_retired_image(self, image_id: str) -> bool:
         self.client.images.remove(image=image_id, force=False, noprune=True)
     except ImageNotFound:
         return True
-    except DockerException:
+    except DOCKER_ERRORS:
         log.warning("Assistant update residue cleanup deferred: retired image is still referenced")
         return False
     return True
@@ -328,7 +328,7 @@ def remove_retired_image(self, image_id: str) -> bool:
         return False
     try:
         containers = self.client.containers.list(all=True, sparse=True, filters={"ancestor": image_id})
-    except DockerException:
+    except DOCKER_ERRORS:
         log.warning("Assistant update residue cleanup deferred: Docker inventory is unavailable")
         return False
     if containers:

@@ -2,6 +2,7 @@ import types
 import unittest
 from unittest import mock
 
+import requests
 from docker.errors import DockerException, ImageNotFound
 
 from install import bindings
@@ -11,6 +12,12 @@ SUPERSEDED = "sha256:" + ("a" * 64)
 BOUND = "sha256:" + ("b" * 64)
 RUNNING = "sha256:" + ("c" * 64)
 STAGE = {snapshots.LOCAL_STAGE_LABEL: snapshots.LOCAL_STAGE_VALUE}
+# docker-py raises requests' ConnectionError and ReadTimeout, OSErrors and no DockerException, on a lost or slow socket.
+DOCKER_FAILURES = (
+    DockerException("offline"),
+    requests.exceptions.ConnectionError("Docker socket is down"),
+    requests.exceptions.ReadTimeout("Docker did not answer in time"),
+)
 
 
 def _summary(image_id: str, **overrides) -> dict[str, object]:
@@ -145,38 +152,42 @@ class SupersededSnapshotCollectorTests(unittest.TestCase):
                 client.images.remove.assert_not_called()
 
     def test_docker_and_registry_failures_defer_without_losing_the_observation(self) -> None:
-        with self.assertLogs("shimpz-team-local-snapshot-collector", level="WARNING") as logs:
-            subject, client, _registry, _clock = _collector([])
-            client.api.images.side_effect = DockerException("offline")
-            subject.collect()
+        for failure in DOCKER_FAILURES:
+            with (
+                self.subTest(failure=type(failure).__name__),
+                self.assertLogs("shimpz-team-local-snapshot-collector", level="WARNING") as logs,
+            ):
+                subject, client, _registry, _clock = _collector([])
+                client.api.images.side_effect = failure
+                subject.collect()
 
-            subject, client, _registry, _clock = _collector({"unexpected": True})
-            subject.collect()
+                subject, client, _registry, _clock = _collector({"unexpected": True})
+                subject.collect()
 
-            subject, client, registry, _clock = _collector([_summary(SUPERSEDED)])
-            registry.images.side_effect = bindings.DynamicAssistantError("unreadable")
-            subject.collect()
+                subject, client, registry, _clock = _collector([_summary(SUPERSEDED)])
+                registry.images.side_effect = bindings.DynamicAssistantError("unreadable")
+                subject.collect()
 
-            subject, client, _registry, _clock = _collector([_summary(SUPERSEDED)])
-            client.api.containers.side_effect = DockerException("offline")
-            subject.collect()
+                subject, client, _registry, _clock = _collector([_summary(SUPERSEDED)])
+                client.api.containers.side_effect = failure
+                subject.collect()
 
-            subject, client, _registry, clock = _collector([_summary(SUPERSEDED)])
-            subject.collect()
-            clock.now += collector.GRACE_SECONDS
-            client.api.inspect_image.side_effect = DockerException("offline")
-            subject.collect()
-            client.api.inspect_image.side_effect = lambda image_id: {
-                "Config": {"Labels": dict(STAGE)},
-                "RepoTags": [],
-                "RepoDigests": [],
-            }
-            client.images.remove.side_effect = DockerException("image is in use")
-            subject.collect()
-            client.images.remove.side_effect = None
-            subject.collect()
-        self.assertEqual(len(logs.output), 6)
-        self.assertEqual(client.images.remove.call_count, 2)
+                subject, client, _registry, clock = _collector([_summary(SUPERSEDED)])
+                subject.collect()
+                clock.now += collector.GRACE_SECONDS
+                client.api.inspect_image.side_effect = failure
+                subject.collect()
+                client.api.inspect_image.side_effect = lambda image_id: {
+                    "Config": {"Labels": dict(STAGE)},
+                    "RepoTags": [],
+                    "RepoDigests": [],
+                }
+                client.images.remove.side_effect = failure
+                subject.collect()
+                client.images.remove.side_effect = None
+                subject.collect()
+            self.assertEqual(len(logs.output), 6)
+            self.assertEqual(client.images.remove.call_count, 2)
 
     def test_absent_images_count_as_collected_and_stale_observations_are_forgotten(self) -> None:
         subject, client, _registry, clock = _collector([_summary(SUPERSEDED)])

@@ -4,11 +4,19 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import requests
+
 from install import bindings
 from local.errors import ApiProblemError as ApiProblem
 from local.install import automatic
 from local.install.automatic import AutomaticAssistantUpdater
 from local.install.developers import DevelopersError, DevelopersProtocolError, PublicationNotInstallableError
+
+# docker-py raises these, OSErrors and no DockerException, on a lost or slow Docker socket.
+LOST_DOCKER = (
+    requests.exceptions.ConnectionError("Docker socket is down"),
+    requests.exceptions.ReadTimeout("Docker did not answer in time"),
+)
 
 
 def _candidate(version: str = "0.2.0") -> dict[str, str]:
@@ -273,3 +281,39 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
 
         updater._record = mock.Mock(side_effect=RuntimeError("audit unavailable"))
         updater._record_result(None, None, "error", "detail")
+
+    def test_lost_or_slow_docker_defers_one_update_and_keeps_the_worker_running(self) -> None:
+        for failure in LOST_DOCKER:
+            with self.subTest(failure=type(failure).__name__):
+                published = tuple(
+                    _published_binding(team_id=f"team_{index}", binding_digest=f"sha256:{index:064x}")
+                    for index in (1, 2)
+                )
+                updated: list[str] = []
+                audits: list[tuple[object, ...]] = []
+
+                def install(team_id: str, *_args, failure=failure, updated=updated, **_options) -> None:
+                    if team_id == "team_1":
+                        raise failure
+                    updated.append(team_id)
+
+                controller = SimpleNamespace(
+                    developers=SimpleNamespace(latest=lambda _digest: _candidate()),
+                    registry=SimpleNamespace(bindings=lambda published=published: published),
+                    install_publication=install,
+                    assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
+                    local_snapshot_collector=SimpleNamespace(collect=lambda: None),
+                )
+                updater = AutomaticAssistantUpdater(
+                    controller, record=lambda *event, audits=audits: audits.append(event)
+                )
+                self.assertTrue(updater.run_once())
+                self.assertEqual(updated, ["team_2"])
+                self.assertIn(("team_1", "hello-world", "error", "deferred:runtime-unavailable"), audits)
+
+                audits.clear()
+                controller.assistant_lifecycle.sweep_residues = mock.Mock(side_effect=failure)
+                updater._stop = mock.Mock()
+                updater._stop.wait.side_effect = (False, True)
+                updater._run()
+                self.assertEqual(audits, [(None, None, "error", "thread:runtime-unavailable")])
