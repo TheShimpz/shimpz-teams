@@ -6,8 +6,9 @@ request whose input is resolved from literals, the run's one start instant, and 
 returned. Its recovery snapshot is sealed before the first dispatch; its sealed cursor records each dispatch's logical
 operation and exact input before the RPC, and keeps each completed step's selected values before the journal may drop
 its receipts, so a completed step never runs again. A healthy run makes no model call and needs no model-provider key.
-A suspension freezes the run for a person; a Stop with nothing uncertain ends it stopped; a failure before any dispatch
-fails it; every other failure holds the run as an incident for recovery.
+A suspension freezes the run for a person; a Stop with nothing uncertain ends it stopped; a deadline after its sealed
+cursor completed every step ends it complete; a failure before any dispatch, or an input that cannot be resolved after
+only read-only steps, fails it; every other failure holds the run as an incident for recovery.
 
 The run's protection (``local/routine/protection.py``) is bound with its first cursor and grows before every RPC and
 with every result's secret strings before anything outward sees it: a shown result, a step record's previews, and a

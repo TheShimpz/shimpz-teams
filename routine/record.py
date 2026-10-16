@@ -50,8 +50,8 @@ GENERATION_RE = re.compile(
 FROZEN_OUTCOMES = frozenset({"denied", "stopped", "failed"})
 # Why recovery paused a held run's Routine; each is published on the run's notice.
 PAUSE_REASONS = http_routine.PAUSE_REASONS
-# Ended runs whose journal generation, continuation, and cursor Team has yet to remove. Claims stop while any
-# wait, and each run ends once, so the queue never outgrows the runs a Team can hold.
+# Ended runs whose journal generation, continuation, and cursor Team has yet to remove. Claims stop once
+# MAX_ROUTINES wait, and each run ends once, so the queue never outgrows that and the runs a Team can hold.
 MAX_DISCARDS = 2 * MAX_ROUTINES
 # Unresolved incidents a Team may hold (ADR-0092); a claim reserves one for every run that could still be held.
 MAX_UNRESOLVED_INCIDENTS = http_routine_notice.MAX_UNRESOLVED_INCIDENTS

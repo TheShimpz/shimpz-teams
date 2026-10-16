@@ -780,7 +780,7 @@ class RoutineStore:
         return tuple(sorted(name.removesuffix(suffix) for name in names if pattern.fullmatch(name)))
 
     def delete(self, team_id: object) -> None:
-        """Remove the Team's Routine state and continuations; an absent Team is already clean."""
+        """Remove the Team's whole Routine directory and everything it holds; an absent Team is already clean."""
         team = _team_id(team_id)
         with self.lock(team):
             self._remove(self._team_dir(team).name)

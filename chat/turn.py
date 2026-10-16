@@ -52,7 +52,7 @@ class SegmentResult:
     outcome: chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension
     integrations: tuple[object, ...]
     human: tuple[object, ...] = ()
-    # The exact contract digest of each Assistant the Brain saw in this segment, for binding a Routine proposal.
+    # The Routine scope pin of each Assistant the Brain saw in this segment, for binding a Routine proposal.
     contracts: tuple[tuple[str, str], ...] = ()
     # The interface language the turn's start pinned; a suspension keeps it for the rest of the turn (ADR-0091).
     locale: str | None = None
