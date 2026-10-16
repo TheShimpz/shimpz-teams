@@ -1,4 +1,4 @@
-"""Vendored, dependency-free primitives shared by both shimpz.chat.v7 surfaces."""
+"""Vendored, dependency-free shimpz.chat.v7 primitives; Admin, their only consumer, mirrors them."""
 
 from __future__ import annotations
 
