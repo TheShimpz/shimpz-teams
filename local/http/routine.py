@@ -133,8 +133,6 @@ def _pause(handler, route: strict_http.ControllerRouteMatch, team_id: str, pause
     return change(team_id, route.params["routine_id"])
 
 
-
-
 def _proposal(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
     """A person's answer to a recorded Routine's card: Criar rotina with an empty body, or Cancelar as a DELETE."""
     proposal_id = route.params["proposal_id"]
