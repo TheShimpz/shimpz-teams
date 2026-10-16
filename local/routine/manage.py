@@ -186,7 +186,7 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
     a set-aside incident kept is released once nothing executes for it. A Routine already gone is deleted.
     """
     team_id = validate_team_id(team_id)
-    if not isinstance(routine_id, str) or http_routine.ROUTINE_ID_RE.fullmatch(routine_id) is None:
+    if not http_routine.matches(routine_id, http_routine.ROUTINE_ID_RE):
         raise local_errors.routine_not_found()
     now = int(time.time())
 

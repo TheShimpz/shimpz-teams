@@ -162,7 +162,7 @@ def _team_id(value: object) -> str:
 
 
 def _run_id(value: object) -> str:
-    if not isinstance(value, str) or http_routine.ROUTINE_ID_RE.fullmatch(value) is None:
+    if not http_routine.matches(value, http_routine.ROUTINE_ID_RE):
         raise RoutineStoreError("Routine run is invalid")
     return value
 

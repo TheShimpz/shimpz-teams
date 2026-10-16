@@ -482,7 +482,7 @@ def set_paused(self, team_id: str, routine_id: str, paused: bool) -> None:
 
 def _set_paused_by_person(self, team_id: str, routine_id: object, paused: bool) -> dict[str, object]:
     team_id = validate_team_id(team_id)
-    if not isinstance(routine_id, str) or http_routine.ROUTINE_ID_RE.fullmatch(routine_id) is None:
+    if not http_routine.matches(routine_id, http_routine.ROUTINE_ID_RE):
         raise local_errors.routine_not_found()
     set_paused(self, team_id, routine_id, paused)
     operation = "routine-pause" if paused else "routine-resume"
