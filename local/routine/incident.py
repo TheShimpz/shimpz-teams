@@ -318,7 +318,8 @@ def _sealed_loss(self, team_id: str, value: record.Run) -> bool:
     The loss is sealed in the cursor before the run's state is marked, so this finds a mark that failed to land.
     Evidence or a cursor that cannot be read, is missing, or names another run, revision, or plan is taken as lost, as a
     deletion takes it: a notice never says a protection held that nothing could read, and the release that follows may
-    erase the cursor that recorded it. Every incident's evidence is sealed before it is indexed, so none is missing.
+    erase the cursor that recorded it. Every incident's evidence is sealed before it is indexed, so a missing one was
+    lost; evidence without a snapshot proves no loss only while no cursor of the run remains.
     """
     try:
         sealed = self.routine_store.incident(team_id, value.run_id)

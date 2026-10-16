@@ -14,8 +14,8 @@ a complete output, and a literal that a secret belongs in is refused: such a val
 Input. An Action that declares a file input is refused: a Routine holds no file grant, so no literal id or copied output
 may stand for an attached file (ADR-0093).
 
-A plan also states what a completed run does with its result: ``show`` one step's result to the person after every run,
-show it only when it ``changes``, or show ``none`` of it (ADR-0101). A plan has at least one step.
+A plan also states what a completed run does with its result: ``show`` its last step's result to the person after every
+run, show it only when it ``changes``, or show ``none`` of it (ADR-0101). A plan has at least one step.
 """
 
 import copy

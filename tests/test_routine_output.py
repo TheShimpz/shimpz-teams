@@ -80,7 +80,7 @@ class DispositionTests(unittest.TestCase):
             routine_plan.admit(missing, CONTRACTS)
 
     def test_the_protocol_admits_exactly_a_disposition_of_the_projected_steps(self) -> None:
-        # On the wire the shown step is its position among the plan's ``steps`` (ADR-0092, 2026-10-05, scale).
+        # On the wire the shown step is the last position, the plan's step count (ADR-0092, 2026-10-05, scale).
         steps = 2
         for value, total in (
             ({"mode": "show", "step": 2}, steps),
