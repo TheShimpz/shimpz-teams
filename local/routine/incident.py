@@ -316,8 +316,9 @@ def _sealed_loss(self, team_id: str, value: record.Run) -> bool:
     """Whether an incident's cursor, under its sealed evidence's binding, records a lost protection.
 
     The loss is sealed in the cursor before the run's state is marked, so this finds a mark that failed to land.
-    Evidence or a cursor that cannot be read is taken as lost, as a deletion takes it: a notice never says a protection
-    held that nothing could read, and the release that follows may erase the cursor that recorded it.
+    Evidence or a cursor that cannot be read, is missing, or is bound to another run or plan is taken as lost, as a
+    deletion takes it: a notice never says a protection held that nothing could read, and the release that follows may
+    erase the cursor that recorded it. Every incident's evidence is sealed before it is indexed, so none is missing.
     """
     try:
         sealed = self.routine_store.incident(team_id, value.run_id)
@@ -325,12 +326,13 @@ def _sealed_loss(self, team_id: str, value: record.Run) -> bool:
         cursor = None if snapshot is None else self.routine_store.cursor(team_id, snapshot.binding)
     except routine_store.RoutineStoreError, ApiProblem:
         return True
-    if snapshot is not None and cursor is None:
-        # A replayed run's cursor that is gone may have recorded the loss, so it is taken as lost too.
+    if snapshot is None:
+        # Sealed evidence without a recovery snapshot is of a run that was never replayed, so it has no cursor.
+        return sealed is None
+    if cursor is None:
         return True
-    # Evidence of another run, or a cursor of another plan, proves nothing about this run.
-    bound = cursor is not None and snapshot.of_run(value.routine_id, value.generation) and snapshot.runs(cursor)
-    return bound and cursor.protection_lost
+    bound = snapshot.of_run(value.routine_id, value.generation) and snapshot.runs(cursor)
+    return not bound or cursor.protection_lost
 
 
 def marking_losses[T](
@@ -339,7 +341,7 @@ def marking_losses[T](
     chosen: Callable[[record.Run], bool],
     change: Callable[[record.TeamRoutines], tuple[record.TeamRoutines, T]],
 ) -> Callable[[record.TeamRoutines], tuple[record.TeamRoutines, T]]:
-    """``change`` after every ``chosen`` incident whose cursor sealed a loss its mark never landed for is marked.
+    """``change`` after every ``chosen`` incident whose unmarked loss is sealed or cannot be ruled out is marked.
 
     A live run's loss is marked by every write; an incident's matters only to the notices it publishes, so only a write
     that publishes one reads its sealed cursor, inside that write (ADR-0101 §6).

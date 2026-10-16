@@ -299,13 +299,22 @@ class AutomaticEdgeTests(AutomaticCase):
             state = self.state(service)
         self.assertEqual((record.run(state, run_id).protection_lost, state.notices[-1].protection_lost), (True, True))
 
-    def test_an_incidents_unreadable_evidence_or_cursor_is_taken_as_lost_on_its_notice(self) -> None:
+    def test_an_incidents_unreadable_missing_or_unbound_evidence_or_cursor_is_taken_as_lost_on_its_notice(self) -> None:
         # The release that follows a set-aside may erase the cursor, so a notice never says a protection held unread.
         failed = {"side_effect": routine_store.RoutineStoreError("x")}
-        for name, read in (("incident", failed), ("cursor", failed), ("cursor", {"return_value": None})):
+        cases = (
+            ("incident", failed),
+            ("incident", {"return_value": None}),
+            ("cursor", failed),
+            ("cursor", {"return_value": None}),
+            # A cursor of another plan than the sealed evidence names.
+            ("runs", {"return_value": False}),
+        )
+        for name, read in cases:
             with self.subTest(read=name, how=read), tempfile.TemporaryDirectory() as directory:
                 service, _value, run_id = self.held_unmarked(directory)
-                with mock.patch.object(service.routine_store, name, **read):
+                owner = routine_incident.Recovery if name == "runs" else service.routine_store
+                with mock.patch.object(owner, name, **read):
                     routine_incident.pause(service, "team_1", run_id, "exhausted")
                 state = self.state(service)
                 self.assertEqual(
