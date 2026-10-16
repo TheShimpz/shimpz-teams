@@ -778,6 +778,18 @@ class LostEvidenceTests(IncidentCase):
         self.assertEqual((state.routines, state.runs), ((), ()))
         self.assertIsNone(service.action_state.current_batch(generation))
         self.assertIsNone(service.routine_store.incident("team_1", run_id))
+        # Reconciling and releasing the run read the same loss; it is audited exactly once.
+        audits = local_app.local_audit.record.call_args_list
+        self.assertEqual(
+            [call.kwargs["detail"] for call in audits if call.args[0] == "routine-evidence-lost"], [run_id]
+        )
+
+    def test_unreadable_evidence_of_a_held_run_is_lost_when_its_routine_is_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)
+            self.fence(service, run_id, lease)
+            service.routine_store.put_incident("team_1", run_id, b"not evidence")
+            self.assert_deleted_as_lost(service, value, run_id, generation)
 
     def test_an_unreadable_snapshot_keeps_the_run_held_until_its_routine_is_deleted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
