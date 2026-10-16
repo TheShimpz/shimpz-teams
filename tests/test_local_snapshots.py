@@ -437,10 +437,8 @@ class LocalSnapshotTests(unittest.TestCase):
             )
             self.assertFalse(assistant_registry.is_successor(current, candidate))
             self.assertEqual(candidate_spec.version, spec.version)
-            self.assertEqual(
-                registry.commit_local_replacement("team_1", current.binding_digest, replacement).image,
-                replacement["image_id"],
-            )
+            registry.commit_local_replacement("team_1", current.binding_digest, replacement)
+            self.assertEqual(registry.get("team_1", "fixture-assistant").image, replacement["image_id"])
 
     def test_local_replacement_transaction_is_durable(self) -> None:
         client, _image_value, _container_value = _client()

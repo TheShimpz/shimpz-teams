@@ -102,8 +102,8 @@ class AssistantRegistry:
         team_id: str,
         expected_binding_digest: str,
         record: dict[str, object],
-    ) -> AssistantSpec:
-        return _spec(self._store.replace_local(team_id, expected_binding_digest, record))
+    ) -> None:
+        self._store.replace_local(team_id, expected_binding_digest, record)
 
     @staticmethod
     def spec(binding: DynamicAssistantBinding) -> AssistantSpec:
