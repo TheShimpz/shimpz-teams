@@ -152,7 +152,6 @@ class RealFileDeliveryTests(unittest.TestCase):
                 )
                 payload = {
                     "input": action_input,
-                    "integrations": {},
                     "stored_inputs": {},
                     "files": files,
                     "operation_id": action_execution.action_journal.new_operation_id(),
