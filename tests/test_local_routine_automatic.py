@@ -107,7 +107,7 @@ class AutomaticTests(AutomaticCase):
             with mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 61.0)):
                 service, _value, run_id = self.run_held(directory, assistant)
             cursor = self.cursor(service, run_id)
-            run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             again = routine_recovery.automatic(service, run)
             state = self.state(service)
         self.assertEqual((self.status, again), ("held", "held"))
@@ -199,7 +199,7 @@ class RunBalanceTests(BalanceCase):
         assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
         with tempfile.TemporaryDirectory() as directory:
             service, _value, run_id = self.held_with_balance(directory, 5, assistant)
-            run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             with mock.patch.object(routine_recovery, "verify", side_effect=watching):
                 self.assertEqual(routine_recovery.automatic(service, run), "held")
             held = routine_hold.incident(self.state(service), run_id)
@@ -219,7 +219,7 @@ class RunBalanceTests(BalanceCase):
 
         with tempfile.TemporaryDirectory() as directory:
             service, _value, run_id = self.held_with_balance(directory, 50, assistant)
-            run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             with (
                 mock.patch.object(routine_recovery, "verify", side_effect=slow),
                 mock.patch.object(routine_recovery, "_clock", side_effect=lambda: 1000.0 + elapsed[0]),
@@ -233,7 +233,7 @@ class RunBalanceTests(BalanceCase):
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
             service, _value, run_id = self.held_with_balance(directory, 0, assistant)
-            run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             outcome = routine_recovery.automatic(service, run)
             state = self.state(service)
         self.assertEqual(outcome, "held")
@@ -275,7 +275,7 @@ class DeadlineTests(BalanceCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _value, run_id = self.held_with_balance(directory, 1, assistant)
             service.assistant_lifecycle._fail_stop_action = mock.Mock(side_effect=lambda _container: released.set())
-            run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             started = time.monotonic()
             with service._exclusive_chat_turn("team_1") as token:
                 run.token = token
@@ -293,7 +293,7 @@ class DeadlineTests(BalanceCase):
         assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
         with tempfile.TemporaryDirectory() as directory:
             service, _value, run_id = self.held_with_balance(directory, 30, assistant)
-            run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             ticks = iter([0.0, 0.0, 0.0])
             with mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 31.0)):
                 outcome = routine_recovery.automatic(service, run)
@@ -373,7 +373,7 @@ class ContinuationDeadlineTests(BalanceCase):
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
             service, _value, run_id = self.held_with_balance(directory, 30, assistant)
-            run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             # Taken at 0, armed at 12, and already past its deadline when the episode would start work.
             ticks = iter([0.0, 12.0])
             with (
@@ -391,7 +391,7 @@ class ContinuationDeadlineTests(BalanceCase):
         assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
             service, _value, run_id = self.held_with_balance(directory, 30, assistant)
-            run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             # In time through the verification, with less than a second left for the retry.
             ticks = iter([0.0, 0.0, 0.0, 0.0, 29.5])
             with (
@@ -422,7 +422,7 @@ class ContinuationDeadlineTests(BalanceCase):
                 service._exclusive_chat_turn("team_1") as token,
                 mock.patch.object(routine_recovery, "continue_run", side_effect=continuing),
             ):
-                run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)
+                run = mock.Mock(team_id="team_1", run_id=run_id, token=token)
                 outcome = routine_recovery.automatic(service, run)
             state = self.state(service)
         self.assertEqual(outcome, "recovered")
@@ -494,7 +494,7 @@ class ContinuationDeadlineTests(BalanceCase):
             with service._active_chat_guard:
                 # A Stop found the run unregistered and fenced it out.
                 service._routine_halting.add(run_id)
-            run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             self.assertEqual(routine_recovery.automatic(service, run), "held")
         self.assertNotIn("find-record", [action for action, _id in assistant.calls])
 
@@ -598,9 +598,7 @@ class ContinuationDeadlineTests(BalanceCase):
     def test_a_sealed_completion_never_touches_a_run_whose_lease_changed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
-            run = routine_recovery.routine_run.LeasedRun(
-                "team_1", run_id, record.Lease("0" * 64, "k"), "token", "openai", value
-            )
+            run = routine_recovery.routine_run.LeasedRun("team_1", run_id, record.Lease("0" * 64, "k"), "token", value)
             with self.assertRaises(routine_recovery.ApiProblem) as caught:
                 routine_recovery.routine_run.complete_sealed(service, run, None)
         self.assertEqual(caught.exception.code, "routine-lease-invalid")

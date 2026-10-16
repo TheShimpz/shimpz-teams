@@ -159,9 +159,7 @@ class ExecutionBoundTests(RoutineServiceCase):
             self.assertIn("token", service._cancelled_chat_tokens)
             stopped = local_app.ApiProblem(409, "stopped", code="chat-stopped")
             lease = record.lease_of(claim["lease_token"], KEY)
-            run = routine_run.LeasedRun(
-                "team_1", claim["run_id"], lease, "token", "openai", self.state(service).routines[0]
-            )
+            run = routine_run.LeasedRun("team_1", claim["run_id"], lease, "token", self.state(service).routines[0])
             # Nothing was dispatched, so a stop that ran out of active time fails the run instead of holding it.
             value = record.run(self.state(service), claim["run_id"])
             outcome = routine_replay._ended(service, run, value, None, stopped)

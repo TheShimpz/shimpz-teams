@@ -269,7 +269,7 @@ class StepRecordEdgeTests(RoutineServiceCase):
             # A segment cut while an attempt is still in flight records that attempt as stopped too.
             claim = service.claim_routine_run()
             lease = record.lease_of(claim["lease_token"], KEY)
-            run = routine_run.LeasedRun("team_1", claim["run_id"], lease, "token", "openai", value)
+            run = routine_run.LeasedRun("team_1", claim["run_id"], lease, "token", value)
             # Stop raises out of the Action's call itself; its time still ends there, before the segment unwinds.
             runtime = self.runtime(service, value, mock.Mock(record_step=lambda *args: kept.append(args[2])))
             request = runtime.start(None, "").actions[0]
