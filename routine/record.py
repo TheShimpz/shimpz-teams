@@ -400,7 +400,7 @@ def change_room(state: TeamRoutines) -> str | None:
 
 
 def create(
-    state: TeamRoutines, value: Routine, now: int, *, usage: dict[str, object] | None = None, steps: list | tuple = ()
+    state: TeamRoutines, value: Routine, now: int, *, usage: dict[str, object] | None, steps: list | tuple
 ) -> TeamRoutines:
     """Add a confirmed Routine with its created notice in one transition; its minted id never exists twice.
 

@@ -62,7 +62,7 @@ class Proposal:
     digest: str
     expires_at: float
     # What the recording that made the card spent, which the created Routine's notice shows; never bound.
-    creation: routine_recorder.Creation = (None, [])
+    creation: routine_recorder.Creation
 
 
 class ProposalBook:

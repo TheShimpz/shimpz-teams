@@ -518,7 +518,7 @@ class ProposalBookTests(unittest.TestCase):
     @staticmethod
     def card(proposal_id: str, *, replaces: str | None = None, team: str = "team_1", person: str = PRINCIPAL):
         return routine_proposal.Proposal(
-            proposal_id, team, person, "b" * 64, None, replaces, None, "sha256:" + "0" * 64, 10.0
+            proposal_id, team, person, "b" * 64, None, replaces, None, "sha256:" + "0" * 64, 10.0, (None, [])
         )
 
     def test_cards_go_with_a_deleted_routine_a_team_or_a_reset(self) -> None:

@@ -377,7 +377,7 @@ class ConfirmedChangeTests(unittest.TestCase):
         self.assertEqual((notice.name, notice.usage, notice.protection_lost), ("Daily DNS summary", usage, False))
         # A minted id never exists twice, so a repeated confirmation never creates twice.
         with self.assertRaisesRegex(record.RoutineStateError, "routine-exists"):
-            record.create(state, routine(), NINE + 5)
+            record.create(state, routine(), NINE + 5, usage=None, steps=())
 
     def test_room_for_a_change_counts_only_undelivered_notices(self):
         self.assertIsNone(record.change_room(record.TeamRoutines()))
