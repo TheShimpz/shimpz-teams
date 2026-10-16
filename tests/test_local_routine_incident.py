@@ -126,11 +126,18 @@ class HoldTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, _value, run_id, lease, generation, batch = self.held_run(directory)
             self.fence(service, run_id, lease)
+            held = record.run(self.state(service), run_id)
+            # Evidence naming another batch than the run's open one is never archived over.
+            service.routine_store.put_incident("team_1", run_id, routine_incident.evidence(run_id, held, "0" * 64, ()))
+            with self.assertRaises(local_app.ApiProblem) as unarchived:
+                routine_incident.reconcile(service, "team_1", run_id)
+            self.assertEqual(unarchived.exception.code, "routine-state-unavailable")
+            self.assertEqual(service.action_state.current_batch(generation)[1], "open")
+            service.routine_store.delete_incident("team_1", run_id)
             service.action_state.archive(generation, batch.fingerprint)
             with self.assertRaises(local_app.ApiProblem) as lost:
                 routine_incident.reconcile(service, "team_1", run_id)
             self.assertEqual(lost.exception.code, "routine-state-unavailable")
-            held = record.run(self.state(service), run_id)
             service.routine_store.put_incident("team_1", run_id, routine_incident.evidence(run_id, held, "0" * 64, ()))
             with self.assertRaises(local_app.ApiProblem) as mismatch:
                 routine_incident.reconcile(service, "team_1", run_id)
