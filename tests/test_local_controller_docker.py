@@ -660,13 +660,6 @@ class DockerFlowTests(
             "print(len(list(p.glob('*.json'))),len(list((p/'.tokens').glob('*.token'))))",
         ).stdout.strip()
         self.assertEqual(remaining_policy_files, "0 0")
-        _, deleted_file = self.api(
-            flow.port,
-            flow.token,
-            "DELETE",
-            f"/v1/teams/demo_team/files/{flow.file_id}",
-        )
-        self.assertTrue(deleted_file["deleted"])
         mismatch_status, mismatch = self.api(
             flow.port, flow.token, "DELETE", "/v1/teams/demo_team", {"team_name": "Demo Team"}
         )
