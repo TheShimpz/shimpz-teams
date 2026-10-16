@@ -218,13 +218,13 @@ never does.
 routine"), so a chat that asks for one is about a Routine before any schedule is stated.
 The tables cover the eight interface languages. A sentence that asks states nothing; a negation in any
 language rejects every reading it reaches, except that `phrase.stated(text, language)` and
-`phrase.team_asks(text, language)` read a text known to be written in that interface language, such as a description
-or a clarification the Brain's model writes in the chat's language, with only that language's negations, so
-Portuguese "no Cloudflare a cada 30 segundos" keeps its schedule. "Show the result" qualified by "only when it
-changes" in its own clause is that one choice, and so is showing it whenever it changes ("mostrar sempre que mudar"),
-while alternatives offer both. A when-it-changes condition that qualifies no show states nothing alone, since it may
-govern the work ("copy the file whenever it changes"), and beside a stated show it is a second choice. Vectors pin a
-reading for each language and kind.
+`phrase.team_asks(text, language)` read a text known to be written in that interface language, such as a
+clarification question or option the Brain's model writes in the chat's language, with only that language's negations,
+so Portuguese "no Cloudflare a cada 30 segundos" keeps its schedule. "Show the result" qualified by "only when it
+changes" in its own clause is that one choice, while alternatives offer both. A when-it-changes condition never says
+whether it qualifies the result or the work ("mostrar sempre que mudar", "copy the file whenever it changes"): alone it
+states nothing, and beside any show it is a second choice the person is asked about. Vectors pin a reading for each
+language and kind.
 
 The Team→Brain Routine forms of a recording chat are defined here too, so the Brain mirrors them instead of copying
 them (ADR-0101). `routine_context.canonical_routine_listings` admits the Team's Routine listing: at most

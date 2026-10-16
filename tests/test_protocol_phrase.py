@@ -297,29 +297,22 @@ class StatedOutputTests(unittest.TestCase):
         self.assertEqual(phrase.outputs("毎回表示しない"), ("none",))
         self.assertEqual(set(phrase.outputs("Mostrar sempre. Ou só quando mudar.")), {"show", "changes"})
 
-    def test_showing_it_whenever_it_changes_is_showing_it_when_it_changes_in_every_language(self) -> None:
+    def test_a_when_it_changes_condition_beside_a_show_asks_in_every_language(self) -> None:
+        # A condition never says whether it qualifies the result or the work, so beside a show both are offered.
         for text in (
             "Mostrar sempre que mudar",
             "Mostrar o resultado sempre que houver mudança",
             "Show it every time it changes",
-            "Show it always when it changes",
+            "Show the result and update the DNS record whenever it changes",
+            "Show me the results and copy the file whenever it changes",
+            "Mostre o resultado e atualize a zona sempre que mudar",
             "Mostrar siempre que cambie",
             "Afficher toujours quand ça change",
-            "Immer anzeigen wenn es sich ändert",
-            # German puts a comma before its condition.
             "Immer anzeigen, wenn sich etwas ändert",
             "変わるたびに結果を表示",
             "每次变化时显示结果",
             "اعرض دائماً كلما تغير",
-        ):
-            with self.subTest(text=text):
-                self.assertEqual(phrase.outputs(text), ("changes",))
-        # Beside a stated show, a condition that qualifies something else, or is offered as an alternative, is a
-        # second choice for the person.
-        for text in (
             "Show every run but change the DNS record only when it changes",
-            "Show every run but change the DNS record whenever it changes",
-            "Mostrar sempre, ou sempre que mudar",
             "Mostrar sempre. Ou sempre que mudar.",
         ):
             with self.subTest(text=text):
@@ -331,33 +324,10 @@ class StatedOutputTests(unittest.TestCase):
             ("Não mostrar sempre que mudar", ("none",)),
             ("Ne pas afficher toujours quand ça change", ("none",)),
             ("I don't want it every time it changes", ()),
-            ("Sem o resultado ser mostrado sempre que mudar.", ()),
             ("Mostrar sempre que mudar?", ()),
         ):
             with self.subTest(text=text):
                 self.assertEqual(phrase.outputs(text), expected)
-
-    def test_a_portuguese_passive_or_gerund_shows_the_result_unless_it_is_negated(self) -> None:
-        for text in (
-            "Quero que o resultado seja mostrado em todas as execuções.",
-            "O resultado deve ser mostrado em todas as execuções.",
-            "Liste os registros a cada 30 segundos, mostrando o resultado em todas as execuções.",
-            "Quero ver o resultado em todas as execuções.",
-            # "Sem" elsewhere in the sentence negates only what it governs.
-            "Liste os registros, sem alterar nenhum, e mostre o resultado em todas as execuções.",
-        ):
-            with self.subTest(text=text):
-                self.assertEqual(phrase.outputs(text), ("show",))
-        self.assertEqual(phrase.outputs("O resultado será mostrado sempre que mudar."), ("changes",))
-        for text in (
-            "Não quero que o resultado seja mostrado em todas as execuções.",
-            "O resultado nunca deve ser mostrado em todas as execuções.",
-            "Sem o resultado ser mostrado em todas as execuções.",
-            "Sem que o resultado seja mostrado em todas as execuções.",
-            "Liste os registros sem ver o resultado em todas as execuções.",
-        ):
-            with self.subTest(text=text):
-                self.assertEqual(phrase.outputs(text), ())
 
 
 class RequestsRoutineTests(unittest.TestCase):

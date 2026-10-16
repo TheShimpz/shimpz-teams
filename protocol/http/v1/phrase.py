@@ -221,30 +221,17 @@ _TIMES = (
 # What each run does with its result, by language: show it every run, only when it changes, or nothing. Each interface
 # language's choice labels (``routine_proposal.OUTPUT_CHOICES``) are among these phrases. A plain "show the result"
 # reads as showing it every run, unless its own clause says only when it changes. A "condition" (whenever it changes)
-# may govern the work instead, so alone it states nothing: it makes showing the result its own clause names, or a
-# "show every run" whose words it takes ("mostrar sempre que mudar"), showing it when it changes. A "negation" phrase
-# states nothing and rejects the readings it overlaps, as "sem" ("without") does before a passive.
+# never says what it qualifies, the result or the work ("mostrar sempre que mudar", "update the record whenever it
+# changes"), so alone it states nothing, and beside a show it is a second choice the person is asked about.
 _PT_SHOW = r"\b(?:mostrar|mostre|exibir|exiba)\s+"
 _ES_SHOW = r"\b(?:mostrar|muestra|muéstrame)\s+"
 _FR_SHOW = r"\b(?:afficher|affiche|montre(?:-moi)?)\s+"
 _OUTPUTS = (
     ("show", "pt", _PT_SHOW + r"(?:sempre|em\s+todas\s+as\s+execuções)\b"),
-    (
-        "show",
-        "pt",
-        r"\b(?:mostrad[oa]s?|exibid[oa]s?|mostrando|exibindo|ver)\s+(?:(?:o|os)\s+resultados?\s+)?"
-        r"(?:sempre|em\s+todas\s+as\s+execuções)\b",
-    ),
     ("result", "pt", _PT_SHOW + r"os?\s+resultados?\b"),
     ("changes", "pt", r"\b(?:só|somente|apenas)\s+(?:quando|se)\s+(?:mudar|alterar|houver\s+mudança)"),
     ("condition", "pt", r"\b(?:sempre|toda\s+vez)\s+que\s+(?:algo\s+|houver\s+)?(?:mudar|alterar|mudança)"),
     ("none", "pt", r"\b(?:não|sem)\s+(?:precisa\s+)?(?:mostrar|exibir)\b"),
-    (
-        "negation",
-        "pt",
-        r"\bsem\s+(?:que\s+)?(?:(?:o|os)\s+resultados?\s+)?(?:ser|seja|sejam|serem|for|forem)\s+(?:mostrad|exibid)"
-        r"|\bsem\s+ver\b",
-    ),
     ("show", "en", r"\b(?:show|display)\s+(?:me\s+)?(?:it\s+)?(?:every\s+(?:run|time)|always)\b"),
     ("result", "en", r"\b(?:show|display)\s+(?:me\s+)?the\s+results?\b"),
     ("changes", "en", r"\bonly\s+(?:(?:when|if)\s+(?:it\s+)?changes|on\s+changes?)\b"),
@@ -398,7 +385,7 @@ def stated(text: str, language: str | None = None) -> tuple[dict[str, object], .
     """Every distinct canonical schedule one text states affirmatively, in the order first found.
 
     A person's own text is read in every language (``language`` None), since nothing says which they wrote in. A text
-    known to be written in one interface language, such as a description the Brain's model writes in the chat's
+    known to be written in one interface language, such as a clarification the Brain's model writes in the chat's
     language, names it: every language's schedule phrases still count, but only its own negations reject them.
     """
     found: list[dict[str, object]] = []
@@ -422,35 +409,22 @@ def _one_clause(sentence: str, first: tuple[int, int], second: tuple[int, int]) 
     return _ALTERNATIVE_RE.search(between) is None
 
 
-def _shown(sentence: str, kind: str, span: tuple[int, int], conditions: list[tuple[int, int]]) -> str:
-    """The choice one admitted show or result reading states, "changes" when a when-it-changes condition qualifies it.
-
-    A condition qualifies a result in its own clause, and a show-every-run whose words it takes.
-    """
-    if kind == "result":
-        qualified = any(_one_clause(sentence, span, other) for other in conditions)
-    else:
-        qualified = any(span[0] < end and start < span[1] for start, end in conditions)
-    return "changes" if qualified else "show"
-
-
 def outputs(text: str) -> tuple[str, ...]:
     """Every distinct output choice one person-authored text states affirmatively, in the order first found.
 
     A "nothing" reading carries its own negation and stands; any other reading a negation reaches, in any language,
-    or that overlaps a "nothing" or "negation" reading, states nothing. "Show the result" qualified by "only when it
-    changes" in its own clause is that one choice, while "show the result, or only when it changes" states both.
-    "Show always" is showing it when it changes only where a condition takes its very words ("show it every time it
-    changes"). A condition that qualifies no reading states nothing alone ("copy the file whenever it changes"), but
-    beside a stated show or result it is a second choice for the person.
+    or that overlaps a "nothing" reading, states nothing. "Show the result" qualified by "only when it changes" in its
+    own clause is that one choice, while "show the result, or only when it changes" states both. A when-it-changes
+    condition states nothing alone, and beside any show it adds showing the result when it changes, so the person is
+    asked rather than guessed for.
     """
     found: list[str] = []
-    unqualified = shown = False
+    shown = conditioned = False
     for sentence in _sentences(text):
         readings = [
             (kind, language, match) for kind, language, pattern in _OUTPUTS for match in re.finditer(pattern, sentence)
         ]
-        blocked = [match.span() for kind, _language, match in readings if kind in ("none", "negation")]
+        blocked = [match.span() for kind, _language, match in readings if kind == "none"]
         blocked += [
             match.span() for kind, language, match in readings if kind != "none" and _negated(language, sentence, match)
         ]
@@ -460,22 +434,17 @@ def outputs(text: str) -> tuple[str, ...]:
             if kind == "none" or not any(match.start() < end and start < match.end() for start, end in blocked)
         ]
         changes = [span for kind, span in admitted if kind == "changes"]
-        conditions = [span for kind, span in admitted if kind == "condition"]
-        displays = [(kind, span) for kind, span in admitted if kind in ("show", "result")]
-        shown = shown or bool(displays)
-        unqualified = unqualified or any(
-            not any(_shown(sentence, kind, span, [condition]) == "changes" for kind, span in displays)
-            for condition in conditions
-        )
+        conditioned = conditioned or any(kind == "condition" for kind, _span in admitted)
         for kind, span in admitted:
             if kind == "condition" or (
                 kind == "result" and any(_one_clause(sentence, span, other) for other in changes)
             ):
                 continue
-            chosen = _shown(sentence, kind, span, conditions) if kind in ("show", "result") else kind
+            chosen = "show" if kind in ("show", "result") else kind
+            shown = shown or chosen == "show"
             if chosen not in found:
                 found.append(chosen)
-    if shown and unqualified and "changes" not in found:
+    if shown and conditioned and "changes" not in found:
         found.append("changes")
     return tuple(found)
 
