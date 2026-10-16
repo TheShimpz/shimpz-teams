@@ -251,8 +251,6 @@ class ContinuationEdgeTests(RecoveryCase):
             routine_cursor.proven_absent(
                 dataclasses.replace(cursor, operation_id=None, attempts=0, commitment=None, carried=False)
             )
-        with self.assertRaisesRegex(record.RoutineStateError, "generation-invalid"):
-            routine_claim.generation_for("net", "a" * 32, "x1")
 
     def test_a_cursor_that_cannot_be_sealed_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

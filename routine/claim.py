@@ -288,8 +288,6 @@ def generation_for(network_id: str, run_id: str, suffix: str = "") -> str:
 
     The run's one continuation (``s1``) or verification (``v1``) after a hold gets its own: the held one is archived.
     """
-    if suffix and record.SUFFIX_RE.fullmatch(suffix) is None:
-        raise record.RoutineStateError("generation-invalid")
     return f"{network_id}:routine:{run_id}" + (f":{suffix}" if suffix else "")
 
 

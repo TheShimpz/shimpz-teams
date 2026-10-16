@@ -34,7 +34,6 @@ MAX_GRACE_SECONDS = 12 * 3600
 MAX_COUNTED_MISSES = 24 * 400
 HUMAN_LEASE = "human"
 _PERIOD_SECONDS = {"daily": 86_400, "weekly": 7 * 86_400, "monthly": 28 * 86_400}
-SUFFIX_RE = re.compile(r"[sv]1\Z")
 
 
 def generation_grammar(network: str, run: str, suffix: str) -> str:

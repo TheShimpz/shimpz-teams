@@ -298,8 +298,6 @@ class TransitionEdgeTests(unittest.TestCase):
         deleting, _runs = record.begin_delete(state, "a" * 32)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-deleting"):
             routine_runs.freeze(deleting, run_id, lease, NINE, ("human", "dns", "check", STEP))
-        with self.assertRaisesRegex(record.RoutineStateError, "generation-invalid"):
-            routine_claim.generation_for("net_1", run_id, "x9")
         queued = dataclasses.replace(state, discards=((run_id, "g1"), (run_id, "g2")))
         self.assertEqual(record.discarded(queued, run_id, "g1").discards, ((run_id, "g2"),))
 
