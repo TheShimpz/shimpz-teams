@@ -321,13 +321,13 @@ def settings_answer(span: Span | None) -> bool:
 
 
 def stated_schedule(span: Span | None) -> dict[str, object] | None:
-    """The one schedule the span's person states, as Team will record it, for the Brain's description; else None."""
+    """The one schedule the span's person states, as Team records it; the Brain admits a settings answer beside it."""
     found = () if span is None else routine_recording.stated_schedules(span.sends)
     return dict(found[0]) if len(found) == 1 else None
 
 
 def stated_output(span: Span | None) -> str | None:
-    """The one output mode the span's person states, as Team will record it, for the Brain's description; else None."""
+    """The one output mode the span's person states, as Team records it; a settings answer is admitted beside it."""
     return None if span is None else routine_recording.stated_output(span.sends)
 
 

@@ -228,7 +228,7 @@ class RecordingBookTests(unittest.TestCase):
         cases = [
             ("routine-schedule-unstated", "a cada 30 segundos", None),
             ("routine-schedule-unstated", "ainda não sei", None),
-            # An output answer is the Brain's, so the description says what each run does with its result.
+            # An output answer is the Brain's to read too: it records again, and Team reads the output from it.
             ("routine-output-unstated", "Mostrar somente quando mudar", None),
             ("routine-output-unstated", "ainda não sei", None),
             ("routine-interval-over-budget", "a cada 31 segundos", None),

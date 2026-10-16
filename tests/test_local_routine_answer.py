@@ -29,7 +29,7 @@ class RoutineAnswerTests(RecordingCase):
         # The card ended the span.
         self.assertIsNone(span)
 
-    def test_a_schedule_answer_reaches_the_brain_which_records_again_saying_how_often(self) -> None:
+    def test_a_schedule_answer_reaches_the_brain_which_records_the_work_again(self) -> None:
         original = "Liste os registros DNS de shimpz.com e mostre o resultado"
         work = ("list-zones", "list-dns-records")
         # The offered answer is a settings answer: the Brain runs nothing again and records the work that already ran.
@@ -45,10 +45,10 @@ class RoutineAnswerTests(RecordingCase):
         self.assertEqual(candidate.schedule, CONTINUOUS)
         self.assertEqual([step["action"] for step in candidate.plan["steps"]], list(work))
 
-    def test_an_output_answer_reaches_the_brain_which_records_the_earlier_work_saying_it(self) -> None:
+    def test_an_output_answer_reaches_the_brain_which_records_the_earlier_work_again(self) -> None:
         original = "Liste os registros DNS de shimpz.com a cada 30 segundos"
-        said = "A cada 30 segundos, lista os registros DNS de shimpz.com. Mostrar somente quando mudar."
-        # The answer runs no Action again: the Brain only records once more, its description now saying the output.
+        said = "Lê os registros DNS de shimpz.com."
+        # The answer runs no Action again: the Brain only records once more, and the card carries that record.
         runtime = Sends((("list-zones", "list-dns-records"), _record()), ((), _record(description=said)))
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
@@ -66,11 +66,8 @@ class RoutineAnswerTests(RecordingCase):
 
     def test_an_answer_keeps_the_work_its_record_call_selected_after_an_unrelated_send(self) -> None:
         original = "Liste os registros DNS de shimpz.com a cada 30 segundos"
-        said = "A cada 30 segundos, lista os registros DNS de shimpz.com. Mostrar somente quando mudar."
         # Between the question and its answer the person asks for one zone listing that is no part of the Routine.
-        runtime = Sends(
-            (("list-zones", "list-dns-records"), _record()), (("list-zones",), None), ((), _record(description=said))
-        )
+        runtime = Sends((("list-zones", "list-dns-records"), _record()), (("list-zones",), None), ((), _record()))
         with tempfile.TemporaryDirectory() as directory:
             service = self.controller(directory, runtime)
             asked = self.chat(service, _body(original))["routine_question"]
@@ -83,7 +80,7 @@ class RoutineAnswerTests(RecordingCase):
 
     def test_a_settings_answer_keeps_the_stored_work_even_when_the_brain_renames_the_routine(self) -> None:
         original = "Liste os registros DNS de shimpz.com a cada 30 segundos"
-        said = "A cada 30 segundos, lista os registros DNS de shimpz.com. Mostrar somente quando mudar."
+        said = "Lê os registros DNS de shimpz.com."
         # An unrelated send lists the zones; the settings answer's record call then names the Routine otherwise.
         renamed = _record(name="Registros DNS", description=said)
         runtime = Sends((("list-zones", "list-dns-records"), _record()), (("list-zones",), None), ((), renamed))

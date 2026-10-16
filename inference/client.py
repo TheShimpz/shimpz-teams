@@ -112,11 +112,11 @@ class RuntimeContext:
     routine_mode: bool = False
     # The work a pending rerun question asks to run again, in order, bounded and redacted; None otherwise.
     routine_rerun: tuple[Mapping[str, object], ...] | None = None
-    # The one schedule the recording span's person states, which the record call's description must say; None when the
-    # person states none or several (ADR-0101). Only beside ``routines``.
-    routine_schedule: Mapping[str, object] | None = None
-    # The one output mode the recording span's person states, which the record call's description must say; None when
+    # The one schedule the recording span's person states, beside which the Brain admits a settings answer; None when
     # the person states none or several (ADR-0101). Only beside ``routines``.
+    routine_schedule: Mapping[str, object] | None = None
+    # The one output mode the recording span's person states, beside which the Brain admits a settings answer; None
+    # when the person states none or several (ADR-0101). Only beside ``routines``.
     routine_output: str | None = None
     # Whether the latest send is exactly the person's pick of one fixed answer to Team's schedule, over-budget, or
     # output question (ADR-0101): the Brain then only records again, offered no Action. Only beside ``routines``.
