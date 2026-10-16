@@ -15,7 +15,8 @@ from install.bindings import DynamicAssistantBinding
 from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
-_MAX_ICON_BYTES = 1024 * 1024
+# The Developers source-package contract's icon limit; Local admission of a package enforces this same bound.
+MAX_ICON_BYTES = 1024 * 1024
 
 
 class AssistantIconError(RuntimeError):
@@ -87,11 +88,11 @@ class AssistantIconStore:
         try:
             descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
             metadata = os.fstat(descriptor)
-            if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > _MAX_ICON_BYTES:
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > MAX_ICON_BYTES:
                 raise AssistantIconError("the Assistant icon is invalid")
             with os.fdopen(descriptor, "rb") as stream:
                 descriptor = -1
-                contents = stream.read(_MAX_ICON_BYTES + 1)
+                contents = stream.read(MAX_ICON_BYTES + 1)
         except (OSError, ValueError) as exc:
             raise AssistantIconError("the Assistant icon is unavailable") from exc
         finally:
@@ -202,7 +203,7 @@ def _binding_identity(binding: DynamicAssistantBinding) -> _IconIdentity:
 
 
 def _verify(contents: bytes, expected_digest: str) -> None:
-    if not contents or len(contents) > _MAX_ICON_BYTES:
+    if not contents or len(contents) > MAX_ICON_BYTES:
         raise AssistantIconError("the Assistant icon is invalid")
     actual = f"sha256:{hashlib.sha256(contents).hexdigest()}"
     if actual != expected_digest:

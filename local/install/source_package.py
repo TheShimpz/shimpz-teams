@@ -6,11 +6,12 @@ import struct
 import zlib
 from dataclasses import dataclass
 
+from install import icons
+
 _BLOCK_BYTES = 512
 _MAX_PACKAGE_BYTES = 32 * 1024 * 1024
 _MAX_REGULAR_FILES = 10_000
 _MAX_FILE_BYTES = 8 * 1024 * 1024
-_MAX_ICON_BYTES = 1024 * 1024
 _MAX_RECORDS = _MAX_PACKAGE_BYTES // _BLOCK_BYTES
 _MAX_PATH_BYTES = 256
 _MAX_PATH_COMPONENTS = 16
@@ -113,7 +114,7 @@ def _validate_records(records: tuple[_Record, ...]) -> dict[str, bytes]:
         raise SourcePackageError("the Local Assistant source package files collide")
     if not _REQUIRED_FILES.issubset(files) or not any(path.startswith(f"{_ACTION_DIRECTORY}/") for path in files):
         raise SourcePackageError("the Local Assistant source package is incomplete")
-    if len(files["icon.png"]) > _MAX_ICON_BYTES:
+    if len(files["icon.png"]) > icons.MAX_ICON_BYTES:
         raise SourcePackageError("the Local Assistant icon is too large")
     expected_directories = _parent_directories(files)
     actual_directories = {record.path for record in records if record.is_directory}

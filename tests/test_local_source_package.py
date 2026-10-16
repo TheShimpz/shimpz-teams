@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from install import icons
 from local.install import source_package
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -116,7 +117,7 @@ class LocalSourcePackageTests(unittest.TestCase):
 
         self.assertEqual(
             {
-                "icon_bytes": source_package._MAX_ICON_BYTES,
+                "icon_bytes": icons.MAX_ICON_BYTES,
                 "package_bytes": source_package._MAX_PACKAGE_BYTES,
                 "regular_files": source_package._MAX_REGULAR_FILES,
                 "single_file_bytes": source_package._MAX_FILE_BYTES,
@@ -251,7 +252,7 @@ class LocalSourcePackageTests(unittest.TestCase):
         ):
             source_package._validate_records(records)
         with (
-            mock.patch.object(source_package, "_MAX_ICON_BYTES", 0),
+            mock.patch.object(icons, "MAX_ICON_BYTES", 0),
             self.assertRaisesRegex(
                 source_package.SourcePackageError,
                 "icon is too large",
