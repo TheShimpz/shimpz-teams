@@ -106,7 +106,7 @@ class PlanAdmissionTests(unittest.TestCase):
         cases = (
             ([], "plan-invalid"),
             ({**_document(), "extra": 1}, "plan-invalid"),
-            (_document(version=1), "plan-invalid"),
+            (_document(version=routine_plan.VERSION + 1), "plan-invalid"),
             (_document(steps=[]), "plan-output-invalid"),
             (_document(steps=too_many), "plan-invalid"),
             (_document(steps={}), "plan-invalid"),
