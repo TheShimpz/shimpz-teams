@@ -1,4 +1,4 @@
-"""A human answers a frozen Routine run: a fresh challenge when the notice opens, then the run resumes (ADR-0086).
+"""A human answers a frozen Routine run: a fresh challenge when the decision opens, then the run resumes (ADR-0086).
 
 Routine challenges live in their own namespace, never beside chat's one pending challenge, so a frozen run never
 blocks chat. Expiry or dismissal of a routine challenge leaves the run frozen, and so does an approval refused for an
@@ -141,7 +141,7 @@ def _current_context(
 
 
 def open_routine_challenge(self, team_id: str, run_id: str, locale: str) -> dict[str, object]:
-    """A person opened a frozen run's notice: create a fresh one-use challenge for its exact request.
+    """A person opened a frozen run's decision: create a fresh one-use challenge for its exact request.
 
     Each opening renders the request copy in the Admin interface language from the same binding's pack, so another
     language is always a fresh challenge; a purpose from another language is not shown (ADR-0091).
