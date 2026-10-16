@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from email.message import Message
 from pathlib import Path
 
-from cryptography.exceptions import InvalidSignature
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_pem_public_key
 
@@ -138,7 +138,7 @@ def _read_public_key(descriptor: int, expected_gid: int) -> bytes:
 def _parse_public_key(raw: bytes) -> Ed25519PublicKey:
     try:
         key = load_pem_public_key(raw)
-    except ValueError as exc:
+    except (ValueError, UnsupportedAlgorithm) as exc:
         raise SupervisorUnavailableError("Local Supervisor public key is invalid") from exc
     if not isinstance(key, Ed25519PublicKey):
         raise SupervisorUnavailableError("Local Supervisor public key is invalid")

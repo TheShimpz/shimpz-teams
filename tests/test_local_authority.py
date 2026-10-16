@@ -23,6 +23,14 @@ BODY = {
     "length": 0,
     "sha256": contract.EMPTY_SHA256,
 }
+# A valid brainpoolP512t1 public key, a curve OpenSSL knows and the cryptography backend refuses as unsupported.
+_UNSUPPORTED_CURVE_KEY = b"""-----BEGIN PUBLIC KEY-----
+MIGbMBQGByqGSM49AgEGCSskAwMCCAEBDgOBggAEdLVkb/+ciKp0cwF3uH+Tu2k8
+PzmQ4Q9IlGCVgvbFakp7+upxs+sw2Zn/QUUES0L2A7QkQS6xrQ8X+wXsLLMNfhgL
+DhVxQobt3QLTuvqxxYhCIxCL4WbMUI1/0QjI8jyOzJbLwCSL/UjpidfCQmCsF9Ie
+UzCCriAzWnLGSphQg+Y=
+-----END PUBLIC KEY-----
+"""
 
 
 def _segment(value: bytes) -> str:
@@ -387,6 +395,12 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
 
         self.public_key_path.chmod(0o600)
         self.public_key_path.write_bytes(b"not a public key")
+        self.public_key_path.chmod(0o440)
+        with self.assertRaisesRegex(authority.SupervisorUnavailableError, "key is invalid"):
+            authority._public_key()
+        # A well-formed key on a curve the backend does not support is refused as invalid too.
+        self.public_key_path.chmod(0o600)
+        self.public_key_path.write_bytes(_UNSUPPORTED_CURVE_KEY)
         self.public_key_path.chmod(0o440)
         with self.assertRaisesRegex(authority.SupervisorUnavailableError, "key is invalid"):
             authority._public_key()
