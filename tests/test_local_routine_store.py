@@ -16,6 +16,9 @@ from routine_fixture import KEY, NETWORK, NINE, STEP
 
 from local.chat import continuation as local_chat_continuation
 from local.routine import store as routine_store
+from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import progress as http_progress
+from protocol.http.v1 import routine_notice as http_routine_notice
 from routine import hold as routine_hold
 from routine import record
 from routine import runs as routine_runs
@@ -139,6 +142,29 @@ class RoundTripTests(StoreCase):
             self.assertRaisesRegex(routine_store.RoutineStoreError, "byte limit"),
         ):
             routine_fixture.put(self.store, "team_2", worst)
+
+    def test_the_largest_creation_notice_fits_a_notice_bound(self):
+        """A creation's most steps at their widest and its widest usage, encoded as the state file holds them."""
+        step = {
+            "phase": "action",
+            "state": "finished",
+            "elapsed_ms": http_progress.MAX_ELAPSED_MS,
+            "assistant_id": "a" * 40,
+            "index": http_progress.MAX_ACTION_COUNT,
+            "action": "b" * 128,
+            "total": http_progress.MAX_ACTION_COUNT,
+        }
+        steps = [{"seq": seq, **step} for seq in range(1, http_routine_notice.MAX_CREATION_STEPS + 1)]
+        widest = http_payload.MAX_TURN_USAGE_TOKENS
+        models = [
+            {"provider": f"{index:x}" * 64, "model": "m" * 64, "input_tokens": widest, "output_tokens": widest}
+            for index in range(http_payload.MAX_TURN_USAGE_MODELS)
+        ]
+        usage = {"duration_ms": http_payload.MAX_TURN_DURATION_MS, "models": models}
+        state = record.create(record.TeamRoutines(), routine(), NINE, usage=usage, steps=steps)
+        (notice,) = state.notices
+        encoded = json.dumps({"detail": notice.detail, "usage": notice.usage}, separators=(",", ":")).encode()
+        self.assertLessEqual(len(encoded), routine_store.MAX_NOTICE_BYTES)
 
     def test_the_largest_state_a_team_can_admit_fits_its_derived_bound(self):
         """Every definition at the Team's budget, every notice, start, and incident at its own (scale)."""

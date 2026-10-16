@@ -5,6 +5,7 @@ import tempfile
 
 from test_local_routine_proposal import CONTINUOUS, SHIMPZ, RecordingCase, Sends, _body, _bump_revisions, _record
 
+from inference import usage as brain_usage
 from local.routine import manage as routine_manage
 from local.routine import recorder as local_routine_recorder
 from protocol.http.v1 import payload as http_payload
@@ -28,6 +29,35 @@ class RoutineAnswerTests(RecordingCase):
         )
         # The card ended the span.
         self.assertIsNone(span)
+
+    def test_the_created_notice_shows_what_every_turn_of_its_recording_spent(self) -> None:
+        class Metered(Sends):
+            # Like the Brain client, each start reports its model call against the model its context names.
+            def start(self, context, message, *, conversation=()):
+                reported = {**dict.fromkeys(brain_usage.FIELDS, 0), "model_calls": 1, "provider_requests": 1}
+                brain_usage.record("turn", context.provider, context.model, {**reported, "input_tokens": 100})
+                return super().start(context, message, conversation=conversation)
+
+        runtime = Metered((("list-zones", "list-dns-records"), _record()), ((), _record()))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, runtime)
+            with brain_usage.metered():
+                self.chat(service, _body("Liste os registros DNS de shimpz.com e mostre o resultado"))
+            with brain_usage.metered():
+                card = self.chat(service, _body("A cada 30 segundos"))["routine_proposal"]
+            self.confirm(service, card["proposal_id"])
+            (notice,) = service.routine_store.load("team_1").notices
+        # Both turns' model calls, the question's and the card's, and every Team step they measured, numbered in order.
+        used = sorted(context.model for context in runtime.contexts)
+        self.assertEqual(
+            notice.usage["models"],
+            [{"provider": "openai", "model": model, "input_tokens": 100, "output_tokens": 0} for model in used],
+        )
+        steps = notice.detail["steps"]
+        self.assertEqual([step["seq"] for step in steps], list(range(1, len(steps) + 1)))
+        self.assertEqual({step["state"] for step in steps}, {"finished"})
+        actions = [step["action"] for step in steps if step["phase"] == "action"]
+        self.assertEqual(actions, ["list-zones", "list-dns-records"])
 
     def test_a_schedule_answer_reaches_the_brain_which_records_the_work_again(self) -> None:
         original = "Liste os registros DNS de shimpz.com e mostre o resultado"

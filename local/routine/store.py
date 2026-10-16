@@ -41,7 +41,7 @@ from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state")
 KEY_PATH = Path("/var/lib/shimpz-local/routines/key/aes256.key")
-SCHEMA = 11
+SCHEMA = 12
 # Every bound below derives from the plan's admission budget and the encoders' worst cases (ADR-0092 amendment,
 # 2026-10-05, scale), which tests build through the real encoders. The state file holds every definition at the Team's
 # aggregate budget, each Routine's other fields, every undelivered notice, and every run, start, and discard, each at

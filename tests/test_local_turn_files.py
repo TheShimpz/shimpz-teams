@@ -64,7 +64,7 @@ class LocalTurnFileTests(unittest.TestCase):
             service._turn_completed = mock.Mock()
             service._run_chat_segment_with_metadata = mock.Mock(side_effect=RuntimeError("helper unavailable"))
             request = types.SimpleNamespace(
-                team_id="team_1", file_ids=[earlier, failing], routine=None, continuation=None
+                team_id="team_1", file_ids=[earlier, failing], routine=None, continuation=None, recording=None
             )
             with self.assertRaisesRegex(RuntimeError, "helper unavailable"):
                 local_segment._run_chat_segment(service, request)

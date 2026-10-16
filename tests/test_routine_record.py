@@ -33,6 +33,7 @@ DIGEST = "sha256:" + "c" * 64
 DAILY = {"kind": "daily", "time": "09:00"}
 WEEKLY = {"kind": "weekly", "weekday": 0, "time": "09:00"}
 CONTINUOUS = {"kind": "continuous", "gap": 5}
+MODEL_USAGE = {"provider": "openai", "model": "gpt-6.1-sol", "input_tokens": 1_200, "output_tokens": 80}
 
 
 # The compact summary of a run that carried out a list of zones, then replaced one DNS record.
@@ -74,7 +75,7 @@ class ContractTests(unittest.TestCase):
             "denied": {},
             "stopped": {},
             "frozen": {"request_kind": "human"},
-            "created": {},
+            "created": {"steps": [{"seq": 1, "phase": "model", "state": "finished", "elapsed_ms": 900}]},
             "changed": {},
             "deleted": {},
             "streak-paused": {"failures": http_routine.MAX_FAILURE_STREAK},
@@ -86,6 +87,9 @@ class ContractTests(unittest.TestCase):
         invalid = (
             ("done", {"plan": SUMMARY}),
             ("deleted", {"name": "x"}),
+            ("created", {}),
+            ("created", {"steps": [{"seq": 1, "phase": "model", "state": "started"}]}),
+            ("created", {"steps": [{"seq": 2, "phase": "model", "state": "finished", "elapsed_ms": 1}]}),
             ("streak-paused", {"failures": 0}),
             ("streak-paused", {"failures": True}),
             ("streak-paused", {}),
@@ -363,11 +367,14 @@ class ConfirmedChangeTests(unittest.TestCase):
             record.scheduled(dataclasses.replace(routine(), schedule={"kind": "yearly"}), now)
 
     def test_a_confirmed_card_creates_once_with_its_notice_named_as_the_routine_is(self):
-        state = record.create(record.TeamRoutines(), routine(), NINE)
+        usage = {"duration_ms": 6_200, "models": [MODEL_USAGE]}
+        steps = [{"seq": 1, "phase": "model", "state": "finished", "elapsed_ms": 900}]
+        state = record.create(record.TeamRoutines(), routine(), NINE, usage=usage, steps=steps)
         self.assertEqual([item.routine_id for item in state.routines], ["a" * 32])
         (notice,) = state.notices
-        self.assertEqual((notice.outcome, notice.run_id, notice.detail), ("created", "", {}))
-        self.assertEqual((notice.name, notice.usage, notice.protection_lost), ("Daily DNS summary", None, False))
+        # It shows what the recording that made it spent: its model usage and its Team steps.
+        self.assertEqual((notice.outcome, notice.run_id, notice.detail), ("created", "", {"steps": steps}))
+        self.assertEqual((notice.name, notice.usage, notice.protection_lost), ("Daily DNS summary", usage, False))
         # A minted id never exists twice, so a repeated confirmation never creates twice.
         with self.assertRaisesRegex(record.RoutineStateError, "routine-exists"):
             record.create(state, routine(), NINE + 5)

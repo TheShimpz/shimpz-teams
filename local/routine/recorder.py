@@ -15,6 +15,11 @@ sends, and its texts and kept calls within their byte bounds; to fit a new send 
 the send in progress never does, so a send that alone outgrows a bound refuses the recording. Protection never shrinks
 and a loss is never undone. Nothing here persists: a Team restart drops every span, and a send in progress then records
 nothing.
+
+Each send also keeps what its turn spent, which a Routine created from the span shows (ADR-0101 amendment, 2026-10-16,
+creation receipt): the finished Team steps it measured while it ran, at most ``MAX_CREATION_STEPS`` across the span, and
+its usage once its reply committed. The span is an accounting policy, not a causal proof: it can hold a send unrelated
+to the Routine and may have dropped an earlier one that contributed.
 """
 
 import dataclasses
@@ -26,9 +31,11 @@ from dataclasses import dataclass
 
 from assistant import effect as action_effect
 from inference import client as brain_runtime_client
+from inference import usage as brain_usage
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import phrase
 from protocol.http.v1 import routine_context as http_routine_context
+from protocol.http.v1 import routine_notice as http_routine_notice
 from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import pin as routine_pin
 from routine import recording as routine_recording
@@ -58,6 +65,17 @@ class Intent:
 
 
 @dataclass(frozen=True, slots=True)
+class Receipt:
+    """What one send's turn spent: the finished Team steps it measured, and its usage once its reply committed.
+
+    A send whose reply never committed spends nothing a Routine's creation shows.
+    """
+
+    steps: tuple[dict[str, object], ...] = ()
+    spent: brain_usage.Spent | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Span:
     """One Team's recording span: whose it is, its sends, its protection, and what it last asked."""
 
@@ -75,6 +93,8 @@ class Span:
     asked: routine_recording.Asked | None = None
     # What the latest record call asked for, which an answer to the span's question records again.
     intent: Intent | None = None
+    # What each send's turn spent, by send id, for the sends the span still holds.
+    receipts: tuple[tuple[str, Receipt], ...] = ()
 
     @property
     def recording_id(self) -> str:
@@ -121,7 +141,8 @@ def _bounded(span: Span) -> Span:
     send_ids, sends = span.send_ids, span.sends
     while len(sends) > 1 and not _fits(sends):
         send_ids, sends = send_ids[1:], sends[1:]
-    bounded = dataclasses.replace(span, send_ids=send_ids, sends=sends)
+    receipts = tuple(item for item in span.receipts if item[0] in send_ids)
+    bounded = dataclasses.replace(span, send_ids=send_ids, sends=sends, receipts=receipts)
     if not _fits(sends):
         return dataclasses.replace(bounded, refused="routine-recording-too-large")
     gone = len(span.sends) - len(sends)
@@ -171,7 +192,11 @@ class RecordingBook:
             ):
                 found = Span(team_id, principal, incarnation, (), ())
             opened = dataclasses.replace(
-                found, send_ids=(*found.send_ids, send_id), sends=(*found.sends, send), revisions=()
+                found,
+                send_ids=(*found.send_ids, send_id),
+                sends=(*found.sends, send),
+                revisions=(),
+                receipts=(*found.receipts, (send_id, Receipt())),
             )
             self._spans[team_id] = _bounded(opened)
         return send_id
@@ -217,6 +242,30 @@ class RecordingBook:
 
         self._change(team_id, recording_id, add)
 
+    def stepped(self, team_id: str, recording_id: str, event: dict[str, object]) -> None:
+        """Keep one finished Team step of the send in progress, while the span holds fewer than it may show."""
+        if event.get("state") != "finished":
+            return
+        step = {name: value for name, value in event.items() if name != "seq"}
+
+        def add(found: Span) -> Span:
+            if len(creation_steps(found)) >= MAX_CREATION_STEPS:
+                return found
+            *earlier, (send_id, latest) = found.receipts
+            grown = dataclasses.replace(latest, steps=(*latest.steps, step))
+            return dataclasses.replace(found, receipts=(*earlier, (send_id, grown)))
+
+        self._change(team_id, recording_id, add)
+
+    def committed(self, team_id: str, recording_id: str, spent: brain_usage.Spent) -> None:
+        """Keep the usage of the send whose reply just committed, so a Routine the span later creates counts it."""
+
+        def keep(found: Span) -> Span:
+            *earlier, (send_id, latest) = found.receipts
+            return dataclasses.replace(found, receipts=(*earlier, (send_id, dataclasses.replace(latest, spent=spent))))
+
+        self._change(team_id, recording_id, keep)
+
     def asked(self, team_id: str, recording_id: str, question: routine_recording.Question, intent: Intent) -> None:
         """Keep what the span asked, what it binds and settled, and the intent the person's answer records again."""
 
@@ -248,6 +297,34 @@ class RecordingBook:
     def clear(self) -> None:
         with self._guard:
             self._spans.clear()
+
+
+# The Team steps a Routine's creation lists of its recording, the protocol's bound.
+MAX_CREATION_STEPS = http_routine_notice.MAX_CREATION_STEPS
+
+
+def _shown(span: Span) -> list[Receipt]:
+    """The receipts a creation from the span shows: every committed earlier send's, then the send in progress."""
+    *earlier, (_send_id, latest) = span.receipts
+    return [receipt for _id, receipt in earlier if receipt.spent is not None] + [latest]
+
+
+def creation_steps(span: Span) -> list[dict[str, object]]:
+    """The Team steps a Routine created now from the span lists, in order, numbered from 1, within their bound."""
+    steps = [step for receipt in _shown(span) for step in receipt.steps][:MAX_CREATION_STEPS]
+    return [{"seq": position, **step} for position, step in enumerate(steps, 1)]
+
+
+Creation = tuple[dict[str, object] | None, list[dict[str, object]]]
+
+
+def creation(span: Span, current: brain_usage.Spent | None) -> Creation:
+    """What a Routine created from the span shows it spent: its sends' summed usage, and their Team steps.
+
+    ``current`` is the usage of the send in progress, whose reply carries the card; its reply has not committed yet.
+    """
+    spent = [receipt.spent for receipt in _shown(span)[:-1]] + ([] if current is None else [current])
+    return brain_usage.Spent.total(spent).wire(), creation_steps(span)
 
 
 def answered(span: Span | None) -> Intent | None:
@@ -409,6 +486,16 @@ class AnsweredRuntime:
 
     def start(self, _context: object, _message: str, *, conversation: object) -> object:
         return self._turn
+
+
+def teed(sink: Callable[[dict[str, object]], None], keep: Callable[[dict[str, object]], None]):
+    """A progress sink that also hands each event to ``keep`` first, which never raises."""
+
+    def both(event: dict[str, object]) -> None:
+        keep(event)
+        sink(event)
+
+    return both
 
 
 def recorded(book: RecordingBook, recording: tuple[str, str], call: tuple, invoke: Callable[[], object]) -> object:

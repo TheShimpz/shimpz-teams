@@ -7,7 +7,7 @@ provider request), and token counts, never a prompt, reply, or credential.
 
 import threading
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -122,6 +122,54 @@ def _now_ms() -> int:
     return time.time_ns() // 1_000_000
 
 
+def _bounded_models(totals: Mapping[tuple[str, str], tuple[int, int]]) -> tuple[tuple[str, str, int, int], ...]:
+    """Per-model token totals in the turn-usage wire order and bounds: sorted, clamped, at most the wire's models."""
+    maximum = http_payload.MAX_TURN_USAGE_TOKENS
+    models = tuple(
+        (provider, model, min(inputs, maximum), min(outputs, maximum))
+        for (provider, model), (inputs, outputs) in sorted(totals.items())
+        if http_payload.TURN_USAGE_ID_RE.fullmatch(provider) and http_payload.TURN_USAGE_ID_RE.fullmatch(model)
+    )
+    return models[: http_payload.MAX_TURN_USAGE_MODELS]
+
+
+def _added(
+    totals: dict[tuple[str, str], tuple[int, int]], models: Iterable[tuple[str, str, int, int]]
+) -> dict[tuple[str, str], tuple[int, int]]:
+    for provider, model, inputs, outputs in models:
+        prior_inputs, prior_outputs = totals.get((provider, model), (0, 0))
+        totals[provider, model] = (prior_inputs + inputs, prior_outputs + outputs)
+    return totals
+
+
+@dataclass(frozen=True, slots=True)
+class Spent:
+    """What one completed logical turn consumed, measured once: its duration and the tokens of each model it called."""
+
+    duration_ms: int
+    models: tuple[tuple[str, str, int, int], ...] = ()
+
+    @classmethod
+    def total(cls, spent: Iterable[Spent]) -> Spent:
+        """Several turns' usage summed within the wire bounds, as a Routine's creation shows its recording."""
+        items = tuple(spent)
+        totals = _added({}, (model for item in items for model in item.models))
+        duration = min(sum(item.duration_ms for item in items), http_payload.MAX_TURN_DURATION_MS)
+        return cls(duration, _bounded_models(totals))
+
+    def wire(self) -> dict[str, object] | None:
+        """The closed `usage` of a completed turn, or None when no model call of the turn reported usage."""
+        if not self.models:
+            return None
+        return {
+            "duration_ms": self.duration_ms,
+            "models": [
+                {"provider": provider, "model": model, "input_tokens": inputs, "output_tokens": outputs}
+                for provider, model, inputs, outputs in self.models
+            ],
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class TurnUsage:
     """What one logical chat turn consumed so far, carried with its pending state across human and Integration resumes.
@@ -140,26 +188,18 @@ class TurnUsage:
     def joined(self) -> TurnUsage:
         """This turn's usage plus what the current request's model calls used, within the wire bounds."""
         meter = _METER.get()
-        totals = {(provider, model): (inputs, outputs) for provider, model, inputs, outputs in self.models}
-        for key, (inputs, outputs) in ({} if meter is None else meter.tokens()).items():
-            prior_inputs, prior_outputs = totals.get(key, (0, 0))
-            totals[key] = (prior_inputs + inputs, prior_outputs + outputs)
-        maximum = http_payload.MAX_TURN_USAGE_TOKENS
-        models = tuple(
-            (provider, model, min(inputs, maximum), min(outputs, maximum))
-            for (provider, model), (inputs, outputs) in sorted(totals.items())
-            if http_payload.TURN_USAGE_ID_RE.fullmatch(provider) and http_payload.TURN_USAGE_ID_RE.fullmatch(model)
-        )
-        return TurnUsage(self.started_ms, models[: http_payload.MAX_TURN_USAGE_MODELS])
+        used = {} if meter is None else meter.tokens()
+        totals = _added(_added({}, self.models), (key + tokens for key, tokens in used.items()))
+        return TurnUsage(self.started_ms, _bounded_models(totals))
+
+    def measured(self) -> Spent:
+        """This turn's usage as it stands now: its duration so far and its models."""
+        return Spent(min(max(0, _now_ms() - self.started_ms), http_payload.MAX_TURN_DURATION_MS), self.models)
+
+    def spent(self) -> Spent:
+        """The completed turn's whole usage, the current request's model calls included, measured once."""
+        return self.joined().measured()
 
     def wire(self) -> dict[str, object] | None:
         """The closed `usage` of a completed turn, or None when no model call of the turn reported usage."""
-        if not self.models:
-            return None
-        return {
-            "duration_ms": min(max(0, _now_ms() - self.started_ms), http_payload.MAX_TURN_DURATION_MS),
-            "models": [
-                {"provider": provider, "model": model, "input_tokens": inputs, "output_tokens": outputs}
-                for provider, model, inputs, outputs in self.models
-            ],
-        }
+        return self.measured().wire()

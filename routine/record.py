@@ -172,7 +172,7 @@ class Notice:
     version: int = 1
     # The Routine's name when this version was written, so the transcript names the work after a rename or deletion.
     name: str = ""
-    # The run's usage, or a rollup's summed usage; None for other Routine outcomes.
+    # The run's usage, a rollup's summed usage, or a creation's recording usage; None for other Routine outcomes.
     usage: dict[str, object] | None = None
     protection_lost: bool = False
 
@@ -399,10 +399,16 @@ def change_room(state: TeamRoutines) -> str | None:
     return None
 
 
-def create(state: TeamRoutines, value: Routine, now: int) -> TeamRoutines:
-    """Add a confirmed Routine with its created notice in one transition; its minted id never exists twice."""
+def create(
+    state: TeamRoutines, value: Routine, now: int, *, usage: dict[str, object] | None = None, steps: list | tuple = ()
+) -> TeamRoutines:
+    """Add a confirmed Routine with its created notice in one transition; its minted id never exists twice.
+
+    The notice shows what the recording that made it spent: its model ``usage`` and its Team ``steps`` (ADR-0101).
+    """
     state = add_routine(state, value)
-    return put_notice(state, Notice(new_id(), value.routine_id, "", "created", now, {}))
+    notice = Notice(new_id(), value.routine_id, "", "created", now, {"steps": list(steps)}, usage=usage)
+    return put_notice(state, notice)
 
 
 def update(state: TeamRoutines, value: Routine, expected_revision: int, now: int) -> TeamRoutines:

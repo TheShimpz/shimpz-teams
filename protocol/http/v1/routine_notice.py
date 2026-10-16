@@ -7,8 +7,10 @@ import datetime
 import re
 
 if __package__:
-    from . import routine
+    from . import progress, routine
 else:  # The protocol verifier runs every module of this directory flat.
+    import progress
+
     import routine
 
 
@@ -46,6 +48,26 @@ def _empty(_detail: dict[str, object]) -> bool:
     return True
 
 
+# The Team steps a creation notice lists of the recording turns that made its Routine (ADR-0101 amendment, 2026-10-16,
+# creation receipt): each a finished chat progress event, numbered from 1 in order. Steps past the bound are left out,
+# and their time is part of the rest of the recording's duration.
+MAX_CREATION_STEPS = 64
+
+
+def _creation(detail: dict[str, object]) -> bool:
+    steps = detail["steps"]
+    if not isinstance(steps, list) or len(steps) > MAX_CREATION_STEPS:
+        return False
+    for position, step in enumerate(steps, 1):
+        try:
+            event = progress.canonical_event(step)
+        except progress.ProgressContractError:
+            return False
+        if event != step or event["state"] != "finished" or event["seq"] != position:
+            return False
+    return True
+
+
 _COMPLETED_FIELDS = {"plan", "output"}
 # Each outcome's exact detail fields and check: exactly what Admin keeps of it, which is what a view renders. A run's
 # calls are read from its run records and a held one's from its incident, so no notice names an Action.
@@ -65,8 +87,9 @@ _DETAILS = {
     "failed": ({"code"}, lambda detail: routine.matches(detail["code"], routine.ERROR_CODE_RE)),
     "denied": (set(), _empty),
     "stopped": (set(), _empty),
-    # A Routine's creation, change, and deletion say nothing beyond the notice's own name (ADR-0101).
-    "created": (set(), _empty),
+    # A Routine's creation lists the steps of the recording that made it; its change and deletion say nothing beyond
+    # the notice's own name (ADR-0101).
+    "created": ({"steps"}, _creation),
     "changed": (set(), _empty),
     "deleted": (set(), _empty),
     "streak-paused": (
@@ -74,6 +97,20 @@ _DETAILS = {
         lambda detail: type(detail["failures"]) is int and 1 <= detail["failures"] <= routine.MAX_FAILURE_STREAK,
     ),
 }
+
+
+def notice_usage(outcome: object, usage: object) -> bool:
+    """Whether ``usage`` is exactly what a notice of ``outcome`` carries.
+
+    A run notice carries its run's active time and the healthy rollup its runs' summed time (``canonical_run_usage``);
+    a creation carries what its recording's model turns spent, in a chat reply's usage shape, or null when none of them
+    reported usage; every other Routine outcome carries null.
+    """
+    if outcome == "created":
+        return usage is None or routine.canonical_turn_usage(usage) == usage
+    if outcome in routine.ROUTINE_OUTCOMES and outcome != "healthy":
+        return usage is None
+    return routine.canonical_run_usage(usage) is not None
 
 
 def canonical_notice_detail(outcome: object, detail: object) -> dict[str, object] | None:
@@ -180,7 +217,8 @@ def canonical_notice(value: object) -> dict[str, object] | None:
 
     Every version names the Routine as it was when Team wrote that version, so a row keeps its own title after the
     Routine is renamed or deleted. A run notice carries the run's usage; a Routine outcome carries none, except the
-    healthy rollup, which carries its runs' summed duration. ``protection_lost`` says the run lost the protection of its
+    healthy rollup, which carries its runs' summed duration, and the creation, which carries its recording's model
+    usage (``notice_usage``). ``protection_lost`` says the run lost the protection of its
     secret values, so nothing it produced after the loss was shown anywhere (ADR-0101); a Routine outcome
     never says so.
     """
@@ -188,7 +226,6 @@ def canonical_notice(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict) or set(value) != fields | {"detail", "usage", "protection_lost"}:
         return None
     outcome = value["outcome"]
-    used = outcome not in routine.ROUTINE_OUTCOMES or outcome == "healthy"
     valid = (
         routine.valid_team(value["team_id"])
         and routine.matches(value["notice_id"], routine.ROUTINE_ID_RE)
@@ -202,7 +239,7 @@ def canonical_notice(value: object) -> dict[str, object] | None:
         and value["run_id"] in (None, value["notice_id"])
         and instant(value["created_at"])
         and canonical_notice_detail(outcome, value["detail"]) is not None
-        and (routine.canonical_run_usage(value["usage"]) is not None if used else value["usage"] is None)
+        and notice_usage(outcome, value["usage"])
         and type(value["protection_lost"]) is bool
         and (outcome not in routine.ROUTINE_OUTCOMES or value["protection_lost"] is False)
     )

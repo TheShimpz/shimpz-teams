@@ -30,7 +30,7 @@ Team Routine forms are split by responsibility (ADR-0101): `routine.py` owns sch
 and run steps; `routine_proposal.py` the confirmation card, Team's questions, refusals, answers, and the output choices;
 and `routine_context.py` the Routine listing and rerun work a recording chat's Brain receives. The Brain mirrors
 `payload.py`, `phrase.py`, `routine.py`, `routine_notice.py`, `routine_proposal.py`, and `routine_context.py` with the
-three files above.
+three files above, and `progress.py` with `strict_json.py`, which a creation notice's steps are validated with.
 `strict_json.py` is an exact copy of the umbrella `.standards/strict_json.py` security source: the frame and stream
 decoders parse through it, so a duplicate field and every non-finite number, including an exponent overflow such as
 `1e999`, fail closed. The modules import one another as a package, and flat when `verify.py` runs them as scripts.
@@ -318,8 +318,11 @@ derived, never carried: `routine.continuous_cap(gap)`, `ceil(86400 / gap)` (at m
 17,280), so the interval a person stated runs all day and no cap ever rewrites it (ADR-0101).
 `routine.daily_cap` is a schedule's rolling 24-hour cap, that cap for a continuous one and one otherwise; the Team's
 daily Action-step budget alone bounds what its Routines' caps may start together. A Routine is recorded from the work the ordinary chat agent did in one turn and exists only once a person
-confirms its card (ADR-0101). Its notice then has the Routine outcome `created` or `changed`, no run id, and the empty
-detail `{}`: the notice's own `name` says which Routine. A Routine view (`routine_notice.canonical_routine_view`) carries
+confirms its card (ADR-0101). Its notice then has the Routine outcome `created` or `changed` and no run id: the
+notice's own `name` says which Routine. A `changed` notice's detail is `{}`; a `created` notice's is `{steps}`, the
+Team steps of the turns its recording span held when the card was made, each a finished chat progress event
+(`progress.canonical_event`, state `finished`) numbered `seq` 1, 2, ... in order, at most
+`routine_notice.MAX_CREATION_STEPS` (64), any later ones left out. A Routine view (`routine_notice.canonical_routine_view`) carries
 its name (`routine.canonical_name`, 1 to 80 NFC printable characters on one line), its revision's summary, its output
 disposition (`routine.canonical_disposition`: `{mode, step}`, where `mode` is `show`, `changes`, or `none`, and `step`
 is, for `show` and `changes`, the position of the plan's last step, the one shown, which is its step count), its schedule, zone, and the zone's source
@@ -348,7 +351,9 @@ Every notice (`routine_notice.canonical_notice`) names its Routine by the `name`
 keeps its title after the Routine is renamed or deleted, and carries `usage` and `protection_lost`. A run notice's
 `usage` (`routine.canonical_run_usage`) is `{duration_ms}`, its active time excluding frozen time; a Routine run asks
 no model, so it reports no tokens. A Routine outcome carries `usage` `null`, except `healthy`, which carries its runs'
-summed duration.
+summed duration, and `created`, which carries what the model turns of its recording span spent, summed in a chat
+reply's shape (`routine.canonical_turn_usage`), or `null` when none of them reported usage
+(`routine_notice.notice_usage`).
 `protection_lost` is true on a run's notice versions written after the run lost the protection of its secret values
 (ADR-0101), so nothing it produced afterwards was shown anywhere; it is always false on a Routine outcome.
 The Routine outcome `deleted` (detail `{}`) closes a Routine's timeline once its confirmed deletion completes.

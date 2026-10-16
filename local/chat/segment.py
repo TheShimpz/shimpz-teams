@@ -3,7 +3,7 @@
 import functools
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from http import HTTPStatus
 
 from action import challenges as action_challenges
@@ -313,10 +313,24 @@ def _admitted_delivery(
         ) from exc
 
 
+def _recorded_progress(self, request: SegmentRequest) -> SegmentRequest:
+    """A recording turn's progress, which also keeps each finished Team step in its send (ADR-0101)."""
+    if request.routine is not None or request.recording is None:
+        return request
+    progress = request.progress
+
+    def keep(event: dict[str, object]) -> None:
+        self.routine_recordings.stepped(request.team_id, request.recording, event)
+
+    sink = routine_recorder.teed(progress.sink, keep)
+    return replace(request, progress=chat_progress.Reporter(sink, progress.clock_ns, progress.sequence))
+
+
 def _run_chat_segment(
     self,
     request: SegmentRequest,
 ) -> chat_turn_engine.SegmentResult:
+    request = _recorded_progress(self, request)
     added: tuple[str, ...] = ()
     if request.routine is None and request.continuation is None:
         # Recorded before the Brain start can reference them, so a deletion racing this turn purges its thread.

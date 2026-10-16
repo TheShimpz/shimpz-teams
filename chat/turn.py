@@ -334,16 +334,16 @@ def terminal_body(
     team_id: str,
     team_name: str,
     outcome: chat_orchestrator.ChatOutcome,
-    usage: brain_usage.TurnUsage | None,
+    usage: brain_usage.Spent | None,
 ) -> dict[str, object]:
-    """A completed turn's reply body, with the whole turn's usage when it was metered."""
+    """A completed turn's reply body, with the whole turn's usage, measured once, when it was metered."""
     body: dict[str, object] = {
         "team_id": team_id,
         "team_name": team_name,
         "reply": outcome.reply,
         "clarification": outcome.clarification,
     }
-    wire = None if usage is None else usage.joined().wire()
+    wire = None if usage is None else usage.wire()
     if wire is not None:
         body["usage"] = wire
     return body

@@ -55,7 +55,7 @@ def canonical_event(value: object) -> dict[str, object]:
         raise ProgressContractError("invalid progress event")
     phase = value.get("phase")
     state = value.get("state")
-    if phase not in PHASES or state not in STATES:
+    if not isinstance(phase, str) or not isinstance(state, str) or phase not in PHASES or state not in STATES:
         raise ProgressContractError("invalid progress event")
     expected = {"seq", "phase", "state"}
     if state == "finished":

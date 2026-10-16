@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 
 from core import instant
+from inference import usage as brain_usage
 from local import audit as local_audit
 from local import errors as local_errors
 from local.errors import ApiProblemError as ApiProblem
@@ -60,6 +61,8 @@ class Proposal:
     # What a confirmation binds, the card shown included.
     digest: str
     expires_at: float
+    # What the recording that made the card spent, which the created Routine's notice shows; never bound.
+    creation: routine_recorder.Creation = (None, [])
 
 
 class ProposalBook:
@@ -396,12 +399,14 @@ def _digest(candidate: record.Routine, view: dict[str, object], expected_revisio
     return routine_plan.digest(bound)
 
 
-def admit(self, response: object, proposed: object) -> tuple[Callable[[], None], dict[str, object]]:
+def admit(
+    self, response: object, proposed: object, spent: brain_usage.Spent | None
+) -> tuple[Callable[[], None], dict[str, object]]:
     """A completed turn's ``record`` as the write that keeps its card, and the terminal field the reply carries.
 
     The caller holds the Team lifecycle lock and runs the write in the reply's commit, under the Stop guard. A card or a
     refusal ends the recording span; a question keeps it, with what it asked and the record call's intent, for the
-    person's answer.
+    person's answer. ``spent`` is the turn's own usage, which the card's creation counts with the span's earlier turns.
     """
     team_id, send_id = response.team_id, response.recording
     try:
@@ -444,6 +449,7 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
         expected,
         _digest(candidate, view, expected),
         self.routine_proposals.deadline(),
+        routine_recorder.creation(recording, spent),
     )
 
     def keep() -> None:
@@ -505,7 +511,8 @@ def _commit(self, proposal: Proposal, principal: str) -> str:
     def apply(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
         try:
             if proposal.replaces is None:
-                return record.create(state, value, now), "created"
+                usage, steps = proposal.creation
+                return record.create(state, value, now, usage=usage, steps=steps), "created"
             return record.update(state, value, proposal.expected_revision, now), "changed"
         except record.RoutineStateError as exc:
             return state, str(exc)

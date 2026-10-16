@@ -514,6 +514,8 @@ def canonical_output(value: object) -> dict[str, object] | None:
 
 # A run's usage (ADR-0101): its active duration alone, since a Routine run asks no model.
 canonical_run_usage = payload.canonical_run_usage
+# What a Routine's creation spent on models: its recording's turns summed in a chat reply's usage shape (ADR-0101).
+canonical_turn_usage = payload.canonical_turn_usage
 
 
 def encoded_bytes(value: object) -> int:

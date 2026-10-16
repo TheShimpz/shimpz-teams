@@ -10,6 +10,7 @@ import test_routine_recording as recording_cases
 from test_local_routine_proposal import ASSISTANT, PRINCIPAL, _record
 
 from inference import client as brain_runtime_client
+from inference import usage as brain_usage
 from install import bindings
 from local import app as local_app
 from local import audit as local_audit
@@ -81,6 +82,69 @@ class RecordingBookTests(unittest.TestCase):
         fresh = book.start("team_1", BINDING, _started(), 5 + routine_recorder.SPAN_SECONDS)
         self.assertEqual((len(book.get("team_1", fresh).sends), book.get("team_1", fresh).refused), (1, ""))
         self.assertIsNone(book.get("team_1", send))
+
+    def test_a_creation_counts_each_committed_send_and_the_one_making_its_card(self) -> None:
+        book = routine_recorder.RecordingBook()
+        sol = ("openai", "gpt-6.1-sol")
+        model = {"seq": 9, "phase": "model", "state": "finished", "elapsed_ms": 700}
+        first = book.start("team_1", BINDING, _started("first"), 1)
+        book.stepped("team_1", first, {"seq": 1, "phase": "model", "state": "started"})
+        book.stepped("team_1", first, model)
+        book.committed("team_1", first, brain_usage.Spent(1_000, ((*sol, 100, 10),)))
+        # A send whose reply never committed shows neither its steps nor its usage.
+        failed = book.start("team_1", BINDING, _started("failed"), 2)
+        book.stepped("team_1", failed, {**model, "elapsed_ms": 5})
+        latest = book.start("team_1", BINDING, _started("latest"), 3)
+        action = {"phase": "action", "state": "finished", "elapsed_ms": 40, "assistant_id": ASSISTANT}
+        book.stepped("team_1", latest, {"seq": 1, **action, "index": 1, "action": "list-zones", "total": 1})
+        usage, steps = routine_recorder.creation(
+            book.get("team_1", latest), brain_usage.Spent(2_500, ((*sol, 50, 5), ("openai", "gpt-6-luna", 7, 1)))
+        )
+        self.assertEqual(
+            usage,
+            {
+                "duration_ms": 3_500,
+                "models": [
+                    {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 7, "output_tokens": 1},
+                    {"provider": "openai", "model": "gpt-6.1-sol", "input_tokens": 150, "output_tokens": 15},
+                ],
+            },
+        )
+        self.assertEqual(
+            steps,
+            [
+                {**model, "seq": 1},
+                {"seq": 2, **action, "index": 1, "action": "list-zones", "total": 1},
+            ],
+        )
+        # A turn that reported no model usage makes a creation without usage.
+        self.assertEqual(routine_recorder.creation(book.get("team_1", latest), None)[0]["duration_ms"], 1_000)
+        lone = routine_recorder.RecordingBook()
+        alone = lone.start("team_1", BINDING, _started(), 1)
+        self.assertEqual(routine_recorder.creation(lone.get("team_1", alone), brain_usage.Spent(10)), (None, []))
+
+    def test_a_span_lists_at_most_its_creation_steps_and_drops_them_with_their_send(self) -> None:
+        book = routine_recorder.RecordingBook()
+        step = {"seq": 1, "phase": "team-context", "state": "finished", "elapsed_ms": 1}
+        sends = []
+        for index in range(2):
+            send = book.start("team_1", BINDING, _started(f"send {index}"), index)
+            sends.append(send)
+            for _ in range(routine_recorder.MAX_CREATION_STEPS):
+                book.stepped("team_1", send, step)
+            book.committed("team_1", send, brain_usage.Spent(1))
+        span = book.get("team_1", sends[-1])
+        self.assertEqual(len(routine_recorder.creation_steps(span)), routine_recorder.MAX_CREATION_STEPS)
+        # The second send's steps were never kept: the first already filled the bound.
+        self.assertEqual([len(receipt.steps) for _id, receipt in span.receipts], [64, 0])
+        # A send the span gives way to takes its receipt with it, so the second send's steps are kept again.
+        for index in range(routine_recorder.MAX_SENDS - 1):
+            latest = book.start("team_1", BINDING, _started(f"more {index}"), 2 + index)
+        span = book.get("team_1", latest)
+        self.assertEqual([send_id for send_id, _receipt in span.receipts], list(span.send_ids))
+        self.assertNotIn(sends[0], span.send_ids)
+        book.stepped("team_1", latest, step)
+        self.assertEqual(len(routine_recorder.creation_steps(book.get("team_1", latest))), 1)
 
     def test_a_span_is_live_only_until_fifteen_minutes_after_its_latest_send(self) -> None:
         clock = [100.0]

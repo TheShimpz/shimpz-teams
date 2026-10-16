@@ -58,12 +58,13 @@ def pending_chat_continuation(self, team_id: str, locale: str | None = None) -> 
     return None
 
 
-def _routine_outcome(self, response: _ResponseRequest, routine: object, body: dict):
+def _routine_outcome(self, response: _ResponseRequest, routine: object, body: dict, spent: brain_usage.Spent | None):
     """A recording turn's ``record``: the write that keeps its card, and the terminal fields its reply carries.
 
-    The card is refused, never cut, when the whole terminal line would outgrow its bound (ADR-0101).
+    The card is refused, never cut, when the whole terminal line would outgrow its bound (ADR-0101). ``spent`` is the
+    turn's own usage, which the Routine's creation counts with its recording's earlier turns.
     """
-    write, fields = self._routine_record(response, routine)
+    write, fields = self._routine_record(response, routine, spent)
     line = {"type": "terminal", "status": 200, "body": {**body, **fields}}
     if "routine_proposal" in fields and _line_bytes(line) > http_progress.MAX_LINE_BYTES:
         return (lambda: self.routine_recordings.finish(response.team_id, response.recording)), {
@@ -124,20 +125,30 @@ def segment_response(
                 HTTPStatus.SERVICE_UNAVAILABLE, "Team memory could not be saved", code="memory-store-failed"
             ) from exc
 
-    def commit(terminal: chat_orchestrator.ChatOutcome, body: dict[str, object]) -> tuple[bool, dict]:
+    def commit(
+        terminal: chat_orchestrator.ChatOutcome, body: dict[str, object], spent: brain_usage.Spent | None
+    ) -> tuple[bool, dict]:
+        def spend() -> None:
+            # A committed reply's usage joins its send in the recording span, for a Routine the span may still create.
+            if spent is not None and response.recording is not None:
+                self.routine_recordings.committed(team_id, response.recording, spent)
+
         routine = terminal.routine
         if routine is None:
-            return self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal)), {}
+            return self._commit_chat_terminal(team_id, token, lambda: (save_knowledge(terminal), spend())), {}
         # A recorded Routine's card is kept with the reply, under the lifecycle lock and the Stop guard: when Stop wins,
         # no card exists (ADR-0101).
         with self._lock(team_id):
-            write, fields = _routine_outcome(self, response, routine, body)
-            return self._commit_chat_terminal(team_id, token, lambda: (write(), save_knowledge(terminal))), fields
+            write, fields = _routine_outcome(self, response, routine, body, spent)
+            committed = self._commit_chat_terminal(team_id, token, lambda: (write(), save_knowledge(terminal), spend()))
+            return committed, fields
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
-        body = chat_turn_engine.terminal_body(team_id, segment.team_name, terminal, response.usage)
-        committed, fields = commit(terminal, body)
+        # Measured once, so the reply and the recording span count the same usage.
+        spent = None if response.usage is None else response.usage.spent()
+        body = chat_turn_engine.terminal_body(team_id, segment.team_name, terminal, spent)
+        committed, fields = commit(terminal, body, spent)
         if not committed:
             raise chat_stopped()
         return {**body, **fields}

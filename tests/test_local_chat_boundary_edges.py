@@ -434,7 +434,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         ):
             with self.subTest(fields=fields):
                 subject = types.SimpleNamespace(_routine_record=mock.Mock(return_value=(write, fields)))
-                chosen_write, chosen = local_chat_api._routine_outcome(subject, object(), terminal, body)
+                chosen_write, chosen = local_chat_api._routine_outcome(subject, object(), terminal, body, None)
                 self.assertEqual(chosen, expected)
                 # A refused card writes nothing; a card or refusal that fits keeps its own write.
                 self.assertEqual(chosen_write is write, chosen == fields)
