@@ -447,7 +447,7 @@ def spend_time(self, team_id: str, run_id: str, lease: record.Lease, elapsed: fl
     routine_state.update(self, team_id, spend)
 
 
-def after_run(self, team_id: str, run_id: str, routine_id: str, outcome: str) -> None:
+def after_run(self, team_id: str, routine_id: str, outcome: str) -> None:
     """Remove what an ended run held and finish a deletion the run was blocking; audit how it ended."""
     local_audit.record_request(
         "routine-run", result="ok" if outcome in {"done", "recovered"} else "error", team_id=team_id, detail=outcome

@@ -687,5 +687,5 @@ def run_routine(
             outcome = execute(self, run, bound, progress)
             if outcome == "held":
                 outcome = self._recover_routine_run(run, progress)
-    routine_run.after_run(self, team_id, run_id, routine.routine_id, outcome)
+    routine_run.after_run(self, team_id, routine.routine_id, outcome)
     return {"team_id": team_id, "run_id": run_id, "status": outcome}
