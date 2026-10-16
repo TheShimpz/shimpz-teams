@@ -767,6 +767,48 @@ class IncidentRecordTests(IncidentCase):
             )
 
 
+class LostEvidenceTests(IncidentCase):
+    """What cannot be read of a held run keeps it until its Routine is deleted; the deletion then treats it as lost."""
+
+    def assert_deleted_as_lost(self, service, value: record.Routine, run_id: str, generation: str) -> None:
+        self.assertFalse(service.delete_routine("team_1", value.routine_id)["deleted"])
+        routine_watchdog.check(service)
+        routine_watchdog.check(service)
+        state = self.state(service)
+        self.assertEqual((state.routines, state.runs), ((), ()))
+        self.assertIsNone(service.action_state.current_batch(generation))
+        self.assertIsNone(service.routine_store.incident("team_1", run_id))
+
+    def test_an_unreadable_snapshot_keeps_the_run_held_until_its_routine_is_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)
+            service.routine_store.put_recovery("team_1", run_id, b"{}")
+            self.fence(service, run_id, lease)
+            with self.assertRaises(local_app.ApiProblem):
+                routine_incident.reconcile(service, "team_1", run_id)
+            self.assertEqual(record.run(self.state(service), run_id).status, "held")
+            self.assert_deleted_as_lost(service, value, run_id, generation)
+        local_app.local_audit.record.assert_any_call(
+            "routine-evidence-lost", result="error", principal=routine_incident._TEAM, team_id="team_1", detail=run_id
+        )
+
+    def test_unreadable_evidence_keeps_a_set_aside_run_until_its_routine_is_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
+            routine_incident.hold(service, "team_1", run_id, lease)
+            service.routine_store.put_incident("team_1", run_id, b"not evidence")
+            routine_fixture.set_aside(service, "team_1", run_id)
+            routine_watchdog.check(service)
+            # Set aside by a person's answer, it keeps its archive marker until its evidence can be read.
+            self.assertEqual([item.status for item in self.state(service).runs], ["skipped"])
+            self.assertEqual(service.action_state.current_batch(generation), (batch.fingerprint, "archived"))
+            local_app.local_audit.record.side_effect = RuntimeError("the local audit journal could not be written")
+            with self.assertLogs(routine_incident.log, "ERROR") as logs:
+                self.assert_deleted_as_lost(service, value, run_id, generation)
+        self.assertIn("could not audit routine-evidence-lost (RuntimeError)", logs.output[0])
+        self.assertNotIn("written", "".join(logs.output))
+
+
 HELD_STEPS = [{"assistant": "dns", "action": "check"}, {"assistant": "dns", "action": "notify"}]
 
 

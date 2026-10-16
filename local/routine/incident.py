@@ -14,6 +14,7 @@ evidence, and archive marker released and its record removed.
 
 import contextlib
 import json
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -37,6 +38,9 @@ from routine import plan as routine_plan
 from routine import record
 
 VERSION = 1
+# Team itself decides that a Routine being deleted lost what could not be read, and audits it as itself.
+_TEAM = local_audit.AuditPrincipal("team-local", "machine")
+log = logging.getLogger("shimpz.team.local.routine.incident")
 _OPERATION_FIELDS = ("interrupt_id", "operation_id", "state", "attempts", "origin")
 
 
@@ -182,38 +186,72 @@ def hold(self, team_id: str, run_id: str, lease: record.Lease) -> None:
 
 
 def reconcile(self, team_id: str, run_id: str) -> bool:
-    """Finish one held run's hold from its last durable step; False when the run is no longer held."""
+    """Finish one held run's hold from its last durable step; False when the run is no longer held.
+
+    A run of a Routine being deleted is set aside as it is indexed and no card ever shows it, so evidence or a recovery
+    snapshot of it that cannot be read is lost, audited, and never waited on; every other run stays held until it is.
+    """
     state = routine_state.load(self, team_id)
     value = next((item for item in state.runs if item.run_id == run_id), None)
     if value is None or value.status != "held":
         return False
-    deleting = any(item.routine_id == value.routine_id and item.deleting for item in state.routines)
+    deleting = _deleting(state, value.routine_id)
     try:
-        current = self.action_state.current_batch(value.generation)
-        sealed = routine_state.call(lambda: self.routine_store.incident(team_id, run_id))
-        if sealed is not None and read_evidence(sealed, run_id)["generation"] != value.generation:
-            # Evidence of an earlier hold this run resumed from; its generation is gone, and this hold seals its own.
-            sealed = None
-        if sealed is None:
-            if current is not None and current[1] == "archived":
-                # Archiving happens only after the evidence is durable, so this is lost evidence: never guess it.
-                raise local_errors.routine_state_unavailable()
-            operations = () if current is None else self.action_state.snapshot(value.generation, current[0])
-            snapshot = _snapshot(self, team_id, value)
-            sealed = evidence(run_id, value, None if current is None else current[0], operations, snapshot)
-            routine_state.call(lambda: self.routine_store.put_incident(team_id, run_id, sealed))
-        held = read_evidence(sealed, run_id)
-        fingerprint = held["fingerprint"]
-        if current is not None and current[0] != fingerprint:
-            raise local_errors.routine_state_unavailable()
-        if fingerprint is not None:
-            self.action_state.archive(value.generation, fingerprint)
+        held = _held_evidence(self, team_id, value)
     except action_journal.ActionJournalError as exc:
         raise local_errors.action_state_unavailable() from exc
+    except ApiProblem:
+        if not deleting:
+            raise
+        _lost(team_id, run_id)
+        held = None
     now = int(time.time())
 
-    step = _held_step(self, team_id, held["recovery"], deleting=deleting)
+    step = routine_hold.UNKNOWN_STEP if held is None else _held_step(self, team_id, held["recovery"], deleting=deleting)
     return routine_state.applied(self, team_id, lambda state: routine_hold.settle_hold(state, run_id, now, step))
+
+
+def _held_evidence(self, team_id: str, value: record.Run) -> dict[str, object]:
+    """The held run's sealed evidence, sealed now from its batch and snapshot when there is none; its batch archived."""
+    run_id = value.run_id
+    current = self.action_state.current_batch(value.generation)
+    sealed = routine_state.call(lambda: self.routine_store.incident(team_id, run_id))
+    if sealed is not None and read_evidence(sealed, run_id)["generation"] != value.generation:
+        # Evidence of an earlier hold this run resumed from; its generation is gone, and this hold seals its own.
+        sealed = None
+    if sealed is None:
+        if current is not None and current[1] == "archived":
+            # Archiving happens only after the evidence is durable, so this is lost evidence: never guess it.
+            raise local_errors.routine_state_unavailable()
+        operations = () if current is None else self.action_state.snapshot(value.generation, current[0])
+        snapshot = _snapshot(self, team_id, value)
+        sealed = evidence(run_id, value, None if current is None else current[0], operations, snapshot)
+        routine_state.call(lambda: self.routine_store.put_incident(team_id, run_id, sealed))
+    held = read_evidence(sealed, run_id)
+    fingerprint = held["fingerprint"]
+    if current is not None and current[0] != fingerprint:
+        raise local_errors.routine_state_unavailable()
+    if fingerprint is not None:
+        self.action_state.archive(value.generation, fingerprint)
+    return held
+
+
+def _deleting(state: record.TeamRoutines, routine_id: str) -> bool:
+    return any(item.routine_id == routine_id and item.deleting for item in state.routines)
+
+
+def _lost(team_id: str, run_id: str) -> None:
+    """Audit what a Routine being deleted could not read of one run, which its deletion treats as lost.
+
+    A failed audit never keeps the deletion waiting; the fallback log names only the event and the failure's type.
+    """
+    try:
+        local_audit.record("routine-evidence-lost", result="error", principal=_TEAM, team_id=team_id, detail=run_id)
+    except RuntimeError as exc:
+        failure = type(exc).__name__
+    else:
+        return
+    log.error("Routine incident could not audit routine-evidence-lost (%s)", failure)
 
 
 def _held_step(self, team_id: str, snapshot: Recovery | None, *, deleting: bool) -> routine_hold.HeldStep:
@@ -221,8 +259,8 @@ def _held_step(self, team_id: str, snapshot: Recovery | None, *, deleting: bool)
 
     A cursor that cannot be read now fails the hold's step, so the run stays held and the watchdog's next pass
     indexes it with its call; it is never indexed without the call its card must name. A run of a Routine being
-    deleted is set aside as it is indexed, so no card ever names its call: it is indexed without one rather than keep
-    the deletion waiting on a cursor that may never be read again.
+    deleted is set aside as it is indexed, so no card ever names its call: its unreadable cursor is lost and audited,
+    and the run is indexed without a call rather than keep the deletion waiting on a cursor that may never be read.
     """
     if snapshot is None:
         return routine_hold.UNKNOWN_STEP
@@ -230,6 +268,7 @@ def _held_step(self, team_id: str, snapshot: Recovery | None, *, deleting: bool)
         cursor = routine_state.call(lambda: self.routine_store.cursor(team_id, snapshot.binding))
     except ApiProblem:
         if deleting:
+            _lost(team_id, snapshot.binding.run_id)
             return routine_hold.UNKNOWN_STEP
         raise
     if cursor is None:
@@ -325,18 +364,28 @@ def settled(self, team_id: str, item: record.Run) -> None:
 def _release(self, team_id: str, item: record.Run) -> None:
     """Remove what a skipped incident no longer needs, then its record.
 
-    Each step is idempotent, so a crash leaves the incident skipped and the next pass retries it.
+    Each step is idempotent, so a crash leaves the incident skipped and the next pass retries it. Evidence of a run of a
+    Routine being deleted that cannot be read is lost and audited, and its generation goes whole, archive marker
+    included; any other incident's waits until it can be read.
     """
     sealed = routine_state.call(lambda: self.routine_store.incident(team_id, item.run_id))
-    if sealed is not None:
-        held = read_evidence(sealed, item.run_id)
-        seal_terminal(self, team_id, item.run_id, held["recovery"])
-        fingerprint = held["fingerprint"]
-        if fingerprint is not None:
-            try:
-                self.action_state.release_archive(item.generation, fingerprint)
-            except action_journal.ActionJournalError as exc:
-                raise local_errors.action_state_unavailable() from exc
+    try:
+        held = None if sealed is None else read_evidence(sealed, item.run_id)
+    except ApiProblem:
+        if not _deleting(routine_state.load(self, team_id), item.routine_id):
+            raise
+        _lost(team_id, item.run_id)
+        held = None
+    try:
+        if held is not None:
+            seal_terminal(self, team_id, item.run_id, held["recovery"])
+            if held["fingerprint"] is not None:
+                self.action_state.release_archive(item.generation, held["fingerprint"])
+        elif sealed is not None:
+            # No evidence names the archived batch any more: only the deletion releases it, with the whole generation.
+            self.action_state.purge(item.generation)
+    except action_journal.ActionJournalError as exc:
+        raise local_errors.action_state_unavailable() from exc
     routine_state.call(lambda: self.routine_store.delete_cursor(team_id, item.run_id))
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, item.run_id))
     routine_state.update(self, team_id, lambda state: (routine_hold.release_incident(state, item.run_id), None))
