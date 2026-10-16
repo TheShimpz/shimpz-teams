@@ -13,6 +13,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import requests
+
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -650,6 +652,42 @@ class ActionRpcFrameTests(unittest.TestCase):
         controller.assistant_lifecycle._fail_stop_action.assert_called_once()
         self.assertEqual(create.call_args.args[1], [action_execution.ACTION_COMMAND, "test"])
         self.assertEqual(create.call_args.kwargs["workdir"], local_assistant_rpc.ASSISTANT_WORKDIR)
+
+    def test_local_exchange_fail_stops_when_docker_drops_the_connection_at_exit_inspection(self) -> None:
+        stream = SimpleNamespace(_sock=SimpleNamespace(shutdown=lambda _how: None), close=lambda: None)
+        api = mock.Mock()
+        api.exec_create.return_value = {"Id": "exec-1"}
+        api.exec_start.return_value = stream
+        # docker-py raises requests' ConnectionError, an OSError and no DockerException, when its socket is down.
+        api.exec_inspect.side_effect = requests.exceptions.ConnectionError("socket down")
+        controller = object.__new__(local_app.LocalController)
+        controller.client = SimpleNamespace(api=api)
+        wire_collaborators(controller)
+        controller.assistant_lifecycle._fail_stop_action = mock.Mock()
+        with (
+            mock.patch.object(local_assistant_rpc.action_execution, "encode_rpc_invocation", return_value=b"request"),
+            mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b"", b"")),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            controller.assistant_lifecycle._rpc(
+                SimpleNamespace(id="assistant-container"),
+                "test",
+                {"input": {}, "stored_inputs": (), "operation_id": OPERATION_ID},
+            )
+        self.assertEqual(caught.exception.status, action_execution.rpc_failure_status("ambiguous"))
+        controller.assistant_lifecycle._fail_stop_action.assert_called_once()
+
+    def test_a_docker_connection_lost_while_fail_stopping_blocks_the_workload(self) -> None:
+        lost = requests.exceptions.ConnectionError("socket down")
+        container = mock.Mock(id="unreachable")
+        container.stop.side_effect = container.kill.side_effect = container.reload.side_effect = lost
+        owner = SimpleNamespace(
+            _blocked_action_workloads=set(), _action_not_running=local_assistant_rpc.action_not_running
+        )
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            local_assistant_rpc.fail_stop_action(owner, container)
+        self.assertEqual(caught.exception.code, "assistant-action-blocked")
+        self.assertEqual(owner._blocked_action_workloads, {"unreachable"})
 
     def test_local_exchange_carries_replay_responses_only_when_present(self) -> None:
         fake = SimpleNamespace(

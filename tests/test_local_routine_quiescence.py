@@ -6,6 +6,7 @@ import tempfile
 from types import SimpleNamespace
 from unittest import mock
 
+import requests
 from docker.errors import DockerException
 from test_local_routine_recovery import Assistant, RecoveryCase, failed
 
@@ -50,7 +51,11 @@ class QuiescenceTests(RecoveryCase):
                     mock.patch.object(service.assistant_lifecycle, "_assistant_container", return_value=current),
                 ):
                     self.assertEqual(self.verify(service, value, run_id), "unquiesced")
-            for problem in (DockerException("down"), local_app.ApiProblem(503, "x", code="docker-unavailable")):
+            for problem in (
+                DockerException("down"),
+                requests.exceptions.ConnectionError("down"),
+                local_app.ApiProblem(503, "x", code="docker-unavailable"),
+            ):
                 with (
                     self.subTest(problem=problem),
                     mock.patch.object(service.assistant_lifecycle, "_assistant_container", side_effect=problem),

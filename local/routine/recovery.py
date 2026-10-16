@@ -22,8 +22,6 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from docker.errors import DockerException
-
 from action import execution as action_execution
 from action import journal as action_journal
 from assistant import spec as assistant_spec
@@ -32,6 +30,7 @@ from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from local import audit as local_audit
 from local import errors as local_errors
+from local.assistant.rpc import DOCKER_ERRORS
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import contracts as routine_contracts
@@ -199,7 +198,7 @@ def _workload_state(self, team_id: str, assistant_id: str, workload: str) -> dic
         state = getattr(container, "attrs", {}).get("State")
     except ApiProblem as exc:
         return {"Running": False} if exc.code == "assistant-not-found" else None
-    except DockerException:
+    except DOCKER_ERRORS:
         return None
     return state if isinstance(state, dict) else None
 

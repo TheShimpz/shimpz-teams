@@ -14,6 +14,9 @@ from local.errors import action_file_unavailable
 from local.install.runtime import AssistantSpec
 
 HEALTH_TIMEOUT_SECONDS = 15
+# What a Docker call raises when the daemon cannot answer: docker-py raises requests' ConnectionError, an OSError and no
+# DockerException, while its socket is down.
+DOCKER_ERRORS = (DockerException, OSError)
 ASSISTANT_WORKDIR = str(Path("/") / "tmp")
 
 
@@ -27,7 +30,7 @@ def fail_stop_action(self, container) -> None:
         container.stop(timeout=3)
     except NotFound:
         return
-    except DockerException:
+    except DOCKER_ERRORS:
         pass
     if self._action_not_running(container):
         return
@@ -35,7 +38,7 @@ def fail_stop_action(self, container) -> None:
         container.kill()
     except NotFound:
         return
-    except DockerException:
+    except DOCKER_ERRORS:
         pass
     if self._action_not_running(container):
         return
@@ -52,7 +55,7 @@ def action_not_running(container) -> bool:
         container.reload()
     except NotFound:
         return True
-    except DockerException:
+    except DOCKER_ERRORS:
         return False
     state = container.attrs.get("State")
     return isinstance(state, dict) and state.get("Running") is False
@@ -110,7 +113,7 @@ def _exchange(
                 workdir=ASSISTANT_WORKDIR,
                 timeout=action_execution.RPC_TIMEOUT_SECONDS,
                 maximum=action_execution.MAX_RPC_RESPONSE_BYTES,
-                transport_errors=(DockerException,),
+                transport_errors=DOCKER_ERRORS,
                 fail_stop=lambda: self._fail_stop_action(container),
                 cancelled=lambda _exc: None,
                 close_stream=close_stream,
