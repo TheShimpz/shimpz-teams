@@ -30,8 +30,8 @@ from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from local import audit as local_audit
 from local import errors as local_errors
-from local.assistant.rpc import DOCKER_ERRORS
 from local.chat.segment import RoutineSegment, SegmentRequest
+from local.errors import DOCKER_ERRORS
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import contracts as routine_contracts
 from local.routine import diagnostics as routine_diagnostics

@@ -1,12 +1,19 @@
 """Typed public failures shared by the local controller and HTTP adapter.
 
 A failure the controller reports from more than one place is built here once, so it always carries one status,
-message, and code; Admin localizes the code.
+message, and code; Admin localizes the code. The Docker failures Local reads as Docker being unavailable are named here
+once too.
 """
 
 import functools
 from collections.abc import Callable
 from http import HTTPStatus
+
+from docker.errors import DockerException
+
+# What a Docker call raises when the daemon cannot answer: docker-py raises requests' ConnectionError, an OSError and no
+# DockerException, while its socket is down. A caller of one Docker call catches all of these.
+DOCKER_ERRORS = (DockerException, OSError)
 
 _CONFLICT = HTTPStatus.CONFLICT
 _NOT_FOUND = HTTPStatus.NOT_FOUND

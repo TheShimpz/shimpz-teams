@@ -5,18 +5,15 @@ from contextlib import suppress
 from http import HTTPStatus
 from pathlib import Path
 
-from docker.errors import DockerException, NotFound
+from docker.errors import NotFound
 
 from action import execution as action_execution
 from action import files as action_files
+from local.errors import DOCKER_ERRORS, action_file_unavailable
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import action_file_unavailable
 from local.install.runtime import AssistantSpec
 
 HEALTH_TIMEOUT_SECONDS = 15
-# What a Docker call raises when the daemon cannot answer: docker-py raises requests' ConnectionError, an OSError and no
-# DockerException, while its socket is down.
-DOCKER_ERRORS = (DockerException, OSError)
 ASSISTANT_WORKDIR = str(Path("/") / "tmp")
 
 
