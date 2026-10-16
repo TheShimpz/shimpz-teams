@@ -344,7 +344,7 @@ class _Scope:
     model: str | None = None
 
 
-def _setup(self, request: SegmentRequest, metadata_connection, *, scan_empty_scope: bool = True) -> tuple:
+def _setup(self, request: SegmentRequest, metadata_connection) -> tuple:
     """The Team as this segment runs against it: its name, network, Assistants, files, model, and identity.
 
     A Routine run reads no model configuration, and its identity names neither the Team's name nor one (ADR-0092).
@@ -362,12 +362,7 @@ def _setup(self, request: SegmentRequest, metadata_connection, *, scan_empty_sco
             local_chat_execution.routine_identity(network_id, assistants),
         )
     current = self._chat_setup(
-        request.team_id,
-        request.file_ids,
-        request.provider,
-        request.assistant_ids,
-        metadata_connection,
-        scan_empty_scope=scan_empty_scope,
+        request.team_id, request.file_ids, request.provider, request.assistant_ids, metadata_connection
     )
     return (*current, self._chat_identity(*current))
 
@@ -378,7 +373,7 @@ def _validate_context(self, request: SegmentRequest, identity: tuple[object, ...
         self._validate_chat_context(
             request.team_id, request.file_ids, request.provider, request.assistant_ids, identity, metadata_connection
         )
-    elif _setup(self, request, metadata_connection, scan_empty_scope=False)[5] != identity:
+    elif _setup(self, request, metadata_connection)[5] != identity:
         raise team_context_changed()
 
 
