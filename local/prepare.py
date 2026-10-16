@@ -251,15 +251,12 @@ def prepare_rendition(
     )
 
 
-def remove_helpers(client: object, space_id: str, team_id: str | None = None) -> int:
+def remove_helpers(client: object, space_id: str, team_id: str | None = None) -> None:
     """Remove every Local preparation helper of one Team, or of the whole Space; already-absent is success."""
     filters = local_labels.label_filter(local_labels.ownership_labels(space_id, KIND, team_id))
-    removed = 0
     for container in client.containers.list(all=True, filters={"label": filters}):
         try:
             container.remove(force=True)
         except DockerException as exc:
             if getattr(getattr(exc, "response", None), "status_code", None) != 404:
                 raise
-        removed += 1
-    return removed

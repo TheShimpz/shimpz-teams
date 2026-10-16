@@ -317,8 +317,9 @@ class LocalAdapterTests(unittest.TestCase):
 
     def test_helpers_are_removed_per_team_or_for_the_whole_space(self) -> None:
         client = _Client()
-        self.assertEqual(local_prepare.remove_helpers(client, "space", "team_1"), 1)
-        self.assertEqual(local_prepare.remove_helpers(client, "space"), 1)
+        local_prepare.remove_helpers(client, "space", "team_1")
+        local_prepare.remove_helpers(client, "space")
+        self.assertEqual(client.events, [("remove", "helper-stale", True)] * 2)
         team_filter, space_filter = (call["filters"]["label"] for call in client.listed)
         self.assertIn("com.shimpz.local.team-id=team_1", team_filter)
         self.assertIn("com.shimpz.local.kind=prepare", space_filter)
@@ -351,8 +352,10 @@ class LocalAdapterTests(unittest.TestCase):
     def test_an_already_absent_helper_counts_as_removed(self) -> None:
         client = _Client()
         gone = NotFound("gone", response=SimpleNamespace(status_code=404))
-        client.containers.list = lambda **_kwargs: [SimpleNamespace(remove=mock.Mock(side_effect=gone))]
-        self.assertEqual(local_prepare.remove_helpers(client, "space", "team_1"), 1)
+        remove = mock.Mock(side_effect=gone)
+        client.containers.list = lambda **_kwargs: [SimpleNamespace(remove=remove)]
+        local_prepare.remove_helpers(client, "space", "team_1")
+        remove.assert_called_once_with(force=True)
 
 
 if __name__ == "__main__":
