@@ -92,12 +92,12 @@ class TurnUsageAccountingTests(unittest.TestCase):
         with _clock(5_000):
             started = brain_usage.TurnUsage.start()
         self.assertEqual(started, brain_usage.TurnUsage(5_000))
-        self.assertIsNone(started.wire())
+        self.assertIsNone(started.measured().wire())
         used = dataclasses.replace(started, models=(("openai", "gpt-6-luna", 1331, 36),))
         with _clock(11_200, 4_000, 5_000 + http_payload.MAX_TURN_DURATION_MS + 1):
-            self.assertEqual(used.wire(), {"duration_ms": 6_200, "models": [LUNA]})
-            self.assertEqual(used.wire()["duration_ms"], 0)
-            self.assertEqual(used.wire()["duration_ms"], http_payload.MAX_TURN_DURATION_MS)
+            self.assertEqual(used.measured().wire(), {"duration_ms": 6_200, "models": [LUNA]})
+            self.assertEqual(used.measured().wire()["duration_ms"], 0)
+            self.assertEqual(used.measured().wire()["duration_ms"], http_payload.MAX_TURN_DURATION_MS)
         self.assertEqual(http_payload.canonical_turn_usage({"duration_ms": 1, "models": [LUNA]})["models"], [LUNA])
         self.assertGreater(brain_usage._now_ms(), 0)
 
@@ -275,7 +275,7 @@ class LocalTurnUsageTests(LocalContractCase):
                 return outcome
 
             def respond(response):
-                return {"usage": response.usage.joined().wire()}
+                return {"usage": response.usage.spent().wire()}
 
             with (
                 mock.patch.object(local_chat_api.chat_turn_engine, "admit_integration_resume", return_value=admission),

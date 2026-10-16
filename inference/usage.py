@@ -199,7 +199,3 @@ class TurnUsage:
     def spent(self) -> Spent:
         """The completed turn's whole usage, the current request's model calls included, measured once."""
         return self.joined().measured()
-
-    def wire(self) -> dict[str, object] | None:
-        """The closed `usage` of a completed turn, or None when no model call of the turn reported usage."""
-        return self.measured().wire()
