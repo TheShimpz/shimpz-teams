@@ -298,7 +298,8 @@ class HeldActionBatchTests(unittest.TestCase):
             self.assertFalse(batch.terminate())
             self.assertRegex(batch.held, r"\A[0-9a-f]{64}\Z")
             # The journal still holds the uncertain batch: fresh-turn cleanup refuses to end it.
-            self.assertFalse(journal.end_settled("net:routine:" + "f" * 32))
+            journal.end_settled("net:routine:" + "f" * 32)
+            self.assertEqual(journal.current_batch("net:routine:" + "f" * 32)[1], "open")
             with closing(sqlite3.connect(journal.path)) as connection:
                 rows = connection.execute("SELECT generation FROM batches").fetchall()
             self.assertEqual(rows, [("net:routine:" + "f" * 32,)])

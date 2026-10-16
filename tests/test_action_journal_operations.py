@@ -169,7 +169,8 @@ class JournalOperationTests(unittest.TestCase):
         ):
             with self.subTest(transition=transition), self.assertRaises(action_journal.ActionJournalConflictError):
                 transition()
-        self.assertFalse(journal.end_settled("routine-gen"))
+        journal.end_settled("routine-gen")
+        self.assertEqual(journal.current_batch("routine-gen"), (batch.fingerprint, "archived"))
         # The marker is not active: a chat generation is admitted even at a one-generation bound.
         chat = journal.prepare_batch("chat-gen", "thread", [self.first])
         journal.discard("routine-gen")
@@ -178,8 +179,9 @@ class JournalOperationTests(unittest.TestCase):
         journal.begin(chat, self.first)
         journal.complete(chat, self.first, {})
         journal.delivered(chat)
-        self.assertTrue(journal.release_archive("routine-gen", batch.fingerprint))
-        self.assertFalse(journal.release_archive("routine-gen", batch.fingerprint))
+        journal.release_archive("routine-gen", batch.fingerprint)
+        self.assertIsNone(journal.current_batch("routine-gen"))
+        journal.release_archive("routine-gen", batch.fingerprint)
         journal.prepare_batch("routine-gen", "thread", [self.first])
 
     def test_archive_markers_are_reserved_before_any_action_runs_and_never_evicted(self) -> None:

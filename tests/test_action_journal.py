@@ -340,7 +340,7 @@ class ActionJournalTests(unittest.TestCase):
         journal = self.journal(max_generations=1)
         paused = journal.prepare_batch("generation-1", "thread-1", [self.first])
         # A new turn ends the paused batch, replaces it, and starts its own Action before the old cleanup purges.
-        self.assertTrue(journal.end_settled("generation-1"))
+        journal.end_settled("generation-1")
         newer = journal.prepare_batch("generation-1", "thread-1", [self.second])
         journal.begin(newer, self.second)
 
@@ -400,7 +400,7 @@ class ActionJournalTests(unittest.TestCase):
     def test_fresh_turn_ends_settled_work_but_keeps_uncertain_work(self) -> None:
         journal = self.journal()
         prepared = journal.prepare_batch("generation-0", "thread-0", [self.first])
-        self.assertTrue(journal.end_settled("generation-0"))
+        journal.end_settled("generation-0")
         with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "ended"):
             journal.begin(prepared, self.first)
 
@@ -410,20 +410,24 @@ class ActionJournalTests(unittest.TestCase):
         journal.begin(paused, self.second)
         journal.suspend(paused, self.second)
 
-        self.assertTrue(journal.end_settled("generation-1"))
-        self.assertFalse(journal.end_settled("generation-1"))
-        self.assertFalse(journal.end_settled("generation-absent"))
+        journal.end_settled("generation-1")
+        self.assertEqual(journal.current_batch("generation-1"), (paused.fingerprint, "ended"))
+        journal.end_settled("generation-1")
+        self.assertEqual(journal.current_batch("generation-1"), (paused.fingerprint, "ended"))
+        journal.end_settled("generation-absent")
+        self.assertIsNone(journal.current_batch("generation-absent"))
 
         uncertain = journal.prepare_batch("generation-2", "thread-2", [self.second])
         journal.begin(uncertain, self.second)
-        self.assertFalse(journal.end_settled("generation-2"))
+        journal.end_settled("generation-2")
+        self.assertEqual(journal.current_batch("generation-2"), (uncertain.fingerprint, "open"))
         with self.assertRaises(action_journal.ActionJournalUncertainError):
             journal.begin(uncertain, self.second)
 
         completed = journal.prepare_batch("generation-3", "thread-3", [self.first])
         journal.begin(completed, self.first)
         journal.complete(completed, self.first, {"answer": 3})
-        self.assertTrue(journal.end_settled("generation-3"))
+        journal.end_settled("generation-3")
         fresh = journal.prepare_batch("generation-3", "thread-3", [self.second])
         self.assertTrue(journal.begin(fresh, self.second).execute)
 
@@ -483,7 +487,7 @@ class ActionJournalTests(unittest.TestCase):
         with action_journal.ActionJournal(self.path) as reopened:
             with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "pending"):
                 reopened.prepare_batch("generation-1", "thread-1", [self.second])
-            self.assertTrue(reopened.end_settled("generation-1"))
+            reopened.end_settled("generation-1")
             fresh = reopened.prepare_batch("generation-1", "thread-1", [self.second])
             self.assertTrue(reopened.begin(fresh, self.second).execute)
 

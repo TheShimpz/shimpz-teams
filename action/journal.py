@@ -787,19 +787,18 @@ class ActionJournal:
             self._connection.execute("DELETE FROM operations WHERE generation = ?", (safe_generation,))
         self._forget_generation(safe_generation)
 
-    def release_archive(self, generation: str, fingerprint: str) -> bool:
-        """Remove a settled archive marker once no resumable state needs it; False when it is already gone."""
+    def release_archive(self, generation: str, fingerprint: str) -> None:
+        """Remove a settled archive marker once no resumable state needs it; an already-absent one is done."""
         safe_generation = _safe_id(generation, "generation")
         with self._writing("Action archive could not be released"):
             row = self._connection.execute(
                 "SELECT fingerprint, state FROM batches WHERE generation = ?", (safe_generation,)
             ).fetchone()
             if row is None:
-                return False
+                return
             if row != (fingerprint, _ARCHIVED):
                 raise ActionJournalConflictError("Action generation holds no such archived batch")
             self._connection.execute("DELETE FROM batches WHERE generation = ?", (safe_generation,))
-        return True
 
     def discard(self, generation: str) -> None:
         """Remove an ended run's live batch, keeping an archive marker that unresolved evidence still needs."""
@@ -876,7 +875,7 @@ class ActionJournal:
             self._forget_generation(batch.generation)
         return ended
 
-    def end_settled(self, generation: str) -> bool:
+    def end_settled(self, generation: str) -> None:
         """End a generation's undelivered batch before a fresh turn unless one of its operations may have acted."""
         safe_generation = _safe_id(generation, "generation")
         with self._writing("settled Action generation could not be ended"):
@@ -889,7 +888,6 @@ class ActionJournal:
             ended = bool(operations) and self._end_settled(safe_generation, (row[0] for row in operations))
         if ended:
             self._forget_generation(safe_generation)
-        return ended
 
     def _end_settled(self, generation: str, states: Iterable[object]) -> bool:
         if "executing" in states:
