@@ -43,6 +43,8 @@ _MAX_REGISTRY_BYTES = 256 * 1024
 _REGISTRY_TIMEOUT_SECONDS = 10
 _TLS_CONTEXT = ssl.create_default_context(cafile="/etc/ssl/certs/ca-certificates.crt")
 _MAX_OUTPUT_BYTES = 2 * 1024 * 1024
+# The Cosign binary the Team image installs.
+_COSIGN = "/opt/venv/bin/cosign"
 _TIMEOUT_SECONDS = 90
 _TIMEOUT_EXIT_CODES = frozenset({124, 137})
 _RELEASE_PROXY_ENVIRONMENT = (
@@ -63,13 +65,11 @@ class ArtifactTrustVerifier:
     def __init__(
         self,
         docker_client: object,
-        binary: str = "/opt/venv/bin/cosign",
         *,
         container_id: str | None = None,
         trust_root: Path,
     ) -> None:
         self._docker = docker_client
-        self._binary = binary
         self._container_id = _self_container_id() if container_id is None else container_id
         self._trust_root = _ensure_private_directory(trust_root)
 
@@ -124,7 +124,7 @@ class ArtifactTrustVerifier:
                         "/usr/bin/timeout",
                         "--kill-after=5s",
                         f"{_TIMEOUT_SECONDS}s",
-                        self._binary,
+                        _COSIGN,
                         *arguments,
                         "--bundle",
                         str(bundle_path),
