@@ -46,27 +46,16 @@ class _Tagged:
     value: record.Run
 
 
-def _principal() -> str:
-    principal = local_audit.human_principal()
-    if principal is None:
-        raise ApiProblem(
-            HTTPStatus.FORBIDDEN, "a person must answer a recovery card", code="routine-card-person-required"
-        )
-    return principal
-
-
-def _current_revision(self, team_id: str, routine_id: str) -> int:
-    """The Routine's current revision, 0 once it is deleted or being deleted."""
-    state = routine_state.load(self, team_id)
-    current = next((item for item in state.routines if item.routine_id == routine_id), None)
-    return 0 if current is None or current.deleting else current.revision
+def _person() -> None:
+    if local_audit.human_principal() is None:
+        raise local_errors.routine_card_person_required()
 
 
 def _tagged(self, team_id: str, incident_id: str) -> _Tagged:
     """The unresolved incident's card state now, and the entity tag over exactly what an answer must still find."""
     value = routine_incident.unresolved(self, team_id, incident_id)
     opened = routine_incident.open_recovery(self, team_id, incident_id)
-    current = _current_revision(self, team_id, value.routine_id)
+    current = routine_hold.current_revision(routine_state.load(self, team_id), value.routine_id)
     material = [
         opened.recovery.binding.incarnation,
         incident_id,
@@ -95,10 +84,10 @@ def _evidence(self, team_id: str, incarnation: str, incident_id: str, operation_
 def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
     """Open the recovery card of one held run for the authenticated person who will answer it."""
     team_id = validate_team_id(team_id)
-    _principal()
+    _person()
     tagged = _tagged(self, team_id, incident_id)
     opened, value = tagged.opened, tagged.value
-    # The call the hold indexed, the one its notice and incident view name too.
+    # The call the hold indexed, the one its incident view names.
     assistant_id, action, position, steps = routine_hold.held_step(value)
     incarnation = opened.recovery.binding.incarnation
     evidence = _evidence(self, team_id, incarnation, incident_id, opened.cursor.operation_id)
@@ -158,7 +147,7 @@ def _run(self, team_id: str, tagged: _Tagged) -> None:
 def answer_card(self, team_id: str, incident_id: str, body: object) -> dict[str, object]:
     """Answer one recovery card with Rodar, only while the held run's state still has the card's tag."""
     team_id = validate_team_id(team_id)
-    _principal()
+    _person()
     body = http_routine_run.canonical_card_answer_request(body)
     if body is None:
         raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "a card answer is its tag", code="invalid-body")

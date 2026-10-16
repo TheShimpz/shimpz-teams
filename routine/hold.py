@@ -117,13 +117,16 @@ class Expected:
     current: int
 
 
+def current_revision(state: record.TeamRoutines, routine_id: str) -> int:
+    """The Routine's current revision, 0 once it is deleted or being deleted."""
+    return next((item.revision for item in state.routines if item.routine_id == routine_id and not item.deleting), 0)
+
+
 def _expect(state: record.TeamRoutines, value: record.Run, expected: Expected | None) -> None:
     """Refuse a card's transition when the incident or its Routine changed since the card opened."""
     if expected is None:
         return
-    current = next(
-        (item.revision for item in state.routines if item.routine_id == value.routine_id and not item.deleting), 0
-    )
+    current = current_revision(state, value.routine_id)
     if (value.revision, value.generation, current) != (expected.revision, expected.generation, expected.current):
         raise record.RoutineStateError("incident-changed")
 

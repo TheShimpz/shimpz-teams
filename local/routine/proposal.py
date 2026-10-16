@@ -451,9 +451,7 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
 def _principal() -> str:
     principal = local_audit.human_principal()
     if principal is None:
-        raise ApiProblem(
-            HTTPStatus.FORBIDDEN, "a person must answer a Routine card", code="routine-card-person-required"
-        )
+        raise local_errors.routine_card_person_required()
     return principal
 
 

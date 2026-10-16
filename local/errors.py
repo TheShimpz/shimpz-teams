@@ -121,6 +121,9 @@ routine_run_steps_not_found = _problem(_NOT_FOUND, "Routine run steps are unavai
 routine_lease_invalid = _problem(_CONFLICT, "Routine run lease is not live", "routine-lease-invalid")
 routine_incident_unavailable = _problem(_NOT_FOUND, "Routine incident is unavailable", "routine-incident-unavailable")
 routine_card_stale = _problem(_CONFLICT, "the recovery card is stale; open it again", "routine-card-stale")
+routine_card_person_required = _problem(
+    HTTPStatus.FORBIDDEN, "a person must answer a Routine card", "routine-card-person-required"
+)
 routine_deliveries_invalid = _problem(_INVALID, "Routine deliveries are invalid", "invalid-body")
 routine_state_unavailable = _problem(_UNAVAILABLE, "Team Routine state is unavailable", "routine-state-unavailable")
 routine_diagnostics_unavailable = _problem(
