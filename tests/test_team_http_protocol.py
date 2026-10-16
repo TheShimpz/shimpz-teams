@@ -51,6 +51,10 @@ class IdentifierAuthorityTests(unittest.TestCase):
         self.assertIs(payload.canonical_assistant_id, identifiers.canonical_assistant_id)
         self.assertIs(payload.canonical_identifier, identifiers.canonical_identifier)
 
+    def test_the_github_repository_pattern_is_the_developers_manifest_definition(self) -> None:
+        manifest = json.loads((ASSISTANT_PROTOCOL / "manifest.schema.json").read_bytes())["$defs"]
+        self.assertEqual(manifest["shimpz"]["properties"]["github"]["pattern"], payload.GITHUB_REPOSITORY_PATTERN)
+
 
 class LocalizedChallengeContractTests(unittest.TestCase):
     """The ADR-0091 localization fields of a human challenge and a Routine challenge opening."""

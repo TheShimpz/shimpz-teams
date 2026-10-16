@@ -170,6 +170,12 @@ ASSISTANT_DETAILS_FIELDS = frozenset(
 )
 ASSISTANT_VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 DETAILS_CREATOR_RE = re.compile(r"@[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\Z")
+# An Assistant's public GitHub repository, exactly the Developers manifest schema's pattern; consumers fullmatch it.
+GITHUB_REPOSITORY_PATTERN = (
+    r"^https://github\.com/[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/"
+    r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?$"
+)
+GITHUB_REPOSITORY_RE = re.compile(GITHUB_REPOSITORY_PATTERN)
 ACTION_EFFECTS = frozenset({"read_only", "mutating"})
 MAX_DETAILS_NAME_CHARS = 80
 MAX_DETAILS_DESCRIPTION_CHARS = 500

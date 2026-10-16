@@ -57,10 +57,6 @@ HUMAN_REQUEST_KINDS = frozenset(
 AUTHORIZATION_REQUEST_KINDS = frozenset({"approval", "auth:passkey", "auth:password", "auth:totp"})
 VERSION_RE = http_payload.ASSISTANT_VERSION_RE
 _CREATOR_RE = http_payload.LOCAL_ASSISTANT_CREATOR_RE
-_GITHUB_RE = re.compile(
-    r"https://github\.com/[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/"
-    r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?\Z"
-)
 _SECRET_VALUE_RE = re.compile(
     r"(?i)(?:bearer\s+[a-z0-9._~-]{12,}|(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)"
     r"\s*[:=]\s*\S+|(?:sk|ghp|github_pat|glpat|xox[baprs])[-_][a-z0-9_-]{12,})"
@@ -701,7 +697,7 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
     _genesis(metadata["genesis"])
     canonical_manifest_creators(metadata["creators"])
     github = metadata["github"]
-    if not isinstance(github, str) or _GITHUB_RE.fullmatch(github) is None:
+    if not isinstance(github, str) or http_payload.GITHUB_REPOSITORY_RE.fullmatch(github) is None:
         raise ManifestError("Assistant github repository is invalid")
 
     raw_integrations = manifest.get("integrations", {})
