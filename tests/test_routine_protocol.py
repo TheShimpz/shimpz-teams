@@ -1,5 +1,6 @@
 """The Recorded Routine wire forms Admin admits from Team, at their edges (ADR-0101)."""
 
+import datetime
 import json
 import unittest
 from pathlib import Path
@@ -55,6 +56,40 @@ class RoutineProtocolEdgeTests(unittest.TestCase):
         self.assertIsNotNone(
             routine_context.canonical_routine_listings([listed(index, fit) for index in range(many - 1)])
         )
+
+    def test_a_word_writes_a_date_only_in_a_form_teams_recorder_reads_near_the_day(self) -> None:
+        today = datetime.date(2026, 10, 16)
+        new_year = datetime.date(2026, 1, 1)
+        for text, day in (
+            ("2026-10-16", today),
+            ("news_2026-11-16", today),
+            ("16/10/2026", today),
+            ("10.16.2026", today),
+            ("news-05/10", today),
+            ("10月15日号", today),
+            ("2026年10月15日", today),
+            ("2025-12-31", new_year),
+            ("news-31/12", new_year),
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(routine_context.may_write_date(text, day))
+        for text in (
+            "203.0.113.10",
+            "v1.2.3",
+            "release-2.1",
+            "2026年度",
+            "2024-01-01",
+            "2026-99-99",
+            "news-2026-10-16",
+            "31/02",
+            "zone",
+        ):
+            with self.subTest(text=text):
+                self.assertFalse(routine_context.may_write_date(text, today))
+
+    def test_a_number_token_is_a_whole_number_as_written(self) -> None:
+        tokens = [match.group() for match in routine_context.NUMBER_TOKEN_RE.finditer("a conta 1234567, -42 e 1.5e3")]
+        self.assertEqual(tokens, ["1234567", "-42", "1.5e3"])
 
     def test_a_request_identity_changes_a_routine_only_while_fresh(self) -> None:
         now = 2_000_000_000

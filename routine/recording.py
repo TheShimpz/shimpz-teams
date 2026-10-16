@@ -38,21 +38,19 @@ cannot be read is asked, never guessed.
 """
 
 import json
-import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import phrase
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_context as http_routine_context
 from routine import plan as routine_plan
 from routine import trace
 
 # The one question only work run again answers: a value no result provides, or a target the person chose instead.
 RERUN = "routine-work-rerun"
 MIN_SELECTOR_CHARS = 2
-# A complete number as written, its sign and exponent included, never a fragment of a longer number or word.
-_NUMBER_RE = re.compile(r"(?<![\w.,+-])[-+]?\d+(?:[.,]\d+)*(?:[eE][-+]?\d+)?(?!\w|[.,]\d)")
 
 
 def clarified_answer(message: str) -> tuple[str, str, str] | None:
@@ -279,7 +277,8 @@ class Known:
 
 def known_texts(texts: Sequence[str], protection: trace.Protection) -> Known:
     """The person's texts, with every whole number token each one writes on its own."""
-    numbers = frozenset(match.group() for text in texts for match in _NUMBER_RE.finditer(text))
+    tokens = http_routine_context.NUMBER_TOKEN_RE
+    numbers = frozenset(match.group() for text in texts for match in tokens.finditer(text))
     return Known(tuple(texts), numbers, protection.values)
 
 

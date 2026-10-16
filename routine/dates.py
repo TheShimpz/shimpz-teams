@@ -19,9 +19,11 @@ import datetime
 import re
 from collections.abc import Callable, Mapping, Sequence
 
+from protocol.http.v1 import routine_context as http_routine_context
 from routine import schedule
 
-MAX_OFFSET_DAYS = 31
+# The unspaced forms and the reach are the Team protocol's, which the Brain reads to leave such a text to Team.
+MAX_OFFSET_DAYS = http_routine_context.MAX_DATE_OFFSET_DAYS
 MAX_PARTS = 32
 MAX_FORMAT_CHARS = 64
 LANGUAGES = ("pt", "en", "es", "fr", "de", "ar")
@@ -45,10 +47,7 @@ _NAME_ALTERNATION = "|".join(
     sorted({re.escape(name) for names in _NAMES.values() for name in names}, key=len, reverse=True)
 )
 _FORMS = (
-    ("iso", re.compile(r"(?<![\d-])(\d{4})-(\d{2})-(\d{2})(?![\d-])")),
-    ("numeric", re.compile(r"(?<![\d/.])(\d{1,2})([/.])(\d{1,2})\2(\d{4})(?![\d/]|\.\d)")),
-    ("short", re.compile(r"(?<![\d/.])(\d{1,2})/(\d{1,2})(?![\d/]|\.\d)")),
-    ("cjk", re.compile(r"(?:(\d{4})年)?(\d{1,2})月(\d{1,2})日")),
+    *http_routine_context.UNSPACED_DATE_FORMS,
     (
         "day_name",
         re.compile(

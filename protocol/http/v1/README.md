@@ -241,9 +241,12 @@ value, chosen, source}` with a plain member of at most `routine_context.MAX_RERU
 carries its exact compact JSON text of at most `routine_context.MAX_RERUN_LITERAL_CHARS` characters, or `null` when withheld,
 and whether it is a target the person chose; a `clock` input is the run's date; a `fresh` input never shows its value
 and names the `{assistant, action}` whose earlier result held it, or `null`. Team sends no such work past these
-bounds. Team's recorder asks where a value no result holds came from only for an identifier: a string of at least
-`routine_context.MIN_IDENTIFIER_CHARS` characters or a whole number of at least
-`routine_context.MIN_IDENTIFIER_DIGITS` digits, so the Brain checks a rerun call's values against the same bounds. `routine_mode`, whether the chat is about a Routine, is a plain advisory boolean. `routine_schedule` is the one
+bounds. Team's recorder asks where a value no result holds came from only for an identifier: one word of at least
+`routine_context.MIN_IDENTIFIER_CHARS` characters with no whitespace, or a whole number of at least
+`routine_context.MIN_IDENTIFIER_DIGITS` digits, so the Brain checks a rerun call's values against the same bounds. A
+number counts as the person's only as one whole `routine_context.NUMBER_TOKEN_RE` token of their text. A word that
+writes a date in one of `routine_context.UNSPACED_DATE_FORMS` near the send's date (`routine_context.may_write_date`,
+`routine_context.MAX_DATE_OFFSET_DAYS`) may be a text each run writes for its own date, so the Brain leaves it to Team. `routine_mode`, whether the chat is about a Routine, is a plain advisory boolean. `routine_schedule` is the one
 schedule Team reads from the person's sends (`routine.canonical_schedule`) and `routine_output` the one output mode it
 reads (`routine.OUTPUT_MODES`), each `null` when it reads none; the Brain admits a settings answer only beside the
 reading it answers, and never reads the record's description, which states only the work.
