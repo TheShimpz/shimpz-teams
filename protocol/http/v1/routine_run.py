@@ -138,6 +138,21 @@ def canonical_segment_request(value: object) -> dict[str, object] | None:
 # How a run stands once a segment, or a person's answer that resumed it, returns: `held` when Team holds a replayed run
 # as an incident, and `recovered` when its recovery completed it (ADR-0092).
 SEGMENT_STATUSES = frozenset({"done", "recovered", "failed", "denied", "stopped", "frozen", "held"})
+
+
+def canonical_segment_answer(value: object) -> dict[str, str] | None:
+    """A segment's, or a resuming answer's, Team, run, and how the run stands; the caller checks they are its own."""
+    valid = (
+        isinstance(value, dict)
+        and set(value) == {"team_id", "run_id", "status"}
+        and routine.valid_team(value["team_id"])
+        and routine.matches(value["run_id"], routine.ROUTINE_ID_RE)
+        and isinstance(value["status"], str)
+        and value["status"] in SEGMENT_STATUSES
+    )
+    return copy.deepcopy(value) if valid else None
+
+
 # One notice acknowledgment admits at most this many deliveries.
 MAX_ACK_DELIVERIES = 256
 

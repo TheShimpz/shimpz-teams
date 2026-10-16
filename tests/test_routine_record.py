@@ -309,6 +309,7 @@ class RoutineViewContractTests(unittest.TestCase):
             "card_answer_request": http_routine_run.canonical_card_answer_request,
             "card_answer": http_routine_run.canonical_card_answer,
             "segment_request": http_routine_run.canonical_segment_request,
+            "segment_answer": http_routine_run.canonical_segment_answer,
             "page": http_routine.canonical_page,
             "summary": http_routine.canonical_summary,
             "run_steps": http_routine_run.canonical_run_steps,

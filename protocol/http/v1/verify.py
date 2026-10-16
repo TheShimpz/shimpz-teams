@@ -271,6 +271,7 @@ admit_view = {
     "card_answer_request": routine_run.canonical_card_answer_request,
     "card_answer": routine_run.canonical_card_answer,
     "segment_request": routine_run.canonical_segment_request,
+    "segment_answer": routine_run.canonical_segment_answer,
     "page": routine.canonical_page,
     "summary": routine.canonical_summary,
     "run_steps": routine_run.canonical_run_steps,

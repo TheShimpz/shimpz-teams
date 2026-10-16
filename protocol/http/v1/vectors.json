@@ -6700,6 +6700,21 @@
         {"revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "extra": 1}
       ]
     },
+    "segment_answer": {
+      "valid": [
+        {"team_id": "team_1", "run_id": "ffffffffffffffffffffffffffffffff", "status": "done"},
+        {"team_id": "team_1", "run_id": "ffffffffffffffffffffffffffffffff", "status": "held"}
+      ],
+      "invalid": [
+        {},
+        {"team_id": "team_1", "run_id": "ffffffffffffffffffffffffffffffff"},
+        {"team_id": "team_1", "run_id": "ffffffffffffffffffffffffffffffff", "status": "human-required"},
+        {"team_id": "team_1", "run_id": "ffffffffffffffffffffffffffffffff", "status": ["done"]},
+        {"team_id": "Team 1", "run_id": "ffffffffffffffffffffffffffffffff", "status": "done"},
+        {"team_id": "team_1", "run_id": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", "status": "done"},
+        {"team_id": "team_1", "run_id": "ffffffffffffffffffffffffffffffff", "status": "done", "extra": 1}
+      ]
+    },
     "page": {
       "valid": [
         {"routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "total": 2, "offset": 0, "steps": [{"position": 1, "assistant": "shimpz-cloudflare", "action": "list-zones", "read_only": true, "inputs": [{"member": "per_page", "source": "literal", "value": "50"}], "stored_inputs": []}, {"position": 2, "assistant": "shimpz-cloudflare", "action": "list-dns-records", "read_only": true, "inputs": [{"member": "zone_id", "source": "step_output", "step": 1, "pointer": "/result", "where": {"member": "name", "value_json": "\"shimpz.com\""}, "item": "/id"}], "stored_inputs": ["api-token"]}], "next": null},
