@@ -125,7 +125,8 @@ def canonical_human_response(value: object) -> dict[str, object]:
     if (
         not isinstance(value, dict)
         or value.get("type") != "human-response"
-        or value.get("decision") not in {"submit", "deny"}
+        or not isinstance(value.get("decision"), str)
+        or value["decision"] not in {"submit", "deny"}
         or not valid_challenge_id(value.get("challenge_id"))
     ):
         raise FrameError(400, "invalid human response frame")
@@ -153,6 +154,6 @@ def human_value(value: object) -> bool:
     return (
         isinstance(value, list)
         and len(value) <= MAX_HUMAN_CHOICES
-        and len(value) == len(set(value))
         and all(isinstance(item, str) and len(item) <= MAX_HUMAN_CHOICE_CHARS for item in value)
+        and len(value) == len(set(value))
     )

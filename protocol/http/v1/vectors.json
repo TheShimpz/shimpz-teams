@@ -285,6 +285,16 @@
       "frame": {"type": "human-response", "challenge_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "decision": "submit", "value": ["one", "one"]}
     },
     {
+      "name": "list_decision",
+      "valid": false,
+      "frame": {"type": "human-response", "challenge_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "decision": ["submit"], "value": true}
+    },
+    {
+      "name": "list_choice",
+      "valid": false,
+      "frame": {"type": "human-response", "challenge_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "decision": "submit", "value": [["one"]]}
+    },
+    {
       "name": "deny_with_value",
       "valid": false,
       "frame": {"type": "human-response", "challenge_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "decision": "deny", "value": true}

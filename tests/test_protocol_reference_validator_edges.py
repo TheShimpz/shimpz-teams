@@ -670,6 +670,8 @@ class WebSocketReferenceEdgeTests(unittest.TestCase):
         for value in (
             None,
             {**submitted, "decision": "bad"},
+            {**submitted, "decision": ["submit"]},
+            {**submitted, "value": [["a"]]},
             {**submitted, "extra": True},
             {**submitted, "value": object()},
         ):
