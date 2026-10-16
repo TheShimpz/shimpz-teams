@@ -99,15 +99,29 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
     routine_manage.settle_team(service, team_id)
 
 
+def _audit_failure(exc: Exception, team_id: str, operation: str, detail: str) -> None:
+    """Audit one Team's failed periodic work as Team; an unforeseen failure only by its type, never its message."""
+    if isinstance(exc, _PASS_ERRORS):
+        local_audit.record_team_error(operation, detail, team_id)
+    else:
+        local_audit.record_team_error("routine-watchdog", type(exc).__name__, team_id)
+
+
 def check(service, *, startup: bool = False) -> None:
     """One pass: stop segments out of active time, then recover and clean up every Team's Routine runs.
 
-    A periodic pass audits one Team's failure and goes on, so a Team whose state cannot be read never holds back the
-    others. At startup a Team's failure stays fatal, as does a Routine directory whose Team cannot be identified; a held
-    run that fails to reconcile is audited and retried by the next pass at startup too.
+    A periodic pass audits one Team's or one overdue run's failure, whatever it is, and goes on, so a Team whose state
+    cannot be read never holds back the others and an unforeseen error never ends the watchdog. At startup such a
+    failure stays fatal, as does a Routine directory whose Team cannot be identified; a held run that fails to
+    reconcile is audited and retried by the next pass at startup too.
     """
-    for team_id, run_id in routine_run.stop_overdue(service):
-        local_audit.record_team_error("routine-stop", run_id, team_id)
+    for team_id, run_id in routine_run.mark_overdue(service):
+        try:
+            routine_run.stop_routine_run(service, team_id, run_id)
+        except Exception as exc:
+            if startup:
+                raise
+            _audit_failure(exc, team_id, "routine-stop", run_id)
     try:
         key = local_authority.routine_key_fingerprint()
     except local_authority.SupervisorUnavailableError:
@@ -116,10 +130,10 @@ def check(service, *, startup: bool = False) -> None:
     for team_id in service.routine_store.teams():
         try:
             _check_team(service, team_id, now, key, startup=startup)
-        except _PASS_ERRORS:
+        except Exception as exc:
             if startup:
                 raise
-            local_audit.record_team_error("routine-watchdog", "team-check-failed", team_id)
+            _audit_failure(exc, team_id, "routine-watchdog", "team-check-failed")
 
 
 class RoutineWatchdog:

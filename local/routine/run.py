@@ -551,21 +551,14 @@ def _stop_registered(
     return True
 
 
-def stop_overdue(self) -> tuple[tuple[str, str], ...]:
-    """Stop every running segment whose run spent its active time; each then ends failed, not stopped.
+def mark_overdue(self) -> tuple[tuple[str, str], ...]:
+    """Mark every running segment whose run spent its active time, so each ends failed, not stopped, once stopped.
 
-    One run whose stop fails never keeps the others running: its Team and run are returned for the caller to audit,
-    and the next pass tries it again.
+    Returns each one's Team and run for the watchdog to stop one by one.
     """
     now = time.monotonic()
     with self._active_chat_guard:
         overdue = [(run_id, item) for run_id, item in self._routine_runs.items() if item.deadline <= now]
         for run_id, item in overdue:
             self._routine_runs[run_id] = dataclasses.replace(item, overdue=True)
-    failed = []
-    for run_id, item in overdue:
-        try:
-            stop_routine_run(self, item.team_id, run_id)
-        except ApiProblem:
-            failed.append((item.team_id, run_id))
-    return tuple(failed)
+    return tuple((item.team_id, run_id) for run_id, item in overdue)

@@ -651,6 +651,32 @@ class TeamIsolationTests(RoutineServiceCase):
             with self.assertRaises(routine_store.RoutineStoreError):
                 routine_watchdog.check(service, startup=True)
 
+    def test_an_unforeseen_failure_of_one_team_is_audited_by_type_and_never_holds_back_another(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim = self.claimed(directory, Runtime())
+            self.expire(service, claim["run_id"])
+            self.break_team(service)
+            checked = routine_watchdog._check_team
+
+            def check_team(service, team_id: str, *args, **kwargs) -> None:
+                if team_id == "team_2":
+                    raise KeyError("a message that may carry a secret")
+                checked(service, team_id, *args, **kwargs)
+
+            with mock.patch.object(routine_watchdog, "_check_team", side_effect=check_team):
+                routine_watchdog.check(service)
+                self.assertEqual(self.state(service).notices[-1].detail, {"code": "interrupted"})
+                local_app.local_audit.record.assert_any_call(
+                    "routine-watchdog",
+                    result="error",
+                    principal=routine_watchdog.local_audit.TEAM,
+                    team_id="team_2",
+                    detail="KeyError",
+                )
+                # At startup it stays a hard failure.
+                with self.assertRaises(KeyError):
+                    routine_watchdog.check(service, startup=True)
+
     def test_an_unidentifiable_team_directory_still_fails_the_pass(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
@@ -760,3 +786,30 @@ class TeamIsolationTests(RoutineServiceCase):
                 team_id="team_1",
                 detail="1" * 32,
             )
+
+    def test_an_unforeseen_failure_stopping_one_overdue_run_never_keeps_another_running(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            routine_run.register_routine_run(service, "team_1", "1" * 32, "token-1", 0)
+            routine_run.register_routine_run(service, "team_2", "2" * 32, "token-2", 0)
+            service._active_action_containers["team_1"] = ("token-1", object())
+            failure = RuntimeError("a message that may carry a secret")
+            with mock.patch.object(service.assistant_lifecycle, "_fail_stop_action", side_effect=failure):
+                routine_watchdog.check(service)
+
+            self.assertLessEqual({"token-1", "token-2"}, service._cancelled_chat_tokens)
+            local_app.local_audit.record.assert_any_call(
+                "routine-watchdog",
+                result="error",
+                principal=routine_watchdog.local_audit.TEAM,
+                team_id="team_1",
+                detail="RuntimeError",
+            )
+            # At startup it stays a hard failure.
+            routine_run.register_routine_run(service, "team_1", "3" * 32, "token-3", 0)
+            service._active_action_containers["team_1"] = ("token-3", object())
+            with (
+                mock.patch.object(service.assistant_lifecycle, "_fail_stop_action", side_effect=failure),
+                self.assertRaises(RuntimeError),
+            ):
+                routine_watchdog.check(service, startup=True)
