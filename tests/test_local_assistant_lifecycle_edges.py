@@ -210,21 +210,37 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
                     "team_1", spec, container, egress_prepared=False
                 )
 
-                # Docker can create the container and still fail to answer, so only proved absence completes it.
+                # A lost or slow answer leaves the create unsettled: Docker may still be creating the container.
                 subject.client.containers.create.side_effect = failure
-                unavailable = local_app.ApiProblem(HTTPStatus.SERVICE_UNAVAILABLE, "down", code="docker-unavailable")
-                for lookup, code in (
-                    (mock.Mock(return_value=container), "assistant-install-rollback-incomplete"),
-                    (mock.Mock(side_effect=unavailable), "assistant-install-rollback-incomplete"),
-                    (mock.Mock(return_value=None), "docker-install-failed"),
-                ):
-                    subject._assistant_container = lookup
-                    with self.assertRaises(local_app.ApiProblem) as caught:
-                        _create_container(subject, spec)
-                    self.assertEqual(caught.exception.code, code)
-                    lookup.assert_called_once_with("team_1", "assistant", required=False)
-                self.assertEqual(subject._rollback_assistant_install.call_args.args[2], None)
-                self.assertEqual(subject._rollback_assistant_install.call_count, 2)
+                subject._assistant_container = mock.Mock(return_value=None)
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    _create_container(subject, spec)
+                self.assertEqual(caught.exception.code, "assistant-install-rollback-incomplete")
+                subject._assistant_container.assert_not_called()
+                subject._rollback_assistant_install.assert_called_once()
+
+    def test_a_refused_create_completes_its_rollback_only_when_no_container_is_left(self) -> None:
+        spec = types.SimpleNamespace(assistant_id="assistant", image="image@sha256:" + "a" * 64)
+        subject = types.SimpleNamespace(
+            _rollback_assistant_install=mock.Mock(return_value=None),
+            client=types.SimpleNamespace(
+                containers=types.SimpleNamespace(create=mock.Mock(side_effect=DockerException("refused")))
+            ),
+            cpuset_cpus="0",
+            _container_name=mock.Mock(return_value="container"),
+            _assistant_labels=mock.Mock(return_value={}),
+        )
+        unavailable = local_app.ApiProblem(HTTPStatus.SERVICE_UNAVAILABLE, "down", code="docker-unavailable")
+        for lookup, code in (
+            (mock.Mock(return_value=object()), "assistant-install-rollback-incomplete"),
+            (mock.Mock(side_effect=unavailable), "assistant-install-rollback-incomplete"),
+            (mock.Mock(return_value=None), "docker-install-failed"),
+        ):
+            subject._assistant_container = lookup
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                _create_container(subject, spec)
+            self.assertEqual(caught.exception.code, code)
+            lookup.assert_called_once_with("team_1", "assistant", required=False)
 
     @staticmethod
     def _replacement_subject() -> types.SimpleNamespace:

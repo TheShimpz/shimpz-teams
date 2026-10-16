@@ -130,8 +130,14 @@ def rollback_assistant_install(
     return None
 
 
-def _created_container_absent(self, team_id: str, spec: AssistantSpec) -> bool:
-    """Prove a failed create left no container: Docker can create one and still fail to answer."""
+def _created_container_absent(self, team_id: str, spec: AssistantSpec, failure: Exception) -> bool:
+    """Prove a failed create left no container.
+
+    Docker may still be creating one after a lost or slow answer, so only a refusal Docker answered, followed by an
+    absent lookup, proves it; a refusal can also come from the read after a create that succeeded.
+    """
+    if not isinstance(failure, DockerException):
+        return False
     try:
         return self._assistant_container(team_id, spec.assistant_id, required=False) is None
     except ApiProblem:
@@ -204,7 +210,7 @@ def create_assistant_container(
         self._wait_ready(container, spec)
         self._active_assistant_genesis(_ActiveAssistant(spec, container.id, container))
     except (ApiProblem, *DOCKER_ERRORS) as exc:
-        if container is None and not _created_container_absent(self, team_id, spec):
+        if container is None and not _created_container_absent(self, team_id, spec, exc):
             raise assistant_install_rollback_incomplete() from exc
         cleanup_error = self._rollback_assistant_install(
             team_id,
