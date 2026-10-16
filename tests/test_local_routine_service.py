@@ -720,6 +720,35 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
             self.assertEqual(service.routine_store.continuations("team_1"), ())
         self.assertIn("could not audit routine-recover/failed (RuntimeError)", logs.output[0])
 
+    def test_an_unforeseen_watchdog_pass_failure_is_audited_by_type_and_the_next_pass_runs(self) -> None:
+        second_pass = threading.Event()
+        passes = []
+
+        def teams():
+            passes.append(1)
+            if len(passes) >= 2:
+                second_pass.set()
+            raise TypeError("secret-bearing message")
+
+        service = SimpleNamespace(
+            _active_chat_guard=threading.Lock(),
+            _routine_runs={},
+            routine_store=SimpleNamespace(teams=teams),
+        )
+        watchdog = routine_watchdog.RoutineWatchdog(service, interval=0.01)
+        watchdog.start()
+        self.assertTrue(second_pass.wait(5))
+        self.assertTrue(watchdog._thread.is_alive())
+        watchdog.close()
+        local_audit.record.assert_any_call(
+            "routine-watchdog",
+            result="error",
+            principal=routine_watchdog.local_audit.TEAM,
+            team_id=None,
+            detail="TypeError",
+        )
+        self.assertNotIn("secret", repr(local_audit.record.call_args_list))
+
     def test_a_failed_watchdog_pass_is_audited_and_retried(self) -> None:
         service = SimpleNamespace(
             _active_chat_guard=threading.Lock(),

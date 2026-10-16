@@ -24,7 +24,8 @@ from routine import record
 from routine import runs as routine_runs
 
 INTERVAL_SECONDS = 30
-# What one failed pass, or one Team's failed check within a periodic pass, can raise; the next pass retries it.
+# The failures a pass or one Team's check is known to raise, each audited by a fixed detail. A periodic pass and the
+# loop catch any other failure too, audited only by its type name; the next pass retries either kind.
 _PASS_ERRORS = (
     routine_store.RoutineStoreError,
     record.RoutineStateError,
@@ -99,8 +100,8 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
     routine_manage.settle_team(service, team_id)
 
 
-def _audit_failure(exc: Exception, team_id: str, operation: str, detail: str) -> None:
-    """Audit one Team's failed periodic work as Team; an unforeseen failure only by its type, never its message."""
+def _audit_failure(exc: Exception, team_id: str | None, operation: str, detail: str) -> None:
+    """Audit failed periodic work as Team; an unforeseen failure only by its type, never its message."""
     if isinstance(exc, _PASS_ERRORS):
         local_audit.record_team_error(operation, detail, team_id)
     else:
@@ -156,6 +157,7 @@ class RoutineWatchdog:
         while not self._stop.wait(self._interval):
             try:
                 check(self._service)
-            except _PASS_ERRORS:
-                # A failed pass leaves every run as it was; the next pass retries, and the failure is audited.
-                local_audit.record_team_error("routine-watchdog", "check-failed")
+            except Exception as exc:
+                # Leases and deadlines are enforced only while this loop lives, so no failure may end it: a failed pass
+                # leaves every run as it was, is audited, and the next pass retries.
+                _audit_failure(exc, None, "routine-watchdog", "check-failed")
