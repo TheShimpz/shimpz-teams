@@ -58,7 +58,7 @@ class Proposal:
     routine: record.Routine
     replaces: str | None
     expected_revision: int | None
-    view: dict[str, object]
+    # What a confirmation binds, the card shown included.
     digest: str
     expires_at: float
 
@@ -435,7 +435,6 @@ def admit(self, response: object, proposed: object) -> tuple[Callable[[], None],
         candidate,
         replaces,
         expected,
-        view,
         _digest(candidate, view, expected),
         self.routine_proposals.deadline(),
     )
