@@ -220,9 +220,10 @@ _TIMES = (
 )
 # What each run does with its result, by language: show it every run, only when it changes, or nothing. Each interface
 # language's choice labels (``routine_proposal.OUTPUT_CHOICES``) are among these phrases. A plain "show the result"
-# reads as showing it every run, unless its own clause says only when it changes. Showing it whenever it changes is
-# showing it when it changes: "always" or "every time" there is the condition's own word ("mostrar sempre que mudar").
-# A "negation" phrase states nothing and rejects the readings it overlaps, as "sem" ("without") does before a passive.
+# reads as showing it every run, unless its own clause says only when it changes. A "condition" (whenever it changes)
+# may govern the work instead, so alone it states nothing: it makes showing the result its own clause names, or a
+# "show every run" whose words it takes ("mostrar sempre que mudar"), showing it when it changes. A "negation" phrase
+# states nothing and rejects the readings it overlaps, as "sem" ("without") does before a passive.
 _PT_SHOW = r"\b(?:mostrar|mostre|exibir|exiba)\s+"
 _ES_SHOW = r"\b(?:mostrar|muestra|muéstrame)\s+"
 _FR_SHOW = r"\b(?:afficher|affiche|montre(?:-moi)?)\s+"
@@ -236,7 +237,7 @@ _OUTPUTS = (
     ),
     ("result", "pt", _PT_SHOW + r"os?\s+resultados?\b"),
     ("changes", "pt", r"\b(?:só|somente|apenas)\s+(?:quando|se)\s+(?:mudar|alterar|houver\s+mudança)"),
-    ("changes", "pt", r"\b(?:sempre|toda\s+vez)\s+que\s+(?:algo\s+|houver\s+)?(?:mudar|alterar|mudança)"),
+    ("condition", "pt", r"\b(?:sempre|toda\s+vez)\s+que\s+(?:algo\s+|houver\s+)?(?:mudar|alterar|mudança)"),
     ("none", "pt", r"\b(?:não|sem)\s+(?:precisa\s+)?(?:mostrar|exibir)\b"),
     (
         "negation",
@@ -247,18 +248,18 @@ _OUTPUTS = (
     ("show", "en", r"\b(?:show|display)\s+(?:me\s+)?(?:it\s+)?(?:every\s+(?:run|time)|always)\b"),
     ("result", "en", r"\b(?:show|display)\s+(?:me\s+)?the\s+results?\b"),
     ("changes", "en", r"\bonly\s+(?:(?:when|if)\s+(?:it\s+)?changes|on\s+changes?)\b"),
-    ("changes", "en", r"\b(?:every\s+time|whenever|always\s+when)\s+(?:it|something|anything)\s+changes\b"),
+    ("condition", "en", r"\b(?:every\s+time|whenever|always\s+when)\s+(?:it|something|anything)\s+changes\b"),
     ("none", "en", r"\b(?:don't|do\s+not|no\s+need\s+to)\s+show\b|\bshow\s+nothing\b"),
     ("show", "es", _ES_SHOW + r"(?:siempre|en\s+cada\s+ejecución)"),
     ("result", "es", _ES_SHOW + r"(?:el\s+resultado|los\s+resultados)"),
     ("changes", "es", r"\bsolo\s+(?:cuando\s+cambie|si\s+cambia)\b"),
-    ("changes", "es", r"\b(?:siempre|cada\s+vez)\s+que\s+(?:algo\s+)?cambie\b"),
+    ("condition", "es", r"\b(?:siempre|cada\s+vez)\s+que\s+(?:algo\s+)?cambie\b"),
     ("none", "es", r"\b(?:no|sin)\s+mostrar\b"),
     ("show", "fr", _FR_SHOW + r"(?:toujours|à\s+chaque\s+exécution)"),
     ("result", "fr", _FR_SHOW + r"les?\s+résultats?"),
     ("changes", "fr", r"\b(?:seulement|uniquement)\s+(?:en\s+cas\s+de\s+changement|quand\s+(?:ça|il|elle)\s+change)"),
     (
-        "changes",
+        "condition",
         "fr",
         r"\b(?:toujours\s+(?:quand|lorsque)\s+|(?:à\s+)?chaque\s+fois\s+(?:que\s+|qu'))"
         r"(?:ça|il|elle|cela|quelque\s+chose)\s+change",
@@ -268,22 +269,22 @@ _OUTPUTS = (
     ("result", "de", r"\bzeig\s+mir\s+das\s+ergebnis\b"),
     ("changes", "de", r"\bnur\s+(?:bei\s+änderung|wenn\s+(?:es\s+)?sich\s+(?:etwas\s+)?ändert)"),
     # German shows before its condition, after its comma: "immer anzeigen, wenn sich etwas ändert".
-    ("changes", "de", r"\b(?:immer|anzeigen),?\s+wenn\s+(?:es\s+)?sich\s+(?:etwas\s+)?ändert"),
+    ("condition", "de", r"\b(?:immer|anzeigen),?\s+wenn\s+(?:es\s+)?sich\s+(?:etwas\s+)?ändert"),
     ("none", "de", r"\b(?:nicht|nichts)\s+anzeigen\b"),
     ("show", "ja", r"毎回表示"),
     ("result", "ja", r"結果を表示"),
     ("changes", "ja", r"(?:変更|変化)(?:時|したとき)のみ|変わったときだけ"),
-    ("changes", "ja", r"(?:変わる|(?:変更|変化)(?:が)?ある)たびに"),
+    ("condition", "ja", r"(?:変わる|(?:変更|変化)(?:が)?ある)たびに"),
     ("none", "ja", r"表示しない|表示不要"),
     ("show", "zh", r"每次(?:运行都)?显示"),
     ("result", "zh", r"显示结果"),
     ("changes", "zh", r"(?:仅|只)在变化时"),
-    ("changes", "zh", r"每(?:次|当)(?:有|发生)?变化时?"),
+    ("condition", "zh", r"每(?:次|当)(?:有|发生)?变化时?"),
     ("none", "zh", r"不(?:用)?显示"),
     ("show", "ar", r"اعرض\s+(?:في\s+كل\s+تشغيل|دائم)"),
     ("result", "ar", r"اعرض\s+النتيجة"),
     ("changes", "ar", r"فقط\s+عند\s+التغيير"),
-    ("changes", "ar", r"(?:دائماً?\s+)?كلما\s+(?:ت|ي)?تغير|دائماً?\s+عندما\s+(?:ت|ي)?تغير"),
+    ("condition", "ar", r"(?:دائماً?\s+)?كلما\s+(?:ت|ي)?تغير|دائماً?\s+عندما\s+(?:ت|ي)?تغير"),
     ("none", "ar", r"لا\s+تعرض|بدون\s+عرض"),
 )
 # A whole zone token: never part of a longer word, path, or offset ("UTC+3" names no zone), though it may close a
@@ -421,16 +422,30 @@ def _one_clause(sentence: str, first: tuple[int, int], second: tuple[int, int]) 
     return _ALTERNATIVE_RE.search(between) is None
 
 
+def _shown(sentence: str, kind: str, span: tuple[int, int], conditions: list[tuple[int, int]]) -> str:
+    """The choice one admitted show or result reading states, "changes" when a when-it-changes condition qualifies it.
+
+    A condition qualifies a result in its own clause, and a show-every-run whose words it takes.
+    """
+    if kind == "result":
+        qualified = any(_one_clause(sentence, span, other) for other in conditions)
+    else:
+        qualified = any(span[0] < end and start < span[1] for start, end in conditions)
+    return "changes" if qualified else "show"
+
+
 def outputs(text: str) -> tuple[str, ...]:
     """Every distinct output choice one person-authored text states affirmatively, in the order first found.
 
     A "nothing" reading carries its own negation and stands; any other reading a negation reaches, in any language,
     or that overlaps a "nothing" or "negation" reading, states nothing. "Show the result" qualified by "only when it
     changes" in its own clause is that one choice, while "show the result, or only when it changes" states both.
-    "Show always" is showing it when it changes only where the condition takes its very words ("show it every time it
-    changes"); a condition elsewhere in the sentence, even in the same clause, leaves both choices for the person.
+    "Show always" is showing it when it changes only where a condition takes its very words ("show it every time it
+    changes"). A condition that qualifies no reading states nothing alone ("copy the file whenever it changes"), but
+    beside a stated show or result it is a second choice for the person.
     """
     found: list[str] = []
+    unqualified = shown = False
     for sentence in _sentences(text):
         readings = [
             (kind, language, match) for kind, language, pattern in _OUTPUTS for match in re.finditer(pattern, sentence)
@@ -445,14 +460,23 @@ def outputs(text: str) -> tuple[str, ...]:
             if kind == "none" or not any(match.start() < end and start < match.end() for start, end in blocked)
         ]
         changes = [span for kind, span in admitted if kind == "changes"]
+        conditions = [span for kind, span in admitted if kind == "condition"]
+        displays = [(kind, span) for kind, span in admitted if kind in ("show", "result")]
+        shown = shown or bool(displays)
+        unqualified = unqualified or any(
+            not any(_shown(sentence, kind, span, [condition]) == "changes" for kind, span in displays)
+            for condition in conditions
+        )
         for kind, span in admitted:
-            if kind == "result" and any(_one_clause(sentence, span, other) for other in changes):
+            if kind == "condition" or (
+                kind == "result" and any(_one_clause(sentence, span, other) for other in changes)
+            ):
                 continue
-            if kind == "show" and any(span[0] < end and start < span[1] for start, end in changes):
-                continue
-            chosen = "show" if kind == "result" else kind
+            chosen = _shown(sentence, kind, span, conditions) if kind in ("show", "result") else kind
             if chosen not in found:
                 found.append(chosen)
+    if shown and unqualified and "changes" not in found:
+        found.append("changes")
     return tuple(found)
 
 

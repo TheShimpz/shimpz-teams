@@ -7132,7 +7132,9 @@
       {"text": "اعرض دائماً كلما تغير", "outputs": ["changes"]},
       {"text": "Show every run but change the DNS record only when it changes", "outputs": ["show", "changes"]},
       {"text": "O resultado deve ser mostrado em todas as execuções.", "outputs": ["show"]},
-      {"text": "Sem o resultado ser mostrado em todas as execuções", "outputs": []}
+      {"text": "Sem o resultado ser mostrado em todas as execuções", "outputs": []},
+      {"text": "Copy the file whenever it changes.", "outputs": []},
+      {"text": "Sem o resultado ser mostrado sempre que mudar.", "outputs": []}
     ],
     "zones": [
       {"text": "Run daily at 09:00 in Europe/London.", "zones": ["Europe/London"]},

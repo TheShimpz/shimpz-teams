@@ -222,7 +222,9 @@ language rejects every reading it reaches, except that `phrase.stated(text, lang
 or a clarification the Brain's model writes in the chat's language, with only that language's negations, so
 Portuguese "no Cloudflare a cada 30 segundos" keeps its schedule. "Show the result" qualified by "only when it
 changes" in its own clause is that one choice, and so is showing it whenever it changes ("mostrar sempre que mudar"),
-while alternatives, or a condition on something else, offer both. Vectors pin a reading for each language and kind.
+while alternatives offer both. A when-it-changes condition that qualifies no show states nothing alone, since it may
+govern the work ("copy the file whenever it changes"), and beside a stated show it is a second choice. Vectors pin a
+reading for each language and kind.
 
 The Team→Brain Routine forms of a recording chat are defined here too, so the Brain mirrors them instead of copying
 them (ADR-0101). `routine_context.canonical_routine_listings` admits the Team's Routine listing: at most

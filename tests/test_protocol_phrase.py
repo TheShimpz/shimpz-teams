@@ -314,18 +314,24 @@ class StatedOutputTests(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 self.assertEqual(phrase.outputs(text), ("changes",))
-        # A condition that qualifies something else, or that is offered as an alternative, leaves both choices.
+        # Beside a stated show, a condition that qualifies something else, or is offered as an alternative, is a
+        # second choice for the person.
         for text in (
             "Show every run but change the DNS record only when it changes",
             "Show every run but change the DNS record whenever it changes",
             "Mostrar sempre, ou sempre que mudar",
+            "Mostrar sempre. Ou sempre que mudar.",
         ):
             with self.subTest(text=text):
                 self.assertEqual(set(phrase.outputs(text)), {"show", "changes"})
+        # Alone, a condition may govern the work, and a negated show is no show for it to qualify.
         for text, expected in (
+            ("Copy the file whenever it changes.", ()),
+            ("Atualize o registro sempre que mudar.", ()),
             ("Não mostrar sempre que mudar", ("none",)),
             ("Ne pas afficher toujours quand ça change", ("none",)),
             ("I don't want it every time it changes", ()),
+            ("Sem o resultado ser mostrado sempre que mudar.", ()),
             ("Mostrar sempre que mudar?", ()),
         ):
             with self.subTest(text=text):
@@ -514,6 +520,8 @@ class TeamAsksTests(unittest.TestCase):
                 self.assertIs(phrase.team_asks(text), False)
         self.assertIs(phrase.team_asks("Devo listar os registros no Cloudflare?", "pt"), False)
         self.assertIs(phrase.team_asks("¿No quieres listarlos cada 30 segundos?", "es"), False)
+        # A condition on the work asks nothing of what each run shows.
+        self.assertIs(phrase.team_asks("Which file should I copy whenever it changes?", "en"), False)
 
 
 class ZoneTokenTests(unittest.TestCase):
