@@ -44,6 +44,8 @@ stored_input_unavailable = _problem(
     _UNAVAILABLE, "Assistant Stored Input state is unavailable", "assistant-stored-input-state-unavailable"
 )
 team_context_changed = _problem(_CONFLICT, "Team capabilities changed; retry", "team-context-changed")
+# A turn or Routine run names an Assistant the Team does not run.
+assistant_unavailable = _problem(_CONFLICT, "a selected Assistant is unavailable", "assistant-unavailable")
 docker_unavailable = _problem(_UNAVAILABLE, "Docker is unavailable", "docker-unavailable")
 supervisor_unavailable = _problem(_UNAVAILABLE, "Supervisor authority state is unavailable", "supervisor-unavailable")
 ownership_conflict = _problem(_CONFLICT, "Team resource ownership conflict", "ownership-conflict")

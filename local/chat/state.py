@@ -25,6 +25,7 @@ from local.errors import (
     assistant_action_blocked,
     assistant_manifest_invalid,
     assistant_manifest_unavailable,
+    assistant_unavailable,
     inference_not_configured,
     inference_provider_mismatch,
     ownership_conflict,
@@ -113,11 +114,7 @@ def chat_setup(
         try:
             assistants = tuple(active_by_id[assistant_id] for assistant_id in assistant_ids)
         except KeyError:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "a selected Assistant is unavailable",
-                code="assistant-unavailable",
-            ) from None
+            raise assistant_unavailable() from None
         files = self._chat_file_metadata(team_id, file_ids, metadata_connection)
         config = turn_inference(self, team_id, provider)
     return team_name, network_id, assistants, files, config

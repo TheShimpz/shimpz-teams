@@ -25,6 +25,7 @@ from local.chat.types import required_active_assistant as _required_active_assis
 from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
     action_state_unavailable,
+    assistant_unavailable,
     brain_turn_failed,
     chat_stopped,
     integration_contract_unavailable,
@@ -194,9 +195,7 @@ def routine_setup(self, team_id: str, assistant_ids: tuple[str, ...]) -> tuple[s
     try:
         return team_name, network_id, tuple(active_by_id[assistant_id] for assistant_id in assistant_ids)
     except KeyError:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT, "a selected Assistant is unavailable", code="assistant-unavailable"
-        ) from None
+        raise assistant_unavailable() from None
 
 
 def routine_identity(network_id: str, assistants: tuple[_ActiveAssistant, ...]) -> tuple[object, ...]:
