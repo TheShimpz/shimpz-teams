@@ -315,15 +315,16 @@ def _transition_problem(code: str) -> ApiProblem:
 def _sealed_loss(self, team_id: str, value: record.Run) -> bool:
     """Whether an incident's cursor, under its sealed evidence's binding, records a lost protection.
 
-    The loss is sealed in the cursor before the run's state is marked, so this finds a mark that failed to land;
-    evidence that cannot be read marks nothing here.
+    The loss is sealed in the cursor before the run's state is marked, so this finds a mark that failed to land.
+    Evidence or a cursor that cannot be read is taken as lost, as a deletion takes it: a notice never says a protection
+    held that nothing could read, and the release that follows may erase the cursor that recorded it.
     """
     try:
         sealed = self.routine_store.incident(team_id, value.run_id)
         snapshot = None if sealed is None else read_evidence(sealed, value.run_id)["recovery"]
         cursor = None if snapshot is None else self.routine_store.cursor(team_id, snapshot.binding)
     except routine_store.RoutineStoreError, ApiProblem:
-        return False
+        return True
     # Evidence of another run, or a cursor of another plan, proves nothing about this run.
     bound = cursor is not None and snapshot.of_run(value.routine_id, value.generation) and snapshot.runs(cursor)
     return bound and cursor.protection_lost

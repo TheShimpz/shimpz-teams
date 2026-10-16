@@ -294,13 +294,22 @@ class AutomaticEdgeTests(AutomaticCase):
             with mock.patch.object(service.routine_store, "incident") as read:
                 routine_state.update(service, "team_1", lambda state: (state, None))
             self.assertEqual((read.call_count, record.run(self.state(service), run_id).protection_lost), (0, False))
-            # Evidence that cannot be read marks nothing; the next notice that can read it says the loss.
-            with mock.patch.object(service.routine_store, "incident", side_effect=routine_store.RoutineStoreError("x")):
-                routine_incident.pause(service, "team_1", run_id, "exhausted")
-            self.assertFalse(self.state(service).notices[-1].protection_lost)
+            # The next notice that can read it says the loss.
             routine_incident.pause(service, "team_1", run_id, "exhausted")
             state = self.state(service)
         self.assertEqual((record.run(state, run_id).protection_lost, state.notices[-1].protection_lost), (True, True))
+
+    def test_an_incidents_unreadable_evidence_or_cursor_is_taken_as_lost_on_its_notice(self) -> None:
+        # The release that follows a set-aside may erase the cursor, so a notice never says a protection held unread.
+        for name in ("incident", "cursor"):
+            with self.subTest(read=name), tempfile.TemporaryDirectory() as directory:
+                service, _value, run_id = self.held_unmarked(directory)
+                with mock.patch.object(service.routine_store, name, side_effect=routine_store.RoutineStoreError("x")):
+                    routine_incident.pause(service, "team_1", run_id, "exhausted")
+                state = self.state(service)
+                self.assertEqual(
+                    (record.run(state, run_id).protection_lost, state.notices[-1].protection_lost), (True, True)
+                )
 
     def test_setting_an_incident_aside_marks_its_sealed_loss_on_its_notice(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -316,6 +325,19 @@ class AutomaticEdgeTests(AutomaticCase):
             service, value, run_id = self.held_unmarked(directory)
             service.delete_routine("team_1", value.routine_id)
             notice = next(item for item in self.state(service).notices if item.notice_id == run_id)
+        self.assertEqual((notice.outcome, notice.protection_lost), ("user-skipped", True))
+
+    def test_setting_an_incident_aside_while_its_cursor_cannot_be_read_says_the_loss(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _value, run_id = self.held_unmarked(directory)
+            reads = mock.patch.object(service.routine_store, "cursor", side_effect=routine_store.RoutineStoreError("x"))
+            with reads:
+                routine_incident.set_aside(
+                    service, "team_1", run_id, lambda state: routine_hold.skip_incident(state, run_id, int(time.time()))
+                )
+            notice = next(item for item in self.state(service).notices if item.notice_id == run_id)
+            # Its release then erased the cursor: the notice is all that still says the loss.
+            self.assertEqual((record.incidents(self.state(service)), service.routine_store.cursors("team_1")), ((), ()))
         self.assertEqual((notice.outcome, notice.protection_lost), ("user-skipped", True))
 
 
