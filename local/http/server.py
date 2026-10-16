@@ -9,8 +9,6 @@ from http import HTTPStatus
 from http.server import ThreadingHTTPServer
 from typing import override
 
-from docker.errors import DockerException
-
 from action import human as action_human
 from core.http import strict as strict_http
 from inference import usage as brain_usage
@@ -18,8 +16,8 @@ from integrations import broker as integration_broker
 from local import activity as local_activity
 from local import audit as local_audit
 from local import authority as local_authority
+from local.errors import DOCKER_UNAVAILABLE_ERRORS, oauth_authorization_invalid, supervisor_unavailable
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import oauth_authorization_invalid, supervisor_unavailable
 from local.http import chat as local_http_chat
 from local.http import deadline as http_deadline
 from local.http import dispatch as local
@@ -510,7 +508,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
                     request_audit.record,
                     self._send,
                     ApiProblem,
-                    DockerException,
+                    DOCKER_UNAVAILABLE_ERRORS,
                 )
             finally:
                 # Opened before the in-flight count drops, so a Supervisor's work never reads as idle in between.

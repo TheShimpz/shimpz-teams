@@ -9,6 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
+import requests
 from docker.errors import APIError, DockerException, NotFound
 
 from action import failure as action_failure
@@ -444,6 +445,12 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.health()
         self.assertEqual(caught.exception.code, "docker-unavailable")
+        # docker-py raises requests' ConnectionError, an OSError and no DockerException, while its socket is down.
+        controller.client.ping.side_effect = requests.exceptions.ConnectionError("Docker socket is down")
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            controller.health()
+        self.assertEqual(caught.exception.code, "docker-unavailable")
+        controller.client.ping.side_effect = None
         controller.client.ping.return_value = True
         self.assertEqual(controller.health(), {"status": "ok"})
 

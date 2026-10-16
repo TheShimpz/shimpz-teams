@@ -4,10 +4,9 @@ import contextlib
 from collections.abc import Callable
 from http import HTTPStatus
 
-from docker.errors import DockerException
-
 from chat import progress as chat_progress
 from core.http import stdlib
+from local.errors import DOCKER_UNAVAILABLE_ERRORS
 from local.errors import ApiProblemError as ApiProblem
 from local.http import dispatch as local
 from local.http.audit import RequestAudit
@@ -66,7 +65,7 @@ def _write(handler, operation: str, team_id: str, request_audit: RequestAudit, e
 
     stdlib.dispatch(
         run,
-        classify=lambda exc: local.classify_failure(exc, ApiProblem, DockerException),
+        classify=lambda exc: local.classify_failure(exc, ApiProblem, DOCKER_UNAVAILABLE_ERRORS),
         emit=emit_failure,
         unexpected_message="internal error",
     )

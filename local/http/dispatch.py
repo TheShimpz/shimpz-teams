@@ -39,7 +39,7 @@ def failure_payload(failure: stdlib.HttpFailure, trace_id: str) -> dict[str, obj
 def classify_failure(
     exc: Exception,
     problem_type: type[Exception],
-    docker_error_type: type[Exception],
+    docker_error_type: type[Exception] | tuple[type[Exception], ...],
 ) -> stdlib.HttpFailure:
     """Project one controller exception without exposing its payload."""
     if isinstance(exc, problem_type):
@@ -65,7 +65,13 @@ def classify_failure(
     )
 
 
-def dispatch_route(route, record, send, problem_type: type[Exception], docker_error_type: type[Exception]) -> None:
+def dispatch_route(
+    route,
+    record,
+    send,
+    problem_type: type[Exception],
+    docker_error_type: type[Exception] | tuple[type[Exception], ...],
+) -> None:
     operation = "request"
     team_id = None
     assistant_id = None

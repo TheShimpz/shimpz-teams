@@ -9,6 +9,9 @@ from io import BytesIO
 from types import SimpleNamespace
 from unittest import mock
 
+import requests
+from docker.errors import DockerException
+
 from action import human as action_human
 from core.http import strict as strict_http
 from integrations import broker as integration_broker
@@ -22,6 +25,12 @@ from protocol.http.v1 import payload as http_payload
 from tests import human_request_fixtures
 
 TEST_TOKEN = "t" * 32
+# docker-py raises this, an OSError and no DockerException, while its socket is down; any other OSError is not Docker's.
+DOCKER_FAILURES = (
+    (requests.exceptions.ConnectionError("Docker socket is down"), HTTPStatus.SERVICE_UNAVAILABLE),
+    (DockerException("daemon error"), HTTPStatus.SERVICE_UNAVAILABLE),
+    (OSError("disk failed"), HTTPStatus.INTERNAL_SERVER_ERROR),
+)
 # SHA-256 of the fixture model key "a" * 32, written out so the test checks the fingerprint the boundary emits
 # instead of recomputing it from the key.
 MODEL_KEY_SHA256 = "3ba3f5f43b92602683c19aee62a20342b084dd5971ddd33808d81a328879a547"
@@ -574,6 +583,15 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             terminal = write.call_args.args[1]
             self.assertEqual((terminal["status"], terminal["body"].get("code")), (500, None))
 
+            for failure, status in DOCKER_FAILURES:
+
+                def failing(_progress, failure=failure):
+                    raise failure
+
+                local_http_stream.respond(handler, "chat", "team_1", request_audit, failing)
+                with self.subTest(failure=type(failure).__name__):
+                    self.assertEqual(write.call_args.args[1]["status"], status)
+
     def test_stream_write_failures_are_contained(self) -> None:
         handler = self.handler(controller=SimpleNamespace())
         request_audit = SimpleNamespace(record=mock.Mock(return_value="d" * 32))
@@ -856,6 +874,19 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             handler._handle()
         handler.send_response.assert_called_once_with(HTTPStatus.UNAUTHORIZED)
         self.assertIn(b"authentication required", handler.wfile.getvalue())
+
+    def test_a_lost_docker_connection_answers_docker_unavailable(self) -> None:
+        for failure, status in DOCKER_FAILURES:
+            handler = self.handler()
+            handler._authorized = mock.Mock(return_value=True)
+            handler._authorized_route = mock.Mock(side_effect=failure)
+            handler._send = mock.Mock()
+            with mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32) as record:
+                handler._handle()
+            with self.subTest(failure=type(failure).__name__):
+                self.assertEqual(handler._send.call_args.args[0], status)
+                docker = status == HTTPStatus.SERVICE_UNAVAILABLE
+                self.assertEqual(record.call_args.kwargs["detail"], "docker-error" if docker else "internal-error")
 
     def test_handle_and_method_entrypoints_delegate_once(self) -> None:
         handler = self.handler()

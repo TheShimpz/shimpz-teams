@@ -60,8 +60,8 @@ from local.chat import execution as local_chat_execution
 from local.chat import state as local_chat_state
 from local.chat.service import ChatTurnService
 from local.composition import AssistantLifecycleDependencies, ChatTurnDependencies
-from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
+    DOCKER_ERRORS,
     action_file_unavailable,
     assistant_action_blocked,
     docker_unavailable,
@@ -72,6 +72,7 @@ from local.errors import (
     file_preview_unsupported,
     team_context_changed,
 )
+from local.errors import ApiProblemError as ApiProblem
 from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
 from local.install import admission as local_snapshot_admission
 from local.install import automatic as local_automatic_updates
@@ -547,7 +548,7 @@ class LocalController:
         try:
             if self.client.ping() is not True:
                 raise DockerException("unexpected Docker ping response")
-        except DockerException as exc:
+        except DOCKER_ERRORS as exc:
             raise docker_unavailable() from exc
         return {"status": "ok"}
 
