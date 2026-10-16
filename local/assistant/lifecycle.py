@@ -99,7 +99,6 @@ def rollback_assistant_install(
     self,
     team_id: str,
     spec: AssistantSpec,
-    network,
     container,
     *,
     egress_prepared: bool,
@@ -198,7 +197,6 @@ def create_assistant_container(
         cleanup_error = self._rollback_assistant_install(
             team_id,
             spec,
-            network,
             container,
             egress_prepared=egress_prepared,
         )
@@ -464,7 +462,6 @@ def update_assistant(
             cleanup_error = self._rollback_assistant_install(
                 team_id,
                 successor,
-                network,
                 replacement,
                 egress_prepared=bool(successor.allowed_hosts),
             )

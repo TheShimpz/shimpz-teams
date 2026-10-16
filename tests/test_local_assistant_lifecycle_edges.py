@@ -67,7 +67,6 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
                 subject,
                 "team_1",
                 spec,
-                object(),
                 container,
                 egress_prepared=False,
             )
@@ -84,7 +83,6 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             subject,
             "team_1",
             spec,
-            object(),
             None,
             egress_prepared=True,
         )
