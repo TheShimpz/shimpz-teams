@@ -350,7 +350,7 @@ class DiagnosticStore:
                     continue
                 # An authentic body outside the current record shape never reads as one: the page fails closed.
                 admit = _run_document if kind == "run" else _step_document
-                if not isinstance(opened, dict) or not admit(opened, run_id):
+                if not admit(opened, run_id):
                     raise DiagnosticStoreError("Routine run record is invalid")
                 if kind == "run":
                     run = opened
