@@ -712,6 +712,24 @@ class RecordedRoutineTests(RecordingCase):
         zone_id = next(item for item in steps[1]["inputs"] if item["member"] == "zone_id")
         self.assertEqual(zone_id["value"], f'"{SHIMPZ}"')
 
+    def test_the_spans_one_repair_stays_spent_when_the_interval_is_asked_about_next(self) -> None:
+        recorded = routine_proposal._recorded
+
+        def repaired(*args):
+            # The span already asked for its one repair when it held one send.
+            return dataclasses.replace(recorded(*args), repair_from=1)
+
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, Recording(_record()))
+            with (
+                mock.patch.object(routine_definition, "capacity", return_value=2 * 2879),
+                mock.patch.object(routine_proposal, "_recorded", side_effect=repaired),
+            ):
+                asked = self.chat(service)["routine_question"]
+            span = service.routine_recordings._spans["team_1"]
+        self.assertEqual(asked["code"], "routine-interval-over-budget")
+        self.assertEqual((span.asked.code, span.asked.repair_from), ("routine-interval-over-budget", 1))
+
     def test_a_replacement_without_actions_keeps_the_steps_and_confirms_as_the_next_revision(self) -> None:
         every_hour = {"kind": "continuous", "gap": 3600}
         with tempfile.TemporaryDirectory() as directory:
