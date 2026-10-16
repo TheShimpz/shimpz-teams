@@ -540,10 +540,11 @@ def _canonical_action(
     if (
         not isinstance(integrations, list)
         or len(integrations) > 4
-        or len(integrations) != len(set(integrations))
+        # Every item is checked as a string first, so an unhashable one is refused rather than raised on.
         or any(
             not isinstance(integration_id, str) or integration_id not in declared_ids for integration_id in integrations
         )
+        or len(integrations) != len(set(integrations))
     ):
         raise ManifestError("Assistant machine contract Action integrations are invalid")
     stored_inputs = raw_action["stored_inputs"]
@@ -562,8 +563,8 @@ def _canonical_action(
     if (
         not isinstance(human_requests, list)
         or len(human_requests) > 8
+        or any(not isinstance(kind, str) or kind not in HUMAN_REQUEST_KINDS for kind in human_requests)
         or len(human_requests) != len(set(human_requests))
-        or any(kind not in HUMAN_REQUEST_KINDS for kind in human_requests)
         or sum(kind in AUTHORIZATION_REQUEST_KINDS for kind in human_requests) > 1
     ):
         raise ManifestError("Assistant machine contract Action human requests are invalid")

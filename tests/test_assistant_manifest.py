@@ -707,6 +707,11 @@ class AssistantManifestTests(unittest.TestCase):
         invalid_human = json.loads(json.dumps(valid))
         invalid_human["actions"][0]["human_requests"] = ["invalid"]
         variants.append(invalid_human)
+        # An unhashable item is refused like any other invalid one, so a staged contract never breaks the inventory.
+        for member in ("integrations", "human_requests"):
+            unhashable = json.loads(json.dumps(valid))
+            unhashable["actions"][0][member] = [[]]
+            variants.append(unhashable)
         invalid_stored_input = json.loads(json.dumps(valid))
         invalid_stored_input["actions"][0]["stored_inputs"] = ["undeclared-token"]
         variants.append(invalid_stored_input)
