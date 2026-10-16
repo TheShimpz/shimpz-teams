@@ -131,10 +131,6 @@ class Plan:
     # What a completed run does with its result: {"mode": a protocol output mode, "step": the shown step id or None}.
     output: Mapping[str, object]
 
-    def position(self, step_id: str) -> int:
-        """A step's 1-based position, which names it on the wire (ADR-0092 amendment, 2026-10-05, scale)."""
-        return next(index for index, step in enumerate(self.steps, start=1) if step.step_id == step_id)
-
     def shown(self) -> Step | None:
         """The step whose result a completed run shows, or None when the plan shows none."""
         if self.output["mode"] not in http_routine.SHOWN_MODES:

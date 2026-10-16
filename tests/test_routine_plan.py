@@ -564,7 +564,6 @@ class ScaleTests(unittest.TestCase):
         # An optional member is present only where the plan sets it; nothing fills one in.
         members = [sorted(step.inputs) for step in plan.steps]
         self.assertEqual(members, [["count", "title"], ["note", "title"], ["title"]])
-        self.assertEqual([plan.position(step.step_id) for step in plan.steps], [1, 2, 3])
         # A required member is never defaulted: a step without it is refused.
         missing = {**document, "steps": [*steps, self._publish("fourth", count={"kind": "literal", "value": 4})]}
         with self.assertRaises(routine_plan.PlanError) as caught:
@@ -578,7 +577,7 @@ class ScaleTests(unittest.TestCase):
         ]
         document = {**_document(steps=steps), "output": {"mode": "changes", "step": "s255"}}
         plan = routine_plan.admit(document, CONTRACTS)
-        self.assertEqual((len(plan.steps), plan.position("s255"), plan.shown().step_id), (256, 256, "s255"))
+        self.assertEqual((len(plan.steps), plan.shown().step_id), (256, "s255"))
         self.assertTrue(routine_plan.well_formed(document))
         over = {
             **document,
