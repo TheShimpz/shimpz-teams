@@ -12,12 +12,14 @@ from http import HTTPStatus
 import requests
 from docker.errors import DockerException
 
-# What a Docker call raises when the daemon cannot answer: docker-py raises requests' ConnectionError, an OSError and no
-# DockerException, while its socket is down. A caller of one Docker call catches all of these.
+# What a Docker call raises when the daemon cannot answer: docker-py raises requests' errors, such as ConnectionError
+# while its socket is down or ReadTimeout when it does not answer in time, which are OSErrors and no DockerException. A
+# caller of one Docker call catches all of these.
 DOCKER_ERRORS = (DockerException, OSError)
-# What a request that failed anywhere answers as Docker unavailable: a Docker error or a lost Docker connection. Team
-# makes no other requests call; any other OSError is not known to be Docker's, so it stays an internal error.
-DOCKER_UNAVAILABLE_ERRORS = (DockerException, requests.exceptions.ConnectionError)
+# What a request that failed anywhere answers as Docker unavailable: a Docker error or any requests error. Team makes no
+# requests call of its own, so only docker-py raises one; any other OSError is not known to be Docker's, so it stays an
+# internal error.
+DOCKER_UNAVAILABLE_ERRORS = (DockerException, requests.exceptions.RequestException)
 
 _CONFLICT = HTTPStatus.CONFLICT
 _NOT_FOUND = HTTPStatus.NOT_FOUND

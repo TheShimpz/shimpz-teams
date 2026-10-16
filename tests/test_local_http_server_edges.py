@@ -25,9 +25,11 @@ from protocol.http.v1 import payload as http_payload
 from tests import human_request_fixtures
 
 TEST_TOKEN = "t" * 32
-# docker-py raises this, an OSError and no DockerException, while its socket is down; any other OSError is not Docker's.
+# docker-py raises requests' errors, OSErrors and no DockerException, on a lost or slow socket; Team makes no other
+# requests call, and any other OSError is not Docker's.
 DOCKER_FAILURES = (
     (requests.exceptions.ConnectionError("Docker socket is down"), HTTPStatus.SERVICE_UNAVAILABLE),
+    (requests.exceptions.ReadTimeout("Docker did not answer in time"), HTTPStatus.SERVICE_UNAVAILABLE),
     (DockerException("daemon error"), HTTPStatus.SERVICE_UNAVAILABLE),
     (OSError("disk failed"), HTTPStatus.INTERNAL_SERVER_ERROR),
 )
