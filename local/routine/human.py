@@ -117,7 +117,7 @@ def _current_context(
     team_id: str,
     value: record.Run,
     pending: local_chat_continuations.PendingLocalChat,
-    requirement: action_challenges.HumanRequirement | None = None,
+    requirement: action_challenges.HumanRequirement | None,
 ) -> tuple[object, ...]:
     """The Team must still be exactly as the run left it; otherwise the run ends and nothing replays.
 

@@ -309,7 +309,7 @@ def _call_verifier(self, team_id: str, token: str, assessment: Assessment, reque
     return runtime.result if isinstance(result.outcome, chat_orchestrator.ChatOutcome) else None
 
 
-def _judge(self, team_id: str, assessment: Assessment, result: object, protected: tuple[str, ...] | None = None) -> str:
+def _judge(self, team_id: str, assessment: Assessment, result: object, protected: tuple[str, ...] | None) -> str:
     """Admit the verifier's evidence: complete the step on occurrence, record proven absence, else inconclusive."""
     verifier, cursor = assessment.action.verifier, assessment.cursor
     try:

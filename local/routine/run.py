@@ -195,7 +195,7 @@ def complete(self, run: LeasedRun, value: record.Run, shown: dict[str, object] |
 
 
 def finished(
-    self, run: LeasedRun, value: record.Run, sealed_done: Callable[[], bool], shown: dict[str, object] | None = None
+    self, run: LeasedRun, value: record.Run, sealed_done: Callable[[], bool], shown: dict[str, object] | None
 ) -> str:
     """A replayed run completed every step: commit its end exactly when Stop did not win it; no model is asked.
 
