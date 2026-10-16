@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from core import base64url, identifier
+from integrations import http as integration_http
 from integrations import providers as integration_providers
 from protocol.http.v1 import payload as http_payload
 
@@ -91,18 +92,9 @@ class _PendingChallenge:
 
 
 def _session_digest(value: object) -> bytes:
-    if isinstance(value, str):
-        try:
-            encoded = value.encode("ascii")
-        except UnicodeError as exc:
-            raise OAuthChallengeError("OAuth session binding is invalid") from exc
-    elif isinstance(value, bytes):
-        encoded = value
-    else:
+    if not integration_http.is_token(value, maximum=2048):
         raise OAuthChallengeError("OAuth session binding is invalid")
-    if not 16 <= len(encoded) <= 2048 or any(byte <= 32 or byte >= 127 for byte in encoded):
-        raise OAuthChallengeError("OAuth session binding is invalid")
-    return hashlib.sha256(b"shimpz-oauth-session-v1\0" + encoded).digest()
+    return hashlib.sha256(b"shimpz-oauth-session-v1\0" + value.encode("ascii")).digest()
 
 
 def _team_id(value: object) -> str:

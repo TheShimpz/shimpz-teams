@@ -161,10 +161,6 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
         self.assertEqual(store.cancel_all(), 0)
 
     def test_session_state_and_constructor_shape_edges_fail_closed(self) -> None:
-        self.assertEqual(
-            integration_pkce._session_digest(SESSION_ONE.encode("ascii")),
-            integration_pkce._session_digest(SESSION_ONE),
-        )
         for value in ("\ud800" * 16, object()):
             with (
                 self.subTest(value=type(value).__name__),
