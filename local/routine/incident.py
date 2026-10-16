@@ -240,18 +240,23 @@ def _deleting(state: record.TeamRoutines, routine_id: str) -> bool:
     return any(item.routine_id == routine_id and item.deleting for item in state.routines)
 
 
-def _lost(team_id: str, run_id: str) -> None:
-    """Audit what a Routine being deleted could not read of one run, which its deletion treats as lost.
+def _audit_error(operation: str, team_id: str, run_id: str) -> None:
+    """Audit one of Team's own Routine failures as Team, so it holds in a request and in the watchdog alike.
 
-    A failed audit never keeps the deletion waiting; the fallback log names only the event and the failure's type.
+    A failed audit never keeps the caller waiting; the fallback log names only the event and the failure's type.
     """
     try:
-        local_audit.record("routine-evidence-lost", result="error", principal=_TEAM, team_id=team_id, detail=run_id)
+        local_audit.record(operation, result="error", principal=_TEAM, team_id=team_id, detail=run_id)
     except RuntimeError as exc:
         failure = type(exc).__name__
     else:
         return
-    log.error("Routine incident could not audit routine-evidence-lost (%s)", failure)
+    log.error("Routine incident could not audit %s (%s)", operation, failure)
+
+
+def _lost(team_id: str, run_id: str) -> None:
+    """Audit what a Routine being deleted could not read of one run, which its deletion treats as lost."""
+    _audit_error("routine-evidence-lost", team_id, run_id)
 
 
 def _held_step(self, team_id: str, snapshot: Recovery | None, *, deleting: bool) -> routine_hold.HeldStep:
@@ -415,7 +420,7 @@ def seal_terminal(self, team_id: str, run_id: str, snapshot: Recovery | None) ->
     try:
         self.routine_diagnostics.record_run(team_id, binding.incarnation, terminal)
     except routine_diagnostics.DiagnosticStoreError:
-        local_audit.record_request("routine-run-record", result="error", team_id=team_id, detail=run_id)
+        _audit_error("routine-run-record", team_id, run_id)
 
 
 def unresolved(self, team_id: str, incident_id: str) -> record.Run:

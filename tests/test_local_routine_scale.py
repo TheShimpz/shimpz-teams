@@ -231,9 +231,11 @@ class StepRecordEdgeTests(RoutineServiceCase):
             service.routine_diagnostics = mock.Mock(
                 record_run=mock.Mock(side_effect=routine_diagnostics.DiagnosticStoreError("down"))
             )
-            with mock.patch.object(routine_incident.local_audit, "record_request") as audited:
+            # The watchdog seals a recovered run's record with no request principal bound, so Team audits as itself.
+            with mock.patch.object(routine_incident.local_audit, "record") as audited:
                 routine_incident.seal_terminal(service, "team_1", "e" * 32, snapshot)
             self.assertEqual(audited.call_args.args[0], "routine-run-record")
+            self.assertEqual(audited.call_args.kwargs["principal"], routine_incident._TEAM)
             # A recovery snapshot that cannot be read proves nothing, so none is kept.
             with mock.patch.object(service.routine_store, "recovery", return_value=b"not json"):
                 self.assertIsNone(routine_manage._snapshot(service, "team_1", "e" * 32))
