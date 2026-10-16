@@ -134,7 +134,7 @@ def _pause(handler, route: strict_http.ControllerRouteMatch, team_id: str, pause
 
 
 def _proposal(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
-    """A person's answer to a recorded Routine's card: Criar rotina with an empty body, or Cancelar as a DELETE."""
+    """A person's answer to a recorded Routine's card: a confirmation with an empty body, or a revocation by DELETE."""
     proposal_id = route.params["proposal_id"]
     if http_routine.ROUTINE_ID_RE.fullmatch(proposal_id) is None:
         raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine card is unavailable", code="routine-proposal-expired")

@@ -231,7 +231,7 @@ def canonical_refusal(value: object) -> dict[str, str] | None:
     return {"code": value["code"]}
 
 
-# A person's answer to a card: Criar rotina creates or changes the Routine; Cancelar revokes the card.
+# A person's answer to a card: confirming it creates or changes the Routine; revoking it drops the card.
 PROPOSAL_STATUSES = ("created", "changed", "revoked")
 
 

@@ -264,7 +264,7 @@ language and its offset in days, such as `{D month YYYY|pt}` or `{DD/MM/YYYY|+6}
 `step`, an earlier step's position and RFC 6901 pointer; or `selector`, the same through the one array item whose
 `where` member (`{member, value_json}`, the constant's JSON text as `routine.where_text` escapes it) matches, then that
 item's own pointer. A Supervisor answers the card once: `POST /v1/teams/:team_id/routines/proposals/:proposal_id` with `{}`
-(Criar rotina) creates or changes the Routine, and `DELETE` on the same path (Cancelar) revokes the card; both answer
+confirms it, which creates or changes the Routine, and `DELETE` on the same path revokes the card; both answer
 `routine_proposal.canonical_proposal_answer`, `{team_id, proposal_id, routine_id, status}` with status `created`, `changed`, or
 `revoked` (whose `routine_id` is `null`). A revoked or already-consumed card is answered as such, never twice applied.
 

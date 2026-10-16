@@ -509,7 +509,7 @@ def _commit(self, proposal: Proposal, principal: str) -> str:
 
 
 def confirm(self, team_id: str, proposal_id: str) -> dict[str, object]:
-    """Criar rotina: consume the person's card, recheck everything it is bound to, and commit its Routine."""
+    """Confirm the person's card: consume it, recheck everything it is bound to, and commit its Routine."""
     team_id, principal = validate_team_id(team_id), _principal()
     with self._lock(team_id):
         proposal = self.routine_proposals.take(team_id, proposal_id, principal)
@@ -532,7 +532,7 @@ def confirm(self, team_id: str, proposal_id: str) -> dict[str, object]:
 
 
 def revoke(self, team_id: str, proposal_id: str) -> dict[str, object]:
-    """Cancelar: drop the person's card; one already gone is already revoked, unless it was confirmed.
+    """Revoke the person's card: drop it; one already gone is already revoked, unless it was confirmed.
 
     A card confirmed first answers with the Routine its confirmation committed, so a cancel sent after a confirmation
     whose answer was lost never reports a Routine that exists as cancelled.
