@@ -40,8 +40,6 @@ from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import preview as http_preview
 
 MAX_API_RESPONSE_BYTES = 128 * 1024
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
-MAX_FILE_BODY_BYTES = MAX_UPLOAD_BYTES
 REQUEST_TIMEOUT_SECONDS = 10
 _FILE_UPLOAD_SLOTS = threading.BoundedSemaphore(1)
 _MACHINE_ONLY_OPERATIONS = frozenset(
@@ -180,7 +178,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
         self._captured_file_metadata = None
         try:
             captured = strict_http.capture_body(
-                self.headers, self.rfile, operation, _JSON_BODY_LIMITS, MAX_FILE_BODY_BYTES
+                self.headers, self.rfile, operation, _JSON_BODY_LIMITS, http_payload.MAX_FILE_UPLOAD_BYTES
             )
         except strict_http.HttpContractError as exc:
             raise ApiProblem(exc.status, exc.message, code=exc.code) from exc
