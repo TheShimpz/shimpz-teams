@@ -200,7 +200,6 @@ class StaticTeamImageContractTests(unittest.TestCase):
         self.assertEqual(root_copy_sources, modules | ROOT_RUNTIME_DATA)
         modeled_destinations = {
             "./",
-            "/opt/venv",
             "./protocol/action/v1/",
             "./protocol/assistant/v1/validators/",
             "./protocol/http/v1/",
