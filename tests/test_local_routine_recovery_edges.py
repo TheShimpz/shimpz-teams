@@ -2,6 +2,7 @@
 
 import dataclasses
 import tempfile
+import time
 from types import SimpleNamespace
 from unittest import mock
 
@@ -157,6 +158,62 @@ class ContinuationEdgeTests(RecoveryCase):
             generation = routine_claim.generation_for(cursor.binding.incarnation, run_id)
             routine_manage._discard(service, "team_1", run_id, generation, incident=False, live=True)
             self.assertIsNotNone(service.routine_store.cursor("team_1", cursor.binding))
+
+    def test_a_drain_treats_a_held_run_resumed_after_its_first_read_as_live(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
+            incarnation = self.cursor(service, run_id).binding.incarnation
+            held = routine_claim.generation_for(incarnation, run_id)
+            continuation = routine_claim.generation_for(incarnation, run_id, "s1")
+            # The hold's removal is still queued, as it is until its drain runs.
+            service.routine_store.update(
+                "team_1", lambda current: (dataclasses.replace(current, discards=((run_id, held),)), None)
+            )
+            snapshot = routine_incident.open_recovery(service, "team_1", run_id).recovery
+            load = routine_manage.routine_state.load
+            resumed: list[str] = []
+
+            def stale(*args):
+                state = load(*args)
+                if not resumed:
+                    # The run resumes after the drain read which removals are queued, before it acts on them.
+                    resumed.append(
+                        service.routine_store.update(
+                            "team_1",
+                            lambda current: routine_hold.reopen_incident(
+                                current, run_id, int(time.time()), continuation
+                            ),
+                        )
+                    )
+                    # Its continuation seals the run's recovery snapshot again before it dispatches.
+                    routine_incident.seal_recovery(service, "team_1", snapshot)
+                return state
+
+            with mock.patch.object(routine_manage.routine_state, "load", side_effect=stale):
+                routine_manage.drain(service, "team_1")
+            state = self.state(service)
+            batch = service.action_state.current_batch(held)
+            recovery = service.routine_store.recovery("team_1", run_id)
+        self.assertEqual(record.run(state, run_id).status, "leased")
+        # The old generation went whole, archive marker included, and the live continuation kept its snapshot.
+        self.assertEqual((state.discards, batch), ((), None))
+        self.assertIsNotNone(recovery)
+
+    def test_a_drain_skips_a_removal_another_drain_finished_after_its_first_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
+            queued = self.state(service)
+            held = routine_claim.generation_for(self.cursor(service, run_id).binding.incarnation, run_id)
+            with (
+                mock.patch.object(
+                    routine_manage.routine_state,
+                    "load",
+                    side_effect=[dataclasses.replace(queued, discards=((run_id, held),)), queued],
+                ),
+                mock.patch.object(routine_manage, "_discard") as discard,
+            ):
+                routine_manage.drain(service, "team_1")
+        discard.assert_not_called()
 
     def test_a_carried_operation_is_never_retried_without_proven_absence(self) -> None:
         seal = SimpleNamespace(

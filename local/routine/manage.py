@@ -139,14 +139,19 @@ def drain(self, team_id: str) -> None:
     A run's end queues its removal in the same write that ends it, so nothing it held is lost to a crash, and nothing
     is removed while the run could still resume.
     """
-    state = routine_state.load(self, team_id)
-    incidents = {item.run_id for item in record.incidents(state)}
-    live = {item.run_id for item in record.live_runs(state)}
-    for run_id, generation in state.discards:
-        _discard(self, team_id, run_id, generation, incident=run_id in incidents, live=run_id in live)
-        routine_state.update(
-            self, team_id, lambda state, run=run_id, held=generation: (record.discarded(state, run, held), None)
-        )
+    for run_id, generation in routine_state.load(self, team_id).discards:
+        # Each removal acts on the state as it is under the Team's Routine lock, so a held run resumed since the first
+        # read is treated as the live run it now is, and a removal another drain finished is not repeated.
+        with self.routine_store.lock(team_id):
+            state = routine_state.load(self, team_id)
+            if (run_id, generation) not in state.discards:
+                continue
+            incident = any(item.run_id == run_id for item in record.incidents(state))
+            live = any(item.run_id == run_id for item in record.live_runs(state))
+            _discard(self, team_id, run_id, generation, incident=incident, live=live)
+            routine_state.update(
+                self, team_id, lambda state, run=run_id, held=generation: (record.discarded(state, run, held), None)
+            )
 
 
 def settle(self, team_id: str, routine_id: str) -> bool:
