@@ -93,6 +93,11 @@ integration_contract_unavailable = _problem(
 )
 team_destroy_failed = _problem(_UNAVAILABLE, "Docker could not destroy the Team", "docker-remove-failed")
 assistant_replace_failed = _problem(_UNAVAILABLE, "Docker could not replace the Assistant", "docker-remove-failed")
+assistant_install_rollback_incomplete = _problem(
+    HTTPStatus.INTERNAL_SERVER_ERROR,
+    "Assistant install rollback is incomplete",
+    "assistant-install-rollback-incomplete",
+)
 chat_stop_timeout = _problem(_CONFLICT, "active Team chat did not stop in time", "chat-active")
 routine_active = _problem(_CONFLICT, "Team is running a Routine", "routine-active")
 chat_active = _problem(_CONFLICT, "Team already has an active chat turn", "chat-active")

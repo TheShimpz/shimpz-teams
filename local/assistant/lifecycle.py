@@ -13,7 +13,13 @@ from assistant import manifest as assistant_manifest
 from install import bindings, icons
 from local.assistant import isolation as local_container_policy
 from local.chat.types import ActiveAssistant as _ActiveAssistant
-from local.errors import DOCKER_ERRORS, assistant_icon_unavailable, assistant_registry_drift, assistant_replace_failed
+from local.errors import (
+    DOCKER_ERRORS,
+    assistant_icon_unavailable,
+    assistant_install_rollback_incomplete,
+    assistant_registry_drift,
+    assistant_replace_failed,
+)
 from local.errors import ApiProblemError as ApiProblem
 from local.install import snapshots as local_snapshots
 from local.install.runtime import AssistantSpec
@@ -120,12 +126,16 @@ def rollback_assistant_install(
         except ApiProblem:
             incomplete = True
     if incomplete:
-        return ApiProblem(
-            HTTPStatus.INTERNAL_SERVER_ERROR,
-            "Assistant install rollback is incomplete",
-            code="assistant-install-rollback-incomplete",
-        )
+        return assistant_install_rollback_incomplete()
     return None
+
+
+def _created_container_absent(self, team_id: str, spec: AssistantSpec) -> bool:
+    """Prove a failed create left no container: Docker can create one and still fail to answer."""
+    try:
+        return self._assistant_container(team_id, spec.assistant_id, required=False) is None
+    except ApiProblem:
+        return False
 
 
 def create_assistant_container(
@@ -194,6 +204,8 @@ def create_assistant_container(
         self._wait_ready(container, spec)
         self._active_assistant_genesis(_ActiveAssistant(spec, container.id, container))
     except (ApiProblem, *DOCKER_ERRORS) as exc:
+        if container is None and not _created_container_absent(self, team_id, spec):
+            raise assistant_install_rollback_incomplete() from exc
         cleanup_error = self._rollback_assistant_install(
             team_id,
             spec,
