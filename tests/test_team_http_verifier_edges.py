@@ -387,6 +387,23 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
 
         self._assert_vector_mutations_refused(missing_words, drifted_word, drifted_tokens, refusal=SystemExit)
 
+    def test_rejects_a_dropped_supervisor_frame_or_chat_stream_vector_section(self) -> None:
+        def dropped(section: str, member: str | None = None) -> object:
+            def mutate(value: dict[str, object]) -> None:
+                if member is None:
+                    value.pop(section)
+                else:
+                    value[section].pop(member)
+
+            return mutate
+
+        self._assert_vector_mutations_refused(
+            dropped("local_supervisor", "valid"),
+            dropped("local_supervisor", "invalid"),
+            *(dropped(section) for section in ("frames", "human_response_frames", "chat_stream", "chat_stream_lines")),
+            refusal=SystemExit,
+        )
+
     def test_rejects_a_positive_supervisor_vector_that_is_not_canonical(self) -> None:
         from protocol.http.v1 import supervisor
 

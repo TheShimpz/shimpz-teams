@@ -52,11 +52,16 @@ if not isinstance(vectors, dict) or vectors.get("version") != 1:
     fail("Team HTTP vectors have an invalid root")
 if vectors.get("headers") != {"local_supervisor": supervisor.ASSERTION_HEADER}:
     fail("Team HTTP header vector differs")
+for section in ("frames", "human_response_frames", "chat_stream", "chat_stream_lines"):
+    if not vectors.get(section):
+        fail(f"Team HTTP {section} vectors are missing")
 supervisor_vectors = vectors.get("local_supervisor", {})
-for case in supervisor_vectors.get("valid", []):
+if not supervisor_vectors.get("valid") or not supervisor_vectors.get("invalid"):
+    fail("Team HTTP Local Supervisor vectors are missing")
+for case in supervisor_vectors["valid"]:
     if supervisor.canonical_claims(case) != case:
         fail("Team HTTP Local Supervisor positive vector differs")
-for case in supervisor_vectors.get("invalid", []):
+for case in supervisor_vectors["invalid"]:
     try:
         supervisor.canonical_claims(case)
     except supervisor.SupervisorAssertionError:
@@ -78,7 +83,7 @@ for case in routine_vectors["invalid"]:
     except supervisor.SupervisorAssertionError:
         continue
     fail("Team HTTP Local Routine negative vector differs")
-for case in vectors.get("frames", []):
+for case in vectors["frames"]:
     message = dict(case["message"])
     if "bytes_hex" in message:
         message["bytes"] = bytes.fromhex(message.pop("bytes_hex"))
@@ -91,7 +96,7 @@ for case in vectors.get("frames", []):
         if not case["valid"] or value != case["value"]:
             fail(f"Team HTTP frame vector differs: {case['name']}")
 
-for case in vectors.get("human_response_frames", []):
+for case in vectors["human_response_frames"]:
     try:
         value = websocket.canonical_human_response(case["frame"])
     except websocket.FrameError:
@@ -101,7 +106,7 @@ for case in vectors.get("human_response_frames", []):
         if not case["valid"] or value != case["frame"]:
             fail(f"Team HTTP human response vector differs: {case['name']}")
 
-for case in vectors.get("chat_stream", []):
+for case in vectors["chat_stream"]:
     try:
         value = progress.canonical_record(case["record"])
     except progress.ProgressContractError:
@@ -111,7 +116,7 @@ for case in vectors.get("chat_stream", []):
         if not case["valid"] or value != case["record"]:
             fail(f"Team HTTP chat stream vector differs: {case['name']}")
 
-for case in vectors.get("chat_stream_lines", []):
+for case in vectors["chat_stream_lines"]:
     if case.get("generated") == "over-max-line":
         raw = b"{}" + (b" " * progress.MAX_LINE_BYTES) + b"\n"
     else:
