@@ -146,10 +146,7 @@ class RecordingTests(LocalContractCase):
         return controller, books, recording
 
     def test_a_successful_call_is_an_occurrence(self) -> None:
-        seen: list[object] = []
-
-        def invoke(_team, _assistant, _action, _payload, evidence):
-            seen.append(evidence)
+        def invoke(_team, _assistant, _action, _payload, _evidence):
             return {"result": LOOKUP_RESULT}
 
         with tempfile.TemporaryDirectory() as directory:
@@ -158,8 +155,7 @@ class RecordingTests(LocalContractCase):
             found = books.get("team_1", recording)
         (occurrence,) = found.sends[-1].occurrences
         self.assertEqual(
-            (occurrence.assistant, occurrence.action, occurrence.read_only, occurrence.operation_id),
-            ("shimpz-cloudflare", LIST.action, True, seen[0].operation_id),
+            (occurrence.assistant, occurrence.action, occurrence.read_only), ("shimpz-cloudflare", LIST.action, True)
         )
         self.assertEqual((occurrence.input.value, occurrence.result.value), (LOOKUP_INPUT, LOOKUP_RESULT))
         self.assertRegex(occurrence.pin, r"\Asha256:[0-9a-f]{64}\Z")

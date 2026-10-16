@@ -488,7 +488,7 @@ def _run_chat_segment_with_metadata(
 
         if request.routine is None and request.recording is not None:
             # A recording turn keeps every successful call, and protects what it was given and returned (ADR-0101).
-            call = (active, action_request, evidence, routine_diagnostics.protected(evidence))
+            call = (active, action_request, routine_diagnostics.protected(evidence))
             return routine_recorder.recorded(
                 self.routine_recordings, (request.team_id, request.recording), call, invoke
             )

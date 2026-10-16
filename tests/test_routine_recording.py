@@ -85,10 +85,9 @@ OWNER = http_payload.compose_clarified(
 )
 ZONES_CALL = ("cloudflare/list-zones", {}, ZONES)
 RECORDS = ("cloudflare/list-dns-records", {"zone_id": SHIMPZ_ID}, {"result": [{"type": "A"}]})
-_SEQUENCE = iter(range(10**9))
 
 
-def _occurrence(call: tuple, started_at: int) -> trace.Occurrence:
+def _occurrence(call: tuple) -> trace.Occurrence:
     """One successful call: (assistant/action, input, result[, kept input])."""
     name, given, result = call[:3]
     assistant, action = name.split("/")
@@ -96,12 +95,10 @@ def _occurrence(call: tuple, started_at: int) -> trace.Occurrence:
     kept_input = call[3] if len(call) > 3 else trace.keep(given, contract.input_schema, ())
     output_schema = ZONES_OUT if action == "list-zones" else {}
     return trace.Occurrence(
-        operation_id=f"6f1c2b8e-3a4d-4c5e-9f60-{next(_SEQUENCE):012d}",
         assistant=assistant,
         action=action,
         pin=contract.pin,
         read_only=contract.read_only,
-        dispatched_at=started_at,
         input=kept_input,
         result=result if isinstance(result, trace.Kept) else trace.keep(result, output_schema, ()),
     )
@@ -118,7 +115,7 @@ def _send(
     lines = tuple(
         line for entry in window for segment in http_payload.authored_segments(entry) for line in segment.split("\n")
     )
-    occurrences = tuple(_occurrence(call, started_at) for call in calls)
+    occurrences = tuple(_occurrence(call) for call in calls)
     person = http_payload.authored_segments(message)
     return recording.Send(message, person, lines, timezone, started_at, occurrences, locale=locale)
 

@@ -25,12 +25,10 @@ from routine import recording as routine_recording
 
 def _occurrence(size: int = 0) -> trace.Occurrence:
     return trace.Occurrence(
-        "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
         ASSISTANT,
         "list-zones",
         "sha256:" + "a" * 64,
         True,
-        1,
         trace.keep({}, {}, ()),
         trace.keep("x" * size, {}, ()),
     )

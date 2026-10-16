@@ -18,12 +18,10 @@ CREDENTIAL = "sk-" + "A1b2C3d4" * 6
 
 def _occurrence(**changes: object) -> trace.Occurrence:
     values = {
-        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
         "assistant": "cloudflare",
         "action": "list-zones",
         "pin": "sha256:" + "a" * 64,
         "read_only": True,
-        "dispatched_at": 1_760_000_000,
         "input": trace.keep({}, {}, ()),
         "result": trace.keep({"zones": []}, SECRET_SCHEMA, ()),
     }

@@ -416,15 +416,14 @@ class AnsweredRuntime:
 def recorded(book: RecordingBook, recording: tuple[str, str], call: tuple, invoke: Callable[[], object]) -> object:
     """Run one Action call of a recording send, keeping it as an occurrence when it succeeds.
 
-    ``call`` is the active Assistant, the Action request, the attempt's evidence, and the values Team injected into it.
+    ``call`` is the active Assistant, the Action request, and the values Team injected into it.
     Those values are protected before the RPC; the result's secret strings are protected before the result goes on.
     The Action's own errors pass through, and a failed call is never an occurrence.
     """
     team_id, recording_id = recording
-    active, action_request, evidence, injected = call
+    active, action_request, injected = call
     action = active.spec.actions[action_request.action]
     book.protect(team_id, recording_id, injected)
-    dispatched_at = int(time.time())
     result = invoke()
     book.protect(team_id, recording_id, trace.secret_values(result, action.output_schema))
     found = book.get(team_id, recording_id)
@@ -433,12 +432,10 @@ def recorded(book: RecordingBook, recording: tuple[str, str], call: tuple, invok
         action_request.action
     ]
     occurrence = trace.Occurrence(
-        evidence.operation_id,
         active.spec.assistant_id,
         action_request.action,
         pin,
         action.effect == action_effect.READ_ONLY,
-        dispatched_at,
         trace.keep(dict(action_request.input), action.input_schema, protected),
         trace.keep(result, action.output_schema, protected),
     )

@@ -180,13 +180,11 @@ def kept_bytes(kept: Kept) -> int:
 class Occurrence:
     """One successful Action call of a recording turn, in the order Team dispatched it."""
 
-    operation_id: str
     assistant: str
     action: str
     pin: str
     # Whether the reviewed contract proves the Action read-only; anything not proven is a change.
     read_only: bool
-    dispatched_at: int
     input: Kept
     result: Kept
     # The encoded size of its kept input and result, derived when it is made.
