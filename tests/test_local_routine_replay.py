@@ -722,7 +722,7 @@ class RuntimeTests(ReplayRunCase):
             with self.assertRaises(routine_replay.ReplayError) as undispatched:
                 replay.failed(foreign, None, RuntimeError("x"))
             self.assertEqual(undispatched.exception.code, "cursor-not-dispatched")
-            first = replay.start(None, "")
+            first = replay.start(None, "", conversation=())
             with self.assertRaises(routine_replay.ReplayError) as invalid:
                 replay.dispatching(first.actions[0], "not-an-operation")
             self.assertEqual(invalid.exception.code, "cursor-dispatch-invalid")
@@ -733,7 +733,7 @@ class RuntimeTests(ReplayRunCase):
             skipped = routine_cursor.Cursor(replay.cursor.binding, replay.cursor.plan, replay.cursor.started_at, 1)
             replay.cursor = skipped
             with self.assertRaises(routine_replay.ReplayError) as missing:
-                replay.start(None, "")
+                replay.start(None, "", conversation=())
             self.assertEqual(missing.exception.code, "plan-reference-missing")
             with (
                 mock.patch.object(
@@ -822,7 +822,7 @@ class ShownResultTests(ReplayRunCase):
     def shown_runtime(self, service, value: record.Routine) -> routine_replay.ReplayRuntime:
         replay = self.runtime(service, value)
         replay.seal(dataclasses.replace(replay.cursor, step=1, selected=(("zones", "/zones/0/id", "", "", ZONE),)))
-        request = replay.start(None, "").actions[0]
+        request = replay.start(None, "", conversation=()).actions[0]
         replay.dispatching(request, self.OPERATION)
         return replay
 

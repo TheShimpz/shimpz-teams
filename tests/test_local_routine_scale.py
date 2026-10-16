@@ -251,7 +251,7 @@ class StepRecordEdgeTests(RoutineServiceCase):
             _controller, service = self.service(directory, Runtime())
             value = self.routine(service)
             runtime = self.runtime(service, value, mock.Mock(record_step=lambda *args: kept.append(args[2])))
-            request = runtime.start(None, "").actions[0]
+            request = runtime.start(None, "", conversation=()).actions[0]
             # The Action returned 500 ms after it started; sealing and projecting it later never counts.
             with mock.patch.object(routine_replay, "_STEP_CLOCK", side_effect=[10.0, 10.5]):
                 runtime.dispatching(request, operation)
@@ -272,7 +272,7 @@ class StepRecordEdgeTests(RoutineServiceCase):
             run = routine_run.LeasedRun("team_1", claim["run_id"], lease, "token", value)
             # Stop raises out of the Action's call itself; its time still ends there, before the segment unwinds.
             runtime = self.runtime(service, value, mock.Mock(record_step=lambda *args: kept.append(args[2])))
-            request = runtime.start(None, "").actions[0]
+            request = runtime.start(None, "", conversation=()).actions[0]
 
             def cut() -> object:
                 raise chat_orchestrator.ChatStoppedError("chat turn stopped")
@@ -322,7 +322,7 @@ class ProtectionLossTests(RoutineServiceCase):
             reopened = routine_replay.runtime(service, "team_1", run, value)
             self.assertTrue(reopened.cursor.protection_lost)
             self.assertTrue(record.run(self.state(service), claim["run_id"]).protection_lost)
-            request = reopened.start(None, "").actions[0]
+            request = reopened.start(None, "", conversation=()).actions[0]
             reopened.dispatching(request, operation)
             turn = reopened.resume(None, {request.interrupt_id: LOOKUP_RESULT})
             # Protecting more never regains it, and the loss is sealed once.
@@ -347,7 +347,7 @@ class ProtectionLossTests(RoutineServiceCase):
             _controller, service = self.service(directory, Runtime())
             value = self.routine(service)
             runtime = self.runtime(service, value, store)
-            request = runtime.start(None, "").actions[0]
+            request = runtime.start(None, "", conversation=()).actions[0]
             runtime.dispatching(request, operation)
             with (
                 mock.patch.object(routine_replay.routine_diagnostics, "protected", return_value=()),

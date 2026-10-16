@@ -177,7 +177,7 @@ class ReplayRuntime:
             raise ReplayError("routine-cursor-unavailable") from exc
         self.cursor = cursor
 
-    def start(self, _context, _message, *, conversation=()) -> brain_runtime_client.RuntimeTurn:
+    def start(self, _context, _message, *, conversation) -> brain_runtime_client.RuntimeTurn:
         """The segment's first turn; a carried operation is retried only after proven absence, once per run."""
         if self.cursor.carried:
             try:

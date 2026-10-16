@@ -225,7 +225,7 @@ class ContinuationEdgeTests(RecoveryCase):
         )
         runtime = routine_replay.ReplayRuntime(seal, SimpleNamespace(digest=cursor.plan), cursor, "Name")
         with self.assertRaises(routine_replay.ReplayError) as caught:
-            runtime.start(None, "")
+            runtime.start(None, "", conversation=())
         self.assertEqual(caught.exception.code, "cursor-operation-uncertain")
         with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-not-dispatched"):
             routine_cursor.proven_absent(
