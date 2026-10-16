@@ -148,6 +148,17 @@ class LocalAssistantEgressTests(unittest.TestCase):
             create()
         # A cleanup that fails too keeps the binding for the next install to settle.
         self.assertEqual(caught.exception.code, "assistant-install-rollback-incomplete")
+
+        # A policy that was already there may belong to a container still left, so a failed write never removes it.
+        token = self._write()
+        with (
+            mock.patch.object(local_egress.egress_policy.EgressPolicyStore, "write", side_effect=unsaved),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            create()
+        self.assertEqual(caught.exception.code, "egress-policy-unavailable")
+        self.assertEqual(lifecycle._egress_token("team_1", self.spec.assistant_id, create=False), token)
+        lifecycle._validate_egress_policy("team_1", self.spec, self.spec.allowed_hosts)
         self.controller.client.containers.create.assert_not_called()
 
     def test_network_validation_and_optional_lookup_fail_closed(self) -> None:

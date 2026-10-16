@@ -712,6 +712,7 @@ class LocalStartAuthorizationCompensationTests(unittest.TestCase):
             images["successor"] if spec.image == self.successor_image else images["current"]
         )
         lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(spec.allowed_hosts)
+        lifecycle._egress_token = lambda *_args, **_kwargs: None
         lifecycle._write_egress_policy = lambda *_args: events.append("activate-egress")
         lifecycle._remove_egress_policy = lambda *_args, **_kwargs: events.append("release-egress")
         lifecycle._validate_container = lambda *_args: None

@@ -148,14 +148,18 @@ def _created_container_absent(self, team_id: str, spec: AssistantSpec, failure: 
 def _prepare_egress_policy(self, team_id: str, spec: AssistantSpec) -> None:
     """Write Team's route for the Assistant's provider calls before Docker can create its container (ADR-0106).
 
-    A container whose create answer is lost then still holds its policy, so the next install can adopt it. No
-    container exists yet, so a write that failed is cleaned up without any Docker proof; when that cleanup fails too,
-    the rollback is incomplete and the binding stays for the next install.
+    A container whose create answer is lost then still holds its policy, so the next install can adopt it. A write
+    that failed is cleaned up without any Docker proof only when it created the policy's token, since no container can
+    hold that policy yet; when that cleanup fails too, the rollback is incomplete and the binding stays for the next
+    install. A policy that was already there may belong to a container not yet proven absent, so it stays.
     """
+    existed = self._egress_token(team_id, spec.assistant_id, create=False) is not None
     try:
         # The binding's reviewed, canonical hosts; the store refuses any other form.
         self._write_egress_policy(team_id, spec, spec.allowed_hosts)
     except ApiProblem as exc:
+        if existed:
+            raise
         try:
             self._remove_egress_policy(team_id, spec.assistant_id)
         except ApiProblem:
