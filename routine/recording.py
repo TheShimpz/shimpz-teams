@@ -146,9 +146,9 @@ class Send:
     # The browser's validated IANA zone, or None.
     timezone: str | None
     started_at: int
-    occurrences: tuple[trace.Occurrence, ...] = ()
     # The chat's interface language, or None: it decides how a date the recorded work wrote is read.
-    locale: str | None = None
+    locale: str | None
+    occurrences: tuple[trace.Occurrence, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -117,7 +117,7 @@ def _send(
     )
     occurrences = tuple(_occurrence(call) for call in calls)
     person = http_payload.authored_segments(message)
-    return recording.Send(message, person, lines, timezone, started_at, occurrences, locale=locale)
+    return recording.Send(message, person, lines, timezone, started_at, locale, occurrences)
 
 
 def _then_hourly(text: str) -> str:

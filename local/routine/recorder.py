@@ -408,7 +408,7 @@ class AnsweredRuntime:
     def __init__(self, intent: Intent) -> None:
         self._turn = brain_runtime_client.RuntimeTurn("completed", "", (), routine=intent)
 
-    def start(self, _context: object, _message: str, *, conversation: object = ()) -> object:
+    def start(self, _context: object, _message: str, *, conversation: object) -> object:
         return self._turn
 
 

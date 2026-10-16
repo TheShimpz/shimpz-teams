@@ -18,8 +18,8 @@ def record(
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract],
     *,
     work: int | None,
-    asked: routine_recording.Asked | None = None,
-    existing: routine_recording.Existing | None = None,
+    asked: routine_recording.Asked | None,
+    existing: routine_recording.Existing | None,
 ) -> routine_recording.Recorded | routine_recording.Question:
     """The plan a recording span defines, or the question to ask first; raises RecordingError when it cannot be one.
 
