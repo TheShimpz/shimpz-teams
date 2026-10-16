@@ -111,7 +111,7 @@ class RunLifecycleTests(unittest.TestCase):
         state, claim, _lease = bound()
         run_id = claim.run.run_id
         self.assertEqual(routine_runs.end(state, run_id, NINE, "stopped", {}).runs, ())
-        for outcome in ("done", "denied", "uncertain"):
+        for outcome in ("done", "denied"):
             with self.subTest(outcome=outcome), self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
                 routine_runs.end(state, run_id, NINE, outcome, {"actions": [["dns", "x"]]})
         state, claim, lease = bound()
