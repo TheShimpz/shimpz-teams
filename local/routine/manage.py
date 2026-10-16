@@ -113,11 +113,7 @@ def _discard(self, team_id: str, run_id: str, generation: str, *, incident: bool
             else:
                 self.action_state.purge(generation)
         except action_journal.ActionJournalError as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Routine run state could not be removed",
-                code="routine-state-unavailable",
-            ) from exc
+            raise local_errors.routine_state_unavailable() from exc
     if live:
         return
     if not incident:
