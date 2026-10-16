@@ -71,6 +71,14 @@ class VerificationResidueTests(IncidentCase):
             # Only the run's removal for good removes its verification: an unresolved incident may still verify.
             self.assertIsNotNone(service.action_state.current_batch(verification))
 
+    def test_a_run_that_ended_for_good_removes_its_verification(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, _value, run_id, lease, generation, _batch = self.held_run(directory)
+            routine_incident.hold(service, "team_1", run_id, lease)
+            verification = self.left_verification(service, run_id, generation)
+            routine_manage._discard(service, "team_1", run_id, generation, incident=False, live=False)
+            self.assertIsNone(service.action_state.current_batch(verification))
+
 
 if __name__ == "__main__":
     unittest.main()
