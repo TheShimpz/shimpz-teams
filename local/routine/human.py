@@ -347,7 +347,10 @@ def _replay(
                     )
 
             lease = _resume(self, team_id, value.run_id, (challenge_id, seal), requests_used)
-        routine_state.call(lambda: self.routine_store.delete_continuation(team_id, value.run_id))
+        # The run is thawed and its challenge consumed, so it goes on: its end, or its freezing again, finishes a
+        # removal of the answered continuation that fails now.
+        with contextlib.suppress(ApiProblem):
+            routine_state.call(lambda: self.routine_store.delete_continuation(team_id, value.run_id))
         run = routine_run.LeasedRun(team_id, value.run_id, lease, token, routine, transcripts, requests_used)
         outcome = routine_replay.execute(self, run, value, progress, pending)
         if outcome == "held":

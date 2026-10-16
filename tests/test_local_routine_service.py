@@ -457,6 +457,26 @@ class FreezeTests(RoutineServiceCase):
         self.assertEqual((state.runs, detail["plan"]), ((), routine_definition.summary(state.routines[0].plan, 1)))
         self.assertEqual(detail["output"]["state"], "shown")
 
+    def test_an_answered_run_goes_on_when_its_continuation_cannot_be_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim, _frozen = self.paused(directory, completed("Approved and listed."))
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
+            real = service.routine_store.delete_continuation
+            failures = [routine_store.RoutineStoreError("continuation cannot be removed")]
+
+            def once(*args):
+                if failures:
+                    raise failures.pop()
+                return real(*args)
+
+            with mock.patch.object(service.routine_store, "delete_continuation", side_effect=once):
+                resumed = self.answer_human(service, claim["run_id"], opened["challenge_id"])
+            state = self.state(service)
+            continuations = service.routine_store.continuations("team_1")
+        # The answer already thawed the run, so it runs to its end, whose removal takes the continuation.
+        self.assertEqual((resumed["status"], state.runs, continuations), ("done", (), ()))
+        self.assertEqual(state.notices[-1].outcome, "done")
+
     def test_a_rename_never_ends_a_frozen_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, service, claim, _frozen = self.paused(directory, completed("Approved and listed."))
