@@ -198,7 +198,7 @@ class StepRecordEdgeTests(RoutineServiceCase):
             with mock.patch.object(
                 routine_plan, "resolve", side_effect=routine_plan.PlanError("plan-reference-missing")
             ):
-                routine_replay.record_recovered(service, "team_1", cursor, runtime.plan, ())
+                routine_replay.record_recovered(service, "team_1", (cursor, cursor), runtime.plan, ())
             self.assertEqual((recovered[0].status, recovered[0].duration_ms), ("recovered", None))
             self.assertEqual({item["value"] for item in recovered[0].inputs}, {None})
 

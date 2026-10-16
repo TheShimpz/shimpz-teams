@@ -336,10 +336,13 @@ def _judge(self, team_id: str, assessment: Assessment, result: object, protected
         completed = routine_replay.advance(
             self.routine_store, team_id, cursor, assessment.plan, (recovered, protection)
         )
+        if protection.lost:
+            # A loss met at the completion is sealed with it, in the same write, so the cursor never rolls back.
+            completed = routine_cursor.lose_protection(completed)
     except routine_plan.PlanError, routine_cursor.CursorError, routine_store.RoutineStoreError, ValueError:
         return "inconclusive"
     _seal(self, team_id, completed)
-    routine_replay.record_recovered(self, team_id, cursor, assessment.plan, protected)
+    routine_replay.record_recovered(self, team_id, (cursor, completed), assessment.plan, protected)
     return "occurred"
 
 

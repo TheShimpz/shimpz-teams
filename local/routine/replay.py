@@ -335,9 +335,19 @@ def _sealed_by(self, team_id: str, run_id: str) -> _Seal:
     return _Seal(team_id, self.routine_store, self.routine_diagnostics, self.routine_protections, lost)
 
 
-def record_recovered(self, team_id: str, cursor: routine_cursor.Cursor, plan: routine_plan.Plan, protected) -> None:
-    """A verified occurrence completed the held step: its record says recovered, with the inputs it was given."""
-    runtime = ReplayRuntime(_sealed_by(self, team_id, cursor.binding.run_id), plan, cursor, "")
+def record_recovered(
+    self, team_id: str, cursors: tuple[routine_cursor.Cursor, routine_cursor.Cursor], plan: routine_plan.Plan, protected
+) -> None:
+    """A verified occurrence completed the held step: its record says recovered, with the inputs it was given.
+
+    ``cursors`` are the held step's cursor, which the record describes, and the completion sealed over it. A loss of
+    protection that completion first met reaches the run's state too, as a replayed step's does.
+    """
+    cursor, completed = cursors
+    seal = _sealed_by(self, team_id, cursor.binding.run_id)
+    if completed.protection_lost and not cursor.protection_lost:
+        seal.lost()
+    runtime = ReplayRuntime(seal, plan, completed, "")
     try:
         step = plan.steps[cursor.step]
         resolved = routine_plan.resolve(plan, step, cursor.selections(), cursor.started_at, lambda value: value)

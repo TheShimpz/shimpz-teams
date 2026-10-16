@@ -4,6 +4,7 @@ import dataclasses
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 from unittest import mock
 
 import routine_fixture
@@ -211,6 +212,32 @@ class AutomaticEdgeTests(AutomaticCase):
             mock.patch.object(routine_recovery, "_clock", return_value=1.0),
         ):
             self.assertIsNone(routine_recovery._open(None, "team_1", "a" * 32))
+
+    def test_a_verified_occurrence_that_loses_protection_completes_and_marks_the_run(self) -> None:
+        # The recovered result holds more secret strings than one run may protect: protection is first lost here.
+        many = SimpleNamespace(secret_values=lambda *_args: [f"value-{index}" for index in range(200)])
+        assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(routine_recovery, "trace", many):
+            service, _value, _run_id = self.run_held(directory, assistant)
+            state = self.state(service)
+        # The loss is sealed with the completion it was met at, so the cursor never rolls back to the held step.
+        self.assertEqual((self.status, record.incidents(state), state.runs), ("recovered", (), ()))
+        self.assertTrue(state.notices[-1].protection_lost)
+        assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
+        # Still in time when the verifier is dispatched; out of time once it answered.
+        ticks = iter([0.0, 0.0, 0.0])
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(routine_recovery, "trace", many),
+            mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 61.0)),
+        ):
+            service, _value, run_id = self.run_held(directory, assistant)
+            state = self.state(service)
+            cursor = self.cursor(service, run_id)
+        # Out of time once verified: the completed step stays sealed, and the held run and its pause say it was lost.
+        self.assertEqual((self.status, cursor.step, cursor.protection_lost), ("held", 2, True))
+        self.assertTrue(record.run(state, run_id).protection_lost)
+        self.assertEqual((state.notices[-1].detail["reason"], state.notices[-1].protection_lost), ("exhausted", True))
 
 
 class BalanceCase(AutomaticCase):
