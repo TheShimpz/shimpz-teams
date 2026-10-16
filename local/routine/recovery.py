@@ -89,7 +89,7 @@ class VerifierRuntime:
         self.protect = protect
         self.result: object = None
 
-    def start(self, _context, _message, *, conversation=()) -> brain_runtime_client.RuntimeTurn:
+    def start(self, _context, _message, *, conversation) -> brain_runtime_client.RuntimeTurn:
         return brain_runtime_client.RuntimeTurn("action-required", "", (self._request,))
 
     def resume(self, _context, results) -> brain_runtime_client.RuntimeTurn:
