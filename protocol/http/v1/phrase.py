@@ -38,7 +38,7 @@ _NEGATIONS = {
     "es": r"\b(?:no|nunca)\b",
     "fr": r"\b(?:ne|pas|jamais)\b|\bn'",
     "de": r"\b(?:nicht|kein|keine|nie)\b",
-    "ja": r"(?<!が)ない|がない(?!か(?:どうか)?(?:確認|チェック|見|調べ|監視|点検))|ません",
+    "ja": r"ない|ません",
     "zh": r"不|别",
     "ar": r"(?:^|\s)(?:لا|ليس|لن|لم)(?:\s|$)",
 }
@@ -289,9 +289,7 @@ def _sentences(text: str) -> Iterator[str]:
             yield sentence
 
 
-# Languages whose negation follows what it negates, anywhere in the sentence; elsewhere it comes before. Only the
-# Japanese がないか (どうか) that a checking verb follows asks whether something exists (問題がないか確認して) and
-# refuses nothing; every other ない or ません, a negated verb's included (実行しないか確認), negates.
+# Languages whose negation follows what it negates, anywhere in the sentence; elsewhere it comes before.
 _TRAILING_NEGATION = frozenset({"ja"})
 
 

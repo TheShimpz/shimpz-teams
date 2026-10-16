@@ -220,10 +220,7 @@ The tables cover the eight interface languages. A sentence that asks states noth
 language rejects every reading it reaches, except that `phrase.stated(text, language)` and
 `phrase.team_asks(text, language)` read a text known to be written in that interface language, such as a
 clarification question or option the Brain's model writes in the chat's language, with only that language's negations,
-so Portuguese "no Cloudflare a cada 30 segundos" keeps its schedule. A Japanese negation anywhere in the sentence
-negates, except がないか or がないかどうか before a checking verb (確認, チェック, 見, 調べ, 監視, 点検), which asks
-whether something exists ("問題がないか確認して") rather than refusing; every other ない or ません ("しないから",
-"しないか、", "実行しないか確認", "しませんか") still negates. "Show the result" qualified by "only when it
+so Portuguese "no Cloudflare a cada 30 segundos" keeps its schedule. "Show the result" qualified by "only when it
 changes" in its own clause is that one choice, while alternatives offer both. A when-it-changes condition never says
 whether it qualifies the result or the work ("mostrar sempre que mudar", "copy the file whenever it changes"): alone it
 states nothing, and beside any show it is a second choice the person is asked about. Vectors pin a reading for each
