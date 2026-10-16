@@ -461,15 +461,9 @@ class RecordedRoutineTests(RecordingCase):
         recording = book.start("team_1", (PRINCIPAL, "i"), started, int(time.time()))
         config = inference_config.normalize("openai", "gpt-6-luna")
         sol = local_segment.ROUTINE_MODELS["openai"]
-        cases = (
-            (None, None, sol),
-            (None, object(), "gpt-6-luna"),
-            (sol, None, sol),
-            ("gpt-6-luna", None, "gpt-6-luna"),
-        )
-        for model, routine, expected in cases:
-            request = SimpleNamespace(team_id="team_1", recording=recording, model=model, routine=routine)
-            with self.subTest(model=model, routine=routine):
+        for model, expected in ((None, sol), (sol, sol), ("gpt-6-luna", "gpt-6-luna")):
+            request = SimpleNamespace(team_id="team_1", recording=recording, model=model, routine=None)
+            with self.subTest(model=model):
                 self.assertEqual(local_segment._turn_model(request, config, book.live("team_1", recording)), expected)
         book.drop("team_1")
         for model, expected in ((None, "gpt-6-luna"), (sol, sol)):

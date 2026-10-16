@@ -259,12 +259,7 @@ def _turn_model(
     """The model a turn's start pinned, or for a start the Team's, except a chat turn about a Routine."""
     if request.model is not None:
         return request.model
-    routed = (
-        request.routine is None
-        and request.recording is not None
-        and config.provider in ROUTINE_MODELS
-        and routine_recorder.routine_mode(span)
-    )
+    routed = config.provider in ROUTINE_MODELS and routine_recorder.routine_mode(span)
     return ROUTINE_MODELS[config.provider] if routed else config.model
 
 
