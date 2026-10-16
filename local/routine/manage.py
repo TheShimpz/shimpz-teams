@@ -190,18 +190,19 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
         raise local_errors.routine_not_found()
     now = int(time.time())
 
+    def unresolved(item: record.Run) -> bool:
+        return item.routine_id == routine_id and item.status == "unresolved"
+
     def begin(state: record.TeamRoutines) -> tuple[record.TeamRoutines, tuple[tuple[record.Run, ...], tuple[str, ...]]]:
         if not any(item.routine_id == routine_id for item in state.routines):
             return state, ((), ())
         state, runs = record.begin_delete(state, routine_id)
-        held = tuple(
-            item.run_id for item in state.runs if item.routine_id == routine_id and item.status == "unresolved"
-        )
+        held = tuple(item.run_id for item in state.runs if unresolved(item))
         for incident_id in held:
             state = routine_hold.skip_incident(state, incident_id, now)
         return state, (runs, held)
 
-    runs, held = routine_state.update(self, team_id, begin)
+    runs, held = routine_state.update(self, team_id, routine_incident.marking_losses(self, team_id, unresolved, begin))
     # No proposal that would replace a deleting Routine can be confirmed any more.
     self.routine_proposals.drop_routine(team_id, routine_id)
     for value in runs:

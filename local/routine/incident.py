@@ -34,6 +34,7 @@ from routine import cursor as routine_cursor
 from routine import hold as routine_hold
 from routine import plan as routine_plan
 from routine import record
+from routine import runs as routine_runs
 
 VERSION = 1
 _OPERATION_FIELDS = ("interrupt_id", "operation_id", "state", "attempts", "origin")
@@ -311,6 +312,44 @@ def _transition_problem(code: str) -> ApiProblem:
     return local_errors.routine_incident_unavailable()
 
 
+def _sealed_loss(self, team_id: str, value: record.Run) -> bool:
+    """Whether an incident's cursor, under its sealed evidence's binding, records a lost protection.
+
+    The loss is sealed in the cursor before the run's state is marked, so this finds a mark that failed to land;
+    evidence that cannot be read marks nothing here.
+    """
+    try:
+        sealed = self.routine_store.incident(team_id, value.run_id)
+        snapshot = None if sealed is None else read_evidence(sealed, value.run_id)["recovery"]
+        cursor = None if snapshot is None else self.routine_store.cursor(team_id, snapshot.binding)
+    except routine_store.RoutineStoreError, ApiProblem:
+        return False
+    # Evidence of another run, or a cursor of another plan, proves nothing about this run.
+    bound = cursor is not None and snapshot.of_run(value.routine_id, value.generation) and snapshot.runs(cursor)
+    return bound and cursor.protection_lost
+
+
+def marking_losses[T](
+    self,
+    team_id: str,
+    chosen: Callable[[record.Run], bool],
+    change: Callable[[record.TeamRoutines], tuple[record.TeamRoutines, T]],
+) -> Callable[[record.TeamRoutines], tuple[record.TeamRoutines, T]]:
+    """``change`` after every ``chosen`` incident whose cursor sealed a loss its mark never landed for is marked.
+
+    A live run's loss is marked by every write; an incident's matters only to the notices it publishes, so only a write
+    that publishes one reads its sealed cursor, inside that write (ADR-0101 §6).
+    """
+
+    def marked(state: record.TeamRoutines) -> tuple[record.TeamRoutines, T]:
+        for item in record.incidents(state):
+            if not item.protection_lost and chosen(item) and _sealed_loss(self, team_id, item):
+                state = routine_runs.lose_protection(state, item.run_id)
+        return change(state)
+
+    return marked
+
+
 def set_aside(
     self,
     team_id: str,
@@ -331,7 +370,8 @@ def set_aside(
             return state, str(exc)
         return changed, routine_hold.incident(changed, incident_id)
 
-    skipped = routine_state.update(self, team_id, mark)
+    named = marking_losses(self, team_id, lambda item: item.run_id == incident_id, mark)
+    skipped = routine_state.update(self, team_id, named)
     if isinstance(skipped, str):
         raise _transition_problem(skipped)
     settled(self, team_id, skipped)
@@ -471,7 +511,8 @@ def pause(self, team_id: str, incident_id: str, reason: str) -> None:
         except record.RoutineStateError as exc:
             return state, str(exc)
 
-    refused = routine_state.update(self, team_id, change)
+    named = marking_losses(self, team_id, lambda item: item.run_id == incident_id, change)
+    refused = routine_state.update(self, team_id, named)
     if refused is not None:
         raise _transition_problem(refused)
 

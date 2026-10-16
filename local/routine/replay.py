@@ -432,38 +432,12 @@ def protection_lost(self, team_id: str, value: record.Run) -> bool:
     return True
 
 
-def _marked_lost(self, team_id: str, value: record.Run) -> bool:
-    """Whether a held incident's cursor, under its sealed evidence's binding, already records a lost protection.
-
-    The loss is sealed in the cursor before the run's state is marked, so a mark that failed to land is repaired from
-    the cursor by the next state write; evidence that cannot be read marks nothing here.
-    """
-    try:
-        sealed = self.routine_store.incident(team_id, value.run_id)
-        snapshot = None if sealed is None else routine_incident.read_evidence(sealed, value.run_id)["recovery"]
-        cursor = None if snapshot is None else self.routine_store.cursor(team_id, snapshot.binding)
-    except routine_store.RoutineStoreError, ApiProblem:
-        return False
-    # Evidence of another run, or a cursor of another plan, proves nothing about this run.
-    bound = cursor is not None and snapshot.of_run(value.routine_id, value.generation) and snapshot.runs(cursor)
-    return bound and cursor.protection_lost
-
-
 def lost_runs(self, team_id: str) -> frozenset[str]:
-    """The Team's runs that lost their protection (ADR-0101 §6).
-
-    A live run's loss is sealed in its cursor first; a held incident's is the one its cursor already records.
-    """
-    state = self.routine_store.load(team_id)
-    live = record.live_runs(state)
+    """The Team's live runs that lost their protection, each loss sealed in its run's cursor first (ADR-0101 §6)."""
     return frozenset(
         item.run_id
-        for item in state.runs
-        if (
-            protection_lost(self, team_id, item)
-            if item in live
-            else not item.protection_lost and _marked_lost(self, team_id, item)
-        )
+        for item in record.live_runs(self.routine_store.load(team_id))
+        if protection_lost(self, team_id, item)
     )
 
 
