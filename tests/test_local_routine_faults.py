@@ -227,6 +227,22 @@ class RunFaultTests(RoutineServiceCase):
         # The loss is sealed in the cursor now; the run's next write marks it, whatever ends the run.
         self.assertEqual((frozen.status, cursor.protection_lost), ("frozen", True))
 
+    def test_a_loss_that_cannot_be_sealed_when_a_challenge_opens_is_unavailable_and_keeps_the_open_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim = self.asking(directory)
+            self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
+            service.routine_protections = local_routine_protection.RunProtections()
+            broken = routine_store.RoutineStoreError("down")
+            with (
+                mock.patch.object(service.routine_store, "lose_cursor", side_effect=broken),
+                self.assertRaises(local_app.ApiProblem) as caught,
+            ):
+                service.open_routine_challenge("team_1", claim["run_id"], "en")
+            current = service.current_routine_challenge("team_1")
+        self.assertEqual((caught.exception.status, caught.exception.code), (503, "routine-state-unavailable"))
+        self.assertEqual(current.id, opened["challenge_id"])
+
     def test_every_frozen_ending_after_a_restart_says_the_run_lost_its_protection(self) -> None:
         endings = {
             "deny": lambda service, run_id: self.answer_human(
