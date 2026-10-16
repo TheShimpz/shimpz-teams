@@ -59,7 +59,7 @@ def canonical_routine_listing(value: object) -> dict[str, object] | None:
     valid = (
         routine.matches(value["routine_id"], routine.ROUTINE_ID_RE)
         and routine.exact_name(value["name"])
-        and routine.canonical_schedule(value["schedule"]) == value["schedule"]
+        and routine.exact_schedule(value["schedule"])
         and routine.zoned(value["timezone"], value["timezone_source"])
         and routine.valid_revision(value["revision"])
         and routine.whole(value["daily_steps"], 1, MAX_LISTED_DAILY_STEPS)

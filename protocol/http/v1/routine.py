@@ -111,6 +111,11 @@ def canonical_schedule(value: object) -> dict[str, object] | None:
     return dict(value) if valid else None
 
 
+def exact_schedule(value: object) -> bool:
+    """Whether a value is a schedule exactly in its canonical form; null is none."""
+    return value is not None and canonical_schedule(value) == value
+
+
 def continuous_cap(gap: int) -> int:
     """A continuous Routine's starts in any rolling 24 hours: as many as its gap allows all day, ceil(86400 / gap)."""
     return -(-DAY_SECONDS // gap)

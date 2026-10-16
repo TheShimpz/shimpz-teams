@@ -87,7 +87,7 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
         and routine_notice.optional(value["replaces"], routine.ROUTINE_ID_RE)
         and routine.exact_name(value["name"])
         and routine.exact_description(value["description"])
-        and routine.canonical_schedule(value["schedule"]) == value["schedule"]
+        and routine.exact_schedule(value["schedule"])
         and routine.zoned(value["timezone"], value["timezone_source"])
         and value["output"] in routine.OUTPUT_MODES
         and isinstance(steps, list)

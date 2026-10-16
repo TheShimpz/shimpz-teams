@@ -123,7 +123,7 @@ def canonical_routine_view(value: object) -> dict[str, object] | None:
         and summary is not None
         and _disposed(value["output"], summary["steps"])
         and value["schedule"] is not None
-        and routine.canonical_schedule(value["schedule"]) == value["schedule"]
+        and routine.exact_schedule(value["schedule"])
         and routine.zoned(value["timezone"], value["timezone_source"])
         and instant(value["next_run_at"])
         and type(value["needs_reconfirm"]) is bool
