@@ -321,6 +321,43 @@ class AutomaticEdgeTests(AutomaticCase):
                     (record.run(state, run_id).protection_lost, state.notices[-1].protection_lost), (True, True)
                 )
 
+    def revised(self, service, run_id: str):
+        """The held run's cursor without its sealed loss, after the run is moved to the next revision."""
+        kept = dataclasses.replace(self.cursor(service, run_id), protection_lost=False)
+        held = record.run(self.state(service), run_id)
+        other = dataclasses.replace(held, revision=held.revision + 1)
+        service.routine_store.update("team_1", lambda state: (record.replace_run(state, other), None))
+        return kept
+
+    def test_an_incidents_evidence_of_another_run_or_revision_is_taken_as_lost_on_its_notice(self) -> None:
+        real = routine_incident.read_evidence
+
+        def unreplayed_of(**fields):
+            return lambda payload, run_id: {**real(payload, run_id), "recovery": None, **fields}
+
+        for name in ("routine_id", "generation", "revision"):
+            with self.subTest(other=name), tempfile.TemporaryDirectory() as directory:
+                service, _value, run_id = self.held_unmarked(directory)
+                if name == "revision":
+                    # A snapshot and an unlost cursor of another revision than the run's prove nothing about it.
+                    kept = self.revised(service, run_id)
+                    reads = mock.patch.object(service.routine_store, "cursor", return_value=kept)
+                else:
+                    reads = mock.patch.object(routine_incident, "read_evidence", unreplayed_of(**{name: "x"}))
+                with reads:
+                    routine_incident.pause(service, "team_1", run_id, "exhausted")
+                state = self.state(service)
+                self.assertEqual(
+                    (record.run(state, run_id).protection_lost, state.notices[-1].protection_lost), (True, True)
+                )
+        # Evidence of exactly this run that was never replayed holds no cursor, so it records no loss.
+        with tempfile.TemporaryDirectory() as directory:
+            service, _value, run_id = self.held_unmarked(directory)
+            with mock.patch.object(routine_incident, "read_evidence", unreplayed_of()):
+                routine_incident.pause(service, "team_1", run_id, "exhausted")
+            state = self.state(service)
+        self.assertEqual((record.run(state, run_id).protection_lost, state.notices[-1].protection_lost), (False, False))
+
     def test_setting_an_incident_aside_marks_its_sealed_loss_on_its_notice(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _value, run_id = self.held_unmarked(directory)

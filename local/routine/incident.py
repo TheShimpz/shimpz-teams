@@ -316,22 +316,26 @@ def _sealed_loss(self, team_id: str, value: record.Run) -> bool:
     """Whether an incident's cursor, under its sealed evidence's binding, records a lost protection.
 
     The loss is sealed in the cursor before the run's state is marked, so this finds a mark that failed to land.
-    Evidence or a cursor that cannot be read, is missing, or is bound to another run or plan is taken as lost, as a
+    Evidence or a cursor that cannot be read, is missing, or names another run, revision, or plan is taken as lost, as a
     deletion takes it: a notice never says a protection held that nothing could read, and the release that follows may
     erase the cursor that recorded it. Every incident's evidence is sealed before it is indexed, so none is missing.
     """
     try:
         sealed = self.routine_store.incident(team_id, value.run_id)
-        snapshot = None if sealed is None else read_evidence(sealed, value.run_id)["recovery"]
+        held = None if sealed is None else read_evidence(sealed, value.run_id)
+        snapshot = None if held is None else held["recovery"]
         cursor = None if snapshot is None else self.routine_store.cursor(team_id, snapshot.binding)
     except routine_store.RoutineStoreError, ApiProblem:
         return True
+    if held is None or (held["routine_id"], held["generation"]) != (value.routine_id, value.generation):
+        return True
     if snapshot is None:
-        # Sealed evidence without a recovery snapshot is of a run that was never replayed, so it has no cursor.
-        return sealed is None
+        # Evidence of this run without a recovery snapshot is of a run that was never replayed, so it has no cursor.
+        return False
     if cursor is None:
         return True
-    bound = snapshot.of_run(value.routine_id, value.generation) and snapshot.runs(cursor)
+    # The evidence names exactly this run, so its snapshot does too; it must also bind the run's own revision.
+    bound = snapshot.binding.revision == value.revision and snapshot.runs(cursor)
     return not bound or cursor.protection_lost
 
 
