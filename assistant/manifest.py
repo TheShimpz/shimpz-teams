@@ -39,7 +39,6 @@ MAX_ALLOWED_HOSTS = 32
 MAX_INTEGRATIONS = 16
 MAX_STORED_INPUTS = 8
 MAX_GENESIS_LENGTH = 65_536
-DEFAULT_CACHE_ENTRIES = 256
 HUMAN_REQUEST_KINDS = frozenset(
     {
         "approval",
@@ -911,7 +910,7 @@ def read_container_machine_contract(
 class ManifestContractCache:
     """Admit reviewed security intent once per immutable container generation."""
 
-    def __init__(self, max_entries: int = DEFAULT_CACHE_ENTRIES) -> None:
+    def __init__(self, max_entries: int = assistant_cache.DEFAULT_ENTRIES) -> None:
         self._cache: assistant_cache.ContainerReadCache[ManifestContract] = assistant_cache.ContainerReadCache(
             max_entries
         )
@@ -935,7 +934,7 @@ class ManifestContractCache:
 class MachineContractCache:
     """Admit the image-baked SDK artifact only when it equals controller review."""
 
-    def __init__(self, max_entries: int = DEFAULT_CACHE_ENTRIES) -> None:
+    def __init__(self, max_entries: int = assistant_cache.DEFAULT_ENTRIES) -> None:
         self._cache: assistant_cache.ContainerReadCache[dict[str, Any]] = assistant_cache.ContainerReadCache(
             max_entries
         )

@@ -3,8 +3,6 @@
 from assistant import cache as assistant_cache
 from assistant import manifest as assistant_manifest
 
-DEFAULT_CACHE_ENTRIES = 256
-
 
 class GenesisError(RuntimeError):
     """An immutable Assistant manifest did not expose safe model guidance."""
@@ -21,7 +19,7 @@ def read_container_genesis(container) -> str:
 class GenesisCache:
     """Read Genesis once per immutable container generation with a bounded LRU."""
 
-    def __init__(self, max_entries: int = DEFAULT_CACHE_ENTRIES) -> None:
+    def __init__(self, max_entries: int = assistant_cache.DEFAULT_ENTRIES) -> None:
         self._cache: assistant_cache.ContainerReadCache[str] = assistant_cache.ContainerReadCache(max_entries)
 
     def get(self, container) -> str:

@@ -6,6 +6,8 @@ from collections.abc import Callable
 
 # Distinct cold Docker archive reads one cache runs at once; further misses wait without holding the map.
 MAX_CONCURRENT_READS = 4
+# Container generations an Assistant read cache keeps by default.
+DEFAULT_ENTRIES = 256
 
 
 def container_id(container: object) -> str | None:
