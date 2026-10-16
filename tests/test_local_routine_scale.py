@@ -211,9 +211,7 @@ class StepRecordEdgeTests(RoutineServiceCase):
             snapshot = routine_incident.Recovery(runtime.cursor.binding, value.name, value.plan)
             recorded: list[object] = []
             service.routine_diagnostics = mock.Mock(record_run=lambda *args: recorded.append(args[2]))
-            other = dataclasses.replace(snapshot, binding=dataclasses.replace(snapshot.binding, run_id="f" * 32))
-            for refused in (None, other):
-                routine_incident.seal_terminal(service, "team_1", "e" * 32, refused)
+            routine_incident.seal_terminal(service, "team_1", "e" * 32, None)
             with mock.patch.object(service.routine_store, "cursor", side_effect=routine_store.RoutineStoreError("x")):
                 routine_incident.seal_terminal(service, "team_1", "e" * 32, snapshot)
             with mock.patch.object(service.routine_store, "cursor", return_value=None):

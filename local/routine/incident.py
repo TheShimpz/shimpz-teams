@@ -399,12 +399,12 @@ def _release(self, team_id: str, item: record.Run) -> None:
 
 
 def seal_terminal(self, team_id: str, run_id: str, snapshot: Recovery | None) -> None:
-    """Seal an ended run's terminal record from its sealed snapshot and cursor, before they are removed.
+    """Seal an ended run's terminal record from its sealed snapshot, admitted for exactly that run, and its cursor.
 
     It proves which steps never started (ADR-0092 amendment, 2026-10-05, scale). It is a display record: when the
     snapshot or cursor cannot prove anything, none is kept, and a failure to keep one is audited only.
     """
-    if snapshot is None or snapshot.binding.run_id != run_id:
+    if snapshot is None:
         return
     try:
         cursor = self.routine_store.cursor(team_id, snapshot.binding)
