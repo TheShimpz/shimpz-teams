@@ -23,6 +23,7 @@ from install.bindings import DynamicAssistantStore
 from local import app as local_app
 from local import audit as local_audit
 from local import authority as local_authority
+from local.chat import execution as local_chat_execution
 from local.install import snapshots
 from local.install.registry import AssistantRegistry
 from local.labels import ASSISTANT_LABEL
@@ -340,6 +341,22 @@ class RunTests(RoutineServiceCase):
                     state.notices[-1].detail,
                     {"code": "team-context-unavailable"},
                 )
+
+    def test_a_chat_turn_and_a_routine_run_refuse_an_unreadable_registry_the_same_retryable_way(self) -> None:
+        for damage in ("unreadable", "malformed"):
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory() as directory:
+                _controller, service = self.service(directory, Runtime())
+                with self.broken_registry(service, directory, damage):
+                    for setup in (
+                        lambda subject: subject._chat_setup("team_1", [], "openai", (ASSISTANT,)),
+                        lambda subject: local_chat_execution.routine_setup(subject, "team_1", (ASSISTANT,)),
+                    ):
+                        with self.assertRaises(local_app.ApiProblem) as caught:
+                            setup(service)
+                        self.assertEqual(
+                            (caught.exception.status, caught.exception.code),
+                            (HTTPStatus.SERVICE_UNAVAILABLE, "team-context-unavailable"),
+                        )
 
     def test_an_assistant_the_team_no_longer_runs_marks_the_routine_changed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

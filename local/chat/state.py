@@ -33,6 +33,7 @@ from local.errors import (
 )
 from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
+from local.routine import contracts as local_routine_contracts
 from protocol.http.v1 import payload as http_payload
 from storage import files as team_storage
 
@@ -105,9 +106,10 @@ def chat_setup(
     inference_config.InferenceConfig,
 ]:
     with self._lock(team_id):
-        team_name, network_id, active_by_id = team_assistants(
-            self, team_id, scan=bool(scan_empty_scope or assistant_ids)
-        )
+        with local_routine_contracts.registry_read():
+            team_name, network_id, active_by_id = team_assistants(
+                self, team_id, scan=bool(scan_empty_scope or assistant_ids)
+            )
         try:
             assistants = tuple(active_by_id[assistant_id] for assistant_id in assistant_ids)
         except KeyError:

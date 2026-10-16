@@ -44,7 +44,7 @@ class ContractsUnavailableError(Exception):
 
 
 def context_unavailable() -> ApiProblem:
-    """The retryable problem for a Routine step whose Team could not be read; nothing it held was changed."""
+    """The retryable problem for a chat turn or Routine step whose Team could not be read; nothing it held changed."""
     return ApiProblem(
         HTTPStatus.SERVICE_UNAVAILABLE, "Team capabilities could not be checked; retry", code="team-context-unavailable"
     )
