@@ -726,7 +726,7 @@ def main() -> int:
     local_audit.record(
         "startup",
         result="ok",
-        principal=local_audit.AuditPrincipal("team-local", "machine"),
+        principal=local_audit.TEAM,
     )
     # Nothing runs a Routine segment after a restart: recover every leased run before serving (ADR-0086).
     local_routine_watchdog.check(controller.chat_turn_service, startup=True)
@@ -761,7 +761,7 @@ def _record_automatic_update(
     local_audit.record(
         "assistant-update",
         result=result,
-        principal=local_audit.AuditPrincipal("team-local", "machine"),
+        principal=local_audit.TEAM,
         team_id=team_id,
         assistant=assistant_id,
         detail=detail,

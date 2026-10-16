@@ -789,7 +789,11 @@ class LostEvidenceTests(IncidentCase):
             self.assertEqual(record.run(self.state(service), run_id).status, "held")
             self.assert_deleted_as_lost(service, value, run_id, generation)
         local_app.local_audit.record.assert_any_call(
-            "routine-evidence-lost", result="error", principal=routine_incident._TEAM, team_id="team_1", detail=run_id
+            "routine-evidence-lost",
+            result="error",
+            principal=routine_incident.local_audit.TEAM,
+            team_id="team_1",
+            detail=run_id,
         )
 
     def test_evidence_sealed_for_another_team_is_lost_when_its_routine_is_deleted(self) -> None:
@@ -822,9 +826,9 @@ class LostEvidenceTests(IncidentCase):
             self.assertEqual([item.status for item in self.state(service).runs], ["skipped"])
             self.assertEqual(service.action_state.current_batch(generation), (batch.fingerprint, "archived"))
             local_app.local_audit.record.side_effect = RuntimeError("the local audit journal could not be written")
-            with self.assertLogs(routine_incident.log, "ERROR") as logs:
+            with self.assertLogs(routine_incident.local_audit.log, "ERROR") as logs:
                 self.assert_deleted_as_lost(service, value, run_id, generation)
-        self.assertIn("could not audit routine-evidence-lost (RuntimeError)", logs.output[0])
+        self.assertIn(f"could not audit routine-evidence-lost/{run_id} (RuntimeError)", logs.output[0])
         self.assertNotIn("written", "".join(logs.output))
 
     def test_an_archived_batch_no_evidence_names_keeps_a_set_aside_run_until_its_routine_is_deleted(self) -> None:

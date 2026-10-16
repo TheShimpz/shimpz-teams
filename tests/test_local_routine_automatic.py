@@ -313,7 +313,7 @@ class DeadlineTests(BalanceCase):
 
         with (
             mock.patch.object(routine_recovery.routine_run, "expire_routine_run", side_effect=unprovable),
-            mock.patch.object(routine_recovery.local_audit, "record_request") as audited,
+            mock.patch.object(routine_recovery.local_audit, "record") as audited,
             routine_recovery._deadline(None, "team_1", "a" * 32, "token", episode),
         ):
             self.assertTrue(episode.expired.wait(5))
@@ -321,7 +321,14 @@ class DeadlineTests(BalanceCase):
                 if audited.called:
                     break
                 time.sleep(0.01)
-        audited.assert_called_once_with("routine-recovery", result="error", team_id="team_1", detail="deadline-stop")
+        # The timer thread has no request principal, so Team audits its own deadline.
+        audited.assert_called_once_with(
+            "routine-recovery",
+            result="error",
+            principal=routine_recovery.local_audit.TEAM,
+            team_id="team_1",
+            detail="deadline-stop",
+        )
 
 
 class ContinuationDeadlineTests(BalanceCase):

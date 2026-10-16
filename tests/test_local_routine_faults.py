@@ -643,7 +643,7 @@ class TeamIsolationTests(RoutineServiceCase):
             local_app.local_audit.record.assert_any_call(
                 "routine-watchdog",
                 result="error",
-                principal=routine_watchdog._PRINCIPAL,
+                principal=routine_watchdog.local_audit.TEAM,
                 team_id="team_2",
                 detail="team-check-failed",
             )
@@ -756,7 +756,7 @@ class TeamIsolationTests(RoutineServiceCase):
             local_app.local_audit.record.assert_any_call(
                 "routine-stop",
                 result="error",
-                principal=routine_watchdog._PRINCIPAL,
+                principal=routine_watchdog.local_audit.TEAM,
                 team_id="team_1",
                 detail="1" * 32,
             )

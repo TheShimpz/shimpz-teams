@@ -6,7 +6,6 @@ and journal (ADR-0092): a run that completed every step ends done, one that may 
 one that dispatched nothing ends interrupted. Nothing is replayed automatically.
 """
 
-import logging
 import threading
 import time
 
@@ -25,7 +24,6 @@ from routine import record
 from routine import runs as routine_runs
 
 INTERVAL_SECONDS = 30
-_PRINCIPAL = local_audit.AuditPrincipal("team-local", "machine")
 # What one failed pass, or one Team's failed check within a periodic pass, can raise; the next pass retries it.
 _PASS_ERRORS = (
     routine_store.RoutineStoreError,
@@ -33,21 +31,6 @@ _PASS_ERRORS = (
     action_journal.ActionJournalError,
     ApiProblemError,
 )
-log = logging.getLogger("shimpz.team.local.routine.watchdog")
-
-
-def _audit(operation: str, detail: str, team_id: str | None = None) -> None:
-    """Audit one watchdog event without letting a failed journal stop recovery.
-
-    The fallback log names only the event and the failure's type, never a message that could carry a secret.
-    """
-    try:
-        local_audit.record(operation, result="error", principal=_PRINCIPAL, team_id=team_id, detail=detail)
-    except RuntimeError as exc:
-        failure = type(exc).__name__
-    else:
-        return
-    log.error("Routine watchdog could not audit %s/%s (%s)", operation, detail, failure)
 
 
 def _recover(service, team_id: str, value: record.Run) -> str | None:
@@ -88,11 +71,11 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
             continue
         outcome = _recover(service, team_id, value)
         if outcome is not None:
-            _audit("routine-recover", outcome, team_id)
+            local_audit.record_team_error("routine-recover", outcome, team_id)
     # A held run finishes its hold from its last durable step, without dispatching anything (ADR-0092); one that
     # fails is audited and retried by the next pass, never holding back the rest of the Team's check.
     for run_id in routine_incident.reconcile_team(service, team_id):
-        _audit("routine-hold", run_id, team_id)
+        local_audit.record_team_error("routine-hold", run_id, team_id)
     # A continuation whose run no longer exists was left by a crash; an ended run's own is queued for removal anyway.
     # A cursor also stays while its unresolved incident may still resume the run, and a queued discard keeps its run's
     # snapshot and cursor until it drains, since they are what seal its terminal record.
@@ -124,7 +107,7 @@ def check(service, *, startup: bool = False) -> None:
     run that fails to reconcile is audited and retried by the next pass at startup too.
     """
     for team_id, run_id in routine_run.stop_overdue(service):
-        _audit("routine-stop", run_id, team_id)
+        local_audit.record_team_error("routine-stop", run_id, team_id)
     try:
         key = local_authority.routine_key_fingerprint()
     except local_authority.SupervisorUnavailableError:
@@ -136,7 +119,7 @@ def check(service, *, startup: bool = False) -> None:
         except _PASS_ERRORS:
             if startup:
                 raise
-            _audit("routine-watchdog", "team-check-failed", team_id)
+            local_audit.record_team_error("routine-watchdog", "team-check-failed", team_id)
 
 
 class RoutineWatchdog:
@@ -161,4 +144,4 @@ class RoutineWatchdog:
                 check(self._service)
             except _PASS_ERRORS:
                 # A failed pass leaves every run as it was; the next pass retries, and the failure is audited.
-                _audit("routine-watchdog", "check-failed")
+                local_audit.record_team_error("routine-watchdog", "check-failed")

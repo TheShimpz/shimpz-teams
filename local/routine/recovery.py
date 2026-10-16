@@ -476,7 +476,7 @@ def _deadline(self, team_id: str, incident_id: str, token: str, episode: _Episod
             # deadline is marked as the cause only if no person stopped it first.
             routine_run.expire_routine_run(self, team_id, incident_id, token, episode.expired.set)
         except ApiProblem:
-            local_audit.record_request("routine-recovery", result="error", team_id=team_id, detail="deadline-stop")
+            local_audit.record_team_error("routine-recovery", "deadline-stop", team_id)
 
     # The absolute deadline, not a fresh delay: the time since the episode opened is already gone.
     timer = threading.Timer(max(0.0, episode.deadline - _clock()), expire)

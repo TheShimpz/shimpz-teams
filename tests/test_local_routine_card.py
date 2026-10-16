@@ -140,7 +140,7 @@ class CardViewTests(CardCase):
             self.addCleanup(mock.patch.stopall)
             # A crash's leftover snapshot shows the rest of each pass still runs, at startup too, past the failed hold.
             service.routine_store.put_recovery("team_1", "e" * 32, b"{}")
-            with mock.patch.object(routine_watchdog, "_audit") as audited:
+            with mock.patch.object(routine_watchdog.local_audit, "record_team_error") as audited:
                 routine_watchdog.check(service, startup=True)
                 routine_watchdog.check(service)
             self.assertEqual([item.status for item in self.state(service).runs], ["held"])

@@ -14,6 +14,7 @@ file. Only a copy of a recent link kept elsewhere could show that.
 
 import hashlib
 import json
+import logging
 import os
 import re
 import threading
@@ -65,6 +66,10 @@ class AuditPrincipal:
     trace_id: str | None = None
 
 
+# Team itself, for the events it records on its own behalf: startup, background work, and its own failures.
+TEAM = AuditPrincipal("team-local", "machine")
+log = logging.getLogger("shimpz.team.local.audit")
+
 _REQUEST_PRINCIPAL: ContextVar[AuditPrincipal | None] = ContextVar(
     "local_audit_request_principal",
     default=None,
@@ -107,6 +112,21 @@ def record_request(
         assistant=assistant,
         detail=detail,
     )
+
+
+def record_team_error(operation: str, detail: str, team_id: str | None = None) -> None:
+    """Audit one of Team's own failures as Team, in a request or on a background thread alike.
+
+    A failed journal never stops the caller; the fallback log names only the event and the failure's type, never a
+    message that could carry a secret.
+    """
+    try:
+        record(operation, result="error", principal=TEAM, team_id=team_id, detail=detail)
+    except RuntimeError as exc:
+        failure = type(exc).__name__
+    else:
+        return
+    log.error("Team could not audit %s/%s (%s)", operation, detail, failure)
 
 
 def record_action(result: str, team_id: str, assistant_id: str, detail: str) -> None:

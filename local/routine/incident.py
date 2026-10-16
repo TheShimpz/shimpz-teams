@@ -14,7 +14,6 @@ evidence, and archive marker released and its record removed.
 
 import contextlib
 import json
-import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -39,8 +38,6 @@ from routine import record
 
 VERSION = 1
 # Team itself decides that a Routine being deleted lost what could not be read, and audits it as itself.
-_TEAM = local_audit.AuditPrincipal("team-local", "machine")
-log = logging.getLogger("shimpz.team.local.routine.incident")
 _OPERATION_FIELDS = ("interrupt_id", "operation_id", "state", "attempts", "origin")
 
 
@@ -240,23 +237,9 @@ def _deleting(state: record.TeamRoutines, routine_id: str) -> bool:
     return any(item.routine_id == routine_id and item.deleting for item in state.routines)
 
 
-def _audit_error(operation: str, team_id: str, run_id: str) -> None:
-    """Audit one of Team's own Routine failures as Team, so it holds in a request and in the watchdog alike.
-
-    A failed audit never keeps the caller waiting; the fallback log names only the event and the failure's type.
-    """
-    try:
-        local_audit.record(operation, result="error", principal=_TEAM, team_id=team_id, detail=run_id)
-    except RuntimeError as exc:
-        failure = type(exc).__name__
-    else:
-        return
-    log.error("Routine incident could not audit %s (%s)", operation, failure)
-
-
 def _lost(team_id: str, run_id: str) -> None:
     """Audit what a Routine being deleted could not read of one run, which its deletion treats as lost."""
-    _audit_error("routine-evidence-lost", team_id, run_id)
+    local_audit.record_team_error("routine-evidence-lost", run_id, team_id)
 
 
 def _held_step(self, team_id: str, snapshot: Recovery | None, *, deleting: bool) -> routine_hold.HeldStep:
@@ -429,7 +412,7 @@ def seal_terminal(self, team_id: str, run_id: str, snapshot: Recovery | None) ->
     try:
         self.routine_diagnostics.record_run(team_id, binding.incarnation, terminal)
     except routine_diagnostics.DiagnosticStoreError:
-        _audit_error("routine-run-record", team_id, run_id)
+        local_audit.record_team_error("routine-run-record", run_id, team_id)
 
 
 def unresolved(self, team_id: str, incident_id: str) -> record.Run:

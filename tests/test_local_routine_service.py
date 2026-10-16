@@ -699,7 +699,7 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
         )
         local_audit.record.side_effect = RuntimeError("the local audit journal could not be synchronized")
         watchdog = routine_watchdog.RoutineWatchdog(service, interval=0.01)
-        with self.assertLogs(routine_watchdog.log, "ERROR") as logs:
+        with self.assertLogs(routine_watchdog.local_audit.log, "ERROR") as logs:
             watchdog.start()
             self.assertTrue(second_pass.wait(5))
             self.assertTrue(watchdog._thread.is_alive())
@@ -714,7 +714,7 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
             service.claim_routine_run()
             service.routine_store.put_continuation("team_1", "f" * 32, b"orphaned continuation")
             local_audit.record.side_effect = RuntimeError("the local audit journal could not be written")
-            with self.assertLogs(routine_watchdog.log, "ERROR") as logs:
+            with self.assertLogs(routine_watchdog.local_audit.log, "ERROR") as logs:
                 routine_watchdog.check(service, startup=True)
             self.assertEqual(self.state(service).runs, ())
             self.assertEqual(service.routine_store.continuations("team_1"), ())
@@ -734,7 +734,7 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
         local_audit.record.assert_any_call(
             "routine-watchdog",
             result="error",
-            principal=routine_watchdog._PRINCIPAL,
+            principal=routine_watchdog.local_audit.TEAM,
             team_id=None,
             detail="check-failed",
         )
