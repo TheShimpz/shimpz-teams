@@ -31,7 +31,6 @@ from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import strict_json
 from routine import claim as routine_claim
 from routine import cursor as routine_cursor
-from routine import definition as routine_definition
 from routine import hold as routine_hold
 from routine import plan as routine_plan
 from routine import record
@@ -51,7 +50,7 @@ class Recovery:
 
     @property
     def plan_digest(self) -> str:
-        return routine_definition.plan_digest(self.plan)
+        return routine_plan.digest(self.plan)
 
     def of_run(self, routine_id: str, generation: str) -> bool:
         """Whether it names exactly its run's Routine and the Team incarnation the run's generation runs in."""

@@ -40,7 +40,6 @@ from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from routine import claim as routine_claim
 from routine import cursor as routine_cursor
-from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record, trace
 from routine import runs as routine_runs
@@ -463,7 +462,7 @@ def runtime(
         cursor = self.routine_store.cursor(team_id, binding)
     except routine_store.RoutineStoreError as exc:
         raise ReplayError("routine-cursor-unavailable") from exc
-    if cursor is not None and cursor.plan != plan.digest:
+    if cursor is not None and not snapshot.runs(cursor):
         raise ReplayError("cursor-plan-changed")
     protections = self.routine_protections
     if cursor is None:
@@ -671,7 +670,7 @@ def run_routine(
     team_id = validate_team_id(team_id)
     lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
     value, routine = routine_run.live_run(self, team_id, run_id, lease)
-    if claimed != (routine.revision, routine_definition.plan_digest(routine.plan)):
+    if claimed != (routine.revision, routine_plan.digest(routine.plan)):
         raise ApiProblem(409, "Routine revision changed since the claim", code="routine-revision-stale")
     with (
         self._exclusive_chat_turn(team_id, routine.routine_id) as token,

@@ -218,7 +218,7 @@ def _lease(
         served_at=now,
         starts=routine_starts.started(state.starts, due.routine_id, now, units),
     )
-    digest = routine_definition.plan_digest(due.plan)
+    digest = routine_plan.digest(due.plan)
     return state, record.Claim(leased, token, due.revision, digest, leased.active_seconds_left)
 
 

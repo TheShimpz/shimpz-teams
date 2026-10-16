@@ -194,7 +194,16 @@ def admit(document: object, contracts: Mapping[tuple[str, str], ActionContract])
     for raw in raw_steps:
         steps.append(_step(raw, contracts, tuple(item.step_id for item in steps)))
     _output(output, steps)
-    return Plan(timezone, tuple(steps), "sha256:" + hashlib.sha256(encoded).hexdigest(), copy.deepcopy(output))
+    return Plan(timezone, tuple(steps), _digest(encoded), copy.deepcopy(output))
+
+
+def digest(document: Mapping[str, object]) -> str:
+    """A plan's digest, which binds every run, cursor, and claim to exactly the plan it runs."""
+    return _digest(canonical(document))
+
+
+def _digest(encoded: bytes) -> str:
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def well_formed(document: object) -> bool:

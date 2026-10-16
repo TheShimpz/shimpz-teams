@@ -35,7 +35,6 @@ from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_notice as http_routine_notice
 from protocol.http.v1 import routine_run as http_routine_run
 from protocol.http.v1 import supervisor as contract
-from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
 from tests import human_request_fixtures
@@ -173,7 +172,7 @@ class SchedulerRouteTests(RoutineHttpCase):
             claimed = json.loads(raw)
             claim = claimed["run"]
             self.assertIsNone(claimed["next_due_at"])
-            self.assertEqual((claim["revision"], claim["plan_digest"]), (1, routine_definition.plan_digest(value.plan)))
+            self.assertEqual((claim["revision"], claim["plan_digest"]), (1, routine_plan.digest(value.plan)))
             self.assertEqual((status, claim["team_id"]), (200, "team_1"))
             status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
             # Nothing to claim: the hint is the Routine's next firing, which the claim moved past now.

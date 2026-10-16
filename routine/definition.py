@@ -13,16 +13,11 @@ start reserves, every rolling 24-hour cap multiplies, and the run's active time 
 Paused Routines count, so resuming one never needs room it lacks; a deleting one keeps its share until it is gone.
 """
 
-import hashlib
 from collections.abc import Callable, Mapping, Sequence
 
 from protocol.http.v1 import routine as http_routine
 from routine import dates as routine_dates
 from routine import plan as routine_plan
-
-
-def plan_digest(plan: Mapping[str, object]) -> str:
-    return "sha256:" + hashlib.sha256(routine_plan.canonical(plan)).hexdigest()
 
 
 def run_units(value: object) -> int:
@@ -105,7 +100,7 @@ def summary(plan: Mapping[str, object], revision: int) -> dict[str, object]:
     total = len(plan["steps"])
     return {
         "revision": revision,
-        "plan_digest": plan_digest(plan),
+        "plan_digest": routine_plan.digest(plan),
         "steps": total,
         "actions": kept,
         "more": total - sum(run[2] for run in kept),
@@ -129,7 +124,7 @@ def page(
     return {
         "routine_id": routine_id,
         "revision": revision,
-        "plan_digest": plan_digest(plan),
+        "plan_digest": routine_plan.digest(plan),
         "total": total,
         "offset": offset,
         "steps": chosen,
