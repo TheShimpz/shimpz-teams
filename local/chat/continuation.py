@@ -8,7 +8,6 @@ from dataclasses import asdict, dataclass
 from action import challenges as action_challenges
 from action import files as action_files
 from action import human as action_human
-from action import journal as action_journal
 from assistant import action_schema
 from chat import orchestrator as chat_orchestrator
 from core import canonical_json, identifier
@@ -23,6 +22,7 @@ from protocol.assistant.v1.validators import message_catalog as catalog_validato
 from protocol.http.v1 import challenge as http_challenge
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
+from protocol.http.v1 import turn as http_turn
 from routine import plan as routine_plan
 
 SCHEMA_VERSION = 9
@@ -128,7 +128,7 @@ def _component_id(value: object, label: str, canonical: Callable[[object], str |
 
 
 def _interrupt_id(value: object) -> str:
-    if not isinstance(value, str) or action_journal.SAFE_ID_RE.fullmatch(value) is None:
+    if not isinstance(value, str) or http_turn.SAFE_ID_RE.fullmatch(value) is None:
         raise ContinuationCodecError("continuation interrupt is malformed")
     return value
 

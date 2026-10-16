@@ -4,9 +4,9 @@ import dataclasses
 import hashlib
 import secrets
 
-from action import journal as action_journal
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import turn as http_turn
 from routine import definition as routine_definition
 from routine import plan as routine_plan
 from routine import record
@@ -308,7 +308,7 @@ def bind_generation(
     """
     value = live_lease(state, run_id, lease, now)
     generation = value.generation or generation_for(network_id, run_id)
-    if action_journal.SAFE_ID_RE.fullmatch(generation) is None or network_of(generation, run_id) != network_id:
+    if http_turn.SAFE_ID_RE.fullmatch(generation) is None or network_of(generation, run_id) != network_id:
         raise record.RoutineStateError("generation-invalid")
     # The claimed run's segment has started: its lease now covers the run's active time left, once; a later bind of the
     # same run (a retried request) never renews it.

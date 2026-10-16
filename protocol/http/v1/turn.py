@@ -30,8 +30,9 @@ MAX_SKILL_INPUTS = 32
 SKILL_KEY_PREFIX = "procedure-"
 SKILL_KEY_PATTERN = rf"^{SKILL_KEY_PREFIX}[0-9a-f]{{12}}$"
 SKILL_INPUT_PATTERN = r"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$"
-# A completed turn's reply.
+# A completed turn's reply, which never carries a control character other than a tab, line feed, or carriage return.
 MAX_REPLY_CHARS = 60_000
+REPLY_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # The Action requests one Brain suspension carries, and so the results the resume that answers it may carry.
 MAX_ACTION_REQUESTS = 64
 # The objective a capability plan or an intent route reasons over.
@@ -71,6 +72,8 @@ MAX_ATTACHMENTS_FIELD_BYTES = 1536 * 1024
 ATTACHMENT_OPAQUE_REASONS = frozenset({"unsupported", "too_large", "encrypted", "no_text", "animated", "unreadable"})
 
 # Every consumer matches these with fullmatch, so a trailing newline is refused.
+# A thread, interrupt, or model id Team and the Brain exchange, and every opaque id Team's Action journal keeps.
+SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 MEMORY_TOPIC_RE = re.compile(MEMORY_TOPIC_PATTERN)
 SKILL_KEY_RE = re.compile(SKILL_KEY_PATTERN)
 SKILL_INPUT_RE = re.compile(SKILL_INPUT_PATTERN)

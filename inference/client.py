@@ -4,7 +4,6 @@ import hashlib
 import http.client
 import json
 import os
-import re
 import threading
 import unicodedata
 from collections.abc import Callable, Mapping
@@ -13,7 +12,6 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from action import journal as action_journal
 from core import canonical_json
 from inference import abort as brain_abort
 from inference import config as inference_config
@@ -49,7 +47,6 @@ MAX_CONVERSATION_ENTRIES = http_payload.MAX_CONVERSATION_ENTRIES
 MAX_CONVERSATION_TEXT_CHARS = http_payload.MAX_CONVERSATION_TEXT_CHARS
 MAX_CONVERSATION_CHARS = http_payload.MAX_CONVERSATION_CHARS
 _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
-REPLY_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,7 +276,7 @@ def provider_credential(provider: object, model: object, api_key: object) -> dic
     if (
         provider not in inference_config.PROVIDERS
         or not isinstance(model, str)
-        or action_journal.SAFE_ID_RE.fullmatch(model) is None
+        or http_turn.SAFE_ID_RE.fullmatch(model) is None
         or not inference_credential.admissible_api_key(api_key)
     ):
         return None
@@ -459,7 +456,7 @@ class BrainRuntimeClient:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         if (
             len(reply) > MAX_REPLY_CHARS
-            or REPLY_CONTROL_RE.search(reply) is not None
+            or http_turn.REPLY_CONTROL_RE.search(reply) is not None
             or len(raw_actions) > MAX_ACTION_REQUESTS
         ):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
@@ -478,7 +475,7 @@ class BrainRuntimeClient:
             action_input = raw["input"]
             if (
                 not isinstance(interrupt_id, str)
-                or action_journal.SAFE_ID_RE.fullmatch(interrupt_id) is None
+                or http_turn.SAFE_ID_RE.fullmatch(interrupt_id) is None
                 or http_payload.canonical_assistant_id(assistant_id) is None
                 or http_payload.canonical_action_id(action) is None
                 or not isinstance(action_input, dict)
@@ -844,7 +841,7 @@ class BrainRuntimeClient:
         return http_payload.canonical_purpose(rest["purpose"])
 
     def delete_thread(self, thread_id: str) -> None:
-        if not isinstance(thread_id, str) or action_journal.SAFE_ID_RE.fullmatch(thread_id) is None:
+        if not isinstance(thread_id, str) or http_turn.SAFE_ID_RE.fullmatch(thread_id) is None:
             raise BrainRuntimeError("Brain runtime thread ID is invalid")
         response = self._post("/v1/threads/delete", {"thread_id": thread_id})
         if not isinstance(response, dict) or response != {"status": "deleted"}:

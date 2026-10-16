@@ -37,6 +37,7 @@ from pathlib import Path
 from action import result as action_result
 from core import canonical_json
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import turn as http_turn
 from storage import private_state
 
 SCHEMA_VERSION = 3
@@ -48,7 +49,6 @@ MAX_OPERATIONS = 64
 # Synchronous FULL syncs the WAL at every commit; this bound keeps the WAL itself small.
 WAL_AUTOCHECKPOINT_PAGES = 32
 
-SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 _OPERATION_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 _STATES = frozenset({"prepared", "executing", "completed", "no_effect"})
 _OPEN = "open"
@@ -145,7 +145,7 @@ def _positive_limit(value: int, name: str) -> int:
 
 
 def _safe_id(value: object, name: str) -> str:
-    if not isinstance(value, str) or SAFE_ID_RE.fullmatch(value) is None:
+    if not isinstance(value, str) or http_turn.SAFE_ID_RE.fullmatch(value) is None:
         raise ActionJournalConflictError(f"{name} is invalid")
     return value
 
