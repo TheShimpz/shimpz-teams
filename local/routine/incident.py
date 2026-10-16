@@ -373,20 +373,29 @@ def _release(self, team_id: str, item: record.Run) -> None:
     Routine being deleted that cannot be read is lost and audited, and its generation goes whole, archive marker
     included; any other incident's waits until it can be read.
     """
+    deleting = _deleting(routine_state.load(self, team_id), item.routine_id)
     try:
         sealed = routine_state.call(lambda: self.routine_store.incident(team_id, item.run_id))
         held = None if sealed is None else read_evidence(sealed, item.run_id)
     except ApiProblem:
-        if not _deleting(routine_state.load(self, team_id), item.routine_id):
+        if not deleting:
             raise
         _lost(team_id, item.run_id)
         held = None
     try:
+        current = self.action_state.current_batch(item.generation)
+        fingerprint = None if held is None else held["fingerprint"]
+        if current is not None and current[1] == "archived" and current[0] != fingerprint:
+            # An archived batch no readable evidence names: archiving follows durable evidence, so it was lost.
+            if not deleting:
+                raise local_errors.routine_state_unavailable()
+            _lost(team_id, item.run_id)
+            held = None
         if held is not None:
             seal_terminal(self, team_id, item.run_id, held["recovery"])
             if held["fingerprint"] is not None:
                 self.action_state.release_archive(item.generation, held["fingerprint"])
-        elif _deleting(routine_state.load(self, team_id), item.routine_id):
+        elif deleting:
             # No evidence names an archived batch of the run any more: its deletion releases the whole generation.
             self.action_state.purge(item.generation)
     except action_journal.ActionJournalError as exc:

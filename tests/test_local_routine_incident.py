@@ -827,6 +827,26 @@ class LostEvidenceTests(IncidentCase):
         self.assertIn("could not audit routine-evidence-lost (RuntimeError)", logs.output[0])
         self.assertNotIn("written", "".join(logs.output))
 
+    def test_an_archived_batch_no_evidence_names_keeps_a_set_aside_run_until_its_routine_is_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
+            routine_incident.hold(service, "team_1", run_id, lease)
+            service.routine_store.update("team_1", lambda state: (routine_hold.skip_incident(state, run_id, 0), None))
+            service.routine_store.delete_incident("team_1", run_id)
+            self.assertEqual(routine_incident.reconcile_team(service, "team_1"), (run_id,))
+            self.assertEqual([item.status for item in self.state(service).runs], ["skipped"])
+            self.assertEqual(service.action_state.current_batch(generation), (batch.fingerprint, "archived"))
+            self.assert_deleted_as_lost(service, value, run_id, generation)
+
+    def test_evidence_without_the_archived_batch_is_lost_when_its_routine_is_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
+            self.fence(service, run_id, lease)
+            held = record.run(self.state(service), run_id)
+            service.routine_store.put_incident("team_1", run_id, routine_incident.evidence(run_id, held, None, ()))
+            service.action_state.archive(generation, batch.fingerprint)
+            self.assert_deleted_as_lost(service, value, run_id, generation)
+
 
 HELD_STEPS = [{"assistant": "dns", "action": "check"}, {"assistant": "dns", "action": "notify"}]
 
