@@ -1,10 +1,14 @@
 import copy
+import os
 import sys
+import tempfile
 from dataclasses import replace
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+
+import requests
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
@@ -20,6 +24,7 @@ from local_controller_harness import (
 
 from local import app as local_app
 from local import labels as local_labels
+from local.assistant import egress as local_egress
 
 
 def _second_assistant(controller: object, first: object) -> object:
@@ -34,6 +39,22 @@ def _second_assistant(controller: object, first: object) -> object:
     second.attrs["Config"]["Labels"][local_labels.ASSISTANT_LABEL] = second_spec.assistant_id
     second.name = controller.assistant_lifecycle._container_name("team_1", second_spec.assistant_id)
     return second
+
+
+def _private_egress_policy(case: object, controller: object) -> None:
+    """Give ``controller`` a real egress policy store in a private temporary directory."""
+    directory = tempfile.TemporaryDirectory()
+    case.addCleanup(directory.cleanup)
+    root = Path(directory.name) / "policy"
+    root.mkdir(mode=0o750)
+    root.chmod(0o750)
+    for patcher in (
+        mock.patch.object(local_egress, "ASSISTANT_EGRESS_POLICY_DIR", root),
+        mock.patch.object(local_egress, "ASSISTANT_EGRESS_POLICY_GID", os.getgid()),
+    ):
+        patcher.start()
+        case.addCleanup(patcher.stop)
+    del controller.assistant_lifecycle._read_admitted_egress_policy
 
 
 def _on_current_image(container) -> None:
@@ -480,6 +501,34 @@ class LocalLifecycleTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "egress-policy-drift")
         self.assertEqual(events, ["reload"])
 
+    def test_a_create_whose_answer_was_lost_is_adopted_by_the_next_install_and_chat(self) -> None:
+        controller, container, events = self._lifecycle_controller()
+        lifecycle = controller.assistant_lifecycle
+        controller.registry["shimpz-cloudflare"].allowed_hosts = ("api.example.com",)
+        _private_egress_policy(self, controller)
+        _on_current_image(container)
+        # Docker creates the container, but its answer never reaches Team.
+        container.status = "created"
+        container.start = lambda: events.append("start") or setattr(container, "status", "running")
+        lookups = iter((None,))
+        lifecycle._assistant_container = lambda *_args, **_kwargs: next(lookups, container)
+        lifecycle._assistant_image = lambda _spec: SimpleNamespace(id=container.attrs["Image"])
+        controller.client.containers.create = mock.Mock(side_effect=requests.exceptions.ReadTimeout("lost"))
+        lifecycle._wait_ready = lambda *_args: events.append("ready")
+        lifecycle._active_assistant_genesis = lambda _active: events.append("genesis")
+
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle.install_assistant("team_1", "shimpz-cloudflare")
+        self.assertEqual(caught.exception.code, "assistant-install-rollback-incomplete")
+
+        self.assertEqual(
+            lifecycle.install_assistant("team_1", "shimpz-cloudflare"),
+            {"assistant": "shimpz-cloudflare", "installed": False},
+        )
+        self.assertEqual(events[-3:], ["start", "ready", "genesis"])
+        active = controller.chat_turn_service._active_chat_assistants("team_1", lifecycle._network_name("team_1"))
+        self.assertEqual([assistant.container_id for assistant in active], [container.id])
+
     def test_container_profile_rejects_duplicate_or_malformed_environment_entries(self) -> None:
         invalid_environments = (
             ["SHIMPZ_TEAM_ID=team_1", "SHIMPZ_TEAM_ID=other"],
@@ -497,7 +546,7 @@ class LocalLifecycleTests(LocalContractCase):
                 self.assertEqual(caught.exception.code, "assistant-isolation-drift")
                 self.assertEqual(events, ["reload"])
 
-    def test_new_assistant_is_admitted_before_egress_and_start(self) -> None:
+    def test_new_assistant_gets_its_egress_before_create_and_is_admitted_before_start(self) -> None:
         events: list[object] = []
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
@@ -533,7 +582,7 @@ class LocalLifecycleTests(LocalContractCase):
 
         controller.assistant_lifecycle._create_assistant_container("team_1", spec, network, image)
 
-        self.assertLess(events.index("admit"), events.index("activate-egress"))
+        self.assertLess(events.index("activate-egress"), events.index("create"))
         self.assertLess(events.index("admit"), events.index("start"))
         self.assertEqual(events[-4:], ["start", "validate", "ready", "genesis"])
 

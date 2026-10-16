@@ -182,16 +182,18 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
                 self.assertFalse(assistant_lifecycle.remove_retired_image(subject, "image"))
 
     def test_lost_or_slow_docker_still_compensates_an_install(self) -> None:
-        spec = types.SimpleNamespace(assistant_id="assistant", image="image@sha256:" + "a" * 64)
+        spec = types.SimpleNamespace(assistant_id="assistant", image="image@sha256:" + "a" * 64, allowed_hosts=())
         for failure in LOST_DOCKER:
             with self.subTest(failure=type(failure).__name__):
                 subject = self._rollback_subject()
                 container = types.SimpleNamespace(id="container", remove=mock.Mock(side_effect=failure))
                 problem = assistant_lifecycle.rollback_assistant_install(
-                    subject, "team_1", spec, container, egress_prepared=False
+                    subject, "team_1", spec, container, egress_prepared=True
                 )
                 self.assertEqual(problem.code, "assistant-install-rollback-incomplete")
                 subject._fail_stop_action.assert_called_once_with(container)
+                # The container that is left keeps its egress policy for the next install.
+                subject._remove_egress_policy.assert_not_called()
 
                 container = types.SimpleNamespace(id="container", reload=mock.Mock(side_effect=failure))
                 subject = types.SimpleNamespace(
@@ -220,7 +222,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
                 subject._rollback_assistant_install.assert_called_once()
 
     def test_a_refused_create_completes_its_rollback_only_when_no_container_is_left(self) -> None:
-        spec = types.SimpleNamespace(assistant_id="assistant", image="image@sha256:" + "a" * 64)
+        spec = types.SimpleNamespace(assistant_id="assistant", image="image@sha256:" + "a" * 64, allowed_hosts=())
         subject = types.SimpleNamespace(
             _rollback_assistant_install=mock.Mock(return_value=None),
             client=types.SimpleNamespace(

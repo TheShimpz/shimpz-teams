@@ -121,6 +121,35 @@ class LocalAssistantEgressTests(unittest.TestCase):
             lifecycle._write_egress_policy("team_1", self.spec, self.spec.allowed_hosts)
         self.assertEqual(caught.exception.code, "egress-policy-unavailable")
 
+    def test_a_failed_policy_preparation_is_cleaned_up_before_any_container_exists(self) -> None:
+        lifecycle = self.controller.assistant_lifecycle
+        self.controller.client.containers = types.SimpleNamespace(create=mock.Mock())
+        unsaved = local_egress.egress_policy.EgressPolicyUnavailableError("egress policy could not be saved")
+
+        def create() -> None:
+            lifecycle._create_assistant_container(
+                "team_1", self.spec, types.SimpleNamespace(name="network"), types.SimpleNamespace(id="image")
+            )
+
+        # The token is saved before the policy write fails, so preparation persisted part of its state.
+        with (
+            mock.patch.object(local_egress.egress_policy.EgressPolicyStore, "write", side_effect=unsaved),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            create()
+        self.assertEqual(caught.exception.code, "egress-policy-unavailable")
+        self.assertIsNone(lifecycle._egress_token("team_1", self.spec.assistant_id, create=False))
+
+        with (
+            mock.patch.object(local_egress.egress_policy.EgressPolicyStore, "write", side_effect=unsaved),
+            mock.patch.object(local_egress.egress_policy.EgressPolicyStore, "remove", side_effect=unsaved),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            create()
+        # A cleanup that fails too keeps the binding for the next install to settle.
+        self.assertEqual(caught.exception.code, "assistant-install-rollback-incomplete")
+        self.controller.client.containers.create.assert_not_called()
+
     def test_network_validation_and_optional_lookup_fail_closed(self) -> None:
         lifecycle = self.controller.assistant_lifecycle
         invalid = types.SimpleNamespace(reload=mock.Mock(), attrs={})

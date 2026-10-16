@@ -109,6 +109,7 @@ def rollback_assistant_install(
     *,
     egress_prepared: bool,
 ) -> ApiProblem | None:
+    """Remove what a failed install created; a container that is left keeps its egress policy for the next install."""
     incomplete = False
     if container is not None:
         _forget_container_review(self, container.id)
@@ -120,7 +121,7 @@ def rollback_assistant_install(
             incomplete = True
             with suppress(ApiProblem):
                 self._fail_stop_action(container)
-    if egress_prepared:
+    if egress_prepared and not incomplete:
         try:
             self._remove_egress_policy(team_id, spec.assistant_id)
         except ApiProblem:
@@ -144,6 +145,24 @@ def _created_container_absent(self, team_id: str, spec: AssistantSpec, failure: 
         return False
 
 
+def _prepare_egress_policy(self, team_id: str, spec: AssistantSpec) -> None:
+    """Write Team's route for the Assistant's provider calls before Docker can create its container (ADR-0106).
+
+    A container whose create answer is lost then still holds its policy, so the next install can adopt it. No
+    container exists yet, so a write that failed is cleaned up without any Docker proof; when that cleanup fails too,
+    the rollback is incomplete and the binding stays for the next install.
+    """
+    try:
+        # The binding's reviewed, canonical hosts; the store refuses any other form.
+        self._write_egress_policy(team_id, spec, spec.allowed_hosts)
+    except ApiProblem as exc:
+        try:
+            self._remove_egress_policy(team_id, spec.assistant_id)
+        except ApiProblem:
+            raise assistant_install_rollback_incomplete() from exc
+        raise
+
+
 def create_assistant_container(
     self,
     team_id: str,
@@ -153,8 +172,10 @@ def create_assistant_container(
     *,
     authorize_start: Callable[[], None] | None = None,
 ) -> None:
+    egress_prepared = bool(spec.allowed_hosts)
+    if egress_prepared:
+        _prepare_egress_policy(self, team_id, spec)
     container = None
-    egress_prepared = False
     try:
         container = self.client.containers.create(
             image=spec.image,
@@ -198,11 +219,8 @@ def create_assistant_container(
                 "Docker resolved an unexpected Assistant image",
                 code="image-resolution-mismatch",
             )
-        allowed_hosts = self._admit_assistant_allowed_hosts(container, spec)
-        if allowed_hosts:
-            # Team's own route for this Assistant's provider calls; the workload never holds it (ADR-0106).
-            egress_prepared = True
-            self._write_egress_policy(team_id, spec, allowed_hosts)
+        # The image's manifest must declare exactly the reviewed hosts its policy already admits.
+        self._admit_assistant_allowed_hosts(container, spec)
         if authorize_start is not None:
             authorize_start()
         container.start()
@@ -211,6 +229,7 @@ def create_assistant_container(
         self._active_assistant_genesis(_ActiveAssistant(spec, container.id, container))
     except (ApiProblem, *DOCKER_ERRORS) as exc:
         if container is None and not _created_container_absent(self, team_id, spec, exc):
+            # Docker may still be creating the container, so its binding and egress policy stay for adoption.
             raise assistant_install_rollback_incomplete() from exc
         cleanup_error = self._rollback_assistant_install(
             team_id,

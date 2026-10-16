@@ -64,7 +64,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
         return caught.exception
 
-    def test_manifest_mismatch_removes_stopped_container_without_activating_egress(self) -> None:
+    def test_manifest_mismatch_removes_the_unstarted_container_and_its_egress(self) -> None:
         events: list[object] = []
         container = SimpleNamespace(
             id="assistant-generation",
@@ -78,9 +78,8 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
         self.assertEqual(refused.code, "assistant-manifest-invalid")
         self.assertNotIn("start", events)
-        self.assertNotIn("activate-egress", events)
-        # Team writes its egress route only after admission, so a refused manifest leaves none to revoke.
-        self.assertEqual(events, ["reload", ("remove", True)])
+        # Team writes its egress route before the container exists and revokes it once the container is removed.
+        self.assertEqual(events, ["activate-egress", "reload", ("remove", True), "release-egress"])
 
     def test_failed_install_removal_reports_incomplete_rollback(self) -> None:
         events: list[object] = []
@@ -107,10 +106,10 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         refused = self._create_refused_by_manifest(events, Container())
 
         self.assertEqual(refused.code, "assistant-install-rollback-incomplete")
-        self.assertNotIn("activate-egress", events)
+        # The container that is left keeps its egress route, so the next install can adopt or remove it.
         self.assertEqual(
             events,
-            ["reload", ("remove", True), ("stop", 3), "reload"],
+            ["activate-egress", "reload", ("remove", True), ("stop", 3), "reload"],
         )
 
     def test_uninstall_removes_an_outdated_release_after_current_contract_admission(self) -> None:
