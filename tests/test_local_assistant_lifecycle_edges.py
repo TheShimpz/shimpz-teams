@@ -519,8 +519,10 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "docker-remove-failed")
 
     def test_lost_or_slow_docker_restores_the_previous_generation(self) -> None:
-        for failure in LOST_DOCKER:
-            with self.subTest(failure=type(failure).__name__):
+        # Once the previous generation holds the container name again, an unsettled successor create left nothing.
+        unsettled = local_app.ApiProblem(500, "rollback", code="assistant-install-rollback-incomplete")
+        for failure, create_failure in (*((failure, None) for failure in LOST_DOCKER), (None, unsettled)):
+            with self.subTest(failure=type(failure).__name__, create_failure=create_failure):
                 controller, container, _events, previous, successor, binding = self._update_specs()
                 lifecycle = controller.assistant_lifecycle
                 previous_image = types.SimpleNamespace(id="sha256:" + "a" * 64)
@@ -533,9 +535,10 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                 lifecycle._queue_residue = mock.Mock()
                 lifecycle._clear_update = mock.Mock()
                 container.remove = mock.Mock(side_effect=failure)
+                lifecycle._create_assistant_container = mock.Mock(side_effect=create_failure)
                 with self.assertRaises(local_app.ApiProblem) as caught:
                     _update(controller, previous, successor, binding)
-                self.assertEqual(caught.exception.code, "docker-remove-failed")
+                self.assertEqual((caught.exception.status, caught.exception.code), (503, "docker-remove-failed"))
                 lifecycle._restore_previous_assistant.assert_called_once()
                 lifecycle._clear_update.assert_called_once_with(transaction)
 

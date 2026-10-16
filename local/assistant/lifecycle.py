@@ -485,7 +485,8 @@ def update_assistant(
             self._restore_previous_assistant(team_id, previous, network, previous_image)
             self._queue_published_residue(previous_binding, successor_image.id)
             self._clear_update(transaction)
-            if isinstance(exc, ApiProblem):
+            # The restored generation holds the container name, so an unsettled successor create left nothing.
+            if isinstance(exc, ApiProblem) and exc.code != "assistant-install-rollback-incomplete":
                 raise
             raise assistant_replace_failed() from exc
         try:
