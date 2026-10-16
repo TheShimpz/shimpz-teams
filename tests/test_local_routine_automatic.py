@@ -350,13 +350,19 @@ class AutomaticEdgeTests(AutomaticCase):
                 self.assertEqual(
                     (record.run(state, run_id).protection_lost, state.notices[-1].protection_lost), (True, True)
                 )
-        # Evidence of exactly this run that was never replayed holds no cursor, so it records no loss.
-        with tempfile.TemporaryDirectory() as directory:
-            service, _value, run_id = self.held_unmarked(directory)
-            with mock.patch.object(routine_incident, "read_evidence", unreplayed_of()):
-                routine_incident.pause(service, "team_1", run_id, "exhausted")
-            state = self.state(service)
-        self.assertEqual((record.run(state, run_id).protection_lost, state.notices[-1].protection_lost), (False, False))
+        # Evidence of exactly this run without a snapshot proves no loss only when the run left no cursor either: a
+        # cursor left behind may have recorded one that nothing can now bind.
+        for kept, lost in ((True, True), (False, False)):
+            with self.subTest(cursor=kept), tempfile.TemporaryDirectory() as directory:
+                service, _value, run_id = self.held_unmarked(directory)
+                if not kept:
+                    service.routine_store.delete_cursor("team_1", run_id)
+                with mock.patch.object(routine_incident, "read_evidence", unreplayed_of()):
+                    routine_incident.pause(service, "team_1", run_id, "exhausted")
+                state = self.state(service)
+                self.assertEqual(
+                    (record.run(state, run_id).protection_lost, state.notices[-1].protection_lost), (lost, lost)
+                )
 
     def test_setting_an_incident_aside_marks_its_sealed_loss_on_its_notice(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

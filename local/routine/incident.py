@@ -325,13 +325,15 @@ def _sealed_loss(self, team_id: str, value: record.Run) -> bool:
         held = None if sealed is None else read_evidence(sealed, value.run_id)
         snapshot = None if held is None else held["recovery"]
         cursor = None if snapshot is None else self.routine_store.cursor(team_id, snapshot.binding)
+        # Without a snapshot only a stored cursor of the run could have recorded a loss; one that exists cannot be read.
+        unbound = snapshot is None and value.run_id in self.routine_store.cursors(team_id)
     except routine_store.RoutineStoreError, ApiProblem:
         return True
     if held is None or (held["routine_id"], held["generation"]) != (value.routine_id, value.generation):
         return True
     if snapshot is None:
-        # Evidence of this run without a recovery snapshot is of a run that was never replayed, so it has no cursor.
-        return False
+        # A run with no cursor never replayed and has no protection to lose; a cursor left behind cannot prove it held.
+        return unbound
     if cursor is None:
         return True
     # The evidence names exactly this run, so its snapshot does too; it must also bind the run's own revision.
