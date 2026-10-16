@@ -1,8 +1,8 @@
 """A human answers a frozen Routine run: a fresh challenge when the notice opens, then the run resumes (ADR-0086).
 
 Routine challenges live in their own namespace, never beside chat's one pending challenge, so a frozen run never
-blocks chat. Expiry or dismissal of a routine challenge leaves the run frozen; denial or an unavailable assurance ends
-it denied.
+blocks chat. Expiry or dismissal of a routine challenge leaves the run frozen, and so does an approval refused for an
+assurance that is missing or unavailable (403); only a denial ends it denied.
 """
 
 import base64

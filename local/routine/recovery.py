@@ -163,8 +163,9 @@ def assess(self, team_id: str, incident_id: str) -> Assessment:
 def proven(assessment: Assessment) -> str:
     """What Team-admitted evidence proves of the held step's operation.
 
-    ``none``: nothing is uncertain; ``policy``: a Team-detected policy fault holds it; ``absent``: the evidence proves
-    no business effect; ``unclassified``: a read-only step whose failure Team never classified; else ``uncertain``.
+    ``none``: nothing is uncertain; ``policy``: a Team-detected policy fault holds it; ``unquiesced``: Team could not
+    prove the workload stopped after an ambiguous outcome; ``absent``: the evidence proves no business effect;
+    ``unclassified``: a read-only step whose failure Team never classified; else ``uncertain``.
     Absence needs positive trusted evidence: a verifier's proof, the journal's, or Team's own classification of a
     read-only failure. A policy fault, such as a secret echo or an invalid frame, is never admitted as absence, and a
     classification that was never sealed holds the run as evidence, so it is never verified away or retried

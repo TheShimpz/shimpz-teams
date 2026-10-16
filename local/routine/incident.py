@@ -430,7 +430,7 @@ def unresolved(self, team_id: str, incident_id: str) -> record.Run:
 
 
 def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:
-    """Reopen an unresolved incident's cursor under its own sealed binding, for verification or a person's choice.
+    """Reopen an unresolved incident's cursor under its own sealed binding, for verification or its card.
 
     It needs neither the Routine record, which deletion removes, nor the archived journal rows; a missing snapshot,
     a binding that disagrees with the index, or a cursor of another plan fails closed.

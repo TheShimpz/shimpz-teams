@@ -130,7 +130,8 @@ def _outcome(value: object) -> dict[str, object]:
 def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
     """The Team's Routines as data for the Brain: enough to name one and to see its steps; never an input value.
 
-    Only the protocol's admitted listing (``routine.canonical_routine_listings``) is sent; anything else is a fault.
+    Only the protocol's admitted listing (``routine_context.canonical_routine_listings``) is sent; anything else is a
+    fault.
     """
     state = routine_state.load(self, team_id)
     listed = tuple(
