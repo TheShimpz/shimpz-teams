@@ -194,10 +194,10 @@ class Claim:
     run: Run
     lease_token: str
     # The Routine revision and plan digest the run was claimed at; its segment request must name exactly these.
-    revision: int = 1
-    plan_digest: str = ""
+    revision: int
+    plan_digest: str
     # The run's active time, from its revision's units; Admin bounds its worker's wait by it.
-    active_seconds: int = routine_plan.SHORT_ACTIVE_SECONDS
+    active_seconds: int
 
 
 @dataclass(frozen=True, slots=True, repr=False)
