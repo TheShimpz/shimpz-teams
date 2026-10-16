@@ -7111,6 +7111,7 @@
       {"text": "毎日9時に、エラーがないかチェックして", "schedules": [{"kind": "daily", "time": "09:00"}]},
       {"text": "毎日9時には実行しないか、手動実行だけにしてください", "schedules": []},
       {"text": "30秒ごとには実行しませんか、という提案は拒否します", "schedules": []},
+      {"text": "毎日9時に実行しないか確認するだけで、定期実行は拒否します", "schedules": []},
       {"text": "每天9点", "schedules": [{"kind": "daily", "time": "09:00"}]},
       {"text": "每月5号9点", "schedules": [{"kind": "monthly", "day": 5, "time": "09:00"}]},
       {"text": "كل 30 ثانية", "schedules": [{"kind": "continuous", "gap": 30}]},
