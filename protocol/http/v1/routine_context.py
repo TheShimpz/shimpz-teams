@@ -127,12 +127,14 @@ def may_write_date(text: str, today: datetime.date) -> bool:
     """Whether a text writes a date Team's recorder may read as each run's own: in an unspaced form, near ``today``.
 
     It reads every match in either numeric order and a day more than Team's reach, so the date a send started on in
-    any zone counts. The Brain leaves such a text to Team, which decides.
+    any zone counts. Team writes a date in ASCII digits only, so a match with any other digit never counts. The Brain
+    leaves such a text to Team, which decides.
     """
     return any(
         _near(year, month, day, today)
         for kind, pattern in UNSPACED_DATE_FORMS
         for match in pattern.finditer(text)
+        if all(group is None or group.isascii() for group in match.groups())
         for year, month, day in _dates_written(kind, match.groups())
     )
 

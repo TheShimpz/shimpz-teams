@@ -7073,7 +7073,8 @@
     {"text": "2026-99-99", "today": "2026-10-16", "dated": false},
     {"text": "news-2026-10-16", "today": "2026-10-16", "dated": false},
     {"text": "31/02", "today": "2026-10-16", "dated": false},
-    {"text": "zone-123456", "today": "2026-10-16", "dated": false}
+    {"text": "zone-123456", "today": "2026-10-16", "dated": false},
+    {"text": "２０２６-１０-１６", "today": "2026-10-16", "dated": false}
   ],
   "routine_number_tokens": [
     {"text": "a conta 1234567, -42 e 1.5e3", "tokens": ["1234567", "-42", "1.5e3"]},
