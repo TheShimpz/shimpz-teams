@@ -12,6 +12,7 @@ from test_local_routine_recovery import RECORD, Assistant, RecoveryCase, failed
 from test_local_routine_replay import ZONE
 from test_local_routine_service import ASSISTANT
 
+from action import journal as action_journal
 from install import bindings
 from local.routine import recovery as routine_recovery
 from local.routine import store as routine_store
@@ -87,6 +88,28 @@ class AutomaticTests(AutomaticCase):
         # The continuation already reopened the run, so the retry runs; the run's end removes the evidence.
         self.assertEqual((status, record.incidents(state), state.runs), ("recovered", (), ()))
         self.assertEqual(len([action for action, _operation in assistant.calls if action == "create-record"]), 2)
+
+    def test_a_verifier_whose_journal_fails_is_inconclusive_and_holds_for_the_card(self) -> None:
+        assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.mutating(directory, Brain(), assistant)
+            assistant.service = service
+            self.zone_record_routine(service)
+            real = service.action_state.discard
+            verifications: list[str] = []
+
+            def failing(generation):
+                if generation.endswith(":" + routine_recovery.VERIFY_SUFFIX) and not verifications:
+                    verifications.append(generation)
+                    raise action_journal.ActionJournalError("Action generation could not be discarded")
+                return real(generation)
+
+            with mock.patch.object(service.action_state, "discard", side_effect=failing):
+                status = self.run_claim(service, service.claim_routine_run())["status"]
+            state = self.state(service)
+        self.assertEqual((status, len(verifications), state.notices[-1].outcome), ("held", 1, "held"))
+        # The verifier was never dispatched, so its occurrence could not complete the step.
+        self.assertEqual([action for action, _operation in assistant.calls], ["list-zones", "create-record"])
 
     def test_a_proven_occurrence_continues(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])

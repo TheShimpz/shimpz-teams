@@ -301,7 +301,7 @@ def _call_verifier(self, team_id: str, token: str, assessment: Assessment, reque
     try:
         self.action_state.discard(generation)
         result = self._run_chat_segment(segment)
-    except ApiProblem, routine_replay.ReplayError:
+    except ApiProblem, action_journal.ActionJournalError:
         return None
     finally:
         with contextlib.suppress(action_journal.ActionJournalError):
