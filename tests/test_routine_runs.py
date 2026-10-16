@@ -304,5 +304,31 @@ class TransitionEdgeTests(unittest.TestCase):
         self.assertEqual(record.discarded(queued, run_id, "g1").discards, ((run_id, "g2"),))
 
 
+class DiscardBoundTests(unittest.TestCase):
+    def test_the_removal_queue_stays_within_its_bound_while_every_removal_fails(self):
+        # Claims stop once MAX_ROUTINES removals wait, yet each Routine's one live run may still queue two generations:
+        # the one its hold left and its continuation's. Nothing is ever drained here.
+        routines = (routine(f"{index:032x}", routine_fixture.EVERY_HOUR) for index in range(record.MAX_ROUTINES))
+        state, now = added(*routines), NINE
+        for _ in range(record.MAX_ROUTINES - 1):
+            state, claim = routine_claim.claim(state, now, KEY)
+            state = routine_runs.end(state, claim.run.run_id, now, "stopped", {})
+            now += 3601
+        frozen = []
+        for _ in range(record.MAX_ROUTINES):
+            state, claim, lease = routine_fixture.claim_bound(state, now)
+            state = routine_runs.freeze(state, claim.run.run_id, lease, now, ("human", "dns", "check", STEP))
+            frozen.append(claim.run.run_id)
+        for run_id in frozen:
+            state, token = routine_runs.thaw(state, run_id, now, 0)
+            state = routine_hold.fence(state, run_id, record.lease_of(token, record.HUMAN_LEASE), now)
+            state = routine_hold.settle_hold(state, run_id, now)
+            generation = routine_claim.generation_for(routine_fixture.NETWORK, run_id, "s1")
+            state, _token = routine_hold.reopen_incident(state, run_id, now, generation)
+            state = routine_runs.end(state, run_id, now, "stopped", {})
+        self.assertEqual(len(state.discards), record.MAX_ROUTINES - 1 + 2 * record.MAX_ROUTINES)
+        self.assertLessEqual(len(state.discards), record.MAX_DISCARDS)
+
+
 if __name__ == "__main__":
     unittest.main()
