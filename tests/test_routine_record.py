@@ -87,7 +87,7 @@ class ContractTests(unittest.TestCase):
         invalid = (
             ("done", {"plan": SUMMARY}),
             ("deleted", {"name": "x"}),
-            ("created", {}),
+            ("created", {"stages": []}),
             ("created", {"steps": [{"seq": 1, "phase": "model", "state": "started"}]}),
             ("created", {"steps": [{"seq": 2, "phase": "model", "state": "finished", "elapsed_ms": 1}]}),
             ("streak-paused", {"failures": 0}),
