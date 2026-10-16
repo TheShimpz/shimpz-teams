@@ -521,12 +521,9 @@ def _sealed(self, team_id: str, value: record.Run):
     The cursor must name exactly the snapshot's plan before its step can say anything.
     """
     batch = self.action_state.current_batch(value.generation)
-    payload = self.routine_store.recovery(team_id, value.run_id)
-    if payload is None:
+    snapshot = routine_incident.run_snapshot(self, team_id, value)
+    if snapshot is None:
         return batch, None, None
-    snapshot = routine_incident.read_recovery(payload, value.run_id)
-    if not snapshot.of_run(value.routine_id, value.generation):
-        raise routine_store.RoutineStoreError("Routine recovery snapshot names another run")
     cursor = self.routine_store.cursor(team_id, snapshot.binding)
     if cursor is not None and not snapshot.runs(cursor):
         # A cursor of another plan proves nothing about this run's steps, whether clean or complete.

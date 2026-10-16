@@ -160,7 +160,7 @@ def read_evidence(payload: bytes, incident_id: str) -> dict[str, object]:
     return value
 
 
-def _snapshot(self, team_id: str, value: record.Run) -> Recovery | None:
+def run_snapshot(self, team_id: str, value: record.Run) -> Recovery | None:
     """The run's sealed recovery snapshot, which must belong to exactly this run, or None for an unreplayed run."""
     payload = routine_state.call(lambda: self.routine_store.recovery(team_id, value.run_id))
     if payload is None:
@@ -229,7 +229,7 @@ def _held_evidence(self, team_id: str, value: record.Run) -> dict[str, object]:
         if current is not None and current[1] == "archived":
             raise local_errors.routine_state_unavailable()
         operations = () if current is None else self.action_state.snapshot(value.generation, current[0])
-        snapshot = _snapshot(self, team_id, value)
+        snapshot = run_snapshot(self, team_id, value)
         payload = evidence(run_id, value, None if current is None else current[0], operations, snapshot)
         routine_state.call(lambda: self.routine_store.put_incident(team_id, run_id, payload))
         sealed = read_evidence(payload, run_id)
