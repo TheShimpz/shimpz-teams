@@ -16,7 +16,7 @@ failure's diagnostic are redacted against all of it. A run that loses it shows n
 
 import dataclasses
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from action import execution as action_execution
@@ -104,7 +104,7 @@ class _Seal:
     store: routine_store.RoutineStore
     diagnostics: routine_diagnostics.DiagnosticStore
     protections: routine_protection.RunProtections
-    lost: object = None
+    lost: Callable[[], None]
 
 
 class ReplayRuntime:

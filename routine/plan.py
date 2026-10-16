@@ -129,7 +129,7 @@ class Plan:
     steps: tuple[Step, ...]
     digest: str
     # What a completed run does with its result: {"mode": a protocol output mode, "step": the shown step id or None}.
-    output: Mapping[str, object] = dataclasses.field(default_factory=lambda: {"mode": "none", "step": None})
+    output: Mapping[str, object]
 
     def position(self, step_id: str) -> int:
         """A step's 1-based position, which names it on the wire (ADR-0092 amendment, 2026-10-05, scale)."""

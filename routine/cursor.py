@@ -28,7 +28,8 @@ MAX_CURSOR_BYTES = 256 * 1024
 # fault (a secret echo, an invalid frame or result, an undeclared request), or any other refusal. Empty when the
 # attempt has not failed, or its failure could not be classified.
 FAULTS = ("", "handled", "transport", "unquiesced", "policy", "other")
-_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
+# The Team boot a cursor's run protection was bound in.
+_BOOT_RE = re.compile(r"[0-9a-f]{32}\Z")
 # A Docker container id or name: the workload an attempt was dispatched to.
 _WORKLOAD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _FIELDS = frozenset(
@@ -355,7 +356,7 @@ def _checked(cursor: Cursor) -> Cursor:
         and (dispatched or (cursor.workload, cursor.dispatched_at) == ("", 0))
         and _shown_valid(cursor.shown)
         and isinstance(cursor.boot, str)
-        and _ID_RE.fullmatch(cursor.boot) is not None
+        and _BOOT_RE.fullmatch(cursor.boot) is not None
         and type(cursor.protection_lost) is bool
     )
     if not valid:
@@ -371,11 +372,9 @@ def binding_valid(binding: object) -> bool:
         isinstance(binding, Binding)
         and isinstance(binding.incarnation, str)
         and http_payload.SHA256_RE.fullmatch(binding.incarnation) is not None
-        and isinstance(binding.routine_id, str)
-        and _ID_RE.fullmatch(binding.routine_id) is not None
+        and http_routine.matches(binding.routine_id, http_routine.ROUTINE_ID_RE)
         and http_routine.valid_revision(binding.revision)
-        and isinstance(binding.run_id, str)
-        and _ID_RE.fullmatch(binding.run_id) is not None
+        and http_routine.matches(binding.run_id, http_routine.ROUTINE_ID_RE)
     )
 
 
