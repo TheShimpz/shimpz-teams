@@ -428,9 +428,7 @@ def recorded(book: RecordingBook, recording: tuple[str, str], call: tuple, invok
     book.protect(team_id, recording_id, trace.secret_values(result, action.output_schema))
     found = book.get(team_id, recording_id)
     protected = () if found is None else tuple(found.protection.values)
-    pin = routine_pin.action_pins(active.spec, (action_request.action,), routine_pin.SCOPE_LOCALE)[
-        action_request.action
-    ]
+    pin = routine_pin.action_pins(active.spec, (action_request.action,))[action_request.action]
     occurrence = trace.Occurrence(
         active.spec.assistant_id,
         action_request.action,

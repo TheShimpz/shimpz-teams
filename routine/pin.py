@@ -3,8 +3,9 @@
 A step pins everything that decides what its Action may do and how Team handles it: the immutable image and source
 identity, the outbound hosts, the Action's whole reviewed contract (input and output schemas, capabilities, effect,
 verifier, and idempotency), the verifier Action recovery would run, the Integration and Stored Input declarations
-either uses, the English catalog, and the language pack and locale its requests render in. Team recomputes the pin
-before every dispatch and resume; any difference is drift, which holds the Routine until an authenticated update.
+either uses, the English catalog, and the language pack with the one fixed locale its document names. Team recomputes
+the pin before every dispatch and resume; any difference is drift, which holds the Routine until an authenticated
+update.
 """
 
 import hashlib
@@ -12,28 +13,27 @@ import json
 from collections.abc import Iterable, Mapping
 
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
-from protocol.http.v1 import payload as http_payload
 from routine import plan as routine_plan
 
 FORMAT = "shimpz-routine-action-pin-v1"
 SCOPE_FORMAT = "shimpz-routine-assistant-pin-v1"
-# Every locale's copy is in the pinned pack; this fixed locale only completes an Assistant-wide pin.
-SCOPE_LOCALE = "en"
+# Every locale's copy is in the pinned pack, so every pin names this one fixed locale.
+PIN_LOCALE = "en"
 
 
 class PinError(ValueError):
-    """The Assistant does not declare the pinned Action, or the locale is not an interface language."""
+    """The Assistant does not declare the pinned Action."""
 
 
-def action_pins(spec: object, action_ids: Iterable[str], locale: str) -> dict[str, str]:
-    """Each named Action's ``sha256:`` pin in ``locale``.
+def action_pins(spec: object, action_ids: Iterable[str]) -> dict[str, str]:
+    """Each named Action's ``sha256:`` pin.
 
     One Action index and one catalog digest serve every pin, so pinning all of an Assistant's Actions serializes its
     catalog once instead of once per Action.
     """
     actions = _actions(spec)
     catalog = _catalog(spec)
-    return {action_id: _action_pin(spec, actions, catalog, action_id, locale) for action_id in action_ids}
+    return {action_id: _action_pin(spec, actions, catalog, action_id) for action_id in action_ids}
 
 
 def assistant_pin(spec: object, brain_digest: str) -> str:
@@ -46,7 +46,7 @@ def assistant_pin(spec: object, brain_digest: str) -> str:
     document = {
         "format": SCOPE_FORMAT,
         "brain": brain_digest,
-        "actions": action_pins(spec, declared, SCOPE_LOCALE),
+        "actions": action_pins(spec, declared),
     }
     encoded = json.dumps(document, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(encoded.encode("ascii")).hexdigest()
@@ -60,11 +60,7 @@ def _catalog(spec: object) -> str:
     return catalog_validator.catalog_digest(spec.machine_contract["messages"])
 
 
-def _action_pin(
-    spec: object, actions: Mapping[str, Mapping[str, object]], catalog: str, action_id: str, locale: str
-) -> str:
-    if locale not in http_payload.CHAT_LOCALES:
-        raise PinError("Routine locale is invalid")
+def _action_pin(spec: object, actions: Mapping[str, Mapping[str, object]], catalog: str, action_id: str) -> str:
     action = actions.get(action_id)
     if action is None:
         raise PinError("Routine Action is not declared")
@@ -85,7 +81,7 @@ def _action_pin(
         "stored_inputs": {name: _stored_input(spec.stored_inputs[name]) for name in stored_inputs},
         "catalog": catalog,
         "pack": spec.pack_digest,
-        "locale": locale,
+        "locale": PIN_LOCALE,
     }
     return "sha256:" + hashlib.sha256(routine_plan.canonical(document)).hexdigest()
 

@@ -20,7 +20,7 @@ def contracts(assistants: tuple[object, ...]) -> dict[tuple[str, str], routine_p
     """Each Action of these Assistants with its complete current pin, its reviewed schemas, and its effect."""
     admitted: dict[tuple[str, str], routine_plan.ActionContract] = {}
     for active in assistants:
-        pins = routine_pin.action_pins(active.spec, active.spec.actions, routine_pin.SCOPE_LOCALE)
+        pins = routine_pin.action_pins(active.spec, active.spec.actions)
         admitted.update(
             {
                 (active.spec.assistant_id, action_id): routine_plan.ActionContract(
