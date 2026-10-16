@@ -6,6 +6,9 @@ dependencies = [
     # Pinned EXACT: an open range lets any future release install
     # silently on the next rebuild. Docker consumes only the committed lock via `uv sync --frozen`.
     "docker==7.1.0",
+    # Team reads requests' exceptions directly: docker-py raises them, and no DockerException, on a lost or slow
+    # Docker socket. Pinned to the version docker-py already resolves.
+    "requests==2.34.2",
     # Ed25519 Supervisor and Routine assertions, and the AES-GCM envelope of private Team state.
     "cryptography==50.0.2",
     # RE2 matches an Action schema `pattern` in time linear in the subject and releases the GIL while it runs.
