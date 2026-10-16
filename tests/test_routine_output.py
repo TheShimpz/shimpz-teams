@@ -43,10 +43,10 @@ def _shown_number(text: str) -> dict[str, object]:
 
 
 class DispositionTests(unittest.TestCase):
-    def test_a_plan_names_one_closed_disposition_whose_shown_step_is_its_own(self) -> None:
+    def test_a_plan_names_one_closed_disposition_whose_shown_step_is_its_last(self) -> None:
         for output in (
             {"mode": "show", "step": "share"},
-            {"mode": "changes", "step": "publish"},
+            {"mode": "changes", "step": "share"},
             {"mode": "none", "step": None},
         ):
             with self.subTest(output=output):
@@ -60,6 +60,9 @@ class DispositionTests(unittest.TestCase):
             {"mode": "show"},
             {"mode": "show", "step": None},
             {"mode": "show", "step": "missing"},
+            # A shown mode shows the plan's last step.
+            {"mode": "show", "step": "publish"},
+            {"mode": "changes", "step": "publish"},
             {"mode": "changes", "step": 1},
             {"mode": "none", "step": "publish"},
             {"mode": "loud", "step": None},
@@ -322,57 +325,53 @@ class ProjectionTests(unittest.TestCase):
 
 class CursorSlotTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.plan = routine_plan.admit(_document(output={"mode": "show", "step": "publish"}), CONTRACTS)
+        self.plan = routine_plan.admit(_document(), CONTRACTS)
         binding = routine_cursor.Binding("a" * 64, "b" * 32, 1, "c" * 32)
-        self.cursor = routine_cursor.dispatch(
+        self.first = routine_cursor.dispatch(
             routine_cursor.start(self.plan, binding, 0, "f" * 32),
             self.plan,
             "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
             "d" * 64,
         )
         self.result = {"id": "post-1", "meta": {"a/b": [["news"]]}}
+        # Dispatched at the plan's last step, the one it shows.
+        self.cursor = routine_cursor.dispatch(
+            routine_cursor.complete(self.first, self.plan, self.result),
+            self.plan,
+            "7a2d3c9f-4b5e-4d6f-8a70-829304b5c6d7",
+            "d" * 64,
+        )
         node = routine_plan.output_safe(self.result, {})
         # The slot keeps its step's id; its output names the step by position, as the wire does.
-        self.slot = {"step": "publish", "output": routine_plan.output_shown(1, node), "digest": "e" * 64}
+        self.slot = {"step": "share", "output": routine_plan.output_shown(2, node), "digest": "e" * 64}
 
-    def test_only_the_shown_step_keeps_its_slot_and_it_outlives_later_steps(self) -> None:
-        advanced = routine_cursor.complete(self.cursor, self.plan, self.result, self.slot)
-        self.assertEqual(advanced.shown, self.slot)
-        decoded = routine_cursor.decode(routine_cursor.encode(advanced), advanced.binding)
-        self.assertEqual(decoded.shown, self.slot)
-        last = routine_cursor.complete(
-            routine_cursor.dispatch(advanced, self.plan, "7a2d3c9f-4b5e-4d6f-8a70-829304b5c6d7", "d" * 64),
-            self.plan,
-            {},
-        )
+    def test_only_the_shown_step_keeps_its_slot_and_it_outlives_holds_and_continuations(self) -> None:
+        last = routine_cursor.complete(self.cursor, self.plan, {}, self.slot)
         self.assertEqual(last.shown, self.slot)
+        decoded = routine_cursor.decode(routine_cursor.encode(last), last.binding)
+        self.assertEqual(decoded.shown, self.slot)
         self.assertEqual(routine_cursor.continued(routine_cursor.open_episode(last)).shown, self.slot)
-        for slot in (None, {**self.slot, "step": "share"}):
+        for slot in (None, {**self.slot, "step": "publish"}):
             with self.subTest(slot=slot), self.assertRaisesRegex(routine_cursor.CursorError, "cursor-shown-invalid"):
-                routine_cursor.complete(self.cursor, self.plan, self.result, slot)
+                routine_cursor.complete(self.cursor, self.plan, {}, slot)
         with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-shown-invalid"):
-            routine_cursor.complete(
-                routine_cursor.dispatch(advanced, self.plan, "7a2d3c9f-4b5e-4d6f-8a70-829304b5c6d7", "d" * 64),
-                self.plan,
-                {},
-                {**self.slot, "step": "share"},
-            )
+            routine_cursor.complete(self.first, self.plan, self.result, {**self.slot, "step": "publish"})
 
     def test_a_slot_outside_its_closed_shape_is_refused(self) -> None:
-        unavailable = {"step": "publish", "output": routine_plan.output_state(1, "unavailable"), "digest": None}
-        self.assertEqual(routine_cursor.complete(self.cursor, self.plan, self.result, unavailable).shown, unavailable)
+        unavailable = {"step": "share", "output": routine_plan.output_state(2, "unavailable"), "digest": None}
+        self.assertEqual(routine_cursor.complete(self.cursor, self.plan, {}, unavailable).shown, unavailable)
         for slot in (
             {**self.slot, "extra": 1},
             {**self.slot, "digest": "E" * 64},
-            {**self.slot, "output": {"step": "publish"}},
-            {**self.slot, "output": routine_plan.output_state(2, "unavailable")},
-            {**self.slot, "output": routine_plan.output_state(1, "unchanged")},
-            {**self.slot, "step": 1},
+            {**self.slot, "output": {"step": "share"}},
+            {**self.slot, "output": routine_plan.output_state(1, "unavailable")},
+            {**self.slot, "output": routine_plan.output_state(2, "unchanged")},
+            {**self.slot, "step": 2},
             {**unavailable, "digest": "e" * 64},
             [],
         ):
             with self.subTest(slot=slot), self.assertRaises(routine_cursor.CursorError):
-                routine_cursor.complete(self.cursor, self.plan, self.result, slot)
+                routine_cursor.complete(self.cursor, self.plan, {}, slot)
 
 
 def _completed(mode: str, *, notice_version: int = 0, digest: str = "", shown: dict | None = None, lost: bool = False):

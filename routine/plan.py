@@ -241,15 +241,15 @@ def _document(document: object) -> tuple[str, list[object], object, bytes]:
 
 
 def _output(value: object, steps: list[Step]) -> None:
-    """The run's output disposition: a shown step is one of the plan's, which has at least one step to run."""
+    """The run's output disposition: a shown step is the plan's last, and the plan has at least one step to run."""
     if not isinstance(value, dict) or set(value) != {"mode", "step"} or value["mode"] not in http_routine.OUTPUT_MODES:
         raise PlanError("plan-output-invalid")
     mode, shown = value["mode"], value["step"]
-    if mode in http_routine.SHOWN_MODES:
-        valid = isinstance(shown, str) and any(step.step_id == shown for step in steps)
-    else:
-        valid = shown is None
-    if not (valid and steps):
+    if not steps:
+        raise PlanError("plan-output-invalid")
+    if (mode in http_routine.SHOWN_MODES and shown != steps[-1].step_id) or (
+        mode not in http_routine.SHOWN_MODES and shown is not None
+    ):
         raise PlanError("plan-output-invalid")
 
 

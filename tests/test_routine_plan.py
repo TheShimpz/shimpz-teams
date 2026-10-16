@@ -71,7 +71,7 @@ def _document(**changes: object) -> dict[str, object]:
                 },
             },
         ],
-        "output": {"mode": "show", "step": "publish"},
+        "output": {"mode": "show", "step": "share"},
     }
     document.update(changes)
     return document
@@ -270,7 +270,7 @@ class PlanAdmissionTests(unittest.TestCase):
         contracts = {("shimpz-blog", "publish-post"): routine_plan.ActionContract(PIN, nested)}
 
         def plan(options: object) -> dict[str, object]:
-            document = _document()
+            document = _document(output={"mode": "show", "step": "publish"})
             document["steps"] = [
                 {
                     "id": "publish",
@@ -322,7 +322,7 @@ class PlanAdmissionTests(unittest.TestCase):
             return action_schema.admitted(schema)
 
         def admit(schema: dict[str, object], options: object) -> routine_plan.Plan:
-            document = _document()
+            document = _document(output={"mode": "show", "step": "publish"})
             document["steps"] = [
                 {
                     "id": "publish",
@@ -429,7 +429,7 @@ class PlanAdmissionTests(unittest.TestCase):
             return action_schema.admitted(schema)
 
         def admit(schema: dict[str, object], inputs: dict[str, object]) -> routine_plan.Plan:
-            document = _document()
+            document = _document(output={"mode": "show", "step": "publish"})
             document["steps"] = [
                 {"id": "publish", "assistant": "shimpz-blog", "action": "publish-post", "pin": PIN, "input": inputs}
             ]
