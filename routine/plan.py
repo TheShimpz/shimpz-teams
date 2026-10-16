@@ -83,7 +83,7 @@ def long_run(steps: int) -> bool:
 MAX_RETAINED_BYTES = 128 * 1024
 MAX_POINTER = http_routine.MAX_POINTER_CHARS
 STEP_ID_RE = http_routine_context.ROUTINE_STEP_ID_RE
-PIN_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+PIN_RE = http_routine.PLAN_DIGEST_RE
 _INDEX_RE = re.compile(r"(?:0|[1-9][0-9]{0,8})\Z")
 # A secret is never a literal: one of these in a destination name, or a destination marked write-only or as a password.
 _SECRET_MARKERS = (

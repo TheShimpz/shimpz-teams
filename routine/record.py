@@ -255,7 +255,6 @@ def grace_seconds(routine_value: Routine) -> int:
 
 
 _HEX32_RE = re.compile(r"[0-9a-f]{32}\Z")
-_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
 def _confirmed(value: object) -> bool:
@@ -263,8 +262,8 @@ def _confirmed(value: object) -> bool:
     return (
         isinstance(value, dict)
         and set(value) == {"proposal_id", "proposal_digest", "principal", "incarnation", "confirmed_at"}
-        and http_routine.matches(value["proposal_id"], _HEX32_RE)
-        and http_routine.matches(value["proposal_digest"], _DIGEST_RE)
+        and http_routine.matches(value["proposal_id"], http_routine.ROUTINE_ID_RE)
+        and http_routine.matches(value["proposal_digest"], http_routine.PLAN_DIGEST_RE)
         and http_routine.matches(value["principal"], _HEX32_RE)
         and http_routine.matches(value["incarnation"], http_payload.SHA256_RE)
         and type(value["confirmed_at"]) is int
