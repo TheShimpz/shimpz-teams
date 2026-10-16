@@ -702,7 +702,6 @@ def main() -> int:
                 developers=local_developers.DevelopersClient(),
                 artifact_trust=artifact_trust.ArtifactTrustVerifier(
                     client,
-                    binary="/opt/venv/bin/cosign",
                     trust_root=LOCAL_COSIGN_TRUST_ROOT,
                 ),
                 assistant_updates=assistant_update.AssistantUpdateStore(

@@ -201,7 +201,6 @@ class StaticTeamImageContractTests(unittest.TestCase):
         modeled_destinations = {
             "./",
             "/opt/venv",
-            "/usr/local/bin/cosign",
             "./protocol/action/v1/",
             "./protocol/assistant/v1/validators/",
             "./protocol/http/v1/",

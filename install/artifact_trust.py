@@ -63,7 +63,7 @@ class ArtifactTrustVerifier:
     def __init__(
         self,
         docker_client: object,
-        binary: str = "/usr/local/bin/cosign",
+        binary: str = "/opt/venv/bin/cosign",
         *,
         container_id: str | None = None,
         trust_root: Path,

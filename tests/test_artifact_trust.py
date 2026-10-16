@@ -536,7 +536,7 @@ class ArtifactTrustTests(unittest.TestCase):
                 "/usr/bin/timeout",
                 "--kill-after=5s",
                 "90s",
-                "/usr/local/bin/cosign",
+                "/opt/venv/bin/cosign",
                 "verify-blob-attestation",
                 "--digestAlg",
                 "sha256",
