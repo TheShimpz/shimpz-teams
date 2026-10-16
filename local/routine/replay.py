@@ -524,13 +524,10 @@ def _sealed(self, team_id: str, value: record.Run):
     if payload is None:
         return batch, None, None
     snapshot = routine_incident.read_recovery(payload, value.run_id)
-    if (
-        snapshot.binding.routine_id != value.routine_id
-        or routine_claim.network_of(value.generation, value.run_id) != snapshot.binding.incarnation
-    ):
+    if not snapshot.of_run(value.routine_id, value.generation):
         raise routine_store.RoutineStoreError("Routine recovery snapshot names another run")
     cursor = self.routine_store.cursor(team_id, snapshot.binding)
-    if cursor is not None and cursor.plan != snapshot.plan_digest:
+    if cursor is not None and not snapshot.runs(cursor):
         # A cursor of another plan proves nothing about this run's steps, whether clean or complete.
         raise routine_store.RoutineStoreError("Routine cursor names another plan")
     return batch, snapshot, cursor

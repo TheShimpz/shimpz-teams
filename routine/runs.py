@@ -3,7 +3,6 @@
 import copy
 import dataclasses
 import hashlib
-import secrets
 
 from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import payload as http_payload
@@ -88,19 +87,7 @@ def thaw(state: record.TeamRoutines, run_id: str, now: int, requests_used: int) 
     value = record.run(state, run_id)
     if value.status != "frozen" or record.routine(state, value.routine_id).deleting:
         raise record.RoutineStateError("run-not-frozen")
-    token = secrets.token_urlsafe(32)
-    resumed = dataclasses.replace(
-        value,
-        status="leased",
-        lease_sha256=record.lease_sha256(token),
-        lease_key=record.HUMAN_LEASE,
-        # The person's answer runs its segment at once, over the run's active time left.
-        lease_expires_at=routine_claim.lease_until(value, now),
-        request_kind="",
-        assistant_id="",
-        action="",
-        requests_used=max(value.requests_used, requests_used),
-    )
+    resumed, token = routine_claim.human_lease(value, now, requests_used=max(value.requests_used, requests_used))
     return record.replace_run(state, resumed), token
 
 

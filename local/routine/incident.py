@@ -52,6 +52,18 @@ class Recovery:
     def plan_digest(self) -> str:
         return routine_definition.plan_digest(self.plan)
 
+    def of_run(self, routine_id: str, generation: str) -> bool:
+        """Whether it names exactly its run's Routine and the Team incarnation the run's generation runs in."""
+        binding = self.binding
+        return (
+            binding.routine_id == routine_id
+            and routine_claim.network_of(generation, binding.run_id) == binding.incarnation
+        )
+
+    def runs(self, cursor: routine_cursor.Cursor) -> bool:
+        """Whether a cursor runs exactly this snapshot's plan; one of another plan proves nothing about the run."""
+        return cursor.plan == self.plan_digest
+
     def document(self) -> dict[str, object]:
         binding = self.binding
         return {
@@ -143,10 +155,7 @@ def read_evidence(payload: bytes, incident_id: str) -> dict[str, object]:
         raise local_errors.routine_state_unavailable()
     if value["recovery"] is not None:
         snapshot = read_recovery(value["recovery"], incident_id)
-        if (
-            snapshot.binding.routine_id != value["routine_id"]
-            or routine_claim.network_of(value["generation"], incident_id) != snapshot.binding.incarnation
-        ):
+        if not snapshot.of_run(value["routine_id"], value["generation"]):
             raise local_errors.routine_state_unavailable()
         value["recovery"] = snapshot
     return value
@@ -158,10 +167,7 @@ def _snapshot(self, team_id: str, value: record.Run) -> Recovery | None:
     if payload is None:
         return None
     snapshot = read_recovery(payload, value.run_id)
-    if (
-        snapshot.binding.routine_id != value.routine_id
-        or routine_claim.network_of(value.generation, value.run_id) != snapshot.binding.incarnation
-    ):
+    if not snapshot.of_run(value.routine_id, value.generation):
         raise local_errors.routine_state_unavailable()
     return snapshot
 
@@ -350,7 +356,7 @@ def seal_terminal(self, team_id: str, run_id: str, snapshot: Recovery | None) ->
         cursor = self.routine_store.cursor(team_id, snapshot.binding)
     except routine_store.RoutineStoreError:
         cursor = None
-    if cursor is None or cursor.plan != snapshot.plan_digest:
+    if cursor is None or not snapshot.runs(cursor):
         return
     binding = snapshot.binding
     run = routine_diagnostics.RunBinding(
@@ -395,7 +401,7 @@ def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:
         cursor = self.routine_store.cursor(team_id, snapshot.binding)
     except routine_store.RoutineStoreError as exc:
         raise local_errors.routine_state_unavailable() from exc
-    if cursor is None or cursor.plan != snapshot.plan_digest:
+    if cursor is None or not snapshot.runs(cursor):
         raise local_errors.routine_state_unavailable()
     return OpenedRecovery(snapshot, cursor)
 

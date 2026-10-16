@@ -9,11 +9,9 @@ record outlives its Routine. A person's card checks the exact state it was opene
 """
 
 import dataclasses
-import secrets
 from dataclasses import dataclass
 
 from routine import claim as routine_claim
-from routine import plan as routine_plan
 from routine import record
 
 # The call a held run stopped at: its Assistant, Action, position, and its plan's step count; all empty when the run
@@ -88,20 +86,8 @@ def reopen_incident(
         or routine_claim.network_of(generation, incident_id) is None
     ):
         raise record.RoutineStateError("routine-busy")
-    token = secrets.token_urlsafe(32)
-    resumed = dataclasses.replace(
-        value,
-        status="leased",
-        lease_sha256=record.lease_sha256(token),
-        lease_key=record.HUMAN_LEASE,
-        # The continuation runs at once, over the run's active time left.
-        lease_expires_at=now + value.active_seconds_left + routine_plan.LEASE_MARGIN_SECONDS,
-        generation=generation,
-        assistant_id="",
-        action="",
-        position=None,
-        steps=0,
-    )
+    # The continuation runs at once under its own generation.
+    resumed, token = routine_claim.human_lease(value, now, generation=generation)
     # The hold queued its generation already unless that removal has run since.
     discards = tuple(dict.fromkeys((*state.discards, (incident_id, value.generation))))
     return dataclasses.replace(record.replace_run(state, resumed), discards=discards), token

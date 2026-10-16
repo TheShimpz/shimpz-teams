@@ -227,6 +227,28 @@ def lease_until(value: record.Run, now: int) -> int:
     return now + max(value.active_seconds_left, 0) + routine_plan.LEASE_MARGIN_SECONDS
 
 
+def human_lease(value: record.Run, now: int, **changes: object) -> tuple[record.Run, str]:
+    """The run leased again at once for a person's answer, under a fresh internal lease no machine assertion knows.
+
+    Its segment runs over the run's active time left, and no call is waiting any more; returns the run and its token.
+    """
+    token = secrets.token_urlsafe(32)
+    resumed = dataclasses.replace(
+        value,
+        status="leased",
+        lease_sha256=record.lease_sha256(token),
+        lease_key=record.HUMAN_LEASE,
+        lease_expires_at=lease_until(value, now),
+        request_kind="",
+        assistant_id="",
+        action="",
+        position=None,
+        steps=0,
+        **changes,
+    )
+    return resumed, token
+
+
 def require_lease(value: record.Run, lease: record.Lease, now: int) -> None:
     """Only the live lease of a leased run, claimed under the current routine key, may drive it."""
     if (
