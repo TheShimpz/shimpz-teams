@@ -24,12 +24,12 @@ identifiers; it never carries arguments, results, prompts, model output, or free
 advisory; only the single terminal record determines the operation outcome. A missing, repeated,
 malformed, oversized, or out-of-order record fails closed at the consumer without widening Team
 authority or exposing execution payloads.
-Team Routine forms are split by responsibility (ADR-0101): `routine.py` owns schedules, timezones, plans, outputs,
-and models; `routine_notice.py` notices and the views Admin lists; `routine_run.py` recovery
-cards, claims, segments, diagnostics, and run steps; `routine_proposal.py` the confirmation card, Team's questions,
-refusals, answers, and the output choices; and `routine_context.py` the Routine listing and rerun work a recording
-chat's Brain receives. The Brain mirrors `payload.py`, `phrase.py`, `routine.py`, `routine_notice.py`,
-`routine_proposal.py`, and `routine_context.py` with the three files above.
+Team Routine forms are split by responsibility (ADR-0101): `routine.py` owns schedules, timezones, plans, and outputs;
+`routine_notice.py` notices and the views Admin lists; `routine_run.py` recovery cards, claims, segments, diagnostics,
+and run steps; `routine_proposal.py` the confirmation card, Team's questions, refusals, answers, and the output choices;
+and `routine_context.py` the Routine listing and rerun work a recording chat's Brain receives. The Brain mirrors
+`payload.py`, `phrase.py`, `routine.py`, `routine_notice.py`, `routine_proposal.py`, and `routine_context.py` with the
+three files above.
 `strict_json.py` is an exact copy of the umbrella `.standards/strict_json.py` security source: the frame and stream
 decoders parse through it, so a duplicate field and every non-finite number, including an exponent overflow such as
 `1e999`, fail closed. The modules import one another as a package, and flat when `verify.py` runs them as scripts.

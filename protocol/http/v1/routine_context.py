@@ -44,8 +44,7 @@ def _listed_step(value: object) -> bool:
     return (
         isinstance(value, dict)
         and set(value) == {"id", "assistant", "action", "inputs"}
-        and isinstance(value["id"], str)
-        and ROUTINE_STEP_ID_RE.fullmatch(value["id"]) is not None
+        and routine.matches(value["id"], ROUTINE_STEP_ID_RE)
         and routine.valid_assistant(value["assistant"])
         and routine.valid_action(value["action"])
         and _members_listed(value["inputs"], routine.MAX_STEP_INPUTS, routine.MAX_MEMBER_CHARS)
@@ -62,7 +61,7 @@ def canonical_routine_listing(value: object) -> dict[str, object] | None:
         and routine.exact_name(value["name"])
         and routine.canonical_schedule(value["schedule"]) == value["schedule"]
         and routine.zoned(value["timezone"], value["timezone_source"])
-        and routine.whole(value["revision"], 1, 2**31 - 1)
+        and routine.valid_revision(value["revision"])
         and routine.whole(value["daily_steps"], 1, MAX_LISTED_DAILY_STEPS)
         and isinstance(steps, list)
         and len(steps) <= routine.MAX_ROUTINE_STEPS

@@ -90,7 +90,7 @@ def _steps(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> di
         http_routine.ROUTINE_ID_RE.fullmatch(routine_id) is None
         or _COUNT_RE.fullmatch(revision) is None
         or _COUNT_RE.fullmatch(offset) is None
-        or not 1 <= int(revision) < 2**31
+        or not http_routine.valid_revision(int(revision))
     ):
         raise local_errors.routine_steps_not_found()
     service = handler.server.controller.chat_turn_service
