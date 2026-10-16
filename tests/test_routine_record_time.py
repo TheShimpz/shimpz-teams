@@ -62,11 +62,11 @@ class ScaleClaimTests(unittest.TestCase):
                 routine_runs.freeze(state, claim.run.run_id, lease, NINE, request)
         frozen = routine_runs.freeze(state, claim.run.run_id, lease, NINE, ("human", "dns", "check", REPLAY))
         self.assertEqual(frozen.notices[-1].detail, {"request_kind": "human"})
-        self.assertEqual(record.run(frozen, claim.run.run_id).position, REPLAY)
+        waiting = record.run(frozen, claim.run.run_id)
+        self.assertEqual((waiting.status, waiting.assistant_id, waiting.action), ("frozen", "dns", "check"))
         thawed, _token = routine_runs.thaw(frozen, claim.run.run_id, NINE + 1, 0)
-        self.assertEqual(
-            (record.run(thawed, claim.run.run_id).position, record.run(thawed, claim.run.run_id).steps), (None, 0)
-        )
+        resumed = record.run(thawed, claim.run.run_id)
+        self.assertEqual((resumed.status, resumed.request_kind, resumed.action), ("leased", "", ""))
 
     def test_a_start_reserves_every_step_of_its_revision_under_the_team_daily_steps(self):
         state = at(added(self.long_routine(schedule=EVERY_HOUR)), "b" * 32, NINE)

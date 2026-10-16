@@ -95,7 +95,6 @@ _RUN_FIELDS = frozenset(
         "run_id",
         "routine_id",
         "status",
-        "scheduled_at",
         "lease_sha256",
         "lease_key",
         "lease_expires_at",
@@ -111,7 +110,6 @@ _RUN_FIELDS = frozenset(
         "usage",
         "protection_lost",
         "revision",
-        "held_at",
     }
 )
 _NOTICE_FIELDS = frozenset(
@@ -274,42 +272,41 @@ def _decode_run(value: object) -> record.Run:
     _require(
         http_routine.canonical_run_usage(value["usage"]) == value["usage"] and type(value["protection_lost"]) is bool
     )
-    instants = {name: _instant(value[name]) for name in ("scheduled_at", "lease_expires_at", "held_at")}
+    lease_expires_at = _instant(value["lease_expires_at"])
     _require(_STATUSES.get(value["status"], lambda _value: False)(value))
-    return record.Run(**({name: value[name] for name in _RUN_FIELDS} | instants))
+    return record.Run(**({name: value[name] for name in _RUN_FIELDS} | {"lease_expires_at": lease_expires_at}))
+
+
+def _no_call(value: dict[str, object]) -> bool:
+    return (value["assistant_id"], value["action"], value["position"], value["steps"]) == ("", "", None, 0)
 
 
 def _no_request(value: dict[str, object]) -> bool:
-    return (value["request_kind"], value["assistant_id"], value["action"], value["position"], value["steps"]) == (
-        "",
-        "",
-        "",
-        None,
-        0,
-    )
+    return value["request_kind"] == "" and _no_call(value)
 
 
 def _unleased(value: dict[str, object]) -> bool:
     return value["lease_sha256"] == "" and value["lease_key"] == "" and value["lease_expires_at"] == 0
 
 
-def _call(value: dict[str, object]) -> bool:
-    """A named Assistant Action and its position among its plan's steps."""
+def _action(value: dict[str, object]) -> bool:
+    """A named Assistant Action."""
     return (
         http_identifiers.canonical_assistant_id(value["assistant_id"]) is not None
         and http_identifiers.canonical_action_id(value["action"]) is not None
-        and http_routine.canonical_position(value["position"], value["steps"]) is not None
     )
 
 
 def _incident(value: dict[str, object]) -> bool:
-    """A held run's incident: unleased, indexed, of its held generation, at its held call or none sealed."""
+    """A held run's incident: unleased, of its held generation, at its held call by position, or none sealed."""
     return (
         _unleased(value)
-        and value["held_at"] > 0
         and value["generation"] != ""
         and value["request_kind"] == ""
-        and (_no_request(value) or _call(value))
+        and (
+            _no_call(value)
+            or (_action(value) and http_routine.canonical_position(value["position"], value["steps"]) is not None)
+        )
     )
 
 
@@ -321,17 +318,14 @@ _STATUSES = {
             value["lease_key"] == record.HUMAN_LEASE or http_payload.SHA256_RE.fullmatch(value["lease_key"]) is not None
         )
         and _no_request(value)
-        and value["held_at"] == 0
     ),
     "frozen": lambda value: (
         _unleased(value)
         and value["request_kind"] in http_routine_notice.REQUEST_KINDS
-        and _call(value)
-        and value["held_at"] == 0
+        and _action(value)
+        and (value["position"], value["steps"]) == (None, 0)
     ),
-    "held": lambda value: (
-        _unleased(value) and _no_request(value) and value["generation"] != "" and value["held_at"] == 0
-    ),
+    "held": lambda value: _unleased(value) and _no_request(value) and value["generation"] != "",
     "unresolved": _incident,
     "skipped": _incident,
 }

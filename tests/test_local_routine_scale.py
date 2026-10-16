@@ -10,7 +10,6 @@ import time
 from types import SimpleNamespace
 from unittest import mock
 
-import routine_fixture
 from test_local_chat_scope import LOOKUP_RESULT
 from test_local_routine_diagnostics import FAILURE
 from test_local_routine_service import KEY, RoutineServiceCase, Runtime
@@ -21,7 +20,6 @@ from local.chat import segment as chat_segment
 from local.errors import ApiProblemError
 from local.routine import contracts as routine_contracts
 from local.routine import diagnostics as routine_diagnostics
-from local.routine import human as routine_human
 from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
 from local.routine import protection as routine_protection
@@ -286,15 +284,6 @@ class StepRecordEdgeTests(RoutineServiceCase):
             routine_replay._ended(service, run, record.run(self.state(service), claim["run_id"]), segment, stopped)
             self.assertEqual((kept[-1].status, kept[-1].duration_ms), ("stopped", 500))
             self.assertIsNone(runtime._attempt)
-
-    def test_a_run_frozen_far_into_its_plan_fails_at_that_step(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime())
-            value = self.routine(service, plan=_scaled_plan(service), next_run_at=int(time.time()) + 3600)
-            frozen = routine_fixture.put_frozen_run(service, value.routine_id, ASSISTANT, step=37, steps=120)
-            routine_human._end_changed(service, "team_1", frozen)
-            notice = self.state(service).notices[-1]
-        self.assertEqual((notice.outcome, notice.detail), ("failed", {"code": "team-context-changed"}))
 
     def test_a_deleting_routine_shows_no_steps(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

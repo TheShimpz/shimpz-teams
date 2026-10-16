@@ -480,7 +480,7 @@ class CapacityTests(IncidentCase):
             # A second run of the Team is held meanwhile, as its own incident beside the pending one.
             second = "e" * 32
             held = record.Run(
-                second, value.routine_id, "held", 0, generation=routine_claim.generation_for("f" * 64, second)
+                second, value.routine_id, "held", generation=routine_claim.generation_for("f" * 64, second)
             )
             service.routine_store.update(
                 "team_1", lambda state: (dataclasses.replace(state, runs=(*state.runs, held)), None)
@@ -691,7 +691,6 @@ class SealedStateTests(IncidentCase):
             for mutate in (
                 lambda value: value["runs"][0].update(status="resolved"),
                 lambda value: value["runs"][0].update(generation=""),
-                lambda value: value["runs"][0].update(held_at=0),
                 lambda value: value["runs"][0].update(request_kind="human"),
                 lambda value: value["runs"][0].update(revision=0),
                 lambda value: value["runs"].append(dict(value["runs"][0])),
@@ -731,9 +730,7 @@ class IncidentRecordTests(IncidentCase):
             )
         )
         unresolved = tuple(
-            record.Run(
-                f"{index:032x}", "a" * 32, "unresolved", 0, generation=f"{'b' * 64}:routine:{index:032x}", held_at=1
-            )
+            record.Run(f"{index:032x}", "a" * 32, "unresolved", generation=f"{'b' * 64}:routine:{index:032x}")
             for index in range(record.MAX_UNRESOLVED_INCIDENTS)
         )
         full = dataclasses.replace(base, routines=(routine,), runs=unresolved)
@@ -753,13 +750,13 @@ class IncidentRecordTests(IncidentCase):
             routine_hold.skip_incident(full, unresolved[0].run_id, 1), unresolved[0].run_id
         )
         self.assertEqual(routine_hold.release_incident(released, unresolved[0].run_id), released)
-        held = record.Run("c" * 32, "a" * 32, "frozen", 0, generation=f"{'b' * 64}:routine:{'c' * 32}")
+        held = record.Run("c" * 32, "a" * 32, "frozen", generation=f"{'b' * 64}:routine:{'c' * 32}")
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-held"):
             routine_hold.settle_hold(dataclasses.replace(full, runs=(held,)), "c" * 32, 1)
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-found"):
             routine_hold.skip_incident(full, "f" * 32, 1)
         unbound = record.Run(
-            "d" * 32, "a" * 32, "leased", 0, lease_sha256="1" * 64, lease_key="2" * 64, lease_expires_at=99
+            "d" * 32, "a" * 32, "leased", lease_sha256="1" * 64, lease_key="2" * 64, lease_expires_at=99
         )
         with self.assertRaisesRegex(record.RoutineStateError, "generation-invalid"):
             routine_hold.fence(

@@ -180,7 +180,7 @@ def claim(
         return state, None
     if due.run_requested and due.next_run_at > now:
         # A person's Rodar starts on its own: the standing cadence and any gap it reports stay as they are.
-        return _lease(state, dataclasses.replace(due, run_requested=0), due.run_requested, now, key_fingerprint)
+        return _lease(state, dataclasses.replace(due, run_requested=0), now, key_fingerprint)
     scheduled_at = due.next_run_at
     # A firing due now also serves any pending Rodar: one run, never two.
     due = dataclasses.replace(due, run_requested=0)
@@ -193,11 +193,11 @@ def claim(
         due = _miss(due, following, extra, next_run_at) if extra else dataclasses.replace(due, next_run_at=next_run_at)
     state = _report_gap(record.replace_routine(state, due), due, now, in_flight=True)
     ended = dataclasses.replace(record.routine(state, due.routine_id), gap_started_at=0, missed=0, reported_missed=0)
-    return _lease(state, ended, scheduled_at, now, key_fingerprint)
+    return _lease(state, ended, now, key_fingerprint)
 
 
 def _lease(
-    state: record.TeamRoutines, due: record.Routine, scheduled_at: int, now: int, key_fingerprint: str
+    state: record.TeamRoutines, due: record.Routine, now: int, key_fingerprint: str
 ) -> tuple[record.TeamRoutines, record.Claim]:
     """Start one run of the claimed Routine under every start cap, its lease covering only its segment's start."""
     token = secrets.token_urlsafe(32)
@@ -206,7 +206,6 @@ def _lease(
         run_id=record.new_id(),
         routine_id=due.routine_id,
         status="leased",
-        scheduled_at=scheduled_at,
         lease_sha256=record.lease_sha256(token),
         lease_key=key_fingerprint,
         lease_expires_at=now + record.LEASE_SECONDS,

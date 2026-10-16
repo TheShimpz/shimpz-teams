@@ -20,8 +20,8 @@ class IncidentNoticeTests(unittest.TestCase):
         incident = routine_hold.incident(state, run_id)
         # The held run is its own incident: the same record, indexed when it was held.
         self.assertEqual(
-            (incident.status, incident.held_at, incident.assistant_id, incident.action),
-            ("unresolved", NINE + 1, "dns", "replace-dns-record"),
+            (incident.status, incident.assistant_id, incident.action, incident.position),
+            ("unresolved", "dns", "replace-dns-record", STEP),
         )
         notice = state.notices[-1]
         self.assertEqual(
@@ -74,13 +74,13 @@ class IncidentNoticeTests(unittest.TestCase):
         # A Team catching up its notices waits; the request outlasts the schedule's own grace and is never missed.
         late = cadence - 60
         self.assertGreater(late - (NINE + 10), record.grace_seconds(requested))
-        claimed_state, claim = routine_claim.claim(asked, late, KEY)
+        claimed_state, _claim = routine_claim.claim(asked, late, KEY)
         after = record.routine(claimed_state, "a" * 32)
-        self.assertEqual((claim.run.scheduled_at, after.run_requested, after.next_run_at), (NINE + 10, 0, cadence))
+        self.assertEqual((after.run_requested, after.next_run_at), (0, cadence))
         self.assertEqual(claimed_state.starts[-1], ("a" * 32, late, 1))
         # A firing due at the same time serves the request too: one run, never two.
-        both, claim = routine_claim.claim(asked, cadence, KEY)
-        self.assertEqual((claim.run.scheduled_at, record.routine(both, "a" * 32).run_requested), (cadence, 0))
+        both, _claim = routine_claim.claim(asked, cadence, KEY)
+        self.assertEqual(record.routine(both, "a" * 32).run_requested, 0)
         self.assertEqual(len(record.live_runs(both)), 1)
         # The card's state is checked in the same write.
         with self.assertRaisesRegex(record.RoutineStateError, "incident-changed"):
@@ -121,14 +121,14 @@ class IncidentNoticeTests(unittest.TestCase):
         )
         self.assertEqual(routine_claim.next_due(state, NINE), NINE + 40)
         # A Routine with a live run or an unresolved incident wakes nothing; its own end or resolution does.
-        busy = dataclasses.replace(state, runs=(record.Run("f" * 32, ids[4], "frozen", 0),))
+        busy = dataclasses.replace(state, runs=(record.Run("f" * 32, ids[4], "frozen"),))
         self.assertEqual(routine_claim.next_due(busy, NINE), NINE + 50)
         # A leased run holds the Team's one slot: no other Routine of the Team is claimed or hinted until it ends.
-        leased = dataclasses.replace(state, runs=(record.Run("f" * 32, ids[4], "leased", 0),))
+        leased = dataclasses.replace(state, runs=(record.Run("f" * 32, ids[4], "leased"),))
         self.assertEqual(routine_claim.claimable(busy, NINE).routine_id, ids[0])
         self.assertIsNone(routine_claim.claimable(leased, NINE))
         self.assertIsNone(routine_claim.next_due(leased, NINE))
-        incident = record.Run("e" * 32, ids[5], "unresolved", 0, generation="g", held_at=NINE)
+        incident = record.Run("e" * 32, ids[5], "unresolved", generation="g")
         held = dataclasses.replace(busy, runs=(*busy.runs, incident))
         self.assertIsNone(routine_claim.next_due(held, NINE))
 

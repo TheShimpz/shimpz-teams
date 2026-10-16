@@ -130,7 +130,7 @@ class ContinuationEdgeTests(RecoveryCase):
             changed = record.replace_routine(
                 state, dataclasses.replace(record.routine(state, value.routine_id), revision=2)
             )
-            busy = dataclasses.replace(state, runs=(*state.runs, record.Run("b" * 32, value.routine_id, "frozen", 0)))
+            busy = dataclasses.replace(state, runs=(*state.runs, record.Run("b" * 32, value.routine_id, "frozen")))
             for subject, target, code in (
                 (skipped, generation, "incident-not-unresolved"),
                 (changed, generation, "routine-not-resumable"),

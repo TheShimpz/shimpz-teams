@@ -190,14 +190,12 @@ class RoundTripTests(StoreCase):
                 f"{index:032x}",
                 "a" * 32,
                 "unresolved",
-                NINE,
                 assistant_id="a" * 40,
                 action="b" * 128,
                 generation=f"{NETWORK}:routine:{index:032x}:s1",
                 position=256,
                 steps=256,
                 usage=USAGE,
-                held_at=NINE,
             )
             for index in range(record.MAX_RUNS)
         )
@@ -289,8 +287,8 @@ class TamperTests(StoreCase):
             "notice protection type": lambda value: value["notices"][0].update(protection_lost=1),
             "run usage": lambda value: value["runs"][0].update(usage={"duration_ms": -1}),
             "run protection type": lambda value: value["runs"][0].update(protection_lost=0),
-            "frozen position past its plan": lambda value: value["runs"][frozen].update(position=2),
-            "frozen without a position": lambda value: value["runs"][frozen].update(position=None),
+            "frozen with a position": lambda value: value["runs"][frozen].update(position=1, steps=1),
+            "frozen without its Action": lambda value: value["runs"][frozen].update(action=""),
             "held with a position": lambda value: value["runs"][held].update(position=1, steps=1),
             "run notice version": lambda value: value["runs"][0].update(notice_version=-1),
             "run member outside its shape": lambda value: value["runs"][held].update(unexpected=None),
@@ -342,7 +340,6 @@ class TamperTests(StoreCase):
         index = next(position for position, item in enumerate(base["runs"]) if item["run_id"] == held.run_id)
         self.assertEqual((base["runs"][index]["status"], base["runs"][index]["assistant_id"]), ("unresolved", "dns"))
         mutations = {
-            "never indexed": {"held_at": 0},
             "a request on an incident": {"request_kind": "human"},
             "a lease on an incident": {"lease_sha256": "a" * 64},
             "no held generation": {"generation": ""},

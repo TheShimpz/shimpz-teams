@@ -40,7 +40,6 @@ def settle_hold(
     indexed = dataclasses.replace(
         value,
         status="unresolved",
-        held_at=now,
         assistant_id=assistant_id,
         action=action,
         position=position,
@@ -102,7 +101,6 @@ def reopen_incident(
         action="",
         position=None,
         steps=0,
-        held_at=0,
     )
     # The hold queued its generation already unless that removal has run since.
     discards = tuple(dict.fromkeys((*state.discards, (incident_id, value.generation))))

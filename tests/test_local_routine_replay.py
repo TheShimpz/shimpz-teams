@@ -279,7 +279,7 @@ class SelectorFailureTests(ReplayRunCase):
         self.assertEqual(len(record.incidents(state)), 1)
 
     def test_unreadable_or_changed_evidence_never_proves_a_read_only_prefix(self) -> None:
-        run = record.Run("e" * 32, "f" * 32, "leased", 0, generation="g")
+        run = record.Run("e" * 32, "f" * 32, "leased", generation="g")
         binding = SimpleNamespace(revision=1)
         current = SimpleNamespace(revision=2, permitted=())
         cases = (
@@ -516,7 +516,7 @@ class WatchdogRecoveryTests(ReplayRunCase):
             _controller, service, _brain, value = self.replayed(directory, None)
             replay = RuntimeTests.runtime(self, service, value)
             run_id = replay.cursor.binding.run_id
-            run = record.Run(run_id, value.routine_id, "leased", 0, generation=f"{'a' * 64}:routine:{run_id}")
+            run = record.Run(run_id, value.routine_id, "leased", generation=f"{'a' * 64}:routine:{run_id}")
             kept = routine_replay.protection_lost(service, "team_1", run)
             with mock.patch.object(service.routine_store, "cursor", side_effect=routine_store.RoutineStoreError("x")):
                 unreadable = routine_replay.protection_lost(service, "team_1", run)
@@ -706,9 +706,7 @@ class RuntimeTests(ReplayRunCase):
     def runtime(self, service, value: record.Routine) -> routine_replay.ReplayRuntime:
         claim = service.claim_routine_run()
         network = "a" * 64
-        run = record.Run(
-            claim["run_id"], value.routine_id, "leased", 0, generation=f"{network}:routine:{claim['run_id']}"
-        )
+        run = record.Run(claim["run_id"], value.routine_id, "leased", generation=f"{network}:routine:{claim['run_id']}")
         return routine_replay.runtime(service, "team_1", run, value)
 
     def test_the_runtime_refuses_a_foreign_step_a_lost_cursor_and_an_unresolvable_input(self) -> None:
@@ -754,7 +752,6 @@ class RuntimeTests(ReplayRunCase):
                 replay.cursor.binding.run_id,
                 value.routine_id,
                 "leased",
-                0,
                 generation=f"{'a' * 64}:routine:{replay.cursor.binding.run_id}",
             )
             with (
@@ -780,7 +777,6 @@ class RuntimeTests(ReplayRunCase):
                 run_id,
                 value.routine_id,
                 "leased",
-                0,
                 generation=f"{replay.cursor.binding.incarnation}:routine:{run_id}",
             )
             store, journal = service.routine_store, service.action_state
@@ -846,7 +842,7 @@ class ShownResultTests(ReplayRunCase):
                 store.output_digest("team_2", binding, "records", material),
             }
             sealed = routine_replay.sealed_shown(
-                service, "team_1", record.Run(binding.run_id, value.routine_id, "leased", 0, generation="x")
+                service, "team_1", record.Run(binding.run_id, value.routine_id, "leased", generation="x")
             )
         self.assertEqual(turn.status, "completed")
         self.assertEqual((shown["step"], shown["output"]["state"], shown["digest"]), ("records", "shown", again))

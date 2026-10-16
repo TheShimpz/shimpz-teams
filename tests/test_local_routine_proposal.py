@@ -823,7 +823,7 @@ class RecordedRoutineTests(RecordingCase):
             runtime = Recording(_record())
             service = self.controller(directory, runtime)
             routine_id = self.confirm(service, self.chat(service)["routine_proposal"]["proposal_id"])["routine_id"]
-            routine_fixture.put_frozen_run(service, routine_id, ASSISTANT, step=1, steps=2, run_id="f" * 32, lease=1)
+            routine_fixture.put_frozen_run(service, routine_id, ASSISTANT, run_id="f" * 32)
             runtime.calls = False
             runtime.outcomes.append(_record(replaces=routine_id))
             busy = self.chat(service)["routine_refusal"]["code"]

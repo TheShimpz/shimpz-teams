@@ -19,7 +19,7 @@ class RunLifecycleTests(unittest.TestCase):
     def test_a_claim_sweeps_first_so_a_stale_firing_never_starts(self):
         now = NINE + 30 * 86_400
         state, claim = routine_claim.claim(at(added(routine()), "a" * 32, NINE), now, KEY)
-        self.assertEqual(claim.run.scheduled_at, now)
+        self.assertIsNotNone(claim)
         self.assertEqual([notice.detail for notice in state.notices], [{"missed": 30}])
 
     def test_worker_transitions_need_the_live_lease(self):
@@ -101,7 +101,7 @@ class RunLifecycleTests(unittest.TestCase):
 
     def test_a_team_freezes_at_most_eight_runs(self):
         state, claim, lease = claimed()
-        frozen = tuple(record.Run(f"{index:032x}", f"{index + 1:032x}", "frozen", NINE) for index in range(8))
+        frozen = tuple(record.Run(f"{index:032x}", f"{index + 1:032x}", "frozen") for index in range(8))
         state = dataclasses.replace(state, runs=(*state.runs, *frozen))
         self.assertEqual(record.run(state, frozen[-1].run_id), frozen[-1])
         with self.assertRaisesRegex(record.RoutineStateError, "frozen-limit"):

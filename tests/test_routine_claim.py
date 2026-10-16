@@ -18,7 +18,7 @@ class ClaimTests(unittest.TestCase):
         with self.assertRaisesRegex(record.RoutineStateError, "routine-key-invalid"):
             routine_claim.claim(state, NINE, "short")
         state, claim = routine_claim.claim(state, NINE, KEY)
-        self.assertEqual((claim.run.status, claim.run.scheduled_at, claim.run.lease_key), ("leased", NINE, KEY))
+        self.assertEqual((claim.run.status, claim.run.lease_key), ("leased", KEY))
         self.assertEqual(record.routine(state, "a" * 32).next_run_at, epoch(2026, 10, 2, 9))
         # A second claim on the same state finds nothing: the Routine never overlaps, even when due again.
         self.assertIsNone(routine_claim.claim(state, epoch(2026, 10, 2, 9), KEY)[1])
@@ -59,9 +59,9 @@ class ClaimTests(unittest.TestCase):
 
     def test_only_one_late_firing_is_made_up_and_the_others_are_reported_once(self):
         state = at(added(routine("b" * 32)), "b" * 32, NINE)
-        state, claim = routine_claim.claim(state, NINE + 40 * 60, KEY)
+        state, _claim = routine_claim.claim(state, NINE + 40 * 60, KEY)
         value = record.routine(state, "b" * 32)
-        self.assertEqual((claim.run.scheduled_at, value.next_run_at, state.notices), (NINE, NINE + 86_400, ()))
+        self.assertEqual((value.next_run_at, state.notices), (NINE + 86_400, ()))
         state = at(added(routine("b" * 32)), "b" * 32, NINE - 86_400)
         state, _claim = routine_claim.claim(state, NINE + 1200, KEY)
         self.assertEqual([notice.detail for notice in state.notices], [{"missed": 1}])

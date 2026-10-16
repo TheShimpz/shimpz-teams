@@ -224,7 +224,7 @@ class RodarTests(CardCase):
                 routine_contracts, "current_contracts", side_effect=routine_contracts.ContractsUnavailableError
             ):
                 self.refused(service, run_id, "team-context-unavailable")
-            routine_fixture.put_frozen_run(service, value.routine_id, ASSISTANT, step=1, steps=1)
+            routine_fixture.put_frozen_run(service, value.routine_id, ASSISTANT)
             self.refused(service, run_id, "routine-busy")
             self.assertEqual(record.routine(self.state(service), value.routine_id).revision, value.revision)
 

@@ -124,7 +124,6 @@ class Run:
     # "leased": may run a segment; "frozen": waits for a human; "held": fenced while its incident is indexed;
     # "unresolved": its incident, which recovery or a person resolves; "skipped": set aside, releasing what it kept.
     status: str
-    scheduled_at: int
     lease_sha256: str = ""
     lease_key: str = ""
     lease_expires_at: int = 0
@@ -140,7 +139,7 @@ class Run:
     notice_version: int = 0
     # The human requests the logical run has answered, through every freeze, hold, and continuation; never reset.
     requests_used: int = 0
-    # That call by its 1-based step position and its plan's step count; None and 0 otherwise.
+    # An incident's call by its 1-based step position and its plan's step count; None and 0 otherwise.
     position: int | None = None
     steps: int = 0
     # The run's active time so far, through every freeze, hold, and continuation (ADR-0101 section 7).
@@ -149,8 +148,6 @@ class Run:
     protection_lost: bool = False
     # The Routine revision the run executes, which its claim names and its cursor binds (ADR-0092).
     revision: int = 1
-    # When the run's incident was indexed; 0 while the run is live.
-    held_at: int = 0
 
 
 @dataclass(frozen=True, slots=True)

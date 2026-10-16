@@ -165,22 +165,17 @@ def update_routine(service, routine_id: str, *, confirm: bool = False, **changes
     service.routine_store.update("team_1", changed)
 
 
-def put_frozen_run(
-    service, routine_id: str, assistant_id: str, *, step: int, steps: int, run_id: str | None = None, lease: int = 0
-):
-    """Make team_1's only live run a frozen human-request list-zones run at a replay step; return the run."""
+def put_frozen_run(service, routine_id: str, assistant_id: str, *, run_id: str | None = None):
+    """Make team_1's only live run a frozen human-request list-zones run; return the run."""
     from routine import record
 
     run = record.Run(
         run_id or record.new_id(),
         routine_id,
         "frozen",
-        lease,
         request_kind="human",
         assistant_id=assistant_id,
         action="list-zones",
-        position=step,
-        steps=steps,
     )
     service.routine_store.update(
         "team_1", lambda state: (dataclasses.replace(state, runs=(*record.incidents(state), run)), None)
