@@ -330,7 +330,7 @@ CONTROLLER_ROUTES = (
         "routine-steps",
     ),
     _controller_route("DELETE", "/v1/teams/:team_id/routines/:routine_id", "routine-delete"),
-    # A recorded Routine's card (ADR-0101): Criar rotina confirms it, Cancelar revokes it.
+    # A recorded Routine's card (ADR-0101): its create answer confirms it, its cancel answer revokes it.
     _controller_route(
         "POST",
         "/v1/teams/:team_id/routines/proposals/:proposal_id",
