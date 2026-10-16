@@ -5,7 +5,8 @@ Team owns the closed identifiers, payload projections, and WebSocket frame bound
 `identifiers.py` owns the closed Team, Assistant, and Action identifier grammars, `purpose.py` the Action purpose
 sentence rule, and `turn.py` the chat-turn bounds (the user message, a clarification question, memory and skill
 changes, a skill's content key, the reply, the Action requests one suspension carries, capability planning, intent
-routing, and the attachment content of a turn); `payload.py` re-exports all three, and the Brain
+routing, and the attachment content of a turn) and the opaque thread, interrupt, and model id grammar Team and the
+Brain exchange (`SAFE_ID_RE`); `payload.py` re-exports all three, and the Brain
 consumes these three files as a pinned mirror. Team, the Brain, and Admin each bind a shared bound to its one
 definition here or in `payload.py`, never to a copied literal.
 `challenge.py` owns the presentation a human-required challenge carries beside its canonical request: the rendered
