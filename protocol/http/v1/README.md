@@ -246,7 +246,8 @@ bounds. Team's recorder asks where a value no result holds came from only for an
 `routine_context.MIN_IDENTIFIER_DIGITS` digits, so the Brain checks a rerun call's values against the same bounds. A
 number counts as the person's only as one whole `routine_context.NUMBER_TOKEN_RE` token of their text. A word that
 writes a date in one of `routine_context.UNSPACED_DATE_FORMS` near the send's date (`routine_context.may_write_date`,
-`routine_context.MAX_DATE_OFFSET_DAYS`) may be a text each run writes for its own date, so the Brain leaves it to Team. `routine_mode`, whether the chat is about a Routine, is a plain advisory boolean. `routine_schedule` is the one
+`routine_context.MAX_DATE_OFFSET_DAYS`) may be a text each run writes for its own date, so the Brain leaves it to Team. Vectors pin
+both readings, and the verifier generates listings at the byte bounds. `routine_mode`, whether the chat is about a Routine, is a plain advisory boolean. `routine_schedule` is the one
 schedule Team reads from the person's sends (`routine.canonical_schedule`) and `routine_output` the one output mode it
 reads (`routine.OUTPUT_MODES`), each `null` when it reads none; the Brain admits a settings answer only beside the
 reading it answers, and never reads the record's description, which states only the work.

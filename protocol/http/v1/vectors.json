@@ -7048,6 +7048,30 @@
       [{"routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "DNS de shimpz.com", "schedule": {"kind": "continuous", "gap": 30}, "timezone": "America/Sao_Paulo", "timezone_source": "browser", "revision": 1, "daily_steps": 5760, "output": {"mode": []}, "steps": [{"id": "s1", "assistant": "shimpz-cloudflare", "action": "list-zones", "inputs": []}, {"id": "s2", "assistant": "shimpz-cloudflare", "action": "list-dns-records", "inputs": ["page", "zone_id"]}]}]
     ]
   },
+  "routine_date_words": [
+    {"text": "2026-10-16", "today": "2026-10-16", "dated": true},
+    {"text": "news_2026-11-16", "today": "2026-10-16", "dated": true},
+    {"text": "16/10/2026", "today": "2026-10-16", "dated": true},
+    {"text": "10.16.2026", "today": "2026-10-16", "dated": true},
+    {"text": "news-05/10", "today": "2026-10-16", "dated": true},
+    {"text": "10月15日号", "today": "2026-10-16", "dated": true},
+    {"text": "2026年10月15日", "today": "2026-10-16", "dated": true},
+    {"text": "2025-12-31", "today": "2026-01-01", "dated": true},
+    {"text": "news-31/12", "today": "2026-01-01", "dated": true},
+    {"text": "203.0.113.10", "today": "2026-10-16", "dated": false},
+    {"text": "v1.2.3", "today": "2026-10-16", "dated": false},
+    {"text": "release-2.1", "today": "2026-10-16", "dated": false},
+    {"text": "2026年度", "today": "2026-10-16", "dated": false},
+    {"text": "2024-01-01", "today": "2026-10-16", "dated": false},
+    {"text": "2026-99-99", "today": "2026-10-16", "dated": false},
+    {"text": "news-2026-10-16", "today": "2026-10-16", "dated": false},
+    {"text": "31/02", "today": "2026-10-16", "dated": false},
+    {"text": "zone-123456", "today": "2026-10-16", "dated": false}
+  ],
+  "routine_number_tokens": [
+    {"text": "a conta 1234567, -42 e 1.5e3", "tokens": ["1234567", "-42", "1.5e3"]},
+    {"text": "v1.2 zone-424242 424242.5 x7", "tokens": ["424242.5"]}
+  ],
   "routine_rerun": {
     "valid": [
       [{"assistant": "shimpz-cloudflare", "action": "list-dns-records", "count": 1, "inputs": [{"member": "day", "kind": "clock", "value": null, "chosen": false, "source": null}, {"member": "page", "kind": "value", "value": "1", "chosen": false, "source": null}, {"member": "zone_id", "kind": "fresh", "value": null, "chosen": false, "source": {"assistant": "shimpz-cloudflare", "action": "list-zones"}}]}],

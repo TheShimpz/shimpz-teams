@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import re
@@ -334,6 +335,44 @@ if (
     )
 ):
     fail("a generated routine proposal vector differs at its bound")
+
+
+def _listing(index: int, steps: int) -> dict[str, object]:
+    """A generated listed Routine of ``steps`` steps, each with every input name at its widest."""
+    names = [f"{name:03d}" + "a" * (routine.MAX_MEMBER_CHARS - 3) for name in range(routine.MAX_STEP_INPUTS)]
+    step = {"assistant": "shimpz-cloudflare", "action": "list-dns-records", "inputs": names}
+    return {
+        "routine_id": f"{index:032x}",
+        "name": "DNS",
+        "schedule": {"kind": "daily", "time": "08:00"},
+        "timezone": "UTC",
+        "timezone_source": "none",
+        "revision": 1,
+        "daily_steps": 1,
+        "output": {"mode": "show"},
+        "steps": [{"id": f"s{number}", **step} for number in range(steps)],
+    }
+
+
+def _steps_bytes(listed: dict[str, object]) -> int:
+    return len(json.dumps(listed["steps"], ensure_ascii=False, separators=(",", ":")).encode())
+
+
+# The widest generated Routine whose steps fit their byte bound, and as many of them as the listing's bound holds.
+fit = max(
+    count
+    for count in range(1, routine.MAX_ROUTINE_STEPS + 1)
+    if _steps_bytes(_listing(0, count)) <= routine_context.MAX_LISTED_STEPS_BYTES
+)
+held = routine_context.MAX_LISTING_STEPS_BYTES // _steps_bytes(_listing(0, fit))
+if (
+    held >= routine.MAX_ROUTINES
+    or routine_context.canonical_routine_listings([_listing(index, fit) for index in range(held)]) is None
+    or routine_context.canonical_routine_listings([_listing(0, fit + 1)]) is not None
+    or routine_context.canonical_routine_listings([_listing(index, fit) for index in range(held + 1)]) is not None
+):
+    fail("a generated routine listing differs at its byte bounds")
+
 for name, admit in (
     ("routine_run_usage", routine.canonical_run_usage),
     ("routine_proposal", routine_proposal.canonical_proposal),
@@ -350,6 +389,19 @@ for name, admit in (
         fail(f"a valid {name} vector was not admitted exactly")
     if any(admit(value) is not None for value in cases["invalid"]):
         fail(f"an invalid {name} vector was admitted")
+
+date_words = vectors.get("routine_date_words", [])
+if {case["dated"] for case in date_words} != {True, False}:
+    fail("routine date word vectors are missing")
+for case in date_words:
+    if routine_context.may_write_date(case["text"], datetime.date.fromisoformat(case["today"])) is not case["dated"]:
+        fail("a routine date word vector differs")
+number_tokens = vectors.get("routine_number_tokens", [])
+if not number_tokens or any(
+    [match.group() for match in routine_context.NUMBER_TOKEN_RE.finditer(case["text"])] != case["tokens"]
+    for case in number_tokens
+):
+    fail("a routine number token vector differs")
 
 diagnostics = vectors.get("routine_diagnostics", {})
 if not diagnostics.get("valid") or not diagnostics.get("invalid"):
