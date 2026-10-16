@@ -259,11 +259,11 @@ def _step_shape(raw: object, earlier: tuple[str, ...]) -> tuple[str, str, str, s
         raise PlanError("plan-step-invalid")
     step_id, assistant_id, action, pin, inputs = (raw[key] for key in ("id", "assistant", "action", "pin", "input"))
     if (
-        not _matches(step_id, STEP_ID_RE)
+        not http_routine.matches(step_id, STEP_ID_RE)
         or step_id in earlier
         or http_identifiers.canonical_assistant_id(assistant_id) is None
         or http_identifiers.canonical_action_id(action) is None
-        or not _matches(pin, PIN_RE)
+        or not http_routine.matches(pin, PIN_RE)
         or not isinstance(inputs, dict)
     ):
         raise PlanError("plan-step-invalid")
@@ -300,10 +300,6 @@ def _supplied(source: Mapping[str, object]) -> object:
     if source.get("kind") == "run_clock" and "parts" in source:
         return routine_dates.clock_value(source, _SAMPLE_INSTANT, "UTC")
     return source.get("value", _NOT_LITERAL)
-
-
-def _matches(value: object, pattern: re.Pattern[str]) -> bool:
-    return isinstance(value, str) and pattern.fullmatch(value) is not None
 
 
 _SOURCE_FIELDS = (

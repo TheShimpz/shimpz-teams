@@ -263,17 +263,13 @@ def _confirmed(value: object) -> bool:
     return (
         isinstance(value, dict)
         and set(value) == {"proposal_id", "proposal_digest", "principal", "incarnation", "confirmed_at"}
-        and _matches(value["proposal_id"], _HEX32_RE)
-        and _matches(value["proposal_digest"], _DIGEST_RE)
-        and _matches(value["principal"], _HEX32_RE)
-        and _matches(value["incarnation"], http_payload.SHA256_RE)
+        and http_routine.matches(value["proposal_id"], _HEX32_RE)
+        and http_routine.matches(value["proposal_digest"], _DIGEST_RE)
+        and http_routine.matches(value["principal"], _HEX32_RE)
+        and http_routine.matches(value["incarnation"], http_payload.SHA256_RE)
         and type(value["confirmed_at"]) is int
         and value["confirmed_at"] > 0
     )
-
-
-def _matches(value: object, pattern: re.Pattern[str]) -> bool:
-    return isinstance(value, str) and pattern.fullmatch(value) is not None
 
 
 def _permitted(value: Routine) -> bool:
@@ -287,7 +283,7 @@ def _permitted(value: Routine) -> bool:
         and set(item) == fields
         and http_identifiers.canonical_assistant_id(item["assistant"]) is not None
         and http_identifiers.canonical_action_id(item["action"]) is not None
-        and _matches(item["pin"], routine_plan.PIN_RE)
+        and http_routine.matches(item["pin"], routine_plan.PIN_RE)
         and type(item["read_only"]) is bool
         and isinstance(item["stored_inputs"], list)
         and len(item["stored_inputs"]) <= http_routine.MAX_STEP_STORED_INPUTS
