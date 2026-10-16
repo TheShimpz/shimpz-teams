@@ -97,6 +97,8 @@ class RecordingBookTests(unittest.TestCase):
         latest = book.start("team_1", BINDING, _started("latest"), 3)
         action = {"phase": "action", "state": "finished", "elapsed_ms": 40, "assistant_id": ASSISTANT}
         book.stepped("team_1", latest, {"seq": 1, **action, "index": 1, "action": "list-zones", "total": 1})
+        # The send that never committed kept nothing once the next one opened.
+        self.assertEqual([len(receipt.steps) for _id, receipt in book.get("team_1", latest).receipts], [1, 0, 1])
         usage, steps = routine_recorder.creation(
             book.get("team_1", latest), brain_usage.Spent(2_500, ((*sol, 50, 5), ("openai", "gpt-6-luna", 7, 1)))
         )
@@ -137,6 +139,14 @@ class RecordingBookTests(unittest.TestCase):
         self.assertEqual(len(routine_recorder.creation_steps(span)), routine_recorder.MAX_CREATION_STEPS)
         # The second send's steps were never kept: the first already filled the bound.
         self.assertEqual([len(receipt.steps) for _id, receipt in span.receipts], [64, 0])
+        # Sends whose replies never committed never hold more steps than the bound between them.
+        idle = routine_recorder.RecordingBook()
+        for index in range(3):
+            abandoned = idle.start("team_1", BINDING, _started(f"abandoned {index}"), index)
+            for _ in range(routine_recorder.MAX_CREATION_STEPS):
+                idle.stepped("team_1", abandoned, step)
+        retained = [len(receipt.steps) for _id, receipt in idle.get("team_1", abandoned).receipts]
+        self.assertEqual(retained, [0, 0, routine_recorder.MAX_CREATION_STEPS])
         # A send the span gives way to takes its receipt with it, so the second send's steps are kept again.
         for index in range(routine_recorder.MAX_SENDS - 1):
             latest = book.start("team_1", BINDING, _started(f"more {index}"), 2 + index)

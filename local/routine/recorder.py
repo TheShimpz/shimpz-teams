@@ -191,12 +191,14 @@ class RecordingBook:
                 or now - found.started_at > SPAN_SECONDS
             ):
                 found = Span(team_id, principal, incarnation, (), ())
+            # A send whose reply never committed spends nothing a creation shows, so its steps go as the next opens.
+            spent = tuple((item, receipt if receipt.spent else Receipt()) for item, receipt in found.receipts)
             opened = dataclasses.replace(
                 found,
                 send_ids=(*found.send_ids, send_id),
                 sends=(*found.sends, send),
                 revisions=(),
-                receipts=(*found.receipts, (send_id, Receipt())),
+                receipts=(*spent, (send_id, Receipt())),
             )
             self._spans[team_id] = _bounded(opened)
         return send_id
