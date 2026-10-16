@@ -38,7 +38,7 @@ _NEGATIONS = {
     "es": r"\b(?:no|nunca)\b",
     "fr": r"\b(?:ne|pas|jamais)\b|\bn'",
     "de": r"\b(?:nicht|kein|keine|nie)\b",
-    "ja": r"ない|ません",
+    "ja": r"ない(?!か)|ません(?!か)",
     "zh": r"不|别",
     "ar": r"(?:^|\s)(?:لا|ليس|لن|لم)(?:\s|$)",
 }
@@ -289,7 +289,8 @@ def _sentences(text: str) -> Iterator[str]:
             yield sentence
 
 
-# Languages whose negation follows what it negates, anywhere in the sentence; elsewhere it comes before.
+# Languages whose negation follows what it negates, anywhere in the sentence; elsewhere it comes before. A Japanese
+# negation followed by か asks whether (問題がないか確認) or asks politely (もらえませんか): it refuses nothing.
 _TRAILING_NEGATION = frozenset({"ja"})
 
 
@@ -394,7 +395,7 @@ def stated(text: str, language: str | None = None) -> tuple[dict[str, object], .
         schedules = [_interval(*match.groups()) for match in readings["interval"]]
         schedules += _calendar(sentence, readings)
         for value in schedules:
-            if value is not None and http_routine.canonical_schedule(value) == value and value not in found:
+            if http_routine.exact_schedule(value) and value not in found:
                 found.append(value)
     return tuple(found)
 

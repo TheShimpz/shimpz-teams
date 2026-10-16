@@ -244,7 +244,7 @@ if any(
 schedules = vectors.get("routine_schedule", {})
 if not schedules.get("valid") or not schedules.get("invalid") or not schedules.get("daily_cap"):
     fail("routine schedule vectors are missing")
-if any(routine.canonical_schedule(value) != value for value in schedules["valid"]):
+if not all(routine.exact_schedule(value) for value in schedules["valid"]):
     fail("a valid routine schedule vector was not admitted exactly")
 if any(routine.canonical_schedule(value) is not None for value in schedules["invalid"]):
     fail("an invalid routine schedule vector was admitted")
