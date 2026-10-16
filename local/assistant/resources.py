@@ -9,8 +9,8 @@ from assistant import manifest as assistant_manifest
 from install.bindings import DynamicAssistantBinding
 from local import labels as local_labels
 from local.assistant import isolation as local_container_policy
+from local.errors import DOCKER_ERRORS, assistant_isolation_drift, assistant_registry_drift, docker_unavailable
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import assistant_isolation_drift, assistant_registry_drift, docker_unavailable
 from local.install import snapshots as local_snapshots
 from local.install.runtime import AssistantSpec
 from local.labels import (
@@ -53,7 +53,7 @@ def bound_containers(
     """
     try:
         containers = client.containers.list(**filters)
-    except DockerException as exc:
+    except DOCKER_ERRORS as exc:
         raise docker_unavailable() from exc
     bindings_by_id = (
         {binding.assistant_id: binding for binding in registry.team_bindings(team_id)} if containers else {}
@@ -124,7 +124,7 @@ def trusted_image(self, spec: AssistantSpec):
                 "the trusted Assistant image could not be pulled",
                 code="image-pull-failed",
             ) from exc
-    except DockerException as exc:
+    except DOCKER_ERRORS as exc:
         raise docker_unavailable() from exc
     repo_digests = image.attrs.get("RepoDigests") or []
     labels = (image.attrs.get("Config") or {}).get("Labels") or {}
@@ -156,7 +156,7 @@ def staged_image(self, spec: AssistantSpec):
             "the staged Local Assistant image is no longer available",
             code="local-image-missing",
         ) from exc
-    except DockerException as exc:
+    except DOCKER_ERRORS as exc:
         raise docker_unavailable() from exc
     attrs = image.attrs
     architecture = spec.platform.rpartition("/")[2] if isinstance(spec.platform, str) else None

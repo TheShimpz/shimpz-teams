@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import requests
+from docker.errors import APIError
 from local_controller_harness import TestAssistantRegistry, wire_collaborators
 
 from local import app as local_app
@@ -156,6 +158,23 @@ class LocalAssistantEgressTests(unittest.TestCase):
             lifecycle._network("team_1")
         self.assertEqual(caught.exception.code, "team-not-found")
         self.assertIsNone(lifecycle._network("team_1", required=False))
+
+    def test_a_lost_docker_connection_or_api_error_reads_as_docker_unavailable_never_as_absence(self) -> None:
+        lifecycle = self.controller.assistant_lifecycle
+        for failure in (requests.exceptions.ConnectionError("Docker socket is down"), APIError("daemon error")):
+            self.controller.client.networks = types.SimpleNamespace(
+                get=mock.Mock(side_effect=failure), list=mock.Mock(side_effect=failure)
+            )
+            reads = {
+                "required": lambda: lifecycle._network("team_1"),
+                "optional": lambda: lifecycle._network("team_1", required=False),
+                "managed": lifecycle._managed_team_networks,
+            }
+            for name, read in reads.items():
+                with self.subTest(failure=type(failure).__name__, read=name):
+                    with self.assertRaises(local_app.ApiProblem) as caught:
+                        read()
+                    self.assertEqual((caught.exception.status, caught.exception.code), (503, "docker-unavailable"))
 
     def test_a_workload_with_any_proxy_variable_is_refused(self) -> None:
         """An Assistant reaches providers only through Team, so a proxy variable is isolation drift (ADR-0106)."""

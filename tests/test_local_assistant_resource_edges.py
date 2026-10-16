@@ -2,11 +2,15 @@ import types
 import unittest
 from unittest import mock
 
+import requests
 from docker.errors import DockerException, ImageNotFound, NotFound
 
 from local.assistant import isolation, resources
 from local.errors import ApiProblemError
 from local.install import snapshots
+
+# docker-py raises this, an OSError and no DockerException, while its socket is down.
+LOST = requests.exceptions.ConnectionError("Docker socket is down")
 
 
 class LocalAssistantResourceEdgeTests(unittest.TestCase):
@@ -43,9 +47,13 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
 
     def test_assistant_inventory_rejects_docker_registry_identity_and_duplicate_drift(self) -> None:
         controller = self._controller()
-        controller.client.containers.list.side_effect = DockerException("unavailable")
-        with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
-            resources.assistant_specs(controller, "team_1")
+        for failure in (DockerException("unavailable"), LOST):
+            controller.client.containers.list.side_effect = failure
+            with (
+                self.subTest(failure=type(failure).__name__),
+                self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"),
+            ):
+                resources.assistant_specs(controller, "team_1")
 
         controller.client.containers.list.side_effect = None
         missing = types.SimpleNamespace(labels={}, name="unknown", status="running")
@@ -132,9 +140,13 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ApiProblemError, "could not be pulled"):
             resources.trusted_image(controller, spec)
 
-        controller.client.images.get.side_effect = DockerException("unavailable")
-        with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
-            resources.trusted_image(controller, spec)
+        for failure in (DockerException("unavailable"), LOST):
+            controller.client.images.get.side_effect = failure
+            with (
+                self.subTest(failure=type(failure).__name__),
+                self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"),
+            ):
+                resources.trusted_image(controller, spec)
 
         local_spec = types.SimpleNamespace(provenance="local")
         with self.assertRaisesRegex(ApiProblemError, "published image provenance"):
@@ -200,9 +212,13 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
             resources.staged_image(controller, spec)
         controller.client.images.pull.assert_not_called()
 
-        controller.client.images.get.side_effect = DockerException("unavailable")
-        with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
-            resources.staged_image(controller, spec)
+        for failure in (DockerException("unavailable"), LOST):
+            controller.client.images.get.side_effect = failure
+            with (
+                self.subTest(failure=type(failure).__name__),
+                self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"),
+            ):
+                resources.staged_image(controller, spec)
 
         published = types.SimpleNamespace(provenance="published")
         with self.assertRaisesRegex(ApiProblemError, "Local image provenance"):

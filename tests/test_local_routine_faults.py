@@ -1,13 +1,16 @@
 """Every Routine failure path fails closed and leaves nothing a later run could misuse (ADR-0086)."""
 
 import dataclasses
+import functools
 import json
 import tempfile
 import time
+from contextlib import contextmanager
 from http import HTTPStatus
 from types import SimpleNamespace
 from unittest import mock
 
+import requests
 from test_local_chat_scope import LOOKUP_RESULT
 from test_local_routine_service import (
     ASSISTANT,
@@ -24,6 +27,8 @@ from action import journal as action_journal
 from inference import config as inference_config
 from local import app as local_app
 from local import authority as local_authority
+from local.assistant import egress as local_egress
+from local.routine import contracts as routine_contracts
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import human as routine_human
 from local.routine import manage as routine_manage
@@ -41,6 +46,22 @@ from tests import human_request_fixtures
 
 def broken(*_args, **_kwargs):
     raise routine_store.RoutineStoreError("down")
+
+
+@contextmanager
+def _docker_down(controller):
+    """The real Team network read over a Docker client whose socket is down.
+
+    docker-py then raises requests' ConnectionError, an OSError and no DockerException.
+    """
+    lifecycle = controller.assistant_lifecycle
+    lost = requests.exceptions.ConnectionError("Docker socket is down")
+    client = SimpleNamespace(networks=SimpleNamespace(get=mock.Mock(side_effect=lost)))
+    with (
+        mock.patch.object(lifecycle, "client", client),
+        mock.patch.object(lifecycle, "_network", functools.partial(local_egress.team_network, lifecycle)),
+    ):
+        yield
 
 
 def _losing_protection(service):
@@ -829,3 +850,61 @@ class TeamIsolationTests(RoutineServiceCase):
                 self.assertRaises(RuntimeError),
             ):
                 routine_watchdog.check(service, startup=True)
+
+
+class LostDockerConnectionTests(RoutineServiceCase):
+    """A lost Docker connection reads as Docker unavailable: nothing is proven, so nothing a run depends on changes."""
+
+    def test_a_due_routine_stays_due_and_its_contracts_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service = self.service(directory, Runtime())
+            self.routine(service)
+            before = self.state(service).routines
+            with _docker_down(controller):
+                with self.assertRaises(routine_contracts.ContractsUnavailableError):
+                    routine_contracts.current_contracts(service, "team_1", (ASSISTANT,))
+                self.assertIsNone(service.claim_routine_run())
+            self.assertEqual(self.state(service).routines, before)
+            self.assertIsNotNone(service.claim_routine_run())
+
+    def test_a_claimed_run_ends_as_context_unavailable_instead_of_staying_leased(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service, claim = self.claimed(directory, Runtime())
+            with _docker_down(controller):
+                self.assertEqual(self.run_claim(service, claim)["status"], "failed")
+            state = self.state(service)
+            self.assertEqual(record.live_runs(state), ())
+            self.assertEqual(state.notices[-1].detail, {"code": "team-context-unavailable"})
+
+    def test_a_frozen_run_is_kept_for_a_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service, claim = FrozenFaultTests.frozen(self, directory)
+            with _docker_down(controller), self.assertRaises(local_app.ApiProblem) as unavailable:
+                service.open_routine_challenge("team_1", claim["run_id"], "en")
+            self.assertEqual(
+                (unavailable.exception.status, unavailable.exception.code), (503, "team-context-unavailable")
+            )
+            self.assertEqual([run.status for run in self.state(service).runs], ["frozen"])
+            self.assertEqual(service.open_routine_challenge("team_1", claim["run_id"], "en")["run_id"], claim["run_id"])
+
+    def test_the_direct_team_reads_answer_docker_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service, claim = self.claimed(directory, Runtime())
+            run_id, now = claim["run_id"], int(time.time())
+            lease = record.lease_of(claim["lease_token"], KEY)
+            reads = {
+                "bind": lambda: routine_run.bind_run(service, "team_1", run_id, lease),
+                "diagnostics": lambda: service.routine_run_diagnostics("team_1", run_id, now),
+                "steps": lambda: service.routine_run_steps("team_1", run_id, "0" * 64, 0, now),
+                "confirm": lambda: service.confirm_routine_proposal("team_1", "e" * 32),
+                "revoke": lambda: service.revoke_routine_proposal("team_1", "e" * 32),
+            }
+            with (
+                _docker_down(controller),
+                mock.patch.object(local_app.local_audit, "human_principal", return_value="f" * 32),
+            ):
+                for name, read in reads.items():
+                    with self.subTest(read=name):
+                        with self.assertRaises(local_app.ApiProblem) as caught:
+                            read()
+                        self.assertEqual((caught.exception.status, caught.exception.code), (503, "docker-unavailable"))

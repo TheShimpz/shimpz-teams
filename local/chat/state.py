@@ -7,8 +7,6 @@ from collections.abc import Callable
 from http import HTTPStatus
 from typing import NoReturn
 
-from docker.errors import DockerException
-
 from action import challenges as action_challenges
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
@@ -22,8 +20,8 @@ from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import PendingLocalChat as _PendingLocalChat
-from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
+    DOCKER_ERRORS,
     assistant_action_blocked,
     assistant_manifest_invalid,
     assistant_manifest_unavailable,
@@ -33,6 +31,7 @@ from local.errors import (
     selected_file_not_found,
     stored_input_unavailable,
 )
+from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
 from protocol.http.v1 import payload as http_payload
 from storage import files as team_storage
@@ -127,7 +126,7 @@ def active_assistant_genesis(self, active: _ActiveAssistant) -> str:
     if container is None:
         try:
             container = self.client.containers.get(active.container_id)
-        except DockerException as exc:
+        except DOCKER_ERRORS as exc:
             raise ApiProblem(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "installed Assistant Genesis could not be verified",

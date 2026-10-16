@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from http import HTTPStatus
 from unittest import mock
 
+import requests
 from docker.errors import DockerException
 from local_controller_harness import TestAssistantRegistry
 
@@ -121,14 +122,15 @@ class LocalChatStateEdgeTests(unittest.TestCase):
     def test_genesis_resolution_rejects_docker_identity_and_contract_drift(self) -> None:
         spec = object()
         active = ActiveAssistant(spec, "container")
-        subject = types.SimpleNamespace(
-            client=types.SimpleNamespace(
-                containers=types.SimpleNamespace(get=mock.Mock(side_effect=DockerException("unavailable")))
+        lost = requests.exceptions.ConnectionError("Docker socket is down")
+        for failure in (DockerException("unavailable"), lost):
+            subject = types.SimpleNamespace(
+                client=types.SimpleNamespace(containers=types.SimpleNamespace(get=mock.Mock(side_effect=failure)))
             )
-        )
-        with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state.active_assistant_genesis(subject, active)
-        self.assertEqual(caught.exception.code, "assistant-genesis-unavailable")
+            with self.subTest(failure=type(failure).__name__):
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    local_chat_state.active_assistant_genesis(subject, active)
+                self.assertEqual(caught.exception.code, "assistant-genesis-unavailable")
 
         active = ActiveAssistant(spec, "container", types.SimpleNamespace(id="different"))
         with self.assertRaises(local_app.ApiProblem) as caught:

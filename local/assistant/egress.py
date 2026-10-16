@@ -10,12 +10,12 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import NoReturn
 
-from docker.errors import DockerException, NotFound
+from docker.errors import NotFound
 
 from egress import policy as egress_policy
 from local import labels as local_labels
+from local.errors import DOCKER_ERRORS, docker_unavailable, ownership_conflict
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import docker_unavailable, ownership_conflict
 from local.install.runtime import AssistantSpec
 from local.labels import TEAM_NAME_LABEL
 from local.validation import space_prefix as _space_prefix
@@ -103,7 +103,7 @@ def managed_team_networks(self) -> list:
     labels = local_labels.label_filter(local_labels.ownership_labels(self.space_id, "team"))
     try:
         return self.client.networks.list(filters={"label": labels})
-    except DockerException as exc:
+    except DOCKER_ERRORS as exc:
         raise docker_unavailable() from exc
 
 
@@ -128,11 +128,17 @@ def validate_network(self, network, team_id: str, *, refresh: bool = True) -> st
 
 
 def team_network(self, team_id: str, *, required: bool = True):
+    """The Team's validated network, or None when it is proven absent and not ``required``.
+
+    A Docker failure proves nothing about the Team, so it is Docker unavailable, never absence.
+    """
     try:
         network = self.client.networks.get(self._network_name(team_id))
     except NotFound:
         if required:
             raise ApiProblem(HTTPStatus.NOT_FOUND, "Team not found", code="team-not-found") from None
         return None
+    except DOCKER_ERRORS as exc:
+        raise docker_unavailable() from exc
     self._validate_network(network, team_id, refresh=False)
     return network
