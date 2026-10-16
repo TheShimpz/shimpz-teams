@@ -1,11 +1,11 @@
 """The memory-only occurrences of a recording span's Action calls, and the values it protects (ADR-0101).
 
 A Routine is recorded from work the ordinary chat agent actually did. While a Local send may record one, Team keeps each
-successful Action call in dispatch order: its journal operation id, Assistant Action, complete pin, whether the
-reviewed effect proves it read-only, its dispatch instant, and its model-given input and validated result as kept
-values. A kept value is the exact JSON with every position that may be secret withheld whole and recorded out of band
-as an RFC 6901 pointer: a schema-secret position, a credential-shaped string, a string holding a value Team injected,
-and an object holding a credential-shaped or injected key. Private envelopes and human answers are never kept.
+successful Action call in dispatch order: its Assistant Action, complete pin, whether the reviewed effect proves it
+read-only, and its model-given input and validated result as kept values. A kept value is the exact JSON with every
+position that may be secret withheld whole and recorded out of band as an RFC 6901 pointer: a schema-secret position, a
+credential-shaped string, a string holding a value Team injected, and an object holding a credential-shaped or injected
+key. Private envelopes and human answers are never kept.
 
 The span also keeps a protection set: every value an invocation was given or returned in secret. It only grows, and a
 span that would exceed its bound loses it, irreversibly, so nothing it wrote may then enter a Routine. Nothing here is

@@ -7,10 +7,10 @@ recording span: the person's consecutive fresh sends in one Team incarnation, ea
 own words in it, the untruncated earlier sends its conversation window carried, its browser timezone, its start, and
 its successful Action calls in dispatch order.
 
-The work is the calls of the one send the record call's intent selected (``local.routine.recorder.selected_work``): the
-send that ran Actions, or, for an answer that ran none, the send its intent already selected; earlier sends only
-provide sources. Each top-level input
-member of a plan call is classified by the first rule that applies:
+The work is the calls of the one send the record call's intent selected: for a new intent, the send
+``local.routine.recorder.selected_work`` names; for an answer that ran none, the send of the stored intent it continues
+(``local.routine.recorder.continued``). Earlier sends only provide sources. Each top-level input member of a plan call
+is classified by the first rule that applies:
 
 1. a secret (withheld, credential-shaped, protected by the span, or bound for a secret destination) refuses;
 2. a non-empty string occurring in one line the person wrote, or a number whose JSON text is a whole token of one, is

@@ -649,7 +649,7 @@ def execute(
     if isinstance(outcome.outcome, chat_orchestrator.ChatOutcome):
         shown = segment.runtime.cursor.shown
         return routine_run.finished(self, run, value, lambda: _sealed_done(self, run.team_id, value), shown)
-    # The run waits at its current step, which its notice and its step record name by position.
+    # The run waits at its current step, which its step record names by position.
     segment.runtime.record_step("waiting")
     return routine_run.suspended(self, run, outcome, segment.runtime.cursor.step + 1)
 

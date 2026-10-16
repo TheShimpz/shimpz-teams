@@ -227,8 +227,8 @@ def _recorded(intent: routine_recorder.Intent, recording, contracts, existing: r
     if existing is not None:
         kept = routine_recording.Existing(existing.plan, existing.schedule)
     # A record call for other work than the stored intent supersedes its question and the work it asked to repeat,
-    # though never the choices the person already answered nor the span's one repair, which a renamed record call
-    # cannot renew; one continuing it keeps verifying.
+    # though never the choices the person already answered nor the span's one repair, which a record call for other
+    # work cannot renew; one continuing the stored intent keeps verifying, whatever it names the Routine.
     stored, asked = recording.intent, recording.asked
     if stored is not None and asked is not None and not _same_work(stored, intent):
         asked = dataclasses.replace(asked, pending=None, manifest=None)
