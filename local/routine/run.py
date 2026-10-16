@@ -54,7 +54,7 @@ class _Registration:
     team_id: str
     token: str
     deadline: float
-    overdue: bool = False
+    overdue: bool
 
 
 # How long after a Routine frees the slot a person's chat message, refused while that Routine held it, keeps further

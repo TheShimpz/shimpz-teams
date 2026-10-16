@@ -484,7 +484,7 @@ def request(
     run: routine_run.LeasedRun,
     value: record.Run,
     progress: chat_progress.Reporter | None,
-    pending: object | None = None,
+    pending: object | None,
 ) -> SegmentRequest:
     """A replay segment's request, fresh or resumed from a frozen continuation: it carries no model key."""
     resumed = (
