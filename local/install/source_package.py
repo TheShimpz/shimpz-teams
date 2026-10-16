@@ -12,7 +12,13 @@ _MAX_REGULAR_FILES = 10_000
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _MAX_ICON_BYTES = 1024 * 1024
 _MAX_RECORDS = _MAX_PACKAGE_BYTES // _BLOCK_BYTES
+_MAX_PATH_BYTES = 256
+_MAX_PATH_COMPONENTS = 16
+_MAX_USTAR_NAME_BYTES = 100
+_MAX_USTAR_PREFIX_BYTES = 155
 _REQUIRED_FILES = frozenset({"icon.png", "pyproject.toml", "shimpz.toml"})
+_ACTION_DIRECTORY = "actions"
+_OPTIONAL_ROOTS = frozenset({"lib", "tests"})
 _PORTABLE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _ACTION_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]*\.py$")
 _SIZE_FIELD_RE = re.compile(rb"[0-7]{11}\0")
@@ -105,7 +111,7 @@ def _validate_records(records: tuple[_Record, ...]) -> dict[str, bytes]:
         _validate_source_path(path)
     if len({path.lower() for path in files}) != len(files):
         raise SourcePackageError("the Local Assistant source package files collide")
-    if not _REQUIRED_FILES.issubset(files) or not any(path.startswith("actions/") for path in files):
+    if not _REQUIRED_FILES.issubset(files) or not any(path.startswith(f"{_ACTION_DIRECTORY}/") for path in files):
         raise SourcePackageError("the Local Assistant source package is incomplete")
     if len(files["icon.png"]) > _MAX_ICON_BYTES:
         raise SourcePackageError("the Local Assistant icon is too large")
@@ -127,17 +133,17 @@ def _validate_source_path(path: str) -> None:
     if (
         not path
         or path.startswith("/")
-        or len(encoded) > 256
-        or len(parts) > 16
+        or len(encoded) > _MAX_PATH_BYTES
+        or len(parts) > _MAX_PATH_COMPONENTS
         or any(not part or part in {".", ".."} or _PORTABLE_SEGMENT_RE.fullmatch(part) is None for part in parts)
     ):
         raise SourcePackageError("the Local Assistant source package path is invalid")
     _split_path(path)
     if path in _REQUIRED_FILES:
         return
-    if len(parts) == 2 and parts[0] == "actions" and _ACTION_RE.fullmatch(parts[1]) is not None:
+    if len(parts) == 2 and parts[0] == _ACTION_DIRECTORY and _ACTION_RE.fullmatch(parts[1]) is not None:
         return
-    if len(parts) >= 2 and parts[0] in {"lib", "tests"}:
+    if len(parts) >= 2 and parts[0] in _OPTIONAL_ROOTS:
         return
     raise SourcePackageError("the Local Assistant source package path is not allowed")
 
@@ -151,13 +157,13 @@ def _parent_directories(files: dict[str, bytes]) -> set[str]:
 
 
 def _split_path(path: str) -> tuple[str, str]:
-    if len(path) <= 100:
+    if len(path) <= _MAX_USTAR_NAME_BYTES:
         return "", path
     try:
         prefix, name = path.rsplit("/", 1)
     except ValueError as exc:
         raise SourcePackageError("the Local Assistant source package path is invalid") from exc
-    if len(prefix) > 155 or len(name) > 100:
+    if len(prefix) > _MAX_USTAR_PREFIX_BYTES or len(name) > _MAX_USTAR_NAME_BYTES:
         raise SourcePackageError("the Local Assistant source package path is invalid")
     return prefix, name
 

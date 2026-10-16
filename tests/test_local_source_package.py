@@ -110,6 +110,30 @@ class LocalSourcePackageTests(unittest.TestCase):
         with self.assertRaisesRegex(source_package.SourcePackageError, "icon"):
             source_package.admit(source_package._build_archive(tuple(records)))
 
+    def test_admission_bounds_equal_the_pinned_contract(self) -> None:
+        contract = json.loads((AUTHORITY / "contract.json").read_bytes())
+        tree = contract["source_tree"]
+
+        self.assertEqual(
+            {
+                "icon_bytes": source_package._MAX_ICON_BYTES,
+                "package_bytes": source_package._MAX_PACKAGE_BYTES,
+                "regular_files": source_package._MAX_REGULAR_FILES,
+                "single_file_bytes": source_package._MAX_FILE_BYTES,
+                "path_bytes": source_package._MAX_PATH_BYTES,
+                "path_components": source_package._MAX_PATH_COMPONENTS,
+                "ustar_name_bytes": source_package._MAX_USTAR_NAME_BYTES,
+                "ustar_prefix_bytes": source_package._MAX_USTAR_PREFIX_BYTES,
+            },
+            contract["limits"],
+        )
+        self.assertEqual(source_package._BLOCK_BYTES, contract["archive"]["block_bytes"])
+        self.assertEqual(source_package._REQUIRED_FILES, frozenset(tree["required_root_files"]))
+        self.assertEqual(source_package._ACTION_DIRECTORY, tree["required_direct_action"]["directory"])
+        self.assertEqual(source_package._ACTION_RE.pattern, tree["required_direct_action"]["filename_pattern"])
+        self.assertEqual(source_package._OPTIONAL_ROOTS, frozenset(tree["optional_roots"]))
+        self.assertEqual(source_package._PORTABLE_SEGMENT_RE.pattern, contract["path"]["segment_pattern"])
+
     def test_records_the_exact_developers_authority(self) -> None:
         upstream = json.loads((PROTOCOL / "upstream.json").read_bytes())
 
