@@ -33,11 +33,13 @@ def _members_listed(value: object, limit: int, maximum: int) -> bool:
 
 
 def _listed_output(value: object, total: int) -> bool:
-    """A listed Routine's output: its mode; a shown mode shows the last step."""
-    if not isinstance(value, dict) or set(value) != {"mode"}:
-        return False
-    shown = total if value["mode"] in routine.SHOWN_MODES else None
-    return routine.canonical_disposition({**value, "step": shown}, total) is not None
+    """A listed Routine's output: its mode alone, of a plan with steps; a shown mode shows the last step."""
+    return (
+        isinstance(value, dict)
+        and set(value) == {"mode"}
+        and value["mode"] in routine.OUTPUT_MODES
+        and routine.whole(total, 1, routine.MAX_ROUTINE_STEPS)
+    )
 
 
 def _listed_step(value: object) -> bool:

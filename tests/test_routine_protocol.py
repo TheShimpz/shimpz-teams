@@ -4,10 +4,11 @@ import json
 import unittest
 from pathlib import Path
 
-from protocol.http.v1 import payload, routine, routine_notice, routine_proposal, routine_run
+from protocol.http.v1 import payload, routine, routine_context, routine_notice, routine_proposal, routine_run
 
 VECTORS = json.loads((Path(__file__).resolve().parents[1] / "protocol/http/v1/vectors.json").read_bytes())
 CARD = VECTORS["routine_proposal"]["valid"][0]
+LISTED = VECTORS["routine_listing"]["valid"][1][0]
 
 
 class RoutineProtocolEdgeTests(unittest.TestCase):
@@ -24,6 +25,11 @@ class RoutineProtocolEdgeTests(unittest.TestCase):
         self.assertFalse(routine_proposal._card_input({**CARD["steps"][1]["inputs"][0], "origin": "guess"}, 2))
         self.assertFalse(routine_proposal._card_input({**CARD["steps"][1]["inputs"][0], "member": "a\u2028b"}, 2))
         self.assertIsNone(routine_proposal.canonical_proposal({**CARD, "steps": []}))
+
+    def test_a_listing_refuses_an_output_mode_of_any_other_type(self) -> None:
+        for mode in ([], {}, None, 1):
+            with self.subTest(mode=mode):
+                self.assertIsNone(routine_context.canonical_routine_listings([{**LISTED, "output": {"mode": mode}}]))
 
     def test_a_request_identity_changes_a_routine_only_while_fresh(self) -> None:
         now = 2_000_000_000
