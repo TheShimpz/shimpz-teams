@@ -243,7 +243,12 @@ label Admin offers to Team's schedule, over-budget, or output question (`routine
 `routine_proposal.OVER_BUDGET_ANSWERS` filled with the question's interval, or `routine_proposal.OUTPUT_CHOICES`, in
 any interface language); the Brain is then offered no Action and only records again, keeping the work its record
 intent selected. Any other answer, typed, mixed with other work, or to a target or rerun question, keeps every
-Action. `routine_proposal` is
+Action. Team sends these fields together only as its recording makes them, and the Brain refuses any other
+combination: every field about a recording comes only beside the Routine listing, which never comes with attachments
+(only a send without files records); `routine_question` and `routine_schedule` come only with `routine_mode` true,
+since a pending question or a stated schedule makes the chat about a Routine, and so a settings answer, which answers a
+pending settings question, does too; `routine_rerun` comes only beside a `routine-work-rerun` `routine_question`.
+`routine_output` may come outside Routine mode. `routine_proposal` is
 the Routine's confirmation card (`routine_proposal.canonical_proposal`), at most 160 KiB, which Team checks against the whole
 terminal line bound before publishing: exactly `{proposal_id, expires_at, replaces, name, description, steps}` (ADR-0101
 amendment, 2026-10-15). `replaces` is `null` for a new Routine or the id of the Routine it changes; `description` is the
