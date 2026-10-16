@@ -7131,6 +7131,7 @@
       {"text": "每次变化时显示结果", "outputs": ["changes"]},
       {"text": "اعرض دائماً كلما تغير", "outputs": ["changes"]},
       {"text": "Show every run but change the DNS record only when it changes", "outputs": ["show", "changes"]},
+      {"text": "Show every run but change the DNS record whenever it changes", "outputs": ["show", "changes"]},
       {"text": "O resultado deve ser mostrado em todas as execuções.", "outputs": ["show"]},
       {"text": "Sem o resultado ser mostrado em todas as execuções", "outputs": []},
       {"text": "Copy the file whenever it changes.", "outputs": []},
