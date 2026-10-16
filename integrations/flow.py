@@ -14,6 +14,7 @@ from assistant import manifest as assistant_manifest
 from core import identifier, instant, text
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
+from integrations import http as integration_http
 from integrations import providers as integration_providers
 from protocol.http.v1 import payload as http_payload
 
@@ -22,7 +23,6 @@ MAX_INTEGRATION_REQUIREMENTS = 64
 MAX_INVENTORY_ASSISTANTS = 64
 MAX_INVENTORY_INTEGRATIONS = 256
 MAX_INTEGRATIONS_PER_ACTION = 16
-MAX_ACCESS_TOKEN_BYTES = 16 * 1024
 MAX_PUBLIC_TEXT_BYTES = 512
 _FORBIDDEN_PUBLIC_FIELDS = frozenset(
     {
@@ -479,13 +479,7 @@ def resolve_action_integrations(
             )
         except Exception as exc:
             raise IntegrationFlowError("Assistant integration could not be resolved") from exc
-        if not isinstance(access_token, str):
-            raise IntegrationFlowError("OAuth access token is invalid")
-        try:
-            encoded = access_token.encode("ascii")
-        except UnicodeError as exc:
-            raise IntegrationFlowError("OAuth access token is invalid") from exc
-        if not 16 <= len(encoded) <= MAX_ACCESS_TOKEN_BYTES or any(byte <= 32 or byte >= 127 for byte in encoded):
+        if not integration_http.is_token(access_token):
             raise IntegrationFlowError("OAuth access token is invalid")
         resolved[integration_id] = {"type": "oauth2-bearer", "access_token": access_token}
     return resolved

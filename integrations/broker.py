@@ -22,7 +22,6 @@ from protocol.http.v1 import strict_json
 BROKER_ORIGIN = "https://shimpz.com"
 CALLBACK_MODES = frozenset({"loopback", "local-domain", "out-of-band"})
 MAX_RESPONSE_BYTES = 32 * 1024
-MAX_TOKEN_BYTES = 16 * 1024
 HTTP_TIMEOUT_SECONDS = 10
 _BINDING = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 _CLAIM = re.compile(r"[0-9a-f]{64}\Z")
@@ -123,15 +122,9 @@ def _private_text(
     label: str,
     *,
     minimum: int = 16,
-    maximum: int = MAX_TOKEN_BYTES,
+    maximum: int = integration_http.MAX_TOKEN_BYTES,
 ) -> str:
-    if not isinstance(value, str):
-        raise OAuthBrokerClientError(f"OAuth {label} is invalid")
-    try:
-        encoded = value.encode("ascii")
-    except UnicodeError as exc:
-        raise OAuthBrokerClientError(f"OAuth {label} is invalid") from exc
-    if not minimum <= len(encoded) <= maximum or any(byte <= 32 or byte >= 127 for byte in encoded):
+    if not integration_http.is_token(value, minimum=minimum, maximum=maximum):
         raise OAuthBrokerClientError(f"OAuth {label} is invalid")
     return value
 

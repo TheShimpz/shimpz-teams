@@ -12,9 +12,23 @@ import time
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
+from typing import TypeGuard
 
 # One whole exchange ends by this deadline even when each socket operation stays within its own timeout.
 TOTAL_TIMEOUT_SECONDS = 30
+# The largest OAuth token the controller accepts from the broker, hands an Action, or seals in the Integration store.
+MAX_TOKEN_BYTES = 16 * 1024
+
+
+def is_token(value: object, *, minimum: int = 16, maximum: int = MAX_TOKEN_BYTES) -> TypeGuard[str]:
+    """Whether `value` is visible ASCII of `minimum` to `maximum` bytes, as an OAuth token or PKCE verifier is."""
+    if not isinstance(value, str):
+        return False
+    try:
+        encoded = value.encode("ascii")
+    except UnicodeError:
+        return False
+    return minimum <= len(encoded) <= maximum and all(32 < byte < 127 for byte in encoded)
 
 
 @dataclass(frozen=True, slots=True)

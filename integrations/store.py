@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Literal
 
 from core import canonical_json, identifier, text
+from integrations import http as integration_http
 from integrations import providers as integration_providers
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
@@ -25,8 +26,7 @@ from storage import private_state
 STATE_PATH = Path("/var/lib/shimpz-local/assistant-integrations/state/integrations.json")
 KEY_PATH = Path("/var/lib/shimpz-local/assistant-integrations/key/aes256.key")
 MAX_STATE_BYTES = 4 * 1024 * 1024
-MAX_TOKEN_BYTES = 16 * 1024
-MAX_PLAINTEXT_BYTES = (MAX_TOKEN_BYTES * 3) + 2048
+MAX_PLAINTEXT_BYTES = (integration_http.MAX_TOKEN_BYTES * 3) + 2048
 MAX_INTEGRATIONS_PER_ASSISTANT = 16
 MAX_TOTAL_RECORDS = 4096
 MAX_INTEGRATION_ID_BYTES = 256
@@ -145,7 +145,7 @@ def _bounded_text(
 
 
 def _token(value: object, label: str, *, optional: bool = False) -> str | None:
-    return _bounded_text(value, label, MAX_TOKEN_BYTES, optional=optional)
+    return _bounded_text(value, label, integration_http.MAX_TOKEN_BYTES, optional=optional)
 
 
 def _integration(value: object) -> OAuthIntegrationIdentity | None:
