@@ -1,4 +1,8 @@
+import types
 import unittest
+from unittest import mock
+
+import requests
 
 from assistant import genesis as assistant_genesis
 from tests.assistant_archive_fixtures import ManifestContainer as Container
@@ -38,6 +42,13 @@ class AssistantGenesisTests(unittest.TestCase):
         with self.assertRaises(assistant_genesis.GenesisError) as caught:
             assistant_genesis.read_container_genesis(container)
         self.assertNotIn(private, str(caught.exception))
+
+    def test_an_unreadable_manifest_is_unavailable_not_invalid(self) -> None:
+        lost = requests.exceptions.ConnectionError("Docker socket is down")
+        container = types.SimpleNamespace(id="generation", get_archive=mock.Mock(side_effect=lost))
+
+        with self.assertRaises(assistant_genesis.GenesisUnavailableError):
+            assistant_genesis.GenesisCache().get(container)
 
     def test_cache_reads_each_immutable_generation_once(self) -> None:
         first = Container("first", manifest("First."))

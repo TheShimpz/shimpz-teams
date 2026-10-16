@@ -139,12 +139,15 @@ class LocalChatStateEdgeTests(unittest.TestCase):
 
         container = types.SimpleNamespace(id="container")
         active = ActiveAssistant(spec, "container", container)
-        subject._assistant_genesis_cache = types.SimpleNamespace(
-            get=mock.Mock(side_effect=assistant_genesis.GenesisError("invalid"))
-        )
-        with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state.active_assistant_genesis(subject, active)
-        self.assertEqual(caught.exception.code, "assistant-genesis-invalid")
+        for failure, problem in (
+            (assistant_genesis.GenesisError("invalid"), (409, "assistant-genesis-invalid")),
+            (assistant_genesis.GenesisUnavailableError("unreadable"), (503, "assistant-genesis-unavailable")),
+        ):
+            subject._assistant_genesis_cache = types.SimpleNamespace(get=mock.Mock(side_effect=failure))
+            with self.subTest(failure=type(failure).__name__):
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    local_chat_state.active_assistant_genesis(subject, active)
+                self.assertEqual((caught.exception.status, caught.exception.code), problem)
 
     def test_active_assistant_inventory_fails_closed_on_docker_registry_and_blocking(self) -> None:
         lifecycle = types.SimpleNamespace(

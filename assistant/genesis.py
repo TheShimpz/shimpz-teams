@@ -8,10 +8,16 @@ class GenesisError(RuntimeError):
     """An immutable Assistant manifest did not expose safe model guidance."""
 
 
+class GenesisUnavailableError(GenesisError):
+    """The immutable Assistant manifest could not be read, so nothing about its guidance is proven."""
+
+
 def read_container_genesis(container) -> str:
     """Read `genesis` from the fixed, read-only Spec v1 manifest."""
     try:
         return assistant_manifest.read_container_manifest_genesis(container)
+    except assistant_manifest.ManifestUnavailableError as exc:
+        raise GenesisUnavailableError("Assistant Genesis is unavailable") from exc
     except assistant_manifest.ManifestError as exc:
         raise GenesisError("Assistant Genesis is invalid") from exc
 

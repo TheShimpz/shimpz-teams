@@ -121,17 +121,22 @@ def chat_setup(
     return team_name, network_id, assistants, files, config
 
 
+def _genesis_unavailable() -> ApiProblem:
+    """The retryable problem for an installed Assistant's Genesis that could not be read, proving nothing about it."""
+    return ApiProblem(
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        "installed Assistant Genesis could not be verified",
+        code="assistant-genesis-unavailable",
+    )
+
+
 def active_assistant_genesis(self, active: _ActiveAssistant) -> str:
     container = active.container
     if container is None:
         try:
             container = self.client.containers.get(active.container_id)
         except DOCKER_ERRORS as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "installed Assistant Genesis could not be verified",
-                code="assistant-genesis-unavailable",
-            ) from exc
+            raise _genesis_unavailable() from exc
     if getattr(container, "id", None) != active.container_id:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
@@ -140,6 +145,8 @@ def active_assistant_genesis(self, active: _ActiveAssistant) -> str:
         )
     try:
         return self._assistant_genesis_cache.get(container)
+    except assistant_genesis.GenesisUnavailableError as exc:
+        raise _genesis_unavailable() from exc
     except assistant_genesis.GenesisError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
