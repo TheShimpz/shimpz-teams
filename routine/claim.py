@@ -222,7 +222,7 @@ def _lease(
     return state, record.Claim(leased, token, due.revision, digest, leased.active_seconds_left)
 
 
-def lease_until(value: record.Run, now: int) -> int:
+def _lease_until(value: record.Run, now: int) -> int:
     """A running segment's lease: the run's active time left, and a margin, so a deadline cuts it before the lease."""
     return now + max(value.active_seconds_left, 0) + routine_plan.LEASE_MARGIN_SECONDS
 
@@ -238,7 +238,7 @@ def human_lease(value: record.Run, now: int, **changes: object) -> tuple[record.
         status="leased",
         lease_sha256=record.lease_sha256(token),
         lease_key=record.HUMAN_LEASE,
-        lease_expires_at=lease_until(value, now),
+        lease_expires_at=_lease_until(value, now),
         request_kind="",
         assistant_id="",
         action="",
@@ -312,5 +312,5 @@ def bind_generation(
         raise record.RoutineStateError("generation-invalid")
     # The claimed run's segment has started: its lease now covers the run's active time left, once; a later bind of the
     # same run (a retried request) never renews it.
-    extended = value.lease_expires_at if value.generation else max(value.lease_expires_at, lease_until(value, now))
+    extended = value.lease_expires_at if value.generation else max(value.lease_expires_at, _lease_until(value, now))
     return record.replace_run(state, dataclasses.replace(value, generation=generation, lease_expires_at=extended))

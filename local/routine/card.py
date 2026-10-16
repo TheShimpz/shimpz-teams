@@ -108,7 +108,7 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
     }
 
 
-def restartable(self, team_id: str, tagged: _Tagged) -> record.Routine:
+def _restartable(self, team_id: str, tagged: _Tagged) -> record.Routine:
     """The Routine a fresh run may start for: listed, idle, and with the held attempt stopped."""
     routine_id = tagged.value.routine_id
     state = routine_state.load(self, team_id)
@@ -130,7 +130,7 @@ def _contracts_changed() -> ApiProblem:
 
 def _run(self, team_id: str, tagged: _Tagged) -> None:
     """Rodar: set the held run aside and request one fresh run of the Routine's current revision."""
-    current = restartable(self, team_id, tagged)
+    current = _restartable(self, team_id, tagged)
     if current.needs_reconfirm:
         raise _contracts_changed()
     routine_contracts.require_pinned(self, team_id, dict(current.assistants), _contracts_changed())

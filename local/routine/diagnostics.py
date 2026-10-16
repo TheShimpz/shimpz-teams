@@ -49,12 +49,12 @@ MAX_RUN_PLAINTEXT_BYTES = 1024
 MAX_TEAM_BYTES = 24 * 1024 * 1024
 
 
-def sealed_bound(plaintext: int) -> int:
+def _sealed_bound(plaintext: int) -> int:
     """A sealed file's bytes for this much plaintext: its AES-GCM tag, base64, and JSON envelope."""
     return 4 * -(-(plaintext + 16) // 3) + 256
 
 
-MAX_FILE_BYTES = sealed_bound(MAX_STEP_PLAINTEXT_BYTES)
+MAX_FILE_BYTES = _sealed_bound(MAX_STEP_PLAINTEXT_BYTES)
 _NAME_RE = re.compile(
     r"(?P<at>[0-9]{1,12})\.(?P<routine>[0-9a-f]{32})\.(?P<run>[0-9a-f]{32})\."
     r"(?P<operation>[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(?P<attempt>[0-9]{1,2})"
@@ -197,7 +197,7 @@ class RunRecord:
     recorded_at: int
 
 
-class RunChangedError(DiagnosticStoreError):
+class _RunChangedError(DiagnosticStoreError):
     """A page named a snapshot of a run's records that no longer holds."""
 
 
@@ -327,7 +327,7 @@ class DiagnosticStore:
         """One run's retained records as one snapshot, assembled under the guard: ``(snapshot, records, run)``.
 
         ``snapshot`` names the one a reader holds (``latest`` for a fresh one); a snapshot whose retained bodies changed
-        since, by expiry, eviction, or a new record, raises RunChangedError.
+        since, by expiry, eviction, or a new record, raises _RunChangedError.
         """
         team, incarnation = validate_team_id(team_id), _incarnation(incarnation)
         directory = self._team_dir(team)
@@ -341,7 +341,7 @@ class DiagnosticStore:
             ]
             current = _snapshot(directory, retained)
             if snapshot not in ("latest", current):
-                raise RunChangedError("Routine run records changed")
+                raise _RunChangedError("Routine run records changed")
             steps: dict[int, tuple[int, dict[str, object]]] = {}
             run = None
             for name, kind, match, _size in retained:
@@ -368,7 +368,7 @@ class DiagnosticStore:
         only an authentic body of another incarnation is left out: any corruption, including a changed incarnation,
         Team, or name, fails authentication and closes the read.
         """
-        raw = _PRIVATE.read_private_file(path, sealed_bound(maximum), "Routine diagnostic")
+        raw = _PRIVATE.read_private_file(path, _sealed_bound(maximum), "Routine diagnostic")
         if raw is None:
             return None
         try:
@@ -633,7 +633,7 @@ def run_steps(self, team_id: str, run_id: str, snapshot: str, offset: int, now: 
     try:
         token, records, run = self.routine_diagnostics.run_steps(team_id, incarnation, run_id, now, snapshot)
         binding = _binding_of(records, run)
-    except RunChangedError as exc:
+    except _RunChangedError as exc:
         raise ApiProblem(HTTPStatus.CONFLICT, "Routine run records changed", code="routine-run-changed") from exc
     except DiagnosticStoreError as exc:
         raise local_errors.routine_diagnostics_unavailable() from exc

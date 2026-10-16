@@ -18,7 +18,7 @@ from routine import record
 from routine import runs as routine_runs
 
 
-def routine_view(value: record.Routine) -> dict[str, object]:
+def _routine_view(value: record.Routine) -> dict[str, object]:
     """A Routine as its Supervisor inspects it: what it is, when it runs, its plan's summary, and its output.
 
     Its steps are read page by page (``routine_steps``), bound to the summary's revision.
@@ -38,7 +38,7 @@ def routine_view(value: record.Routine) -> dict[str, object]:
     }
 
 
-def run_view(value: record.Run) -> dict[str, object]:
+def _run_view(value: record.Run) -> dict[str, object]:
     """What a Supervisor may act on: a frozen run's request; a leased or held run only shows that it is live."""
     return {
         "run_id": value.run_id,
@@ -50,7 +50,7 @@ def run_view(value: record.Run) -> dict[str, object]:
     }
 
 
-def incident_view(value: record.Run) -> dict[str, object]:
+def _incident_view(value: record.Run) -> dict[str, object]:
     """An unresolved incident a card settles: its Routine and the call whose effect is unknown."""
     return {
         "run_id": value.run_id,
@@ -85,9 +85,9 @@ def list_routines(self, team_id: str) -> dict[str, object]:
     state = routine_state.load(self, team_id)
     return {
         "team_id": team_id,
-        "routines": [routine_view(item) for item in state.routines],
-        "runs": [run_view(item) for item in record.live_runs(state)],
-        "incidents": [incident_view(item) for item in state.runs if item.status == "unresolved"],
+        "routines": [_routine_view(item) for item in state.routines],
+        "runs": [_run_view(item) for item in record.live_runs(state)],
+        "incidents": [_incident_view(item) for item in state.runs if item.status == "unresolved"],
     }
 
 

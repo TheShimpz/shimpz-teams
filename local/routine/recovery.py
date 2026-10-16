@@ -244,7 +244,7 @@ def workload_stopped(self, team_id: str, opened: routine_incident.OpenedRecovery
     return _stopped_since(self, team_id, assistant_id, cursor.workload, cursor.dispatched_at)
 
 
-def quiescence(self, team_id: str, assessment: Assessment, verdict: str) -> str:
+def _quiescence(self, team_id: str, assessment: Assessment, verdict: str) -> str:
     """An uncertain operation whose failure Team never classified needs its workload proven stopped first."""
     if verdict == "uncertain" and assessment.cursor.fault == "" and not _quiesced(self, team_id, assessment):
         return "unquiesced"
@@ -352,7 +352,7 @@ def verify(
     or ``unclassified`` when verification may not run.
     """
     assessment = assess(self, team_id, incident_id)
-    verdict = quiescence(self, team_id, assessment, proven(assessment))
+    verdict = _quiescence(self, team_id, assessment, proven(assessment))
     if verdict in {"none", "policy", "unquiesced", "unclassified"}:
         return verdict
     if verdict == "absent":
