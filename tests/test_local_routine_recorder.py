@@ -239,7 +239,7 @@ class RecordingBookTests(unittest.TestCase):
             ("routine-binding-ambiguous", '"123"', None),
             ("routine-work-rerun", "a cada hora", None),
             ("routine-schedule-unstated", "a cada 30 dias", None),
-            # A target answer that also states a schedule is the Brain's, so the description says how often it runs.
+            # A target answer that also states a schedule is the Brain's to read.
             ("routine-binding-ambiguous", '"a-zone". A cada 60 segundos.', None),
         ]
         for code, answer, expected in cases:

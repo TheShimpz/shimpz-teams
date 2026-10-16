@@ -254,8 +254,7 @@ def answered(span: Span | None) -> Intent | None:
     """The intent to record again when the span's latest send is Admin's composed answer that binds its question.
 
     Only a target question binds, when the answer is exactly one target's JSON text and states no schedule. Any other
-    answer is the Brain's to read: it records again with a description that says it, and a settings answer runs no
-    Action again.
+    answer is the Brain's to read: it records again, and a settings answer runs no Action again.
     """
     if span is None or span.intent is None or span.asked is None or span.refused:
         return None
