@@ -85,7 +85,7 @@ def latest_work(sends: Sequence[Send]) -> int | None:
     return next((index for index in reversed(range(len(sends))) if sends[index].occurrences), None)
 
 
-def latest_reading[T](sends: Sequence[Send], read: Callable[[str], tuple[T, ...]]) -> tuple[T, ...]:
+def _latest_reading[T](sends: Sequence[Send], read: Callable[[str], tuple[T, ...]]) -> tuple[T, ...]:
     """Every reading of the latest authored segment that ``read`` finds any in; none when no segment has one."""
     latest: tuple[T, ...] = ()
     for send in sends:
@@ -96,12 +96,12 @@ def latest_reading[T](sends: Sequence[Send], read: Callable[[str], tuple[T, ...]
 
 def stated_schedules(sends: Sequence[Send]) -> tuple[dict[str, object], ...]:
     """Every schedule the latest authored segment stating any states; none when no segment does."""
-    return latest_reading(sends, phrase.stated)
+    return _latest_reading(sends, phrase.stated)
 
 
 def stated_outputs(sends: Sequence[Send]) -> tuple[str, ...]:
     """Every output choice the latest authored segment stating one states; empty when none does."""
-    return latest_reading(sends, phrase.outputs)
+    return _latest_reading(sends, phrase.outputs)
 
 
 def stated_output(sends: Sequence[Send]) -> str | None:

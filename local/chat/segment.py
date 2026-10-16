@@ -101,7 +101,7 @@ def _observed(invoke: Callable[[], object], runtime, action_request, evidence) -
         runtime.returned()
 
 
-def runtime_assistant(active: _ActiveAssistant, genesis: str) -> brain_runtime_client.RuntimeAssistant:
+def _runtime_assistant(active: _ActiveAssistant, genesis: str) -> brain_runtime_client.RuntimeAssistant:
     """The Assistant exactly as a Brain turn sees it; its contract digest pins skills and Routines."""
     return brain_runtime_client.RuntimeAssistant(
         id=active.spec.assistant_id,
@@ -116,7 +116,7 @@ def runtime_assistant(active: _ActiveAssistant, genesis: str) -> brain_runtime_c
 def routine_scope(active: _ActiveAssistant, genesis: str) -> str:
     """The pin a Routine holds for one Assistant: its Brain-visible contract and every Action's complete pin."""
     return routine_pin.assistant_pin(
-        active.spec, brain_runtime_client.contract_digest(runtime_assistant(active, genesis))
+        active.spec, brain_runtime_client.contract_digest(_runtime_assistant(active, genesis))
     )
 
 
@@ -214,7 +214,7 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
     # Brain keeps what a logical turn started with across resumes.
     memories, skills = ((), ()) if routine is not None else _knowledge(self, request.team_id)
     runtime_assistants = tuple(
-        runtime_assistant(active, scope.genesis_by_id[active.spec.assistant_id]) for active in scope.assistants
+        _runtime_assistant(active, scope.genesis_by_id[active.spec.assistant_id]) for active in scope.assistants
     )
     config = scope.config
     mutable = _routine_mutable(request)

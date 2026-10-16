@@ -34,7 +34,7 @@ def step_positions(plan: Mapping[str, object]) -> dict[str, int]:
     return {step["id"]: index for index, step in enumerate(plan["steps"], start=1)}
 
 
-def permitted_entry(permitted: Sequence[Mapping[str, object]], assistant: str, action: str) -> Mapping[str, object]:
+def _permitted_entry(permitted: Sequence[Mapping[str, object]], assistant: str, action: str) -> Mapping[str, object]:
     return next(item for item in permitted if (item["assistant"], item["action"]) == (assistant, action))
 
 
@@ -68,7 +68,7 @@ def step(plan: Mapping[str, object], permitted: Sequence[Mapping[str, object]], 
     """The projection of the step at ``position``: its Action, its effect, every input's source, its Stored Inputs."""
     positions = step_positions(plan)
     value = plan["steps"][position - 1]
-    entry = permitted_entry(permitted, value["assistant"], value["action"])
+    entry = _permitted_entry(permitted, value["assistant"], value["action"])
     return {
         "position": position,
         "assistant": value["assistant"],
