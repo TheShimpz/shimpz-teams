@@ -202,7 +202,7 @@ questions (`routine_proposal.SETTINGS_QUESTION_CODES`): an answer to one runs no
 then runs the whole recurring work it results in once. When the person's next send is Admin's composed answer to an ambiguous
 binding and its latest answer is exactly one target's JSON text that states no schedule, Team records again with the
 request's stored intent without asking the Brain, and its reply is empty. Every other answer goes to the Brain, which
-records again with a description that says it; a settings answer (`routine_settings_answer` below) runs no Action
+records again; a settings answer (`routine_settings_answer` below) runs no Action
 again and keeps the work its intent selected, and its reply is empty too. A record call whose send ran no Action and
 that replaces exactly what the stored intent replaces continues that intent whatever it names the Routine: it keeps
 the intent's work and the revision its replaced Routine was shown at. A completed turn's `reply` is empty only beside a `routine_proposal`,
@@ -242,9 +242,8 @@ and whether it is a target the person chose; a `clock` input is the run's date; 
 and names the `{assistant, action}` whose earlier result held it, or `null`. Team sends no such work past these
 bounds. `routine_mode`, whether the chat is about a Routine, is a plain advisory boolean. `routine_schedule` is the one
 schedule Team reads from the person's sends (`routine.canonical_schedule`) and `routine_output` the one output mode it
-reads (`routine.OUTPUT_MODES`), each `null` when it reads none; the Brain refuses a record whose description states
-another than Team read, or a schedule the person did not give, except a replacement's own listed schedule or output. A
-new Routine's output the person has not chosen yet is not checked: Team asks for it before any card.
+reads (`routine.OUTPUT_MODES`), each `null` when it reads none; the Brain admits a settings answer only beside the
+reading it answers, and never reads the record's description, which states only the work.
 `routine_settings_answer` is true exactly when the person's send is Admin's composed answer whose answer is one fixed
 label Admin offers to Team's schedule, over-budget, or output question (`routine_proposal.SCHEDULE_CHOICES`,
 `routine_proposal.OVER_BUDGET_ANSWERS` filled with the question's interval, or `routine_proposal.OUTPUT_CHOICES`, in
@@ -257,11 +256,13 @@ since a pending question or a stated schedule makes the chat about a Routine, an
 pending settings question, does too; `routine_rerun` comes only beside a `routine-work-rerun` `routine_question`.
 `routine_output` may come outside Routine mode. `routine_proposal` is
 the Routine's confirmation card (`routine_proposal.canonical_proposal`), at most 160 KiB, which Team checks against the whole
-terminal line bound before publishing: exactly `{proposal_id, expires_at, replaces, name, description, steps}` (ADR-0101
-amendment, 2026-10-15). `replaces` is `null` for a new Routine or the id of the Routine it changes; `description` is the
-recording agent's one plain paragraph, which states how often the Routine runs exactly as Team read it from the person
-and what is done with each run's result; the schedule, zone, output, and permitted Actions are Team's own, bound by the
-confirmation, never carried on the card. Each step is `{position,
+terminal line bound before publishing: exactly `{proposal_id, expires_at, replaces, name, description, schedule, timezone,
+timezone_source, output, steps}` (ADR-0101 amendment, 2026-10-16). `replaces` is `null` for a new Routine or the id of
+the Routine it changes; `description` is the recording agent's one plain paragraph about the work alone; `schedule`
+(`routine.canonical_schedule`), `timezone` with `timezone_source` (`routine.zoned`), and `output` (one of
+`routine.OUTPUT_MODES`, a shown mode showing the last step's result) are the candidate's own, which Admin shows in its
+fixed words beside the description; the permitted Actions are Team's own, bound by the confirmation, never carried on
+the card. Each step is `{position,
 assistant, action, read_only, inputs}`, and each input `{member, origin, value, step, pointer, where, item}` names
 exactly where its value comes from: `request` (named in the person's request) or `assistant` (chosen by the assistant,
 the same on every run), each with the literal's complete JSON text escaped (never cut); `clock`, the date of each run

@@ -82,7 +82,7 @@ CONTINUOUS = {"kind": "continuous", "gap": 30}
 def _record(**changes: object) -> dict[str, object]:
     value = {
         "name": "DNS de shimpz.com",
-        "description": "A cada 30 segundos, lista as zonas da sua Cloudflare e lê os registros DNS de shimpz.com.",
+        "description": "Lista as zonas da sua Cloudflare e lê os registros DNS de shimpz.com.",
         "replaces": None,
     }
     value.update(changes)
@@ -259,6 +259,11 @@ class RecordedRoutineTests(RecordingCase):
         self.assertIsNone(http_routine_proposal.canonical_proposal({**card, "description": None}))
         self.assertEqual(card["description"], _record()["description"])
         self.assertEqual((candidate.schedule, candidate.timezone_source), (CONTINUOUS, "browser"))
+        # The card shows the candidate's own schedule, zone, and output, never the description's words for them.
+        self.assertEqual(
+            (card["schedule"], card["timezone"], card["timezone_source"], card["output"]),
+            (CONTINUOUS, "America/Sao_Paulo", "browser", candidate.plan["output"]["mode"]),
+        )
         zones, records = card["steps"]
         self.assertEqual((zones["action"], records["action"]), ("list-zones", "list-dns-records"))
         zone_id = next(item for item in records["inputs"] if item["member"] == "zone_id")

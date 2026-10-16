@@ -3,9 +3,9 @@
 When a recording turn ends with the chat agent's ``record`` call, Team builds the plan from its own trace of that turn
 (``routine/recording.py``), admits it against the Team's exact current contracts and budgets, and keeps a proposal in
 memory, one per Team and person, for 15 minutes: the candidate definition, the Team incarnation and person it is bound
-to, and the confirmation card the reply carries, which shows the description of the work, every step and whether it
-changes something, every literal complete, and every source and selector. A recording that cannot become a Routine
-answers a refusal code instead; the work the turn already did stands.
+to, and the confirmation card the reply carries, which shows the description of the work, the candidate's own schedule,
+zone, and output, every step and whether it changes something, every literal complete, and every source and selector.
+A recording that cannot become a Routine answers a refusal code instead; the work the turn already did stands.
 
 Only an authenticated Local Supervisor session confirms or cancels a card. Confirming consumes it first, then rechecks
 the person, the incarnation, every pin, the budgets, and a replaced Routine's revision, and commits the Routine with its
@@ -185,7 +185,7 @@ def _intent(self, response: object, proposed: object) -> routine_recorder.Intent
     An answer Team records itself carries the intent the span stored, so its replaced revision stays the one shown.
     So does a settings answer, whatever its record call names: the person only said how often the Routine runs or
     what each run does with its result, so its work, its replacement, and the revision shown stay the stored intent's,
-    and only the description, which says the answer, is the call's. A call that ran nothing and continues the stored
+    and only the description of that work is the call's. A call that ran nothing and continues the stored
     intent (``recorder.continued``) keeps its work and revision too, under the name and description the call gives.
     """
     if isinstance(proposed, routine_recorder.Intent):
@@ -342,11 +342,12 @@ def _card_input(member: str, source: dict[str, object], origin: str, positions: 
 def card(
     proposal_id: str, candidate: record.Routine, recorded, framing: tuple[str | None, float], description: str
 ) -> dict:
-    """The confirmation card: the description, and every step with its effect and each input's complete value or source.
+    """The confirmation card: the description, the schedule, zone, and output, and each step with its effect and inputs.
 
-    Its description is the recording agent's plain-language account of the work, shown as the card's body, which states
-    the schedule and the output exactly as Team read them from the person (ADR-0101 amendment, 2026-10-15); the steps
-    beside it are Team's own, so a description can never stand in for them. The confirmation binds the whole candidate.
+    Its description is the recording agent's plain-language account of the work alone; the schedule, its zone and where
+    that came from, and the output are the candidate's own, which Admin shows in its fixed words (ADR-0101 amendment,
+    2026-10-16), and so are the steps, so model text never stands in for any of them. The confirmation binds the whole
+    candidate.
     """
     replaces, expires_at = framing
     document = candidate.plan
@@ -371,6 +372,10 @@ def card(
         "replaces": replaces,
         "name": candidate.name,
         "description": description,
+        "schedule": dict(candidate.schedule),
+        "timezone": document["timezone"],
+        "timezone_source": candidate.timezone_source,
+        "output": document["output"]["mode"],
         "steps": steps,
     }
 

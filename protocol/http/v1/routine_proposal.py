@@ -13,10 +13,11 @@ else:  # The protocol verifier runs every module of this directory flat.
     import routine
 
 
-# The confirmation card of a recorded Routine (ADR-0101, amended 2026-10-15): the recording agent's
-# description, which states the schedule and the output in the person's own words, and every step with its effect and
-# every literal complete and escaped, every source and selector described completely. It is the one thing a person
-# confirms, so nothing in it is paged or cut; a recording whose card does not fit is refused.
+# The confirmation card of a recorded Routine (ADR-0101, amended 2026-10-16): the recording agent's description of the
+# work alone; Team's own schedule, zone and where it came from, and output, which Admin shows in its fixed words; and
+# every step with its effect and every literal complete and escaped, every source and selector described completely.
+# It is the one thing a person confirms, so nothing in it is paged or cut; a recording whose card does not fit is
+# refused.
 MAX_PROPOSAL_BYTES = 160 * 1024
 INPUT_ORIGINS = ("request", "assistant", "clock", "step", "selector")
 _PROPOSAL_INPUT_FIELDS = frozenset({"member", "origin", "value", "step", "pointer", "where", "item"})
@@ -61,8 +62,22 @@ def _card_step(value: object, position: int) -> bool:
 
 
 def canonical_proposal(value: object) -> dict[str, object] | None:
-    """One recorded Routine's confirmation card, within its byte bound."""
-    fields = {"proposal_id", "expires_at", "replaces", "name", "description", "steps"}
+    """One recorded Routine's confirmation card, within its byte bound.
+
+    Its output is the mode each run applies; a shown mode shows the last step's result.
+    """
+    fields = {
+        "proposal_id",
+        "expires_at",
+        "replaces",
+        "name",
+        "description",
+        "schedule",
+        "timezone",
+        "timezone_source",
+        "output",
+        "steps",
+    }
     if not isinstance(value, dict) or set(value) != fields:
         return None
     steps = value["steps"]
@@ -72,6 +87,9 @@ def canonical_proposal(value: object) -> dict[str, object] | None:
         and routine_notice.optional(value["replaces"], routine.ROUTINE_ID_RE)
         and routine.exact_name(value["name"])
         and routine.exact_description(value["description"])
+        and routine.canonical_schedule(value["schedule"]) == value["schedule"]
+        and routine.zoned(value["timezone"], value["timezone_source"])
+        and value["output"] in routine.OUTPUT_MODES
         and isinstance(steps, list)
         and 0 < len(steps) <= routine.MAX_ROUTINE_STEPS
         and all(_card_step(item, index) for index, item in enumerate(steps, start=1))
