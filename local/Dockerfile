@@ -131,11 +131,7 @@ COPY --link local/http/__init__.py local/http/audit.py local/http/chat.py local/
     local/http/inference.py local/http/routine.py local/http/server.py local/http/stream.py ./local/http/
 COPY --link install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/lock.py \
     install/update.py ./install/
-COPY --link protocol/install/upstream.json ./protocol/install/
-COPY --link protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
-    protocol/install/v1/definitions.schema.json \
-    protocol/install/v1/resolve-response.schema.json protocol/install/v1/schema_validator.py \
-    protocol/install/v1/vectors.json protocol/install/v1/verify.py \
+COPY --link protocol/install/v1/definitions.schema.json protocol/install/v1/resolve-response.schema.json \
     ./protocol/install/v1/
 COPY --link protocol/action/v1/schema.py ./protocol/action/v1/
 COPY --link protocol/http/v1/challenge.py protocol/http/v1/content.py protocol/http/v1/identifiers.py \

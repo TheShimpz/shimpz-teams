@@ -3,6 +3,8 @@ import re
 import unittest
 from pathlib import Path
 
+from install import contract as install_contract
+
 ROOT = Path(__file__).resolve().parents[1]
 UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded"
 # The preparation helper's fixed worker runs from the same image as the controller (ADR-0093).
@@ -56,14 +58,8 @@ LOCAL_PROTOCOL_DATA = {
     "protocol/http/v1/strict_json.py",
     "protocol/http/v1/supervisor.py",
     "protocol/http/v1/turn.py",
-    "protocol/install/upstream.json",
-    "protocol/install/v1/README.md",
-    "protocol/install/v1/contract-files.sha256",
     "protocol/install/v1/definitions.schema.json",
     "protocol/install/v1/resolve-response.schema.json",
-    "protocol/install/v1/schema_validator.py",
-    "protocol/install/v1/vectors.json",
-    "protocol/install/v1/verify.py",
 }
 DYNAMIC_IMPORT_MODULES = {"importlib", "pkgutil", "runpy"}
 
@@ -209,7 +205,6 @@ class StaticTeamImageContractTests(unittest.TestCase):
             "./protocol/action/v1/",
             "./protocol/assistant/v1/validators/",
             "./protocol/http/v1/",
-            "./protocol/install/",
             "./protocol/install/v1/",
         }
         copied_protocol = set()
@@ -357,10 +352,9 @@ class StaticTeamImageContractTests(unittest.TestCase):
         }
         declared_package_data = {path for paths in LOCAL_PACKAGE_DATA.values() for path in paths}
         self.assertEqual(source_package_data, declared_package_data)
-        protocol_install_data = {
-            path.relative_to(ROOT).as_posix()
-            for path in (ROOT / "protocol" / "install").rglob("*")
-            if path.is_file() and not any(part == "__pycache__" for part in path.relative_to(ROOT).parts)
+        # The image carries only the install schemas the contract loads; the reference validator stays in the checkout.
+        install_schemas = {
+            f"protocol/install/v1/{name}" for name in (install_contract.DEFINITIONS, *install_contract.ENTRY_POINTS)
         }
         local_protocol_runtime_data = {path for path in local_paths if path.startswith("protocol/")}
         self.assertEqual(
@@ -371,7 +365,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
                 if path.startswith(("protocol/action/", "protocol/http/", "protocol/assistant/"))
             },
         )
-        self.assertEqual(protocol_install_data | local_protocol_runtime_data, LOCAL_PROTOCOL_DATA)
+        self.assertEqual(install_schemas | local_protocol_runtime_data, LOCAL_PROTOCOL_DATA)
         production_sources = [*ROOT.glob("*.py")]
         production_sources.extend(path for package in PRODUCTION_PACKAGES for path in (ROOT / package).rglob("*.py"))
         for path in production_sources:
