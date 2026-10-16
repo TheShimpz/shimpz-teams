@@ -12,10 +12,10 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
-from docker.errors import DockerException
 from docker.types import LogConfig, Ulimit
 
 from local import labels as local_labels
+from local.errors import DOCKER_ERRORS
 from prepare import helper as preparation_helper
 from prepare import service as preparation
 
@@ -53,7 +53,7 @@ def helper_labels(space_id: str, team_id: str) -> dict[str, str]:
 
 def helper_kwargs(client: object, *, space_id: str, team_id: str, cpuset_cpus: str | None) -> dict[str, object]:
     """The Local helper envelope: the controller's exact image, its CPU set, and no Docker log file."""
-    image = preparation_helper.own_image_id(client, (DockerException,))
+    image = preparation_helper.own_image_id(client, DOCKER_ERRORS)
     name = f"shimpz-prepare-{team_id}-{secrets.token_hex(4)}"
     kwargs = preparation_helper.base_kwargs(image, name, helper_labels(space_id, team_id))
     kwargs.update(
@@ -79,13 +79,13 @@ def helper(
     def clear_residue() -> None:
         try:
             remove_helpers(client, space_id, team_id)
-        except DockerException as exc:
+        except DOCKER_ERRORS as exc:
             raise preparation_helper.HelperUnavailableError("an earlier preparation helper remains") from exc
 
     with preparation_helper.PreparationHelper(
         client,
         lambda: helper_kwargs(client, space_id=space_id, team_id=team_id, cpuset_cpus=cpuset_cpus),
-        transport_errors=(DockerException,),
+        transport_errors=DOCKER_ERRORS,
         started=started,
         stopped=stopped,
         clear_residue=clear_residue,
@@ -210,7 +210,7 @@ class PreviewBook:
         for container in containers:
             try:
                 container.remove(force=True)
-            except DockerException as exc:
+            except DOCKER_ERRORS as exc:
                 if getattr(getattr(exc, "response", None), "status_code", None) != 404:
                     raise PreviewDrainError("a preview helper could not be removed") from exc
         with self.guard:
@@ -257,6 +257,6 @@ def remove_helpers(client: object, space_id: str, team_id: str | None = None) ->
     for container in client.containers.list(all=True, filters={"label": filters}):
         try:
             container.remove(force=True)
-        except DockerException as exc:
+        except DOCKER_ERRORS as exc:
             if getattr(getattr(exc, "response", None), "status_code", None) != 404:
                 raise

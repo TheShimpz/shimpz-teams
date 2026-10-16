@@ -4,6 +4,7 @@ import unittest
 from http import HTTPStatus
 from unittest import mock
 
+import requests
 from docker.errors import DockerException
 from local_controller_harness import LocalContractCase, TestAssistantRegistry
 
@@ -343,9 +344,15 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "teardown-incomplete")
 
     def test_helper_removal_failures_refuse_destroy_and_reset(self) -> None:
+        # docker-py raises requests' ConnectionError, an OSError and no DockerException, while its socket is down.
+        for failure in (DockerException("busy"), requests.exceptions.ConnectionError("Docker socket is down")):
+            with self.subTest(failure=type(failure).__name__):
+                self._helper_removal_fails(failure)
+
+    def _helper_removal_fails(self, failure: Exception) -> None:
         subject = types.SimpleNamespace(client=object(), space_id="space")
         with (
-            mock.patch.object(local_lifecycle.local_prepare, "remove_helpers", side_effect=DockerException("busy")),
+            mock.patch.object(local_lifecycle.local_prepare, "remove_helpers", side_effect=failure),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
             local_lifecycle._remove_team_helpers(subject, "team_1")
@@ -358,7 +365,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         controller._reset_assistant_identities = mock.Mock(return_value=set())
         controller._remove_space_resources = mock.Mock(return_value=(False, set()))
         with (
-            mock.patch.object(local_lifecycle.local_prepare, "remove_helpers", side_effect=DockerException("busy")),
+            mock.patch.object(local_lifecycle.local_prepare, "remove_helpers", side_effect=failure),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
             controller.reset_space()

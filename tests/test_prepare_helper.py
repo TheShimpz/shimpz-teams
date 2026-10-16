@@ -5,6 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import requests
 from docker.errors import DockerException, NotFound
 
 from action import execution as action_execution
@@ -14,6 +15,8 @@ from prepare import limits
 from prepare import service as preparation
 
 IMAGE_ID = "sha256:" + "c" * 64
+# docker-py raises this, an OSError and no DockerException, while its socket is down.
+LOST = requests.exceptions.ConnectionError("Docker socket is down")
 
 
 class _Container:
@@ -348,6 +351,60 @@ class LocalAdapterTests(unittest.TestCase):
         ):
             session.prepare("pdf", b"%PDF")
         self.assertEqual(stuck.created, [])
+
+    def test_a_lost_docker_connection_refuses_a_local_segment_instead_of_escaping(self) -> None:
+        stuck = [SimpleNamespace(remove=mock.Mock(side_effect=LOST))]
+        damages = {
+            "controller image": ("get", mock.Mock(side_effect=LOST)),
+            "residue listing": ("list", mock.Mock(side_effect=LOST)),
+            "residue removal": ("list", lambda **_kwargs: stuck),
+            "create": ("create", mock.Mock(side_effect=LOST)),
+        }
+        for name, (operation, damaged) in damages.items():
+            client = _Client()
+            setattr(client.containers, operation, damaged)
+            with self.subTest(failure=name):
+                with (
+                    local_prepare.helper(client, space_id="space", team_id="team_1", cpuset_cpus=None) as session,
+                    self.assertRaises(preparation_helper.HelperUnavailableError),
+                ):
+                    session.prepare("pdf", b"%PDF")
+                self.assertEqual(client.created, [])
+
+    def test_a_lost_docker_connection_at_exit_inspection_fail_stops_the_local_helper(self) -> None:
+        api = SimpleNamespace(
+            exec_create=lambda *_args, **_kwargs: {"Id": "exec"},
+            exec_start=lambda *_args, **_kwargs: SimpleNamespace(_sock=object()),
+            exec_inspect=mock.Mock(side_effect=LOST),
+        )
+        exchanged = mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b"{}", b""))
+        client = _Client()
+        client.api = api
+        with exchanged, local_prepare.helper(client, space_id="space", team_id="team_1", cpuset_cpus=None) as session:
+            # The exit stays unknown, so the helper is removed and the file reads as unreadable.
+            self.assertEqual(session.prepare("pdf", b"%PDF"), {"type": "opaque", "reason": "unreadable"})
+            self.assertEqual(client.events[-1], ("remove", "helper-1", True))
+
+        down = _Client()
+        down.api = api
+        container = _Container(down.events, "down")
+        container.remove = mock.Mock(side_effect=LOST)
+        down.containers.list = lambda **_kwargs: []
+        down.containers.create = lambda **_kwargs: container
+        # With Docker down its removal cannot be proved either, so the helper stays owned and preparation is refused.
+        with (
+            self.assertRaises(preparation_helper.HelperUnavailableError),
+            exchanged,
+            local_prepare.helper(down, space_id="space", team_id="team_1", cpuset_cpus=None) as session,
+        ):
+            session.prepare("pdf", b"%PDF")
+
+    def test_a_lost_docker_connection_never_proves_a_preview_helper_removed(self) -> None:
+        book = local_prepare.PreviewBook()
+        with book.open("team_1") as preview:
+            preview.started(SimpleNamespace(remove=mock.Mock(side_effect=LOST)))
+            with self.assertRaises(local_prepare.PreviewDrainError), book.closed("team_1"):
+                pass
 
     def test_an_already_absent_helper_counts_as_removed(self) -> None:
         client = _Client()

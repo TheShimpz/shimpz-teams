@@ -12,8 +12,8 @@ from inference import config as inference_config
 from local import labels as local_labels
 from local import names as local_names
 from local import prepare as local_prepare
-from local.errors import ApiProblemError as ApiProblem
 from local.errors import (
+    DOCKER_ERRORS,
     action_state_unavailable,
     chat_stop_timeout,
     conversation_state_unavailable,
@@ -24,6 +24,7 @@ from local.errors import (
     team_destroy_failed,
     team_resources_ownership_conflict,
 )
+from local.errors import ApiProblemError as ApiProblem
 from local.labels import (
     ASSISTANT_LABEL,
     IMAGE_LABEL,
@@ -92,7 +93,7 @@ def delete_team_conversation(self, team_id: str, network) -> None:
 def _remove_team_helpers(self, team_id: str) -> None:
     try:
         local_prepare.remove_helpers(self.client, self.space_id, team_id)
-    except DockerException as exc:
+    except DOCKER_ERRORS as exc:
         raise team_destroy_failed() from exc
 
 
@@ -361,7 +362,7 @@ def reset_space(self) -> dict[str, object]:
         residue_absent.add("chat_continuations")
         try:
             local_prepare.remove_helpers(self.client, self.space_id)
-        except DockerException as exc:
+        except DOCKER_ERRORS as exc:
             raise space_reset_failed() from exc
         residue_absent.add("preparation_helpers")
         if residue_absent != _TEAM_RESIDUE_ABSENCE:
