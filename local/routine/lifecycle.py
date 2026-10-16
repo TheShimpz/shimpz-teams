@@ -1,10 +1,7 @@
 """Remove a Team's Routines without residue: each run's journal generation, its state, and its diagnostics."""
 
-from http import HTTPStatus
-
 from action import journal as action_journal
 from local import errors as local_errors
-from local.errors import ApiProblemError as ApiProblem
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import store as routine_store
 
@@ -35,11 +32,7 @@ def _delete_team_routines(self, team_id: str) -> None:
         try:
             self.action_state.purge(generation)
         except action_journal.ActionJournalError as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Team Action execution state could not be deleted",
-                code="action-state-unavailable",
-            ) from exc
+            raise local_errors.action_state_unavailable() from exc
     # The values each run protected, such as its Stored Inputs, leave memory before the state naming the runs goes,
     # so a cleanup that fails and is retried can never strand them.
     for run_id, _generation in held:
