@@ -133,13 +133,12 @@ def _pause(handler, route: strict_http.ControllerRouteMatch, team_id: str, pause
     return change(team_id, route.params["routine_id"])
 
 
-_PROPOSAL_RE = re.compile(r"[0-9a-f]{32}\Z")
 
 
 def _proposal(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
     """A person's answer to a recorded Routine's card: Criar rotina with an empty body, or Cancelar as a DELETE."""
     proposal_id = route.params["proposal_id"]
-    if _PROPOSAL_RE.fullmatch(proposal_id) is None:
+    if http_routine.ROUTINE_ID_RE.fullmatch(proposal_id) is None:
         raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine card is unavailable", code="routine-proposal-expired")
     service = handler.server.controller.chat_turn_service
     if route.operation == "routine-proposal-confirm":
