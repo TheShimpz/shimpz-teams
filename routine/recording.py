@@ -50,8 +50,6 @@ from routine import trace
 
 # The one question only work run again answers: a value no result provides, or a target the person chose instead.
 RERUN = "routine-work-rerun"
-MIN_REF_STRING = 6
-MIN_REF_INTEGER_DIGITS = 6
 MIN_SELECTOR_CHARS = 2
 # A complete number as written, its sign and exponent included, never a fragment of a longer number or word.
 _NUMBER_RE = re.compile(r"(?<![\w.,+-])[-+]?\d+(?:[.,]\d+)*(?:[eE][-+]?\d+)?(?!\w|[.,]\d)")

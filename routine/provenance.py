@@ -7,6 +7,7 @@ import dataclasses
 import datetime
 from collections.abc import Iterator, Sequence
 
+from protocol.http.v1 import routine_context as http_routine_context
 from protocol.http.v1 import routine_proposal as http_routine_proposal
 from routine import dates as routine_dates
 from routine import plan as routine_plan
@@ -154,9 +155,9 @@ def date_at(instant: int, timezone: str) -> datetime.date:
 
 def _referable(value: object) -> bool:
     if isinstance(value, str):
-        return len(value) >= routine_recording.MIN_REF_STRING
+        return len(value) >= http_routine_context.MIN_IDENTIFIER_CHARS
     if type(value) is int:
-        return len(str(abs(value))) >= routine_recording.MIN_REF_INTEGER_DIGITS
+        return len(str(abs(value))) >= http_routine_context.MIN_IDENTIFIER_DIGITS
     return isinstance(value, dict | list) and bool(value)
 
 

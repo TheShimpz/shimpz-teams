@@ -90,6 +90,10 @@ MAX_RERUN_CALLS = routine.MAX_ROUTINE_STEPS
 MAX_RERUN_INPUTS = routine.MAX_STEP_INPUTS
 MAX_RERUN_MEMBER_CHARS = routine.MAX_MEMBER_CHARS
 MAX_RERUN_LITERAL_CHARS = 1024
+# The shortest string, and the fewest digits of a whole number, Team's recorder takes as an identifier that only a
+# result can source; any shorter value is the agent's own choice. The Brain reads them to check rerun work as Team does.
+MIN_IDENTIFIER_CHARS = 6
+MIN_IDENTIFIER_DIGITS = 6
 
 
 def _rejected_constant(_text: str) -> object:
