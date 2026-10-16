@@ -373,8 +373,7 @@ def binding_valid(binding: object) -> bool:
         and http_payload.SHA256_RE.fullmatch(binding.incarnation) is not None
         and isinstance(binding.routine_id, str)
         and _ID_RE.fullmatch(binding.routine_id) is not None
-        and type(binding.revision) is int
-        and 1 <= binding.revision < 2**31
+        and http_routine.valid_revision(binding.revision)
         and isinstance(binding.run_id, str)
         and _ID_RE.fullmatch(binding.run_id) is not None
     )

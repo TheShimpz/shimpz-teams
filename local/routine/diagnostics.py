@@ -482,12 +482,10 @@ def _snapshot(directory: Path, retained: list[tuple[str, str, re.Match[str], int
 
 def _bound(document: dict[str, object]) -> bool:
     return (
-        http_routine.ROUTINE_ID_RE.fullmatch(str(document.get("routine_id"))) is not None
-        and type(document.get("revision")) is int
-        and 1 <= document["revision"] < 2**31
-        and http_routine.PLAN_DIGEST_RE.fullmatch(str(document.get("plan_digest"))) is not None
-        and type(document.get("total")) is int
-        and 1 <= document["total"] <= http_routine.MAX_ROUTINE_STEPS
+        http_routine.matches(document.get("routine_id"), http_routine.ROUTINE_ID_RE)
+        and http_routine.valid_revision(document.get("revision"))
+        and http_routine.matches(document.get("plan_digest"), http_routine.PLAN_DIGEST_RE)
+        and http_routine.whole(document.get("total"), 1, http_routine.MAX_ROUTINE_STEPS)
     )
 
 

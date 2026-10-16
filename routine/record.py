@@ -336,8 +336,7 @@ def definition_valid(value: Routine) -> bool:
         and _assistants(value)
         and _confirmed(value.confirmation)
         and type(value.paused) is bool
-        and type(value.revision) is int
-        and 1 <= value.revision < 2**31
+        and http_routine.valid_revision(value.revision)
         and type(value.anchor) is int
     )
 

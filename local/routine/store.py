@@ -265,8 +265,7 @@ def _decode_run(value: object) -> record.Run:
         and type(value["notice_version"]) is int
         and value["notice_version"] >= 0
         and _requests_used(value["requests_used"])
-        and type(value["revision"]) is int
-        and 1 <= value["revision"] < 2**31
+        and http_routine.valid_revision(value["revision"])
         and type(value["steps"]) is int
     )
     _require(
