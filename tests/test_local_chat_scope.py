@@ -82,7 +82,7 @@ class LocalChatScopeTests(LocalContractCase):
 
             controller.assistant_lifecycle._rpc = rpc
             with (
-                mock.patch.object(local_app.local_audit, "record_request", return_value="trace"),
+                mock.patch.object(local_app.local_audit, "record_request"),
                 concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor,
             ):
                 future = executor.submit(
@@ -400,7 +400,7 @@ class LocalChatScopeTests(LocalContractCase):
 
                 controller.assistant_lifecycle._rpc = stopping_rpc
                 with (
-                    mock.patch.object(local_app.local_audit, "record_request", return_value="trace"),
+                    mock.patch.object(local_app.local_audit, "record_request"),
                     self.assertRaises(chat_orchestrator.ChatStoppedError) as stopped,
                 ):
                     service._invoke_chat_action("team_1", "turn-token", request, frozen, evidence)

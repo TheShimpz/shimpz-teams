@@ -183,7 +183,7 @@ class RecordingCase(LocalContractCase):
 
     def setUp(self) -> None:
         super().setUp()
-        patch = mock.patch.object(local_audit, "record_request", return_value="a" * 32)
+        patch = mock.patch.object(local_audit, "record_request")
         patch.start()
         self.addCleanup(patch.stop)
 

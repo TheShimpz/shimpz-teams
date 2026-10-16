@@ -52,7 +52,7 @@ class LocalAuthorizationInputTests(LocalContractCase):
         invocations: list[object] = []
         with tempfile.TemporaryDirectory() as directory:
             controller = self._controller(directory, invocations)
-            with mock.patch.object(local_audit, "record_request", return_value="a" * 32):
+            with mock.patch.object(local_audit, "record_request"):
                 paused = _chat(controller)
             decoded = local_chat_continuations.decode(controller.chat_continuations.current("team_1"))
 
@@ -76,7 +76,7 @@ class LocalAuthorizationInputTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             controller = self._controller(directory, invocations)
             with (
-                mock.patch.object(local_audit, "record_request", return_value="a" * 32),
+                mock.patch.object(local_audit, "record_request"),
                 mock.patch.object(action_challenges, "input_projection", side_effect=ValueError("unshowable")),
                 self.assertRaises(ApiProblemError),
             ):

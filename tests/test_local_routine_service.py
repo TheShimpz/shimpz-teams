@@ -84,7 +84,7 @@ class RoutineServiceCase(LocalContractCase):
         super().setUp()
         for patch in (
             mock.patch.object(local_authority, "routine_key_fingerprint", return_value=KEY),
-            mock.patch.object(local_audit, "record_request", return_value="a" * 32),
+            mock.patch.object(local_audit, "record_request"),
             mock.patch.object(local_audit, "record", return_value="a" * 32),
         ):
             patch.start()

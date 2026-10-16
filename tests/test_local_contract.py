@@ -543,10 +543,10 @@ class LocalContractTests(LocalContractCase):
                 return {"type": "result", "result": LOOKUP_RESULT}
 
             controller.assistant_lifecycle._rpc = rpc
-            audit = mock.patch.object(local_app.local_audit, "record_request", return_value="trace")
+            audit = mock.patch.object(local_app.local_audit, "record_request")
             audit.start()
             self.addCleanup(audit.stop)
-            with mock.patch.object(local_app.local_audit, "record_request", return_value="trace"):
+            with mock.patch.object(local_app.local_audit, "record_request"):
                 response = controller.invoke("team_1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         self.assertTrue(local_app.action_journal.valid_operation_id(captured[0][1].pop("operation_id")))
@@ -583,7 +583,7 @@ class LocalContractTests(LocalContractCase):
                 },
             }
             with (
-                mock.patch.object(local_app.local_audit, "record_request", return_value="trace"),
+                mock.patch.object(local_app.local_audit, "record_request"),
                 self.assertRaises(local_app.ApiProblem) as leaked,
             ):
                 controller.invoke("team_1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)

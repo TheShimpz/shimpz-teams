@@ -330,7 +330,7 @@ class LocalAuditTests(unittest.TestCase):
         )
         with mock.patch.object(audit, "AUDIT_PATH", self.path):
             with audit.bind_request_principal(principal):
-                trace_id = audit.record_request(
+                audit.record_request(
                     "operation",
                     result="ok",
                     team_id="team_1",
@@ -338,7 +338,7 @@ class LocalAuditTests(unittest.TestCase):
                 )
             audit.flush()
         event = json.loads(self.path.read_bytes())
-        self.assertEqual(trace_id, "a" * 32)
+        self.assertEqual(event["trace_id"], "a" * 32)
         self.assertEqual(event["credential_state"], "machine_bearer_present")
         self.assertEqual(event["team_id"], "team_1")
         self.assertEqual(event["assistant"], "helper")

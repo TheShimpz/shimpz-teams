@@ -245,7 +245,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 return {"type": "result", "result": {"query": payload["input"]["query"] + page_text}}
 
             controller.assistant_lifecycle._rpc = rpc
-            with mock.patch.object(local_audit, "record_request", return_value="a" * 32):
+            with mock.patch.object(local_audit, "record_request"):
                 paused = _chat(controller, "Search")
                 completed = _resume(
                     controller,
@@ -324,7 +324,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 return {"type": "result", "result": {"query": payload["input"]["query"]}}
 
             controller.assistant_lifecycle._rpc = rpc
-            with mock.patch.object(local_audit, "record_request", return_value="a" * 32) as audit:
+            with mock.patch.object(local_audit, "record_request") as audit:
                 first = _chat(controller, "Search")
                 second = _resume(
                     controller,

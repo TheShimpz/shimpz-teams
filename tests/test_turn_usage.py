@@ -237,7 +237,7 @@ class LocalTurnUsageTests(LocalContractCase):
         principal = local_audit.AuditPrincipal("a" * 32, "human")
         with (
             tempfile.TemporaryDirectory() as directory,
-            mock.patch.object(local_audit, "record_request", return_value="a" * 32),
+            mock.patch.object(local_audit, "record_request"),
             local_audit.bind_request_principal(principal),
         ):
             controller = self._chat_controller(directory, Runtime())

@@ -99,12 +99,12 @@ def record_request(
     team_id: str | None = None,
     assistant: str | None = None,
     detail: str | None = None,
-) -> str:
+) -> None:
     """Record an internal security event under the verified request principal."""
     principal = _REQUEST_PRINCIPAL.get()
     if principal is None:
         raise RuntimeError("Local request audit principal is unavailable")
-    return record(
+    record(
         operation,
         result=result,
         principal=principal,
