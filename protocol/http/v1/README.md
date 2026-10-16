@@ -375,8 +375,9 @@ Routine publishes a completed run only when its result differs from the last one
 completion of its own; a run that already has a notice always gets its terminal version.
 
 Every call is placed by its position (`routine.canonical_position`): its step's 1-based position, an integer, among
-the plan's `steps`. A notice's detail is exactly what Admin keeps of it, so no notice names an Action: a held run's call
-is its incident's, and what a run did is its step records'. `held` carries `{}`; a `frozen` run carries its
+the plan's `steps`. A notice's detail is exactly what Admin keeps of it, so no run notice names an Action: a held run's
+call is its incident's, and what a run did is its step records'. A creation's steps name an Action only by its Assistant
+and Action ids, never its input or result. `held` carries `{}`; a `frozen` run carries its
 `request_kind`: `human` or `integrations`. The same run's notice then goes on as `paused` with a `reason`
 (`exhausted`, `policy`, or `evidence`, recovery evidence Team never classified), or `user-skipped` (`{}`) when a person
 set the run aside, by Rodar or by deleting its Routine. A

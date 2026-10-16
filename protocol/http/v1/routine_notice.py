@@ -70,7 +70,8 @@ def _creation(detail: dict[str, object]) -> bool:
 
 _COMPLETED_FIELDS = {"plan", "output"}
 # Each outcome's exact detail fields and check: exactly what Admin keeps of it, which is what a view renders. A run's
-# calls are read from its run records and a held one's from its incident, so no notice names an Action.
+# calls are read from its run records and a held one's from its incident, so no run notice names an Action; a
+# creation's steps name an Action only by its Assistant and Action ids, never its input or result.
 _DETAILS = {
     "done": (_COMPLETED_FIELDS, _completed),
     "recovered": (_COMPLETED_FIELDS, _completed),
