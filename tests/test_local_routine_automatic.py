@@ -12,6 +12,7 @@ from test_local_routine_recovery import RECORD, Assistant, RecoveryCase, failed
 from test_local_routine_replay import ZONE
 from test_local_routine_service import ASSISTANT
 
+from install import bindings
 from local.routine import recovery as routine_recovery
 from routine import hold as routine_hold
 from routine import record
@@ -227,6 +228,28 @@ class RunBalanceTests(BalanceCase):
                 self.assertEqual(routine_recovery.automatic(service, run), "held")
             held = routine_hold.incident(self.state(service), run_id)
         # A person's later resume of the held run starts from what verification left.
+        self.assertEqual(held.active_seconds_left, 47)
+
+    def test_verification_time_leaves_the_balance_when_the_team_cannot_be_read(self) -> None:
+        assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
+        elapsed = [0.0]
+        real_verify = routine_recovery.verify
+        unreadable = bindings.DynamicAssistantError("the dynamic Assistant registry cannot be read")
+
+        def unread(service, team_id, incident_id, token, protected=None):
+            elapsed[0] = 3.0
+            with mock.patch.object(service, "_team_assistants", side_effect=unreadable):
+                return real_verify(service, team_id, incident_id, token, protected)
+
+        with tempfile.TemporaryDirectory() as directory:
+            service, _value, run_id = self.held_with_balance(directory, 50, assistant)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
+            with (
+                mock.patch.object(routine_recovery, "verify", side_effect=unread),
+                mock.patch.object(routine_recovery, "_clock", side_effect=lambda: 1000.0 + elapsed[0]),
+            ):
+                self.assertEqual(routine_recovery.automatic(service, run), "held")
+            held = routine_hold.incident(self.state(service), run_id)
         self.assertEqual(held.active_seconds_left, 47)
 
     def test_a_run_with_no_time_left_is_exhausted_before_any_work(self) -> None:
