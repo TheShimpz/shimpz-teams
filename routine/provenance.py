@@ -231,7 +231,7 @@ def target_choices(context: routine_recording.Context) -> tuple[routine_recordin
         return ()
     if asked.pending is None:
         return asked.chosen
-    selected = selection(context, asked.pending)
+    selected = _selection(context, asked.pending)
     current = asked.pending if selected is None else dataclasses.replace(asked.pending, chosen=selected)
     return (*asked.chosen, current)
 
@@ -294,7 +294,7 @@ def _same_choice(question: routine_recording.Question, pending: routine_recordin
     )
 
 
-def selection(context: routine_recording.Context, pending: routine_recording.Pending) -> object:
+def _selection(context: routine_recording.Context, pending: routine_recording.Pending) -> object:
     """The target whose exact JSON text the person's latest answer is, or None; "123" and 123 never match each other."""
     after = context.asked.after
     for segment in reversed([segment for send in context.sends[after:] for segment in send.person]):
