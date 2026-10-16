@@ -219,7 +219,7 @@ MAX_STEP_VIEW_BYTES = 24 * 1024
 MAX_PAGE_STEPS = 64
 MAX_PAGE_BYTES = 96 * 1024
 PLAN_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
+POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
 # A lone surrogate is unsafe too: it has no UTF-8 encoding, so it is escaped in a preview and refused elsewhere.
 PLAN_UNSAFE_RE = re.compile(r"[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ud800-\udfff\ufeff]")
 _INPUT_FIELDS = {
@@ -253,7 +253,7 @@ def _pointer(value: object) -> bool:
     return (
         isinstance(value, str)
         and len(value) <= MAX_POINTER_CHARS
-        and _POINTER_RE.fullmatch(value) is not None
+        and POINTER_RE.fullmatch(value) is not None
         and PLAN_UNSAFE_RE.search(value) is None
     )
 

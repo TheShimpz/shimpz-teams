@@ -34,6 +34,7 @@ from assistant import manifest as assistant_manifest
 from core.canonical_json import encode as canonical
 from protocol.http.v1 import identifiers as http_identifiers
 from protocol.http.v1 import routine as http_routine
+from protocol.http.v1 import routine_context as http_routine_context
 from protocol.http.v1 import routine_run as http_routine_run
 from routine import dates as routine_dates
 from routine import schedule
@@ -80,10 +81,9 @@ def long_run(steps: int) -> bool:
 
 
 MAX_RETAINED_BYTES = 128 * 1024
-MAX_POINTER = 256
-STEP_ID_RE = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
+MAX_POINTER = http_routine.MAX_POINTER_CHARS
+STEP_ID_RE = http_routine_context.ROUTINE_STEP_ID_RE
 PIN_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
 _INDEX_RE = re.compile(r"(?:0|[1-9][0-9]{0,8})\Z")
 # A secret is never a literal: one of these in a destination name, or a destination marked write-only or as a password.
 _SECRET_MARKERS = (
@@ -520,7 +520,7 @@ def _admit_member(schema: Mapping[str, Any], name: str, value: object) -> None:
 
 def pointer_tokens(pointer: object) -> tuple[str, ...] | None:
     """Decode one RFC 6901 pointer string; the empty pointer selects the whole value."""
-    if not isinstance(pointer, str) or len(pointer) > MAX_POINTER or _POINTER_RE.fullmatch(pointer) is None:
+    if not isinstance(pointer, str) or len(pointer) > MAX_POINTER or http_routine.POINTER_RE.fullmatch(pointer) is None:
         return None
     if pointer == "":
         return ()

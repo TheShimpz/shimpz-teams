@@ -18,7 +18,6 @@ nothing.
 """
 
 import dataclasses
-import json
 import secrets
 import threading
 import time
@@ -270,7 +269,7 @@ def answered(span: Span | None) -> Intent | None:
     bound = (
         span.asked.code == "routine-binding-ambiguous"
         and pending is not None
-        and any(answer == json.dumps(target, ensure_ascii=False) for target, _label in pending.targets)
+        and any(answer == routine_recording.json_text(target) for target, _label in pending.targets)
     )
     return span.intent if bound else None
 
@@ -382,14 +381,14 @@ def _rerun_input(span: Span, slot: routine_recording.Slot, item: tuple[str, str,
     member, kind, value = item
     shown = {"member": member, "kind": kind, "value": None, "chosen": False, "source": None}
     if kind == "value":
-        text = json.dumps(value, ensure_ascii=False)
+        text = routine_recording.json_text(value)
         # The value itself is checked, every string and key in it: escaping its JSON text could hide a protected one.
         visible = len(text) <= http_routine_context.MAX_RERUN_LITERAL_CHARS and not trace.exposes(
             value, span.protection.values
         )
         chosen = any(
             (binding.action, binding.member) == (slot.action, member)
-            and json.dumps(binding.chosen, ensure_ascii=False) == text
+            and routine_recording.json_text(binding.chosen) == text
             for binding in span.asked.chosen
         )
         return {**shown, "value": text if visible else None, "chosen": chosen}

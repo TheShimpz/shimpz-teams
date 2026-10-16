@@ -1,8 +1,6 @@
 """Local chat segment orchestration operations."""
 
-import datetime
 import functools
-import zoneinfo
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -33,6 +31,7 @@ from local.validation import brain_thread_id as _brain_thread_id
 from local.validation import routine_thread_id as _routine_thread_id
 from routine import claim as routine_claim
 from routine import pin as routine_pin
+from routine import provenance as routine_provenance
 from routine import recording as routine_recording
 
 # The model a chat turn about a Routine uses on an OpenAI or an Anthropic Team, with the Team's own key; every other
@@ -251,7 +250,7 @@ def _turn_clock(span: routine_recorder.Span | None) -> tuple[str, str] | None:
     if span is None:
         return None
     zone, _source = routine_recording.zone(span.sends)
-    return datetime.datetime.fromtimestamp(span.started_at, zoneinfo.ZoneInfo(zone)).date().isoformat(), zone
+    return routine_provenance.date_at(span.started_at, zone).isoformat(), zone
 
 
 def _turn_model(

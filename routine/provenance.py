@@ -126,9 +126,9 @@ def _date_origin(context: routine_recording.Context, call: routine_recording.Cal
     started = context.sends[call.send].started_at
     if not isinstance(value, str):
         return None
-    if value == _date_at(started, context.zone[0]).isoformat():
+    if value == date_at(started, context.zone[0]).isoformat():
         return "clock"
-    if value == _date_at(started, "UTC").isoformat():
+    if value == date_at(started, "UTC").isoformat():
         return "utc_literal"
     return None
 
@@ -142,13 +142,13 @@ def _dated(
     date the person's own words wrote stays as written.
     """
     send = context.sends[call.send]
-    day = _date_at(send.started_at, context.zone[0])
+    day = date_at(send.started_at, context.zone[0])
     named = {found for text in context.known.texts for found in routine_dates.dates(text, day)}
     parts = routine_dates.template(value, day, send.locale, named.__contains__)
     return None if parts is None else ({"kind": "run_clock", "format": "text", "parts": parts}, "clock")
 
 
-def _date_at(instant: int, timezone: str) -> datetime.date:
+def date_at(instant: int, timezone: str) -> datetime.date:
     return datetime.datetime.fromtimestamp(instant, schedule.zone(timezone)).date()
 
 

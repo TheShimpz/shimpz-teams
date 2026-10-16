@@ -88,8 +88,8 @@ def canonical_routine_listings(value: object) -> list[dict[str, object]] | None:
 # ``fresh``, never shown, with the Action whose earlier result held it, if any.
 MAX_RERUN_ENTRIES = routine.MAX_ROUTINE_STEPS
 MAX_RERUN_CALLS = routine.MAX_ROUTINE_STEPS
-MAX_RERUN_INPUTS = 64
-MAX_RERUN_MEMBER_CHARS = 128
+MAX_RERUN_INPUTS = routine.MAX_STEP_INPUTS
+MAX_RERUN_MEMBER_CHARS = routine.MAX_MEMBER_CHARS
 MAX_RERUN_LITERAL_CHARS = 1024
 
 
