@@ -405,7 +405,6 @@ class OAuthIntegrationStore(private_state.RecordStore):
     @staticmethod
     def _decrypted(
         plaintext: bytes,
-        provider: str,
         scopes: tuple[str, ...],
         expires_at: int,
         status: StoredStatus,
@@ -444,7 +443,7 @@ class OAuthIntegrationStore(private_state.RecordStore):
         record: object,
     ) -> _TokenGrant:
         validated = _validate_record(record)
-        provider, scopes, expires_at, status, generation = _record_metadata(validated)
+        _provider, scopes, expires_at, status, generation = _record_metadata(validated)
         plaintext = _PRIVATE_STATE.open_identified_envelope(
             self._key(),
             validated["envelope"],
@@ -452,7 +451,7 @@ class OAuthIntegrationStore(private_state.RecordStore):
             MAX_PLAINTEXT_BYTES,
             "OAuth integration envelope authentication failed",
         )
-        return self._decrypted(plaintext, provider, scopes, expires_at, status, generation)
+        return self._decrypted(plaintext, scopes, expires_at, status, generation)
 
     def _declared_grant(
         self,

@@ -612,7 +612,6 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
         ):
             integration_store.OAuthIntegrationStore._decrypted(
                 b"{}",
-                "cloudflare",
                 SCOPES,
                 2_000,
                 "connected",
@@ -628,7 +627,6 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             ):
                 integration_store.OAuthIntegrationStore._decrypted(
                     payload,
-                    "cloudflare",
                     SCOPES,
                     2_000,
                     "connected",
