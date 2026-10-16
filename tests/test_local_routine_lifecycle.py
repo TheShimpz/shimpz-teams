@@ -74,9 +74,10 @@ class RoutineLifecycleTests(unittest.TestCase):
         routine_lifecycle.delete_team_routines(self.subject, "team_1")
         # The values the run protected leave memory with it.
         self.assertTrue(protections.current(run_id, protections.boot).lost)
+        # The run's own generation goes with its verification's, whatever the verification's own release left.
         self.assertEqual(
             self.events,
-            [("purge", f"{NETWORK}:routine:{run_id}")],
+            [("purge", f"{NETWORK}:routine:{run_id}"), ("purge", f"{NETWORK}:routine:{run_id}:v1")],
         )
         self.assertEqual(
             (self.subject.routine_store.teams(), self.subject.routine_store.continuations("team_1")), ((), ())
@@ -179,10 +180,7 @@ class RoutineLifecycleTests(unittest.TestCase):
         self.subject.action_state = journal
         self.events.clear()
         routine_lifecycle.delete_team_routines(self.subject, "team_1")
-        self.assertEqual(
-            self.events,
-            [("purge", generation)],
-        )
+        self.assertEqual(self.events, [("purge", generation), ("purge", f"{generation}:v1")])
         self.assertEqual(self.subject.routine_store.teams(), ())
 
     def test_a_teams_recording_and_cards_go_with_it_and_a_reset_forgets_every_runs_protection(self):
@@ -211,7 +209,8 @@ class RoutineLifecycleTests(unittest.TestCase):
             routine_fixture.put(self.subject.routine_store, team, state)
         self.subject.routine_store.put_continuation("team_1", run_id, b"continuation")
         routine_lifecycle.delete_all_routines(self.subject)
-        self.assertEqual(len([event for event in self.events if event[0] == "purge"]), 2)
+        # Each Team's run and its verification.
+        self.assertEqual(len([event for event in self.events if event[0] == "purge"]), 4)
         self.assertEqual(self.subject.routine_store.teams(), ())
         self.assertFalse(self.subject.routine_store.key_path.exists())
 
