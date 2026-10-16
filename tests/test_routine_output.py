@@ -90,6 +90,8 @@ class DispositionTests(unittest.TestCase):
                 self.assertEqual(http_routine.canonical_disposition(value, total), value)
         for value, projected in (
             ({"mode": "show", "step": 3}, steps),
+            # Only the plan's last step is ever shown.
+            ({"mode": "changes", "step": 1}, steps),
             ({"mode": "show", "step": 0}, steps),
             ({"mode": "show", "step": "records"}, steps),
             ({"mode": "show", "step": True}, steps),

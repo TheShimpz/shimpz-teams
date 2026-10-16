@@ -315,7 +315,7 @@ confirms its card (ADR-0101). Its notice then has the Routine outcome `created` 
 detail `{}`: the notice's own `name` says which Routine. A Routine view (`routine_notice.canonical_routine_view`) carries
 its name (`routine.canonical_name`, 1 to 80 NFC printable characters on one line), its revision's summary, its output
 disposition (`routine.canonical_disposition`: `{mode, step}`, where `mode` is `show`, `changes`, or `none`, and `step`
-is the 1-based position of the shown step for `show` and `changes`), its schedule, zone, and the zone's source
+is, for `show` and `changes`, the position of the plan's last step, the one shown, which is its step count), its schedule, zone, and the zone's source
 (`routine.zoned`: `browser`, `person`, a zone the person wrote, or `none`, when the Routine runs on `UTC` by convention,
 its run date included, which is never a claim about the person), its next run, and its `state` (`active` or `paused`). A plan holds 1 to 256 steps; on the
 wire a step is always named by its position, never by its internal id. The summary
@@ -351,8 +351,8 @@ failed runs paused it, in the write that ended the run whose failure did.
 A run has one notice, keyed by its run id, whose version grows as the run goes on (`routine_notice.canonical_notice_detail`
 closes each outcome's detail). `done` and `recovered` carry `{plan, output}`: the `plan` summary of the
 revision they carried out, never an input, and their `output`; `recovered` is a run that a
-continuation completed after a hold. `output` is `null` unless the run shows a step's result: then it is
-`routine.canonical_output`, `{step, state, value, truncated}`, with `state` `shown` and `value` Team's bounded, redacted
+continuation completed after a hold. `output` is `null` unless the run shows its last step's result: then it is
+`routine.canonical_output`, `{step, state, value, truncated}`, whose `step` is the summary's step count, with `state` `shown` and `value` Team's bounded, redacted
 projection of that step's validated result, or `unchanged` or `unavailable` with `value` `null`. A projection node is
 one closed variant: `{kind: null}`, `{kind: bool, value}`, `{kind: number, value}` (its exact JSON number text, at most 64 characters, so no consumer rounds it; a longer number is shown as text), `{kind: text, value, cut}`
 (at most 300 characters, every control or invisible character escaped), `{kind: redacted}`, `{kind: elided}` (past the

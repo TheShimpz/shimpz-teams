@@ -182,7 +182,7 @@ class RoutineListBoundTests(unittest.TestCase):
     def test_the_largest_run_notice_fits_a_batch_twice(self) -> None:
         """A completed run at every bound: its shown output, summary, and usage."""
         output = {
-            "step": 1,
+            "step": routine.MAX_ROUTINE_STEPS,
             "state": "shown",
             "value": {"kind": "fields", "fields": [], "omitted": 0},
             "truncated": True,

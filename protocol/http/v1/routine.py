@@ -401,21 +401,21 @@ def canonical_summary(value: object) -> dict[str, object] | None:
     return copy.deepcopy(value) if valid else None
 
 
-# What a completed run does with its result (ADR-0092 amendment, 2026-10-05, output; ADR-0101): show one step's result
-# after every run, only when it changed, or show none of it. show and changes name the shown step, on the wire by its
-# position.
+# What a completed run does with its result (ADR-0092 amendment, 2026-10-05, output; ADR-0101): show the plan's last
+# step's result after every run, only when it changed, or show none of it. show and changes name that step, on the
+# wire by its position, which is the plan's step count.
 OUTPUT_MODES = ("show", "changes", "none")
 SHOWN_MODES = frozenset({"show", "changes"})
 
 
 def canonical_disposition(value: object, total: object) -> dict[str, object] | None:
-    """A plan's output disposition, whose shown step is the position of one of its ``total`` steps, or None."""
+    """A plan's output disposition, whose shown step is the position of the last of its ``total`` steps, or None."""
     if not isinstance(value, dict) or set(value) != {"mode", "step"} or value["mode"] not in OUTPUT_MODES:
         return None
     mode, shown = value["mode"], value["step"]
     if not whole(total, 1, MAX_ROUTINE_STEPS):
         return None
-    valid = _position(shown, total) if mode in SHOWN_MODES else shown is None
+    valid = type(shown) is int and shown == total if mode in SHOWN_MODES else shown is None
     return {"mode": mode, "step": shown} if valid else None
 
 

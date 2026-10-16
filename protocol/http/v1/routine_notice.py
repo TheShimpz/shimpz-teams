@@ -19,11 +19,11 @@ def _disposed(value: object, steps: int) -> bool:
 
 
 def _completed(detail: dict[str, object]) -> bool:
-    """A completed run: its plan's summary and its shown result if any."""
+    """A completed run: its plan's summary and its shown result if any, which is always its plan's last step."""
     summary = routine.canonical_summary(detail["plan"])
     output = detail["output"]
     return summary is not None and (
-        output is None or (routine.canonical_output(output) is not None and output["step"] <= summary["steps"])
+        output is None or (routine.canonical_output(output) is not None and output["step"] == summary["steps"])
     )
 
 
