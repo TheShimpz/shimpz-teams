@@ -38,8 +38,6 @@ SUFFIX_RE = re.compile(r"[sv]1\Z")
 GENERATION_RE = re.compile(r"(?P<network>[A-Za-z0-9][A-Za-z0-9._/-]{0,127}):routine:(?P<run>[0-9a-f]{32})(?::[sv]1)?\Z")
 # From a frozen run only these outcomes are possible: nobody answered it, or someone refused or stopped it.
 FROZEN_OUTCOMES = frozenset({"denied", "stopped", "failed"})
-# A worker ends its run done or failed; a completed continuation after a hold ends recovered.
-RUN_OUTCOMES = frozenset({"done", "recovered", "failed", "denied", "stopped"})
 # Why recovery paused a held run's Routine; each is published on the run's notice.
 PAUSE_REASONS = http_routine.PAUSE_REASONS
 # Ended runs whose journal generation, continuation, and cursor Team has yet to remove. Claims stop while any

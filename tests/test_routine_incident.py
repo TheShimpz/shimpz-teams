@@ -3,7 +3,6 @@
 import dataclasses
 import unittest
 
-import routine_fixture
 from routine_fixture import KEY, NINE, STEP, added, bound, claimed, held, routine
 
 from routine import claim as routine_claim
@@ -151,8 +150,8 @@ class IncidentNoticeTests(unittest.TestCase):
         continued = dataclasses.replace(continued, generation=routine_claim.generation_for("net_1", run_id, "s1"))
         self.assertEqual(routine_runs.completed(continued), "recovered")
         streak = dataclasses.replace(record.routine(state, "a" * 32), failures=2)
-        state = dataclasses.replace(state, routines=(streak,))
-        ended = routine_runs.finish(state, run_id, lease, NINE + 1, "recovered", routine_fixture.DONE)
+        state = record.replace_run(dataclasses.replace(state, routines=(streak,)), continued)
+        ended = routine_runs.finish(state, run_id, lease, NINE + 1)
         self.assertEqual((ended.notices[-1].outcome, record.routine(ended, "a" * 32).failures), ("recovered", 0))
 
 

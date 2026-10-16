@@ -173,13 +173,17 @@ def end_run(self, team_id: str, run_id: str, outcome: str, detail: dict[str, obj
     return outcome
 
 
-def _finish(self, run: LeasedRun, outcome: str, detail: dict[str, object], shown: dict[str, object] | None) -> str:
-    """A worker's own ending; when its lease or time ran out meanwhile, Team records the run as failed instead."""
+def complete(self, run: LeasedRun, value: record.Run, shown: dict[str, object] | None) -> str:
+    """Record a run whose every step completed: done, or recovered for a continuation, by its output disposition.
+
+    When its lease or time ran out meanwhile, Team records the run as failed instead.
+    """
     now = int(time.time())
+    outcome = routine_runs.completed(value)
 
     def finish(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
         try:
-            return routine_runs.finish(state, run.run_id, run.lease, now, outcome, detail, shown), outcome
+            return routine_runs.finish(state, run.run_id, run.lease, now, shown), outcome
         except record.RoutineStateError:
             return routine_runs.end(
                 state,
@@ -230,11 +234,6 @@ def complete_sealed(self, run: LeasedRun, shown: dict[str, object] | None) -> st
     if outcome is None:
         raise local_errors.routine_lease_invalid()
     return outcome
-
-
-def complete(self, run: LeasedRun, value: record.Run, shown: dict[str, object] | None) -> str:
-    """Record a run whose every step completed: done, or recovered for a continuation, by its output disposition."""
-    return _finish(self, run, routine_runs.completed(value), {}, shown)
 
 
 def _deadline_cut(self, run: LeasedRun) -> bool:

@@ -14,7 +14,6 @@ import routine_fixture
 from local.routine import notices as routine_notices
 from local.routine import store as routine_store
 from protocol.http.v1 import routine as http_routine
-from routine import claim as routine_claim
 from routine import record
 from routine import runs as routine_runs
 
@@ -42,12 +41,11 @@ def continuous(gap: int = 5) -> record.TeamRoutines:
 
 def run_once(state: record.TeamRoutines, start: int, end: int, outcome: str = "done") -> record.TeamRoutines:
     """Claim the Routine at ``start`` and let its worker end it at ``end``."""
-    state = routine_fixture.at(state, ROUTINE_ID, start)
-    state, claim = routine_claim.claim(state, start, routine_fixture.KEY)
-    lease = record.lease_of(claim.lease_token, routine_fixture.KEY)
+    state, claim, lease = routine_fixture.claim_bound(routine_fixture.at(state, ROUTINE_ID, start), start)
     state = routine_runs.spend(state, claim.run.run_id, lease, start, (1, RUN_MS))
-    detail = routine_fixture.DONE if outcome == "done" else {"code": "assistant-rpc-failed"}
-    return routine_runs.finish(state, claim.run.run_id, lease, end, outcome, detail)
+    if outcome == "done":
+        return routine_runs.finish(state, claim.run.run_id, lease, end)
+    return routine_runs.end(state, claim.run.run_id, end, outcome, {"code": "assistant-rpc-failed"})
 
 
 def delivery(state: record.TeamRoutines) -> list[dict[str, object]]:
@@ -171,19 +169,16 @@ class RollupTests(unittest.TestCase):
 
     def test_a_run_with_its_own_earlier_notice_or_a_scheduled_routine_keeps_one_notice_per_run(self):
         state = routine_fixture.at(continuous(), ROUTINE_ID, MINUTE)
-        state, claim = routine_claim.claim(state, MINUTE, routine_fixture.KEY)
+        state, claim, lease = routine_fixture.claim_bound(state, MINUTE)
         # A run that already published a notice, such as one a person answered, ends on that same notice.
         answered = dataclasses.replace(record.run(state, claim.run.run_id), notice_version=1)
         state = dataclasses.replace(state, runs=(answered,))
-        lease = record.lease_of(claim.lease_token, routine_fixture.KEY)
-        state = routine_runs.finish(state, claim.run.run_id, lease, MINUTE + 1, "done", routine_fixture.DONE)
+        state = routine_runs.finish(state, claim.run.run_id, lease, MINUTE + 1)
         self.assertEqual(
             [(item.outcome, item.notice_id, item.version) for item in state.notices], [("done", claim.run.run_id, 2)]
         )
-        state, claim, lease = routine_fixture.claimed()
-        state = routine_runs.finish(
-            state, claim.run.run_id, lease, routine_fixture.NINE + 1, "done", routine_fixture.DONE
-        )
+        state, claim, lease = routine_fixture.bound()
+        state = routine_runs.finish(state, claim.run.run_id, lease, routine_fixture.NINE + 1)
         self.assertEqual([item.outcome for item in state.notices], ["done"])
 
     def test_a_minute_past_its_bound_rolls_up_nothing_more_and_shows_nothing(self):

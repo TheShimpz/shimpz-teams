@@ -14,7 +14,6 @@ import routine_fixture
 from test_routine_plan import CONTRACTS, _document
 
 from protocol.http.v1 import routine as http_routine
-from routine import claim as routine_claim
 from routine import cursor as routine_cursor
 from routine import definition as routine_definition
 from routine import plan as routine_plan
@@ -383,15 +382,12 @@ def _completed(mode: str, *, notice_version: int = 0, digest: str = "", shown: d
     value = routine_fixture.routine(plan=plan)
     state = routine_fixture.at(routine_fixture.added(value), value.routine_id, routine_fixture.NINE)
     current = dataclasses.replace(record.routine(state, value.routine_id), output_digest=digest, failures=2)
-    state, claim = routine_claim.claim(
-        record.replace_routine(state, current), routine_fixture.NINE, routine_fixture.KEY
-    )
+    state, claim, lease = routine_fixture.claim_bound(record.replace_routine(state, current), routine_fixture.NINE)
     if notice_version:
         state = record.replace_run(state, dataclasses.replace(record.run(state, claim.run.run_id), notice_version=1))
     if lost:
         state = routine_runs.lose_protection(state, claim.run.run_id)
-    lease = record.lease_of(claim.lease_token, routine_fixture.KEY)
-    return routine_runs.finish(state, claim.run.run_id, lease, routine_fixture.NINE + 5, "done", {}, shown)
+    return routine_runs.finish(state, claim.run.run_id, lease, routine_fixture.NINE + 5, shown)
 
 
 def _summary(state: record.TeamRoutines) -> dict[str, object]:

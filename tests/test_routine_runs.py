@@ -30,14 +30,14 @@ class RunLifecycleTests(unittest.TestCase):
         attempts = (
             lambda value: routine_runs.spend(state, run_id, value, NINE + 1, (1, 1 * 1000)),
             lambda value: routine_runs.freeze(state, run_id, value, NINE + 1, ("human", "dns", "check", STEP)),
-            lambda value: routine_runs.finish(state, run_id, value, NINE + 1, "done", routine_fixture.DONE),
+            lambda value: routine_runs.finish(state, run_id, value, NINE + 1),
             lambda value: routine_claim.bind_generation(state, run_id, value, NINE + 1, "net_2"),
         )
         for attempt in attempts:
             with self.subTest(attempt=attempt), self.assertRaisesRegex(record.RoutineStateError, "lease-invalid"):
                 attempt(forged)
         with self.assertRaisesRegex(record.RoutineStateError, "lease-invalid"):
-            routine_runs.finish(state, run_id, lease, expired, "done", routine_fixture.DONE)
+            routine_runs.finish(state, run_id, lease, expired)
 
     def test_a_run_binds_its_generation_from_the_trusted_network_once(self):
         state, claim, lease = claimed()
@@ -122,14 +122,11 @@ class RunLifecycleTests(unittest.TestCase):
             routine_runs.end(frozen, claim.run.run_id, NINE, "done", routine_fixture.DONE)
 
     def test_worker_outcomes_are_closed(self):
-        state, claim, lease = claimed()
-        done = routine_runs.finish(state, claim.run.run_id, lease, NINE + 9, "done", routine_fixture.DONE)
+        state, claim, lease = bound()
+        done = routine_runs.finish(state, claim.run.run_id, lease, NINE + 9)
         self.assertEqual((done.runs, done.notices[0].outcome), ((), "done"))
-        for outcome in ("skipped", "scope-changed", "uncertain", "unknown"):
-            with self.subTest(outcome=outcome), self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
-                routine_runs.finish(state, claim.run.run_id, lease, NINE, outcome, {"missed": 1})
         with self.assertRaisesRegex(record.RoutineStateError, "notice-invalid"):
-            routine_runs.finish(state, claim.run.run_id, lease, NINE, "stopped", {"result": {}})
+            routine_runs.end(state, claim.run.run_id, NINE, "stopped", {"result": {}})
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-found"):
             record.run(done, claim.run.run_id)
 
@@ -145,7 +142,7 @@ class RunLifecycleTests(unittest.TestCase):
     def test_in_flight_outcomes_always_fit_above_the_claim_bound(self):
         state, claim, lease = claimed()
         state = dataclasses.replace(state, notices=full_notices())
-        state = routine_runs.finish(state, claim.run.run_id, lease, NINE, "done", routine_fixture.DONE)
+        state = routine_runs.finish(state, claim.run.run_id, lease, NINE)
         self.assertEqual(len(state.notices), record.MAX_UNDELIVERED_NOTICES + 1)
         over = dataclasses.replace(
             state, notices=full_notices(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINE_NOTICES)
@@ -167,8 +164,8 @@ class RunLifecycleTests(unittest.TestCase):
         self.assertEqual(len(routine_hold.expired(state, NINE + record.LEASE_SECONDS)), 1)
 
     def test_deletion_keeps_runs_until_they_end_and_keeps_notices(self):
-        state, claim, lease = claimed()
-        state = routine_runs.finish(state, claim.run.run_id, lease, NINE, "stopped", {})
+        state, claim, _lease = claimed()
+        state = routine_runs.end(state, claim.run.run_id, NINE, "stopped", {})
         state, again = routine_claim.claim(at(state, "a" * 32, NINE + 86_400), NINE + 86_400, KEY)
         state, runs = record.begin_delete(state, "a" * 32)
         self.assertEqual([item.run_id for item in runs], [again.run.run_id])
@@ -211,8 +208,6 @@ class FailureStreakTests(unittest.TestCase):
                     claim.run.run_id,
                     record.lease_of(claim.lease_token, KEY),
                     NINE,
-                    "done",
-                    routine_fixture.DONE,
                 )
             )
             state = dataclasses.replace(state, discards=(), starts=())

@@ -107,37 +107,17 @@ def thaw(state: record.TeamRoutines, run_id: str, now: int, requests_used: int) 
 
 
 def finish(
-    state: record.TeamRoutines,
-    run_id: str,
-    lease: record.Lease,
-    now: int,
-    outcome: str,
-    detail: dict[str, object],
-    shown: dict[str, object] | None = None,
+    state: record.TeamRoutines, run_id: str, lease: record.Lease, now: int, shown: dict[str, object] | None = None
 ) -> record.TeamRoutines:
-    """A worker ends its leased run with a durable notice; only its live lease may.
-
-    A completed run ends by its Routine's output disposition with ``shown``; any other outcome publishes ``detail``.
-    """
-    value = routine_claim.live_lease(state, run_id, lease, now)
-    if outcome not in record.RUN_OUTCOMES:
-        raise record.RoutineStateError("invalid-outcome")
-    return _ended(state, value, outcome, now, detail, shown)
+    """A worker ends its leased run, which completed every step, with a durable notice; only its live lease may."""
+    return _completed(state, routine_claim.live_lease(state, run_id, lease, now), now, shown)
 
 
-def _ended(
-    state: record.TeamRoutines,
-    value: record.Run,
-    outcome: str,
-    now: int,
-    detail: dict[str, object],
-    shown: dict[str, object] | None,
+def _completed(
+    state: record.TeamRoutines, value: record.Run, now: int, shown: dict[str, object] | None
 ) -> record.TeamRoutines:
-    """End a run with its notice: a completed one by its Routine's output disposition, any other with ``detail``."""
-    if outcome in {"done", "recovered"}:
-        state = _completion(state, value, outcome, now, shown)
-    else:
-        state = record.run_notice(state, value, outcome, now, detail)[0]
+    """End a run that completed every step, by its Routine's output disposition with ``shown``."""
+    state = _completion(state, value, completed(value), now, shown)
     return record.without_run(state, value.run_id, now)
 
 
@@ -237,8 +217,7 @@ def complete_recovered(
     state: record.TeamRoutines, run_id: str, lease_sha256: str, now: int, shown: dict[str, object] | None = None
 ) -> record.TeamRoutines:
     """Team's watchdog ends a leased run whose sealed cursor completed every step, as the worker would have."""
-    value = routine_claim.read_lease(state, run_id, lease_sha256)
-    return _ended(state, value, completed(value), now, {}, shown)
+    return _completed(state, routine_claim.read_lease(state, run_id, lease_sha256), now, shown)
 
 
 def completed(value: record.Run) -> str:

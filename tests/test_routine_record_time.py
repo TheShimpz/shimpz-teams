@@ -150,7 +150,7 @@ class ContinuousTests(unittest.TestCase):
         self.assertIsNone(routine_claim.next_due(state, NINE + 600))
         # A run that outlasted its gap makes the next one due at its end: no overlap, no backlog.
         lease = record.lease_of(claim.lease_token, KEY)
-        ended = routine_runs.finish(state, run_id, lease, NINE + 40, "done", routine_fixture.DONE)
+        ended = routine_runs.finish(state, run_id, lease, NINE + 40)
         self.assertEqual(record.routine(ended, "a" * 32).next_run_at, NINE + 40)
         self.assertEqual(routine_claim.claimable(ended, NINE + 40).routine_id, "a" * 32)
         # A shorter run keeps the interval from its own start; any ending counts, a Team-decided one included.
