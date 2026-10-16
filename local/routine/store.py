@@ -257,7 +257,7 @@ def _decode_routine(value: object) -> record.Routine:
 def _decode_run(value: object) -> record.Run:
     _require(isinstance(value, dict) and set(value) == _RUN_FIELDS)
     strings = ("run_id", "routine_id", "status", "lease_sha256", "lease_key", "request_kind", "assistant_id", "action")
-    _require(all(isinstance(value[name], str) for name in strings) and isinstance(value["generation"], str))
+    _require(all(isinstance(value[name], str) for name in strings))
     run_id = value["run_id"]
     _require(
         http_routine.ROUTINE_ID_RE.fullmatch(run_id) is not None

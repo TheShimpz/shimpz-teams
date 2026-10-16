@@ -180,7 +180,7 @@ class RecordingBook:
         """The Team's span whose latest send has exactly this id, or None."""
         with self._guard:
             found = self._spans.get(team_id)
-        return found if found is not None and recording_id is not None and found.recording_id == recording_id else None
+        return found if found is not None and found.recording_id == recording_id else None
 
     def live(self, team_id: str, recording_id: str | None) -> Span | None:
         """The span to record from: its latest send has exactly this id and started at most 15 minutes ago."""

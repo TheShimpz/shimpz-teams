@@ -496,8 +496,7 @@ def _step_document(document: dict[str, object], run_id: str) -> bool:
         http_routine.ROUTINE_ID_RE.fullmatch(run_id) is not None
         and _bound(document)
         and view.get("status") in http_routine_run.RUN_STEP_STATUSES
-        and http_routine.canonical_position(view.get("position"), document["total"]) is not None
-        and http_routine_run.canonical_run_step(view, view["position"], document["total"]) is not None
+        and http_routine_run.canonical_run_step(view, view.get("position"), document["total"]) is not None
     )
 
 
