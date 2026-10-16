@@ -351,7 +351,7 @@ def _admitted(value: Routine, revision: int = 1) -> Routine:
         raise RoutineStateError("routine-too-large")
     return dataclasses.replace(
         value,
-        schedule=http_routine.canonical_schedule(value.schedule),
+        schedule=canonical,
         plan=copy.deepcopy(value.plan),
         permitted=tuple(copy.deepcopy(item) for item in value.permitted),
         revision=revision,
