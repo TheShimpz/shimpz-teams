@@ -14,10 +14,40 @@ sys.path.insert(0, str(TEAM / "tests"))
 import local_controller_docker_fixture as flow_fixture
 
 OBJECTIVE = "Hello"
-RESPONSE = {"intent": "ordinary-task", "query": "", "assistant_ids": [], "reply": ""}
+RESPONSE = {"intent": "ordinary-task", "query": "", "assistant_ids": [], "reply": "", "task_follows": False}
+# Brain reports each operation's model usage beside its result; the peer reports one model call that used no tokens.
+USAGE = {
+    "model_calls": 1,
+    "provider_requests": 1,
+    "failed_calls": 0,
+    "unreported_calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+}
 CHAT_REPLY = "Measured reply."
+TURN = {"status": "completed", "reply": CHAT_REPLY, "actions": [], "clarification": None, "memory": [], "routine": None}
 SELECTED_ASSISTANT_ID = "shimpz-cloudflare"
 CHAT_PROMPT = json.dumps({"files": [], "message": OBJECTIVE}, separators=(",", ":"), ensure_ascii=False)
+# What a new Team's measured chat start sends beside its thread, Assistants, and provider: no knowledge, no files, and
+# no Routine recording, since the measured request identity is never fresh.
+TURN_CONTEXT = {
+    "team_name": "Demo Team",
+    "memories": [],
+    "skills": [],
+    "routines": None,
+    "routine_question": None,
+    "routine_mode": False,
+    "routine_rerun": None,
+    "routine_schedule": None,
+    "routine_output": None,
+    "routine_settings_answer": False,
+    "attachments": [],
+    "message": CHAT_PROMPT,
+    "locale": "en",
+    "conversation": [],
+}
 
 
 class BrainPeer(flow_fixture.BrainLifecycleHandler):
@@ -48,10 +78,7 @@ class BrainPeer(flow_fixture.BrainLifecycleHandler):
             self._reply(400, {"error": "invalid request"})
             return
         time.sleep(self.delay_ms / 1_000)
-        result = (
-            RESPONSE if self.path == "/v1/intent-route" else {"status": "completed", "reply": CHAT_REPLY, "actions": []}
-        )
-        self._reply(200, result)
+        self._reply(200, (RESPONSE if self.path == "/v1/intent-route" else TURN) | {"usage": USAGE})
         ended = time.perf_counter_ns()
         if self.path == "/v1/turns":
             self.turn_spans.put((started, ended))
@@ -79,13 +106,11 @@ class BrainPeer(flow_fixture.BrainLifecycleHandler):
             else:
                 valid_assistants = assistants == []
             return (
-                set(body) == {"thread_id", "team_name", "assistants", "provider", "message", "conversation"}
-                and body["conversation"] == []
+                set(body) == set(TURN_CONTEXT) | {"thread_id", "assistants", "provider"}
+                and {key: body[key] for key in TURN_CONTEXT} == TURN_CONTEXT
                 and isinstance(body["thread_id"], str)
                 and bool(body["thread_id"])
-                and body["team_name"] == "Demo Team"
                 and valid_assistants
-                and body["message"] == CHAT_PROMPT
                 and provider == {"provider": "openai", "model": "gpt-6.1-sol", "api_key": self.dummy_key}
                 and self.headers.get("Authorization", "").startswith("Bearer ")
             )

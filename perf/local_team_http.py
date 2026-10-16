@@ -22,6 +22,7 @@ import docker
 from docker.errors import DockerException
 
 from local.assistant import resources as assistant_resources
+from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import supervisor as supervisor_contract
 
@@ -53,6 +54,8 @@ CHAT_PAYLOAD = {
     "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
     "timezone": None,
 }
+# The one model the measured turn reports, with the deterministic Brain peer's token counts.
+TURN_USAGE = {"provider": "openai", "model": "gpt-6.1-sol", "input_tokens": 0, "output_tokens": 0}
 CHAT_SPAN_PREFIX = "SHIMPZ-PERF-CHAT-ADMISSION "
 INVENTORY_SPAN_PREFIX = "SHIMPZ-PERF-INVENTORY "
 INVENTORY_SPAN_NAMES = (
@@ -158,7 +161,12 @@ def bounded_controller_run(runner: DockerFlowTests, flow: flow_fixture.DockerFlo
 
 def _start(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
     replacement, changed = bounded_controller_run(runner, flow)
-    with mock.patch.object(runner, "docker", side_effect=replacement):
+    # The live suite's Local snapshot check stages snapshots in the daemon and expects no others; the host daemon a
+    # measurement runs on may hold the person's own, so a measurement neither stages nor reads them.
+    with (
+        mock.patch.object(runner, "docker", side_effect=replacement),
+        mock.patch.object(runner, "_assert_local_snapshot_fast_path"),
+    ):
         runner.start_controller(flow)
     if not changed[0]:
         raise MeasurementError("Team fixture controller was not started")
@@ -211,7 +219,7 @@ def _sample(runner: DockerFlowTests, flow: flow_fixture.DockerFlow, delay_ms: in
         },
     )
     total_ms = (time.perf_counter_ns() - started) / 1_000_000
-    if status != 200 or {key: body.get(key) for key in ("intent", "query", "assistant_ids", "reply")} != RESPONSE:
+    if status != 200 or {key: body.get(key) for key in RESPONSE} != RESPONSE:
         raise MeasurementError("Team intent route returned a noncanonical result")
     peer_ms = BrainPeer.spans.get(timeout=2)
     return total_ms, peer_ms
@@ -262,10 +270,13 @@ def _read_chat(flow: flow_fixture.DockerFlow, *, selected: bool) -> tuple[int, i
                     body = record["body"]
                     if (
                         record["status"] != 200
-                        or set(body) != {"team_id", "team_name", "reply", "trace_id"}
+                        or set(body) != {"team_id", "team_name", "reply", "clarification", "usage", "trace_id"}
                         or body["team_id"] != "demo_team"
                         or body["team_name"] != "Demo Team"
                         or body["reply"] != CHAT_REPLY
+                        or body["clarification"] is not None
+                        or http_payload.canonical_turn_usage(body["usage"]) != body["usage"]
+                        or body["usage"]["models"] != [TURN_USAGE]
                         or not isinstance(body["trace_id"], str)
                         or len(body["trace_id"]) != 32
                         or response.read(1) != b""
@@ -747,7 +758,9 @@ def _measure_team_create(runner: DockerFlowTests, flow: flow_fixture.DockerFlow)
                 raise MeasurementError("Team creation returned a noncanonical result")
             if index >= 0:
                 samples[name].append(elapsed_ms)
-        status, body = runner.api(flow.port, flow.token, "DELETE", f"/v1/teams/{team_id}")
+        status, body = runner.api(
+            flow.port, flow.token, "DELETE", f"/v1/teams/{team_id}", {"team_name": "Performance Team"}
+        )
         if status != 200 or not isinstance(body.get("residue_absent"), list):
             raise MeasurementError("measured Team cleanup failed")
     return {name: nearest_rank(values) for name, values in samples.items()}
@@ -757,7 +770,10 @@ def _sample_team_list(runner: DockerFlowTests, flow: flow_fixture.DockerFlow, ex
     started = time.perf_counter_ns()
     status, body = runner.api(flow.port, flow.token, "GET", "/v1/teams")
     elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000
-    teams = [{"team_id": team_id, "team_name": expected[team_id], "status": "running"} for team_id in sorted(expected)]
+    # Team lists its Teams newest first; the measurement creates them one after another in ``expected``'s order.
+    teams = [
+        {"team_id": team_id, "team_name": expected[team_id], "status": "running"} for team_id in reversed(expected)
+    ]
     if status != 200 or body.get("teams") != teams:
         raise MeasurementError("Team listing returned a noncanonical result")
     return elapsed_ms
@@ -768,20 +784,23 @@ def _measure_team_list(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -
     results: dict[str, object] = {}
     for count in TEAM_LIST_COUNTS:
         while len(expected) < count:
-            team_id = f"perf_list_{len(expected):02d}"
+            # Team names are unique within a Space.
+            team_id, team_name = f"perf_list_{len(expected):02d}", f"List Team {len(expected):02d}"
             status, body = runner.api(
-                flow.port, flow.token, "POST", f"/v1/teams/{team_id}/create", {"team_name": "List Team"}
+                flow.port, flow.token, "POST", f"/v1/teams/{team_id}/create", {"team_name": team_name}
             )
             if status != 200 or body.get("created") is not True:
                 raise MeasurementError("measured Team listing setup failed")
-            expected[team_id] = "List Team"
+            expected[team_id] = team_name
         for _ in range(2):
             _sample_team_list(runner, flow, expected)
         results[str(count)] = nearest_rank(
             [_sample_team_list(runner, flow, expected) for _ in range(TEAM_LIST_SAMPLES)]
         )
     for team_id in sorted(expected.keys() - {"demo_team"}):
-        status, body = runner.api(flow.port, flow.token, "DELETE", f"/v1/teams/{team_id}")
+        status, body = runner.api(
+            flow.port, flow.token, "DELETE", f"/v1/teams/{team_id}", {"team_name": expected[team_id]}
+        )
         if status != 200 or not isinstance(body.get("residue_absent"), list):
             raise MeasurementError("measured Team listing cleanup failed")
     return results
