@@ -843,6 +843,19 @@ class LostEvidenceTests(IncidentCase):
             service.routine_store.put_incident("team_1", run_id, b"not evidence")
             self.assert_deleted_as_lost(service, value, run_id, generation)
 
+    def test_evidence_naming_a_batch_the_journal_no_longer_holds_is_lost_when_its_routine_is_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory, batch=False)
+            self.fence(service, run_id, lease)
+            held = record.run(self.state(service), run_id)
+            service.routine_store.put_incident("team_1", run_id, routine_incident.evidence(run_id, held, "e" * 64, ()))
+            # Nothing can ever archive the batch it names, so the run stays held until its Routine is deleted.
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                routine_incident.reconcile(service, "team_1", run_id)
+            self.assertEqual(caught.exception.code, "routine-state-unavailable")
+            self.assertEqual(record.run(self.state(service), run_id).status, "held")
+            self.assert_deleted_as_lost(service, value, run_id, generation)
+
     def test_an_unreadable_snapshot_keeps_the_run_held_until_its_routine_is_deleted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)

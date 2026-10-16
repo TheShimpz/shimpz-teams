@@ -214,8 +214,9 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
 def _held_evidence(self, team_id: str, value: record.Run) -> dict[str, object]:
     """The held run's sealed evidence, sealed now from its batch and snapshot when there is none; its batch archived.
 
-    Its evidence is lost when it cannot be read, or when its batch is archived and no evidence of this hold names it:
-    archiving happens only after the evidence is durable, so it is never guessed.
+    Its evidence is lost when it cannot be read, when its batch is archived and no evidence of this hold names it
+    (archiving happens only after the evidence is durable, so it is never guessed), or when it names another batch than
+    the generation's current one, including one the Action journal no longer holds and so can never archive.
     """
     run_id = value.run_id
     current = self.action_state.current_batch(value.generation)
@@ -233,7 +234,7 @@ def _held_evidence(self, team_id: str, value: record.Run) -> dict[str, object]:
         routine_state.call(lambda: self.routine_store.put_incident(team_id, run_id, payload))
         sealed = read_evidence(payload, run_id)
     fingerprint = sealed["fingerprint"]
-    if current is not None and current[0] != fingerprint:
+    if fingerprint != (None if current is None else current[0]):
         raise local_errors.routine_state_unavailable()
     if fingerprint is not None:
         self.action_state.archive(value.generation, fingerprint)
