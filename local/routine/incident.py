@@ -183,8 +183,8 @@ def hold(self, team_id: str, run_id: str, lease: record.Lease) -> None:
 def reconcile(self, team_id: str, run_id: str) -> bool:
     """Finish one held run's hold from its last durable step; False when the run is no longer held.
 
-    A run of a Routine being deleted is set aside as it is indexed and no card ever shows it, so evidence or a recovery
-    snapshot of it that cannot be read is lost and never waited on; every other run stays held until it is.
+    A run of a Routine being deleted is set aside as it is indexed and no card ever shows it, so evidence, a recovery
+    snapshot, or a cursor of it that cannot be read is lost and never waited on; every other run stays held until it is.
     """
     state = routine_state.load(self, team_id)
     value = next((item for item in state.runs if item.run_id == run_id), None)
@@ -192,46 +192,27 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
         return False
     deleting = _deleting(state, value.routine_id)
     try:
-        held, lost = _held(self, team_id, value, deleting=deleting)
+        held = _held_evidence(self, team_id, value)
     except action_journal.ActionJournalError as exc:
         raise local_errors.action_state_unavailable() from exc
+    except ApiProblem:
+        if not deleting:
+            raise
+        held = None
     now = int(time.time())
 
-    step = routine_hold.UNKNOWN_STEP
-    if held is not None:
-        found = _held_step(self, team_id, held["recovery"], deleting=deleting)
-        lost = found is None
-        step = routine_hold.UNKNOWN_STEP if found is None else found
-    # The loss is audited before the write that sets the run aside, since once that write lands no pass sees the loss
-    # again: a crash in between must never leave it unaudited. A retried or overlapping pass may audit it again.
-    if lost:
+    found = None if held is None else _held_step(self, team_id, held["recovery"], deleting=deleting)
+    # A loss is audited where it is met, before the write that sets the run aside: once that write lands no pass meets
+    # it again, so a crash in between must never leave it unaudited. A retried or overlapping pass, or the release that
+    # meets the same loss, may audit it again; a missed audit is worse than a repeated one.
+    if found is None:
         _lost(team_id, run_id)
+    step = routine_hold.UNKNOWN_STEP if found is None else found
     return routine_state.applied(self, team_id, lambda state: routine_hold.settle_hold(state, run_id, now, step))
 
 
-def _held(self, team_id: str, value: record.Run, *, deleting: bool) -> tuple[dict[str, object] | None, bool]:
-    """The held run's evidence, or None when a run of a Routine being deleted lost it; and whether to audit that here.
-
-    Lost sealed evidence is audited by ``_release``, which reads it the same way once it releases the run; a loss only
-    sealing it now meets, such as a recovery snapshot that cannot be read, leaves nothing for it to read, so the hold
-    audits it.
-    """
-    try:
-        current, sealed = _sealed(self, team_id, value)
-    except ApiProblem:
-        if not deleting:
-            raise
-        return None, False
-    try:
-        return _held_evidence(self, team_id, value, current, sealed), False
-    except ApiProblem:
-        if not deleting:
-            raise
-        return None, True
-
-
-def _sealed(self, team_id: str, value: record.Run) -> tuple[tuple[str, str] | None, dict[str, object] | None]:
-    """The held run's current batch and the evidence this hold already sealed, failing on exactly what it lost.
+def _held_evidence(self, team_id: str, value: record.Run) -> dict[str, object]:
+    """The held run's sealed evidence, sealed now from its batch and snapshot when there is none; its batch archived.
 
     Its evidence is lost when it cannot be read, or when its batch is archived and no evidence of this hold names it:
     archiving happens only after the evidence is durable, so it is never guessed.
@@ -243,22 +224,9 @@ def _sealed(self, team_id: str, value: record.Run) -> tuple[tuple[str, str] | No
     if sealed is not None and sealed["generation"] != value.generation:
         # Evidence of an earlier hold this run resumed from; its generation is gone, and this hold seals its own.
         sealed = None
-    named = None if sealed is None else sealed["fingerprint"]
-    if current is not None and current[1] == "archived" and current[0] != named:
-        raise local_errors.routine_state_unavailable()
-    return current, sealed
-
-
-def _held_evidence(
-    self,
-    team_id: str,
-    value: record.Run,
-    current: tuple[str, str] | None,
-    sealed: dict[str, object] | None,
-) -> dict[str, object]:
-    """The held run's sealed evidence, sealed now from its batch and snapshot when there is none; its batch archived."""
-    run_id = value.run_id
     if sealed is None:
+        if current is not None and current[1] == "archived":
+            raise local_errors.routine_state_unavailable()
         operations = () if current is None else self.action_state.snapshot(value.generation, current[0])
         snapshot = _snapshot(self, team_id, value)
         payload = evidence(run_id, value, None if current is None else current[0], operations, snapshot)

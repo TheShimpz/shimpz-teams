@@ -1,5 +1,6 @@
 """Holding a Routine run as an incident: every crash window, Pular, Pausar, deletion, and sealed state (ADR-0092)."""
 
+import contextlib
 import dataclasses
 import hashlib
 import json
@@ -57,6 +58,23 @@ class IncidentCase(RoutineServiceCase):
         service.routine_store.update(
             "team_1", lambda state: (routine_hold.fence(state, run_id, lease, int(time.time())), None)
         )
+
+    def replayed(self, service, value: record.Routine, run_id: str, generation: str, revision: int):
+        """Seal the run's recovery snapshot and its first cursor, as the executor does before its first dispatch."""
+        incarnation = generation.removesuffix(f":routine:{run_id}")
+        document = _document(output={"mode": "none", "step": None})
+        plan = routine_plan.admit(document, CONTRACTS)
+        binding = routine_cursor.Binding(incarnation, value.routine_id, revision, run_id)
+        snapshot = routine_incident.Recovery(binding, value.name, document)
+        routine_incident.seal_recovery(service, "team_1", snapshot)
+        cursor = routine_cursor.dispatch(
+            routine_cursor.start(plan, binding, 1_800_000_000, BOOT),
+            plan,
+            "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+            "d" * 64,
+        )
+        service.routine_store.put_cursor("team_1", cursor)
+        return snapshot, cursor
 
 
 class HoldTests(IncidentCase):
@@ -265,23 +283,6 @@ class ResolutionTests(IncidentCase):
 
 
 class RecoverySnapshotTests(IncidentCase):
-    def replayed(self, service, value: record.Routine, run_id: str, generation: str, revision: int):
-        """Seal the run's recovery snapshot and its first cursor, as the executor does before its first dispatch."""
-        incarnation = generation.removesuffix(f":routine:{run_id}")
-        document = _document(output={"mode": "none", "step": None})
-        plan = routine_plan.admit(document, CONTRACTS)
-        binding = routine_cursor.Binding(incarnation, value.routine_id, revision, run_id)
-        snapshot = routine_incident.Recovery(binding, value.name, document)
-        routine_incident.seal_recovery(service, "team_1", snapshot)
-        cursor = routine_cursor.dispatch(
-            routine_cursor.start(plan, binding, 1_800_000_000, BOOT),
-            plan,
-            "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
-            "d" * 64,
-        )
-        service.routine_store.put_cursor("team_1", cursor)
-        return snapshot, cursor
-
     def test_a_held_runs_incident_reopens_its_cursor_after_a_restart_until_its_routine_is_deleted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
@@ -782,19 +783,58 @@ class IncidentRecordTests(IncidentCase):
 class LostEvidenceTests(IncidentCase):
     """What cannot be read of a held run keeps it until its Routine is deleted; the deletion then treats it as lost."""
 
-    def assert_deleted_as_lost(self, service, value: record.Routine, run_id: str, generation: str) -> None:
-        service.delete_routine("team_1", value.routine_id)
-        routine_watchdog.check(service)
-        routine_watchdog.check(service)
+    def assert_deleted_as_lost(
+        self,
+        service,
+        value: record.Routine,
+        run_id: str,
+        generation: str,
+        failing: contextlib.AbstractContextManager | None = None,
+    ) -> None:
+        with failing or contextlib.nullcontext():
+            service.delete_routine("team_1", value.routine_id)
+            routine_watchdog.check(service)
+            routine_watchdog.check(service)
         state = self.state(service)
         self.assertEqual((state.routines, state.runs), ((), ()))
         self.assertIsNone(service.action_state.current_batch(generation))
         self.assertIsNone(service.routine_store.incident("team_1", run_id))
-        # Reconciling and releasing the run read the same loss; it is audited exactly once.
+        # Each pass that meets the loss audits it, so reconciling and releasing the run may both do; none misses it.
         audits = local_app.local_audit.record.call_args_list
-        self.assertEqual(
-            [call.kwargs["detail"] for call in audits if call.args[0] == "routine-evidence-lost"], [run_id]
-        )
+        lost = [call.kwargs["detail"] for call in audits if call.args[0] == "routine-evidence-lost"]
+        self.assertGreaterEqual(len(lost), 1)
+        self.assertEqual(set(lost), {run_id})
+
+    def test_an_incident_that_cannot_be_read_is_lost_when_its_routine_is_deleted(self) -> None:
+        """No evidence was sealed yet and its batch is still open: a failed read alone is audited as the loss."""
+        for reads in ("once", "always"):
+            with self.subTest(reads=reads), tempfile.TemporaryDirectory() as directory:
+                local_app.local_audit.record.reset_mock()
+                _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
+                self.fence(service, run_id, lease)
+                self.assertEqual(service.action_state.current_batch(generation), (batch.fingerprint, "open"))
+                incident = service.routine_store.incident
+                failures = []
+
+                def unreadable(team_id: str, incident_id: str, incident=incident, failures=failures, reads=reads):
+                    if reads == "always" or not failures:
+                        failures.append(incident_id)
+                        raise routine_store.RoutineStoreError("Routine incident is unavailable")
+                    return incident(team_id, incident_id)
+
+                self.assert_deleted_as_lost(
+                    service, value, run_id, generation, mock.patch.object(service.routine_store, "incident", unreadable)
+                )
+
+    def test_an_unreadable_cursor_is_lost_when_its_routine_is_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)
+            self.replayed(service, value, run_id, generation, 1)
+            self.fence(service, run_id, lease)
+            unreadable = mock.patch.object(
+                service.routine_store, "cursor", side_effect=routine_store.RoutineStoreError("cursor is unavailable")
+            )
+            self.assert_deleted_as_lost(service, value, run_id, generation, unreadable)
 
     def test_unreadable_evidence_of_a_held_run_is_lost_when_its_routine_is_deleted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
