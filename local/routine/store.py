@@ -219,7 +219,10 @@ def _decode_routine(value: object) -> record.Routine:
     assistants, permitted = value["assistants"], value["permitted"]
     _require(
         isinstance(assistants, list)
-        and all(isinstance(pair, list) and len(pair) == 2 for pair in assistants)
+        and all(
+            isinstance(pair, list) and len(pair) == 2 and all(isinstance(item, str) for item in pair)
+            for pair in assistants
+        )
         and isinstance(permitted, list)
         and isinstance(value["output_digest"], str)
         and (value["output_digest"] == "" or http_payload.SHA256_RE.fullmatch(value["output_digest"]) is not None)

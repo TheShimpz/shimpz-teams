@@ -310,7 +310,7 @@ def _assistants(value: Routine) -> bool:
         and list(assistants) == sorted(set(assistants))
         and all(
             http_identifiers.canonical_assistant_id(assistant) is not None
-            and http_payload.SOURCE_DIGEST_RE.fullmatch(digest)
+            and http_routine.matches(digest, http_payload.SOURCE_DIGEST_RE)
             for assistant, digest in assistants
         )
     )
@@ -323,7 +323,7 @@ def definition_valid(value: Routine) -> bool:
     if not routine_plan.well_formed(value.plan):
         return False
     return (
-        http_routine.ROUTINE_ID_RE.fullmatch(value.routine_id) is not None
+        http_routine.matches(value.routine_id, http_routine.ROUTINE_ID_RE)
         and http_routine.canonical_name(value.name) is not None
         and http_routine.zoned(value.timezone, value.timezone_source)
         and canonical is not None
