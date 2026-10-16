@@ -284,11 +284,13 @@ def _negated(language: str, sentence: str, match: re.Match[str]) -> bool:
     )
 
 
-def _readings(sentence: str) -> dict[str, list[re.Match[str]]]:
+def _readings(sentence: str, language: str | None) -> dict[str, list[re.Match[str]]]:
     """Each kind's readings of one sentence that no negation reaches, in any language.
 
     A reading a language negates also rejects every overlapping reading another language would take of the same words,
-    so "não quero a cada 30 segundos" never becomes Spanish "cada 30 segundos".
+    so "não quero a cada 30 segundos" never becomes Spanish "cada 30 segundos". A text known to be written in one
+    ``language`` negates every reading only by that language's own negations, so Portuguese "no Cloudflare a cada 30
+    segundos" ("in the Cloudflare") keeps its reading, which Spanish "no" would otherwise negate.
     """
     tables = {"interval": _INTERVALS, "monthly": _MONTHLY, "weekly": _WEEKLY, "daily": _DAILY}
     found = [
@@ -297,7 +299,7 @@ def _readings(sentence: str) -> dict[str, list[re.Match[str]]]:
         for language, pattern in table
         for match in re.finditer(pattern, sentence)
     ]
-    negated = [match.span() for _kind, language, match in found if _negated(language, sentence, match)]
+    negated = [match.span() for _kind, read, match in found if _negated(language or read, sentence, match)]
     admitted: dict[str, list[re.Match[str]]] = {kind: [] for kind in tables}
     for kind, _language, match in found:
         if not any(match.start() < end and start < match.end() for start, end in negated):
@@ -362,11 +364,16 @@ def _calendar(sentence: str, readings: dict[str, list[re.Match[str]]]) -> list[d
     return [{**day, "time": time} for day in days for time in sorted(times)]
 
 
-def stated(text: str) -> tuple[dict[str, object], ...]:
-    """Every distinct canonical schedule one person-authored text states affirmatively, in the order first found."""
+def stated(text: str, language: str | None = None) -> tuple[dict[str, object], ...]:
+    """Every distinct canonical schedule one text states affirmatively, in the order first found.
+
+    A person's own text is read in every language (``language`` None), since nothing says which they wrote in. A text
+    known to be written in one interface language, such as a description the Brain's model writes in the chat's
+    language, names it: every language's schedule phrases still count, but only its own negations reject them.
+    """
     found: list[dict[str, object]] = []
     for sentence in _sentences(text):
-        readings = _readings(sentence)
+        readings = _readings(sentence, language)
         schedules = [_interval(*match.groups()) for match in readings["interval"]]
         schedules += _calendar(sentence, readings)
         for value in schedules:

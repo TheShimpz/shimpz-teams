@@ -162,6 +162,22 @@ class StatedScheduleTests(unittest.TestCase):
             {"a cada 30 segundos no servidor": continuous(30), "todo mês no dia 5 às 9h": monthly(5, "09:00")}
         )
 
+    def test_a_text_in_a_known_language_is_negated_only_by_that_languages_negations(self) -> None:
+        # Portuguese "no" ("in the") before the schedule is a Spanish and English negation, which no known Portuguese
+        # text says, while a person's own text, in no known language, stays fail-closed.
+        text = "Quero listar os registros DNS no Cloudflare a cada 30 segundos, sem alterar nenhum registro."
+        self.assertEqual(phrase.stated(text), ())
+        self.assertEqual(phrase.stated(text, "pt"), (continuous(30),))
+        self.assertEqual(phrase.stated("No quiero cada 30 segundos.", "es"), ())
+        self.assertEqual(phrase.stated("Não quero a cada 30 segundos.", "pt"), ())
+        # Every language's phrases still count, so a known Portuguese text never hides a second schedule.
+        self.assertEqual(
+            phrase.stated("Listar no Cloudflare a cada 30 segundos e every minute.", "pt"),
+            (continuous(30), continuous(60)),
+        )
+        # A language whose negation trails what it negates keeps its own rule.
+        self.assertEqual(phrase.stated("30秒ごとに実行しない", "ja"), ())
+
     def test_a_count_too_long_to_be_a_schedule_states_nothing(self) -> None:
         for text in ("every " + "9" * 5000 + " seconds", "a cada " + "1" * 9 + " segundos", "9" * 5000 + "秒ごと"):
             with self.subTest(text=text[:20]):

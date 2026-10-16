@@ -216,7 +216,9 @@ an interval, an output choice, or how many times a Routine may run, which Team a
 `phrase.requests_routine(text)` is true when the text names a Routine affirmatively ("cria uma rotina", "create a
 routine"), so a chat that asks for one is about a Routine before any schedule is stated.
 The tables cover the eight interface languages. A sentence that asks states nothing; a negation in any
-language rejects every reading it reaches; "show the result" qualified by "only when it changes" in its own clause is
+language rejects every reading it reaches, except that `phrase.stated(text, language)` reads a text known to be
+written in that interface language, such as a description the Brain's model writes in the chat's language, with only
+that language's negations, so Portuguese "no Cloudflare a cada 30 segundos" keeps its schedule; "show the result" qualified by "only when it changes" in its own clause is
 that one choice, while alternatives offer both. Vectors pin a reading for each language and kind.
 
 The Team→Brain Routine forms of a recording chat are defined here too, so the Brain mirrors them instead of copying
