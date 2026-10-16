@@ -21,12 +21,8 @@ SCOPE_FORMAT = "shimpz-routine-assistant-pin-v1"
 PIN_LOCALE = "en"
 
 
-class PinError(ValueError):
-    """The Assistant does not declare the pinned Action."""
-
-
 def action_pins(spec: object, action_ids: Iterable[str]) -> dict[str, str]:
-    """Each named Action's ``sha256:`` pin.
+    """Each named Action's ``sha256:`` pin; every caller names only Actions the Assistant declares.
 
     One Action index and one catalog digest serve every pin, so pinning all of an Assistant's Actions serializes its
     catalog once instead of once per Action.
@@ -61,9 +57,7 @@ def _catalog(spec: object) -> str:
 
 
 def _action_pin(spec: object, actions: Mapping[str, Mapping[str, object]], catalog: str, action_id: str) -> str:
-    action = actions.get(action_id)
-    if action is None:
-        raise PinError("Routine Action is not declared")
+    action = actions[action_id]
     verifier = action.get("verifier")
     pinned = [action] if verifier is None else [action, actions[verifier["action"]]]
     integrations = sorted({name for item in pinned for name in item["integrations"]})

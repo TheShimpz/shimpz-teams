@@ -144,8 +144,6 @@ class RoutinePinTests(unittest.TestCase):
         self.assertRegex(pin, r"\Asha256:[0-9a-f]{64}\Z")
         self.assertEqual(routine_pin.action_pins(_spec(), ("create-record",))["create-record"], pin)
         self.assertNotEqual(routine_pin.action_pins(_spec(), ("find-record",))["find-record"], pin)
-        with self.assertRaisesRegex(routine_pin.PinError, "not declared"):
-            routine_pin.action_pins(_spec(), ("delete-record",))["delete-record"]
 
     def test_the_pin_documents_hash_to_their_recorded_bytes(self) -> None:
         # A confirmed Routine keeps these pins, so the hashed documents, their fixed locale included, never move.
@@ -259,8 +257,6 @@ class RoutinePinTests(unittest.TestCase):
             },
         )
         self.assertEqual(routine_pin.action_pins(spec, ()), {})
-        with self.assertRaisesRegex(routine_pin.PinError, "not declared"):
-            routine_pin.action_pins(spec, ("delete-record",))
 
     def test_a_routine_scope_detects_drift_its_brain_contract_cannot_see(self) -> None:
         active = ActiveAssistant(_spec(), "container")
