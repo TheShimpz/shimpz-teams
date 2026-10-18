@@ -18,6 +18,7 @@ from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import DOCKER_UNAVAILABLE_ERRORS, oauth_authorization_invalid, supervisor_unavailable
 from local.errors import ApiProblemError as ApiProblem
+from local.http import browser as local_http_browser
 from local.http import chat as local_http_chat
 from local.http import deadline as http_deadline
 from local.http import dispatch as local
@@ -342,26 +343,18 @@ class Handler(http_deadline.DeadlineRequestHandler):
         request_audit: RequestAudit,
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         """Dispatch a request a Supervisor session authorized; streamed and binary responses are sent here."""
-        if route.operation in local_http_chat.STREAMED_OPERATIONS:
-            local_http_chat.stream(self, route, request_audit)
-            return None
-        if route.operation in local_http_routine.STREAMED_OPERATIONS:
-            local_http_routine.stream(self, route, request_audit)
-            return None
-        if route.operation == "assistant-icon":
-            team_id = validate_team_id(route.params["team_id"])
-            assistant_id = route.params["assistant_id"]
-            contents = self.server.controller.assistant_icon(team_id, assistant_id)
-            request_audit.record("assistant-icon", result="ok", team_id=team_id, assistant=assistant_id)
-            self._send_image(contents, "image/png")
-            return None
-        if route.operation in {"local-assistant-icon", "local-assistant-summary", "local-assistant-details"}:
-            self._local_assistant_preview(route, request_audit)
-            return None
-        if route.operation in {"file-preview", "file-page-preview", "file-content"}:
-            self._file_bytes(route, request_audit)
-            return None
-        return self._route(route)
+        sent = _SENT_OPERATIONS.get(route.operation)
+        if sent is None:
+            return self._route(route)
+        sent(self, route, request_audit)
+        return None
+
+    def _assistant_icon(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
+        team_id = validate_team_id(route.params["team_id"])
+        assistant_id = route.params["assistant_id"]
+        contents = self.server.controller.assistant_icon(team_id, assistant_id)
+        request_audit.record("assistant-icon", result="ok", team_id=team_id, assistant=assistant_id)
+        self._send_image(contents, "image/png")
 
     def _file_bytes(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
         """Send one listed file's bytes to the Supervisor's browser: a sanitized rendition, or the verified original."""
@@ -749,5 +742,17 @@ _OPERATIONS: dict[str, Operation] = {
     **_SERVER_OPERATIONS,
     **local_http_chat.OPERATIONS,
     **local_http_inference.OPERATIONS,
+    **local_http_browser.OPERATIONS,
     **_ROUTINE_OPERATIONS,
+}
+# The operations whose handler sends its own streamed or binary answer, outside the JSON operation table.
+_SENT_OPERATIONS: dict[str, Callable[[Handler, strict_http.ControllerRouteMatch, RequestAudit], None]] = {
+    **dict.fromkeys(local_http_chat.STREAMED_OPERATIONS, local_http_chat.stream),
+    **dict.fromkeys(local_http_routine.STREAMED_OPERATIONS, local_http_routine.stream),
+    "assistant-icon": Handler._assistant_icon,
+    **dict.fromkeys(
+        ("local-assistant-icon", "local-assistant-summary", "local-assistant-details"), Handler._local_assistant_preview
+    ),
+    **dict.fromkeys(("file-preview", "file-page-preview", "file-content"), Handler._file_bytes),
+    local_http_browser.FRAME_OPERATION: local_http_browser.send_frame,
 }

@@ -9,6 +9,7 @@ Space clean again.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import socket
@@ -97,6 +98,20 @@ def own_browser_image(client) -> str | None:
         return None
     attrs = image.attrs if isinstance(image.attrs, dict) else {}
     return browser_image((attrs.get("Config") or {}).get("Labels"))
+
+
+def _bounded(call: Callable[[], object], seconds: float) -> object | None:
+    """`call`'s answer if it came within `seconds`; its failure, or an answer after them, is None and is discarded."""
+    answer: list[object] = []
+
+    def run() -> None:
+        with contextlib.suppress(Exception):
+            answer.append(call())
+
+    worker = threading.Thread(target=run, name="browser-inspect", daemon=True)
+    worker.start()
+    worker.join(seconds)
+    return answer[0] if answer and not worker.is_alive() else None
 
 
 def _network_address(networks: dict) -> str:
@@ -441,6 +456,20 @@ class BrowserRuntime:
     def open_stream(self, lease: Lease) -> ExecStream:
         """The Cua Driver's stdio MCP session in this Browser."""
         return ExecStream(self._exec(lease.container_id, ["mcp"])[1], self._clock)
+
+    def open_view(self, lease: Lease) -> tuple[str, ExecStream]:
+        """The screen view program in this Browser: its exec id and its stdout."""
+        exec_id, raw = self._exec(lease.container_id, ["view"])
+        return exec_id, ExecStream(raw, self._clock)
+
+    def exited(self, exec_id: str, deadline: float) -> bool:
+        """Whether Docker proved the exec ended before `deadline`; a stalled or failed inspection proves nothing."""
+        while (remaining := deadline - self._clock()) > 0:
+            details = _bounded(lambda: self._client.api.exec_inspect(exec_id), remaining)
+            if isinstance(details, dict) and details.get("Running") is False:
+                return True
+            self._sleep(0.1)
+        return False
 
     def program(self, container_id: str, arguments: list[str], *, deadline: float) -> tuple[int, ExecStream | None]:
         """Run one bounded `browser-host` program; its exit status once its output was read, and its stream."""

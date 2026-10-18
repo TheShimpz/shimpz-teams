@@ -21,6 +21,8 @@ grammar, which also admits `.` and `_` separators, within 128 characters.
 `websocket.py` validates the bounded `shimpz.chat.v7` frame primitives and redacts unsafe errors.
 `browser.py` owns the Browser agent's closed step set, the `browser-step` exchange bounds, and the `browser` field of a
 chat terminal (ADR-0117); the Brain consumes it as a pinned mirror.
+`browser_view.py` owns the Browser screen view a Supervisor watches: the opened view's id, the frame cursor, and
+the framing of a frame, a PNG Team encodes itself; only Team and Admin consume it.
 `progress.py` owns the closed metadata-only progress events and NDJSON terminal framing used by
 Local Team chat. An Action occurrence carries only its canonical reviewed Assistant and Action
 identifiers; it never carries arguments, results, prompts, model output, or free text. Progress is

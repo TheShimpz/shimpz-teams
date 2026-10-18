@@ -127,8 +127,8 @@ COPY --link routine/__init__.py routine/claim.py routine/compose.py routine/curs
     routine/definition.py routine/hold.py routine/pin.py routine/plan.py routine/provenance.py routine/record.py \
     routine/recording.py routine/rerun.py routine/runs.py routine/schedule.py routine/starts.py routine/trace.py \
     ./routine/
-COPY --link local/http/__init__.py local/http/audit.py local/http/chat.py local/http/deadline.py local/http/dispatch.py \
-    local/http/inference.py local/http/routine.py local/http/server.py local/http/stream.py local/http/token.py ./local/http/
+COPY --link local/http/__init__.py local/http/audit.py local/http/browser.py local/http/chat.py local/http/deadline.py \
+    local/http/dispatch.py local/http/inference.py local/http/routine.py local/http/server.py local/http/stream.py local/http/token.py ./local/http/
 COPY --link install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/lock.py \
     install/update.py ./install/
 COPY --link protocol/install/v1/definitions.schema.json protocol/install/v1/resolve-response.schema.json \
@@ -138,7 +138,8 @@ COPY --link protocol/http/v1/challenge.py protocol/http/v1/content.py protocol/h
     protocol/http/v1/payload.py protocol/http/v1/phrase.py protocol/http/v1/preview.py protocol/http/v1/progress.py \
     protocol/http/v1/purpose.py protocol/http/v1/routine.py protocol/http/v1/routine_context.py protocol/http/v1/routine_notice.py \
     protocol/http/v1/routine_proposal.py protocol/http/v1/routine_run.py protocol/http/v1/strict_json.py \
-    protocol/http/v1/supervisor.py protocol/http/v1/turn.py protocol/http/v1/browser.py ./protocol/http/v1/
+    protocol/http/v1/supervisor.py protocol/http/v1/turn.py protocol/http/v1/browser.py protocol/http/v1/browser_view.py \
+    ./protocol/http/v1/
 COPY --link protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
     protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
     protocol/assistant/v1/validators/message_catalog.py protocol/assistant/v1/validators/route.py \
@@ -147,11 +148,11 @@ COPY --link action/__init__.py action/challenges.py action/dispatch.py action/ex
     action/frames.py action/files.py action/human.py action/journal.py action/provider.py action/result.py \
     action/stored_input.py ./action/
 COPY --link storage/__init__.py storage/files.py storage/private_state.py ./storage/
-COPY --link browser/__init__.py browser/cua.py browser/ingest.py browser/task.py ./browser/
+COPY --link browser/__init__.py browser/cua.py browser/ingest.py browser/task.py browser/view.py ./browser/
 # The seccomp profile Team gives every Browser container (ADR-0117 §3.2).
 COPY --link browser/image/seccomp.json ./browser/image/
 COPY --link local/browser/__init__.py local/browser/channel.py local/browser/runtime.py local/browser/service.py \
-    ./local/browser/
+    local/browser/view.py ./local/browser/
 COPY --link prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/page.py \
     prepare/pdf.py prepare/service.py prepare/worker.py ./prepare/
 # The application is compiled like its environment, after its last copy.

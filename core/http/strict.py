@@ -279,6 +279,9 @@ CONTROLLER_ROUTES = (
     _controller_route("GET", "/v1/teams/:team_id/files/:file_id/content", "file-content"),
     # The Supervisor accepts the risk of one file from the web before its original may be downloaded (ADR-0117).
     _controller_route("POST", "/v1/teams/:team_id/files/:file_id/acknowledgement", "file-acknowledgement"),
+    # The Supervisor watches the screen of the Browser task its Team runs now (ADR-0117, M2 Watch).
+    _controller_route("POST", "/v1/teams/:team_id/browser/view", "browser-view-open"),
+    _controller_route("GET", "/v1/teams/:team_id/browser/views/:view_id/frames/:after", "browser-view-frame"),
     _controller_route("GET", "/v1/teams/:team_id/inference", "inference-status"),
     _controller_route("PUT", "/v1/teams/:team_id/inference", "inference-configure"),
     _controller_route("POST", "/v1/teams/:team_id/chat", "chat"),

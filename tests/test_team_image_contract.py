@@ -48,6 +48,7 @@ LOCAL_PROTOCOL_DATA = {
     *ASSISTANT_PROTOCOL_RUNTIME,
     "protocol/action/v1/schema.py",
     "protocol/http/v1/browser.py",
+    "protocol/http/v1/browser_view.py",
     "protocol/http/v1/challenge.py",
     "protocol/http/v1/content.py",
     "protocol/http/v1/identifiers.py",

@@ -3,6 +3,7 @@
 import json
 import socket as sockets
 import struct
+import threading
 import unittest
 from pathlib import PurePosixPath
 from unittest import mock
@@ -548,6 +549,31 @@ class BrowserRuntimeTests(unittest.TestCase):
             with self.subTest(output=output), self.assertRaises(runtime.BrowserError):
                 self.docker.programs[("files", "read", "edital.pdf")] = (0, output)
                 self.runtime.read(lease, "edital.pdf", 9)
+        self.runtime.release(lease)
+
+    def test_the_view_program_and_the_bounded_proof_its_exec_ended(self):
+        lease = self.runtime.acquire("team_1", "en")
+        exec_id, stream = self.runtime.open_view(lease)
+        self.assertEqual(self.docker.api.execs[exec_id][1], ("view",))
+        stream.close()
+        stream.close()
+        answers = iter([{"Running": True}, {"Running": False}])
+        self.docker.api.exec_inspect = lambda _exec: next(answers)
+        self.assertTrue(self.runtime.exited(exec_id, self.now[0] + 1))
+        self.docker.api.exec_inspect = lambda _exec: {"Running": True}
+        self.assertFalse(self.runtime.exited(exec_id, self.now[0] + 0.3))
+        self.assertFalse(self.runtime.exited(exec_id, self.now[0]))
+
+        def fails(_exec):
+            raise APIError("inspect failed")
+
+        self.docker.api.exec_inspect = fails
+        self.assertFalse(self.runtime.exited(exec_id, self.now[0] + 0.2))
+        # A stalled inspection proves nothing, and its late answer is discarded.
+        stalled = threading.Event()
+        self.addCleanup(stalled.set)
+        self.docker.api.exec_inspect = lambda _exec: stalled.wait() and {"Running": False}
+        self.assertFalse(self.runtime.exited(exec_id, self.now[0] + 0.2))
         self.runtime.release(lease)
 
     def test_the_mcp_stream_and_program_failures(self):

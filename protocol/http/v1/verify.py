@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 
+import browser_view
 import challenge
 import content
 import payload
@@ -227,6 +228,9 @@ for name, admit in (
     ("file_page_preview", preview.canonical_page_framing),
     ("file_page", lambda value: value if preview.canonical_page(value) is not None else None),
     ("file_content", content.canonical_framing),
+    ("browser_view", browser_view.canonical_view),
+    ("browser_view_cursor", lambda value: value if browser_view.canonical_cursor(value) is not None else None),
+    ("browser_view_frame", browser_view.canonical_frame),
 ):
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):

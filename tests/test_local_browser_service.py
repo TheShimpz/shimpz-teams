@@ -9,6 +9,7 @@ from inference import client as brain_runtime_client
 from inference.errors import BrainRuntimeError
 from local import audit as local_audit
 from local.browser import runtime, service
+from local.browser import view as local_view
 from local.chat import segment as local_chat_segment
 from storage import files as team_storage
 
@@ -326,6 +327,89 @@ class BrowserServiceTests(unittest.TestCase):
         self.storage.put = mock.Mock(side_effect=team_storage.StorageQuotaError("full"))
         _, terminal = self.run_with(browser_service, task.Outcome("done", summary="x", steps=1))
         self.assertEqual(terminal["lost"], [{"name": "a.pdf", "reason": "quota-exceeded"}])
+
+    def test_a_screen_view_belongs_to_its_task_alone(self):
+        browser_service = self.make(FakeRuntime())
+        with self.assertRaises(runtime.BrowserError) as idle:
+            browser_service.open_view("team_1")
+        self.assertEqual(idle.exception.code, "browser-not-running")
+        seen = {}
+
+        def run(_task):
+            view_id = browser_service.open_view("team_1")
+            seen["view"] = view_id
+            self.assertRegex(view_id, r"^[0-9a-f]{32}$")
+            with self.assertRaises(runtime.BrowserError):
+                browser_service.open_view("team_2")
+            for team_id, other in (("team_1", "0" * 32), ("team_2", view_id)):
+                with self.assertRaises(runtime.BrowserError) as refused:
+                    browser_service.view_frame(team_id, other, 0)
+                self.assertEqual(refused.exception.code, "browser-not-running")
+            frame = local_view.Frame(1, b"\x89PNG")
+            with mock.patch.object(local_view.View, "frame", return_value=frame) as answered:
+                self.assertIs(browser_service.view_frame("team_1", view_id, 0), frame)
+                answered.assert_called_once_with(0)
+                # A Stop while the request waited: the answer that came meanwhile is not sent.
+                answered.side_effect = lambda _after: browser_service.interrupt("team_1", TURN)
+                with self.assertRaises(runtime.BrowserError) as stopped:
+                    browser_service.view_frame("team_1", view_id, 0)
+                self.assertEqual(stopped.exception.code, "browser-not-running")
+            return task.Outcome("done", summary="x", steps=1)
+
+        with mock.patch.object(service.browser_task.Task, "run", autospec=True, side_effect=run):
+            browser_service.run(self.turn, CONTEXT, REQUEST)
+        self.assertIn("view", seen)
+        # The task ended: neither its view nor a new one opens.
+        for call in (
+            lambda: browser_service.open_view("team_1"),
+            lambda: browser_service.view_frame("team_1", seen["view"], 0),
+        ):
+            with self.assertRaises(runtime.BrowserError):
+                call()
+
+    def test_a_released_task_ends_its_view_and_its_capture_reaches_the_runtime(self):
+        made = []
+
+        class RecordingView:
+            def __init__(self, open_program, exited, record):
+                self.id = "a" * 32
+                self.calls = (open_program, exited, record)
+                self.ended = False
+                made.append(self)
+
+            def end(self):
+                self.ended = True
+
+        fake = FakeRuntime()
+        fake.open_view = mock.Mock(return_value=("exec-1", "stream"))
+        fake.exited = mock.Mock(return_value=True)
+        browser_service = self.make(fake)
+        with mock.patch.object(service.local_view, "View", RecordingView):
+            self.run_with(browser_service, task.Outcome("done", summary="x", steps=1))
+        [recorded] = made
+        self.assertTrue(recorded.ended)
+        open_program, exited, record = recorded.calls
+        self.assertEqual(open_program(), ("exec-1", "stream"))
+        fake.open_view.assert_called_once_with(LEASE)
+        self.assertTrue(exited("exec-1", 5.0))
+        fake.exited.assert_called_once_with("exec-1", 5.0)
+        record("started")
+        self.assertIn(
+            (
+                "browser-view",
+                {"result": "ok", "team_id": "team_1", "detail": f"started:container={LEASE.container_id[:12]}"},
+            ),
+            self.audit,
+        )
+
+    def test_frame_requests_hold_one_of_two_slots(self):
+        browser_service = self.make(FakeRuntime())
+        with browser_service.view_slot(), browser_service.view_slot():
+            with self.assertRaises(runtime.BrowserError) as busy, browser_service.view_slot():
+                pass
+            self.assertEqual(busy.exception.code, "browser-view-busy")
+        with browser_service.view_slot():
+            pass
 
     def test_a_segments_runner_binds_the_team_incarnation_language_brain_and_stop_at_run_time(self):
         seen = []

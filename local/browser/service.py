@@ -5,6 +5,7 @@ task loop with the turn's Admin-delivered key, ingests the downloads, and always
 it and ends its egress generation. A Browser that could not be proven removed fails the task. Stop removes the running
 Browser at once, so none of its calls reaches the page again. Each task is audited with its Team and incarnation, the
 container, the Browser address, and the egress process and generation its audit lines carry, never a URL or page text.
+While a task runs, the Supervisor may watch its screen through the task's own view, which ends with the task.
 """
 
 from __future__ import annotations
@@ -20,7 +21,9 @@ from browser import task as browser_task
 from inference import client as brain_runtime_client
 from inference.errors import BrainRuntimeError
 from local import audit as local_audit
+from local.browser import view as local_view
 from local.browser.runtime import BrowserError, BrowserRuntime, Lease
+from protocol.http.v1 import browser_view as view_protocol
 from storage import files as team_storage
 
 
@@ -41,6 +44,10 @@ def language(locale: str | None) -> str:
     return "pt-BR" if isinstance(locale, str) and locale.lower().startswith("pt") else "en"
 
 
+# Frame requests the Space answers at once.
+VIEWS = 2
+
+
 class BrowserService:
     """Runs Browser tasks for chat turns against the Local Docker runtime and the Team's file store."""
 
@@ -48,8 +55,11 @@ class BrowserService:
         self._runtime = runtime
         self._storage = storage
         self._guard = threading.Lock()
-        # The lease each Team's running task holds, with its turn's token, so that turn's Stop, and only it, reaches it.
-        self._running: dict[str, tuple[str, Lease]] = {}
+        # The lease each Team's running task holds, with its turn's token, so that turn's Stop, and only it, reaches it,
+        # and the task's screen view.
+        self._running: dict[str, tuple[str, Lease, local_view.View]] = {}
+        # Frame requests answered at once across the Space, each held until its response is sent.
+        self._views = threading.BoundedSemaphore(VIEWS)
 
     @property
     def available(self) -> bool:
@@ -72,9 +82,10 @@ class BrowserService:
         with self._guard:
             held = self._running.get(team_id)
             lease = held[1] if held is not None and held[0] == token else None
-            if lease is not None:
+            if held is not None and lease is not None:
                 # From here no download of the task is stored: a store under way finished before this took the guard.
                 del self._running[team_id]
+                held[2].end()
         if lease is not None:
             # A failed removal leaves the release to prove it, which keeps the Space refusing tasks until it does.
             with suppress(BrowserError):
@@ -82,13 +93,53 @@ class BrowserService:
 
     @contextmanager
     def _held(self, token: str, lease: Lease) -> Iterator[None]:
+        view = local_view.View(
+            lambda: self._runtime.open_view(lease),
+            lambda exec_id, deadline: self._runtime.exited(exec_id, deadline),
+            lambda state: _audit_view(lease, state),
+        )
         with self._guard:
-            self._running[lease.team_id] = (token, lease)
+            self._running[lease.team_id] = (token, lease, view)
         try:
             yield
         finally:
             with self._guard:
-                self._running.pop(lease.team_id, None)
+                held = self._running.get(lease.team_id)
+                if held is not None and held[2] is view:
+                    del self._running[lease.team_id]
+            view.end()
+
+    def open_view(self, team_id: str) -> str:
+        """The id of the screen view of the task the Team runs now; refused when it runs none."""
+        with self._guard:
+            held = self._running.get(team_id)
+            if held is None:
+                raise BrowserError(view_protocol.NOT_RUNNING)
+            return held[2].id
+
+    @contextmanager
+    def view_slot(self) -> Iterator[None]:
+        """One of the Space's frame request slots, held until the caller sent its response."""
+        if not self._views.acquire(blocking=False):
+            raise BrowserError(view_protocol.BUSY)
+        try:
+            yield
+        finally:
+            self._views.release()
+
+    def view_frame(self, team_id: str, view_id: str, after: int) -> local_view.Frame | None:
+        """The view's next frame after `after`, or None when none came; only while that very task still runs."""
+        frame = self._view(team_id, view_id).frame(after)
+        # Checked again right before the answer: a task stopped or replaced meanwhile shows nothing more.
+        self._view(team_id, view_id)
+        return frame
+
+    def _view(self, team_id: str, view_id: str) -> local_view.View:
+        with self._guard:
+            held = self._running.get(team_id)
+            if held is None or held[2].id != view_id:
+                raise BrowserError(view_protocol.NOT_RUNNING)
+            return held[2]
 
     def run(
         self,
@@ -195,6 +246,13 @@ def _audit(turn: BrowserTurn, lease: Lease, state: str) -> None:
         f":egress={egress.container_id[:12]}@{egress.started}:generation={egress.generation}"
     )
     local_audit.record_request("browser-task", result="ok", team_id=turn.team_id, detail=detail)
+
+
+def _audit_view(lease: Lease, state: str) -> None:
+    """A screen view's capture state under the Supervisor who asked for it, never a pixel."""
+    local_audit.record_request(
+        "browser-view", result="ok", team_id=lease.team_id, detail=f"{state}:container={lease.container_id[:12]}"
+    )
 
 
 def _result(outcome: browser_task.Outcome, ingested: browser_ingest.Ingested | None) -> dict[str, object]:

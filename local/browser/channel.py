@@ -52,6 +52,10 @@ class ExecStream:
         with suppress(OSError):
             self._raw.shutdown(socket.SHUT_WR)
 
+    def close(self) -> None:
+        with suppress(OSError):
+            self._raw.close()
+
     def receive_line(self, deadline: float, limit: int) -> bytes:
         """The next stdout line without its newline, of at most `limit` bytes."""
         while (end := self._stdout.find(b"\n")) < 0:

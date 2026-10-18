@@ -7669,5 +7669,24 @@
         }
       ]
     }
+  },
+  "browser_view": {
+    "valid": [{"view_id": "0123456789abcdef0123456789abcdef"}],
+    "invalid": [
+      {"view_id": "0123456789ABCDEF0123456789ABCDEF"}, {"view_id": "0123456789abcdef0123456789abcde"}, {"view_id": "0123456789abcdef0123456789abcdef0"}, {"view_id": 7}, {},
+      {"view_id": "0123456789abcdef0123456789abcdef", "frame": 1}, []
+    ]
+  },
+  "browser_view_cursor": {
+    "valid": ["0", "1", "2147483647"],
+    "invalid": ["", "00", "01", "-1", "1.0", "2147483648", "99999999999", " 1", "a", 1]
+  },
+  "browser_view_frame": {
+    "valid": [{"frame": 1, "length": 8}, {"frame": 2147483647, "length": 4194304}],
+    "invalid": [
+      {"frame": 0, "length": 8}, {"frame": 1, "length": 7}, {"frame": 1, "length": 4194305},
+      {"frame": 2147483648, "length": 8}, {"frame": true, "length": 8}, {"frame": 1.0, "length": 8}, {"frame": 1},
+      {"frame": 1, "length": 8, "media_type": "image/png"}, []
+    ]
   }
 }

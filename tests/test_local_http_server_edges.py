@@ -100,6 +100,8 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         body_operations.remove("file-upload")
         # A file acknowledgement is its route alone; it carries no body (ADR-0117).
         body_operations.remove("file-acknowledgement")
+        # Opening a Browser view is its route alone too (ADR-0117, M2 Watch).
+        body_operations.remove("browser-view-open")
         # A Local deletion carries the Team name it confirms (ADR-0088).
         body_operations.update(("assistant-integration-cancel", "team-destroy"))
 
@@ -465,6 +467,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             "file-preview",
             "file-page-preview",
             "file-content",
+            "browser-view-frame",
             server.local_http_routine.RUN_OPERATION,
             *http_chat.STREAMED_OPERATIONS,
             *server.local_http_routine.STREAMED_OPERATIONS,
