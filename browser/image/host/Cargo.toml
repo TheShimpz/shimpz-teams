@@ -1,0 +1,19 @@
+[package]
+name = "browser-host"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+description = "The Team Browser's in-image launcher, MCP entry, readiness probe, and downloads tool (ADR-0117)"
+
+[[bin]]
+name = "browser-host"
+path = "src/main.rs"
+
+[dependencies]
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
+strip = true

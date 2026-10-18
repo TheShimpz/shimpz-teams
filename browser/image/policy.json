@@ -1,0 +1,23 @@
+{
+  "AllowFileSelectionDialogs": false,
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "BackgroundModeEnabled": false,
+  "BrowserSignin": 0,
+  "DefaultGeolocationSetting": 2,
+  "DefaultNotificationsSetting": 2,
+  "DnsOverHttpsMode": "off",
+  "DownloadDirectory": "/downloads",
+  "DownloadRestrictions": 1,
+  "EncryptedClientHelloEnabled": false,
+  "ExtensionInstallBlocklist": ["*"],
+  "HttpsOnlyMode": "force_enabled",
+  "MetricsReportingEnabled": false,
+  "PasswordManagerEnabled": false,
+  "PrintingEnabled": false,
+  "PromptForDownloadLocation": false,
+  "QuicAllowed": false,
+  "SyncDisabled": true,
+  "URLBlocklist": ["file://*", "chrome://*", "devtools://*", "view-source:*", "chrome-extension://*", "javascript:*"],
+  "WebRtcIPHandling": "disable_non_proxied_udp"
+}
