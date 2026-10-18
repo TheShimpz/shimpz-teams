@@ -41,12 +41,14 @@ class FakeSession:
         self._act("scroll", direction)
 
 
-def _steps(*steps, tokens=1000):
+def _steps(*steps, tokens=1000, seconds=None):
     requests = []
     answers = iter(steps)
 
-    def step(request):
+    def step(request, left):
         requests.append(request)
+        if seconds is not None:
+            seconds.append(left)
         answer = next(answers)
         if isinstance(answer, BaseException):
             raise answer
@@ -64,6 +66,7 @@ def _run(session, step, **options):
         session,
         step,
         options.pop("cancelled", lambda: False),
+        options.pop("intact", lambda: True),
         clock=clock,
         sleep=sleeps.append,
         **options,
@@ -137,7 +140,7 @@ class BrowserTaskTests(unittest.TestCase):
         self.assertEqual(_run(FakeSession(), _steps(done)[0], cancelled=lambda: True)[0], task.Outcome("stopped"))
         ticks = iter([0.0, task.MAX_SECONDS])
         self.assertEqual(_run(FakeSession(), _steps(done)[0], clock=lambda: next(ticks))[0], task.Outcome("budget"))
-        spent = task.Budget(input_tokens=1500)
+        spent = task.Budget(input_tokens=task.STEP_INPUT_RESERVE + 1500)
         outcome, _ = _run(FakeSession(), _steps(wait, wait, done)[0], budget=spent)
         self.assertEqual(outcome, task.Outcome("budget", steps=2))
         outcome, _ = _run(FakeSession(), _steps(wait, wait)[0], budget=task.Budget(steps=2))
@@ -157,6 +160,52 @@ class BrowserTaskTests(unittest.TestCase):
             _run(FakeSession(fatal={"click"}), _steps({"kind": "click", "ref": "p1:1"})[0])[0],
             task.Outcome("failed", reason="browser-lost", steps=1),
         )
+
+    def test_every_call_and_action_waits_for_proof_that_the_task_may_continue(self):
+        navigate = {"kind": "navigate", "url": "https://example.com"}
+
+        def after(calls):
+            count = iter(range(1, 100))
+            return lambda: next(count) >= calls
+
+        # Stop after the Brain answered: its step never reaches the page.
+        session = FakeSession()
+        outcome, _ = _run(session, _steps(navigate)[0], cancelled=after(3))
+        self.assertEqual((outcome, session.calls), (task.Outcome("stopped", steps=1), []))
+        # Stop while the page was observed: no Brain call is made.
+        step, requests = _steps(navigate)
+        outcome, _ = _run(FakeSession(), step, cancelled=after(2))
+        self.assertEqual((outcome, requests), (task.Outcome("stopped"), []))
+        # Stop aborts the Brain request in flight: the task was stopped, not failed.
+        outcome, _ = _run(FakeSession(), _steps(task.StepFailedError("aborted"))[0], cancelled=after(3))
+        self.assertEqual(outcome, task.Outcome("stopped"))
+        # The deadline passed while the Brain answered, or the step spent more than the budget left.
+        ticks = iter([0.0, 0.0, 0.0, 0.0, task.MAX_SECONDS])
+        session = FakeSession()
+        outcome, _ = _run(session, _steps(navigate)[0], clock=lambda: next(ticks))
+        self.assertEqual((outcome, session.calls), (task.Outcome("budget", steps=1), []))
+        session = FakeSession()
+        outcome, _ = _run(session, _steps(navigate, tokens=task.MAX_INPUT_TOKENS + 1)[0])
+        self.assertEqual((outcome, session.calls), (task.Outcome("budget", steps=1), []))
+        # The Browser left the egress process it started on.
+        outcome, _ = _run(FakeSession(), _steps(navigate)[0], intact=lambda: False)
+        self.assertEqual(outcome, task.Outcome("failed", reason="browser-lost"))
+        session = FakeSession()
+        lost = after(3)
+        outcome, _ = _run(session, _steps(navigate)[0], intact=lambda: not lost())
+        self.assertEqual((outcome, session.calls), (task.Outcome("failed", reason="browser-lost", steps=1), []))
+
+    def test_no_call_outlives_the_task_deadline(self):
+        seconds = []
+        ticks = iter([10.0, 10.0, 10.0, 25.0, 25.0, 30.0, 30.0, 30.0])
+        session = FakeSession()
+        _run(
+            session,
+            _steps({"kind": "wait"}, {"kind": "done", "summary": "ok"}, seconds=seconds)[0],
+            clock=lambda: next(ticks),
+        )
+        self.assertEqual(session.deadline, 10.0 + task.MAX_SECONDS)
+        self.assertEqual(seconds, [task.MAX_SECONDS - 15.0, task.MAX_SECONDS - 20.0])
 
 
 if __name__ == "__main__":

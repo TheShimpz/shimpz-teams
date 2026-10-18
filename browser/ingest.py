@@ -1,13 +1,12 @@
 """Bring a finished Browser task's downloads into the Team's files (ADR-0117 §7).
 
 The listing `browser-host files list` answered is parsed strictly. Each complete file within the bounds is read
-exactly, typed from its bytes, marked as from the web by its digest, and only then stored as an ordinary untrusted
-Team file; every other entry gets a closed reason, so the reply can say what was not kept.
+exactly, typed from its bytes, and stored as an untrusted Team file marked as from the web in the same write; every
+other entry gets a closed reason, so the reply can say what was not kept. A Stop ends the ingest before the next file.
 """
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
@@ -64,14 +63,19 @@ def _entries(listing: Mapping[str, object]) -> tuple[list[tuple[str, int]], list
 def ingest(
     listing: Mapping[str, object],
     read: Callable[[str, int], bytes],
-    mark: Callable[[str], None],
     put: Callable[[str, bytes, str], Mapping[str, object]],
+    cancelled: Callable[[], bool],
 ) -> Ingested:
-    """Store at most 8 downloads of at most 25 MiB each, one at a time; give every other one its reason."""
+    """Store at most 8 downloads of at most 25 MiB each, one at a time; give every other one its reason.
+
+    `put` marks each file as from the web as it stores it. Once the turn is stopped, no further file is read or stored.
+    """
     named, refused, skipped = _entries(listing)
     kept: list[dict[str, object]] = []
     lost = [{"name": name, "reason": reason} for name, reason in refused]
     for index, (name, size) in enumerate(named):
+        if cancelled():
+            break
         if index >= MAX_FILES or size > MAX_FILE_BYTES:
             lost.append({"name": name, "reason": "over-limit"})
             continue
@@ -85,8 +89,6 @@ def ingest(
             break
         media_type = detect.detect(name, data).media_type
         try:
-            # The marker precedes the file, so no original from the web ever exists without it.
-            mark(hashlib.sha256(data).hexdigest())
             stored = put(name, data, media_type)
         except team_storage.StorageQuotaError:
             lost.append({"name": name, "reason": "quota-exceeded"})

@@ -72,7 +72,7 @@ def _socket_bytes(payload: bytes, *, pieces: tuple[int, ...] = ()):
 class ActionRpcFrameTests(unittest.TestCase):
     def setUp(self) -> None:
         self.local = object.__new__(local_app.LocalController)
-        self.local.browser_service, self.local.web_files = browser_fixtures.no_services()
+        self.local.browser_service = browser_fixtures.no_browser()
         wire_collaborators(self.local)
 
     def test_split_stdout_and_stderr_frames_are_read_exactly(self) -> None:
@@ -632,7 +632,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 exec_start=lambda *_args, **_kwargs: stream,
             )
             controller = object.__new__(local_app.LocalController)
-            controller.browser_service, controller.web_files = browser_fixtures.no_services()
+            controller.browser_service = browser_fixtures.no_browser()
             controller.client = SimpleNamespace(api=api)
             wire_collaborators(controller)
             controller.assistant_lifecycle._fail_stop_action = mock.Mock()
@@ -663,7 +663,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         # docker-py raises requests' ConnectionError, an OSError and no DockerException, when its socket is down.
         api.exec_inspect.side_effect = requests.exceptions.ConnectionError("socket down")
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service, controller.web_files = browser_fixtures.no_services()
+        controller.browser_service = browser_fixtures.no_browser()
         controller.client = SimpleNamespace(api=api)
         wire_collaborators(controller)
         controller.assistant_lifecycle._fail_stop_action = mock.Mock()

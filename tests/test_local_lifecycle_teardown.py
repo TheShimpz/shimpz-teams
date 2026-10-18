@@ -38,7 +38,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
     def _create_refused_by_manifest(self, events: list[object], container: object) -> local_app.ApiProblem:
         """Create one Team team_1 Assistant container whose reviewed manifest admission fails; return the refusal."""
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service, controller.web_files = browser_fixtures.no_services()
+        controller.browser_service = browser_fixtures.no_browser()
         controller.space_id = "local-space"
         controller.cpuset_cpus = "0"
         spec = SimpleNamespace(

@@ -135,6 +135,7 @@ class CuaSessionTests(unittest.TestCase):
                 {"ref": "p1:2", "role": "generic", "name": "x", "actions": ["dom_only"]},
                 {"ref": 3, "actions": ["click"]},
                 {"ref": "p1:4", "actions": "click"},
+                {"ref": "button\n", "actions": ["click"]},
                 "junk",
             ],
             "outline": '- heading "Editais"\n' + "x" * (cua.MAX_OBSERVATION_BYTES * 2),
@@ -179,6 +180,20 @@ class CuaSessionTests(unittest.TestCase):
         ]
         session, _channel = _opened(_tool(_bound()), _tool({"refs": refs}))
         self.assertEqual(len(session.observe().refs), cua.MAX_REFS)
+
+    def test_an_observation_offers_only_the_refs_it_shows_within_its_byte_bound(self):
+        refs = [
+            {"ref": f"p1:{index}", "role": "link", "name": "ç" * cua.MAX_NAME_CHARS, "actions": ["click"]}
+            for index in range(cua.MAX_REFS)
+        ]
+        session, _channel = _opened(_tool(_bound()), _tool({"page": {"url": "é" * 2048}, "refs": refs}))
+        observation = session.observe()
+        self.assertLessEqual(len(observation.text.encode()), cua.MAX_OBSERVATION_BYTES)
+        self.assertLess(len(observation.refs), cua.MAX_REFS)
+        self.assertEqual(
+            [line.split()[0] for line in observation.text.split("\nactions:\n")[1].split("\npage:\n")[0].splitlines()],
+            list(observation.refs),
+        )
 
     def test_a_requested_screenshot_is_one_bounded_png(self):
         def snapshot(content):
@@ -232,22 +247,48 @@ class CuaSessionTests(unittest.TestCase):
             ],
         )
 
-    def test_a_refused_page_action_is_not_fatal_but_a_failed_read_is(self):
+    def test_only_an_explicitly_refused_page_action_is_not_fatal(self):
         for result in (
             _tool({"effect": "refused"}),
             _tool({"status": "refused"}),
-            _tool({"x": 1}, isError=True),
-            {"result": {}},
+            _tool({"effect": "refused"}, isError=True),
         ):
             with self.subTest(result=result):
                 session, _channel = _opened(result)
                 with self.assertRaises(cua.CuaError) as raised:
                     session.click("p1:1")
                 self.assertEqual((raised.exception.code, raised.exception.fatal), ("action-refused", False))
+        # An error that names no refusal may have had an effect: the task must stop.
+        for result in (_tool({"x": 1}, isError=True), {"result": {}}, {"result": {"isError": True}}):
+            with self.subTest(result=result):
+                session, _channel = _opened(result)
+                with self.assertRaises(cua.CuaError) as raised:
+                    session.click("p1:1")
+                self.assertEqual((raised.exception.code, raised.exception.fatal), ("tool-failed", True))
         session, _channel = _opened(_tool(_bound()), _tool({}, isError=True))
         with self.assertRaises(cua.CuaError) as raised:
             session.observe()
         self.assertEqual((raised.exception.code, raised.exception.fatal), ("tool-failed", True))
+
+    def test_a_failed_channel_is_a_fatal_loss_and_no_call_outlives_the_task(self):
+        class Broken(FakeChannel):
+            def receive_line(self, deadline, limit):
+                self.deadlines.append(deadline)
+                raise OSError("closed")
+
+        channel = Broken()
+        channel.deadlines = []
+        session = cua.CuaSession(channel, clock=lambda: 100.0)
+        session.deadline = 110.0
+        with self.assertRaises(cua.CuaError) as raised:
+            session._request("initialize", {})
+        self.assertEqual(
+            (raised.exception.code, raised.exception.fatal, channel.deadlines), ("channel-lost", True, [110.0])
+        )
+        session.deadline = None
+        with self.assertRaises(cua.CuaError):
+            session._request("initialize", {})
+        self.assertEqual(channel.deadlines[-1], 100.0 + cua.CALL_SECONDS)
 
     def test_the_protocol_admits_only_the_answer_to_the_current_request(self):
         notification = json.dumps({"jsonrpc": "2.0", "method": "notifications/progress"}).encode()

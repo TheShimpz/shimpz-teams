@@ -114,6 +114,12 @@ class ChatBrowserTests(unittest.TestCase):
             ):
                 chat_orchestrator.run_until_pause(Runtime(browser_turn(), resumed), offered(), "x", strategy(runner))
 
+    def test_a_browser_call_in_the_last_round_still_ends_with_its_reply(self):
+        runtime = Runtime(browser_turn(), completed("O prazo é 30/11."))
+        last = dataclasses.replace(strategy(lambda _context, _request: (RESULT, TERMINAL)), max_rounds=0)
+        outcome = chat_orchestrator.run_until_pause(runtime, offered(), "prazo?", last)
+        self.assertEqual((outcome.reply, outcome.browser), ("O prazo é 30/11.", TERMINAL))
+
     def test_stop_during_the_task_ends_the_turn_before_the_brain_resumes(self):
         stopped = [False]
 

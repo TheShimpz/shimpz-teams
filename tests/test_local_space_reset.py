@@ -29,7 +29,7 @@ from local.errors import ApiProblemError
 def _controller(events: list[object], assistants: dict[str, object], networks: list[object]):
     """A bare Local controller whose Space reset reaches only these Assistants and networks."""
     controller = object.__new__(local_app.LocalController)
-    controller.browser_service, controller.web_files = browser_fixtures.no_services()
+    controller.browser_service = browser_fixtures.no_browser()
     controller.space_id = "local-space"
     controller.chat_continuations = SimpleNamespace(clear=lambda: 0)
     controller.integration_challenges = integration_challenges.IntegrationChallengeStore()

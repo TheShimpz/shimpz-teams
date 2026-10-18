@@ -55,7 +55,7 @@ def runtime_resolution() -> dict[str, object]:
 def _publication_controller(directory: str) -> local_app.LocalController:
     """A Local controller with an empty durable registry and a Developers peer that serves the fixture icon."""
     controller = object.__new__(local_app.LocalController)
-    controller.browser_service, controller.web_files = browser_fixtures.no_services()
+    controller.browser_service = browser_fixtures.no_browser()
     controller.registry = AssistantRegistry(
         DynamicAssistantStore(Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record)
     )

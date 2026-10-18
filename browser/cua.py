@@ -16,6 +16,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from protocol.http.v1 import browser as browser_protocol
+
 PROTOCOL_VERSION = "2025-06-18"
 # The one lifecycle session label every call of a task carries; refs belong to it.
 SESSION = "task"
@@ -38,12 +40,16 @@ MAX_NAME_CHARS = 120
 CALL_SECONDS = 30.0
 SCROLL_PIXELS = 600
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-# A refused page action leaves the Browser usable and the agent may try another; any other failure ends the task.
+# A page action the Driver explicitly refused leaves the Browser usable and the agent may try another; any other
+# failure, an error that names no refusal included, may have had an effect and ends the task.
 ACTIONS = frozenset({"browser_navigate", "browser_click", "browser_type", "browser_pointer"})
 
 
 class Channel(Protocol):
-    """A byte channel to the Cua Driver's stdio: whole writes, and one bounded line before an absolute deadline."""
+    """A byte channel to the Cua Driver's stdio: whole writes, and one bounded line before an absolute deadline.
+
+    Either raises OSError when the channel failed, closed, or missed the deadline.
+    """
 
     def send(self, data: bytes) -> None: ...
 
@@ -84,6 +90,8 @@ class CuaSession:
     def __init__(self, channel: Channel, clock: Callable[[], float] = time.monotonic) -> None:
         self._channel = channel
         self._clock = clock
+        # The task's absolute deadline, which no call outlives; set by the task loop.
+        self.deadline: float | None = None
         self._identifier = 0
         self._window: dict[str, object] | None = None
         self._target: tuple[str, str] | None = None
@@ -138,24 +146,12 @@ class CuaSession:
         )
         page = state.get("page") if isinstance(state.get("page"), dict) else {}
         url, title = _clean(page.get("url"), 2048), _clean(page.get("title"), 300)
-        refs: dict[str, frozenset[str]] = {}
-        lines: list[str] = []
-        for entry in state.get("refs") or ():
-            if len(refs) >= MAX_REFS or not isinstance(entry, dict):
-                break
-            ref, actions = entry.get("ref"), entry.get("actions")
-            if not isinstance(ref, str) or not isinstance(actions, list):
-                continue
-            admitted = frozenset(action for action in actions if action in {"click", "type", "scroll", "pointer"})
-            if not admitted:
-                continue
-            refs[ref] = admitted
-            role, name = _clean(entry.get("role"), 32), _clean(entry.get("name"), MAX_NAME_CHARS)
-            lines.append(f'{_clean(ref, 32)} {role} "{name}" ({", ".join(sorted(admitted))})')
+        head = f"url: {url}\ntitle: {title}\nactions:\n"
+        refs, lines = _refs(state.get("refs"), MAX_OBSERVATION_BYTES - len(head.encode()) - len(b"\npage:\n"))
         outline = state.get("outline") if isinstance(state.get("outline"), str) else ""
-        head = f"url: {url}\ntitle: {title}\nactions:\n" + "\n".join(lines) + "\npage:\n"
-        room = max(0, MAX_OBSERVATION_BYTES - len(head.encode()))
-        text = head + outline.encode()[:room].decode(errors="ignore")
+        text = head + "\n".join(lines) + "\npage:\n"
+        room = MAX_OBSERVATION_BYTES - len(text.encode())
+        text += outline.encode()[:room].decode(errors="ignore")
         return Observation(url, title, text, refs, state.get("_screenshot") if screenshot else None)
 
     def navigate(self, url: str) -> None:
@@ -174,8 +170,7 @@ class CuaSession:
         self._act("browser_pointer", {**self._tab(), **scroll})
 
     def _act(self, tool: str, arguments: dict[str, object]) -> None:
-        result = self._call(tool, arguments)
-        if result.get("effect") == "refused" or result.get("status") == "refused":
+        if _refused(self._call(tool, arguments)):
             raise CuaError("action-refused", fatal=False)
 
     def _call(self, tool: str, arguments: dict[str, object], *, images: bool = False) -> dict[str, object]:
@@ -184,7 +179,9 @@ class CuaSession:
         result = self._request("tools/call", {"name": tool, "arguments": arguments})
         structured = result.get("structuredContent")
         if result.get("isError") is True or not isinstance(structured, dict):
-            raise CuaError("action-refused", fatal=False) if tool in ACTIONS else CuaError("tool-failed")
+            if tool in ACTIONS and isinstance(structured, dict) and _refused(structured):
+                raise CuaError("action-refused", fatal=False)
+            raise CuaError("tool-failed")
         if images:
             structured = {**structured, "_screenshot": _screenshot(result.get("content"))}
         return structured
@@ -193,8 +190,16 @@ class CuaSession:
         self._identifier += 1
         identifier = self._identifier
         message = {"jsonrpc": "2.0", "id": identifier, "method": method, "params": params}
-        self._channel.send(json.dumps(message, separators=(",", ":")).encode() + b"\n")
         deadline = self._clock() + CALL_SECONDS
+        if self.deadline is not None:
+            deadline = min(deadline, self.deadline)
+        try:
+            self._channel.send(json.dumps(message, separators=(",", ":")).encode() + b"\n")
+            return self._answer(identifier, deadline)
+        except OSError as exc:
+            raise CuaError("channel-lost") from exc
+
+    def _answer(self, identifier: int, deadline: float) -> dict[str, object]:
         while True:
             line = self._channel.receive_line(deadline, MAX_MESSAGE_BYTES)
             try:
@@ -210,6 +215,39 @@ class CuaSession:
             if "error" in answer or not isinstance(answer.get("result"), dict):
                 raise CuaError("protocol-error")
             return answer["result"]
+
+
+def _refused(structured: dict[str, object]) -> bool:
+    """Whether the Driver's answer names an explicit refusal of the action, which had no effect."""
+    return structured.get("effect") == "refused" or structured.get("status") == "refused"
+
+
+def _refs(entries: object, budget: int) -> tuple[dict[str, frozenset[str]], list[str]]:
+    """The refs the observation offers and their lines, within `budget` UTF-8 bytes: only a ref shown is offered.
+
+    A ref outside the protocol's form is never offered, since no step could name it.
+    """
+    refs: dict[str, frozenset[str]] = {}
+    lines: list[str] = []
+    for entry in entries if isinstance(entries, list) else ():
+        if len(refs) >= MAX_REFS or not isinstance(entry, dict):
+            break
+        ref, actions = entry.get("ref"), entry.get("actions")
+        if not isinstance(ref, str) or not browser_protocol.REF_RE.fullmatch(ref) or not isinstance(actions, list):
+            continue
+        admitted = frozenset(action for action in actions if action in {"click", "type", "scroll", "pointer"})
+        if not admitted:
+            continue
+        role, name = _clean(entry.get("role"), 32), _clean(entry.get("name"), MAX_NAME_CHARS)
+        line = f'{ref} {role} "{name}" ({", ".join(sorted(admitted))})'
+        # Each line costs its bytes and the newline that joins it.
+        cost = len(line.encode()) + 1
+        if cost > budget:
+            break
+        budget -= cost
+        refs[ref] = admitted
+        lines.append(line)
+    return refs, lines
 
 
 def _screenshot(content: object) -> bytes | None:

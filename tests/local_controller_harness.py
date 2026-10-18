@@ -41,7 +41,11 @@ TEST_ASSISTANT_VERSION = "0.1.0"
 
 # A Local Team without a usable Browser image: no turn is offered the Browser, and teardown has none to remove.
 NO_BROWSER = SimpleNamespace(
-    available=False, remove_team=lambda _team_id: None, clean=lambda: None, startup=lambda: True
+    available=False,
+    remove_team=lambda _team_id: None,
+    clean=lambda: None,
+    startup=lambda: True,
+    interrupt=lambda _team_id: None,
 )
 
 

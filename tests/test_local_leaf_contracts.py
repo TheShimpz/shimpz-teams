@@ -187,6 +187,7 @@ class LocalLeafContractTests(unittest.TestCase):
             _active_action_containers={"team_1": ("token", container)},
             _brain_aborts={"token": (brain_abort := mock.Mock())},
             _routine_holders={},
+            _interrupt_browser=mock.Mock(),
         )
         result = chat_resume.stop_chat(controller, "team_1")
         self.assertTrue(result["accepted"])

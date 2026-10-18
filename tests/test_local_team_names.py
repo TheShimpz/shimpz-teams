@@ -12,6 +12,7 @@ from unittest import mock
 
 from local import lifecycle as local_lifecycle
 from local import names as local_names
+from local.browser.runtime import BrowserError
 from local.errors import ApiProblemError as ApiProblem
 from local.labels import TEAM_LABEL, TEAM_NAME_LABEL
 from local.routine import proposal as routine_proposal
@@ -124,6 +125,7 @@ class NamedTeamCase(unittest.TestCase):
             team_names=local_names.TeamNameStore(Path(directory.name) / "inference"),
             storage=types.SimpleNamespace(destroy=mock.Mock()),
             inference_store=types.SimpleNamespace(delete=mock.Mock()),
+            browser_service=types.SimpleNamespace(remove_team=mock.Mock()),
             routine_recordings=routine_recorder.RecordingBook(),
             routine_proposals=routine_proposal.ProposalBook(),
             client=types.SimpleNamespace(networks=types.SimpleNamespace(create=self.create_network)),
@@ -285,6 +287,14 @@ class CreateTests(NamedTeamCase):
         self.assertTrue(created["created"])
         self.assertIsNone(self.controller.team_names.load("team_c", "c" * 64))
         self.assertEqual(self.controller.team_names.load("team_c", NETWORK_A), None)
+
+    def test_a_new_incarnation_never_runs_beside_a_browser_its_id_left(self) -> None:
+        self.call(local_names.create_team, "team_c", "Research")
+        self.controller.browser_service.remove_team.assert_called_once_with("team_c")
+        self.controller.browser_service.remove_team.side_effect = BrowserError("browser-lost")
+        self.assertEqual(self.problem(local_names.create_team, "team_d", "Sales"), "docker-remove-failed")
+        self.assertNotIn("team_d", self.networks)
+        self.assertEqual(self.controller.storage.destroy.call_count, 1)
 
 
 class ConfirmedDeletionTests(NamedTeamCase):

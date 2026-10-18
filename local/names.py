@@ -14,8 +14,9 @@ from pathlib import Path
 from docker.errors import APIError
 
 from inference import config as inference_config
+from local.browser.runtime import BrowserError
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import ownership_conflict
+from local.errors import ownership_conflict, team_destroy_failed
 from local.labels import TEAM_LABEL, TEAM_NAME_LABEL
 from local.validation import docker_instant_ns, validate_team_id
 from protocol.http.v1 import payload as http_payload
@@ -180,6 +181,11 @@ def create_team(self, team_id: str, team_name: str) -> dict[str, object]:
         if existing is not None:
             return _existing(self, team_id, team_name, existing)
         _require_free(self, team_name, team_id)
+        try:
+            # A Browser a previous incarnation left never runs beside this one (ADR-0117 §8.3).
+            self.browser_service.remove_team(team_id)
+        except BrowserError as exc:
+            raise team_destroy_failed() from exc
         try:
             # A Team identity starts empty even after a daemon crash removed its network
             # before the previous lifecycle could clean the dedicated storage volume.

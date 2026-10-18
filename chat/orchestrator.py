@@ -265,9 +265,8 @@ def _drive(
         if strategy.cancelled():
             raise ChatStoppedError("chat turn stopped")
         if turn.status == "browser-required":
-            # A Browser result admits only the reply, so a second Browser call never reaches here (ADR-0117 §6).
+            # A Browser result admits only the reply, so the completed turn ends in this same round (ADR-0117 §6).
             turn, browser = _run_browser(runtime, context, turn, strategy)
-            continue
         if turn.status == "completed":
             if turn.clarification is not None and (_round > 0 or invoked):
                 # A question is only admissible before any Action of the logical turn ran (ADR-0081).

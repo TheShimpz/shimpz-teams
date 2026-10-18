@@ -2,13 +2,16 @@
 
 Team acquires the Space's one Browser on a fresh egress generation, opens the Cua Driver's MCP session, runs the
 task loop with the turn's Admin-delivered key, ingests the downloads, and always releases the Browser, which removes
-it and ends its egress generation. Each task is audited with its Team, container, Browser address, and egress
-generation, never a URL or page text.
+it and ends its egress generation. A Browser that could not be proven removed fails the task. Stop removes the running
+Browser at once, so none of its calls reaches the page again. Each task is audited with its Team and incarnation, the
+container, the Browser address, and the egress process and generation its audit lines carry, never a URL or page text.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import threading
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 
 from browser import cua
@@ -19,14 +22,14 @@ from inference.errors import BrainRuntimeError
 from local import audit as local_audit
 from local.browser.runtime import BrowserError, BrowserRuntime, Lease
 from storage import files as team_storage
-from storage import web as team_web
 
 
 @dataclass(frozen=True, slots=True)
 class BrowserTurn:
-    """What one turn's task runs with: its Team, language, the Brain client, and the turn's Stop."""
+    """What one turn's task runs with: its Team and incarnation, language, the Brain client, and the turn's Stop."""
 
     team_id: str
+    incarnation: str
     locale: str | None
     runtime: brain_runtime_client.BrainRuntimeClient
     cancelled: Callable[[], bool]
@@ -40,10 +43,12 @@ def language(locale: str | None) -> str:
 class BrowserService:
     """Runs Browser tasks for chat turns against the Local Docker runtime and the Team's file store."""
 
-    def __init__(self, runtime: BrowserRuntime, storage: team_storage.TeamStorage, web: team_web.WebFiles) -> None:
+    def __init__(self, runtime: BrowserRuntime, storage: team_storage.TeamStorage) -> None:
         self._runtime = runtime
         self._storage = storage
-        self._web = web
+        self._guard = threading.Lock()
+        # The lease each Team's running task holds, so its Stop can reach it.
+        self._running: dict[str, Lease] = {}
 
     @property
     def available(self) -> bool:
@@ -58,6 +63,25 @@ class BrowserService:
     def clean(self) -> None:
         self._runtime.clean()
 
+    def interrupt(self, team_id: str) -> None:
+        """Stop: remove the Team's running Browser at once; its task then ends stopped and its release proves it."""
+        with self._guard:
+            lease = self._running.get(team_id)
+        if lease is not None:
+            # A failed removal leaves the release to prove it, which keeps the Space refusing tasks until it does.
+            with suppress(BrowserError):
+                self._runtime.kill(lease)
+
+    @contextmanager
+    def _held(self, lease: Lease) -> Iterator[None]:
+        with self._guard:
+            self._running[lease.team_id] = lease
+        try:
+            yield
+        finally:
+            with self._guard:
+                self._running.pop(lease.team_id, None)
+
     def run(
         self,
         turn: BrowserTurn,
@@ -71,17 +95,21 @@ class BrowserService:
         except BrowserError as exc:
             local_audit.record_request("browser-task", result="denied", team_id=turn.team_id, detail=exc.code)
             return _result(browser_task.Outcome("failed", reason=exc.code), None), _terminal(None)
-        _audit(turn.team_id, lease, "started")
         outcome, ingested = browser_task.Outcome("failed", reason="browser-lost"), None
+        # From the moment it is held, the lease is released however the task ends, its audit included.
         try:
-            outcome = self._task(turn, context, request, lease, page_language)
-            if outcome.status != "stopped":
-                ingested = self._ingest(turn.team_id, lease)
+            with self._held(lease):
+                _audit(turn, lease, "started")
+                outcome = self._task(turn, context, request, lease, page_language)
+                if outcome.status != "stopped" and not turn.cancelled():
+                    ingested = self._ingest(turn, lease)
         except BrowserError, cua.CuaError, browser_ingest.ListingError:
             outcome = browser_task.Outcome("failed", reason="browser-lost", steps=outcome.steps)
         finally:
             released = self._release(lease)
-            _audit(turn.team_id, lease, f"{outcome.status}:steps={outcome.steps}:released={int(released)}")
+            _audit(turn, lease, f"{outcome.status}:steps={outcome.steps}:released={int(released)}")
+        if not released:
+            outcome = browser_task.Outcome("failed", reason="browser-lost", steps=outcome.steps)
         return _result(outcome, ingested), _terminal(ingested)
 
     def _task(
@@ -95,15 +123,17 @@ class BrowserService:
         session = cua.CuaSession(self._runtime.open_stream(lease))
         session.open()
 
-        def step(payload):
+        def step(payload, seconds: float):
             try:
-                return turn.runtime.browser_step(context, payload)
+                return turn.runtime.browser_step(context, payload, deadline=seconds)
             except BrainRuntimeError as exc:
                 raise browser_task.StepFailedError(str(exc)) from exc
 
-        return browser_task.Task(request.objective, page_language, session, step, turn.cancelled).run()
+        return browser_task.Task(
+            request.objective, page_language, session, step, turn.cancelled, lambda: self._runtime.intact(lease)
+        ).run()
 
-    def _ingest(self, team_id: str, lease: Lease) -> browser_ingest.Ingested:
+    def _ingest(self, turn: BrowserTurn, lease: Lease) -> browser_ingest.Ingested:
         def read(name: str, size: int) -> bytes:
             try:
                 return self._runtime.read(lease, name, size)
@@ -113,8 +143,8 @@ class BrowserService:
         return browser_ingest.ingest(
             self._runtime.files(lease),
             read,
-            lambda digest: self._web.mark(team_id, digest),
-            lambda name, data, media_type: self._storage.put(team_id, name, data, media_type),
+            lambda name, data, media_type: self._storage.put(turn.team_id, name, data, media_type, web=True),
+            turn.cancelled,
         )
 
     def _release(self, lease: Lease) -> bool:
@@ -126,10 +156,13 @@ class BrowserService:
         return True
 
 
-def _audit(team_id: str, lease: Lease, state: str) -> None:
-    egress_id, started = lease.egress
-    detail = f"{state}:container={lease.container_id[:12]}:address={lease.address}:egress={egress_id[:12]}@{started}"
-    local_audit.record_request("browser-task", result="ok", team_id=team_id, detail=detail)
+def _audit(turn: BrowserTurn, lease: Lease, state: str) -> None:
+    egress = lease.egress
+    detail = (
+        f"{state}:incarnation={turn.incarnation[:12]}:container={lease.container_id[:12]}:address={lease.address}"
+        f":egress={egress.container_id[:12]}@{egress.started}:generation={egress.generation}"
+    )
+    local_audit.record_request("browser-task", result="ok", team_id=turn.team_id, detail=detail)
 
 
 def _result(outcome: browser_task.Outcome, ingested: browser_ingest.Ingested | None) -> dict[str, object]:

@@ -146,7 +146,7 @@ COPY --link protocol/assistant/v1/validators/action_effect.py protocol/assistant
 COPY --link action/__init__.py action/challenges.py action/dispatch.py action/execution.py action/failure.py \
     action/frames.py action/files.py action/human.py action/journal.py action/provider.py action/result.py \
     action/stored_input.py ./action/
-COPY --link storage/__init__.py storage/files.py storage/private_state.py storage/web.py ./storage/
+COPY --link storage/__init__.py storage/files.py storage/private_state.py ./storage/
 COPY --link browser/__init__.py browser/cua.py browser/ingest.py browser/task.py ./browser/
 # The seccomp profile Team gives every Browser container (ADR-0117 §3.2).
 COPY --link browser/image/seccomp.json ./browser/image/

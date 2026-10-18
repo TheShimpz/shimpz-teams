@@ -550,7 +550,7 @@ class LocalLifecycleTests(LocalContractCase):
     def test_new_assistant_gets_its_egress_before_create_and_is_admitted_before_start(self) -> None:
         events: list[object] = []
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service, controller.web_files = browser_fixtures.no_services()
+        controller.browser_service = browser_fixtures.no_browser()
         controller.space_id = "local-space"
         controller.cpuset_cpus = "0"
         spec = SimpleNamespace(
@@ -590,7 +590,7 @@ class LocalLifecycleTests(LocalContractCase):
 
     def test_local_admission_reviews_hosts_and_integrations(self) -> None:
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service, controller.web_files = browser_fixtures.no_services()
+        controller.browser_service = browser_fixtures.no_browser()
         wire_collaborators(controller)
         reviewed_contracts: list[local_app.assistant_manifest.ManifestContract] = []
 

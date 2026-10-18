@@ -38,12 +38,15 @@ class LocalStopCleanupFailureTests(unittest.TestCase):
             oauth_pkce=SimpleNamespace(cancel_team=mock.Mock()),
             _delete_withdrawn_continuation=mock.Mock(side_effect=delete),
             _purge_human_pending=mock.Mock(side_effect=purge),
+            _interrupt_browser=mock.Mock(),
         )
 
     def _assert_interrupted(self, service: SimpleNamespace) -> None:
         self.assertEqual(service._cancelled_chat_tokens, {TOKEN})
         service._brain_aborts[TOKEN].abort.assert_called_once_with()
         service.assistant_lifecycle._fail_stop_action.assert_called_once_with("action-container")
+        # The stopped turn's Browser, if it runs one, is removed however the cleanup ended.
+        service._interrupt_browser.assert_called_once_with("team_1")
 
     def test_a_failing_continuation_deletion_still_interrupts_the_turn(self) -> None:
         failure = ApiProblem(HTTPStatus.SERVICE_UNAVAILABLE, "chat state is unavailable", code="unavailable")

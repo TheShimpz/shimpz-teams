@@ -3,6 +3,8 @@
 Each step sends the Brain operation `browser-step` the objective, the language, the bounded history, and the current
 bounded observation, admits exactly one step from the closed set, checks a targeted ref against the observation it
 was chosen from, executes it, and loops, until `done`, `needs_person`, Stop, a budget, or a failure ends the task.
+Before every Brain call and every page action the task proves it may continue: no Stop, time and a step's token reserve
+left, and the Browser still on the egress process it started on. No call outlives the task's deadline.
 """
 
 from __future__ import annotations
@@ -19,6 +21,9 @@ MAX_STEPS = 40
 MAX_SECONDS = 600.0
 # Input tokens the Brain may spend for one task, across its steps; about US$0.25 on the pinned Browser models.
 MAX_INPUT_TOKENS = 400_000
+# The most input tokens one step can take: its bounded observation, one screenshot, the history, and the prompt. A step
+# is asked only while this much budget remains.
+STEP_INPUT_RESERVE = 16_000
 SCREENSHOT_EVERY = 3
 WAIT_SECONDS = 2.0
 # Which observed action a step needs on the ref it names.
@@ -48,18 +53,20 @@ class StepFailedError(RuntimeError):
     """The Brain could not answer a step; the task fails without another attempt."""
 
 
-Step = Callable[[Mapping[str, object]], tuple[object, int]]
+# One `browser-step` request and the seconds left for it, answered with the raw step and its input tokens.
+Step = Callable[[Mapping[str, object], float], tuple[object, int]]
 
 
 @dataclass(slots=True)
 class Task:
-    """One task's loop; `step` answers one `browser-step` request with the raw step and its input tokens."""
+    """One task's loop; `intact` says whether the Browser still runs on the egress process it started on."""
 
     objective: str
     language: str
     session: cua.CuaSession
     step: Step
     cancelled: Callable[[], bool]
+    intact: Callable[[], bool]
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
     budget: Budget = field(default_factory=Budget)
@@ -70,17 +77,24 @@ class Task:
     def run(self) -> Outcome:
         """Run the task to its end."""
         deadline = self.clock() + self.budget.seconds
+        self.session.deadline = deadline
         for index in range(self.budget.steps):
-            if self.cancelled():
-                return Outcome("stopped", steps=index)
-            if self.clock() >= deadline or self.budget.spent >= self.budget.input_tokens:
-                return Outcome("budget", steps=index)
-            ended = self._turn(index)
+            ended = self._halted(index, deadline, STEP_INPUT_RESERVE) or self._turn(index, deadline)
             if ended is not None:
                 return ended
         return Outcome("budget", steps=self.budget.steps)
 
-    def _turn(self, index: int) -> Outcome | None:
+    def _halted(self, steps: int, deadline: float, reserve: int) -> Outcome | None:
+        """Why the task makes no further call: Stop, no time or `reserve` tokens left, or a Browser no longer intact."""
+        if self.cancelled():
+            return Outcome("stopped", steps=steps)
+        if self.clock() >= deadline or self.budget.spent + reserve > self.budget.input_tokens:
+            return Outcome("budget", steps=steps)
+        if not self.intact():
+            return Outcome("failed", reason="browser-lost", steps=steps)
+        return None
+
+    def _turn(self, index: int, deadline: float) -> Outcome | None:
         """Observe, ask for one step, and act on it; the outcome that ends the task, or None to continue."""
         try:
             observation = self.session.observe(screenshot=self.wants_screenshot)
@@ -88,14 +102,31 @@ class Task:
             return Outcome("failed", reason="browser-lost", steps=index)
         if self.wants_screenshot:
             self.screenshot_at, self.wants_screenshot = index, False
+        decision = self._decide(index, deadline, observation)
+        if isinstance(decision, Outcome):
+            return decision
+        return self._act(index, decision, observation)
+
+    def _decide(self, index: int, deadline: float, observation: cua.Observation) -> Outcome | dict[str, object]:
+        """The page step the Brain chose, admitted only while the task may still act on it, or how the task ends."""
+        ended = self._halted(index, deadline, STEP_INPUT_RESERVE)
+        if ended is not None:
+            return ended
         try:
-            raw, tokens = self.step(self._request(observation))
+            raw, tokens = self.step(self._request(observation), deadline - self.clock())
         except StepFailedError:
+            # Stop aborts the Brain request in flight, which then fails: that task was stopped, not failed.
+            if self.cancelled():
+                return Outcome("stopped", steps=index)
             return Outcome("failed", reason="model-unavailable", steps=index)
         self.budget.spent += max(0, tokens)
         decision = browser_protocol.canonical_step(raw)
         if decision is None or decision["kind"] in {"done", "needs_person"}:
             return _terminal(decision, index + 1)
+        return self._halted(index + 1, deadline, 0) or decision
+
+    def _act(self, index: int, decision: dict[str, object], observation: cua.Observation) -> Outcome | None:
+        """Run one admitted page step and record its outcome; the outcome that ends the task, or None."""
         if decision["kind"] == "screenshot":
             self.wants_screenshot = index - self.screenshot_at >= SCREENSHOT_EVERY
             outcome = "ok" if self.wants_screenshot else "refused"

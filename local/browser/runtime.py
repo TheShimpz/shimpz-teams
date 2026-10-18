@@ -50,6 +50,8 @@ EGRESS_SECONDS = 30.0
 PROGRAM_SECONDS = 30.0
 SECCOMP = Path(__file__).resolve().parents[2] / "browser" / "image" / "seccomp.json"
 LANGUAGE_RE = re.compile(r"[a-z]{2}(?:-[A-Z]{2})?")
+# What the egress healthcheck prints: the random generation of the process that accepted its connection.
+GENERATION_RE = re.compile(r"([0-9a-f]{32})\n?")
 
 
 class BrowserError(RuntimeError):
@@ -61,13 +63,22 @@ class BrowserError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class Generation:
+    """One egress process: its container, the start Docker recorded, and the random id its audit lines carry."""
+
+    container_id: str
+    started: str
+    generation: str
+
+
+@dataclass(frozen=True, slots=True)
 class Lease:
     """One running Browser: its Team, container, address, and the egress generation it runs on."""
 
     team_id: str
     container_id: str
     address: str
-    egress: tuple[str, str]
+    egress: Generation
 
 
 def browser_image(labels: object) -> str | None:
@@ -85,6 +96,13 @@ def own_browser_image(client) -> str | None:
         return None
     attrs = image.attrs if isinstance(image.attrs, dict) else {}
     return browser_image((attrs.get("Config") or {}).get("Labels"))
+
+
+def _network_address(networks: dict) -> str:
+    address = (networks.get(NETWORK) or {}).get("IPAddress")
+    if not isinstance(address, str) or not address:
+        raise BrowserError("browser-unavailable")
+    return address
 
 
 class BrowserRuntime:
@@ -109,7 +127,7 @@ class BrowserRuntime:
         self._sleep = sleep
         self._slot = threading.Lock()
         # The egress generation an earlier task ran on, which no later task may share; unknown after a Team start.
-        self._used: tuple[str, str] | None = None
+        self._used: Generation | None = None
         self._dirty = True
 
     @property
@@ -222,43 +240,76 @@ class BrowserRuntime:
             raise BrowserError("browser-unavailable")
         return egress
 
-    def _generation(self, egress) -> tuple[str, str]:
+    def _generation(self, egress) -> Generation:
+        """The running, healthy egress process, named by the generation its latest passing probe printed."""
         state = egress.attrs.get("State") or {}
-        health = (state.get("Health") or {}).get("Status")
+        health = state.get("Health") or {}
         started = state.get("StartedAt")
-        if state.get("Running") is not True or health != "healthy" or not isinstance(started, str):
+        probes = health.get("Log")
+        latest = probes[-1] if isinstance(probes, list) and probes and isinstance(probes[-1], dict) else {}
+        output = latest.get("Output")
+        printed = GENERATION_RE.fullmatch(output) if isinstance(output, str) else None
+        if (
+            state.get("Running") is not True
+            or health.get("Status") != "healthy"
+            or not isinstance(started, str)
+            or latest.get("ExitCode") != 0
+            or printed is None
+        ):
             raise BrowserError("browser-unavailable")
-        return egress.id, started
+        return Generation(egress.id, started, printed[1])
 
-    def _restart_egress(self) -> tuple[str, str]:
-        egress = self._egress()
+    def _restart_egress(self) -> Generation:
+        """Restart the egress and wait for a new process's own healthy probe: a probe of the old one never counts."""
+        before = self._egress()
         try:
-            egress.restart(timeout=5)
+            earlier = self._generation(before)
+        except BrowserError:
+            earlier = None
+        try:
+            before.restart(timeout=5)
         except DockerException as exc:
             raise BrowserError("browser-unavailable") from exc
         deadline = self._clock() + EGRESS_SECONDS
         while True:
-            egress = self._egress()
             try:
-                return self._generation(egress)
+                current = self._generation(self._egress())
+                if earlier is None or (current.started != earlier.started and current.generation != earlier.generation):
+                    return current
             except BrowserError:
-                if self._clock() >= deadline:
-                    raise
-                self._sleep(0.2)
+                pass
+            if self._clock() >= deadline:
+                raise BrowserError("browser-unavailable")
+            self._sleep(0.2)
 
-    def _fresh_egress(self) -> tuple[str, str]:
+    def _fresh_egress(self) -> Generation:
         generation = self._generation(self._egress())
         return self._restart_egress() if generation == self._used else generation
 
-    def _address(self, container) -> str:
-        networks = (container.attrs.get("NetworkSettings") or {}).get("Networks") or {}
-        address = (networks.get(NETWORK) or {}).get("IPAddress")
-        if set(networks) != {NETWORK} or not isinstance(address, str) or not address:
-            raise BrowserError("browser-unavailable")
-        return address
+    def intact(self, lease: Lease) -> bool:
+        """Whether the lease's Browser still runs on the very egress process it started on (ADR-0117 §4.3)."""
+        try:
+            current = self._generation(self._egress())
+            container = self._client.containers.get(lease.container_id)
+            container.reload()
+        except BrowserError, DockerException:
+            return False
+        return current == lease.egress and (container.attrs.get("State") or {}).get("Running") is True
 
-    def _create(self, team_id: str, language: str, egress: tuple[str, str]) -> Lease:
-        proxy = self._address(self._egress())
+    def kill(self, lease: Lease) -> None:
+        """Remove the lease's Browser at once, for Stop; its task's release proves the removal and frees the slot."""
+        self._remove(lease.container_id)
+
+    def _address(self, container) -> str:
+        """The Browser's address on the Browser network, which must be its only network."""
+        networks = (container.attrs.get("NetworkSettings") or {}).get("Networks") or {}
+        if set(networks) != {NETWORK}:
+            raise BrowserError("browser-unavailable")
+        return _network_address(networks)
+
+    def _create(self, team_id: str, language: str, egress: Generation) -> Lease:
+        # The egress has its outbound network too; the Browser reaches it only on the Browser network.
+        proxy = _network_address((self._egress().attrs.get("NetworkSettings") or {}).get("Networks") or {})
         labels = {**local_labels.ownership_labels(self._space_id, KIND, team_id), local_labels.IMAGE_LABEL: self._image}
         try:
             image = self._client.images.get(self._image)

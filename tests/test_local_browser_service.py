@@ -9,10 +9,12 @@ from inference import client as brain_runtime_client
 from inference.errors import BrainRuntimeError
 from local import audit as local_audit
 from local.browser import runtime, service
+from local.chat import segment as local_chat_segment
 from storage import files as team_storage
 
-LEASE = runtime.Lease("team_1", "c" * 64, "172.30.0.9", ("e" * 64, "2026-10-17T00:00:01Z"))
+LEASE = runtime.Lease("team_1", "c" * 64, "172.30.0.9", runtime.Generation("e" * 64, "2026-10-17T00:00:01Z", "9" * 32))
 CONTEXT = brain_runtime_client.RuntimeContext("thread", "Team", (), "openai", "gpt-6-luna", "test-key")
+STOPPED_TURN = "0" * 32
 REQUEST = brain_runtime_client.BrowserRequest("interrupt-1", "Veja o prazo do edital.")
 
 
@@ -22,6 +24,7 @@ class FakeRuntime:
         self.listing = listing or {"files": [], "refused": [], "skipped": 0}
         self.contents = contents or {}
         self.available = True
+        self.kill_error = False
         self.events = []
 
     def acquire(self, team_id, language):
@@ -44,6 +47,14 @@ class FakeRuntime:
             raise runtime.BrowserError("browser-lost")
         return self.contents[name]
 
+    def intact(self, lease):
+        return True
+
+    def kill(self, lease):
+        self.events.append(("kill", lease.container_id))
+        if self.kill_error:
+            raise runtime.BrowserError("browser-lost")
+
     def release(self, lease):
         self.events.append(("release", lease.container_id))
         if self.release_error:
@@ -63,17 +74,9 @@ class FakeStorage:
     def __init__(self):
         self.stored = []
 
-    def put(self, team_id, name, data, media_type):
-        self.stored.append((team_id, name, media_type))
+    def put(self, team_id, name, data, media_type, *, web=False):
+        self.stored.append((team_id, name, media_type, web))
         return {"id": "f" * 32, "name": name, "media_type": media_type, "size": len(data), "sha256": "x"}
-
-
-class FakeWeb:
-    def __init__(self):
-        self.marked = []
-
-    def mark(self, team_id, digest):
-        self.marked.append((team_id, digest))
 
 
 class FakeSession:
@@ -98,11 +101,11 @@ class BrowserServiceTests(unittest.TestCase):
         session.start()
         self.addCleanup(session.stop)
         self.brain = mock.Mock()
-        self.turn = service.BrowserTurn("team_1", "pt-BR", self.brain, lambda: False)
+        self.turn = service.BrowserTurn("team_1", "d" * 64, "pt-BR", self.brain, lambda: False)
 
     def make(self, fake):
-        self.runtime, self.storage, self.web = fake, FakeStorage(), FakeWeb()
-        return service.BrowserService(fake, self.storage, self.web)
+        self.runtime, self.storage = fake, FakeStorage()
+        return service.BrowserService(fake, self.storage)
 
     def run_with(self, browser_service, outcome):
         with mock.patch.object(service.browser_task.Task, "run", return_value=outcome):
@@ -139,10 +142,14 @@ class BrowserServiceTests(unittest.TestCase):
             self.runtime.events,
             [("acquire", "team_1", "pt-BR"), ("stream", LEASE.container_id), ("release", LEASE.container_id)],
         )
-        self.assertEqual(len(self.web.marked), 1)
+        self.assertEqual(self.storage.stored, [("team_1", "edital.pdf", "application/pdf", True)])
         details = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"]
-        self.assertTrue(details[0].startswith("started:container=cccccccccccc:address=172.30.0.9:egress=eeeeeeeeeeee@"))
-        self.assertTrue(details[1].startswith("done:steps=4:released=1"))
+        self.assertEqual(
+            details[0],
+            "started:incarnation=dddddddddddd:container=cccccccccccc:address=172.30.0.9"
+            f":egress=eeeeeeeeeeee@2026-10-17T00:00:01Z:generation={'9' * 32}",
+        )
+        self.assertTrue(details[1].startswith("done:steps=4:released=1:incarnation=dddddddddddd"))
         self.assertNotIn("edital", json.dumps(self.audit))
 
     def test_a_stopped_task_ingests_nothing_and_a_needs_person_task_says_why(self):
@@ -180,6 +187,10 @@ class BrowserServiceTests(unittest.TestCase):
         self.assertEqual(result, {"status": "failed", "reason": "browser-lost", "files": []})
         detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
         self.assertTrue(detail.startswith("failed:steps=1:released=0"))
+        # A Browser that could not be proven removed never ends its task as done, whatever it found.
+        unreleased = self.make(FakeRuntime(release="browser-lost"))
+        result, _terminal = self.run_with(unreleased, task.Outcome("done", summary="x", steps=1))
+        self.assertEqual(result, {"status": "failed", "reason": "browser-lost", "files": []})
         broken = self.make(FakeRuntime(files_error=ingest.ListingError("bad")))
         self.assertEqual(self.run_with(broken, task.Outcome("done", summary="x", steps=1))[0]["reason"], "browser-lost")
         lost = self.make(FakeRuntime())
@@ -204,6 +215,7 @@ class BrowserServiceTests(unittest.TestCase):
         self.assertEqual(result["status"], "done")
         context, payload = self.brain.browser_step.call_args.args
         self.assertIs(context, CONTEXT)
+        self.assertLessEqual(self.brain.browser_step.call_args.kwargs["deadline"], task.MAX_SECONDS)
         self.assertEqual((payload["objective"], payload["language"]), ("Veja o prazo do edital.", "pt-BR"))
         self.brain.browser_step.side_effect = BrainRuntimeError("down")
         with mock.patch.object(service.cua, "CuaSession", return_value=session):
@@ -222,12 +234,60 @@ class BrowserServiceTests(unittest.TestCase):
         browser_service.clean()
         self.assertEqual(self.runtime.events, [("remove", "team_2"), ("clean",)])
 
+    def test_the_lease_is_released_from_the_moment_it_is_held_even_if_its_audit_fails(self):
+        browser_service = self.make(FakeRuntime())
+        with (
+            mock.patch.object(local_audit, "record_request", side_effect=OSError("audit closed")),
+            self.assertRaises(OSError),
+        ):
+            browser_service.run(self.turn, CONTEXT, REQUEST)
+        self.assertEqual(self.runtime.events[-1], ("release", LEASE.container_id))
+
+    def test_stop_removes_the_running_browser_and_nothing_is_ingested_after_it(self):
+        listing = {"files": [{"name": "a.pdf", "size": 9}], "refused": [], "skipped": 0}
+        browser_service = self.make(FakeRuntime(listing=listing, contents={"a.pdf": b"%PDF-1.4\n"}))
+        stopped = [False]
+
+        def run(_task):
+            # Stop arrives while the task runs: the running Browser is removed at once.
+            stopped[0] = True
+            browser_service.interrupt("team_1")
+            browser_service.interrupt("team_2")
+            return task.Outcome("done", summary="x", steps=1)
+
+        turn = service.BrowserTurn("team_1", "d" * 64, "pt-BR", self.brain, lambda: stopped[0])
+        with mock.patch.object(service.browser_task.Task, "run", autospec=True, side_effect=run):
+            _result, terminal = browser_service.run(turn, CONTEXT, REQUEST)
+        self.assertEqual(terminal, {"files": [], "lost": [], "skipped": 0})
+        self.assertEqual(self.storage.stored, [])
+        self.assertIn(("kill", LEASE.container_id), self.runtime.events)
+        # Once the task ended, Stop finds no Browser of the Team; a removal that failed leaves the release to prove it.
+        browser_service.interrupt("team_1")
+        self.assertEqual(self.runtime.events.count(("kill", LEASE.container_id)), 1)
+        self.runtime.kill_error = True
+        with mock.patch.object(service.browser_task.Task, "run", autospec=True, side_effect=run):
+            browser_service.run(turn, CONTEXT, REQUEST)
+        self.assertEqual(self.runtime.events[-1], ("release", LEASE.container_id))
+
     def test_storage_failures_become_closed_losses(self):
         listing = {"files": [{"name": "a.pdf", "size": 9}], "refused": [], "skipped": 0}
         browser_service = self.make(FakeRuntime(listing=listing, contents={"a.pdf": b"%PDF-1.4\n"}))
         self.storage.put = mock.Mock(side_effect=team_storage.StorageQuotaError("full"))
         _, terminal = self.run_with(browser_service, task.Outcome("done", summary="x", steps=1))
         self.assertEqual(terminal["lost"], [{"name": "a.pdf", "reason": "quota-exceeded"}])
+
+    def test_a_segments_runner_binds_the_team_incarnation_language_brain_and_stop_at_run_time(self):
+        seen = []
+        controller = mock.Mock()
+        controller.assistant_lifecycle._network.return_value.id = "d" * 64
+        controller._chat_cancelled.side_effect = lambda turn_token: turn_token == STOPPED_TURN
+        controller.browser_service.run.side_effect = lambda turn, context, request: seen.append(turn) or ("r", "t")
+        request = mock.Mock(team_id="team_1", locale="pt-BR", token=STOPPED_TURN, routine=None, recording=None)
+        self.assertEqual(local_chat_segment._browser_runner(controller, request)(CONTEXT, REQUEST), ("r", "t"))
+        [turn] = seen
+        self.assertEqual((turn.team_id, turn.incarnation, turn.locale), ("team_1", "d" * 64, "pt-BR"))
+        self.assertIs(turn.runtime, controller.brain_runtime)
+        self.assertTrue(turn.cancelled())
 
 
 if __name__ == "__main__":

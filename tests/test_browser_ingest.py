@@ -1,6 +1,5 @@
-"""A finished task's downloads: strictly listed, read exactly, typed from bytes, marked before stored, bounded."""
+"""A finished task's downloads: strictly listed, read exactly, typed from bytes, stored as from the web, bounded."""
 
-import hashlib
 import unittest
 
 from browser import ingest
@@ -29,9 +28,6 @@ class Recorder:
             raise ingest.ReadLostError(name)
         return self.contents[name]
 
-    def mark(self, digest):
-        self.events.append(("mark", digest))
-
     def put(self, name, data, media_type):
         self.events.append(("put", name, media_type))
         error = self.errors.get(name)
@@ -40,12 +36,14 @@ class Recorder:
         return {"id": f"id-{name}", "name": name, "media_type": media_type, "size": len(data), "sha256": "x"}
 
 
+def _running():
+    return False
+
+
 class IngestTests(unittest.TestCase):
-    def test_each_kept_file_is_typed_from_its_bytes_and_marked_before_it_is_stored(self):
+    def test_each_kept_file_is_typed_from_its_bytes_before_it_is_stored(self):
         recorder = Recorder({"edital.pdf": PDF, "dados.csv": b"a,b\n1,2\n"})
-        result = ingest.ingest(
-            _listing([("edital.pdf", 9), ("dados.csv", 8)]), recorder.read, recorder.mark, recorder.put
-        )
+        result = ingest.ingest(_listing([("edital.pdf", 9), ("dados.csv", 8)]), recorder.read, recorder.put, _running)
         self.assertEqual(
             result.kept,
             (
@@ -55,12 +53,8 @@ class IngestTests(unittest.TestCase):
         )
         self.assertEqual((result.lost, result.skipped), ((), 0))
         self.assertEqual(
-            recorder.events[:3],
-            [
-                ("read", "edital.pdf", 9),
-                ("mark", hashlib.sha256(PDF).hexdigest()),
-                ("put", "edital.pdf", "application/pdf"),
-            ],
+            recorder.events[:2],
+            [("read", "edital.pdf", 9), ("put", "edital.pdf", "application/pdf")],
         )
 
     def test_every_file_not_kept_has_its_closed_reason(self):
@@ -78,7 +72,7 @@ class IngestTests(unittest.TestCase):
             refused=[{"name": "Unconfirmed 1.crdownload", "reason": "incomplete", "size": 7}],
             skipped=2,
         )
-        result = ingest.ingest(listing, recorder.read, recorder.mark, recorder.put)
+        result = ingest.ingest(listing, recorder.read, recorder.put, _running)
         self.assertEqual(len(result.kept), ingest.MAX_FILES - 3)
         self.assertEqual(
             result.lost,
@@ -96,7 +90,7 @@ class IngestTests(unittest.TestCase):
 
     def test_an_empty_download_is_not_kept(self):
         recorder = Recorder()
-        result = ingest.ingest(_listing([("empty.txt", 0)]), recorder.read, recorder.mark, recorder.put)
+        result = ingest.ingest(_listing([("empty.txt", 0)]), recorder.read, recorder.put, _running)
         self.assertEqual(
             (result.kept, result.lost, recorder.events), ((), ({"name": "empty.txt", "reason": "empty"},), [])
         )
@@ -104,12 +98,19 @@ class IngestTests(unittest.TestCase):
     def test_a_lost_read_ends_the_ingest_and_names_every_later_file(self):
         recorder = Recorder({"a.pdf": PDF}, {"b.pdf": "read"})
         result = ingest.ingest(
-            _listing([("a.pdf", 9), ("b.pdf", 9), ("c.pdf", 9)]), recorder.read, recorder.mark, recorder.put
+            _listing([("a.pdf", 9), ("b.pdf", 9), ("c.pdf", 9)]), recorder.read, recorder.put, _running
         )
         self.assertEqual([item["name"] for item in result.kept], ["a.pdf"])
         self.assertEqual(
             result.lost, ({"name": "b.pdf", "reason": "browser-lost"}, {"name": "c.pdf", "reason": "browser-lost"})
         )
+
+    def test_a_stop_ends_the_ingest_before_the_next_file(self):
+        recorder = Recorder({"a.pdf": PDF, "b.pdf": PDF})
+        stops = iter((False, True))
+        result = ingest.ingest(_listing([("a.pdf", 9), ("b.pdf", 9)]), recorder.read, recorder.put, lambda: next(stops))
+        self.assertEqual([item["name"] for item in result.kept], ["a.pdf"])
+        self.assertNotIn(("read", "b.pdf", 9), recorder.events)
 
     def test_a_malformed_listing_is_refused_whole(self):
         for listing in (

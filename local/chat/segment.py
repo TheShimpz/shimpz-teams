@@ -483,11 +483,19 @@ def _prepare(
 
 
 def _browser_runner(self, request: SegmentRequest):
-    """The segment's Browser task runner, bound to its Team, language, Brain client, and Stop."""
-    turn = local_browser_service.BrowserTurn(
-        request.team_id, request.locale, _runtime(self, request), lambda: self._chat_cancelled(request.token)
-    )
-    return lambda context, browser_request: self.browser_service.run(turn, context, browser_request)
+    """The segment's Browser task runner, bound to its Team and incarnation, language, Brain client, and Stop."""
+
+    def run(context, browser_request):
+        turn = local_browser_service.BrowserTurn(
+            request.team_id,
+            self.assistant_lifecycle._network(request.team_id).id,
+            request.locale,
+            _runtime(self, request),
+            lambda: self._chat_cancelled(request.token),
+        )
+        return self.browser_service.run(turn, context, browser_request)
+
+    return run
 
 
 def _run_chat_segment_with_metadata(

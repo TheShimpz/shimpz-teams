@@ -18,6 +18,15 @@ IMAGE = "localhost/shimpz-browser@sha256:" + "a" * 64
 PUBLISHED = "ghcr.io/theshimpz/shimpz-browser@sha256:" + "b" * 64
 
 
+def _probe(generation: int, code: int = 0) -> list[dict[str, object]]:
+    """The egress healthcheck's recorded probes: the latest names the generation of the process that answered it."""
+    return [{"ExitCode": code, "Output": f"{generation:032x}\n"}]
+
+
+def _generation(restarts: int) -> runtime.Generation:
+    return runtime.Generation("egress-id", f"2026-10-17T00:00:{restarts:02d}Z", f"{restarts:032x}")
+
+
 def _frame(payload: bytes) -> bytes:
     return struct.pack(">BxxxL", 1, len(payload)) + payload
 
@@ -37,6 +46,11 @@ class FakeContainer:
             raise APIError("reload failed")
         if self.id not in self.docker.containers_by_id:
             raise NotFound("gone")
+        if self.docker.probe_lag and self is self.docker.egress:
+            # The new process's first probe has not run yet: Docker still shows the old process's last one.
+            self.docker.probe_lag -= 1
+            if not self.docker.probe_lag:
+                self.attrs["State"]["Health"]["Log"] = _probe(self.restarts)
 
     def start(self):
         self.attrs["State"]["Running"] = True
@@ -49,6 +63,8 @@ class FakeContainer:
         self.restarts += 1
         self.attrs["State"]["StartedAt"] = f"2026-10-17T00:00:{self.restarts:02d}Z"
         self.attrs["State"]["Health"]["Status"] = self.docker.health_after_restart
+        if not self.docker.probe_lag:
+            self.attrs["State"]["Health"]["Log"] = _probe(self.restarts)
 
 
 class Containers:
@@ -187,6 +203,7 @@ class FakeDocker:
         self.created, self.removed, self.pulled, self.sockets = [], [], [], []
         self.extra_members = {}
         self.health_after_restart = "healthy"
+        self.probe_lag = 0
         self.images = {IMAGE: "sha256:image", PUBLISHED: "sha256:published"}
         self.programs = {("ready",): (0, b"")}
         self.containers_by_id = {}
@@ -206,8 +223,18 @@ class FakeDocker:
             runtime.EGRESS,
             {
                 "Config": {"Labels": egress_labels},
-                "State": {"Running": True, "StartedAt": "2026-10-17T00:00:00Z", "Health": {"Status": "healthy"}},
-                "NetworkSettings": {"Networks": {runtime.NETWORK: {"IPAddress": "172.30.0.2"}}},
+                "State": {
+                    "Running": True,
+                    "StartedAt": "2026-10-17T00:00:00Z",
+                    "Health": {"Status": "healthy", "Log": _probe(0)},
+                },
+                # The egress also has its outbound network; the Browser reaches it only on the Browser network.
+                "NetworkSettings": {
+                    "Networks": {
+                        runtime.NETWORK: {"IPAddress": "172.30.0.2"},
+                        "shimpz-space-browser-egress-out": {"IPAddress": "172.31.0.2"},
+                    }
+                },
             },
         )
         self.containers_by_id[self.egress.id] = self.egress
@@ -294,9 +321,7 @@ class BrowserRuntimeTests(unittest.TestCase):
     def test_the_first_task_cleans_then_creates_one_hardened_browser_on_a_fresh_generation(self):
         lease = self.runtime.acquire("team_1", "pt-BR")
         self.assertEqual(self.docker.egress.restarts, 1)
-        self.assertEqual(
-            lease, runtime.Lease("team_1", "browser-1", "172.30.0.9", ("egress-id", "2026-10-17T00:00:01Z"))
-        )
+        self.assertEqual(lease, runtime.Lease("team_1", "browser-1", "172.30.0.9", _generation(1)))
         [created] = self.docker.created
         seccomp = created["security_opt"][1]
         self.assertTrue(seccomp.startswith("seccomp={"))
@@ -324,7 +349,32 @@ class BrowserRuntimeTests(unittest.TestCase):
         self.runtime._used = runtime.BrowserRuntime._generation(self.runtime, self.docker.egress)
         third = self.runtime.acquire("team_1", "en")
         self.assertEqual(self.docker.egress.restarts, 4)
-        self.assertNotEqual(third.egress, self.runtime._generation(self.docker.egress) and second.egress)
+        self.assertEqual(third.egress, _generation(4))
+
+    def test_a_restart_waits_for_the_new_processs_own_probe(self):
+        # Docker shows the old process's probe for a while after the restart; only the new one's counts.
+        self.docker.probe_lag = 3
+        lease = self.runtime.acquire("team_1", "en")
+        self.assertEqual(lease.egress, _generation(1))
+        self.assertGreater(self.now[0], 0)
+        self.runtime.release(lease)
+
+    def test_a_lease_is_intact_only_on_its_own_running_browser_and_egress_process(self):
+        lease = self.runtime.acquire("team_1", "en")
+        self.assertTrue(self.runtime.intact(lease))
+        self.docker.egress.restart(timeout=5)
+        self.assertFalse(self.runtime.intact(lease))
+        self.runtime.release(lease)
+        lease = self.runtime.acquire("team_1", "en")
+        self.docker.containers_by_id[lease.container_id].attrs["State"]["Running"] = False
+        self.assertFalse(self.runtime.intact(lease))
+        self.runtime.kill(lease)
+        self.assertNotIn(lease.container_id, self.docker.containers_by_id)
+        self.assertFalse(self.runtime.intact(lease))
+        self.runtime.release(lease)
+        lease = self.runtime.acquire("team_1", "en")
+        self.docker.fail["get"] = True
+        self.assertFalse(self.runtime.intact(lease))
 
     def test_one_browser_per_space_and_a_second_task_is_busy(self):
         lease = self.runtime.acquire("team_1", "en")
@@ -372,7 +422,21 @@ class BrowserRuntimeTests(unittest.TestCase):
             "unhealthy": lambda: setattr(self.docker, "health_after_restart", "starting"),
             "restart": lambda: self.docker.fail.update(restart=True),
             "list": lambda: self.docker.fail.update(list=True),
-            "egress address": lambda: self.docker.egress.attrs["NetworkSettings"]["Networks"].update(other={}),
+            "egress address": lambda: self.docker.egress.attrs["NetworkSettings"]["Networks"].update(
+                {runtime.NETWORK: {}}
+            ),
+            "probe missing": lambda: (
+                self.docker.egress.attrs["State"]["Health"].update(Log=None) or setattr(self.docker, "probe_lag", 10**6)
+            ),
+            "probe failed": lambda: (
+                self.docker.egress.attrs["State"]["Health"].update(Log=_probe(0, code=1))
+                or setattr(self.docker, "probe_lag", 10**6)
+            ),
+            "probe output": lambda: (
+                self.docker.egress.attrs["State"]["Health"].update(Log=[{"ExitCode": 0, "Output": "healthy\n"}])
+                or setattr(self.docker, "probe_lag", 10**6)
+            ),
+            "stale probe": lambda: setattr(self.docker, "probe_lag", 10**6),
         }
         for name, broken in breaks.items():
             with self.subTest(name=name):
@@ -410,6 +474,11 @@ class BrowserRuntimeTests(unittest.TestCase):
             "seccomp": lambda: self.docker.drift.update(SecurityOpt=["no-new-privileges:true"]),
             "tmpfs": lambda: self.docker.drift.update(Tmpfs={str(PurePosixPath("/") / "tmp"): "rw"}),
             "not ready": lambda: self.docker.programs.update({("ready",): (1, b"")}),
+            "second network": lambda: setattr(
+                self.docker,
+                "on_start",
+                lambda container: container.attrs["NetworkSettings"]["Networks"].update(other={}),
+            ),
         }
         for name, cause in cases.items():
             with self.subTest(name=name):

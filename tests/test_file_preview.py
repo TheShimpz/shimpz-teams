@@ -323,7 +323,7 @@ class PreviewBookTests(unittest.TestCase):
 
 def bare_controller(directory: str, client: _Client | None = None) -> local_app.LocalController:
     controller = object.__new__(local_app.LocalController)
-    controller.browser_service, controller.web_files = browser_fixtures.no_services()
+    controller.browser_service = browser_fixtures.no_browser()
     controller._locks = tuple(threading.RLock() for _ in range(64))
     controller.storage = team_storage.TeamStorage(Path(directory) / "teams")
     controller.assistant_lifecycle = types.SimpleNamespace(_network=lambda _team_id: NETWORK)

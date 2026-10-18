@@ -857,17 +857,20 @@ class BrainRuntimeClient:
         response = self._post("/v1/turns/resume", payload)
         return self._parse_turn(self._metered(response, "turn-resume", context.provider, context.model))
 
-    def browser_step(self, context: RuntimeContext, request: Mapping[str, object]) -> tuple[object, int]:
+    def browser_step(
+        self, context: RuntimeContext, request: Mapping[str, object], *, deadline: float
+    ) -> tuple[object, int]:
         """One Browser agent step for this turn's task, and the input tokens it spent (ADR-0117 §5).
 
         The Brain fixes the Browser model for the Team's provider and names it, so its usage is recorded as that
-        model's. The step is returned raw: the task loop admits only its canonical form.
+        model's. The step is returned raw: the task loop admits only its canonical form. The request ends once
+        `deadline` seconds have passed, so no step outlives its task.
         """
         payload = {
             "provider": {"provider": context.provider, "model": context.model, "api_key": context.api_key},
             **request,
         }
-        response = self._post("/v1/browser-step", payload)
+        response = self._post("/v1/browser-step", payload, deadline=deadline)
         if not isinstance(response, dict) or set(response) != {"step", "model", "usage"}:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         model = response["model"]

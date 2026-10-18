@@ -8,6 +8,10 @@ A file is kept while the Team's current chat turn references it: from the moment
 completes without it or the Team's conversation state is purged.  An unreferenced file is collected once it has been
 idle for the grace period, so a file removed from a message by mistake can be uploaded again within it and reuses the
 stored copy without charging the quota twice (ADR-0093, amended 2026-10-03).
+
+A file the Browser downloaded is marked as from the web in its own row, so its marker exists exactly as long as the file
+does; an identical upload of it keeps the mark. Its original leaves Team only for a Supervisor who acknowledged that
+exact file, and each acknowledgement goes with its file (ADR-0117 §7).
 """
 
 import builtins
@@ -29,9 +33,10 @@ from storage import private_state
 DEFAULT_LIMIT_BYTES = 100 * 1024 * 1024
 # How long an unreferenced file stays after its upload, an identical upload, or the turn that last referenced it.
 UNREFERENCED_GRACE_SECONDS = 24 * 60 * 60
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DATABASE_HEADROOM_BYTES = 8 * 1024 * 1024
 MAX_FILES = 256
+MAX_ACKNOWLEDGEMENTS = 4_096
 _METADATA_SELECTS = (
     "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?)",
     "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?)",
@@ -60,6 +65,10 @@ class StorageInputError(StorageError):
     """Client-supplied file metadata or content is invalid."""
 
 
+class StorageNotWebError(StorageError):
+    """The file did not come from the web, so it has nothing to acknowledge."""
+
+
 @dataclass(frozen=True, slots=True)
 class _MetadataReader:
     team_id: str
@@ -73,6 +82,12 @@ def _team_id(value: object) -> str:
 def _file_id(value: object) -> str:
     if not isinstance(value, str) or http_payload.FILE_ID_RE.fullmatch(value) is None:
         raise StorageNotFoundError("file not found")
+    return value
+
+
+def _principal(value: object) -> str:
+    if not isinstance(value, str) or not 1 <= len(value) <= 128 or not value.isprintable():
+        raise StorageInputError("the acknowledging principal is invalid")
     return value
 
 
@@ -156,11 +171,6 @@ class TeamStorage:
             raise StorageError("Team storage has unsafe ownership or permissions")
         return directory
 
-    def team_directory(self, team_id: str) -> Path:
-        """The Team's custody-checked storage directory, created when absent, for a store kept beside its files."""
-        self._ensure_root()
-        return self._team_dir(team_id, create=True)
-
     def _database_path(self, team_id: str, *, create: bool) -> Path:
         path = self._team_dir(team_id, create=create) / "files.sqlite3"
         if create:
@@ -238,8 +248,19 @@ class TeamStorage:
                         created_at INTEGER NOT NULL,
                         referenced INTEGER NOT NULL CHECK(referenced IN (0, 1)),
                         idle_since INTEGER NOT NULL,
+                        web INTEGER NOT NULL CHECK(web IN (0, 1)),
                         content BLOB NOT NULL,
                         UNIQUE(sha256, name, media_type)
+                    ) STRICT
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE acknowledgements (
+                        file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                        principal TEXT NOT NULL CHECK(length(principal) BETWEEN 1 AND 128),
+                        created_at INTEGER NOT NULL,
+                        PRIMARY KEY (file_id, principal)
                     ) STRICT
                     """
                 )
@@ -284,8 +305,13 @@ class TeamStorage:
         count, used = connection.execute("SELECT count(*), coalesce(sum(size), 0) FROM files").fetchone()
         return int(count), int(used)
 
-    def put(self, team_id: str, name: object, content: bytes, media_type: object = None) -> dict[str, object]:
-        """Store one file, or reuse the identical one the Team still holds without charging its quota again."""
+    def put(
+        self, team_id: str, name: object, content: bytes, media_type: object = None, *, web: bool = False
+    ) -> dict[str, object]:
+        """Store one file, or reuse the identical one the Team still holds without charging its quota again.
+
+        A file from the web is marked in the same write that stores it; a reused file that was marked stays marked.
+        """
         team_id = _team_id(team_id)
         limit_bytes = self._limit(team_id)
         safe_name = _filename(name)
@@ -305,7 +331,10 @@ class TeamStorage:
             if existing is not None:
                 file_id, created_at = existing
                 # An identical upload restarts the grace period of a file no turn references.
-                connection.execute("UPDATE files SET idle_since=max(idle_since, ?) WHERE id=?", (now, file_id))
+                connection.execute(
+                    "UPDATE files SET idle_since=max(idle_since, ?), web=max(web, ?) WHERE id=?",
+                    (now, int(web), file_id),
+                )
             else:
                 file_id, created_at = secrets.token_hex(16), now
                 count, used = self._usage(connection)
@@ -314,9 +343,9 @@ class TeamStorage:
                 if used + len(content) > limit_bytes:
                     raise StorageQuotaError("Team storage quota exceeded")
                 connection.execute(
-                    "INSERT INTO files(id,name,media_type,size,sha256,created_at,referenced,idle_since,content) "
-                    "VALUES(?,?,?,?,?,?,0,?,?)",
-                    (file_id, safe_name, safe_media_type, len(content), digest, now, now, content),
+                    "INSERT INTO files(id,name,media_type,size,sha256,created_at,referenced,idle_since,web,content) "
+                    "VALUES(?,?,?,?,?,?,0,?,?,?)",
+                    (file_id, safe_name, safe_media_type, len(content), digest, now, now, int(web), content),
                 )
             _count, used = self._usage(connection)
         return {
@@ -440,6 +469,56 @@ class TeamStorage:
         if row is None:
             raise StorageNotFoundError("file not found")
         return {"id": safe_id, "name": row[0], "media_type": row[1], "size": row[2], "sha256": row[3]}
+
+    def released(self, team_id: str, file_id: object, principal: str | None) -> bool:
+        """Whether the file's original may leave Team for `principal`: it is not from the web, or they acknowledged it.
+
+        An absent file is not found; a store that cannot be read refuses.
+        """
+        team_id = _team_id(team_id)
+        safe_id = _file_id(file_id)
+        with self._transaction(team_id, create=False, limit_bytes=self._limit(team_id)) as connection:
+            row = connection.execute("SELECT web FROM files WHERE id=?", (safe_id,)).fetchone()
+            if row is None:
+                raise StorageNotFoundError("file not found")
+            if row[0] == 0:
+                return True
+            if principal is None:
+                return False
+            acknowledged = connection.execute(
+                "SELECT 1 FROM acknowledgements WHERE file_id=? AND principal=?", (safe_id, _principal(principal))
+            ).fetchone()
+        return acknowledged is not None
+
+    def acknowledge(
+        self, team_id: str, file_id: object, principal: str, record: Callable[[str], None]
+    ) -> dict[str, object]:
+        """Record that `principal` accepted the risk of one listed file from the web; `record` audits it first.
+
+        The acknowledgement commits only once `record` returned, so no authorization exists without its audit.
+        """
+        team_id = _team_id(team_id)
+        safe_id = _file_id(file_id)
+        who = _principal(principal)
+        now = self._now()
+        with self._transaction(team_id, create=False, limit_bytes=self._limit(team_id)) as connection:
+            row = connection.execute(
+                "SELECT web FROM files WHERE id=? AND (referenced=1 OR idle_since>?)",
+                (safe_id, now - UNREFERENCED_GRACE_SECONDS),
+            ).fetchone()
+            if row is None:
+                raise StorageNotFoundError("file not found")
+            if row[0] == 0:
+                raise StorageNotWebError("the file did not come from the web")
+            count = connection.execute("SELECT count(*) FROM acknowledgements").fetchone()[0]
+            if count >= MAX_ACKNOWLEDGEMENTS:
+                raise StorageQuotaError("Team acknowledgement limit reached")
+            connection.execute(
+                "INSERT OR IGNORE INTO acknowledgements(file_id, principal, created_at) VALUES(?,?,?)",
+                (safe_id, who, now),
+            )
+            record(safe_id)
+        return {"file_id": safe_id, "acknowledged": True}
 
     def get(self, team_id: str, file_id: object) -> tuple[dict[str, object], bytes]:
         team_id = _team_id(team_id)

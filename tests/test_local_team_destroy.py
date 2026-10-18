@@ -58,7 +58,7 @@ def _destroy_controller(
 ) -> tuple[local_app.LocalController, threading.Lock]:
     """Team team_1 ("Team One") with one Assistant, recording teardown; returns it and its chat lock."""
     controller = object.__new__(local_app.LocalController)
-    controller.browser_service, controller.web_files = browser_fixtures.no_services()
+    controller.browser_service = browser_fixtures.no_browser()
     controller.space_id = "local-space"
     controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
     controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
@@ -100,7 +100,7 @@ class LocalTeamDestroyTests(LocalContractCase):
     def test_destroy_drains_chat_and_deletes_generation_before_teardown(self) -> None:
         events: list[object] = []
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service, controller.web_files = browser_fixtures.no_services()
+        controller.browser_service = browser_fixtures.no_browser()
         controller.space_id = "local-space"
         controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
         controller.integration_challenges = integration_challenges.IntegrationChallengeStore()

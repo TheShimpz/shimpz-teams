@@ -94,7 +94,7 @@ class LocalControllerConstructionEdgeTests(unittest.TestCase):
 
     def test_seccomp_requires_available_daemon_and_default_profile(self) -> None:
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service, controller.web_files = browser_fixtures.no_services()
+        controller.browser_service = browser_fixtures.no_browser()
         controller.client = types.SimpleNamespace(info=mock.Mock(side_effect=DockerException("unavailable")))
         with self.assertRaisesRegex(RuntimeError, "daemon is unavailable"):
             controller._require_default_seccomp()
@@ -138,7 +138,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
     @staticmethod
     def controller() -> local_app.LocalController:
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service, controller.web_files = browser_fixtures.no_services()
+        controller.browser_service = browser_fixtures.no_browser()
         controller.space_id = "local-space"
         controller._locks = tuple(threading.RLock() for _ in range(64))
         controller._names_lock = threading.RLock()
@@ -462,7 +462,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
     @staticmethod
     def controller() -> tuple[local_app.LocalController, object, object]:
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service, controller.web_files = browser_fixtures.no_services()
+        controller.browser_service = browser_fixtures.no_browser()
         controller._locks = tuple(threading.RLock() for _ in range(64))
         action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=(), integrations=(), input_files=())
         spec = types.SimpleNamespace(

@@ -58,9 +58,14 @@ class BrowserStepTests(RuntimeClientCase):
         step = {"kind": "done", "summary": "ok"}
         client, connection = self.client(_Response({"step": step, "model": "gpt-6-luna"}, usage=USAGE))
         request = {"objective": "x", "language": "en", "history": [], "observation": "url: x", "screenshot": None}
-        with mock.patch.object(brain_usage, "record") as record:
-            self.assertEqual(client.browser_step(context(self.secret), request), (step, 1200))
+        with (
+            mock.patch.object(brain_usage, "record") as record,
+            mock.patch.object(client, "_post", wraps=client._post) as post,
+        ):
+            self.assertEqual(client.browser_step(context(self.secret), request, deadline=60.0), (step, 1200))
         record.assert_called_once_with("browser-step", "openai", "gpt-6-luna", USAGE)
+        # The step's request ends with the task's time left.
+        self.assertEqual(post.call_args.kwargs, {"deadline": 60.0})
         method, path, raw_body, _headers = connection.requests[0]
         self.assertEqual((method, path), ("POST", "/v1/browser-step"))
         body = json.loads(raw_body)
@@ -77,7 +82,7 @@ class BrowserStepTests(RuntimeClientCase):
         ):
             with self.subTest(payload=payload), self.assertRaises(brain_runtime_client.BrainRuntimeError):
                 client, _ = self.client(_Response(payload, usage=usage))
-                client.browser_step(context(self.secret), {})
+                client.browser_step(context(self.secret), {}, deadline=60.0)
 
 
 if __name__ == "__main__":

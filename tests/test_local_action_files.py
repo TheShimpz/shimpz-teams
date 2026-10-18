@@ -35,7 +35,7 @@ class LocalFileDeliveryTests(unittest.TestCase):
         self.file_id = stored["id"]
         self.file = action_files.selected([{**stored, "media_type": "application/pdf"}])[self.file_id]
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service, controller.web_files = browser_fixtures.no_services()
+        controller.browser_service = browser_fixtures.no_browser()
         controller._locks = tuple(threading.RLock() for _ in range(64))
         controller.storage = self.storage
         spec = types.SimpleNamespace(

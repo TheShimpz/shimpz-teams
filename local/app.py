@@ -104,7 +104,6 @@ from local.validation import (
 from prepare import helper as preparation_helper
 from prepare import service as preparation
 from storage import files as team_storage
-from storage import web as team_web
 
 log = logging.getLogger("shimpz-team-local")
 
@@ -346,7 +345,6 @@ class LocalController:
             local_platform = local_snapshots.platform_from_info(daemon_info)
         except local_snapshots.LocalSnapshotError as exc:
             raise RuntimeError("the Docker daemon architecture is unsupported") from exc
-        self.web_files = team_web.WebFiles(storage)
         self.browser_service = local_browser_service.BrowserService(
             local_browser_runtime.BrowserRuntime(
                 client,
@@ -356,7 +354,6 @@ class LocalController:
                 architecture=local_platform.removeprefix("linux/"),
             ),
             storage,
-            self.web_files,
         )
         self.local_snapshot_inventory = local_snapshot_inventory.LocalSnapshotInventory(client, local_platform)
         self.local_snapshot_previews = local_snapshot_preview.LocalSnapshotPreviewCache(client, local_platform)
@@ -544,11 +541,7 @@ class LocalController:
 
     def _require_acknowledged(self, team_id: str, metadata: dict[str, object]) -> None:
         """A file from the web leaves Team only once this Supervisor acknowledged it; an unreadable store refuses."""
-        digest = str(metadata["sha256"])
-        if not self.web_files.is_web(team_id, digest):
-            return
-        principal = local_audit.human_principal()
-        if principal is None or not self.web_files.acknowledged(team_id, str(metadata["id"]), digest, principal):
+        if not self.storage.released(team_id, metadata["id"], local_audit.human_principal()):
             local_audit.record_request("file-content", result="denied", team_id=team_id, detail="acknowledgement")
             raise file_acknowledgement_required()
 
@@ -558,18 +551,23 @@ class LocalController:
         principal = local_audit.human_principal()
         if principal is None:
             raise file_acknowledgement_required()
-        try:
-            metadata = self.storage.listed(team_id, file_id)
-            if not self.web_files.is_web(team_id, str(metadata["sha256"])):
-                raise file_not_from_web()
-            self.web_files.acknowledge(team_id, str(metadata["id"]), str(metadata["sha256"]), principal)
-        except team_storage.StorageNotFoundError as exc:
-            raise file_not_found() from exc
-        except team_storage.StorageError as exc:
-            self._raise_storage_problem(exc)
-        detail = f"file={metadata['id']}"
-        local_audit.record_request("file-acknowledgement", result="ok", team_id=team_id, detail=detail)
-        return {"file_id": metadata["id"], "acknowledged": True}
+
+        def record(acknowledged: str) -> None:
+            local_audit.record_request(
+                "file-acknowledgement", result="ok", team_id=team_id, detail=f"file={acknowledged}"
+            )
+
+        # Under the Team lock, so a teardown or reset never interleaves with it; the audit precedes the commit.
+        with self._lock(team_id):
+            self.assistant_lifecycle._network(team_id)
+            try:
+                return self.storage.acknowledge(team_id, file_id, principal, record)
+            except team_storage.StorageNotWebError as exc:
+                raise file_not_from_web() from exc
+            except team_storage.StorageNotFoundError as exc:
+                raise file_not_found() from exc
+            except team_storage.StorageError as exc:
+                self._raise_storage_problem(exc)
 
     def list_registry(self) -> dict[str, list[dict[str, object]]]:
         """Every installed Assistant of the Space by name only: what any Team's screens need to name it."""
