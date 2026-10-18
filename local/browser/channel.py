@@ -67,11 +67,11 @@ class ExecStream:
     # Non-blocking use, for a caller that selects on the channel itself.
 
     def pump(self, limit: int) -> bool:
-        """Read what the channel has now into the stdout buffer, at most `limit` buffered; False once it ended."""
+        """Read at most `limit` bytes the channel has now into the stdout buffer; False once it ended."""
         if self._closed:
             return False
         try:
-            chunk = self._raw.recv(CHUNK)
+            chunk = self._raw.recv(min(CHUNK, limit))
         except BlockingIOError:
             return True
         if not chunk:

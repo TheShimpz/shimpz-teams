@@ -246,6 +246,23 @@ class EdgeTests(unittest.TestCase):
         self.assertFalse(clean.stream.pump(1024))
         self.assertFalse(clean.stream.pump(1024))
 
+    def test_each_read_takes_at_most_the_room_left(self):
+        display = Display()
+        self.addCleanup(display.close)
+        display.write(b"a" * 4)
+        display.write(b"b" * 100)
+        time.sleep(0.05)
+        # Twenty bytes: the first frame whole and the second one's header, none of its payload.
+        self.assertTrue(display.stream.pump(20))
+        self.assertEqual(display.stream.take(1024), b"aaaa")
+        viewer, team_viewer = socket.socketpair()
+        self.addCleanup(viewer.close)
+        self.addCleanup(team_viewer.close)
+        team_viewer.setblocking(False)
+        viewer.sendall(b"0123456789")
+        time.sleep(0.05)
+        self.assertEqual(tunnel.Tunnel(team_viewer, display.stream)._receive(3), b"012")
+
     def test_a_full_channel_takes_nothing_more_for_now(self):
         display = Display()
         self.addCleanup(display.close)
@@ -262,7 +279,7 @@ class EdgeTests(unittest.TestCase):
         self.addCleanup(display.close)
         team_viewer.setblocking(False)
         quiet = tunnel.Tunnel(team_viewer, display.stream)
-        self.assertEqual(quiet._receive(), b"")
+        self.assertEqual(quiet._receive(1024), b"")
 
         class Broken:
             def recv(self, _size):
@@ -272,7 +289,7 @@ class EdgeTests(unittest.TestCase):
                 raise BlockingIOError
 
         broken = tunnel.Tunnel(Broken(), display.stream)
-        self.assertIsNone(broken._receive())
+        self.assertIsNone(broken._receive(1024))
         self.assertEqual(broken._send(bytearray(b"x")), 0)
 
     def test_an_upgrade_answer_of_many_lines_over_the_bound_fails(self):

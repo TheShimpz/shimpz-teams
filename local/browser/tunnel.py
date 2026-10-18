@@ -143,12 +143,13 @@ class Tunnel:
             ]
             writers = [sink for sink, data in ((self._client, to_viewer), (self._display, to_display)) if data]
             readable, writable, _ = select.select(readers, writers, [], TICK_SECONDS)
+            # Each read takes at most the room its buffer has left, so neither direction ever holds more.
             if self._display in readable:
-                if not self._display.pump(BUFFER_BYTES):
+                if not self._display.pump(BUFFER_BYTES - len(to_viewer)):
                     return
                 to_viewer.extend(self._display.take(BUFFER_BYTES - len(to_viewer)))
             if self._client in readable:
-                data = self._receive()
+                data = self._receive(BUFFER_BYTES - len(to_display))
                 if data is None:
                     return
                 to_display.extend(data)
@@ -167,9 +168,9 @@ class Tunnel:
             if not to_display:
                 display_progress = self._clock()
 
-    def _receive(self) -> bytes | None:
+    def _receive(self, room: int) -> bytes | None:
         try:
-            data = self._client.recv(CHUNK)
+            data = self._client.recv(min(CHUNK, room))
         except BlockingIOError:
             return b""
         except OSError:
