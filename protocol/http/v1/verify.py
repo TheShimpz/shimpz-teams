@@ -461,6 +461,8 @@ if any(admit(value) is not None for admit, value in over_bounds):
     fail("a Browser value past its bound was admitted")
 if browser.canonical_history([wait] * browser.MAX_HISTORY) != [wait] * browser.MAX_HISTORY:
     fail("a Browser history at its bound was not admitted")
+if browser.canonical_step({"kind": "wait", "note": "   "}) != {"kind": "wait"}:
+    fail("a blank Browser note was kept")
 
 accepts = vectors.get("browser_view_accept")
 if not accepts or any(browser_view.accept(case["key"]) != case["accept"] for case in accepts):
