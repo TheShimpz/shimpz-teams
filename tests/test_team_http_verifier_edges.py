@@ -170,6 +170,19 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
                 _execute(HTTP / "verify.py", mutate)
 
+    def test_rejects_a_drifted_blank_browser_note_vector(self) -> None:
+        def drifted(value: dict[str, object]) -> None:
+            value["browser_blank_note"][0]["canonical"] = {"kind": "wait", "note": "   "}
+
+        def missing(value: dict[str, object]) -> None:
+            value.pop("browser_blank_note")
+
+        for mutate in (drifted, missing):
+            with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
+                _execute(
+                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
+                )
+
     def test_rejects_a_drifted_browser_view_accept_vector(self) -> None:
         def drifted(value: dict[str, object]) -> None:
             value["browser_view_accept"][0]["accept"] = "x" + value["browser_view_accept"][0]["accept"][1:]

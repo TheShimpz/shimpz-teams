@@ -7767,5 +7767,6 @@
       "dGhlIHNhbXBsZSBub25jZR==", "", "@@@@@@@@@@@@@@@@@@@@@@==", 16
     ]
   },
+  "browser_blank_note": [{"step": {"kind": "wait", "note": "   "}, "canonical": {"kind": "wait"}}],
   "browser_view_accept": [{"key": "AAAAAAAAAAAAAAAAAAAAAA==", "accept": "ICX+Yqv66kxgM0FcWaLWlFLwTAI="}]
 }
