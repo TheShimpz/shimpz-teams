@@ -8,11 +8,14 @@ carries at most one Browser at a time, and Team restarts this process between Br
 """
 
 import ipaddress
+import os
 import re
 import socket
+from pathlib import Path
 
 import audit
 import connect
+import healthcheck
 
 LISTEN_PORT = 3128
 ALLOWED_PORT = 443
@@ -72,9 +75,19 @@ class Server(connect.BoundedServer):
     request_queue_size = LISTEN_BACKLOG
 
 
+def publish(path: Path) -> None:
+    """Publish this process's generation for the healthcheck, before the listener exists (ADR-0117 §4.3)."""
+    staged = path.with_name(f".{path.name}")
+    descriptor = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+        handle.write(audit.GENERATION)
+    staged.replace(path)
+
+
 def main() -> int:
     try:
         audit.AUDIT.ensure_custody()
+        publish(healthcheck.GENERATION_FILE)
         server = Server((str(ipaddress.IPv4Address(0)), LISTEN_PORT), Handler)
     except OSError:
         return 1

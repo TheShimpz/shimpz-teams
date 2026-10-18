@@ -32,9 +32,11 @@ def _module(name: str, path: Path):
 
 
 audit = _module("audit", ROOT / "audit.py")
-with mock.patch.dict("sys.modules", {"audit": audit}):
-    app = _module("browser_egress_app", ROOT / "app.py")
+AUDIT_PATH = audit.AUDIT.path
 healthcheck = _module("browser_egress_healthcheck", ROOT / "healthcheck.py")
+PROFILE = {"audit": audit, "healthcheck": healthcheck}
+with mock.patch.dict("sys.modules", PROFILE):
+    app = _module("browser_egress_app", ROOT / "app.py")
 connect = app.connect
 BROWSER = "10.231.0.10"
 
@@ -225,6 +227,9 @@ class BrowserEgressTests(unittest.TestCase):
         ):
             self.assertEqual(app.main(), 1)
         server.assert_not_called()
+        published = mock.patch.object(app, "publish")
+        published.start()
+        self.addCleanup(published.stop)
 
         for side_effect in (None, KeyboardInterrupt):
             server = mock.Mock()
@@ -244,18 +249,46 @@ class BrowserEgressTests(unittest.TestCase):
             self.assertEqual(app.main(), 1)
 
         with (
-            mock.patch.dict(sys.modules, {"audit": audit}),
+            mock.patch.dict(sys.modules, PROFILE),
             mock.patch.object(audit.AUDIT, "ensure_custody", side_effect=audit.AuditError("closed")),
             self.assertRaises(SystemExit) as raised,
         ):
             runpy.run_path(str(ROOT / "app.py"), run_name="__main__")
         self.assertEqual(raised.exception.code, 1)
 
-    def test_healthcheck_reports_listener_state(self) -> None:
+    def test_the_generation_is_published_whole_and_owner_only_before_the_listener(self) -> None:
+        self.assertEqual(healthcheck.GENERATION_FILE.parent, AUDIT_PATH.parent)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "generation")
+            app.publish(path)
+            app.publish(path)
+            self.assertEqual(path.read_text(encoding="ascii"), audit.GENERATION)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            self.assertEqual(sorted(item.name for item in Path(directory).iterdir()), ["generation"])
+        order = []
+        with (
+            mock.patch.object(audit.AUDIT, "ensure_custody"),
+            mock.patch.object(app, "publish", side_effect=lambda _path: order.append("publish")),
+            mock.patch.object(app, "Server", side_effect=lambda *_args: order.append("bind") or mock.Mock()),
+        ):
+            self.assertEqual(app.main(), 0)
+        self.assertEqual(order, ["publish", "bind"])
+
+    def test_healthcheck_reports_listener_state_and_the_listening_generation(self) -> None:
         connection = mock.MagicMock()
-        with mock.patch.object(healthcheck.socket, "create_connection", return_value=connection) as create:
-            self.assertEqual(healthcheck.main(), 0)
-        create.assert_called_once_with(("127.0.0.1", 3128), timeout=2)
+        with tempfile.TemporaryDirectory() as directory:
+            published = Path(directory, "generation")
+            with (
+                mock.patch.object(healthcheck, "GENERATION_FILE", published),
+                mock.patch.object(healthcheck.socket, "create_connection", return_value=connection) as create,
+            ):
+                self.assertEqual(healthcheck.main(), 1)
+                for content, code in (("not-a-generation", 1), ("\xff", 1), ("a" * 32, 0)):
+                    published.write_text(content, encoding="latin-1")
+                    with self.subTest(content=content), mock.patch("builtins.print") as printed:
+                        self.assertEqual(healthcheck.main(), code)
+                    self.assertEqual(printed.call_args_list, [mock.call("a" * 32)] if code == 0 else [])
+        create.assert_called_with(("127.0.0.1", 3128), timeout=2)
         with mock.patch.object(healthcheck.socket, "create_connection", side_effect=OSError("closed")):
             self.assertEqual(healthcheck.main(), 1)
         with (
