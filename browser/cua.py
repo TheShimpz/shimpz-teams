@@ -43,6 +43,8 @@ CALL_SECONDS = 30.0
 # active in that time means the Browser hung, and it counts as lost.
 BIND_POLL_SECONDS = 0.1
 SCROLL_PIXELS = 600
+# The Driver scrolls at a point: the middle of the Browser's 1280x800 kiosk window, which is all page.
+SCROLL_AT = {"x": 640, "y": 400}
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 # A page action the Driver explicitly refused leaves the Browser usable and the agent may try another; any other
 # failure, an error that names no refusal included, may have had an effect and ends the task.
@@ -187,7 +189,7 @@ class CuaSession:
 
     def scroll(self, direction: str) -> None:
         delta = {"down": SCROLL_PIXELS, "up": -SCROLL_PIXELS}[direction]
-        scroll = {"action": "scroll", "delta_y": delta, "delivery_mode": "foreground"}
+        scroll = {"action": "scroll", "delta_y": delta, **SCROLL_AT, "delivery_mode": "foreground"}
         self._act("browser_pointer", {**self._tab(), **scroll})
 
     def _act(self, tool: str, arguments: dict[str, object]) -> None:

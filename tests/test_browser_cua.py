@@ -302,8 +302,14 @@ class CuaSessionTests(unittest.TestCase):
                     "browser_type",
                     {**tab, "ref": "p1:0", "text": "inteligência artificial", "mode": "insert_text", "replace": True},
                 ),
-                ("browser_pointer", {**tab, "action": "scroll", "delta_y": 600, "delivery_mode": "foreground"}),
-                ("browser_pointer", {**tab, "action": "scroll", "delta_y": -600, "delivery_mode": "foreground"}),
+                (
+                    "browser_pointer",
+                    {**tab, "action": "scroll", "delta_y": 600, "x": 640, "y": 400, "delivery_mode": "foreground"},
+                ),
+                (
+                    "browser_pointer",
+                    {**tab, "action": "scroll", "delta_y": -600, "x": 640, "y": 400, "delivery_mode": "foreground"},
+                ),
             ],
         )
 
