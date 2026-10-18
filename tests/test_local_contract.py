@@ -30,7 +30,6 @@ from local import app as local_app
 from local import audit as local_audit
 from local import healthcheck as local_healthcheck
 from local import names as local_names
-from local import token as local_token_store
 from local import validation as local_validation
 from local.assistant import egress as local_egress
 from local.assistant import lifecycle as assistant_lifecycle
@@ -38,6 +37,7 @@ from local.chat import continuation_store as local_chat_continuation_store
 from local.chat import service as local_chat_service
 from local.http import chat as http_chat
 from local.http import server as local_http
+from local.http import token as local_token_store
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import store as local_routine_store
 from local.validation import validate_model_credential_headers

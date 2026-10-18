@@ -89,7 +89,7 @@ WORKDIR /app
 
 COPY --link --chmod=0555 local/activity.py local/healthcheck.py ./local/
 COPY --link local/__init__.py local/app.py local/audit.py local/authority.py local/composition.py local/errors.py \
-    local/inference.py local/labels.py local/lifecycle.py local/names.py local/prepare.py local/token.py \
+    local/inference.py local/labels.py local/lifecycle.py local/names.py local/prepare.py \
     local/validation.py ./local/
 COPY --link local/install/__init__.py local/install/admission.py local/install/automatic.py \
     local/install/collector.py local/install/developers.py local/install/inventory.py local/install/preview.py \
@@ -103,7 +103,7 @@ COPY --link chat/__init__.py chat/attachments.py chat/contract.py chat/knowledge
 COPY --link core/__init__.py core/base64url.py core/canonical_json.py core/identifier.py core/instant.py core/text.py ./core/
 COPY --link core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY --link egress/__init__.py egress/policy.py ./egress/
-COPY --link inference/__init__.py inference/abort.py inference/client.py inference/config.py inference/errors.py \
+COPY --link inference/__init__.py inference/abort.py inference/browser.py inference/client.py inference/config.py inference/errors.py \
     inference/credential.py inference/model_catalog.json \
     inference/token.py inference/usage.py ./inference/
 COPY --link integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
@@ -128,7 +128,7 @@ COPY --link routine/__init__.py routine/claim.py routine/compose.py routine/curs
     routine/recording.py routine/rerun.py routine/runs.py routine/schedule.py routine/starts.py routine/trace.py \
     ./routine/
 COPY --link local/http/__init__.py local/http/audit.py local/http/chat.py local/http/deadline.py local/http/dispatch.py \
-    local/http/inference.py local/http/routine.py local/http/server.py local/http/stream.py ./local/http/
+    local/http/inference.py local/http/routine.py local/http/server.py local/http/stream.py local/http/token.py ./local/http/
 COPY --link install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/lock.py \
     install/update.py ./install/
 COPY --link protocol/install/v1/definitions.schema.json protocol/install/v1/resolve-response.schema.json \

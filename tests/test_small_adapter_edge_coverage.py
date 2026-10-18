@@ -13,8 +13,8 @@ from unittest import mock
 
 from core.http import stdlib
 from core.http import strict as strict_http
-from local import token as local_token
 from local.http import dispatch as local_dispatch
+from local.http import token as local_token
 
 
 class _Headers:

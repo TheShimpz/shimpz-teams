@@ -49,7 +49,6 @@ from local import labels as local_labels
 from local import lifecycle as local_team_lifecycle
 from local import names as local_names
 from local import prepare as local_prepare
-from local import token as local_token_store
 from local.assistant import api as local_assistant_api
 from local.assistant import egress as local_egress
 from local.assistant import lifecycle as local_assistant_lifecycle
@@ -77,6 +76,7 @@ from local.errors import (
     team_context_changed,
 )
 from local.errors import ApiProblemError as ApiProblem
+from local.http import token as local_token_store
 from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
 from local.install import admission as local_snapshot_admission
 from local.install import automatic as local_automatic_updates
