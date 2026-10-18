@@ -30,7 +30,8 @@ EGRESS_KIND = "browser-egress"
 NETWORK = "shimpz-space-browser"
 EGRESS = "shimpz-browser-egress"
 IMAGE_LABEL = "org.shimpz.local.browser-image"
-IMAGE_RE = re.compile(r"(?:localhost|ghcr\.io/theshimpz)/shimpz-browser@sha256:[0-9a-f]{64}")
+PUBLISHED = "ghcr.io/theshimpz/shimpz-browser"
+IMAGE_RE = re.compile(rf"(?:localhost/shimpz-browser|{re.escape(PUBLISHED)})@sha256:[0-9a-f]{{64}}")
 USER = "10031:10031"
 MEMORY = 2 * 1024 * 1024 * 1024
 NANO_CPUS = 1_000_000_000
@@ -323,7 +324,7 @@ class BrowserRuntime:
         try:
             image = self._client.images.get(self._image)
         except NotFound:
-            if not self._image.startswith("ghcr.io/"):
+            if self._image.partition("@")[0] != PUBLISHED:
                 raise BrowserError("browser-unavailable") from None
             image = self._pull()
         except DockerException as exc:
