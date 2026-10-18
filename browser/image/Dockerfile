@@ -43,6 +43,9 @@ RUN --mount=type=bind,from=host,source=/etc/ssl/certs/ca-certificates.crt,target
     mkdir -p /etc/chromium/policies/managed /profile /downloads && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt /var/cache/debconf /var/log/* /etc/apt/sources.list \
         /etc/apt/apt.conf.d/99snapshot && \
+    # Debian's Chromium wrapper exports Google API keys from here for Google's services; the launcher runs the binary
+    # itself and the Browser uses none of them, so no key ships in the image.
+    rm -f /etc/chromium.d/apikeys && test ! -e /etc/chromium.d/apikeys && \
     # Only /bin/sh stays, because Xvfb runs xkbcomp through it to compile the keyboard map; no other shell, package
     # manager, or language interpreter remains.
     rm -f /bin/bash /usr/bin/bash /usr/bin/rbash /usr/bin/bashbug /usr/bin/perl /usr/bin/perl5* \
