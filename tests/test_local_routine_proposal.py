@@ -674,6 +674,7 @@ class RecordedRoutineTests(RecordingCase):
             "Lista os registros DNS de shimpz.com e não precisa mostrar.",
             "Lista os registros DNS de shimpz.com toda segunda-feira às 8h.",
             "Lista os registros DNS de shimpz.com em Europe/Lisbon.",
+            "Lista os registros DNS de shimpz.com sempre que algo mudar.",
         ):
             with self.subTest(description=different):
                 self.assertEqual(

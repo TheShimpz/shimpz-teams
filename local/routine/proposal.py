@@ -409,9 +409,12 @@ def description_agrees(view: dict[str, object]) -> bool:
     """
     text = str(view["description"])
     zones = {view["timezone"]} if view["timezone_source"] != "none" else set()
+    # The output is read as Edit reads it, beside the card's own label in each interface language: a condition alone
+    # states nothing, but beside a show it asks for a second choice.
+    labels = (choices[str(view["output"])] for choices in http_routine_proposal.OUTPUT_CHOICES.values())
     return (
         all(schedule == view["schedule"] for schedule in phrase.stated(text))
-        and set(phrase.outputs(text)) <= {view["output"]}
+        and all(phrase.outputs(f"{text}\n{label}") == (view["output"],) for label in labels)
         and set(phrase.zones(text)) <= zones
     )
 
