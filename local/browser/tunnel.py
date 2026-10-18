@@ -99,8 +99,8 @@ class Tunnel:
         with suppress(OSError):
             self._client.shutdown(socket.SHUT_RDWR)
 
-    def upgrade(self, key: str) -> bytes:
-        """Upgrade the display with the viewer's key; the 101 to send the viewer and any display bytes already read."""
+    def upgrade(self, key: str) -> tuple[bytes, bytes]:
+        """Upgrade the display with the viewer's key; the 101 to send the viewer, and any display bytes already read."""
         deadline = self._clock() + UPGRADE_SECONDS
         try:
             self._display.send(upgrade_request(key), deadline)
@@ -119,7 +119,7 @@ class Tunnel:
             raise TunnelError("the display did not answer the upgrade") from exc
         if not admitted(head, key):
             raise TunnelError("the display's upgrade answer is not the exact 101")
-        return answer(key) + self._display.take(self._display.buffered())
+        return answer(key), self._display.take(self._display.buffered())
 
     def splice(self, ended: Callable[[], bool]) -> None:
         """Copy both ways until a side ends, a side stalls, `ended()` says so, or the stream's life runs out."""
@@ -133,6 +133,9 @@ class Tunnel:
                 to_display and now - display_progress > WRITE_SECONDS
             ):
                 raise TunnelError("a side of the stream stalled")
+            # Display bytes already read but not yet buffered for the viewer move first, so a quiet display never
+            # strands the end of an update.
+            to_viewer.extend(self._display.take(BUFFER_BYTES - len(to_viewer)))
             readers = [
                 source
                 for source, room in ((self._display, to_viewer), (self._client, to_display))

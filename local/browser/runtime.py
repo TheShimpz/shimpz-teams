@@ -64,6 +64,14 @@ class BrowserError(RuntimeError):
         self.code = code
 
 
+class ExecStartError(BrowserError):
+    """Docker created the exec, but no channel to it came back: it may run, so only proving it ended settles it."""
+
+    def __init__(self, exec_id: str) -> None:
+        super().__init__("browser-lost")
+        self.exec_id = exec_id
+
+
 @dataclass(frozen=True, slots=True)
 class Generation:
     """One egress process: its container, the start Docker recorded, and the random id its audit lines carry."""
@@ -525,10 +533,13 @@ class BrowserRuntime:
                 user=USER,
                 workdir=str(PurePosixPath("/") / "tmp"),
             )
-            raw = self._client.api.exec_start(created["Id"], socket=True)
         except DockerException as exc:
             raise BrowserError("browser-lost") from exc
+        try:
+            raw = self._client.api.exec_start(created["Id"], socket=True)
+        except DockerException as exc:
+            raise ExecStartError(created["Id"]) from exc
         sock = getattr(raw, "_sock", None)
         if sock is None:
-            raise BrowserError("browser-lost")
+            raise ExecStartError(created["Id"])
         return created["Id"], sock

@@ -7,7 +7,7 @@ import unittest
 from unittest import mock
 
 from local.browser import view
-from local.browser.runtime import BrowserError
+from local.browser.runtime import BrowserError, ExecStartError
 from tests.test_local_browser_tunnel import KEY, Display, admitted_answer
 
 
@@ -59,21 +59,25 @@ class ViewTests(unittest.TestCase):
         self.assertRegex(screen.id, r"^[0-9a-f]{32}$")
         answers: list[bytes] = []
         worker, outcome = self.carry_in_background(screen, answers)
-        display = self.display_answers(admitted_answer())
+        display = self.display_answers(admitted_answer() + b"RFB")
         deadline = time.monotonic() + 5
         while not answers and time.monotonic() < deadline:
             time.sleep(0.01)
         display.write(b"pixels")
         self.viewer.settimeout(5)
-        self.assertEqual(self.viewer.recv(100), b"pixels")
+        received = b""
+        while len(received) < len(b"pixels"):
+            received += self.viewer.recv(100)
+        self.assertEqual(received, b"pixels")
         screen.end()
         worker.join(5)
         self.assertFalse(worker.is_alive())
         self.assertEqual(outcome, {})
         self.assertTrue(answers[0].startswith(b"HTTP/1.1 101"))
+        self.assertTrue(answers[0].endswith(b"\r\n\r\nRFB"))
         self.exited.assert_called_once()
         self.assertEqual(self.records[0], "started")
-        self.assertRegex(self.records[1], r"^ended:proven=1:to_viewer=6:to_display=0$")
+        self.assertRegex(self.records[1], r"^ended:proven=1:to_viewer=9:to_display=0$")
         with self.assertRaises(BrowserError) as ended:
             screen.carry(self.team_viewer, KEY, answers.append)
         self.assertEqual(ended.exception.code, "browser-not-running")
@@ -94,6 +98,25 @@ class ViewTests(unittest.TestCase):
             self.make().carry(self.team_viewer, KEY, lambda _first: None)
         self.assertEqual(refused.exception.code, "browser-view-unavailable")
         self.exited.assert_not_called()
+
+    def test_a_relay_that_started_without_a_channel_must_be_proven_ended(self):
+        self.open_error = ExecStartError("exec-lost")
+        screen = self.make()
+        with self.assertRaises(BrowserError) as refused:
+            screen.carry(self.team_viewer, KEY, lambda _first: None)
+        self.assertEqual(refused.exception.code, "browser-view-unavailable")
+        self.assertEqual(self.exited.call_args.args[0], "exec-lost")
+        self.open_error = None
+        self.exited.return_value = False
+        self.open_error = ExecStartError("exec-unproven")
+        with self.assertRaises(BrowserError):
+            screen.carry(self.team_viewer, KEY, lambda _first: None)
+        # Unproven, it leaves the view unavailable for the rest of the task: no further relay opens.
+        self.open_error = None
+        with self.assertRaises(BrowserError) as refused:
+            screen.carry(self.team_viewer, KEY, lambda _first: None)
+        self.assertEqual(refused.exception.code, "browser-view-unavailable")
+        self.assertEqual(self.displays, [])
 
     def test_an_exit_it_cannot_prove_leaves_the_view_unavailable(self):
         self.exited.return_value = False

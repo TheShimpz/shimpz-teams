@@ -63,7 +63,7 @@ class TunnelTests(unittest.TestCase):
         self.addCleanup(self.team_viewer.close)
         self.tunnel = tunnel.Tunnel(self.team_viewer, self.display.stream)
 
-    def upgrade_with(self, answer: bytes) -> bytes:
+    def upgrade_with(self, answer: bytes) -> tuple[bytes, bytes] | None:
         result = {}
         worker = threading.Thread(target=lambda: result.update(first=self.tunnel.upgrade(KEY)), daemon=True)
         worker.start()
@@ -75,7 +75,7 @@ class TunnelTests(unittest.TestCase):
 
     def test_the_display_receives_one_canonical_request_and_the_viewer_its_exact_101(self):
         first = self.upgrade_with(admitted_answer() + b"RFB 003.008\n")
-        self.assertEqual(first, tunnel.answer(KEY) + b"RFB 003.008\n")
+        self.assertEqual(first, (tunnel.answer(KEY), b"RFB 003.008\n"))
         self.assertIn(b"Origin: http://127.0.0.1:6901\r\n", tunnel.upgrade_request(KEY))
 
     def test_anything_but_the_exact_101_for_the_key_is_refused(self):
@@ -129,6 +129,21 @@ class TunnelTests(unittest.TestCase):
         worker.join(5)
         self.assertFalse(worker.is_alive())
         self.assertEqual(self.tunnel.carried, {"to_viewer": 13, "to_display": 14})
+
+    def test_a_quiet_display_never_strands_the_end_of_an_update(self):
+        # One update larger than the viewer's room: the rest moves on once the viewer takes the first part, although
+        # the display sends nothing more.
+        with mock.patch.object(tunnel, "BUFFER_BYTES", 10):
+            worker = self.splice_in_background()
+            self.display.write(b"0123456789abcde")
+            self.viewer.settimeout(5)
+            received = b""
+            while len(received) < 15:
+                received += self.viewer.recv(100)
+            self.assertEqual(received, b"0123456789abcde")
+            self.viewer.shutdown(socket.SHUT_WR)
+            worker.join(5)
+        self.assertEqual(self.tunnel.carried["to_viewer"], 15)
 
     def test_the_display_ending_ends_the_stream(self):
         worker = self.splice_in_background()

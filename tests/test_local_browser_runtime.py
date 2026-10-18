@@ -184,6 +184,8 @@ class Api:
     def exec_start(self, exec_id, socket):
         assert socket is True
         _identifier, arguments = self.execs[exec_id]
+        if self.docker.fail.get("start"):
+            raise APIError("start failed")
         if self.docker.fail.get("no-socket"):
             return object()
         team, docker = sockets.socketpair()
@@ -557,6 +559,15 @@ class BrowserRuntimeTests(unittest.TestCase):
         self.assertEqual(self.docker.api.execs[exec_id][1], ("relay",))
         stream.close()
         stream.close()
+        # An exec Docker created but gave no channel to names itself, so its end can still be proven.
+        for failure in ("start", "no-socket"):
+            with self.subTest(failure=failure):
+                self.docker.fail = {failure: True}
+                with self.assertRaises(runtime.ExecStartError) as raised:
+                    self.runtime.open_relay(lease)
+                self.assertEqual(raised.exception.code, "browser-lost")
+                self.assertEqual(self.docker.api.execs[raised.exception.exec_id][1], ("relay",))
+        self.docker.fail = {}
         answers = iter([{"Running": True}, {"Running": False}])
         self.docker.api.exec_inspect = lambda _exec: next(answers)
         self.assertTrue(self.runtime.exited(exec_id, self.now[0] + 1))

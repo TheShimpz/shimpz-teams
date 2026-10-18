@@ -17,7 +17,7 @@ from contextlib import suppress
 from socket import socket
 
 from local.browser.channel import ChannelError, ExecStream
-from local.browser.runtime import BrowserError
+from local.browser.runtime import BrowserError, ExecStartError
 from local.browser.tunnel import Tunnel, TunnelError
 from protocol.http.v1 import browser_view as view_protocol
 
@@ -76,6 +76,12 @@ class View:
             self._admit()
         try:
             exec_id, display = self._open()
+        except ExecStartError as exc:
+            # The relay may have started without a channel to it: it must be proven ended like any other.
+            if not self._exited(exc.exec_id, self._clock() + EXIT_SECONDS):
+                with self._lock:
+                    self._unavailable = True
+            raise BrowserError(view_protocol.UNAVAILABLE) from exc
         except BrowserError as exc:
             raise BrowserError(view_protocol.UNAVAILABLE) from exc
         tunnel = Tunnel(client, display, self._clock)
@@ -87,10 +93,11 @@ class View:
                 raise BrowserError(view_protocol.NOT_RUNNING)
             self._record("started")
             try:
-                first = tunnel.upgrade(key)
+                head, early = tunnel.upgrade(key)
             except TunnelError as exc:
                 raise BrowserError(view_protocol.UNAVAILABLE) from exc
-            upgraded(first)
+            upgraded(head + early)
+            tunnel.carried["to_viewer"] += len(early)
             # A side that failed after the upgrade only ends the stream.
             with suppress(TunnelError, ChannelError, OSError):
                 tunnel.splice(lambda: self._ended)
