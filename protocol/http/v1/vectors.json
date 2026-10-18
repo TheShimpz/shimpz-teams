@@ -7419,6 +7419,11 @@
           "kind": "needs_person",
           "reason": "captcha",
           "sentence": "O site pede um captcha."
+        },
+        {
+          "kind": "click",
+          "ref": "p1:0",
+          "note": "Prazo de inscrição: 30/11."
         }
       ],
       "invalid": [
@@ -7460,6 +7465,10 @@
           "kind": "needs_person",
           "reason": "sign-in",
           "sentence": "a\nb"
+        },
+        {
+          "kind": "wait",
+          "note": "a\nb"
         }
       ]
     },
@@ -7472,14 +7481,23 @@
               "kind": "navigate",
               "url": "https://example.com/edital"
             },
-            "outcome": "ok"
+            "outcome": "ok",
+            "page": {
+              "url": "about:blank",
+              "title": "about:blank"
+            }
           },
           {
             "step": {
               "kind": "click",
-              "ref": "p1:0"
+              "ref": "p1:0",
+              "note": "Prazo de inscrição: 30/11."
             },
-            "outcome": "refused"
+            "outcome": "refused",
+            "page": {
+              "url": "https://example.com/edital",
+              "title": "Edital 2026"
+            }
           }
         ]
       ],
@@ -7490,6 +7508,10 @@
             "step": {
               "kind": "navigate",
               "url": "https://example.com/edital"
+            },
+            "page": {
+              "url": "https://example.com/edital",
+              "title": "Edital 2026"
             }
           }
         ],
@@ -7499,7 +7521,20 @@
               "kind": "navigate",
               "url": "https://example.com/edital"
             },
-            "outcome": "maybe"
+            "outcome": "ok"
+          }
+        ],
+        [
+          {
+            "step": {
+              "kind": "navigate",
+              "url": "https://example.com/edital"
+            },
+            "outcome": "maybe",
+            "page": {
+              "url": "https://example.com/edital",
+              "title": "Edital 2026"
+            }
           }
         ],
         [
@@ -7507,7 +7542,11 @@
             "step": {
               "kind": "open"
             },
-            "outcome": "ok"
+            "outcome": "ok",
+            "page": {
+              "url": "https://example.com/edital",
+              "title": "Edital 2026"
+            }
           }
         ],
         [
@@ -7516,7 +7555,11 @@
               "kind": "done",
               "summary": "x"
             },
-            "outcome": "ok"
+            "outcome": "ok",
+            "page": {
+              "url": "https://example.com/edital",
+              "title": "Edital 2026"
+            }
           }
         ],
         [
@@ -7526,7 +7569,47 @@
               "url": "https://example.com",
               "ref": null
             },
-            "outcome": "ok"
+            "outcome": "ok",
+            "page": {
+              "url": "https://example.com/edital",
+              "title": "Edital 2026"
+            }
+          }
+        ],
+        [
+          {
+            "step": {
+              "kind": "wait"
+            },
+            "outcome": "ok",
+            "page": {
+              "url": "https://example.com"
+            }
+          }
+        ],
+        [
+          {
+            "step": {
+              "kind": "wait"
+            },
+            "outcome": "ok",
+            "page": {
+              "url": "https://example.com/edital",
+              "title": "Edital 2026",
+              "extra": 1
+            }
+          }
+        ],
+        [
+          {
+            "step": {
+              "kind": "wait"
+            },
+            "outcome": "ok",
+            "page": {
+              "url": "https://example.com",
+              "title": "a\u0007"
+            }
           }
         ]
       ]

@@ -146,7 +146,9 @@ class Task:
                 outcome = _execute(self.session, decision, observation, self.sleep)
             except cua.CuaError:
                 return Outcome("failed", reason="browser-lost", steps=index + 1)
-        self.history.append({"step": decision, "outcome": outcome})
+        # The page the step was chosen on, and the agent's note from it, so it never returns to recall what it read.
+        page = {"url": observation.url, "title": observation.title}
+        self.history.append({"step": decision, "outcome": outcome, "page": page})
         return None
 
     def _request(self, observation: cua.Observation) -> dict[str, object]:

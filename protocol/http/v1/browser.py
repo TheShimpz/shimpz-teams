@@ -21,6 +21,9 @@ MAX_SUMMARY_BYTES = 4 * 1024
 MAX_SENTENCE_CHARS = 300
 MAX_TEXT_CHARS = 2_000
 MAX_URL_CHARS = 2_048
+# A step's note: what the agent read on the page that the objective needs, kept in its history.
+MAX_NOTE_CHARS = 300
+MAX_TITLE_CHARS = 300
 MAX_HISTORY = 40
 MAX_OBSERVATION_BYTES = 24 * 1024
 LANGUAGES = frozenset({"en", "pt-BR"})
@@ -49,7 +52,7 @@ def _nullable(schema: dict[str, object]) -> dict[str, object]:
 STEP_SCHEMA: dict[str, object] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["kind", *ALL_FIELDS],
+    "required": ["kind", *ALL_FIELDS, "note"],
     "properties": {
         "kind": {"type": "string", "enum": list(FIELDS)},
         "url": _nullable({"type": "string", "maxLength": MAX_URL_CHARS}),
@@ -59,6 +62,7 @@ STEP_SCHEMA: dict[str, object] = {
         "summary": _nullable({"type": "string", "maxLength": MAX_SUMMARY_BYTES}),
         "reason": _nullable({"type": "string", "enum": list(REASONS)}),
         "sentence": _nullable({"type": "string", "maxLength": MAX_SENTENCE_CHARS}),
+        "note": _nullable({"type": "string", "maxLength": MAX_NOTE_CHARS}),
     },
 }
 
@@ -124,14 +128,17 @@ FIELD_CHECKS = {
 
 
 def canonical_step(value: object) -> dict[str, object] | None:
-    """The compact step a flat or compact answer names, or None for anything outside the closed set."""
+    """The compact step a flat or compact answer names, or None for anything outside the closed set.
+
+    Any step may carry a `note`; a null or blank one is no note.
+    """
     if not isinstance(value, dict) or not isinstance(value.get("kind"), str):
         return None
     kind = value["kind"]
     fields = FIELDS.get(kind)
     if fields is None:
         return None
-    extra = set(value) - {"kind", *ALL_FIELDS}
+    extra = set(value) - {"kind", *ALL_FIELDS, "note"}
     unused = [name for name in ALL_FIELDS if name not in fields and value.get(name) is not None]
     if extra or unused:
         return None
@@ -141,21 +148,41 @@ def canonical_step(value: object) -> dict[str, object] | None:
         if admitted is None:
             return None
         step[name] = admitted
+    note = value.get("note")
+    if isinstance(note, str) and not note.strip():
+        note = None
+    if note is not None:
+        if not _plain(note, MAX_NOTE_CHARS):
+            return None
+        step["note"] = note
     return step
 
 
+def _page(value: object) -> dict[str, str] | None:
+    """The URL and title of the page a step was chosen on, as Team observed them: one bounded line each."""
+    if not isinstance(value, dict) or set(value) != {"url", "title"}:
+        return None
+    url, title = value["url"], value["title"]
+    if not isinstance(url, str) or len(url) > MAX_URL_CHARS or not url.isprintable():
+        return None
+    if not isinstance(title, str) or len(title) > MAX_TITLE_CHARS or not title.isprintable():
+        return None
+    return {"url": url, "title": title}
+
+
 def canonical_history(value: object) -> list[dict[str, object]] | None:
-    """At most 40 earlier steps, each with its closed outcome."""
+    """At most 40 earlier steps, each with its closed outcome and the page it was chosen on."""
     if not isinstance(value, list) or len(value) > MAX_HISTORY:
         return None
     history = []
     for entry in value:
-        if not isinstance(entry, dict) or set(entry) != {"step", "outcome"} or entry["outcome"] not in OUTCOMES:
+        if not isinstance(entry, dict) or set(entry) != {"step", "outcome", "page"} or entry["outcome"] not in OUTCOMES:
             return None
         step = canonical_step(entry["step"])
-        if step is None or step != entry["step"] or step["kind"] in {"done", "needs_person"}:
+        page = _page(entry["page"])
+        if step is None or step != entry["step"] or step["kind"] in {"done", "needs_person"} or page is None:
             return None
-        history.append({"step": step, "outcome": entry["outcome"]})
+        history.append({"step": step, "outcome": entry["outcome"], "page": page})
     return history
 
 

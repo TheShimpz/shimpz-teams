@@ -168,7 +168,8 @@ class CuaSession:
             images=screenshot,
         )
         page = state.get("page") if isinstance(state.get("page"), dict) else {}
-        url, title = _clean(page.get("url"), 2048), _clean(page.get("title"), 300)
+        url = _clean(page.get("url"), browser_protocol.MAX_URL_CHARS)
+        title = _clean(page.get("title"), browser_protocol.MAX_TITLE_CHARS)
         head = f"url: {url}\ntitle: {title}\nactions:\n"
         refs, lines = _refs(state.get("refs"), MAX_OBSERVATION_BYTES - len(head.encode()) - len(b"\npage:\n"))
         outline = state.get("outline") if isinstance(state.get("outline"), str) else ""

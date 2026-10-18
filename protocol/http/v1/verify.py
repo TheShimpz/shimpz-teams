@@ -439,7 +439,9 @@ for kind, admit in admit_browser.items():
     if any(admit(value) is not None for value in browser_vectors[kind]["invalid"]):
         fail(f"an invalid Browser {kind} vector was admitted")
 # Each bound, one past it: too large to write out as a vector.
-wait = {"step": {"kind": "wait"}, "outcome": "ok"}
+wait = {"step": {"kind": "wait"}, "outcome": "ok", "page": {"url": "about:blank", "title": ""}}
+long_title = {"url": "about:blank", "title": "a" * (browser.MAX_TITLE_CHARS + 1)}
+long_url = {"url": "https://example.com/" + "a" * browser.MAX_URL_CHARS, "title": ""}
 kept = browser_vectors["terminal"]["valid"][0]
 over_bounds = (
     (browser.canonical_url, "https://example.com/" + "a" * browser.MAX_URL_CHARS),
@@ -447,6 +449,9 @@ over_bounds = (
     (browser.canonical_step, {"kind": "done", "summary": "\u00e9" * (browser.MAX_SUMMARY_BYTES // 2 + 1)}),
     (browser.canonical_step, {"kind": "type", "ref": "p1:0", "text": "a" * (browser.MAX_TEXT_CHARS + 1)}),
     (browser.canonical_history, [wait] * (browser.MAX_HISTORY + 1)),
+    (browser.canonical_step, {"kind": "wait", "note": "a" * (browser.MAX_NOTE_CHARS + 1)}),
+    (browser.canonical_history, [{**wait, "page": long_title}]),
+    (browser.canonical_history, [{**wait, "page": long_url}]),
     (browser.canonical_observation, "a" * (browser.MAX_OBSERVATION_BYTES + 1)),
     (browser.canonical_terminal, {**kept, "files": kept["files"] * (browser.MAX_TERMINAL_FILES + 1)}),
     (browser.canonical_terminal, {**kept, "lost": kept["lost"] * (browser.MAX_TERMINAL_LOSSES + 1)}),

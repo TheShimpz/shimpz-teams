@@ -98,7 +98,11 @@ class BrowserTaskTests(unittest.TestCase):
         )
         self.assertEqual(sleeps, [task.WAIT_SECONDS])
         self.assertEqual(requests[0]["history"], [])
-        self.assertEqual(requests[-1]["history"][-1], {"step": {"kind": "wait"}, "outcome": "ok"})
+        # Each step is recorded with the page it was chosen on, so the agent never returns to recall it.
+        self.assertEqual(
+            requests[-1]["history"][-1],
+            {"step": {"kind": "wait"}, "outcome": "ok", "page": {"url": "https://example.com", "title": "Example"}},
+        )
         self.assertEqual(
             (requests[0]["objective"], requests[0]["language"], requests[0]["screenshot"]),
             ("Veja o prazo.", "pt-BR", None),

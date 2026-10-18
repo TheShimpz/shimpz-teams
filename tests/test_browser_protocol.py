@@ -77,8 +77,18 @@ class BrowserProtocolTests(unittest.TestCase):
             with self.subTest(raw=raw):
                 self.assertIsNone(browser.canonical_step(raw))
 
+    def test_any_step_may_carry_one_bounded_note_and_a_blank_one_is_none(self):
+        kept = browser.canonical_step(_flat(kind="click", ref="p1:1", note="Latest: Python 3.15.0"))
+        self.assertEqual(kept, {"kind": "click", "ref": "p1:1", "note": "Latest: Python 3.15.0"})
+        for blank in (None, "", "   "):
+            with self.subTest(note=blank):
+                self.assertEqual(browser.canonical_step(_flat(kind="wait", note=blank)), {"kind": "wait"})
+        for note in ("a\nb", "bell\x07", "x" * (browser.MAX_NOTE_CHARS + 1), 7):
+            with self.subTest(note=note):
+                self.assertIsNone(browser.canonical_step(_flat(kind="wait", note=note)))
+
     def test_the_flat_schema_names_every_field_and_kind(self):
-        self.assertEqual(browser.STEP_SCHEMA["required"], ["kind", *browser.ALL_FIELDS])
+        self.assertEqual(browser.STEP_SCHEMA["required"], ["kind", *browser.ALL_FIELDS, "note"])
         self.assertEqual(browser.STEP_SCHEMA["properties"]["kind"]["enum"], list(browser.FIELDS))
         self.assertIs(browser.STEP_SCHEMA["additionalProperties"], False)
 
@@ -86,18 +96,22 @@ class BrowserProtocolTests(unittest.TestCase):
         self.assertEqual(browser.canonical_objective("  Veja o prazo do edital.\n"), "Veja o prazo do edital.")
         for objective in (None, "", "   ", "x" * (browser.MAX_OBJECTIVE_CHARS + 1), "bell\x07"):
             self.assertIsNone(browser.canonical_objective(objective))
-        step = {"kind": "click", "ref": "p1:1"}
-        self.assertEqual(
-            browser.canonical_history([{"step": step, "outcome": "ok"}]), [{"step": step, "outcome": "ok"}]
-        )
+        step = {"kind": "click", "ref": "p1:1", "note": "Prazo: 30/11."}
+        page = {"url": "https://example.com/edital", "title": "Edital"}
+        entry = {"step": step, "outcome": "ok", "page": page}
+        self.assertEqual(browser.canonical_history([entry]), [entry])
         for history in (
             None,
-            [{"step": step, "outcome": "ok"}] * (browser.MAX_HISTORY + 1),
-            [{"step": step}],
-            [{"step": step, "outcome": "maybe"}],
-            [{"step": {"kind": "click"}, "outcome": "ok"}],
-            [{"step": _flat(kind="click", ref="p1:1"), "outcome": "ok"}],
-            [{"step": {"kind": "done", "summary": "x"}, "outcome": "ok"}],
+            [entry] * (browser.MAX_HISTORY + 1),
+            [{"step": step, "page": page}],
+            [{"step": step, "outcome": "ok"}],
+            [{**entry, "outcome": "maybe"}],
+            [{**entry, "step": {"kind": "click"}}],
+            [{**entry, "step": _flat(kind="click", ref="p1:1")}],
+            [{**entry, "step": {"kind": "done", "summary": "x"}}],
+            [{**entry, "page": {"url": "https://example.com"}}],
+            [{**entry, "page": {**page, "title": "x" * (browser.MAX_TITLE_CHARS + 1)}}],
+            [{**entry, "page": {**page, "url": 7}}],
             ["step"],
         ):
             with self.subTest(history=history):
