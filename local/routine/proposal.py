@@ -30,6 +30,7 @@ from local.routine import contracts as routine_contracts
 from local.routine import recorder as routine_recorder
 from local.routine import state as routine_state
 from local.validation import validate_team_id
+from protocol.http.v1 import phrase
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import routine_context as http_routine_context
 from protocol.http.v1 import routine_proposal as http_routine_proposal
@@ -399,6 +400,22 @@ def _digest(candidate: record.Routine, view: dict[str, object], expected_revisio
     return routine_plan.digest(bound)
 
 
+def description_agrees(view: dict[str, object]) -> bool:
+    """Whether a card's description states no schedule, output, or timezone but the card's own (ADR-0101).
+
+    Edit offers the description beside the card's settings as one text Team reads back, so a setting the description
+    repeats reads back as the same one, and only a different one would change or confuse it. A timezone counts only
+    where the card has one of its own.
+    """
+    text = str(view["description"])
+    zones = {view["timezone"]} if view["timezone_source"] != "none" else set()
+    return (
+        all(schedule == view["schedule"] for schedule in phrase.stated(text))
+        and set(phrase.outputs(text)) <= {view["output"]}
+        and set(phrase.zones(text)) <= zones
+    )
+
+
 def admit(
     self, response: object, proposed: object, spent: brain_usage.Spent | None
 ) -> tuple[Callable[[], None], dict[str, object]]:
@@ -420,6 +437,8 @@ def admit(
             raise RefusedError("routine-proposal-too-large")
         if trace.exposes(view, recording.protection.values):
             raise RefusedError("routine-secret-literal")
+        if not description_agrees(view):
+            raise RefusedError("routine-description-conflict")
     except _AskedError as asking:
         question = asking.question
         if trace.exposes(question.wire(), asking.protected):

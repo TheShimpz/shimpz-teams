@@ -659,6 +659,29 @@ class RecordedRoutineTests(RecordingCase):
             with self.subTest(name=name), mock.patch.object(target, name, 512):
                 self.assertEqual(self.refusal(Recording(_record())), "routine-proposal-too-large")
 
+    def test_a_description_may_repeat_the_cards_settings_but_never_state_others(self) -> None:
+        # Edit reads the description back beside the card's settings: the same setting reads back the same.
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(
+                directory, Recording(_record(description="Lista os registros DNS de shimpz.com."))
+            )
+            card = self.chat(service)["routine_proposal"]
+        repeated = f"Lista os registros DNS de shimpz.com em {card['timezone']} e me mostre o resultado."
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.controller(directory, Recording(_record(description=repeated)))
+            self.assertEqual(self.chat(service)["routine_proposal"]["description"], repeated)
+        for different in (
+            "Lista os registros DNS de shimpz.com e não precisa mostrar.",
+            "Lista os registros DNS de shimpz.com toda segunda-feira às 8h.",
+            "Lista os registros DNS de shimpz.com em Europe/Lisbon.",
+        ):
+            with self.subTest(description=different):
+                self.assertEqual(
+                    self.refusal(Recording(_record(description=different))), "routine-description-conflict"
+                )
+        unzoned = {**card, "timezone": "UTC", "timezone_source": "none", "description": "Lista em UTC."}
+        self.assertFalse(routine_proposal.description_agrees(unzoned))
+
     def test_a_routine_without_a_known_timezone_runs_on_utc_by_convention(self) -> None:
         unzoned = {**_body(), "timezone": None}
         with tempfile.TemporaryDirectory() as directory:
