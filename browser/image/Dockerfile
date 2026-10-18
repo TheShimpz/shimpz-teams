@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
-# The Team Browser (ADR-0117): Debian-security Chromium under Xvfb with the accessibility bus, driven only through the
-# pinned Cua Driver that Team reaches over `docker exec`. Team creates one container per Browser task and removes it
+# The Team Browser (ADR-0117): Debian-security Chromium on KasmVNC's X server with the accessibility bus, driven only
+# through the pinned Cua Driver that Team reaches over `docker exec`; a person watches the same screen through KasmVNC,
+# confined to its own namespaces. Team creates one container per Browser task and removes it
 # when the task ends; every writable path is a noexec tmpfs it mounts, and the root is read-only.
 
 # The in-image program (launcher, MCP entry, readiness probe, downloads tool) uses the standard library only.
@@ -19,6 +20,23 @@ ADD --checksum=sha256:05dae2160c86bdf4855c279d30898213d7a150edb1992b7470afdd69f0
     /tmp/cua.tar.gz
 RUN test "${TARGETARCH}" = amd64 && mkdir /cua && tar -xzf /tmp/cua.tar.gz -C /cua cua-driver && chmod 0555 /cua/cua-driver
 
+# KasmVNC's X server only, from the exact release package, checked against its published SHA-256; its perl wrapper,
+# web client, and configuration tools are not installed. KasmVNC is GPL-2: its corresponding source (the release's tag
+# archive, which carries its build and packaging scripts, and the X.Org server it builds on, XORG_VER of its trixie
+# builder) ships beside the binary.
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS kasm
+ARG TARGETARCH
+ADD --checksum=sha256:80b241de7dfe53bba2b7e1cc5ac8c5246d72271efa16be2d4f76607f30fab1c4 \
+    https://github.com/kasmtech/KasmVNC/releases/download/v1.5.0/kasmvncserver_trixie_1.5.0_amd64.deb \
+    /tmp/kasmvnc.deb
+ADD --checksum=sha256:e80d79205b12139c16d8131780e8b75b8d1e8e4dbb67c4c7c41a0f4951426af9 \
+    https://codeload.github.com/kasmtech/KasmVNC/tar.gz/refs/tags/v1.5.0 /source/kasmvnc-1.5.0.tar.gz
+ADD --checksum=sha256:1a9005f47c7ea83645a977581324439628a32c4426303e5a4b9c2d6615becfbf \
+    https://mirror.csclub.uwaterloo.ca/x.org/individual/xserver/xorg-server-21.1.7.tar.gz /source/xorg-server-21.1.7.tar.gz
+COPY kasmvnc-sources.txt /source/SOURCES
+RUN test "${TARGETARCH}" = amd64 && dpkg-deb -x /tmp/kasmvnc.deb /kasm && test -x /kasm/usr/bin/Xkasmvnc && \
+    tar -xzf /source/kasmvnc-1.5.0.tar.gz -O KasmVNC-1.5.0/LICENSE.TXT > /source/LICENSE && test -s /source/LICENSE
+
 FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS runtime
 # Every package comes from one fixed Debian snapshot over HTTPS, so a rebuild installs the same Chromium and no older
 # signed index can be replayed; a newer Chromium enters only by moving the date and the pinned version together in a
@@ -35,8 +53,10 @@ RUN --mount=type=bind,from=host,source=/etc/ssl/certs/ca-certificates.crt,target
         > /etc/apt/apt.conf.d/99snapshot && \
     apt-get update --error-on=any && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        "chromium=${CHROMIUM_VERSION}" xvfb at-spi2-core dbus-daemon ca-certificates fonts-liberation fonts-noto-core \
-        libx11-6 libxi6 libxkbcommon0 libxext6 && \
+        "chromium=${CHROMIUM_VERSION}" at-spi2-core dbus-daemon ca-certificates fonts-liberation fonts-noto-core \
+        libx11-6 libxi6 libxkbcommon0 libxext6 \
+        libbsd0 libfreetype6 libgbm1 libgl1 libpixman-1-0 libpng16-16t64 libssl3t64 libunwind8 libxau6 libxcursor1 \
+        libxdmcp6 libxfixes3 libxfont2 libxrandr2 libxshmfence1 libxtst6 xkb-data x11-xkb-utils && \
     test "$(dpkg-query -W -f '${Version}' chromium)" = "${CHROMIUM_VERSION}" && \
     groupadd --gid 10031 shimpz-browser && \
     useradd --uid 10031 --gid 10031 --no-create-home --home-dir /tmp --shell /usr/sbin/nologin shimpz-browser && \
@@ -46,7 +66,7 @@ RUN --mount=type=bind,from=host,source=/etc/ssl/certs/ca-certificates.crt,target
     # Debian's Chromium wrapper exports Google API keys from here for Google's services; the launcher runs the binary
     # itself and the Browser uses none of them, so no key ships in the image.
     rm -f /etc/chromium.d/apikeys && test ! -e /etc/chromium.d/apikeys && \
-    # Only /bin/sh stays, because Xvfb runs xkbcomp through it to compile the keyboard map; no other shell, package
+    # Only /bin/sh stays, because the X server runs xkbcomp through it to compile the keyboard map; no other shell, package
     # manager, or language interpreter remains.
     rm -f /bin/bash /usr/bin/bash /usr/bin/rbash /usr/bin/bashbug /usr/bin/perl /usr/bin/perl5* \
         /usr/bin/apt /usr/bin/apt-* /usr/bin/dpkg /usr/bin/dpkg-* /usr/bin/python3* && \
@@ -54,6 +74,8 @@ RUN --mount=type=bind,from=host,source=/etc/ssl/certs/ca-certificates.crt,target
 COPY --chmod=0444 policy.json /etc/chromium/policies/managed/shimpz.json
 COPY --from=host /browser-host /usr/local/bin/browser-host
 COPY --from=cua /cua/cua-driver /opt/cua/cua-driver
+COPY --from=kasm /kasm/usr/bin/Xkasmvnc /usr/bin/Xkasmvnc
+COPY --from=kasm /source /usr/share/doc/kasmvnc
 USER 10031:10031
 ENTRYPOINT ["/usr/local/bin/browser-host"]
 CMD ["launch"]

@@ -4,18 +4,20 @@
 //! and exits as soon as any of them stops, so the container ends with it. `mcp` replaces itself with the Cua Driver's
 //! stdio MCP server, the only instrument Team drives. `ready` proves Chromium's loopback DevTools endpoint answers.
 //! `files list` and `files read NAME` are the only way Team reads `/downloads`: regular files with one link, opened
-//! without following links, never a partial `.crdownload`. `view` streams the display's raw pixels while Team reads
-//! them, for the person watching the task; Team builds every image the person's browser decodes.
+//! without following links, never a partial `.crdownload`. `relay` carries one viewer's WebSocket to the display,
+//! KasmVNC's X server confined to its own namespaces (`display.rs`).
 //!
 //! Every input comes from Team through the container's environment or the exec argument vector and is validated
 //! here again; nothing is ever passed to a shell.
 
 use std::collections::HashMap;
+mod display;
+
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
-use std::os::unix::fs::{FileExt, MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode};
@@ -30,17 +32,8 @@ const DOWNLOADS: &str = "/downloads";
 const PROFILE: &str = "/profile";
 const DEVTOOLS_PORT: u16 = 9222;
 const PROXY_PORT: u16 = 3128;
-const SCREEN: &str = "1280x800x24";
-/// Xvfb keeps the screen's pixels in this file (XWD, 32 bits per pixel), which `view` reads and nothing else does.
-const FRAMEBUFFER: &str = "/tmp/run/Xvfb_screen0";
-const WIDTH: u32 = 1280;
-const HEIGHT: u32 = 800;
-const FRAME_HEADER: &[u8] = b"rgb 1280 800\n";
-const UNCHANGED: &[u8] = b"same\n";
-const VIEW_TICK: Duration = Duration::from_millis(500);
 const CUA_DRIVER: &str = "/opt/cua/cua-driver";
 const CHROMIUM: &str = "/usr/lib/chromium/chromium";
-const XVFB: &str = "/usr/bin/Xvfb";
 const DBUS_DAEMON: &str = "/usr/bin/dbus-daemon";
 const ATSPI_LAUNCHER: &str = "/usr/libexec/at-spi-bus-launcher";
 /// The most files one listing names and the largest file one read returns (Team's own ingest bounds, ADR-0117 §7).
@@ -55,7 +48,6 @@ const POLL: Duration = Duration::from_millis(50);
 const O_NOFOLLOW: i32 = 0o400_000;
 #[cfg(target_arch = "aarch64")]
 const O_NOFOLLOW: i32 = 0o100_000;
-const O_NONBLOCK: i32 = 0o4_000;
 
 unsafe extern "C" {
     fn umask(mask: u32) -> u32;
@@ -68,11 +60,12 @@ fn main() -> ExitCode {
         ["launch"] => launch(),
         ["mcp"] => Err(mcp()),
         ["ready"] => ready(),
-        ["view"] => view(),
+        ["relay"] => display::relay(),
         ["files", "list"] => list(Path::new(DOWNLOADS), &mut io::stdout().lock()),
         ["files", "read", name] => read(Path::new(DOWNLOADS), name, &mut io::stdout().lock()),
         _ => Err(
-            "usage: browser-host launch | mcp | ready | view | files list | files read NAME".into(),
+            "usage: browser-host launch | mcp | ready | relay | files list | files read NAME"
+                .into(),
         ),
     };
     match outcome {
@@ -143,6 +136,8 @@ fn chromium_arguments(settings: &Settings) -> Vec<String> {
         format!("--remote-debugging-port={DEVTOOLS_PORT}"),
         "--ozone-platform=x11".into(),
         "--no-first-run".into(),
+        // Only the page: no tab strip and no address bar on the watched screen.
+        "--kiosk".into(),
         "--no-default-browser-check".into(),
         "--window-size=1280,800".into(),
         "--window-position=0,0".into(),
@@ -177,21 +172,13 @@ fn start_all(settings: &Settings, children: &mut Vec<Child>) -> Result<(), Strin
             .spawn()
             .map_err(|error| format!("cannot start {name}: {error}"))
     };
-    children.push(spawn(
-        command(XVFB).args([
-            DISPLAY,
-            "-screen",
-            "0",
-            SCREEN,
-            "-nolisten",
-            "tcp",
-            "-nolisten",
-            "unix",
-            "-fbdir",
-            RUNTIME_DIR,
-        ]),
-        "the display",
-    )?);
+    let mut display = command(display::DISPLAY_SERVER);
+    display.args(display::arguments());
+    display::confine(&mut display);
+    let display = spawn(&mut display, "the display")?;
+    let pid = display.id();
+    children.push(display);
+    display::record(pid)?;
     wait_until(children, "the display", display_answers)?;
     children.push(spawn(
         command(DBUS_DAEMON).args([
@@ -222,12 +209,8 @@ fn start_all(settings: &Settings, children: &mut Vec<Child>) -> Result<(), Strin
 }
 
 fn display_answers() -> bool {
-    use std::os::linux::net::SocketAddrExt;
-    use std::os::unix::net::{SocketAddr as UnixAddr, UnixStream};
-    // Xvfb listens only on its abstract socket, which is private to the container's network namespace.
-    UnixAddr::from_abstract_name(b"/tmp/.X11-unix/X99")
-        .and_then(|address| UnixStream::connect_addr(&address))
-        .is_ok()
+    // The display's own network namespace holds its abstract socket; its filesystem socket is what X clients reach.
+    std::os::unix::net::UnixStream::connect(display::X_SOCKET).is_ok()
 }
 
 fn wait_until(children: &mut [Child], name: &str, ready: impl Fn() -> bool) -> Result<(), String> {
@@ -278,129 +261,6 @@ fn ready() -> Result<(), String> {
     TcpStream::connect_timeout(&address, Duration::from_secs(1))
         .map(drop)
         .map_err(|_| "Chromium is not ready".into())
-}
-
-/// Stream the screen to Team for as long as it reads: every tick, `same` when nothing changed since the last frame,
-/// or the frame header and the screen's packed RGB pixels. Team ending the exec's input ends the program, as does any
-/// failed write; the pixels are the page's own and untrusted, so Team only ever frames them in an image it builds.
-fn view() -> Result<(), String> {
-    let (file, offset) = open_framebuffer(Path::new(FRAMEBUFFER))?;
-    thread::spawn(|| {
-        let mut input = io::stdin().lock();
-        let mut sink = [0u8; 64];
-        while matches!(input.read(&mut sink), Ok(read) if read > 0) {}
-        std::process::exit(0);
-    });
-    let mut out = io::stdout().lock();
-    stream_frames(&file, offset, &mut out, || {
-        thread::sleep(VIEW_TICK);
-        true
-    })
-}
-
-/// The framebuffer, opened without following a link or blocking, and where its pixels start; its header must describe
-/// exactly the Browser's screen and its size exactly that header's pixels.
-fn open_framebuffer(path: &Path) -> Result<(File, u64), String> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(O_NOFOLLOW | O_NONBLOCK)
-        .open(path)
-        .map_err(|_| "the display cannot be opened".to_owned())?;
-    let metadata = file
-        .metadata()
-        .map_err(|_| "the display cannot be inspected".to_owned())?;
-    if !metadata.file_type().is_file() {
-        return Err("the display is not a regular file".into());
-    }
-    let mut header = [0u8; 100];
-    file.read_exact_at(&mut header, 0)
-        .map_err(|_| "the display has no header".to_owned())?;
-    let offset = pixel_offset(&header, metadata.len())?;
-    Ok((file, offset))
-}
-
-/// Where the pixels of an XWD header for the 1280x800 TrueColor screen start, given the file's length.
-fn pixel_offset(header: &[u8; 100], length: u64) -> Result<u64, String> {
-    let field = |index: usize| {
-        let bytes = [
-            header[index * 4],
-            header[index * 4 + 1],
-            header[index * 4 + 2],
-            header[index * 4 + 3],
-        ];
-        u32::from_be_bytes(bytes)
-    };
-    // header size, version, ZPixmap, depth, width, height, x offset, byte order, bits per pixel, bytes per line,
-    // visual class, the three masks, and the colormap's size, as Xvfb writes them for a 24-bit screen.
-    let expected = [
-        (1, 7),
-        (2, 2),
-        (3, 24),
-        (4, WIDTH),
-        (5, HEIGHT),
-        (6, 0),
-        (7, 0),
-        (11, 32),
-        (12, WIDTH * 4),
-        (13, 4),
-        (14, 0x00ff_0000),
-        (15, 0x0000_ff00),
-        (16, 0x0000_00ff),
-    ];
-    let (header_size, colors) = (field(0), field(19));
-    if expected.iter().any(|&(index, value)| field(index) != value)
-        || !(100..=1024).contains(&header_size)
-        || colors > 256
-    {
-        return Err("the display is not the Browser's screen".into());
-    }
-    let offset = u64::from(header_size) + u64::from(colors) * 12;
-    if length != offset + u64::from(WIDTH * 4 * HEIGHT) {
-        return Err("the display's size does not match its header".into());
-    }
-    Ok(offset)
-}
-
-/// Write one tick at a time until `tick` says to stop or a write fails.
-fn stream_frames(
-    file: &File,
-    offset: u64,
-    out: &mut impl Write,
-    mut tick: impl FnMut() -> bool,
-) -> Result<(), String> {
-    let pixels = (WIDTH * HEIGHT) as usize;
-    let mut raw = vec![0u8; pixels * 4];
-    let mut sent: Option<Vec<u8>> = None;
-    loop {
-        file.read_exact_at(&mut raw, offset)
-            .map_err(|_| "the display cannot be read".to_owned())?;
-        let rgb = packed_rgb(&raw);
-        let written = if sent.as_deref() == Some(rgb.as_slice()) {
-            out.write_all(UNCHANGED)
-        } else {
-            let frame = out
-                .write_all(FRAME_HEADER)
-                .and_then(|()| out.write_all(&rgb));
-            sent = Some(rgb);
-            frame
-        };
-        written
-            .and_then(|()| out.flush())
-            .map_err(|_| "Team stopped watching".to_owned())?;
-        if !tick() {
-            return Ok(());
-        }
-    }
-}
-
-/// The screen's little-endian 32-bit pixels (blue, green, red, unused) as packed red, green, blue.
-fn packed_rgb(raw: &[u8]) -> Vec<u8> {
-    let mut rgb = Vec::with_capacity(raw.len() / 4 * 3);
-    let (pixels, _) = raw.as_chunks::<4>();
-    for [blue, green, red, _] in pixels {
-        rgb.extend_from_slice(&[*red, *green, *blue]);
-    }
-    rgb
 }
 
 /// A download name Team may ask for: one path component, at most 255 bytes, no control character.
@@ -666,86 +526,6 @@ mod tests {
             assert!(read(root, name, &mut Vec::new()).is_err(), "{name}");
         }
         fs::remove_dir_all(root).unwrap();
-    }
-
-    fn xwd_header(colors: u32) -> [u8; 100] {
-        let mut fields = [0u32; 25];
-        for (index, value) in [
-            (0, 160),
-            (1, 7),
-            (2, 2),
-            (3, 24),
-            (4, WIDTH),
-            (5, HEIGHT),
-            (11, 32),
-            (12, WIDTH * 4),
-            (13, 4),
-            (14, 0x00ff_0000),
-            (15, 0x0000_ff00),
-            (16, 0x0000_00ff),
-            (19, colors),
-        ] {
-            fields[index] = value;
-        }
-        let mut header = [0u8; 100];
-        for (index, value) in fields.iter().enumerate() {
-            header[index * 4..index * 4 + 4].copy_from_slice(&value.to_be_bytes());
-        }
-        header
-    }
-
-    #[test]
-    fn only_the_browser_screen_framebuffer_is_admitted() {
-        let size = u64::from(WIDTH * 4 * HEIGHT);
-        assert_eq!(pixel_offset(&xwd_header(256), 160 + 3072 + size), Ok(3232));
-        assert!(pixel_offset(&xwd_header(256), 160 + 3072 + size + 1).is_err());
-        assert!(pixel_offset(&xwd_header(257), 160 + 257 * 12 + size).is_err());
-        for (index, value) in [(1, 6), (4, 1920), (7, 1), (11, 24), (14, 0xff)] {
-            let mut header = xwd_header(256);
-            header[index * 4..index * 4 + 4].copy_from_slice(&u32::to_be_bytes(value));
-            assert!(pixel_offset(&header, 160 + 3072 + size).is_err(), "{index}");
-        }
-        let directory = tempfile();
-        symlink("/etc/passwd", directory.join("pointer")).unwrap();
-        assert!(open_framebuffer(&directory.join("pointer")).is_err());
-        assert!(open_framebuffer(&directory).is_err());
-        fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn a_frame_is_sent_once_then_only_its_changes() {
-        let directory = tempfile();
-        let path = directory.join("screen");
-        let pixels = (WIDTH * HEIGHT) as usize;
-        let mut contents = xwd_header(0).to_vec();
-        contents.resize(160, 0);
-        contents.extend((0..pixels).flat_map(|_| [3u8, 2, 1, 0]));
-        fs::write(&path, &contents).unwrap();
-        let (file, offset) = open_framebuffer(&path).unwrap();
-        assert_eq!(offset, 160);
-        let mut out = Vec::new();
-        let mut ticks = 0;
-        stream_frames(&file, offset, &mut out, || {
-            ticks += 1;
-            if ticks == 2 {
-                let mut changed = contents.clone();
-                changed[160..164].copy_from_slice(&[9, 8, 7, 0]);
-                fs::write(&path, &changed).unwrap();
-            }
-            ticks < 3
-        })
-        .unwrap();
-        let frame = FRAME_HEADER.len() + pixels * 3;
-        assert_eq!(out.len(), frame + UNCHANGED.len() + frame);
-        assert_eq!(&out[..FRAME_HEADER.len()], FRAME_HEADER);
-        assert_eq!(
-            &out[FRAME_HEADER.len()..FRAME_HEADER.len() + 6],
-            &[1, 2, 3, 1, 2, 3]
-        );
-        assert_eq!(&out[frame..frame + UNCHANGED.len()], UNCHANGED);
-        let second = frame + UNCHANGED.len() + FRAME_HEADER.len();
-        assert_eq!(&out[second..second + 6], &[7, 8, 9, 1, 2, 3]);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     fn tempfile() -> PathBuf {

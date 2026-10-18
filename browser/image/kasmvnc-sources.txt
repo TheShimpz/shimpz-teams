@@ -1,0 +1,14 @@
+KasmVNC (GPL-2.0) in this image: /usr/bin/Xkasmvnc, extracted unmodified from
+  kasmvncserver_trixie_1.5.0_amd64.deb
+  sha256 80b241de7dfe53bba2b7e1cc5ac8c5246d72271efa16be2d4f76607f30fab1c4
+  https://github.com/kasmtech/KasmVNC/releases/tag/v1.5.0
+
+Its complete corresponding source, shipped beside this file:
+  kasmvnc-1.5.0.tar.gz      the v1.5.0 tag archive, with the build (builder/), packaging (debian/), and license files
+                            sha256 e80d79205b12139c16d8131780e8b75b8d1e8e4dbb67c4c7c41a0f4951426af9
+  xorg-server-21.1.7.tar.gz the X.Org server the trixie build compiles KasmVNC into (builder/dockerfile.debian_trixie.build
+                            XORG_VER 21.1.7), MIT/X11-licensed
+                            sha256 1a9005f47c7ea83645a977581324439628a32c4426303e5a4b9c2d6615becfbf
+  LICENSE                   KasmVNC's license
+
+The shared libraries it links come from this image's Debian packages, whose sources Debian publishes.
