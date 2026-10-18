@@ -169,11 +169,16 @@ class BrowserRuntime:
             self._slot.release()
 
     def startup(self) -> bool:
-        """Remove every Browser a previous Team process left and end its egress generation; whether it proved so."""
+        """Remove every Browser a previous Team process left; whether it proved none is left.
+
+        The egress is not restarted here: the Space may be starting it at this very moment, and the runtime stays dirty,
+        so the first task restarts it before it runs, on a generation no earlier task used.
+        """
         if not self._slot.acquire(blocking=False):
             return False
         try:
-            self.clean()
+            for container in self._browsers():
+                self._remove(container.id)
         except BrowserError:
             return False
         finally:

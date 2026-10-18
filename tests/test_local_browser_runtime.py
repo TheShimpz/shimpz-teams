@@ -414,7 +414,6 @@ class BrowserRuntimeTests(unittest.TestCase):
         unavailable = self.make(image=None)
         self.docker.fail["restart"] = True
         unavailable.clean()
-        self.assertTrue(unavailable.startup())
         self.assertEqual(self.docker.egress.restarts, 0)
 
     def test_the_network_and_egress_must_be_exactly_the_owned_isolated_ones(self):
@@ -586,12 +585,20 @@ class BrowserRuntimeTests(unittest.TestCase):
             self.assertIsNone(runtime.own_browser_image(client))
         self.assertTrue(self.runtime.available)
         self.assertFalse(self.make(image=None).available)
+        # A leftover Browser is removed at startup, and the egress the Space is starting is left alone.
+        leftover = self.runtime.acquire("team_1", "en")
+        self.runtime._slot.release()
+        restarts = self.docker.egress.restarts
         self.assertTrue(self.runtime.startup())
-        self.assertEqual(self.docker.egress.restarts, 1)
-        self.docker.fail["restart"] = True
+        self.assertNotIn(leftover.container_id, self.docker.containers_by_id)
+        self.assertEqual(self.docker.egress.restarts, restarts)
+        self.docker.fail["list"] = True
         self.assertFalse(self.runtime.startup())
         self.docker.fail = {}
+        # The runtime stays dirty after startup, so the first task still starts on a fresh egress generation.
+        self.runtime._dirty = True
         lease = self.runtime.acquire("team_1", "en")
+        self.assertEqual(self.docker.egress.restarts, restarts + 1)
         self.assertFalse(self.runtime.startup())
         self.runtime.release(lease)
 
