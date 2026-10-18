@@ -7358,5 +7358,316 @@
       {"length": 1, "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "name": "brief.pdf"},
       []
     ]
+  },
+  "browser": {
+    "url": {
+      "valid": [
+        "https://example.com/a?q=1",
+        "http://example.com"
+      ],
+      "invalid": [
+        7,
+        "",
+        "ftp://example.com",
+        "https:///path",
+        "https://user:pass@example.com",
+        "https://[::1",
+        "https://example.com/a b",
+        "https://example.com/\u0007"
+      ]
+    },
+    "objective": {
+      "valid": [
+        "Veja o prazo do edital.\nCite a página."
+      ],
+      "invalid": [
+        7,
+        "   ",
+        "bell\u0007"
+      ]
+    },
+    "step": {
+      "valid": [
+        {
+          "kind": "navigate",
+          "url": "https://example.com/edital"
+        },
+        {
+          "kind": "click",
+          "ref": "p1:0"
+        },
+        {
+          "kind": "type",
+          "ref": "p2:3",
+          "text": "edital 2026"
+        },
+        {
+          "kind": "scroll",
+          "direction": "down"
+        },
+        {
+          "kind": "wait"
+        },
+        {
+          "kind": "screenshot"
+        },
+        {
+          "kind": "done",
+          "summary": "Prazo: 30/11 (https://example.com/edital)."
+        },
+        {
+          "kind": "needs_person",
+          "reason": "captcha",
+          "sentence": "O site pede um captcha."
+        }
+      ],
+      "invalid": [
+        [
+          "navigate"
+        ],
+        {
+          "kind": 7
+        },
+        {
+          "kind": "open"
+        },
+        {
+          "kind": "wait",
+          "url": "https://example.com"
+        },
+        {
+          "kind": "wait",
+          "extra": 1
+        },
+        {
+          "kind": "click",
+          "ref": "button"
+        },
+        {
+          "kind": "type",
+          "ref": "p1:0",
+          "text": "a\u0007"
+        },
+        {
+          "kind": "scroll",
+          "direction": "left"
+        },
+        {
+          "kind": "done",
+          "summary": " "
+        },
+        {
+          "kind": "needs_person",
+          "reason": "sign-in",
+          "sentence": "a\nb"
+        }
+      ]
+    },
+    "history": {
+      "valid": [
+        [],
+        [
+          {
+            "step": {
+              "kind": "navigate",
+              "url": "https://example.com/edital"
+            },
+            "outcome": "ok"
+          },
+          {
+            "step": {
+              "kind": "click",
+              "ref": "p1:0"
+            },
+            "outcome": "refused"
+          }
+        ]
+      ],
+      "invalid": [
+        {},
+        [
+          {
+            "step": {
+              "kind": "navigate",
+              "url": "https://example.com/edital"
+            }
+          }
+        ],
+        [
+          {
+            "step": {
+              "kind": "navigate",
+              "url": "https://example.com/edital"
+            },
+            "outcome": "maybe"
+          }
+        ],
+        [
+          {
+            "step": {
+              "kind": "open"
+            },
+            "outcome": "ok"
+          }
+        ],
+        [
+          {
+            "step": {
+              "kind": "done",
+              "summary": "x"
+            },
+            "outcome": "ok"
+          }
+        ],
+        [
+          {
+            "step": {
+              "kind": "navigate",
+              "url": "https://example.com",
+              "ref": null
+            },
+            "outcome": "ok"
+          }
+        ]
+      ]
+    },
+    "observation": {
+      "valid": [
+        "url: https://example.com\ntitle: Example\nactions:\npage:\n",
+        ""
+      ],
+      "invalid": [
+        7,
+        null
+      ]
+    },
+    "terminal": {
+      "valid": [
+        {
+          "files": [
+            {
+              "id": "ffffffffffffffffffffffffffffffff",
+              "name": "edital.pdf",
+              "media_type": "application/pdf",
+              "size": 2048
+            }
+          ],
+          "lost": [
+            {
+              "name": "anexo.zip",
+              "reason": "over-limit"
+            }
+          ],
+          "skipped": 0
+        },
+        {
+          "files": [],
+          "lost": [],
+          "skipped": 1000
+        }
+      ],
+      "invalid": [
+        [],
+        {
+          "files": [],
+          "lost": []
+        },
+        {
+          "files": {},
+          "lost": [],
+          "skipped": 0
+        },
+        {
+          "files": [],
+          "lost": [],
+          "skipped": -1
+        },
+        {
+          "files": [],
+          "lost": [],
+          "skipped": 1001
+        },
+        {
+          "files": [],
+          "lost": [],
+          "skipped": true
+        },
+        {
+          "files": [
+            {
+              "id": "ffffffffffffffffffffffffffffffff",
+              "name": "edital.pdf",
+              "media_type": "application/pdf",
+              "size": 0
+            }
+          ],
+          "lost": [],
+          "skipped": 0
+        },
+        {
+          "files": [
+            {
+              "id": "x",
+              "name": "edital.pdf",
+              "media_type": "application/pdf",
+              "size": 2048
+            }
+          ],
+          "lost": [],
+          "skipped": 0
+        },
+        {
+          "files": [
+            {
+              "id": "ffffffffffffffffffffffffffffffff",
+              "name": "edital.pdf",
+              "media_type": "application/pdf"
+            }
+          ],
+          "lost": [],
+          "skipped": 0
+        },
+        {
+          "files": [],
+          "lost": [
+            {
+              "name": "a",
+              "reason": "lost"
+            }
+          ],
+          "skipped": 0
+        },
+        {
+          "files": [],
+          "lost": [
+            {
+              "name": "",
+              "reason": "empty"
+            }
+          ],
+          "skipped": 0
+        },
+        {
+          "files": [],
+          "lost": [
+            {
+              "name": "a\u0007",
+              "reason": "empty"
+            }
+          ],
+          "skipped": 0
+        },
+        {
+          "files": [],
+          "lost": [
+            {
+              "name": 7,
+              "reason": "empty"
+            }
+          ],
+          "skipped": 0
+        }
+      ]
+    }
   }
 }

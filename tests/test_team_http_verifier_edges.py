@@ -7,13 +7,13 @@ from pathlib import Path
 from test_protocol_verifier_edges import HTTP, _execute, _rehash, _rewrite_json
 
 
-def _edited(old: str, new: str):
-    """A mutation replacing every ``old`` with ``new`` in the mirrored routine_proposal.py and re-pinning its digest."""
+def _edited(old: str, new: str, name: str = "routine_proposal.py"):
+    """A mutation replacing every ``old`` with ``new`` in the mirrored module ``name`` and re-pinning its digest."""
 
     def mutate(root: Path) -> None:
-        module = root / "routine_proposal.py"
+        module = root / name
         module.write_text(module.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
-        _rehash(root, "routine_proposal.py")
+        _rehash(root, name)
 
     return mutate
 
@@ -434,6 +434,22 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             admitted_invalid_turn_usage,
             refusal=SystemExit,
         )
+
+    def test_rejects_missing_drifted_or_unbounded_browser_vectors(self) -> None:
+        def section(change):
+            return lambda value: change(value["browser"])
+
+        mutations = (
+            section(lambda browser: browser.pop("url")),
+            section(lambda browser: browser["step"].update({"invalid": []})),
+            section(lambda browser: browser["step"]["valid"].append({"kind": "wait", "url": None})),
+            section(lambda browser: browser["url"]["invalid"].append("https://example.com")),
+            # A kept terminal with nothing in it can never pass its bounds once repeated.
+            section(lambda browser: browser["terminal"]["valid"].insert(0, {"files": [], "lost": [], "skipped": 0})),
+        )
+        self._assert_vector_mutations_refused(*mutations, refusal=SystemExit)
+        with self.assertRaises(SystemExit):
+            _execute(HTTP / "verify.py", _edited("len(value) > MAX_HISTORY", "len(value) >= MAX_HISTORY", "browser.py"))
 
 
 if __name__ == "__main__":

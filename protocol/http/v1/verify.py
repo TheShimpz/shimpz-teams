@@ -22,6 +22,7 @@ import routine_run
 import supervisor
 import websocket
 
+import browser
 import routine
 
 HERE = Path(__file__).resolve().parent
@@ -415,6 +416,43 @@ if any(routine_run.canonical_diagnostics(value) != value for value in diagnostic
     fail("a valid routine diagnostics vector was not admitted exactly")
 if any(routine_run.canonical_diagnostics(value) is not None for value in diagnostics["invalid"]):
     fail("an invalid routine diagnostics vector was admitted")
+
+browser_vectors = vectors.get("browser", {})
+admit_browser = {
+    "url": browser.canonical_url,
+    "objective": browser.canonical_objective,
+    "step": browser.canonical_step,
+    "history": browser.canonical_history,
+    "observation": browser.canonical_observation,
+    "terminal": browser.canonical_terminal,
+}
+if set(browser_vectors) != set(admit_browser) or any(
+    not browser_vectors[kind].get("valid") or not browser_vectors[kind].get("invalid") for kind in browser_vectors
+):
+    fail("Browser vectors are missing")
+for kind, admit in admit_browser.items():
+    if any(admit(value) != value for value in browser_vectors[kind]["valid"]):
+        fail(f"a valid Browser {kind} vector was not admitted exactly")
+    if any(admit(value) is not None for value in browser_vectors[kind]["invalid"]):
+        fail(f"an invalid Browser {kind} vector was admitted")
+# Each bound, one past it: too large to write out as a vector.
+wait = {"step": {"kind": "wait"}, "outcome": "ok"}
+kept = browser_vectors["terminal"]["valid"][0]
+over_bounds = (
+    (browser.canonical_url, "https://example.com/" + "a" * browser.MAX_URL_CHARS),
+    (browser.canonical_objective, "a" * (browser.MAX_OBJECTIVE_CHARS + 1)),
+    (browser.canonical_step, {"kind": "done", "summary": "\u00e9" * (browser.MAX_SUMMARY_BYTES // 2 + 1)}),
+    (browser.canonical_step, {"kind": "type", "ref": "p1:0", "text": "a" * (browser.MAX_TEXT_CHARS + 1)}),
+    (browser.canonical_history, [wait] * (browser.MAX_HISTORY + 1)),
+    (browser.canonical_observation, "a" * (browser.MAX_OBSERVATION_BYTES + 1)),
+    (browser.canonical_terminal, {**kept, "files": kept["files"] * (browser.MAX_TERMINAL_FILES + 1)}),
+    (browser.canonical_terminal, {**kept, "lost": kept["lost"] * (browser.MAX_TERMINAL_LOSSES + 1)}),
+    (browser.canonical_terminal, {**kept, "lost": [{"name": "a" * (browser.MAX_NAME_BYTES + 1), "reason": "empty"}]}),
+)
+if any(admit(value) is not None for admit, value in over_bounds):
+    fail("a Browser value past its bound was admitted")
+if browser.canonical_history([wait] * browser.MAX_HISTORY) != [wait] * browser.MAX_HISTORY:
+    fail("a Browser history at its bound was not admitted")
 
 print("Team HTTP protocol integrity and golden vectors are valid")
 
