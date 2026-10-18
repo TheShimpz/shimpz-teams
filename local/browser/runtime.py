@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from docker.errors import DockerException, NotFound
+from docker.errors import APIError, DockerException, NotFound
 from docker.types import LogConfig, Ulimit
 
 from local import labels as local_labels
@@ -48,6 +48,9 @@ TMPFS = {
 }
 HOST = "/usr/local/bin/browser-host"
 READY_SECONDS = 20.0
+# Removing a Browser, proved absent, ends by this one deadline; its absence is checked again at this interval.
+REMOVE_SECONDS = 30.0
+REMOVE_POLL_SECONDS = 0.1
 EGRESS_SECONDS = 30.0
 PROGRAM_SECONDS = 30.0
 SECCOMP = Path(__file__).resolve().parents[2] / "browser" / "image" / "seccomp.json"
@@ -120,6 +123,27 @@ def _bounded(call: Callable[[], object], seconds: float) -> object | None:
     worker.start()
     worker.join(seconds)
     return answer[0] if answer and not worker.is_alive() else None
+
+
+def _attempt(call: Callable[[], object], seconds: float) -> tuple[bool, object] | None:
+    """`call`'s answer as (True, answer) or its Docker failure as (False, error) within `seconds`; else None."""
+    outcome: list[tuple[bool, object]] = []
+
+    def run() -> None:
+        try:
+            outcome.append((True, call()))
+        except DockerException as exc:
+            outcome.append((False, exc))
+
+    worker = threading.Thread(target=run, name="browser-remove", daemon=True)
+    worker.start()
+    worker.join(max(seconds, 0.0))
+    return outcome[0] if outcome and not worker.is_alive() else None
+
+
+def _removal_under_way(failure: object) -> bool:
+    """Whether Docker refused a removal because another one of the same container is already under way."""
+    return isinstance(failure, APIError) and failure.status_code == 409
 
 
 def _network_address(networks: dict) -> str:
@@ -445,18 +469,29 @@ class BrowserRuntime:
             self._sleep(0.2)
 
     def _remove(self, container_id: str) -> None:
-        try:
-            self._client.api.remove_container(container_id, force=True)
-        except NotFound:
-            pass
-        except DockerException as exc:
-            raise BrowserError("browser-lost") from exc
-        try:
-            self._client.containers.get(container_id)
-        except NotFound:
-            return
-        except DockerException as exc:
-            raise BrowserError("browser-lost") from exc
+        """Remove one Browser and prove it absent, all by one deadline that no stalled Docker call extends.
+
+        A removal another caller already has under way (Stop and the task's release race) is no failure: its end is
+        proved like any other. Only Docker answering that the container is gone proves it; a container still present
+        is checked again until the deadline, which means it hung.
+        """
+        deadline = self._clock() + REMOVE_SECONDS
+        removed = _attempt(lambda: self._client.api.remove_container(container_id, force=True), REMOVE_SECONDS)
+        if removed is None:
+            raise BrowserError("browser-lost")
+        done, failure = removed
+        if not done and not isinstance(failure, NotFound) and not _removal_under_way(failure):
+            raise BrowserError("browser-lost") from failure
+        while (remaining := deadline - self._clock()) > 0:
+            checked = _attempt(lambda: self._client.containers.get(container_id), remaining)
+            if checked is None:
+                break
+            present, answer = checked
+            if not present:
+                if isinstance(answer, NotFound):
+                    return
+                raise BrowserError("browser-lost") from answer
+            self._sleep(REMOVE_POLL_SECONDS)
         raise BrowserError("browser-lost")
 
     # The exec channels

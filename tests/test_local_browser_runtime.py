@@ -87,6 +87,12 @@ class Containers:
     def get(self, key):
         if self.docker.fail.get("get"):
             raise APIError("get failed")
+        if self.docker.fail.get("stall-get"):
+            self.docker.fail["stall-get"].wait()
+        if self.docker.lingering.get(key, 0) > 0:
+            # A removal under way: Docker still lists the container for a few checks.
+            self.docker.lingering[key] -= 1
+            return self.docker.gone[key]
         for container in self.docker.containers_by_id.values():
             if key in (container.id, container.name):
                 return container
@@ -162,8 +168,17 @@ class Api:
             raise APIError("remove failed")
         if self.docker.fail.get("survive"):
             return
-        if self.docker.containers_by_id.pop(identifier, None) is None:
+        if self.docker.fail.get("stall-remove"):
+            self.docker.fail["stall-remove"].wait()
+        if identifier in self.docker.removing:
+            # Another caller's removal of the same container is under way.
+            raise APIError("removal in progress", response=type("Response", (), {"status_code": 409})())
+        container = self.docker.containers_by_id.pop(identifier, None)
+        if container is None:
             raise NotFound(identifier)
+        if self.docker.linger:
+            self.docker.lingering[identifier] = self.docker.linger
+            self.docker.gone[identifier] = container
         self.docker.removed.append(identifier)
 
     def exec_create(self, identifier, argv, **options):
@@ -204,6 +219,8 @@ class FakeDocker:
     def __init__(self):
         self.fail = {}
         self.created, self.removed, self.pulled, self.sockets = [], [], [], []
+        # Removals under way elsewhere, and how many checks a removed container stays listed.
+        self.removing, self.linger, self.lingering, self.gone = set(), 0, {}, {}
         self.extra_members = {}
         self.health_after_restart = "healthy"
         self.probe_lag = 0
@@ -518,6 +535,50 @@ class BrowserRuntimeTests(unittest.TestCase):
         self.runtime.clean()
         self.assertEqual(self.browsers(), [])
         self.assertFalse(self.runtime._dirty)
+
+    def test_a_removal_under_way_elsewhere_is_proved_like_any_other(self):
+        lease = self.runtime.acquire("team_1", "en")
+        # Stop's removal and the task's release race: Docker refuses the second, which waits for the first's end.
+        self.docker.removing.add(lease.container_id)
+        self.docker.containers_by_id.pop(lease.container_id)
+        self.docker.lingering[lease.container_id] = 3
+        self.docker.gone[lease.container_id] = object()
+        self.runtime.release(lease)
+        self.assertFalse(self.runtime._dirty)
+        self.assertEqual(self.docker.lingering[lease.container_id], 0)
+
+    def test_a_removed_browser_still_listed_is_checked_until_it_is_gone_or_the_deadline(self):
+        lease = self.runtime.acquire("team_1", "en")
+        self.docker.linger = 5
+        started = self.now[0]
+        self.runtime.release(lease)
+        self.assertFalse(self.runtime._dirty)
+        self.assertAlmostEqual(self.now[0] - started, 5 * runtime.REMOVE_POLL_SECONDS)
+        # One that never goes hung: it is lost once the one deadline passed.
+        lease = self.runtime.acquire("team_1", "en")
+        self.docker.linger = 10**6
+        started = self.now[0]
+        with self.assertRaises(runtime.BrowserError) as raised:
+            self.runtime.release(lease)
+        self.assertEqual(raised.exception.code, "browser-lost")
+        self.assertTrue(self.runtime._dirty)
+        self.assertAlmostEqual(self.now[0] - started, runtime.REMOVE_SECONDS, delta=runtime.REMOVE_POLL_SECONDS)
+
+    def stalled_release(self, failure: str) -> None:
+        lease = self.runtime.acquire("team_1", "en")
+        stalled = threading.Event()
+        self.addCleanup(stalled.set)
+        self.docker.fail[failure] = stalled
+        with mock.patch.object(runtime, "REMOVE_SECONDS", 0.2), self.assertRaises(runtime.BrowserError) as raised:
+            self.runtime.release(lease)
+        self.assertEqual(raised.exception.code, "browser-lost")
+        self.assertTrue(self.runtime._dirty)
+
+    def test_a_stalled_removal_never_outlasts_its_deadline(self):
+        self.stalled_release("stall-remove")
+
+    def test_a_stalled_check_never_outlasts_the_removal_deadline(self):
+        self.stalled_release("stall-get")
 
     def test_a_removal_that_cannot_be_checked_is_lost_and_an_absent_one_is_success(self):
         self.runtime._remove("never-existed")
