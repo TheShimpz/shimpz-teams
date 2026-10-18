@@ -38,6 +38,10 @@ MAX_SCREENSHOT_BYTES = 2 * 1024 * 1024
 MAX_REFS = 200
 MAX_NAME_CHARS = 120
 CALL_SECONDS = 30.0
+# A tab mid-navigation is briefly reported with no tab marked active. Binding checks for the transition to one active
+# tab at this interval, for as long as one call may take (never past the task's deadline); a tab that never becomes
+# active in that time means the Browser hung, and it counts as lost.
+BIND_POLL_SECONDS = 0.1
 SCROLL_PIXELS = 600
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 # A page action the Driver explicitly refused leaves the Browser usable and the agent may try another; any other
@@ -87,9 +91,15 @@ def _clean(value: object, limit: int) -> str:
 class CuaSession:
     """One task's session: initialize, bind Chromium's one window exactly, then observe and act on its tab."""
 
-    def __init__(self, channel: Channel, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        channel: Channel,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         self._channel = channel
         self._clock = clock
+        self._sleep = sleep
         # The task's absolute deadline, which no call outlives; set by the task loop.
         self.deadline: float | None = None
         self._identifier = 0
@@ -122,7 +132,16 @@ class CuaSession:
         """Bind the window and follow its active tab, so a link that opened a new tab is where the task continues."""
         if self._window is None:
             raise CuaError("browser-not-open")
-        bound = self._call("get_browser_state", dict(self._window))
+        settle = self._call_deadline()
+        while (target := self._bound()) is None:
+            if self._clock() + BIND_POLL_SECONDS > settle:
+                raise CuaError("browser-binding-inexact")
+            self._sleep(BIND_POLL_SECONDS)
+        self._target = target
+
+    def _bound(self) -> tuple[str, str] | None:
+        """The exact binding and its one active tab, or None while no tab is marked active yet."""
+        bound = self._call("get_browser_state", dict(self._window or {}))
         tabs = bound.get("tabs")
         target = bound.get("target_id")
         if bound.get("binding_quality") != "exact" or not isinstance(target, str) or not isinstance(tabs, list):
@@ -132,9 +151,9 @@ class CuaSession:
             for tab in tabs
             if isinstance(tab, dict) and tab.get("active") is True and isinstance(tab.get("tab_id"), str)
         ]
-        if len(active) != 1:
+        if len(active) > 1:
             raise CuaError("browser-binding-inexact")
-        self._target = (target, active[0])
+        return (target, active[0]) if active else None
 
     def _tab(self) -> dict[str, str]:
         if self._target is None:

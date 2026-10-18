@@ -1,6 +1,7 @@
 """The Team Browser's MCP session with the Cua Driver: closed tools, exact binding, bounded observations."""
 
 import base64
+import itertools
 import json
 import unittest
 
@@ -112,10 +113,42 @@ class CuaSessionTests(unittest.TestCase):
         for code, scripts in cases.items():
             for script in scripts:
                 with self.subTest(code=code, script=script):
-                    session = cua.CuaSession(FakeChannel({"result": {}}, *script))
+                    # Time runs ahead of any settling, so a binding with no active tab fails at its first answer.
+                    clock = itertools.count(0, 10).__next__
+                    session = cua.CuaSession(FakeChannel({"result": {}}, *script), clock=clock)
                     with self.assertRaises(cua.CuaError) as raised:
                         session.open()
                     self.assertEqual((raised.exception.code, raised.exception.fatal), (code, True))
+
+    def test_a_tab_mid_navigation_is_waited_for_until_one_is_active(self):
+        now = [100.0]
+        slept = []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            now[0] += seconds
+
+        unmarked = _tool(_bound(tabs=[{"tab_id": "tab-2", "active": None}]))
+        channel = FakeChannel(*OPENING, unmarked, unmarked, _tool(_bound(tabs=[{"tab_id": "tab-2", "active": True}])))
+        session = cua.CuaSession(channel, clock=lambda: now[0], sleep=sleep)
+        session.open()
+        session._bind()
+        self.assertEqual(session._tab()["tab_id"], "tab-2")
+        self.assertEqual(slept, [cua.BIND_POLL_SECONDS] * 2)
+        # One that never marks a tab active hung: it is lost once a call's whole bound is spent, or the task's.
+        polls = int(cua.CALL_SECONDS / cua.BIND_POLL_SECONDS) + 1
+        channel.results.extend([unmarked] * polls)
+        with self.assertRaises(cua.CuaError) as raised:
+            session._bind()
+        self.assertEqual(raised.exception.code, "browser-binding-inexact")
+        self.assertLessEqual(sum(slept[2:]), cua.CALL_SECONDS)
+        self.assertGreater(sum(slept[2:]), cua.CALL_SECONDS - 1)
+        session.deadline = now[0] + 1
+        channel.results.extend([unmarked] * polls)
+        before = len(slept)
+        with self.assertRaises(cua.CuaError):
+            session._bind()
+        self.assertLessEqual(sum(slept[before:]), 1)
 
     def test_nothing_is_called_before_the_session_is_open(self):
         session = cua.CuaSession(FakeChannel())
