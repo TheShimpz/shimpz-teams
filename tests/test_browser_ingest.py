@@ -125,6 +125,12 @@ class IngestTests(unittest.TestCase):
         result = ingest.ingest(_listing([("a.pdf", 9)]), recorder.read, recorder.put, lambda: stopped[0])
         self.assertEqual((result.kept, [event[0] for event in recorder.events]), ((), ["read"]))
 
+    def test_a_store_refused_for_stop_ends_the_ingest(self):
+        recorder = Recorder({"a.pdf": PDF, "b.pdf": PDF}, {"a.pdf": ingest.StoppedError("a.pdf")})
+        result = ingest.ingest(_listing([("a.pdf", 9), ("b.pdf", 9)]), recorder.read, recorder.put, _running)
+        self.assertEqual((result.kept, result.lost), ((), ()))
+        self.assertNotIn(("read", "b.pdf", 9), recorder.events)
+
     def test_a_malformed_listing_is_refused_whole(self):
         for listing in (
             {},

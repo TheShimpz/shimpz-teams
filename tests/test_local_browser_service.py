@@ -26,6 +26,7 @@ class FakeRuntime:
         self.contents = contents or {}
         self.available = True
         self.kill_error = False
+        self.intact_after = True
         self.events = []
 
     def acquire(self, team_id, language):
@@ -49,7 +50,7 @@ class FakeRuntime:
         return self.contents[name]
 
     def intact(self, lease):
-        return True
+        return self.intact_after
 
     def kill(self, lease):
         self.events.append(("kill", lease.container_id))
@@ -109,8 +110,11 @@ class BrowserServiceTests(unittest.TestCase):
         return service.BrowserService(fake, self.storage)
 
     def run_with(self, browser_service, outcome):
+        return self.run_with_turn(browser_service, self.turn, outcome)
+
+    def run_with_turn(self, browser_service, turn, outcome):
         with mock.patch.object(service.browser_task.Task, "run", return_value=outcome):
-            return browser_service.run(self.turn, CONTEXT, REQUEST)
+            return browser_service.run(turn, CONTEXT, REQUEST)
 
     def test_a_finished_task_ingests_its_downloads_and_always_releases(self):
         listing = {
@@ -273,6 +277,48 @@ class BrowserServiceTests(unittest.TestCase):
         with mock.patch.object(service.browser_task.Task, "run", autospec=True, side_effect=run):
             browser_service.run(turn, CONTEXT, REQUEST)
         self.assertEqual(self.runtime.events[-1], ("release", LEASE.container_id))
+
+    def test_a_stop_during_creation_opens_no_channel(self):
+        stopped = [False]
+        fake = FakeRuntime()
+        original = fake.acquire
+
+        def acquire(team_id, language):
+            stopped[0] = True
+            return original(team_id, language)
+
+        fake.acquire = acquire
+        browser_service = self.make(fake)
+        turn = service.BrowserTurn("team_1", "d" * 64, TURN, "pt-BR", self.brain, lambda: stopped[0])
+        result, _terminal = browser_service.run(turn, CONTEXT, REQUEST)
+        self.assertEqual(result["status"], "stopped")
+        self.assertNotIn(("stream", LEASE.container_id), self.runtime.events)
+        self.assertEqual(self.runtime.events[-1], ("release", LEASE.container_id))
+
+    def test_a_stop_while_a_download_is_read_stores_it_not(self):
+        listing = {"files": [{"name": "a.pdf", "size": 9}], "refused": [], "skipped": 0}
+        fake = FakeRuntime(listing=listing, contents={"a.pdf": b"%PDF-1.4\n"})
+        browser_service = self.make(fake)
+        original = fake.read
+
+        def read(lease, name, size):
+            # Stop of this very turn arrives while the bytes are read: the store refuses them.
+            browser_service.interrupt("team_1", TURN)
+            return original(lease, name, size)
+
+        fake.read = read
+        turn = service.BrowserTurn("team_1", "d" * 64, TURN, "pt-BR", self.brain, lambda: False)
+        _result, terminal = self.run_with_turn(browser_service, turn, task.Outcome("done", summary="x", steps=1))
+        self.assertEqual((terminal["files"], self.storage.stored), ([], []))
+
+    def test_an_egress_replaced_during_the_ingest_loses_the_task(self):
+        listing = {"files": [{"name": "a.pdf", "size": 9}], "refused": [], "skipped": 0}
+        fake = FakeRuntime(listing=listing, contents={"a.pdf": b"%PDF-1.4\n"})
+        fake.intact_after = False
+        result, terminal = self.run_with(self.make(fake), task.Outcome("done", summary="x", steps=1))
+        self.assertEqual((result["status"], result["reason"]), ("failed", "browser-lost"))
+        # What it stored is still named, so the reply says so; each stays from the web.
+        self.assertEqual([item["name"] for item in terminal["files"]], ["a.pdf"])
 
     def test_storage_failures_become_closed_losses(self):
         listing = {"files": [{"name": "a.pdf", "size": 9}], "refused": [], "skipped": 0}

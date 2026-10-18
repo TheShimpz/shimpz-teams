@@ -71,7 +71,10 @@ class BrowserService:
         """
         with self._guard:
             held = self._running.get(team_id)
-        lease = held[1] if held is not None and held[0] == token else None
+            lease = held[1] if held is not None and held[0] == token else None
+            if lease is not None:
+                # From here no download of the task is stored: a store under way finished before this took the guard.
+                del self._running[team_id]
         if lease is not None:
             # A failed removal leaves the release to prove it, which keeps the Space refusing tasks until it does.
             with suppress(BrowserError):
@@ -104,11 +107,8 @@ class BrowserService:
         # From the moment it is held, the lease is released however the task ends, its audit included.
         try:
             with self._held(turn.token, lease):
-                _audit(turn, lease, "started")
-                outcome = self._task(turn, context, request, lease, page_language)
-                if outcome.status != "stopped" and not turn.cancelled():
-                    ingested = self._ingest(turn, lease)
-        except BrowserError, cua.CuaError, browser_ingest.ListingError:
+                outcome, ingested = self._work(turn, context, request, lease, page_language)
+        except BrowserError, cua.CuaError:
             outcome = browser_task.Outcome("failed", reason="browser-lost", steps=outcome.steps)
         finally:
             released = self._release(lease)
@@ -116,6 +116,30 @@ class BrowserService:
         if not released:
             outcome = browser_task.Outcome("failed", reason="browser-lost", steps=outcome.steps)
         return _result(outcome, ingested), _terminal(ingested)
+
+    def _work(
+        self,
+        turn: BrowserTurn,
+        context: brain_runtime_client.RuntimeContext,
+        request: brain_runtime_client.BrowserRequest,
+        lease: Lease,
+        page_language: str,
+    ) -> tuple[browser_task.Outcome, browser_ingest.Ingested | None]:
+        """The task and then its downloads, each only while the turn runs; an egress replaced meanwhile loses it."""
+        _audit(turn, lease, "started")
+        # A Stop during creation found no lease to remove: no channel opens once the turn is stopped.
+        if turn.cancelled():
+            return browser_task.Outcome("stopped"), None
+        outcome = self._task(turn, context, request, lease, page_language)
+        if outcome.status == "stopped" or turn.cancelled():
+            return outcome, None
+        try:
+            ingested = self._ingest(turn, lease)
+        except BrowserError, browser_ingest.ListingError:
+            return browser_task.Outcome("failed", reason="browser-lost", steps=outcome.steps), None
+        if not self._runtime.intact(lease):
+            return browser_task.Outcome("failed", reason="browser-lost", steps=outcome.steps), ingested
+        return outcome, ingested
 
     def _task(
         self,
@@ -145,12 +169,15 @@ class BrowserService:
             except BrowserError as exc:
                 raise browser_ingest.ReadLostError(name) from exc
 
-        return browser_ingest.ingest(
-            self._runtime.files(lease),
-            read,
-            lambda name, data, media_type: self._storage.put(turn.team_id, name, data, media_type, web=True),
-            turn.cancelled,
-        )
+        def put(name: str, data: bytes, media_type: str) -> dict[str, object]:
+            # Under the guard Stop takes to remove the Browser, so no download is stored once Stop has done so.
+            with self._guard:
+                held = self._running.get(turn.team_id)
+                if turn.cancelled() or held is None or held[0] != turn.token:
+                    raise browser_ingest.StoppedError(name)
+                return self._storage.put(turn.team_id, name, data, media_type, web=True)
+
+        return browser_ingest.ingest(self._runtime.files(lease), read, put, turn.cancelled)
 
     def _release(self, lease: Lease) -> bool:
         try:

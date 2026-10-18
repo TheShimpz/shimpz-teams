@@ -27,6 +27,10 @@ class ReadLostError(RuntimeError):
     """A download could not be read exactly; the Browser cannot be trusted for any later file."""
 
 
+class StoppedError(RuntimeError):
+    """The turn was stopped before this download could be stored; no further one is."""
+
+
 @dataclass(frozen=True, slots=True)
 class Ingested:
     """The kept files' references, the named files not kept with their reasons, and how many were unnamed."""
@@ -68,7 +72,8 @@ def ingest(
 ) -> Ingested:
     """Store at most 8 downloads of at most 25 MiB each, one at a time; give every other one its reason.
 
-    `put` marks each file as from the web as it stores it. Once the turn is stopped, no further file is read or stored.
+    `put` marks each file as from the web as it stores it, and refuses with StoppedError once the turn was stopped; no
+    further file is then read or stored.
     """
     named, refused, skipped = _entries(listing)
     kept: list[dict[str, object]] = []
@@ -93,6 +98,8 @@ def ingest(
         media_type = detect.detect(name, data).media_type
         try:
             stored = put(name, data, media_type)
+        except StoppedError:
+            break
         except team_storage.StorageQuotaError:
             lost.append({"name": name, "reason": "quota-exceeded"})
             continue
