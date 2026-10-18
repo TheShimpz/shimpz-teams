@@ -181,10 +181,14 @@ class BrowserRuntime:
         return True
 
     def clean(self) -> None:
-        """Remove every Browser of this Space and restart the egress, proving both; Team startup and recovery."""
+        """Remove every Browser of this Space and restart the egress, proving both; Team startup and recovery.
+
+        Where this Team can run no Browser, no task has an egress generation to end: proving no Browser is left is all.
+        """
         for container in self._browsers():
             self._remove(container.id)
-        self._restart_egress()
+        if self.available:
+            self._restart_egress()
         self._dirty = False
 
     def remove_team(self, team_id: str) -> None:

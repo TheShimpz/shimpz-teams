@@ -409,6 +409,14 @@ class BrowserRuntimeTests(unittest.TestCase):
                 self.runtime.acquire("team_1", language)
         self.assertEqual(self.docker.created, [])
 
+    def test_where_no_browser_can_run_a_cleanup_only_proves_none_is_left(self):
+        # Without a usable Browser no task has an egress generation, so a reset or start never needs the egress.
+        unavailable = self.make(image=None)
+        self.docker.fail["restart"] = True
+        unavailable.clean()
+        self.assertTrue(unavailable.startup())
+        self.assertEqual(self.docker.egress.restarts, 0)
+
     def test_the_network_and_egress_must_be_exactly_the_owned_isolated_ones(self):
         breaks = {
             "internal": lambda: self.docker.network.attrs.update(Internal=False),
