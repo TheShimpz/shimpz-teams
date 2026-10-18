@@ -9,6 +9,7 @@ carries at most one Browser at a time, and Team restarts this process between Br
 
 import ipaddress
 import re
+import socket
 
 import audit
 import connect
@@ -27,8 +28,9 @@ _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 def hostname(host: str) -> str | None:
     """Return the canonical DNS hostname of a CONNECT target, or None for an IP literal or a malformed name.
 
-    A name needs at least two labels and a final label that is not all digits, so no dotted or bare spelling of an
-    IPv4 address passes, and an IPv6 literal's colons and brackets fail the label rule.
+    A name needs at least two LDH labels, a final label that is not all digits, and no spelling the resolver reads as
+    an IPv4 address (hexadecimal, octal, or fewer than four parts, which `inet_aton` decides without a lookup); an
+    IPv6 literal's colons and brackets fail the label rule.
     """
     canonical = host.lower()
     if not canonical or len(canonical) > MAX_HOST_LENGTH:
@@ -36,7 +38,11 @@ def hostname(host: str) -> str | None:
     labels = canonical.split(".")
     if len(labels) < 2 or labels[-1].isdigit() or not all(_LABEL.fullmatch(label) for label in labels):
         return None
-    return canonical
+    try:
+        socket.inet_aton(canonical)
+    except OSError:
+        return canonical
+    return None
 
 
 class Handler(connect.ConnectHandler):
