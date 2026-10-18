@@ -10,7 +10,6 @@ this module.
 from __future__ import annotations
 
 import base64
-import binascii
 import hashlib
 import re
 
@@ -41,12 +40,10 @@ def canonical_key(value: object) -> str | None:
     """Return a WebSocket key that encodes exactly 16 bytes, or None."""
     if not isinstance(value, str) or KEY_RE.fullmatch(value) is None:
         return None
-    try:
-        decoded = base64.b64decode(value, validate=True)
-    except binascii.Error, ValueError:
-        return None
-    # Only the canonical encoding of 16 bytes: no stray low bits in the last character.
-    return value if len(decoded) == 16 and base64.b64encode(decoded).decode("ascii") == value else None
+    # The grammar admits only base64 that decodes to 16 bytes; only its canonical encoding passes, with no stray low
+    # bits in the last character.
+    decoded = base64.b64decode(value, validate=True)
+    return value if base64.b64encode(decoded).decode("ascii") == value else None
 
 
 def accept(key: str) -> str:

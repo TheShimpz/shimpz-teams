@@ -457,7 +457,8 @@ if any(admit(value) is not None for admit, value in over_bounds):
 if browser.canonical_history([wait] * browser.MAX_HISTORY) != [wait] * browser.MAX_HISTORY:
     fail("a Browser history at its bound was not admitted")
 
-if any(browser_view.accept(case["key"]) != case["accept"] for case in vectors.get("browser_view_accept") or [None]):
+accepts = vectors.get("browser_view_accept")
+if not accepts or any(browser_view.accept(case["key"]) != case["accept"] for case in accepts):
     fail("a Browser view accept vector differs")
 
 print("Team HTTP protocol integrity and golden vectors are valid")
