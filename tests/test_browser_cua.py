@@ -1,7 +1,6 @@
 """The Team Browser's MCP session with the Cua Driver: closed tools, exact binding, bounded observations."""
 
 import base64
-import itertools
 import json
 import unittest
 
@@ -97,7 +96,6 @@ class CuaSessionTests(unittest.TestCase):
                 (_tool({"windows": [WINDOW]}), _tool({"status": "ok"}), _tool(_bound(quality="heuristic"))),
                 (_tool({"windows": [WINDOW]}), _tool({"status": "ok"}), _tool({**_bound(), "target_id": 3})),
                 (_tool({"windows": [WINDOW]}), _tool({"status": "ok"}), _tool({**_bound(), "tabs": "tab"})),
-                (_tool({"windows": [WINDOW]}), _tool({"status": "ok"}), _tool(_bound(tabs=[]))),
                 (
                     _tool({"windows": [WINDOW]}),
                     _tool({"status": "ok"}),
@@ -113,9 +111,8 @@ class CuaSessionTests(unittest.TestCase):
         for code, scripts in cases.items():
             for script in scripts:
                 with self.subTest(code=code, script=script):
-                    # Time runs ahead of any settling, so a binding with no active tab fails at its first answer.
-                    clock = itertools.count(0, 10).__next__
-                    session = cua.CuaSession(FakeChannel({"result": {}}, *script), clock=clock)
+                    # Each fails at its first answer: none is a tab still waiting for its active mark.
+                    session = cua.CuaSession(FakeChannel({"result": {}}, *script), clock=lambda: 100.0)
                     with self.assertRaises(cua.CuaError) as raised:
                         session.open()
                     self.assertEqual((raised.exception.code, raised.exception.fatal), (code, True))
@@ -149,6 +146,35 @@ class CuaSessionTests(unittest.TestCase):
         with self.assertRaises(cua.CuaError):
             session._bind()
         self.assertLessEqual(sum(slept[before:]), 1)
+
+    def test_slow_answers_never_stretch_binding_past_its_one_bound(self):
+        now = [100.0]
+        deadlines: list[float] = []
+
+        class Slow(FakeChannel):
+            def receive_line(self, deadline, limit):
+                deadlines.append(deadline)
+                now[0] += 10
+                return super().receive_line(deadline, limit)
+
+        unmarked = _tool(_bound(tabs=[{"tab_id": "tab-2", "active": None}]))
+        channel = Slow(*OPENING, *[unmarked] * 10)
+        session = cua.CuaSession(channel, clock=lambda: now[0], sleep=lambda seconds: None)
+        session.open()
+        started = now[0]
+        deadlines.clear()
+        with self.assertRaises(cua.CuaError):
+            session._bind()
+        self.assertTrue(deadlines)
+        self.assertTrue(all(deadline <= started + cua.CALL_SECONDS for deadline in deadlines))
+        self.assertLessEqual(now[0], started + cua.CALL_SECONDS + 10)
+
+    def test_a_malformed_active_tab_never_hides_a_second_one(self):
+        tabs = [{"tab_id": "a", "active": True}, {"tab_id": 3, "active": True}]
+        session, _channel = _opened(_tool(_bound(tabs=tabs)))
+        with self.assertRaises(cua.CuaError) as raised:
+            session._bind()
+        self.assertEqual(raised.exception.code, "browser-binding-inexact")
 
     def test_nothing_is_called_before_the_session_is_open(self):
         session = cua.CuaSession(FakeChannel())

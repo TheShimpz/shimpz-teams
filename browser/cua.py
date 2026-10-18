@@ -132,26 +132,24 @@ class CuaSession:
         """Bind the window and follow its active tab, so a link that opened a new tab is where the task continues."""
         if self._window is None:
             raise CuaError("browser-not-open")
+        # One bound for the whole binding: every check, and the wait between checks, ends by it.
         settle = self._call_deadline()
-        while (target := self._bound()) is None:
+        while (target := self._bound(settle)) is None:
             if self._clock() + BIND_POLL_SECONDS > settle:
                 raise CuaError("browser-binding-inexact")
             self._sleep(BIND_POLL_SECONDS)
         self._target = target
 
-    def _bound(self) -> tuple[str, str] | None:
+    def _bound(self, settle: float) -> tuple[str, str] | None:
         """The exact binding and its one active tab, or None while no tab is marked active yet."""
-        bound = self._call("get_browser_state", dict(self._window or {}))
+        bound = self._call("get_browser_state", dict(self._window or {}), within=settle)
         tabs = bound.get("tabs")
         target = bound.get("target_id")
         if bound.get("binding_quality") != "exact" or not isinstance(target, str) or not isinstance(tabs, list):
             raise CuaError("browser-binding-inexact")
-        active = [
-            tab["tab_id"]
-            for tab in tabs
-            if isinstance(tab, dict) and tab.get("active") is True and isinstance(tab.get("tab_id"), str)
-        ]
-        if len(active) > 1:
+        # Every tab marked active counts, so a malformed one never hides a second.
+        active = [tab.get("tab_id") for tab in tabs if isinstance(tab, dict) and tab.get("active") is True]
+        if len(active) > 1 or any(not isinstance(tab_id, str) for tab_id in active):
             raise CuaError("browser-binding-inexact")
         return (target, active[0]) if active else None
 
@@ -196,10 +194,12 @@ class CuaSession:
         if _refused(self._call(tool, arguments)):
             raise CuaError("action-refused", fatal=False)
 
-    def _call(self, tool: str, arguments: dict[str, object], *, images: bool = False) -> dict[str, object]:
+    def _call(
+        self, tool: str, arguments: dict[str, object], *, images: bool = False, within: float | None = None
+    ) -> dict[str, object]:
         if tool not in TOOLS:
             raise CuaError("tool-not-admitted")
-        result = self._request("tools/call", {"name": tool, "arguments": arguments})
+        result = self._request("tools/call", {"name": tool, "arguments": arguments}, within)
         structured = result.get("structuredContent")
         if result.get("isError") is True or not isinstance(structured, dict):
             if tool in ACTIONS and isinstance(structured, dict) and _refused(structured):
@@ -209,22 +209,23 @@ class CuaSession:
             structured = {**structured, "_screenshot": _screenshot(result.get("content"))}
         return structured
 
-    def _request(self, method: str, params: dict[str, object]) -> dict[str, object]:
+    def _request(self, method: str, params: dict[str, object], within: float | None = None) -> dict[str, object]:
         self._identifier += 1
         identifier = self._identifier
         message = {"jsonrpc": "2.0", "id": identifier, "method": method, "params": params}
-        deadline = self._call_deadline()
+        deadline = self._call_deadline(within)
         try:
             self._channel.send(json.dumps(message, separators=(",", ":")).encode() + b"\n", deadline)
             return self._answer(identifier, deadline)
         except OSError as exc:
             raise CuaError("channel-lost") from exc
 
-    def _call_deadline(self) -> float:
-        """When the next call must have ended: its own bound, never past the task's; a passed one sends nothing."""
+    def _call_deadline(self, within: float | None = None) -> float:
+        """When the next call must have ended: its own bound, never past the task's or `within`; none if passed."""
         deadline = self._clock() + CALL_SECONDS
-        if self.deadline is not None:
-            deadline = min(deadline, self.deadline)
+        for bound in (self.deadline, within):
+            if bound is not None:
+                deadline = min(deadline, bound)
         if deadline <= self._clock():
             raise CuaError("deadline-passed")
         return deadline
