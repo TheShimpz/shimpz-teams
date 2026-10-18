@@ -70,11 +70,15 @@ unsafe extern "C" {
 
 /// The display server's fixed arguments: one 1280x800 screen, the WebSocket port on its own loopback only, no
 /// authentication there (only the relay reaches it), and every input, clipboard, and resize from a viewer refused.
+/// The server's own 1-bit pointer is not drawn (the Cua Driver draws its smooth agent cursor), and every update is
+/// sent at the top JPEG quality: measured while the Driver scrolled a long page for two viewers, it cost 30% more
+/// bytes (about 500 KiB/s per viewer) and no more CPU than qualities 7 to 9.
 pub fn arguments() -> &'static [&'static str] {
     &[
         ":99",
         "-geometry",
         "1280x800",
+        "-nocursor",
         "-depth",
         "24",
         "-nolisten",
@@ -96,7 +100,7 @@ pub fn arguments() -> &'static [&'static str] {
         "-RectThreads",
         "0",
         "-DynamicQualityMin",
-        "7",
+        "9",
         "-DynamicQualityMax",
         "9",
         "-AcceptPointerEvents",
@@ -356,6 +360,8 @@ mod tests {
             assert_eq!(value(refused), "0", "{refused}");
         }
         assert_eq!(value("-interface"), "127.0.0.1");
+        assert!(arguments.contains(&"-nocursor"));
+        assert_eq!(value("-DynamicQualityMin"), "9");
         assert_eq!(value("-publicIP"), "127.0.0.1");
         assert_eq!(value("-websocketPort"), PORT.to_string());
         assert_eq!(value("-AlwaysShared"), "1");
