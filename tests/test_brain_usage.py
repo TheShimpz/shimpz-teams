@@ -84,7 +84,13 @@ class ParseAndMeterTests(unittest.TestCase):
 class ClientMeteringTests(RuntimeClientCase):
     def _operations(self):
         route = brain_runtime_client.RouteCredentials("openai", "gpt-6-luna", self.secret)
+        page = {"objective": "x", "language": "en", "history": [], "observation": "url: x", "screenshot": None}
         return (
+            (
+                "browser-step",
+                {"step": {"kind": "done", "summary": "ok"}, "model": "gpt-6-luna"},
+                lambda client: client.browser_step(context(self.secret), page, deadline=60.0),
+            ),
             (
                 "turn",
                 {"status": "completed", "reply": "Hi.", "actions": [], "clarification": None},

@@ -25,6 +25,8 @@ FIELDS = (
     "cache_write_tokens",
 )
 OPERATIONS = (
+    # One Browser agent step of a chat turn's Browser task (ADR-0117).
+    "browser-step",
     "capability-plan",
     "intent-route",
     "purpose",
