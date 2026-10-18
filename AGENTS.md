@@ -6,6 +6,9 @@
   Assistant egress proxy merely because it integrates with them.
 - Team owns its outbound policy and bindings under `egress/`; `assistants/egress` owns the separate enforcement
   proxy. Do not merge policy authority and network enforcement into one component.
+- Team owns the Browser (ADR-0117): its rules under `browser/`, its image under `browser/image/`, its Local lifecycle
+  under `local/browser/`, and the `browser` egress profile source under `browser/egress/`. That profile is a separate
+  `shimpz-egress` deployable: it receives no Team policy, credential, or state, and Team only restarts it.
 - Organize the Local controller under `local/` (the Hosted profile is retired, ADR-0108). Keep source at the
   repository root only while its ownership is genuinely controller-neutral and its final responsibility has been
   classified.
