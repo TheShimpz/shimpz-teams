@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import ClassVar
 from unittest import mock
 
+import browser_fixtures
 from local_controller_harness import wire_collaborators
 
 from action import stored_input as action_stored_input
@@ -54,6 +55,7 @@ def runtime_resolution() -> dict[str, object]:
 def _publication_controller(directory: str) -> local_app.LocalController:
     """A Local controller with an empty durable registry and a Developers peer that serves the fixture icon."""
     controller = object.__new__(local_app.LocalController)
+    controller.browser_service, controller.web_files = browser_fixtures.no_services()
     controller.registry = AssistantRegistry(
         DynamicAssistantStore(Path(directory) / "bindings.json", local_record_validator=snapshots.validate_record)
     )

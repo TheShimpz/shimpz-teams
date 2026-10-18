@@ -11,6 +11,7 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
+import browser_fixtures
 from local_assistant_fixture import assistant_spec
 from local_controller_harness import (
     CURRENT_ASSISTANT_IMAGE,
@@ -140,6 +141,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
     def test_team_integration_teardown_prevents_same_id_resurrection(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
+            controller.browser_service, controller.web_files = browser_fixtures.no_services()
             controller.assistant_integrations = _integration_store(directory)
             controller.assistant_integrations.put(
                 "team_1",
@@ -169,6 +171,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
     def test_integration_inventory_is_exact_and_never_contains_tokens(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
+            controller.browser_service, controller.web_files = browser_fixtures.no_services()
             controller._locks = tuple(threading.RLock() for _ in range(64))
             controller.registry = self._registry()
             controller.assistant_integrations = _integration_store(directory)
@@ -307,6 +310,8 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 return True
 
         controller = object.__new__(local_app.LocalController)
+
+        controller.browser_service, controller.web_files = browser_fixtures.no_services()
         controller.integration_challenges = challenges
         controller.oauth_service = Service()
         controller._locks = (threading.RLock(),)
@@ -410,6 +415,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
+            controller.browser_service, controller.web_files = browser_fixtures.no_services()
             controller.space_id = "local-space"
             controller.brain_runtime = Runtime()
             controller.action_state = SimpleNamespace(end_settled=lambda _generation: False)
@@ -475,6 +481,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
+            controller.browser_service, controller.web_files = browser_fixtures.no_services()
             controller.registry = registry
             controller._locks = tuple(threading.RLock() for _ in range(64))
             controller.team_names = SimpleNamespace(load=lambda _team_id, _network_id: None)

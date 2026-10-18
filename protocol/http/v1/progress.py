@@ -18,6 +18,8 @@ PHASES = frozenset(
         "action-delivery",
         "action-preparation",
         "team-context",
+        # One Browser task of the turn (ADR-0117): metadata only, never a URL or page text.
+        "browser",
     }
 )
 STATES = frozenset({"started", "finished"})

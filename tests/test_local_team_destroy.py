@@ -2,9 +2,11 @@
 
 import contextlib
 import threading
+import unittest
 from http import HTTPStatus
 from types import SimpleNamespace
 
+import browser_fixtures
 from local_controller_harness import (
     LocalContractCase,
     TestAssistantRegistry,
@@ -21,8 +23,11 @@ from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from local import app as local_app
 from local import labels as local_labels
+from local import lifecycle as local_lifecycle
 from local import validation as local_validation
+from local.browser import runtime as local_browser_runtime
 from local.chat.types import PendingLocalChat
+from local.errors import ApiProblemError
 from routine import record as routine_record
 
 
@@ -53,6 +58,7 @@ def _destroy_controller(
 ) -> tuple[local_app.LocalController, threading.Lock]:
     """Team team_1 ("Team One") with one Assistant, recording teardown; returns it and its chat lock."""
     controller = object.__new__(local_app.LocalController)
+    controller.browser_service, controller.web_files = browser_fixtures.no_services()
     controller.space_id = "local-space"
     controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
     controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
@@ -94,6 +100,7 @@ class LocalTeamDestroyTests(LocalContractCase):
     def test_destroy_drains_chat_and_deletes_generation_before_teardown(self) -> None:
         events: list[object] = []
         controller = object.__new__(local_app.LocalController)
+        controller.browser_service, controller.web_files = browser_fixtures.no_services()
         controller.space_id = "local-space"
         controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
         controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
@@ -283,3 +290,14 @@ class LocalTeamDestroyTests(LocalContractCase):
             [("thread-delete", expected_thread), ("action-purge", "a" * 64)],
         )
         self.assertFalse(lock.locked())
+
+
+class TeamBrowserTeardownTests(unittest.TestCase):
+    def test_a_teams_browser_that_cannot_be_removed_fails_the_teardown(self) -> None:
+        def unproven(_team_id: str) -> None:
+            raise local_browser_runtime.BrowserError("browser-lost")
+
+        controller = SimpleNamespace(browser_service=SimpleNamespace(remove_team=unproven))
+        with self.assertRaises(ApiProblemError) as caught:
+            local_lifecycle._remove_team_browser(controller, "team_1")
+        self.assertEqual(caught.exception.code, "docker-remove-failed")

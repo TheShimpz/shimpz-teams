@@ -455,6 +455,8 @@ def _continuation(value: object) -> chat_orchestrator.ChatContinuation:
             "clarification": None,
             "memory": [],
             "routine": None,
+            # A paused turn waits on Actions; a Browser task never pauses (ADR-0117).
+            "browser": None,
             "actions": [
                 {
                     "interrupt_id": item.interrupt_id,

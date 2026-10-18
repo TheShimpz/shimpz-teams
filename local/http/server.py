@@ -544,6 +544,13 @@ class Handler(http_deadline.DeadlineRequestHandler):
         self._handle()
 
 
+def _file_acknowledgement(handler: Handler, route: strict_http.ControllerRouteMatch) -> Result:
+    """The request's Supervisor acknowledges one listed file from the web, audited under its Team (ADR-0117)."""
+    team_id = validate_team_id(route.params["team_id"])
+    acknowledged = handler.server.controller.acknowledge_file(team_id, route.params["file_id"])
+    return HTTPStatus.OK, acknowledged, route.operation, team_id, None
+
+
 def _ok(route: strict_http.ControllerRouteMatch, payload: dict[str, object]) -> Result:
     return HTTPStatus.OK, payload, route.operation, None, None
 
@@ -690,6 +697,7 @@ _SERVER_OPERATIONS: dict[str, Operation] = {
     "local-assistant-install": _local_install("install_local_snapshot"),
     "local-assistant-fresh-install": _local_install("install_fresh_local_snapshot"),
     "file-list": team_operation(lambda handler, team_id: handler.server.controller.list_files(team_id)),
+    "file-acknowledgement": lambda handler, route: _file_acknowledgement(handler, route),
     "file-upload": team_operation(_file_upload),
     "assistant-integration-list": team_operation(
         lambda handler, team_id: handler.server.controller.chat_turn_service.list_assistant_integrations(team_id)

@@ -9,6 +9,7 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
+import browser_fixtures
 from local_controller_harness import (
     CURRENT_ASSISTANT_IMAGE,
     OUTDATED_ASSISTANT_IMAGE,
@@ -37,6 +38,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
     def _create_refused_by_manifest(self, events: list[object], container: object) -> local_app.ApiProblem:
         """Create one Team team_1 Assistant container whose reviewed manifest admission fails; return the refusal."""
         controller = object.__new__(local_app.LocalController)
+        controller.browser_service, controller.web_files = browser_fixtures.no_services()
         controller.space_id = "local-space"
         controller.cpuset_cpus = "0"
         spec = SimpleNamespace(

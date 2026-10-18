@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import browser_fixtures
 import requests
 from docker.errors import APIError
 from local_controller_harness import TestAssistantRegistry, wire_collaborators
@@ -26,6 +27,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
         self.policy_root.mkdir(mode=0o750)
         self.policy_root.chmod(0o750)
         self.controller = object.__new__(local_app.LocalController)
+        self.controller.browser_service, self.controller.web_files = browser_fixtures.no_services()
         self.controller.space_id = "local-space"
         self.controller.client = types.SimpleNamespace()
         self.spec = types.SimpleNamespace(

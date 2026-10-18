@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
+import browser_fixtures
 from local_controller_harness import (
     CURRENT_ASSISTANT_IMAGE,
     LocalContractCase,
@@ -21,11 +22,14 @@ from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from local import app as local_app
 from local import labels as local_labels
+from local.browser import runtime as local_browser_runtime
+from local.errors import ApiProblemError
 
 
 def _controller(events: list[object], assistants: dict[str, object], networks: list[object]):
     """A bare Local controller whose Space reset reaches only these Assistants and networks."""
     controller = object.__new__(local_app.LocalController)
+    controller.browser_service, controller.web_files = browser_fixtures.no_services()
     controller.space_id = "local-space"
     controller.chat_continuations = SimpleNamespace(clear=lambda: 0)
     controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
@@ -85,6 +89,18 @@ class LocalSpaceResetTests(LocalContractCase):
         self.assertLess(events.index("delete-private-state"), events.index("network-remove"))
         # Display names go only after the networks, so a failed removal keeps a surviving Team's name (ADR-0088).
         self.assertLess(events.index("network-remove"), events.index("delete-names"))
+
+    def test_a_browser_that_cannot_be_proved_removed_fails_the_reset(self) -> None:
+        events: list[object] = []
+        controller = _controller(events, {}, [])
+
+        def unproven() -> None:
+            raise local_browser_runtime.BrowserError("browser-lost")
+
+        controller.browser_service = SimpleNamespace(clean=unproven)
+        with self.assertRaises(ApiProblemError) as caught:
+            controller.reset_space()
+        self.assertEqual(caught.exception.code, "docker-reset-failed")
 
     def test_reset_queues_removed_assistant_images_before_the_final_sweep(self) -> None:
         events: list[object] = []

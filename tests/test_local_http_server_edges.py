@@ -98,6 +98,8 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             route.operation for route in strict_http.CONTROLLER_ROUTES if route.method in {"POST", "PUT", "PATCH"}
         }
         body_operations.remove("file-upload")
+        # A file acknowledgement is its route alone; it carries no body (ADR-0117).
+        body_operations.remove("file-acknowledgement")
         # A Local deletion carries the Team name it confirms (ADR-0088).
         body_operations.update(("assistant-integration-cancel", "team-destroy"))
 

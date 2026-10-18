@@ -72,6 +72,7 @@ class LocalLeafContractTests(unittest.TestCase):
             _chat_routines=lambda _team_id: (),
             _active_assistant_genesis=lambda _active: "genesis",
             space_id="local",
+            browser_service=None,
             action_state=mock.Mock(),
             brain_runtime=object(),
             _validate_chat_action=mock.Mock(),

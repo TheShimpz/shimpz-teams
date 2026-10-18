@@ -146,6 +146,7 @@ class BrainRuntimeIdentifierTests(unittest.TestCase):
             "clarification": None,
             "memory": [],
             "routine": None,
+            "browser": None,
         }
 
     def test_requested_actions_name_a_canonical_assistant_and_action(self) -> None:

@@ -277,6 +277,8 @@ CONTROLLER_ROUTES = (
     # One page of a listed PDF, rendered sanitized, and a listed file's verified original to download (ADR-0093).
     _controller_route("GET", "/v1/teams/:team_id/files/:file_id/pages/:page/preview", "file-page-preview"),
     _controller_route("GET", "/v1/teams/:team_id/files/:file_id/content", "file-content"),
+    # The Supervisor accepts the risk of one file from the web before its original may be downloaded (ADR-0117).
+    _controller_route("POST", "/v1/teams/:team_id/files/:file_id/acknowledgement", "file-acknowledgement"),
     _controller_route("GET", "/v1/teams/:team_id/inference", "inference-status"),
     _controller_route("PUT", "/v1/teams/:team_id/inference", "inference-configure"),
     _controller_route("POST", "/v1/teams/:team_id/chat", "chat"),

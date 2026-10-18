@@ -12,6 +12,7 @@ LOCAL_ENTRYPOINTS = ("local.app", "local.healthcheck", "prepare.worker")
 ROOT_RUNTIME_DATA: set[str] = set()
 PRODUCTION_PACKAGES = {
     "assistant",
+    "browser",
     "chat",
     "core",
     "egress",
@@ -26,10 +27,14 @@ PRODUCTION_PACKAGES = {
 }
 # Package data has no import graph; this map is its reviewed necessity authority.
 LOCAL_PACKAGE_DATA = {
+    "browser": {"browser/image/seccomp.json"},
     "inference": {"inference/model_catalog.json"},
     "install": set(),
 }
 PACKAGE_TOOLS: dict[str, set[str]] = {}
+# Separate deployables kept inside a package's directory: the Browser's egress profile and its image (ADR-0117).
+# Neither is Team runtime; the image's seccomp profile is the one file of them the Team image declares above.
+OTHER_DEPLOYABLES = ("browser/egress/", "browser/image/")
 # The Developers Assistant protocol reference validators Team imports at run time (ADR-0091, ADR-0092).
 ASSISTANT_PROTOCOL_RUNTIME = {
     "protocol/assistant/v1/validators/action_effect.py",
@@ -42,6 +47,7 @@ ASSISTANT_PROTOCOL_RUNTIME = {
 LOCAL_PROTOCOL_DATA = {
     *ASSISTANT_PROTOCOL_RUNTIME,
     "protocol/action/v1/schema.py",
+    "protocol/http/v1/browser.py",
     "protocol/http/v1/challenge.py",
     "protocol/http/v1/content.py",
     "protocol/http/v1/identifiers.py",
@@ -333,7 +339,9 @@ class StaticTeamImageContractTests(unittest.TestCase):
         self.assertEqual(PRODUCTION_PACKAGES, local_packages)
         for package in PRODUCTION_PACKAGES:
             package_files = {
-                path.relative_to(ROOT).as_posix() for path in (ROOT / package).rglob("*.py")
+                path.relative_to(ROOT).as_posix()
+                for path in (ROOT / package).rglob("*.py")
+                if not path.relative_to(ROOT).as_posix().startswith(OTHER_DEPLOYABLES)
             } - PACKAGE_TOOLS.get(package, set())
             self.assertEqual(
                 package_files,
@@ -347,7 +355,8 @@ class StaticTeamImageContractTests(unittest.TestCase):
             and path.name != "Dockerfile"
             and path.suffix not in {".py", ".pyc"}
             and not any(part.startswith(".") or part == "__pycache__" for part in path.relative_to(ROOT).parts)
-        }
+            and not path.relative_to(ROOT).as_posix().startswith(OTHER_DEPLOYABLES)
+        } | {path for paths in LOCAL_PACKAGE_DATA.values() for path in paths if path.startswith(OTHER_DEPLOYABLES)}
         declared_package_data = {path for paths in LOCAL_PACKAGE_DATA.values() for path in paths}
         self.assertEqual(source_package_data, declared_package_data)
         # The image carries only the install schemas the contract loads; the reference validator stays in the checkout.
@@ -365,7 +374,12 @@ class StaticTeamImageContractTests(unittest.TestCase):
         )
         self.assertEqual(install_schemas | local_protocol_runtime_data, LOCAL_PROTOCOL_DATA)
         production_sources = [*ROOT.glob("*.py")]
-        production_sources.extend(path for package in PRODUCTION_PACKAGES for path in (ROOT / package).rglob("*.py"))
+        production_sources.extend(
+            path
+            for package in PRODUCTION_PACKAGES
+            for path in (ROOT / package).rglob("*.py")
+            if not path.relative_to(ROOT).as_posix().startswith(OTHER_DEPLOYABLES)
+        )
         for path in production_sources:
             tree = ast.parse(path.read_text(encoding="utf-8"))
             imported_roots = {module.partition(".")[0] for module in _source_imports(_module_name(path), path)}

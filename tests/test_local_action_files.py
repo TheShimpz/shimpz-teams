@@ -18,7 +18,7 @@ from local import app as local_app
 from local.chat import continuation as local_continuation
 from local.chat import segment as local_segment
 from storage import files as team_storage
-from tests import human_request_fixtures
+from tests import browser_fixtures, human_request_fixtures
 
 
 def _approved() -> action_human.ActionTranscript:
@@ -35,6 +35,7 @@ class LocalFileDeliveryTests(unittest.TestCase):
         self.file_id = stored["id"]
         self.file = action_files.selected([{**stored, "media_type": "application/pdf"}])[self.file_id]
         controller = object.__new__(local_app.LocalController)
+        controller.browser_service, controller.web_files = browser_fixtures.no_services()
         controller._locks = tuple(threading.RLock() for _ in range(64))
         controller.storage = self.storage
         spec = types.SimpleNamespace(

@@ -12,6 +12,7 @@ from inference import config as inference_config
 from local import labels as local_labels
 from local import names as local_names
 from local import prepare as local_prepare
+from local.browser import runtime as local_browser_runtime
 from local.errors import (
     DOCKER_ERRORS,
     action_state_unavailable,
@@ -39,6 +40,7 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
     {
         "assistant_containers",
         "brain_checkpoints",
+        "browsers",
         "chat_continuations",
         "egress_policies",
         "inference_configuration",
@@ -88,6 +90,14 @@ def delete_team_conversation(self, team_id: str, network) -> None:
     except brain_runtime_client.BrainRuntimeError as exc:
         raise conversation_state_unavailable() from exc
     self._purge_action_generation(network.id)
+
+
+def _remove_team_browser(self, team_id: str) -> None:
+    """A deleted Team's Browser goes with it; the static Browser network and its egress stay (ADR-0117 §8)."""
+    try:
+        self.browser_service.remove_team(team_id)
+    except local_browser_runtime.BrowserError as exc:
+        raise team_destroy_failed() from exc
 
 
 def _remove_team_helpers(self, team_id: str) -> None:
@@ -206,6 +216,8 @@ def _destroy_confirmed_team(self, team_id: str) -> dict[str, object]:
             residue_absent.update(("brain_checkpoints", "action_checkpoints"))
             _remove_team_helpers(self, team_id)
             residue_absent.add("preparation_helpers")
+            _remove_team_browser(self, team_id)
+            residue_absent.add("browsers")
             self._delete_team_routines(team_id)
             residue_absent.add("routines")
             removed = self._remove_team_assistants(team_id, containers)
@@ -365,6 +377,12 @@ def reset_space(self) -> dict[str, object]:
         except DOCKER_ERRORS as exc:
             raise space_reset_failed() from exc
         residue_absent.add("preparation_helpers")
+        try:
+            # Every Browser of the Space, and its egress generation, ends with the reset (ADR-0117 §8).
+            self.browser_service.clean()
+        except local_browser_runtime.BrowserError as exc:
+            raise space_reset_failed() from exc
+        residue_absent.add("browsers")
         if residue_absent != _TEAM_RESIDUE_ABSENCE:
             raise ApiProblem(
                 HTTPStatus.INTERNAL_SERVER_ERROR,

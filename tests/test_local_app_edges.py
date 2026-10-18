@@ -9,6 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
+import browser_fixtures
 import requests
 from docker.errors import APIError, DockerException, NotFound
 
@@ -93,6 +94,7 @@ class LocalControllerConstructionEdgeTests(unittest.TestCase):
 
     def test_seccomp_requires_available_daemon_and_default_profile(self) -> None:
         controller = object.__new__(local_app.LocalController)
+        controller.browser_service, controller.web_files = browser_fixtures.no_services()
         controller.client = types.SimpleNamespace(info=mock.Mock(side_effect=DockerException("unavailable")))
         with self.assertRaisesRegex(RuntimeError, "daemon is unavailable"):
             controller._require_default_seccomp()
@@ -136,6 +138,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
     @staticmethod
     def controller() -> local_app.LocalController:
         controller = object.__new__(local_app.LocalController)
+        controller.browser_service, controller.web_files = browser_fixtures.no_services()
         controller.space_id = "local-space"
         controller._locks = tuple(threading.RLock() for _ in range(64))
         controller._names_lock = threading.RLock()
@@ -459,6 +462,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
     @staticmethod
     def controller() -> tuple[local_app.LocalController, object, object]:
         controller = object.__new__(local_app.LocalController)
+        controller.browser_service, controller.web_files = browser_fixtures.no_services()
         controller._locks = tuple(threading.RLock() for _ in range(64))
         action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=(), integrations=(), input_files=())
         spec = types.SimpleNamespace(
@@ -719,8 +723,10 @@ class LocalAppMainEdgeTests(unittest.TestCase):
                 return_value=types.SimpleNamespace(
                     local_snapshot_inventory=types.SimpleNamespace(warm=mock.Mock()),
                     chat_turn_service=object(),
+                    browser_service=types.SimpleNamespace(startup=mock.Mock(return_value=True)),
                 ),
             ),
+            mock.patch.object(local_app.local_browser_runtime, "own_browser_image", return_value=None),
             mock.patch.object(local_app.local_routine_watchdog, "check"),
             mock.patch.object(local_app.local_routine_watchdog, "RoutineWatchdog", return_value=watchdog),
             mock.patch.object(local_app, "BoundedServer", return_value=server),

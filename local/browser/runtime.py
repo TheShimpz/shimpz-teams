@@ -1,0 +1,444 @@
+"""The Local Team Browser's Docker lifecycle (ADR-0117 §4 and §8).
+
+One Browser exists per Space at a time. Before creating one, Team proves from the labelled Docker inventory that no
+Browser container exists and that the egress is the static Browser network's only member, and it runs every task on a
+fresh egress generation: the egress is restarted after each task, and before a task whenever the generation an earlier
+task used is still running. A failed or unproven removal keeps every later task refused until a cleanup proves the
+Space clean again.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import socket
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+
+from docker.errors import DockerException, NotFound
+from docker.types import LogConfig, Ulimit
+
+from local import labels as local_labels
+from local.browser.channel import ChannelError, ExecStream
+from local.validation import space_prefix
+
+KIND = "browser"
+EGRESS_KIND = "browser-egress"
+NETWORK = "shimpz-space-browser"
+EGRESS = "shimpz-browser-egress"
+IMAGE_LABEL = "org.shimpz.local.browser-image"
+IMAGE_RE = re.compile(r"(?:localhost|ghcr\.io/theshimpz)/shimpz-browser@sha256:[0-9a-f]{64}")
+USER = "10031:10031"
+MEMORY = 2 * 1024 * 1024 * 1024
+NANO_CPUS = 1_000_000_000
+PIDS = 512
+NOFILE = 4096
+SHM = 256 * 1024 * 1024
+_OWNER = "uid=10031,gid=10031,mode=0700"
+# Every writable path of the Browser is one of these; nothing on them executes (ADR-0117 §3.3).
+TMPFS = {
+    str(PurePosixPath("/") / "tmp"): f"rw,noexec,nosuid,nodev,size=64m,nr_inodes=4096,{_OWNER}",
+    "/profile": f"rw,noexec,nosuid,nodev,size=256m,nr_inodes=16384,{_OWNER}",
+    "/downloads": f"rw,noexec,nosuid,nodev,size=256m,nr_inodes=256,{_OWNER}",
+}
+HOST = "/usr/local/bin/browser-host"
+READY_SECONDS = 20.0
+EGRESS_SECONDS = 30.0
+PROGRAM_SECONDS = 30.0
+SECCOMP = Path(__file__).resolve().parents[2] / "browser" / "image" / "seccomp.json"
+LANGUAGE_RE = re.compile(r"[a-z]{2}(?:-[A-Z]{2})?")
+
+
+class BrowserError(RuntimeError):
+    """A closed reason no Browser task can run or continue: `browser-unavailable`, `browser-busy`, `browser-lost`."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+@dataclass(frozen=True, slots=True)
+class Lease:
+    """One running Browser: its Team, container, address, and the egress generation it runs on."""
+
+    team_id: str
+    container_id: str
+    address: str
+    egress: tuple[str, str]
+
+
+def browser_image(labels: object) -> str | None:
+    """The exact Browser image a Team image's labels name, or None (ADR-0117 §9)."""
+    value = labels.get(IMAGE_LABEL) if isinstance(labels, dict) else None
+    return value if isinstance(value, str) and IMAGE_RE.fullmatch(value) else None
+
+
+def own_browser_image(client) -> str | None:
+    """The Browser image this Team container's own image names, or None: Team then answers browser-unavailable."""
+    try:
+        container = client.containers.get(socket.gethostname())
+        image = client.images.get(container.attrs["Image"])
+    except DockerException, KeyError, TypeError:
+        return None
+    attrs = image.attrs if isinstance(image.attrs, dict) else {}
+    return browser_image((attrs.get("Config") or {}).get("Labels"))
+
+
+class BrowserRuntime:
+    """Admission, creation, the exec channels, and proven removal of the Space's one Browser."""
+
+    def __init__(
+        self,
+        client,
+        space_id: str,
+        cpuset: str,
+        image: str | None,
+        *,
+        architecture: str = "amd64",
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self._client = client
+        self._space_id = space_id
+        self._cpuset = cpuset
+        self._image = image if architecture == "amd64" else None
+        self._clock = clock
+        self._sleep = sleep
+        self._slot = threading.Lock()
+        # The egress generation an earlier task ran on, which no later task may share; unknown after a Team start.
+        self._used: tuple[str, str] | None = None
+        self._dirty = True
+
+    @property
+    def available(self) -> bool:
+        """Whether this Team image names a Browser it can run: an exact image on amd64."""
+        return self._image is not None
+
+    # Admission and creation
+
+    def acquire(self, team_id: str, language: str) -> Lease:
+        """Create this task's Browser on a fresh egress generation; the caller releases the returned lease."""
+        if self._image is None or not LANGUAGE_RE.fullmatch(language):
+            raise BrowserError("browser-unavailable")
+        if not self._slot.acquire(blocking=False):
+            raise BrowserError("browser-busy")
+        try:
+            if self._dirty:
+                self.clean()
+            self._prove_clean()
+            egress = self._fresh_egress()
+            lease = self._create(team_id, language, egress)
+        except BaseException:
+            self._dirty = True
+            self._slot.release()
+            raise
+        self._used = egress
+        return lease
+
+    def release(self, lease: Lease) -> None:
+        """Remove the task's Browser, prove it absent, and end its egress generation; then free the slot."""
+        try:
+            self._remove(lease.container_id)
+            self._restart_egress()
+            self._dirty = False
+        except BrowserError:
+            self._dirty = True
+            raise
+        finally:
+            self._slot.release()
+
+    def startup(self) -> bool:
+        """Remove every Browser a previous Team process left and end its egress generation; whether it proved so."""
+        if not self._slot.acquire(blocking=False):
+            return False
+        try:
+            self.clean()
+        except BrowserError:
+            return False
+        finally:
+            self._slot.release()
+        return True
+
+    def clean(self) -> None:
+        """Remove every Browser of this Space and restart the egress, proving both; Team startup and recovery."""
+        for container in self._browsers():
+            self._remove(container.id)
+        self._restart_egress()
+        self._dirty = False
+
+    def remove_team(self, team_id: str) -> None:
+        """Remove one Team's Browser, as its teardown requires; an absent Browser is success."""
+        for container in self._browsers(team_id):
+            self._remove(container.id)
+
+    def _browsers(self, team_id: str | None = None) -> list:
+        labels = local_labels.ownership_labels(self._space_id, KIND, team_id)
+        try:
+            return self._client.containers.list(all=True, filters={"label": local_labels.label_filter(labels)})
+        except DockerException as exc:
+            raise BrowserError("browser-unavailable") from exc
+
+    def _prove_clean(self) -> None:
+        if self._browsers():
+            raise BrowserError("browser-busy")
+        network = self._network()
+        egress = self._egress()
+        members = set(network.attrs.get("Containers") or {})
+        if members != {egress.id}:
+            raise BrowserError("browser-busy")
+
+    def _network(self):
+        try:
+            network = self._client.networks.get(NETWORK)
+            network.reload()
+        except DockerException as exc:
+            raise BrowserError("browser-unavailable") from exc
+        attrs = network.attrs
+        options = attrs.get("Options") or {}
+        if (
+            attrs.get("Internal") is not True
+            or attrs.get("EnableIPv6") is True
+            or options.get("com.docker.network.bridge.gateway_mode_ipv4") != "isolated"
+        ):
+            raise BrowserError("browser-unavailable")
+        return network
+
+    def _egress(self):
+        try:
+            egress = self._client.containers.get(EGRESS)
+            egress.reload()
+        except DockerException as exc:
+            raise BrowserError("browser-unavailable") from exc
+        labels = egress.attrs.get("Config", {}).get("Labels") or {}
+        expected = {
+            local_labels.MANAGED_LABEL: "1",
+            local_labels.SPACE_LABEL: self._space_id,
+            local_labels.KIND_LABEL: EGRESS_KIND,
+        }
+        if not local_labels.labels_include(labels, expected):
+            raise BrowserError("browser-unavailable")
+        return egress
+
+    def _generation(self, egress) -> tuple[str, str]:
+        state = egress.attrs.get("State") or {}
+        health = (state.get("Health") or {}).get("Status")
+        started = state.get("StartedAt")
+        if state.get("Running") is not True or health != "healthy" or not isinstance(started, str):
+            raise BrowserError("browser-unavailable")
+        return egress.id, started
+
+    def _restart_egress(self) -> tuple[str, str]:
+        egress = self._egress()
+        try:
+            egress.restart(timeout=5)
+        except DockerException as exc:
+            raise BrowserError("browser-unavailable") from exc
+        deadline = self._clock() + EGRESS_SECONDS
+        while True:
+            egress = self._egress()
+            try:
+                return self._generation(egress)
+            except BrowserError:
+                if self._clock() >= deadline:
+                    raise
+                self._sleep(0.2)
+
+    def _fresh_egress(self) -> tuple[str, str]:
+        generation = self._generation(self._egress())
+        return self._restart_egress() if generation == self._used else generation
+
+    def _address(self, container) -> str:
+        networks = (container.attrs.get("NetworkSettings") or {}).get("Networks") or {}
+        address = (networks.get(NETWORK) or {}).get("IPAddress")
+        if set(networks) != {NETWORK} or not isinstance(address, str) or not address:
+            raise BrowserError("browser-unavailable")
+        return address
+
+    def _create(self, team_id: str, language: str, egress: tuple[str, str]) -> Lease:
+        proxy = self._address(self._egress())
+        labels = {**local_labels.ownership_labels(self._space_id, KIND, team_id), local_labels.IMAGE_LABEL: self._image}
+        try:
+            image = self._client.images.get(self._image)
+        except NotFound:
+            if not self._image.startswith("ghcr.io/"):
+                raise BrowserError("browser-unavailable") from None
+            image = self._pull()
+        except DockerException as exc:
+            raise BrowserError("browser-unavailable") from exc
+        try:
+            container = self._client.containers.create(
+                image=self._image,
+                name=self.container_name(team_id),
+                detach=True,
+                user=USER,
+                network=NETWORK,
+                labels=labels,
+                environment={"BROWSER_PROXY": proxy, "BROWSER_LANG": language},
+                read_only=True,
+                cap_drop=["ALL"],
+                security_opt=["no-new-privileges:true", f"seccomp={SECCOMP.read_text(encoding='utf-8')}"],
+                privileged=False,
+                init=True,
+                ipc_mode="private",
+                cgroupns="private",
+                mem_limit=MEMORY,
+                memswap_limit=MEMORY,
+                nano_cpus=NANO_CPUS,
+                cpuset_cpus=self._cpuset,
+                pids_limit=PIDS,
+                shm_size=SHM,
+                tmpfs=TMPFS,
+                ulimits=[Ulimit(name="nofile", soft=NOFILE, hard=NOFILE)],
+                restart_policy={"Name": "no"},
+                log_config=LogConfig(type=LogConfig.types.NONE),
+            )
+        except (DockerException, OSError) as exc:
+            raise BrowserError("browser-unavailable") from exc
+        try:
+            container.reload()
+            if container.attrs.get("Image") != image.id:
+                raise BrowserError("browser-unavailable")
+            container.start()
+            container.reload()
+            self._validate(container, team_id, labels)
+            self._wait_ready(container)
+            return Lease(team_id, container.id, self._address(container), egress)
+        except BaseException:
+            self._remove(container.id)
+            raise
+
+    def _pull(self):
+        repository, digest = self._image.split("@")
+        try:
+            return self._client.images.pull(repository, tag=digest)
+        except DockerException as exc:
+            raise BrowserError("browser-unavailable") from exc
+
+    def container_name(self, team_id: str) -> str:
+        return f"shimpz-local-{space_prefix(self._space_id)}-{team_id}-browser"
+
+    def _validate(self, container, team_id: str, labels: dict[str, str]) -> None:
+        """Refuse a container whose effective configuration differs from the one requested (drift)."""
+        attrs = container.attrs
+        host = attrs.get("HostConfig") or {}
+        config = attrs.get("Config") or {}
+        tmpfs = {path: host.get("Tmpfs", {}).get(path) for path in TMPFS}
+        security = host.get("SecurityOpt") or []
+        if not (
+            attrs.get("Name") == f"/{self.container_name(team_id)}"
+            and config.get("User") == USER
+            and local_labels.labels_include(config.get("Labels"), labels)
+            and host.get("ReadonlyRootfs") is True
+            and host.get("CapDrop") == ["ALL"]
+            and not host.get("CapAdd")
+            and host.get("Privileged") is False
+            and len(security) == 2
+            and security[0] in {"no-new-privileges", "no-new-privileges:true"}
+            and str(security[1]).startswith("seccomp=")
+            and host.get("Init") is True
+            and host.get("IpcMode") == "private"
+            and host.get("CgroupnsMode") == "private"
+            and host.get("Memory") == MEMORY
+            and host.get("MemorySwap") == MEMORY
+            and host.get("NanoCpus") == NANO_CPUS
+            and host.get("PidsLimit") == PIDS
+            and host.get("NetworkMode") == NETWORK
+            and not host.get("Binds")
+            and not attrs.get("Mounts")
+            and tmpfs == TMPFS
+            and (attrs.get("State") or {}).get("Running") is True
+        ):
+            raise BrowserError("browser-unavailable")
+
+    def _wait_ready(self, container) -> None:
+        deadline = self._clock() + READY_SECONDS
+        while self.program(container.id, ["ready"], deadline=self._clock() + 2)[0] != 0:
+            if self._clock() >= deadline:
+                raise BrowserError("browser-unavailable")
+            self._sleep(0.2)
+
+    def _remove(self, container_id: str) -> None:
+        try:
+            self._client.api.remove_container(container_id, force=True)
+        except NotFound:
+            pass
+        except DockerException as exc:
+            raise BrowserError("browser-lost") from exc
+        try:
+            self._client.containers.get(container_id)
+        except NotFound:
+            return
+        except DockerException as exc:
+            raise BrowserError("browser-lost") from exc
+        raise BrowserError("browser-lost")
+
+    # The exec channels
+
+    def open_stream(self, lease: Lease) -> ExecStream:
+        """The Cua Driver's stdio MCP session in this Browser."""
+        return ExecStream(self._exec(lease.container_id, ["mcp"])[1], self._clock)
+
+    def program(self, container_id: str, arguments: list[str], *, deadline: float) -> tuple[int, ExecStream | None]:
+        """Run one bounded `browser-host` program; its exit status once its output was read, and its stream."""
+        try:
+            exec_id, raw = self._exec(container_id, arguments)
+            stream = ExecStream(raw, self._clock)
+            stream.close_input()
+            stream.receive_end(deadline)
+            details = self._client.api.exec_inspect(exec_id)
+        except BrowserError, DockerException, ChannelError, OSError:
+            return -1, None
+        code = details.get("ExitCode")
+        return (code if isinstance(code, int) else -1), stream
+
+    def files(self, lease: Lease) -> dict[str, object]:
+        """The downloads listing `browser-host files list` returns, strictly parsed."""
+        stream = ExecStream(self._exec(lease.container_id, ["files", "list"])[1], self._clock)
+        stream.close_input()
+        deadline = self._clock() + PROGRAM_SECONDS
+        try:
+            listing = json.loads(stream.receive_line(deadline, 256 * 1024))
+            stream.receive_end(deadline)
+        except (ChannelError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise BrowserError("browser-lost") from exc
+        if not isinstance(listing, dict) or set(listing) != {"files", "refused", "skipped"}:
+            raise BrowserError("browser-lost")
+        return listing
+
+    def read(self, lease: Lease, name: str, size: int) -> bytes:
+        """One listed download's exact bytes, framed by the length the program states first."""
+        stream = ExecStream(self._exec(lease.container_id, ["files", "read", name])[1], self._clock)
+        stream.close_input()
+        deadline = self._clock() + PROGRAM_SECONDS
+        try:
+            stated = stream.receive_line(deadline, 20)
+            if stated != str(size).encode():
+                raise BrowserError("browser-lost")
+            data = stream.receive_exact(size, deadline)
+            stream.receive_end(deadline)
+        except ChannelError as exc:
+            raise BrowserError("browser-lost") from exc
+        return data
+
+    def _exec(self, container_id: str, arguments: list[str]) -> tuple[str, object]:
+        try:
+            created = self._client.api.exec_create(
+                container_id,
+                [HOST, *arguments],
+                stdin=True,
+                stdout=True,
+                stderr=True,
+                privileged=False,
+                user=USER,
+                workdir=str(PurePosixPath("/") / "tmp"),
+            )
+            raw = self._client.api.exec_start(created["Id"], socket=True)
+        except DockerException as exc:
+            raise BrowserError("browser-lost") from exc
+        sock = getattr(raw, "_sock", None)
+        if sock is None:
+            raise BrowserError("browser-lost")
+        return created["Id"], sock

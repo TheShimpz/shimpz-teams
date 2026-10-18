@@ -138,7 +138,7 @@ COPY --link protocol/http/v1/challenge.py protocol/http/v1/content.py protocol/h
     protocol/http/v1/payload.py protocol/http/v1/phrase.py protocol/http/v1/preview.py protocol/http/v1/progress.py \
     protocol/http/v1/purpose.py protocol/http/v1/routine.py protocol/http/v1/routine_context.py protocol/http/v1/routine_notice.py \
     protocol/http/v1/routine_proposal.py protocol/http/v1/routine_run.py protocol/http/v1/strict_json.py \
-    protocol/http/v1/supervisor.py protocol/http/v1/turn.py ./protocol/http/v1/
+    protocol/http/v1/supervisor.py protocol/http/v1/turn.py protocol/http/v1/browser.py ./protocol/http/v1/
 COPY --link protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
     protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
     protocol/assistant/v1/validators/message_catalog.py protocol/assistant/v1/validators/route.py \
@@ -146,15 +146,23 @@ COPY --link protocol/assistant/v1/validators/action_effect.py protocol/assistant
 COPY --link action/__init__.py action/challenges.py action/dispatch.py action/execution.py action/failure.py \
     action/frames.py action/files.py action/human.py action/journal.py action/provider.py action/result.py \
     action/stored_input.py ./action/
-COPY --link storage/__init__.py storage/files.py storage/private_state.py ./storage/
+COPY --link storage/__init__.py storage/files.py storage/private_state.py storage/web.py ./storage/
+COPY --link browser/__init__.py browser/cua.py browser/ingest.py browser/task.py ./browser/
+# The seccomp profile Team gives every Browser container (ADR-0117 §3.2).
+COPY --link browser/image/seccomp.json ./browser/image/
+COPY --link local/browser/__init__.py local/browser/channel.py local/browser/runtime.py local/browser/service.py \
+    ./local/browser/
 COPY --link prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/page.py \
     prepare/pdf.py prepare/service.py prepare/worker.py ./prepare/
 # The application is compiled like its environment, after its last copy.
 RUN PYTHONDONTWRITEBYTECODE=1 /opt/venv/bin/python -m compileall -q -f --invalidation-mode checked-hash /app
 
+# The exact Browser image built with this Team image (ADR-0117 §9); the deploy and the publisher pass its digest.
+ARG SHIMPZ_BROWSER_IMAGE=""
 LABEL org.opencontainers.image.source="https://github.com/TheShimpz/shimpz-teams" \
       org.shimpz.component="team-local" \
-      org.shimpz.local.profile="local-v1"
+      org.shimpz.local.profile="local-v1" \
+      org.shimpz.local.browser-image="${SHIMPZ_BROWSER_IMAGE}"
 
 USER 10001:10001
 EXPOSE 7077

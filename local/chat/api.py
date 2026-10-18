@@ -106,9 +106,9 @@ def segment_response(
 
     def save_knowledge(terminal: chat_orchestrator.ChatOutcome) -> None:
         # Saved only as the reply commits, under the Stop guard, in one write; a failed save fails the turn.
-        if response.file_ids:
-            # A turn that consumed selected files learns nothing: neither a memory the Brain proposed nor the Action
-            # path it took becomes lasting knowledge (ADR-0093).
+        if response.file_ids or terminal.browser is not None:
+            # A turn that consumed selected files or read the web learns nothing: neither a memory the Brain proposed
+            # nor the Action path it took becomes lasting knowledge (ADR-0093, ADR-0117).
             return
         skill = chat_knowledge.learned_skill(terminal.actions)
         if not terminal.memory and skill is None:

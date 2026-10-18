@@ -31,7 +31,7 @@ from prepare import limits, worker
 from prepare import service as preparation
 from protocol.http.v1 import supervisor as supervisor_contract
 from storage import files as team_storage
-from tests import prepare_fixtures
+from tests import browser_fixtures, prepare_fixtures
 
 IMAGE_ID = "sha256:" + "c" * 64
 NETWORK = types.SimpleNamespace(id="a" * 64)
@@ -323,6 +323,7 @@ class PreviewBookTests(unittest.TestCase):
 
 def bare_controller(directory: str, client: _Client | None = None) -> local_app.LocalController:
     controller = object.__new__(local_app.LocalController)
+    controller.browser_service, controller.web_files = browser_fixtures.no_services()
     controller._locks = tuple(threading.RLock() for _ in range(64))
     controller.storage = team_storage.TeamStorage(Path(directory) / "teams")
     controller.assistant_lifecycle = types.SimpleNamespace(_network=lambda _team_id: NETWORK)

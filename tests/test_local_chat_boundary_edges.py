@@ -372,6 +372,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             clarification=None,
             memory=(),
             actions=(),
+            browser=None,
         )
 
         def conflicting_terminal(_outcome, _groups, _pending, _pauses, complete):

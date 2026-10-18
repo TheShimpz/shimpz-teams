@@ -46,3 +46,5 @@ class ChatTurnDependencies:
     routine_proposals: object | None = None
     routine_protections: object | None = None
     routine_diagnostics: object | None = None
+    # The Local Browser service (ADR-0117); without one, no turn is offered the Browser.
+    browser_service: object | None = None

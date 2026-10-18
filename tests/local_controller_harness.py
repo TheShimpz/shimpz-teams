@@ -39,6 +39,11 @@ CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "b" * 6
 OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 64
 TEST_ASSISTANT_VERSION = "0.1.0"
 
+# A Local Team without a usable Browser image: no turn is offered the Browser, and teardown has none to remove.
+NO_BROWSER = SimpleNamespace(
+    available=False, remove_team=lambda _team_id: None, clean=lambda: None, startup=lambda: True
+)
+
 
 def routine_books(controller) -> None:
     """A controller's in-memory Routine books (ADR-0101): challenges, recordings, proposal cards, and protection."""
@@ -219,6 +224,7 @@ class LocalContractCase(unittest.TestCase):
         image = "sha256:" + "a" * 64
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
+        controller.browser_service = NO_BROWSER
         controller.registry = self._registry(image)
         controller.registry["shimpz-cloudflare"] = replace(
             controller.registry["shimpz-cloudflare"],
@@ -303,6 +309,7 @@ class LocalContractCase(unittest.TestCase):
         events: list[object] = []
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
+        controller.browser_service = NO_BROWSER
         controller.cpuset_cpus = "0"
         controller._locks = tuple(threading.RLock() for _ in range(64))
         state_directory = tempfile.TemporaryDirectory()

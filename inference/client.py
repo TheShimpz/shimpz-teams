@@ -19,6 +19,7 @@ from inference import credential as inference_credential
 from inference import token as inference_token
 from inference import usage as brain_usage
 from inference.errors import BrainRuntimeError
+from protocol.http.v1 import browser as http_browser
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import strict_json
 from protocol.http.v1 import turn as http_turn
@@ -130,6 +131,9 @@ class RuntimeContext:
     # The selected files prepared for this message (ADR-0093): request-local model content that Team rehydrates for the
     # start and every resume of the logical turn, never persisted by Brain.
     attachments: tuple[Mapping[str, object], ...] = ()
+    # Whether the chat agent may call the Browser this turn (ADR-0117): only outside Routine mode, with no attachment
+    # content, and with a usable Browser image.
+    browser: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,8 +145,16 @@ class ActionRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class BrowserRequest:
+    """The chat agent's one `browser` call: its interrupt and its self-contained objective (ADR-0117)."""
+
+    interrupt_id: str
+    objective: str
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeTurn:
-    status: Literal["completed", "action-required"]
+    status: Literal["completed", "action-required", "browser-required"]
     reply: str
     actions: tuple[ActionRequest, ...]
     # One closed multiple-choice question that ended a completed turn (ADR-0081), or None.
@@ -151,6 +163,8 @@ class RuntimeTurn:
     memory: tuple[dict[str, str], ...] = ()
     # The chat agent's one Routine ``record`` that ended a completed turn (ADR-0101), or None; Local Team admits it.
     routine: object = None
+    # The one `browser` call a `browser-required` turn suspended on, alone (ADR-0117).
+    browser: BrowserRequest | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -344,6 +358,7 @@ class BrainRuntimeClient:
             "routine_output": context.routine_output,
             "routine_settings_answer": context.routine_settings_answer,
             "attachments": [dict(item) for item in context.attachments],
+            "browser_available": context.browser,
         }
 
     def _post(self, path: str, payload: Mapping[str, object], *, deadline: float | None = None) -> object:
@@ -430,8 +445,10 @@ class BrainRuntimeClient:
             "clarification",
             "memory",
             "routine",
+            "browser",
         }:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
+        browser = BrainRuntimeClient._parse_browser(value)
         memory = http_payload.canonical_memory_changes(value["memory"])
         if memory is None or (memory and value["status"] != "completed"):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
@@ -449,7 +466,7 @@ class BrainRuntimeClient:
         reply = value["reply"]
         raw_actions = value["actions"]
         if (
-            status not in {"completed", "action-required"}
+            status not in {"completed", "action-required", "browser-required"}
             or not isinstance(reply, str)
             or not isinstance(raw_actions, list)
         ):
@@ -502,7 +519,31 @@ class BrainRuntimeClient:
             clarification=clarification,
             memory=tuple(memory),
             routine=routine,
+            browser=browser,
         )
+
+    @staticmethod
+    def _parse_browser(value: dict[str, object]) -> BrowserRequest | None:
+        """A `browser-required` turn's one Browser call, which nothing accompanies; every other turn carries none."""
+        browser = value["browser"]
+        if value["status"] != "browser-required":
+            if browser is not None:
+                raise BrainRuntimeError("Brain runtime returned an invalid response")
+            return None
+        if (
+            not isinstance(browser, dict)
+            or set(browser) != {"interrupt_id", "objective"}
+            or not isinstance(browser["interrupt_id"], str)
+            or http_turn.SAFE_ID_RE.fullmatch(browser["interrupt_id"]) is None
+            or http_browser.canonical_objective(browser["objective"]) != browser["objective"]
+            or value["reply"]
+            or value["actions"]
+            or value["clarification"] is not None
+            or value["memory"]
+            or value["routine"] is not None
+        ):
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        return BrowserRequest(browser["interrupt_id"], browser["objective"])
 
     @staticmethod
     def _capability_text(value: object, maximum: int, *, allow_layout: bool = False) -> str:
@@ -815,6 +856,29 @@ class BrainRuntimeClient:
         payload["results"] = dict(results)
         response = self._post("/v1/turns/resume", payload)
         return self._parse_turn(self._metered(response, "turn-resume", context.provider, context.model))
+
+    def browser_step(self, context: RuntimeContext, request: Mapping[str, object]) -> tuple[object, int]:
+        """One Browser agent step for this turn's task, and the input tokens it spent (ADR-0117 §5).
+
+        The Brain fixes the Browser model for the Team's provider and names it, so its usage is recorded as that
+        model's. The step is returned raw: the task loop admits only its canonical form.
+        """
+        payload = {
+            "provider": {"provider": context.provider, "model": context.model, "api_key": context.api_key},
+            **request,
+        }
+        response = self._post("/v1/browser-step", payload)
+        if not isinstance(response, dict) or set(response) != {"step", "model", "usage"}:
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        model = response["model"]
+        if not isinstance(model, str) or http_turn.SAFE_ID_RE.fullmatch(model) is None:
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        try:
+            counts = brain_usage.parse(response["usage"])
+        except brain_usage.UsageError as exc:
+            raise BrainRuntimeError("Brain runtime returned an invalid response") from exc
+        brain_usage.record("browser-step", context.provider, model, counts)
+        return response["step"], counts["input_tokens"]
 
     def purpose(self, context: RuntimeContext, request: ActionRequest, assistant_name: str, summary: str) -> str | None:
         """Ask once why the user's task needs this paused Action, in the turn's language; any failure is None.

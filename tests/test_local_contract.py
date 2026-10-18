@@ -11,6 +11,7 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
+import browser_fixtures
 from local_controller_harness import (
     CURRENT_ASSISTANT_IMAGE,
     LOOKUP_INPUT,
@@ -224,8 +225,14 @@ class LocalContractTests(LocalContractCase):
                             warm=lambda: events.append("snapshots-warm"),
                         ),
                         chat_turn_service=mock.sentinel.chat,
+                        browser_service=SimpleNamespace(startup=lambda: events.append("browser-startup")),
                     )
                 ),
+            ),
+            mock.patch.object(local_app.local_browser_runtime, "own_browser_image", return_value=None),
+            # The Browser cleanup runs on its own thread; here it runs at once, so the order is exact.
+            mock.patch.object(
+                local_app.threading, "Thread", side_effect=lambda target, **_options: SimpleNamespace(start=target)
             ),
             mock.patch.object(
                 local_app,
@@ -266,6 +273,7 @@ class LocalContractTests(LocalContractCase):
                 "server",
                 "snapshots-warm",
                 "updates",
+                "browser-startup",
                 ("routines-recover", mock.sentinel.chat, True),
                 "updates-start",
                 "routines-start",
@@ -346,6 +354,7 @@ class LocalContractTests(LocalContractCase):
 
     def test_ambiguous_action_rpc_is_fail_stopped_or_permanently_blocked(self) -> None:
         controller = object.__new__(local_app.LocalController)
+        controller.browser_service, controller.web_files = browser_fixtures.no_services()
         wire_collaborators(controller)
 
         class Stoppable:
@@ -395,6 +404,7 @@ class LocalContractTests(LocalContractCase):
 
     def test_unprovable_action_stop_is_permanently_blocked(self) -> None:
         controller = object.__new__(local_app.LocalController)
+        controller.browser_service, controller.web_files = browser_fixtures.no_services()
         wire_collaborators(controller)
 
         class Ambiguous:
@@ -445,6 +455,7 @@ class LocalContractTests(LocalContractCase):
     def test_inference_configuration_persists_only_provider_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
+            controller.browser_service, controller.web_files = browser_fixtures.no_services()
             controller._locks = tuple(__import__("threading").RLock() for _ in range(64))
             controller.inference_store = inference_config.InferenceConfigStore(Path(directory) / "inference")
             wire_collaborators(controller)

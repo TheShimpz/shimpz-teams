@@ -87,6 +87,11 @@ file_preview_busy = _problem(_UNAVAILABLE, "file preview capacity is busy", "fil
 file_preview_unavailable = _problem(_UNAVAILABLE, "the file preview could not be prepared", "file-preview-unavailable")
 file_preview_active = _problem(_UNAVAILABLE, "a file preview did not end in time", "file-preview-active")
 file_download_busy = _problem(_UNAVAILABLE, "file download capacity is busy", "file-download-busy")
+# A file from the web needs the Supervisor's acknowledgement before its original leaves Team (ADR-0117 §7).
+file_acknowledgement_required = _problem(
+    HTTPStatus.FORBIDDEN, "the file came from the web and needs an acknowledgement", "file-acknowledgement-required"
+)
+file_not_from_web = _problem(_CONFLICT, "the file did not come from the web", "file-not-from-web")
 assistant_isolation_drift = _problem(
     _CONFLICT, "the installed Assistant failed its isolation profile", "assistant-isolation-drift"
 )

@@ -55,6 +55,8 @@ from local.assistant import egress as local_egress
 from local.assistant import lifecycle as local_assistant_lifecycle
 from local.assistant import resources as local_assistant_resources
 from local.assistant import rpc as local_assistant_rpc
+from local.browser import runtime as local_browser_runtime
+from local.browser import service as local_browser_service
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat import execution as local_chat_execution
 from local.chat import state as local_chat_state
@@ -65,8 +67,10 @@ from local.errors import (
     action_file_unavailable,
     assistant_action_blocked,
     docker_unavailable,
+    file_acknowledgement_required,
     file_download_busy,
     file_not_found,
+    file_not_from_web,
     file_preview_busy,
     file_preview_unavailable,
     file_preview_unsupported,
@@ -100,6 +104,7 @@ from local.validation import (
 from prepare import helper as preparation_helper
 from prepare import service as preparation
 from storage import files as team_storage
+from storage import web as team_web
 
 log = logging.getLogger("shimpz-team-local")
 
@@ -228,6 +233,8 @@ class LocalControllerDependencies:
     routine_store: local_routine_store.RoutineStore | None = None
     routine_diagnostics: local_routine_diagnostics.DiagnosticStore | None = None
     team_names: local_names.TeamNameStore | None = None
+    # The exact Browser image this Team image names (ADR-0117 §9); None leaves the Browser unavailable.
+    browser_image: str | None = None
 
 
 class LocalController:
@@ -339,6 +346,18 @@ class LocalController:
             local_platform = local_snapshots.platform_from_info(daemon_info)
         except local_snapshots.LocalSnapshotError as exc:
             raise RuntimeError("the Docker daemon architecture is unsupported") from exc
+        self.web_files = team_web.WebFiles(storage)
+        self.browser_service = local_browser_service.BrowserService(
+            local_browser_runtime.BrowserRuntime(
+                client,
+                self.space_id,
+                self.cpuset_cpus,
+                dependencies.browser_image,
+                architecture=local_platform.removeprefix("linux/"),
+            ),
+            storage,
+            self.web_files,
+        )
         self.local_snapshot_inventory = local_snapshot_inventory.LocalSnapshotInventory(client, local_platform)
         self.local_snapshot_previews = local_snapshot_preview.LocalSnapshotPreviewCache(client, local_platform)
         self.local_snapshot_admissions = local_snapshot_admission.LocalSnapshotAdmissions(client)
@@ -388,6 +407,7 @@ class LocalController:
                 raise_storage_problem=self._raise_storage_problem,
                 routine_store=self.routine_store,
                 routine_diagnostics=self.routine_diagnostics,
+                browser_service=self.browser_service,
             )
         )
         assistant_lifecycle.chat_turn_service = chat_turn_service
@@ -511,6 +531,7 @@ class LocalController:
                 self.assistant_lifecycle._network(team_id)
                 self.storage.listed(team_id, file_id)
                 metadata, content = self.storage.get(team_id, file_id)
+                self._require_acknowledged(team_id, metadata)
                 reading.interrupt()
                 deliver(metadata, content)
         except local_prepare.PreviewEndedError as exc:
@@ -520,6 +541,35 @@ class LocalController:
         finally:
             _FILE_DOWNLOADS.release()
         return metadata
+
+    def _require_acknowledged(self, team_id: str, metadata: dict[str, object]) -> None:
+        """A file from the web leaves Team only once this Supervisor acknowledged it; an unreadable store refuses."""
+        digest = str(metadata["sha256"])
+        if not self.web_files.is_web(team_id, digest):
+            return
+        principal = local_audit.human_principal()
+        if principal is None or not self.web_files.acknowledged(team_id, str(metadata["id"]), digest, principal):
+            local_audit.record_request("file-content", result="denied", team_id=team_id, detail="acknowledgement")
+            raise file_acknowledgement_required()
+
+    def acknowledge_file(self, team_id: str, file_id: object) -> dict[str, object]:
+        """Record that the request's Supervisor accepted the risk of one listed file from the web (ADR-0117 §7)."""
+        team_id = validate_team_id(team_id)
+        principal = local_audit.human_principal()
+        if principal is None:
+            raise file_acknowledgement_required()
+        try:
+            metadata = self.storage.listed(team_id, file_id)
+            if not self.web_files.is_web(team_id, str(metadata["sha256"])):
+                raise file_not_from_web()
+            self.web_files.acknowledge(team_id, str(metadata["id"]), str(metadata["sha256"]), principal)
+        except team_storage.StorageNotFoundError as exc:
+            raise file_not_found() from exc
+        except team_storage.StorageError as exc:
+            self._raise_storage_problem(exc)
+        detail = f"file={metadata['id']}"
+        local_audit.record_request("file-acknowledgement", result="ok", team_id=team_id, detail=detail)
+        return {"file_id": metadata["id"], "acknowledged": True}
 
     def list_registry(self) -> dict[str, list[dict[str, object]]]:
         """Every installed Assistant of the Space by name only: what any Team's screens need to name it."""
@@ -716,6 +766,7 @@ def main() -> int:
                 ),
                 assistant_residues=assistant_update.AssistantResidueStore(LOCAL_ASSISTANT_RESIDUES_PATH),
                 assistant_icons=icons.AssistantIconStore(LOCAL_PUBLICATION_ICONS_PATH),
+                browser_image=local_browser_runtime.own_browser_image(client),
             ),
         )
         server = BoundedServer(("0.0.0.0", LISTEN_PORT), Handler, controller, token)
@@ -733,6 +784,8 @@ def main() -> int:
         result="ok",
         principal=local_audit.TEAM,
     )
+    # A Browser a previous Team process left is removed before any task (ADR-0117 §8); a failure keeps tasks refused.
+    threading.Thread(target=controller.browser_service.startup, name="browser-startup", daemon=True).start()
     # Nothing runs a Routine segment after a restart: recover every leased run before serving (ADR-0086).
     local_routine_watchdog.check(controller.chat_turn_service, startup=True)
     watchdog = local_routine_watchdog.RoutineWatchdog(controller.chat_turn_service)

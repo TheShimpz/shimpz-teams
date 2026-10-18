@@ -45,6 +45,8 @@ class ChatOutcome:
     clarification: dict[str, object] | None = None
     memory: tuple[dict[str, str], ...] = ()
     routine: object | None = None
+    # The terminal's `browser` field when the turn ran the Browser (ADR-0117), else None.
+    browser: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +89,11 @@ def retain_suspension_transcripts(
 
 
 ActionInvoker = Callable[[brain_runtime_client.ActionRequest], object]
+# Runs one Browser task for the turn: the result the Brain resumes with, and the terminal's `browser` field (ADR-0117).
+BrowserRunner = Callable[
+    [brain_runtime_client.RuntimeContext, brain_runtime_client.BrowserRequest],
+    tuple[dict[str, object], dict[str, object]],
+]
 ActionValidator = Callable[[str, str, Mapping[str, Any]], Mapping[str, Any]]
 BatchHook = Callable[[tuple[brain_runtime_client.ActionRequest, ...]], None]
 BatchPause = Callable[[tuple[brain_runtime_client.ActionRequest, ...]], bool]
@@ -108,6 +115,7 @@ class ChatStrategy:
     # run has a round per step and learns nothing, so its continuation never grows with completed steps.
     max_rounds: int = MAX_ACTION_ROUNDS
     record_invoked: bool = True
+    run_browser: BrowserRunner | None = None
 
 
 def _brain_call[T](strategy: ChatStrategy, call: Callable[[], T]) -> T:
@@ -252,9 +260,14 @@ def _drive(
     declared = chat_attachments.admitted_actions(context)
     contracts = {assistant.id: brain_runtime_client.contract_digest(assistant) for assistant in context.assistants}
 
+    browser: dict[str, object] | None = None
     for _round in range(continuation.round_index, strategy.max_rounds + 1):
         if strategy.cancelled():
             raise ChatStoppedError("chat turn stopped")
+        if turn.status == "browser-required":
+            # A Browser result admits only the reply, so a second Browser call never reaches here (ADR-0117 §6).
+            turn, browser = _run_browser(runtime, context, turn, strategy)
+            continue
         if turn.status == "completed":
             if turn.clarification is not None and (_round > 0 or invoked):
                 # A question is only admissible before any Action of the logical turn ran (ADR-0081).
@@ -267,6 +280,7 @@ def _drive(
                 clarification=turn.clarification,
                 memory=turn.memory,
                 routine=turn.routine,
+                browser=browser,
             )
         if _round == strategy.max_rounds:
             raise ChatOrchestrationError("Brain exceeded the Action round limit")
@@ -305,6 +319,38 @@ def _drive(
         turn = resumed
 
     raise ChatOrchestrationError("Brain did not complete the chat turn")
+
+
+def _run_browser(
+    runtime: brain_runtime_client.BrainRuntimeClient,
+    context: brain_runtime_client.RuntimeContext,
+    turn: brain_runtime_client.RuntimeTurn,
+    strategy: ChatStrategy,
+) -> tuple[brain_runtime_client.RuntimeTurn, dict[str, object]]:
+    """Run the turn's one Browser task, then require that the Brain only replies (ADR-0117 §6).
+
+    The Browser is admitted only where it was offered: outside Routine mode and attachment content. After its result
+    the turn may only end with its reply: no Action, Browser call, memory change, Routine record, or question.
+    """
+    request = turn.browser
+    if request is None or not context.browser or context.attachments or strategy.run_browser is None:
+        raise ChatOrchestrationError("Brain called the Browser where it was not offered")
+    strategy.validate_context()
+    with strategy.progress.span("browser"):
+        result, terminal = strategy.run_browser(context, request)
+    if strategy.cancelled():
+        raise ChatStoppedError("chat turn stopped")
+    strategy.validate_context()
+    with strategy.progress.span("model"):
+        resumed = _brain_call(strategy, partial(runtime.resume, context, {request.interrupt_id: result}))
+    if (
+        resumed.status != "completed"
+        or resumed.memory
+        or resumed.routine is not None
+        or resumed.clarification is not None
+    ):
+        raise ChatOrchestrationError("Brain did more than reply after a Browser result")
+    return resumed, terminal
 
 
 def run_until_pause(

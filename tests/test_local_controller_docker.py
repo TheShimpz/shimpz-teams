@@ -37,6 +37,7 @@ LOCAL_TEAM_RESIDUES = [
     "action_checkpoints",
     "assistant_containers",
     "brain_checkpoints",
+    "browsers",
     "chat_continuations",
     "egress_policies",
     "inference_configuration",

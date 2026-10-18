@@ -85,6 +85,8 @@ class SegmentStrategy:
     # A replayed Routine run's own round limit and its choice to keep no invoked Actions (ADR-0092, 2026-10-05, scale).
     max_rounds: int = chat_orchestrator.MAX_ACTION_ROUNDS
     record_invoked: bool = True
+    # The segment's Browser task runner (ADR-0117); a replayed Routine run has none.
+    run_browser: chat_orchestrator.BrowserRunner | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +237,7 @@ def drive(
         progress=strategy.progress,
         max_rounds=strategy.max_rounds,
         record_invoked=strategy.record_invoked,
+        run_browser=strategy.run_browser,
     )
     if continuation is None:
         outcome = chat_orchestrator.run_until_pause(
@@ -346,4 +349,6 @@ def terminal_body(
     wire = None if usage is None else usage.wire()
     if wire is not None:
         body["usage"] = wire
+    if outcome.browser is not None:
+        body["browser"] = outcome.browser
     return body

@@ -156,6 +156,11 @@ class TeamStorage:
             raise StorageError("Team storage has unsafe ownership or permissions")
         return directory
 
+    def team_directory(self, team_id: str) -> Path:
+        """The Team's custody-checked storage directory, created when absent, for a store kept beside its files."""
+        self._ensure_root()
+        return self._team_dir(team_id, create=True)
+
     def _database_path(self, team_id: str, *, create: bool) -> Path:
         path = self._team_dir(team_id, create=create) / "files.sqlite3"
         if create:

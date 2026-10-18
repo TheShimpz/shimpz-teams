@@ -19,6 +19,7 @@ from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local import inference as local_inference
+from local.browser import service as local_browser_service
 from local.chat import attachments as local_attachments
 from local.chat import execution as local_chat_execution
 from local.chat.types import ActiveAssistant as _ActiveAssistant
@@ -242,6 +243,14 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
         locale=request.locale,
         turn_clock=_turn_clock(recorded),
         attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),
+        # Offered only in an ordinary chat with no attachment content and a usable Browser (ADR-0117 §6).
+        browser=(
+            routine is None
+            and not scope.files
+            and not routine_recorder.routine_mode(recorded)
+            and self.browser_service is not None
+            and self.browser_service.available
+        ),
     )
 
 
@@ -343,7 +352,10 @@ def _run_chat_segment(
         self._turn_failed(request.team_id, added)
         raise
     if request.routine is None and isinstance(result.outcome, chat_orchestrator.ChatOutcome):
-        self._turn_completed(request.team_id, request.file_ids)
+        # A Browser turn carries no attachments; the files it downloaded stay referenced by its reply (ADR-0117 §7).
+        browser = result.outcome.browser
+        downloaded = [] if browser is None else [str(item["id"]) for item in browser["files"]]
+        self._turn_completed(request.team_id, [*request.file_ids, *downloaded])
     return result
 
 
@@ -470,6 +482,14 @@ def _prepare(
     return chat_turn_engine.PreparedSegment(display_name, identity, context, files, batch), scope
 
 
+def _browser_runner(self, request: SegmentRequest):
+    """The segment's Browser task runner, bound to its Team, language, Brain client, and Stop."""
+    turn = local_browser_service.BrowserTurn(
+        request.team_id, request.locale, _runtime(self, request), lambda: self._chat_cancelled(request.token)
+    )
+    return lambda context, browser_request: self.browser_service.run(turn, context, browser_request)
+
+
 def _run_chat_segment_with_metadata(
     self,
     request: SegmentRequest,
@@ -545,6 +565,7 @@ def _run_chat_segment_with_metadata(
             raise_problem=self._raise_chat_problem,
             human_requirement=human_requirement,
             progress=request.progress,
+            run_browser=None if request.routine is not None else _browser_runner(self, request),
             **({} if request.routine is None else request.routine.runtime.strategy()),
         ),
         message=request.message,

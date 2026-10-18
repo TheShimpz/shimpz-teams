@@ -30,7 +30,7 @@ from local.chat.segment import SegmentRequest
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
 from routine import record as routine_record
-from tests import catalog_fixtures, human_request_fixtures, local_assistant_fixture
+from tests import browser_fixtures, catalog_fixtures, human_request_fixtures, local_assistant_fixture
 
 
 def _context() -> brain_runtime_client.RuntimeContext:
@@ -107,6 +107,7 @@ def _segment_strategy(
 
 def _local_controller(local_active, config, events: list[str], fail):
     controller = object.__new__(local_app.LocalController)
+    controller.browser_service, controller.web_files = browser_fixtures.no_services()
     controller.space_id = "local-space"
     controller.brain_runtime = SimpleNamespace()
     controller.team_names = SimpleNamespace(load=lambda _team_id, _network_id: None)

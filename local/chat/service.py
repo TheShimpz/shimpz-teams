@@ -62,6 +62,7 @@ class ChatTurnService:
         self.chat_continuations = dependencies.chat_continuations
         self.routine_store = dependencies.routine_store
         self.routine_diagnostics = dependencies.routine_diagnostics
+        self.browser_service = dependencies.browser_service
         # Recording turns, Routine cards, and run protection live in this process only (ADR-0101).
         self.routine_recordings = dependencies.routine_recordings or local_routine_recorder.RecordingBook()
         self.routine_proposals = dependencies.routine_proposals or local_routine_proposal.ProposalBook()

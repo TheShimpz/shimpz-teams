@@ -1,0 +1,536 @@
+"""The Local Team Browser's Docker lifecycle against an in-memory Docker: admission, generations, removal, exec."""
+
+import json
+import socket as sockets
+import struct
+import unittest
+from pathlib import PurePosixPath
+from unittest import mock
+
+from docker.errors import APIError, NotFound
+
+from local import labels as local_labels
+from local.browser import runtime
+from local.validation import space_prefix
+
+SPACE = "space-0123456789abcdef01234567"
+IMAGE = "localhost/shimpz-browser@sha256:" + "a" * 64
+PUBLISHED = "ghcr.io/theshimpz/shimpz-browser@sha256:" + "b" * 64
+
+
+def _frame(payload: bytes) -> bytes:
+    return struct.pack(">BxxxL", 1, len(payload)) + payload
+
+
+class Raw:
+    def __init__(self, sock):
+        self._sock = sock
+
+
+class FakeContainer:
+    def __init__(self, docker, identifier, name, attrs):
+        self.docker, self.id, self.name, self.attrs = docker, identifier, name, attrs
+        self.restarts = 0
+
+    def reload(self):
+        if self.docker.fail.get("reload"):
+            raise APIError("reload failed")
+        if self.id not in self.docker.containers_by_id:
+            raise NotFound("gone")
+
+    def start(self):
+        self.attrs["State"]["Running"] = True
+        self.docker.on_start(self)
+
+    def restart(self, timeout):
+        assert timeout == 5
+        if self.docker.fail.get("restart"):
+            raise APIError("restart failed")
+        self.restarts += 1
+        self.attrs["State"]["StartedAt"] = f"2026-10-17T00:00:{self.restarts:02d}Z"
+        self.attrs["State"]["Health"]["Status"] = self.docker.health_after_restart
+
+
+class Containers:
+    def __init__(self, docker):
+        self.docker = docker
+
+    def list(self, **options):
+        assert options["all"] is True
+        filters = options["filters"]
+        if self.docker.fail.get("list"):
+            raise APIError("list failed")
+        wanted = dict(item.split("=", 1) for item in filters["label"])
+        return [
+            container
+            for container in self.docker.containers_by_id.values()
+            if all(container.attrs["Config"]["Labels"].get(key) == value for key, value in wanted.items())
+        ]
+
+    def get(self, key):
+        if self.docker.fail.get("get"):
+            raise APIError("get failed")
+        for container in self.docker.containers_by_id.values():
+            if key in (container.id, container.name):
+                return container
+        raise NotFound(key)
+
+    def create(self, **arguments):
+        if self.docker.fail.get("create"):
+            raise APIError("create failed")
+        self.docker.created.append(arguments)
+        attrs = self.docker.created_attrs(arguments)
+        container = FakeContainer(self.docker, f"browser-{len(self.docker.created)}", arguments["name"], attrs)
+        self.docker.containers_by_id[container.id] = container
+        return container
+
+
+class Network:
+    def __init__(self, docker):
+        self.docker = docker
+        self.attrs = {
+            "Internal": True,
+            "EnableIPv6": False,
+            "Options": {"com.docker.network.bridge.gateway_mode_ipv4": "isolated"},
+            "Containers": {},
+        }
+
+    def reload(self):
+        members = {
+            container.id: {}
+            for container in self.docker.containers_by_id.values()
+            if runtime.NETWORK in container.attrs["NetworkSettings"]["Networks"]
+        }
+        self.attrs["Containers"] = {**members, **self.docker.extra_members}
+
+
+class Networks:
+    def __init__(self, docker):
+        self.docker = docker
+
+    def get(self, name):
+        if self.docker.fail.get("network") or name != runtime.NETWORK:
+            raise NotFound(name)
+        return self.docker.network
+
+
+class Images:
+    def __init__(self, docker):
+        self.docker = docker
+
+    def get(self, reference):
+        if self.docker.fail.get("image-get"):
+            raise APIError("image failed")
+        if reference not in self.docker.images:
+            raise NotFound(reference)
+        return type("Image", (), {"id": self.docker.images[reference]})()
+
+    def pull(self, repository, tag):
+        if self.docker.fail.get("pull"):
+            raise APIError("pull failed")
+        reference = f"{repository}@{tag}"
+        self.docker.images[reference] = "sha256:pulled"
+        self.docker.pulled.append(reference)
+        return self.get(reference)
+
+
+class Api:
+    def __init__(self, docker):
+        self.docker = docker
+        self.execs = {}
+
+    def remove_container(self, identifier, force):
+        assert force is True
+        if self.docker.fail.get("remove"):
+            raise APIError("remove failed")
+        if self.docker.fail.get("survive"):
+            return
+        if self.docker.containers_by_id.pop(identifier, None) is None:
+            raise NotFound(identifier)
+        self.docker.removed.append(identifier)
+
+    def exec_create(self, identifier, argv, **options):
+        assert options == {
+            "stdin": True,
+            "stdout": True,
+            "stderr": True,
+            "privileged": False,
+            "user": runtime.USER,
+            "workdir": str(PurePosixPath("/") / "tmp"),
+        }
+        if self.docker.fail.get("exec"):
+            raise APIError("exec failed")
+        exec_id = f"exec-{len(self.execs)}"
+        self.execs[exec_id] = (identifier, tuple(argv[1:]))
+        return {"Id": exec_id}
+
+    def exec_start(self, exec_id, socket):
+        assert socket is True
+        _identifier, arguments = self.execs[exec_id]
+        if self.docker.fail.get("no-socket"):
+            return object()
+        team, docker = sockets.socketpair()
+        self.docker.sockets.extend((team, docker))
+        code, output = self.docker.programs.get(arguments, (0, b""))
+        self.execs[exec_id] = (code, arguments)
+        docker.sendall(_frame(output) if output else b"")
+        docker.shutdown(sockets.SHUT_WR)
+        return Raw(team)
+
+    def exec_inspect(self, exec_id):
+        return {"ExitCode": self.execs[exec_id][0]}
+
+
+class FakeDocker:
+    def __init__(self):
+        self.fail = {}
+        self.created, self.removed, self.pulled, self.sockets = [], [], [], []
+        self.extra_members = {}
+        self.health_after_restart = "healthy"
+        self.images = {IMAGE: "sha256:image", PUBLISHED: "sha256:published"}
+        self.programs = {("ready",): (0, b"")}
+        self.containers_by_id = {}
+        self.containers = Containers(self)
+        self.networks = Networks(self)
+        self.images_api = Images(self)
+        self.api = Api(self)
+        self.network = Network(self)
+        egress_labels = {
+            local_labels.MANAGED_LABEL: "1",
+            local_labels.SPACE_LABEL: SPACE,
+            local_labels.KIND_LABEL: runtime.EGRESS_KIND,
+        }
+        self.egress = FakeContainer(
+            self,
+            "egress-id",
+            runtime.EGRESS,
+            {
+                "Config": {"Labels": egress_labels},
+                "State": {"Running": True, "StartedAt": "2026-10-17T00:00:00Z", "Health": {"Status": "healthy"}},
+                "NetworkSettings": {"Networks": {runtime.NETWORK: {"IPAddress": "172.30.0.2"}}},
+            },
+        )
+        self.containers_by_id[self.egress.id] = self.egress
+        self.drift = {}
+
+    @property
+    def images(self):
+        return self._images
+
+    @images.setter
+    def images(self, value):
+        self._images = value
+
+    def created_attrs(self, arguments):
+        tmpfs = dict(arguments["tmpfs"])
+        host = {
+            "ReadonlyRootfs": arguments["read_only"],
+            "CapDrop": arguments["cap_drop"],
+            "CapAdd": None,
+            "Privileged": arguments["privileged"],
+            "SecurityOpt": arguments["security_opt"],
+            "Init": arguments["init"],
+            "IpcMode": arguments["ipc_mode"],
+            "CgroupnsMode": arguments["cgroupns"],
+            "Memory": arguments["mem_limit"],
+            "MemorySwap": arguments["memswap_limit"],
+            "NanoCpus": arguments["nano_cpus"],
+            "PidsLimit": arguments["pids_limit"],
+            "NetworkMode": arguments["network"],
+            "Binds": None,
+            "Tmpfs": tmpfs,
+            **self.drift,
+        }
+        return {
+            "Name": f"/{arguments['name']}",
+            "Image": self.images.get(arguments["image"], "sha256:other")
+            if not self.fail.get("image-mismatch")
+            else "x",
+            "Config": {"User": arguments["user"], "Labels": dict(arguments["labels"])},
+            "HostConfig": host,
+            "Mounts": [],
+            "State": {"Running": False},
+            "NetworkSettings": {"Networks": {arguments["network"]: {"IPAddress": "172.30.0.9"}}},
+        }
+
+    def on_start(self, container):
+        pass
+
+
+class FakeClient:
+    """The docker SDK surface the runtime uses."""
+
+    def __init__(self, docker):
+        self.containers = docker.containers
+        self.networks = docker.networks
+        self.images = docker.images_api
+        self.api = docker.api
+
+
+class BrowserRuntimeTests(unittest.TestCase):
+    def setUp(self):
+        self.docker = FakeDocker()
+        self.now = [0.0]
+        self.runtime = self.make()
+        self.addCleanup(lambda: [sock.close() for sock in self.docker.sockets])
+
+    def make(self, image=IMAGE, architecture="amd64"):
+        def sleep(seconds):
+            self.now[0] += seconds
+
+        return runtime.BrowserRuntime(
+            FakeClient(self.docker),
+            SPACE,
+            "0-3",
+            image,
+            architecture=architecture,
+            clock=lambda: self.now[0],
+            sleep=sleep,
+        )
+
+    def browsers(self):
+        return [container for container in self.docker.containers_by_id.values() if container is not self.docker.egress]
+
+    def test_the_first_task_cleans_then_creates_one_hardened_browser_on_a_fresh_generation(self):
+        lease = self.runtime.acquire("team_1", "pt-BR")
+        self.assertEqual(self.docker.egress.restarts, 1)
+        self.assertEqual(
+            lease, runtime.Lease("team_1", "browser-1", "172.30.0.9", ("egress-id", "2026-10-17T00:00:01Z"))
+        )
+        [created] = self.docker.created
+        seccomp = created["security_opt"][1]
+        self.assertTrue(seccomp.startswith("seccomp={"))
+        self.assertIn('"unshare"', seccomp)
+        self.assertEqual(created["environment"], {"BROWSER_PROXY": "172.30.0.2", "BROWSER_LANG": "pt-BR"})
+        self.assertEqual(created["name"], f"shimpz-local-{space_prefix(SPACE)}-team_1-browser")
+        self.assertEqual(created["labels"][local_labels.KIND_LABEL], "browser")
+        self.assertEqual(created["labels"][local_labels.TEAM_LABEL], "team_1")
+        self.assertEqual(created["restart_policy"], {"Name": "no"})
+        self.assertEqual(created["tmpfs"], runtime.TMPFS)
+        for value in runtime.TMPFS.values():
+            self.assertTrue(value.startswith("rw,noexec,nosuid,nodev,"))
+        self.runtime.release(lease)
+        self.assertEqual(self.browsers(), [])
+        self.assertEqual(self.docker.egress.restarts, 2)
+
+    def test_a_second_task_never_shares_the_generation_an_earlier_one_used(self):
+        first = self.runtime.acquire("team_1", "en")
+        self.runtime.release(first)
+        second = self.runtime.acquire("team_2", "en")
+        self.assertNotEqual(first.egress, second.egress)
+        self.assertEqual(self.docker.egress.restarts, 2)
+        self.runtime.release(second)
+        # A generation an earlier task used, still running, is restarted before the next task.
+        self.runtime._used = runtime.BrowserRuntime._generation(self.runtime, self.docker.egress)
+        third = self.runtime.acquire("team_1", "en")
+        self.assertEqual(self.docker.egress.restarts, 4)
+        self.assertNotEqual(third.egress, self.runtime._generation(self.docker.egress) and second.egress)
+
+    def test_one_browser_per_space_and_a_second_task_is_busy(self):
+        lease = self.runtime.acquire("team_1", "en")
+        with self.assertRaises(runtime.BrowserError) as raised:
+            self.runtime.acquire("team_2", "en")
+        self.assertEqual(raised.exception.code, "browser-busy")
+        self.runtime.release(lease)
+
+    def test_a_surviving_browser_or_another_network_member_refuses_every_team(self):
+        self.runtime.acquire("team_1", "en")
+        self.runtime._slot.release()  # a Team that crashed without releasing: its Browser survives
+        self.runtime._dirty = False
+        with self.assertRaises(runtime.BrowserError) as raised:
+            self.runtime.acquire("team_2", "en")
+        self.assertEqual(raised.exception.code, "browser-busy")
+        # The refusal leaves the runtime dirty: the next attempt cleans first and then proceeds.
+        lease = self.runtime.acquire("team_2", "en")
+        self.assertEqual(lease.team_id, "team_2")
+        self.runtime.release(lease)
+        self.docker.extra_members = {"stranger": {}}
+        with self.assertRaises(runtime.BrowserError) as raised:
+            self.runtime.acquire("team_1", "en")
+        self.assertEqual(raised.exception.code, "browser-busy")
+
+    def test_an_unavailable_browser_refuses_before_any_docker_call(self):
+        for case in (self.make(image=None), self.make(architecture="arm64")):
+            with self.subTest(case=case), self.assertRaises(runtime.BrowserError) as raised:
+                case.acquire("team_1", "en")
+            self.assertEqual(raised.exception.code, "browser-unavailable")
+        for language in ("", "pt_BR", "EN", "en-us", "--lang"):
+            with self.subTest(language=language), self.assertRaises(runtime.BrowserError):
+                self.runtime.acquire("team_1", language)
+        self.assertEqual(self.docker.created, [])
+
+    def test_the_network_and_egress_must_be_exactly_the_owned_isolated_ones(self):
+        breaks = {
+            "internal": lambda: self.docker.network.attrs.update(Internal=False),
+            "ipv6": lambda: self.docker.network.attrs.update(EnableIPv6=True),
+            "gateway": lambda: self.docker.network.attrs.update(Options={}),
+            "missing network": lambda: self.docker.fail.update(network=True),
+            "egress labels": lambda: self.docker.egress.attrs["Config"]["Labels"].update(
+                {local_labels.SPACE_LABEL: "other"}
+            ),
+            "egress gone": lambda: self.docker.fail.update(get=True),
+            "unhealthy": lambda: setattr(self.docker, "health_after_restart", "starting"),
+            "restart": lambda: self.docker.fail.update(restart=True),
+            "list": lambda: self.docker.fail.update(list=True),
+            "egress address": lambda: self.docker.egress.attrs["NetworkSettings"]["Networks"].update(other={}),
+        }
+        for name, broken in breaks.items():
+            with self.subTest(name=name):
+                self.setUp()
+                broken()
+                with self.assertRaises(runtime.BrowserError) as raised:
+                    self.runtime.acquire("team_1", "en")
+                self.assertEqual(raised.exception.code, "browser-unavailable")
+                self.assertTrue(self.runtime._dirty)
+                self.assertTrue(self.runtime._slot.acquire(blocking=False))
+
+    def test_a_published_image_is_pulled_by_digest_and_a_developer_image_never_is(self):
+        del self.docker.images[PUBLISHED]
+        published = self.make(image=PUBLISHED)
+        published.release(published.acquire("team_1", "en"))
+        self.assertEqual(self.docker.pulled, [PUBLISHED])
+        del self.docker.images[IMAGE]
+        with self.assertRaises(runtime.BrowserError) as raised:
+            self.runtime.acquire("team_1", "en")
+        self.assertEqual(raised.exception.code, "browser-unavailable")
+        for failure in ("pull", "image-get"):
+            with self.subTest(failure=failure):
+                self.setUp()
+                del self.docker.images[PUBLISHED]
+                self.docker.fail[failure] = True
+                with self.assertRaises(runtime.BrowserError):
+                    self.make(image=PUBLISHED).acquire("team_1", "en")
+
+    def test_a_created_browser_that_drifts_resolves_another_image_or_never_gets_ready_is_removed(self):
+        cases = {
+            "image mismatch": lambda: self.docker.fail.update({"image-mismatch": True}),
+            "capability": lambda: self.docker.drift.update(CapAdd=["NET_ADMIN"]),
+            "bind": lambda: self.docker.drift.update(Binds=["/:/host"]),
+            "memory": lambda: self.docker.drift.update(Memory=1),
+            "seccomp": lambda: self.docker.drift.update(SecurityOpt=["no-new-privileges:true"]),
+            "tmpfs": lambda: self.docker.drift.update(Tmpfs={str(PurePosixPath("/") / "tmp"): "rw"}),
+            "not ready": lambda: self.docker.programs.update({("ready",): (1, b"")}),
+        }
+        for name, cause in cases.items():
+            with self.subTest(name=name):
+                self.setUp()
+                cause()
+                with self.assertRaises(runtime.BrowserError) as raised:
+                    self.runtime.acquire("team_1", "en")
+                self.assertEqual(raised.exception.code, "browser-unavailable")
+                self.assertEqual(self.browsers(), [])
+        self.setUp()
+        self.docker.fail["create"] = True
+        with self.assertRaises(runtime.BrowserError):
+            self.runtime.acquire("team_1", "en")
+
+    def test_a_removal_is_proved_or_the_slot_stays_dirty(self):
+        lease = self.runtime.acquire("team_1", "en")
+        self.docker.fail["survive"] = True
+        with self.assertRaises(runtime.BrowserError) as raised:
+            self.runtime.release(lease)
+        self.assertEqual(raised.exception.code, "browser-lost")
+        self.assertTrue(self.runtime._dirty)
+        self.docker.fail = {"remove": True}
+        with self.assertRaises(runtime.BrowserError) as raised:
+            self.runtime.clean()
+        self.assertEqual(raised.exception.code, "browser-lost")
+        self.docker.fail = {}
+        self.runtime.clean()
+        self.assertEqual(self.browsers(), [])
+        self.assertFalse(self.runtime._dirty)
+
+    def test_a_removal_that_cannot_be_checked_is_lost_and_an_absent_one_is_success(self):
+        self.runtime._remove("never-existed")
+        self.docker.fail["get"] = True
+        with self.assertRaises(runtime.BrowserError) as raised:
+            self.runtime._remove("never-existed")
+        self.assertEqual(raised.exception.code, "browser-lost")
+
+    def test_a_team_teardown_removes_only_that_teams_browser(self):
+        lease = self.runtime.acquire("team_1", "en")
+        self.runtime.remove_team("team_2")
+        self.assertEqual(len(self.browsers()), 1)
+        self.runtime.remove_team("team_1")
+        self.assertEqual(self.browsers(), [])
+        self.runtime._slot.release()
+        del lease
+
+    def test_the_downloads_tool_answers_are_strictly_framed(self):
+        lease = self.runtime.acquire("team_1", "en")
+        listing = {"files": [{"name": "edital.pdf", "size": 9}], "refused": [], "skipped": 0}
+        self.docker.programs[("files", "list")] = (0, json.dumps(listing).encode() + b"\n")
+        self.docker.programs[("files", "read", "edital.pdf")] = (0, b"9\n%PDF-1.4\n")
+        self.assertEqual(self.runtime.files(lease), listing)
+        self.assertEqual(self.runtime.read(lease, "edital.pdf", 9), b"%PDF-1.4\n")
+        for output in (b"[]\n", b'{"files": []}\n', b"not json\n", b'{"files":[]}'):
+            with self.subTest(output=output), self.assertRaises(runtime.BrowserError) as raised:
+                self.docker.programs[("files", "list")] = (0, output)
+                self.runtime.files(lease)
+            self.assertEqual(raised.exception.code, "browser-lost")
+        for output in (b"8\n%PDF-1.4\n", b"9\nshort", b"9\n%PDF-1.4\nextra"):
+            with self.subTest(output=output), self.assertRaises(runtime.BrowserError):
+                self.docker.programs[("files", "read", "edital.pdf")] = (0, output)
+                self.runtime.read(lease, "edital.pdf", 9)
+        self.runtime.release(lease)
+
+    def test_the_mcp_stream_and_program_failures(self):
+        lease = self.runtime.acquire("team_1", "en")
+        stream = self.runtime.open_stream(lease)
+        self.assertIsNotNone(stream)
+        self.assertEqual(self.runtime.program(lease.container_id, ["ready"], deadline=10)[0], 0)
+        self.docker.programs[("ready",)] = (0, b"unexpected")
+        self.assertEqual(self.runtime.program(lease.container_id, ["ready"], deadline=10)[0], -1)
+        for failure in ("exec", "no-socket"):
+            with self.subTest(failure=failure):
+                self.docker.fail = {failure: True}
+                self.assertEqual(self.runtime.program(lease.container_id, ["ready"], deadline=10)[0], -1)
+                with self.assertRaises(runtime.BrowserError):
+                    self.runtime.open_stream(lease)
+        self.docker.fail = {}
+        self.docker.api.exec_inspect = lambda _exec: {"ExitCode": None}
+        self.assertEqual(self.runtime.program(lease.container_id, ["ready"], deadline=10)[0], -1)
+        self.runtime.release(lease)
+
+    def test_the_team_reads_its_browser_from_its_own_image_and_starts_clean(self):
+        team = FakeContainer(
+            self.docker,
+            "team-id",
+            "shimpz-team",
+            {"Image": "sha256:team", "Config": {"Labels": {}}, "NetworkSettings": {"Networks": {}}},
+        )
+        self.docker.containers_by_id[team.id] = team
+        image = type("Image", (), {"attrs": {"Config": {"Labels": {runtime.IMAGE_LABEL: IMAGE}}}})()
+        client = FakeClient(self.docker)
+        client.images = type("Images", (), {"get": staticmethod(lambda _ref: image)})()
+        with mock.patch.object(runtime.socket, "gethostname", return_value="team-id"):
+            self.assertEqual(runtime.own_browser_image(client), IMAGE)
+        with mock.patch.object(runtime.socket, "gethostname", return_value="missing"):
+            self.assertIsNone(runtime.own_browser_image(client))
+        self.assertTrue(self.runtime.available)
+        self.assertFalse(self.make(image=None).available)
+        self.assertTrue(self.runtime.startup())
+        self.assertEqual(self.docker.egress.restarts, 1)
+        self.docker.fail["restart"] = True
+        self.assertFalse(self.runtime.startup())
+        self.docker.fail = {}
+        lease = self.runtime.acquire("team_1", "en")
+        self.assertFalse(self.runtime.startup())
+        self.runtime.release(lease)
+
+    def test_a_team_image_names_its_browser_only_by_exact_digest(self):
+        self.assertEqual(runtime.browser_image({runtime.IMAGE_LABEL: IMAGE}), IMAGE)
+        self.assertEqual(runtime.browser_image({runtime.IMAGE_LABEL: PUBLISHED}), PUBLISHED)
+        for labels in (
+            None,
+            {},
+            {runtime.IMAGE_LABEL: "localhost/shimpz-browser:latest"},
+            {runtime.IMAGE_LABEL: "docker.io/shimpz-browser@sha256:" + "a" * 64},
+            {runtime.IMAGE_LABEL: 7},
+        ):
+            with self.subTest(labels=labels):
+                self.assertIsNone(runtime.browser_image(labels))
+
+
+if __name__ == "__main__":
+    unittest.main()

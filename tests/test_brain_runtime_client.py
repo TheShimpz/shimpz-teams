@@ -27,6 +27,8 @@ class _Response:
             payload = {**payload, "memory": []}
         if isinstance(payload, dict) and {"reply", "actions"} <= set(payload) and "routine" not in payload:
             payload = {**payload, "routine": None}
+        if isinstance(payload, dict) and {"reply", "actions"} <= set(payload) and "browser" not in payload:
+            payload = {**payload, "browser": None}
         self._raw = raw if raw is not None else json.dumps(payload).encode()
 
     def read(self, _maximum: int) -> bytes:
