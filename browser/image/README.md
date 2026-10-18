@@ -11,6 +11,10 @@ for each Browser task and removes it when the task ends.
 - `browser-host mcp` replaces itself with `cua-driver mcp --grant existing-profile`, the stdio MCP server Team drives
   over `docker exec`. The Cua Driver's telemetry is turned off at launch.
 - `browser-host ready` succeeds once the DevTools endpoint answers.
+- `browser-host view` streams the screen while Team reads it, for the person watching a task: Xvfb keeps its pixels
+  in `/tmp/run/Xvfb_screen0` (`-fbdir`), and every 500 ms the program writes `same` or `rgb 1280 800` and the packed
+  RGB pixels. It ends when Team ends the exec's input or stops reading. Team, never Chromium, builds the PNG the
+  person's browser decodes.
 - `browser-host files list` and `browser-host files read NAME` are Team's only reads of `/downloads`: complete regular
   files with one link, opened without following links, at most 64 listed and 25 MiB each. A partial `.crdownload`
   and a file over the bound are listed as refused by name and size (`incomplete`, `over-limit`) and never read.
