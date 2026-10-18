@@ -1,4 +1,9 @@
-"""The Browser screen view over HTTP: opening the running task's view and sending its frames (ADR-0117, M2 Watch)."""
+"""The Browser's watched screen over HTTP: opening the running task's view and carrying its stream (ADR-0117).
+
+A stream request is one exact WebSocket upgrade. Team admits it only for the view of the very task it names, holds one
+of the Space's stream slots for the whole stream, and answers 101 only after the display itself answered the same
+upgrade exactly; before that, every refusal is a closed JSON answer, and after it the stream just ends.
+"""
 
 from http import HTTPStatus
 
@@ -10,7 +15,7 @@ from local.http.dispatch import team_operation
 from local.validation import validate_team_id
 from protocol.http.v1 import browser_view as view_protocol
 
-FRAME_OPERATION = "browser-view-frame"
+STREAM_OPERATION = "browser-view-stream"
 _MESSAGES = {
     view_protocol.NOT_RUNNING: (HTTPStatus.NOT_FOUND, "the Browser task is not running"),
     view_protocol.BUSY: (HTTPStatus.SERVICE_UNAVAILABLE, "the Browser view is busy"),
@@ -34,30 +39,51 @@ def _open(handler, team_id: str) -> dict[str, object]:
 OPERATIONS = {"browser-view-open": team_operation(_open)}
 
 
-def send_frame(handler, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
-    """Send the watched task's next frame, a PNG Team built, numbered in its header; 204 when none came in time.
+def upgrade_key(headers) -> str | None:
+    """The request's WebSocket key when it is exactly one admitted upgrade, else None."""
 
-    The request holds one of the Space's frame slots until its answer is sent.
-    """
+    def one(name: str) -> str | None:
+        values = headers.get_all(name, failobj=[])
+        return values[0].strip() if len(values) == 1 else None
+
+    connection = one("Connection")
+    tokens = {token.strip().lower() for token in (connection or "").split(",")}
+    if (
+        (one("Upgrade") or "").lower() != "websocket"
+        or "upgrade" not in tokens
+        or one("Sec-WebSocket-Version") != view_protocol.WEBSOCKET_VERSION
+        or one("Sec-WebSocket-Protocol") != view_protocol.SUBPROTOCOL
+        or headers.get_all("Sec-WebSocket-Extensions", failobj=[])
+    ):
+        return None
+    return view_protocol.canonical_key(one("Sec-WebSocket-Key"))
+
+
+def send_stream(handler, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
+    """Carry one viewer's stream of the watched task's screen, holding a stream slot until it ends."""
     team_id = validate_team_id(route.params["team_id"])
     view_id = route.params["view_id"]
-    after = view_protocol.canonical_cursor(route.params["after"])
-    if view_protocol.VIEW_ID_RE.fullmatch(view_id) is None or after is None:
+    if view_protocol.VIEW_ID_RE.fullmatch(view_id) is None:
         raise _problem(BrowserError(view_protocol.NOT_RUNNING))
+    key = upgrade_key(handler.headers)
+    if key is None:
+        raise ApiProblem(HTTPStatus.BAD_REQUEST, "the stream upgrade is invalid", code=view_protocol.INVALID_UPGRADE)
     service = handler.server.controller.browser_service
+    upgraded = False
+
+    def answer(first: bytes) -> None:
+        nonlocal upgraded
+        handler.wfile.write(first)
+        handler.wfile.flush()
+        upgraded = True
+        request_audit.record(STREAM_OPERATION, result="ok", team_id=team_id, detail="upgraded")
+
     try:
         with service.view_slot():
-            frame = service.view_frame(team_id, view_id, after)
-            if frame is None:
-                request_audit.record(FRAME_OPERATION, result="ok", team_id=team_id, detail="unchanged")
-                handler.send_response(HTTPStatus.NO_CONTENT)
-                handler.send_private_headers()
-                handler.end_headers()
-                return
-            framing = view_protocol.canonical_frame({"frame": frame.number, "length": len(frame.png)})
-            if framing is None or not frame.png.startswith(view_protocol.PNG_SIGNATURE):
-                raise _problem(BrowserError(view_protocol.UNAVAILABLE))
-            request_audit.record(FRAME_OPERATION, result="ok", team_id=team_id, detail=f"frame={frame.number}")
-            handler._send_image(frame.png, "image/png", {view_protocol.FRAME_HEADER: str(frame.number)})
+            service.carry_view(team_id, view_id, handler.connection, key, answer)
     except BrowserError as exc:
-        raise _problem(exc) from exc
+        if not upgraded:
+            raise _problem(exc) from exc
+    finally:
+        # The connection carried a stream: nothing else is ever read from it.
+        handler.close_connection = True

@@ -1,199 +1,126 @@
-"""One Browser task's screen view: capture on demand, the latest frame only, and an ending bound to its task."""
+"""One Browser task's watched screen: a stream per viewer, bound to its task and ended with it."""
 
-import queue
+import socket
 import threading
 import time
 import unittest
 from unittest import mock
 
-from browser import view as browser_view
 from local.browser import view
 from local.browser.runtime import BrowserError
-
-FRAME = b"rgb 1280 800\n" + bytes(browser_view.FRAME_BYTES)
-CHANGED = b"rgb 1280 800\n" + b"\x01" * browser_view.FRAME_BYTES
-SAME = b"same\n"
-
-
-class Program:
-    """The view program's stdout: the test's ticks in order, and `same` meanwhile, as the program ticks on its own."""
-
-    def __init__(self, *ticks: bytes) -> None:
-        self.ticks: queue.Queue[bytes | Exception] = queue.Queue()
-        self.buffer = bytearray()
-        self.input_closed = threading.Event()
-        self.closed = threading.Event()
-        for tick in ticks:
-            self.send(tick)
-
-    def send(self, tick: bytes | Exception) -> None:
-        self.ticks.put(tick)
-
-    def _fill(self, deadline: float) -> None:
-        try:
-            tick = self.ticks.get(timeout=min(0.02, max(0.0, deadline - time.monotonic())))
-        except queue.Empty:
-            tick = SAME
-        if isinstance(tick, Exception):
-            raise tick
-        self.buffer.extend(tick)
-
-    def receive_line(self, deadline: float, limit: int) -> bytes:
-        while b"\n" not in self.buffer:
-            self._fill(deadline)
-        line, _, rest = bytes(self.buffer).partition(b"\n")
-        self.buffer[:] = rest
-        return line
-
-    def receive_exact(self, size: int, deadline: float) -> bytes:
-        while len(self.buffer) < size:
-            self._fill(deadline)
-        data = bytes(self.buffer[:size])
-        del self.buffer[:size]
-        return data
-
-    def close_input(self) -> None:
-        self.input_closed.set()
-
-    def close(self) -> None:
-        self.closed.set()
+from tests.test_local_browser_tunnel import KEY, Display, admitted_answer
 
 
 class ViewTests(unittest.TestCase):
     def setUp(self):
-        for name, value in {
-            "IDLE_SECONDS": 0.3,
-            "WAIT_SECONDS": 0.4,
-            "TICK_SECONDS": 2.0,
-            "MIN_FRAME_SECONDS": 0.0,
-            "EXIT_SECONDS": 0.2,
-        }.items():
-            patcher = mock.patch.object(view, name, value)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        self.programs: list[Program] = []
-        self.next_programs: list[Program] = []
         self.records: list[str] = []
         self.exited = mock.Mock(return_value=True)
+        self.displays: list[Display] = []
         self.open_error: Exception | None = None
+        self.viewer, self.team_viewer = socket.socketpair()
+        self.addCleanup(self.viewer.close)
+        self.addCleanup(self.team_viewer.close)
 
-    def open_program(self):
+    def open_relay(self):
         if self.open_error is not None:
             raise self.open_error
-        program = self.next_programs.pop(0)
-        self.programs.append(program)
-        return f"exec-{len(self.programs)}", program
+        display = Display()
+        self.addCleanup(display.close)
+        self.displays.append(display)
+        return f"exec-{len(self.displays)}", display.stream
 
-    def make(self, *programs: Program, sleep=time.sleep) -> view.View:
-        self.next_programs.extend(programs)
-        return view.View(self.open_program, self.exited, self.records.append, sleep=sleep)
+    def make(self) -> view.View:
+        return view.View(lambda: self.open_relay(), self.exited, self.records.append)
 
-    def stopped(self, program: Program) -> None:
-        self.assertTrue(program.closed.wait(5), "the producer did not stop")
+    def carry_in_background(self, screen: view.View, answers: list[bytes]):
+        outcome: dict[str, object] = {}
 
-    def test_a_request_starts_capture_and_answers_only_a_newer_frame(self):
-        program = Program(FRAME)
-        screen = self.make(program)
+        def run():
+            try:
+                screen.carry(self.team_viewer, KEY, answers.append)
+            except BrowserError as exc:
+                outcome["error"] = exc.code
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        return worker, outcome
+
+    def display_answers(self, answer: bytes) -> Display:
+        deadline = time.monotonic() + 5
+        while not self.displays and time.monotonic() < deadline:
+            time.sleep(0.01)
+        display = self.displays[-1]
+        display.read_request()
+        display.write(answer)
+        return display
+
+    def test_a_viewer_is_carried_until_the_task_ends(self):
+        screen = self.make()
         self.assertRegex(screen.id, r"^[0-9a-f]{32}$")
-        first = screen.frame(0)
-        self.assertEqual(first.number, 1)
-        self.assertTrue(first.png.startswith(b"\x89PNG"))
-        program.send(SAME)
-        self.assertIsNone(screen.frame(1))
-        program.send(CHANGED)
-        self.assertEqual(screen.frame(1).number, 2)
-        self.assertEqual(len(self.programs), 1)
+        answers: list[bytes] = []
+        worker, outcome = self.carry_in_background(screen, answers)
+        display = self.display_answers(admitted_answer())
+        deadline = time.monotonic() + 5
+        while not answers and time.monotonic() < deadline:
+            time.sleep(0.01)
+        display.write(b"pixels")
+        self.viewer.settimeout(5)
+        self.assertEqual(self.viewer.recv(100), b"pixels")
         screen.end()
-        program.send(SAME)
-        self.stopped(program)
-        self.assertEqual(self.records, ["started", "stopped"])
-
-    def test_the_task_end_answers_every_waiter_at_once(self):
-        program = Program(FRAME)
-        screen = self.make(program)
-        screen.frame(0)
-        with mock.patch.object(view, "WAIT_SECONDS", 30.0):
-            waiting = threading.Thread(target=lambda: self.assertRaises(BrowserError, screen.frame, 1))
-            started = time.monotonic()
-            waiting.start()
-            time.sleep(0.1)
-            screen.end()
-            waiting.join(5)
-        self.assertLess(time.monotonic() - started, 5)
-        with self.assertRaises(BrowserError) as ended:
-            screen.frame(0)
-        self.assertEqual(ended.exception.code, "browser-not-running")
-        program.send(SAME)
-        self.stopped(program)
-
-    def test_capture_stops_when_nobody_asks_and_restarts_after_a_proven_exit(self):
-        first, second = Program(FRAME), Program(CHANGED)
-        screen = self.make(first, second)
-        self.assertEqual(screen.frame(0).number, 1)
-        # Ticks keep coming, but no request does: the producer stops within the idle window.
-        for _ in range(8):
-            first.send(SAME)
-        self.stopped(first)
-        self.assertTrue(first.input_closed.is_set())
+        worker.join(5)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(outcome, {})
+        self.assertTrue(answers[0].startswith(b"HTTP/1.1 101"))
         self.exited.assert_called_once()
-        self.assertEqual(self.exited.call_args.args[0], "exec-1")
-        self.assertEqual(screen.frame(1).number, 2)
-        self.assertEqual(self.records[:3], ["started", "stopped", "started"])
-        screen.end()
-        second.send(SAME)
-        self.stopped(second)
+        self.assertEqual(self.records[0], "started")
+        self.assertRegex(self.records[1], r"^ended:proven=1:to_viewer=6:to_display=0$")
+        with self.assertRaises(BrowserError) as ended:
+            screen.carry(self.team_viewer, KEY, answers.append)
+        self.assertEqual(ended.exception.code, "browser-not-running")
+
+    def test_a_display_that_refuses_the_upgrade_leaves_the_viewer_a_closed_refusal(self):
+        screen = self.make()
+        answers: list[bytes] = []
+        worker, outcome = self.carry_in_background(screen, answers)
+        self.display_answers(admitted_answer().replace(b"101 Switching", b"403 Forbidden"))
+        worker.join(5)
+        self.assertEqual(outcome, {"error": "browser-view-unavailable"})
+        self.assertEqual(answers, [])
+        self.exited.assert_called_once()
+
+    def test_a_relay_that_cannot_open_is_unavailable(self):
+        self.open_error = BrowserError("browser-lost")
+        with self.assertRaises(BrowserError) as refused:
+            self.make().carry(self.team_viewer, KEY, lambda _first: None)
+        self.assertEqual(refused.exception.code, "browser-view-unavailable")
+        self.exited.assert_not_called()
 
     def test_an_exit_it_cannot_prove_leaves_the_view_unavailable(self):
         self.exited.return_value = False
-        program = Program(FRAME)
-        screen = self.make(program)
-        screen.frame(0)
-        for _ in range(8):
-            program.send(SAME)
-        self.stopped(program)
-        self.assertEqual(self.records, ["started", "unavailable"])
-        with self.assertRaises(BrowserError) as refused:
-            screen.frame(1)
-        self.assertEqual(refused.exception.code, "browser-view-unavailable")
-
-    def test_a_program_that_misbehaves_leaves_the_view_unavailable(self):
-        program = Program(b"rgb 1920 1080\n")
-        screen = self.make(program)
-        with self.assertRaises(BrowserError) as refused:
-            screen.frame(0)
-        self.assertEqual(refused.exception.code, "browser-view-unavailable")
-        self.assertTrue(program.closed.is_set())
-
-    def test_a_program_that_cannot_open_leaves_the_view_unavailable(self):
-        self.open_error = BrowserError("browser-lost")
         screen = self.make()
+        worker, _outcome = self.carry_in_background(screen, [])
+        display = self.display_answers(admitted_answer())
+        display.display_side.shutdown(socket.SHUT_WR)
+        worker.join(5)
+        self.assertRegex(self.records[-1], r"^ended:proven=0:")
         with self.assertRaises(BrowserError) as refused:
-            screen.frame(0)
+            screen.carry(self.team_viewer, KEY, lambda _first: None)
         self.assertEqual(refused.exception.code, "browser-view-unavailable")
-        self.exited.assert_not_called()
-        self.assertEqual(self.records, ["unavailable"])
 
-    def test_a_program_lost_with_its_task_is_only_the_task_ending(self):
-        program = Program(FRAME)
-        screen = self.make(program)
-        screen.frame(0)
-        screen.end()
-        program.send(OSError("the Browser channel closed"))
-        self.stopped(program)
-        self.assertEqual(self.records, ["started", "stopped"])
+    def test_a_task_that_ends_while_the_relay_opens_starts_no_stream(self):
+        screen = self.make()
+        original = self.open_relay
 
-    def test_frames_are_encoded_no_faster_than_their_interval(self):
-        rests: list[float] = []
-        program = Program(FRAME, CHANGED)
-        with mock.patch.object(view, "MIN_FRAME_SECONDS", 60.0):
-            screen = self.make(program, sleep=rests.append)
-            screen.frame(0)
-            self.assertEqual(screen.frame(1).number, 2)
-        self.assertEqual(len(rests), 1)
-        self.assertGreater(rests[0], 59)
-        screen.end()
-        program.send(SAME)
-        self.stopped(program)
+        def ending():
+            opened = original()
+            screen.end()
+            return opened
+
+        self.open_relay = ending
+        with self.assertRaises(BrowserError) as refused:
+            screen.carry(self.team_viewer, KEY, lambda _first: None)
+        self.assertEqual(refused.exception.code, "browser-not-running")
+        self.exited.assert_called_once()
 
 
 if __name__ == "__main__":

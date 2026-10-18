@@ -457,9 +457,9 @@ class BrowserRuntime:
         """The Cua Driver's stdio MCP session in this Browser."""
         return ExecStream(self._exec(lease.container_id, ["mcp"])[1], self._clock)
 
-    def open_view(self, lease: Lease) -> tuple[str, ExecStream]:
-        """The screen view program in this Browser: its exec id and its stdout."""
-        exec_id, raw = self._exec(lease.container_id, ["view"])
+    def open_relay(self, lease: Lease) -> tuple[str, ExecStream]:
+        """One viewer's relay into this Browser's display: its exec id and its channel."""
+        exec_id, raw = self._exec(lease.container_id, ["relay"])
         return exec_id, ExecStream(raw, self._clock)
 
     def exited(self, exec_id: str, deadline: float) -> bool:

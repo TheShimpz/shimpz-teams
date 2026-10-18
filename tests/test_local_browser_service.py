@@ -343,17 +343,11 @@ class BrowserServiceTests(unittest.TestCase):
                 browser_service.open_view("team_2")
             for team_id, other in (("team_1", "0" * 32), ("team_2", view_id)):
                 with self.assertRaises(runtime.BrowserError) as refused:
-                    browser_service.view_frame(team_id, other, 0)
+                    browser_service.carry_view(team_id, other, "client", "key", lambda _first: None)
                 self.assertEqual(refused.exception.code, "browser-not-running")
-            frame = local_view.Frame(1, b"\x89PNG")
-            with mock.patch.object(local_view.View, "frame", return_value=frame) as answered:
-                self.assertIs(browser_service.view_frame("team_1", view_id, 0), frame)
-                answered.assert_called_once_with(0)
-                # A Stop while the request waited: the answer that came meanwhile is not sent.
-                answered.side_effect = lambda _after: browser_service.interrupt("team_1", TURN)
-                with self.assertRaises(runtime.BrowserError) as stopped:
-                    browser_service.view_frame("team_1", view_id, 0)
-                self.assertEqual(stopped.exception.code, "browser-not-running")
+            with mock.patch.object(local_view.View, "carry") as carried:
+                browser_service.carry_view("team_1", view_id, "client", "key", "upgraded")
+                carried.assert_called_once_with("client", "key", "upgraded")
             return task.Outcome("done", summary="x", steps=1)
 
         with mock.patch.object(service.browser_task.Task, "run", autospec=True, side_effect=run):
@@ -362,12 +356,12 @@ class BrowserServiceTests(unittest.TestCase):
         # The task ended: neither its view nor a new one opens.
         for call in (
             lambda: browser_service.open_view("team_1"),
-            lambda: browser_service.view_frame("team_1", seen["view"], 0),
+            lambda: browser_service.carry_view("team_1", seen["view"], "client", "key", lambda _first: None),
         ):
             with self.assertRaises(runtime.BrowserError):
                 call()
 
-    def test_a_released_task_ends_its_view_and_its_capture_reaches_the_runtime(self):
+    def test_a_released_task_ends_its_view_and_its_relay_reaches_the_runtime(self):
         made = []
 
         class RecordingView:
@@ -381,7 +375,7 @@ class BrowserServiceTests(unittest.TestCase):
                 self.ended = True
 
         fake = FakeRuntime()
-        fake.open_view = mock.Mock(return_value=("exec-1", "stream"))
+        fake.open_relay = mock.Mock(return_value=("exec-1", "stream"))
         fake.exited = mock.Mock(return_value=True)
         browser_service = self.make(fake)
         with mock.patch.object(service.local_view, "View", RecordingView):
@@ -390,7 +384,7 @@ class BrowserServiceTests(unittest.TestCase):
         self.assertTrue(recorded.ended)
         open_program, exited, record = recorded.calls
         self.assertEqual(open_program(), ("exec-1", "stream"))
-        fake.open_view.assert_called_once_with(LEASE)
+        fake.open_relay.assert_called_once_with(LEASE)
         self.assertTrue(exited("exec-1", 5.0))
         fake.exited.assert_called_once_with("exec-1", 5.0)
         record("started")
@@ -402,7 +396,7 @@ class BrowserServiceTests(unittest.TestCase):
             self.audit,
         )
 
-    def test_frame_requests_hold_one_of_two_slots(self):
+    def test_streams_hold_one_of_two_slots(self):
         browser_service = self.make(FakeRuntime())
         with browser_service.view_slot(), browser_service.view_slot():
             with self.assertRaises(runtime.BrowserError) as busy, browser_service.view_slot():

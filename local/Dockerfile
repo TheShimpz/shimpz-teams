@@ -148,11 +148,11 @@ COPY --link action/__init__.py action/challenges.py action/dispatch.py action/ex
     action/frames.py action/files.py action/human.py action/journal.py action/provider.py action/result.py \
     action/stored_input.py ./action/
 COPY --link storage/__init__.py storage/files.py storage/private_state.py ./storage/
-COPY --link browser/__init__.py browser/cua.py browser/ingest.py browser/task.py browser/view.py ./browser/
+COPY --link browser/__init__.py browser/cua.py browser/ingest.py browser/task.py ./browser/
 # The seccomp profile Team gives every Browser container (ADR-0117 §3.2).
 COPY --link browser/image/seccomp.json ./browser/image/
 COPY --link local/browser/__init__.py local/browser/channel.py local/browser/runtime.py local/browser/service.py \
-    local/browser/view.py ./local/browser/
+    local/browser/tunnel.py local/browser/view.py ./local/browser/
 COPY --link prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/page.py \
     prepare/pdf.py prepare/service.py prepare/worker.py ./prepare/
 # The application is compiled like its environment, after its last copy.

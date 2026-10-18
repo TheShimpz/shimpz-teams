@@ -44,7 +44,7 @@ def language(locale: str | None) -> str:
     return "pt-BR" if isinstance(locale, str) and locale.lower().startswith("pt") else "en"
 
 
-# Frame requests the Space answers at once.
+# Streams of watched screens the Space carries at once.
 VIEWS = 2
 
 
@@ -94,7 +94,7 @@ class BrowserService:
     @contextmanager
     def _held(self, token: str, lease: Lease) -> Iterator[None]:
         view = local_view.View(
-            lambda: self._runtime.open_view(lease),
+            lambda: self._runtime.open_relay(lease),
             lambda exec_id, deadline: self._runtime.exited(exec_id, deadline),
             lambda state: _audit_view(lease, state),
         )
@@ -119,7 +119,7 @@ class BrowserService:
 
     @contextmanager
     def view_slot(self) -> Iterator[None]:
-        """One of the Space's frame request slots, held until the caller sent its response."""
+        """One of the Space's stream slots, held for the whole stream."""
         if not self._views.acquire(blocking=False):
             raise BrowserError(view_protocol.BUSY)
         try:
@@ -127,12 +127,9 @@ class BrowserService:
         finally:
             self._views.release()
 
-    def view_frame(self, team_id: str, view_id: str, after: int) -> local_view.Frame | None:
-        """The view's next frame after `after`, or None when none came; only while that very task still runs."""
-        frame = self._view(team_id, view_id).frame(after)
-        # Checked again right before the answer: a task stopped or replaced meanwhile shows nothing more.
-        self._view(team_id, view_id)
-        return frame
+    def carry_view(self, team_id: str, view_id: str, client, key: str, upgraded) -> None:
+        """Carry one viewer's stream of that very task's screen, until the stream or the task ends."""
+        self._view(team_id, view_id).carry(client, key, upgraded)
 
     def _view(self, team_id: str, view_id: str) -> local_view.View:
         with self._guard:

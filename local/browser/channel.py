@@ -56,6 +56,49 @@ class ExecStream:
         with suppress(OSError):
             self._raw.close()
 
+    def fileno(self) -> int:
+        return self._raw.fileno()
+
+    def shutdown(self) -> None:
+        """End both directions at once: a reader or writer waiting on the channel wakes."""
+        with suppress(OSError):
+            self._raw.shutdown(socket.SHUT_RDWR)
+
+    # Non-blocking use, for a caller that selects on the channel itself.
+
+    def pump(self, limit: int) -> bool:
+        """Read what the channel has now into the stdout buffer, at most `limit` buffered; False once it ended."""
+        if self._closed:
+            return False
+        try:
+            chunk = self._raw.recv(CHUNK)
+        except BlockingIOError:
+            return True
+        if not chunk:
+            if self._pending:
+                raise ChannelError("the Browser channel ended inside a frame")
+            self._closed = True
+            return False
+        self._pending.extend(chunk)
+        self._frames(limit)
+        return True
+
+    def buffered(self) -> int:
+        return len(self._stdout)
+
+    def take(self, size: int) -> bytes:
+        """Up to `size` buffered stdout bytes."""
+        data = bytes(self._stdout[:size])
+        del self._stdout[:size]
+        return data
+
+    def send_some(self, data: bytes) -> int:
+        """Write what the channel accepts now of `data`; how many bytes it took."""
+        try:
+            return self._raw.send(data)
+        except BlockingIOError:
+            return 0
+
     def receive_line(self, deadline: float, limit: int) -> bytes:
         """The next stdout line without its newline, of at most `limit` bytes."""
         while (end := self._stdout.find(b"\n")) < 0:

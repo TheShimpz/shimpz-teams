@@ -1,109 +1,65 @@
-"""One Browser task's screen view on the Local Team (ADR-0117, M2 Watch).
+"""One Browser task's watched screen on the Local Team (ADR-0117, watching over KasmVNC).
 
 A view belongs to exactly one task: its random id is drawn when the task holds the Browser, and it ends when the task
-is released or stopped. Capture runs only on demand: the first frame request starts a producer that reads
-`browser-host view`, and the producer stops at most IDLE_SECONDS after the last frame request ended, or when the task
-ends.
-Only the latest frame is kept, so a slow viewer skips frames and never holds back the producer, the task, or Stop.
-A producer's exec must be proven ended before another starts; when Team cannot prove it within its deadline, or the
-program misbehaves while the task runs, the view stays unavailable for the rest of the task.
+is released or stopped, which interrupts every stream it carries at once. Each viewer's stream is one relay exec into
+the display: the display must answer the upgrade exactly before the viewer gets its 101, and the exec must be proven
+ended, within a deadline that a stalled Docker inspection cannot extend, once the stream ends; when that proof does
+not come, the view stays unavailable for the rest of the task.
 """
 
 from __future__ import annotations
 
-import contextvars
 import secrets
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from contextlib import suppress
+from socket import socket
 
-from browser import view as browser_view
-from local.browser.channel import ExecStream
+from local.browser.channel import ChannelError, ExecStream
 from local.browser.runtime import BrowserError
+from local.browser.tunnel import Tunnel, TunnelError
 from protocol.http.v1 import browser_view as view_protocol
 
-# How long a producer keeps capturing after the last frame request, and how long one request waits for a new frame.
-IDLE_SECONDS = 10.0
-WAIT_SECONDS = 2.0
-# The longest one tick may take to arrive, the shortest time between two encoded frames, and the deadline to prove a
-# stopped producer's exec ended.
-TICK_SECONDS = 5.0
-MIN_FRAME_SECONDS = 0.4
+# The deadline to prove a stream's relay exec ended.
 EXIT_SECONDS = 2.0
 
-# Open the view program: its exec id and its stdout.
+# Open one relay exec into the display: its id and its channel.
 Open = Callable[[], tuple[str, ExecStream]]
 # Whether an exec ended, proven before an absolute deadline.
 Exited = Callable[[str, float], bool]
-# Audit one capture state: `started`, `stopped`, or `unavailable`, never a pixel.
+# Audit one stream state, never a pixel: `started`, then `ended` with the bytes carried each way.
 Record = Callable[[str], None]
 
 
-@dataclass(frozen=True, slots=True)
-class Frame:
-    """One PNG Team built, numbered from 1 within its view."""
-
-    number: int
-    png: bytes
-
-
 class View:
-    """The screen view of one running task."""
+    """The watched screen of one running task."""
 
     def __init__(
         self,
-        open_program: Open,
+        open_relay: Open,
         exited: Exited,
         record: Record,
         *,
         clock: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.id = secrets.token_hex(16)
-        self._open = open_program
+        self._open = open_relay
         self._exited = exited
         self._record = record
         self._clock = clock
-        self._sleep = sleep
-        self._condition = threading.Condition()
-        self._frame: Frame | None = None
+        self._lock = threading.Lock()
         self._ended = False
         self._unavailable = False
-        self._producing = False
-        self._requested = 0.0
-        # Requests waiting for a frame now: each is demand however long it waits.
-        self._waiting = 0
+        self._tunnels: set[Tunnel] = set()
 
     def end(self) -> None:
-        """The task ended: every waiter answers at once that it no longer runs, and the producer stops."""
-        with self._condition:
+        """The task ended: every stream of this view stops at once, and no new one starts."""
+        with self._lock:
             self._ended = True
-            self._condition.notify_all()
-
-    def frame(self, after: int) -> Frame | None:
-        """The latest frame numbered after `after`, waiting at most WAIT_SECONDS; None when none came."""
-        deadline = self._clock() + WAIT_SECONDS
-        with self._condition:
-            self._admit()
-            self._requested = self._clock()
-            if not self._producing:
-                self._producing = True
-                # The producer audits under the principal of the request that started it.
-                context = contextvars.copy_context()
-                threading.Thread(target=context.run, args=(self._produce,), name="browser-view", daemon=True).start()
-            self._waiting += 1
-            try:
-                while self._frame is None or self._frame.number <= after:
-                    remaining = deadline - self._clock()
-                    if remaining <= 0:
-                        return None
-                    self._condition.wait(remaining)
-                    self._admit()
-                return self._frame
-            finally:
-                self._waiting -= 1
-                self._requested = self._clock()
+            tunnels = tuple(self._tunnels)
+        for tunnel in tunnels:
+            tunnel.interrupt()
 
     def _admit(self) -> None:
         if self._ended:
@@ -111,48 +67,47 @@ class View:
         if self._unavailable:
             raise BrowserError(view_protocol.UNAVAILABLE)
 
-    def _wanted(self) -> bool:
-        with self._condition:
-            return not self._ended and (self._waiting > 0 or self._clock() - self._requested <= IDLE_SECONDS)
+    def carry(self, client: socket, key: str, upgraded: Callable[[bytes], None]) -> None:
+        """Carry one viewer: upgrade the display with `key`, hand `upgraded` the 101, then copy until the stream ends.
 
-    def _produce(self) -> None:
-        opened: tuple[str, ExecStream] | None = None
-        failed = False
+        Before `upgraded` runs, a failure is a closed BrowserError the viewer can be told; after it, the stream ends.
+        """
+        with self._lock:
+            self._admit()
         try:
-            opened = self._open()
+            exec_id, display = self._open()
+        except BrowserError as exc:
+            raise BrowserError(view_protocol.UNAVAILABLE) from exc
+        tunnel = Tunnel(client, display, self._clock)
+        with self._lock:
+            self._tunnels.add(tunnel)
+            ended = self._ended
+        try:
+            if ended:
+                raise BrowserError(view_protocol.NOT_RUNNING)
             self._record("started")
-            self._capture(opened[1])
-        except BrowserError, OSError, browser_view.ViewError:
-            failed = True
+            try:
+                first = tunnel.upgrade(key)
+            except TunnelError as exc:
+                raise BrowserError(view_protocol.UNAVAILABLE) from exc
+            upgraded(first)
+            # A side that failed after the upgrade only ends the stream.
+            with suppress(TunnelError, ChannelError, OSError):
+                tunnel.splice(lambda: self._ended)
         finally:
-            proven = opened is None or self._stop(*opened)
-            with self._condition:
-                self._producing = False
-                if not proven or (failed and not self._ended):
-                    self._unavailable = True
-                unavailable = self._unavailable
-                self._condition.notify_all()
-            self._record("unavailable" if unavailable else "stopped")
+            with self._lock:
+                self._tunnels.discard(tunnel)
+            self._finish(exec_id, display, tunnel)
 
-    def _capture(self, stream: ExecStream) -> None:
-        encoded: float | None = None
-        while self._wanted():
-            rgb = browser_view.next_tick(stream, self._clock() + TICK_SECONDS)
-            if rgb is None:
-                continue
-            if encoded is not None and (rest := MIN_FRAME_SECONDS - (self._clock() - encoded)) > 0:
-                self._sleep(rest)
-            image = browser_view.png(rgb)
-            encoded = self._clock()
-            with self._condition:
-                number = 1 if self._frame is None else self._frame.number + 1
-                self._frame = Frame(number, image)
-                self._condition.notify_all()
-
-    def _stop(self, exec_id: str, stream: ExecStream) -> bool:
-        """End the program's input and prove its exec ended before the deadline; then close the channel."""
-        stream.close_input()
+    def _finish(self, exec_id: str, display: ExecStream, tunnel: Tunnel) -> None:
+        """End the relay's input and prove its exec ended before the deadline; then close the channel."""
+        display.close_input()
         try:
-            return self._exited(exec_id, self._clock() + EXIT_SECONDS)
+            proven = self._exited(exec_id, self._clock() + EXIT_SECONDS)
         finally:
-            stream.close()
+            display.close()
+        if not proven:
+            with self._lock:
+                self._unavailable = True
+        carried = tunnel.carried
+        self._record(f"ended:proven={int(proven)}:to_viewer={carried['to_viewer']}:to_display={carried['to_display']}")

@@ -467,7 +467,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             "file-preview",
             "file-page-preview",
             "file-content",
-            "browser-view-frame",
+            "browser-view-stream",
             server.local_http_routine.RUN_OPERATION,
             *http_chat.STREAMED_OPERATIONS,
             *server.local_http_routine.STREAMED_OPERATIONS,

@@ -229,8 +229,7 @@ for name, admit in (
     ("file_page", lambda value: value if preview.canonical_page(value) is not None else None),
     ("file_content", content.canonical_framing),
     ("browser_view", browser_view.canonical_view),
-    ("browser_view_cursor", lambda value: value if browser_view.canonical_cursor(value) is not None else None),
-    ("browser_view_frame", browser_view.canonical_frame),
+    ("browser_view_key", browser_view.canonical_key),
 ):
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):
@@ -457,6 +456,9 @@ if any(admit(value) is not None for admit, value in over_bounds):
     fail("a Browser value past its bound was admitted")
 if browser.canonical_history([wait] * browser.MAX_HISTORY) != [wait] * browser.MAX_HISTORY:
     fail("a Browser history at its bound was not admitted")
+
+if any(browser_view.accept(case["key"]) != case["accept"] for case in vectors.get("browser_view_accept") or [None]):
+    fail("a Browser view accept vector differs")
 
 print("Team HTTP protocol integrity and golden vectors are valid")
 

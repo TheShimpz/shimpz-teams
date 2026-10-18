@@ -754,5 +754,5 @@ _SENT_OPERATIONS: dict[str, Callable[[Handler, strict_http.ControllerRouteMatch,
         ("local-assistant-icon", "local-assistant-summary", "local-assistant-details"), Handler._local_assistant_preview
     ),
     **dict.fromkeys(("file-preview", "file-page-preview", "file-content"), Handler._file_bytes),
-    local_http_browser.FRAME_OPERATION: local_http_browser.send_frame,
+    local_http_browser.STREAM_OPERATION: local_http_browser.send_stream,
 }

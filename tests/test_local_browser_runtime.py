@@ -551,10 +551,10 @@ class BrowserRuntimeTests(unittest.TestCase):
                 self.runtime.read(lease, "edital.pdf", 9)
         self.runtime.release(lease)
 
-    def test_the_view_program_and_the_bounded_proof_its_exec_ended(self):
+    def test_the_relay_and_the_bounded_proof_its_exec_ended(self):
         lease = self.runtime.acquire("team_1", "en")
-        exec_id, stream = self.runtime.open_view(lease)
-        self.assertEqual(self.docker.api.execs[exec_id][1], ("view",))
+        exec_id, stream = self.runtime.open_relay(lease)
+        self.assertEqual(self.docker.api.execs[exec_id][1], ("relay",))
         stream.close()
         stream.close()
         answers = iter([{"Running": True}, {"Running": False}])

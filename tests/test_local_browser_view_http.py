@@ -1,12 +1,12 @@
-"""The Browser screen view over HTTP: the open route and the frame route's exact answers (ADR-0117, M2 Watch)."""
+"""The Browser's watched screen over HTTP: the open route and the stream route's exact upgrade and refusals."""
 
 import unittest
 from contextlib import contextmanager
+from email.message import Message
 from http import HTTPStatus
 from types import SimpleNamespace
 from unittest import mock
 
-from local.browser import view as local_view
 from local.browser.runtime import BrowserError
 from local.errors import ApiProblemError
 from local.http import browser as local_http_browser
@@ -15,13 +15,29 @@ from protocol.http.v1 import browser_view as view_protocol
 from tests.test_local_http_server_edges import LocalHttpEdgeHelpers
 
 VIEW = "a" * 32
-PNG = view_protocol.PNG_SIGNATURE + b"frame"
+KEY = "AAAAAAAAAAAAAAAAAAAAAA=="
+UPGRADE = {
+    "Upgrade": "websocket",
+    "Connection": "keep-alive, Upgrade",
+    "Sec-WebSocket-Version": "13",
+    "Sec-WebSocket-Key": KEY,
+    "Sec-WebSocket-Protocol": "binary",
+}
+
+
+def headers(values: dict[str, str], *extra: tuple[str, str]) -> Message:
+    message = Message()
+    for name, value in values.items():
+        message[name] = value
+    for name, value in extra:
+        message[name] = value
+    return message
 
 
 class FakeService:
-    def __init__(self, *, frame=None, error=None, busy=False):
-        self.frame, self.error, self.busy = frame, error, busy
-        self.asked = []
+    def __init__(self, *, error=None, busy=False, upgrade=True, after=None):
+        self.error, self.busy, self.upgrade, self.after = error, busy, upgrade, after
+        self.carried = []
 
     def open_view(self, team_id):
         if self.error is not None:
@@ -34,75 +50,90 @@ class FakeService:
             raise BrowserError(view_protocol.BUSY)
         yield
 
-    def view_frame(self, team_id, view_id, after):
-        self.asked.append((team_id, view_id, after))
+    def carry_view(self, team_id, view_id, client, key, upgraded):
+        self.carried.append((team_id, view_id, client, key))
         if self.error is not None:
             raise self.error
-        return self.frame
+        if self.upgrade:
+            upgraded(b"HTTP/1.1 101 Switching Protocols\r\n\r\n")
+        if self.after is not None:
+            raise self.after
 
 
-class BrowserViewHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
-    def frame(self, service, *, view_id=VIEW, after="0"):
+class BrowserStreamHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
+    def stream(self, service, *, view_id=VIEW, request_headers=None):
         handler = self.handler(controller=SimpleNamespace(browser_service=service))
+        handler.headers = request_headers if request_headers is not None else headers(UPGRADE)
+        handler.connection = mock.sentinel.connection
         audit = mock.Mock()
-        route = self.route("browser-view-frame", team_id="team_1", view_id=view_id, after=after)
-        handler._session_route(route, audit)
+        handler._session_route(self.route("browser-view-stream", team_id="team_1", view_id=view_id), audit)
         return handler, audit
 
-    def refused(self, service, **path):
+    def refused(self, service, **arguments):
         with self.assertRaises(ApiProblemError) as raised:
-            self.frame(service, **path)
+            self.stream(service, **arguments)
         return raised.exception
 
-    def test_a_frame_is_one_png_numbered_in_its_header(self):
-        service = FakeService(frame=local_view.Frame(3, PNG))
-        handler, audit = self.frame(service, after="2")
-        self.assertEqual(service.asked, [("team_1", VIEW, 2)])
-        handler.send_response.assert_called_once_with(HTTPStatus.OK)
-        headers = {call.args[0]: call.args[1] for call in handler.send_header.call_args_list}
-        self.assertEqual(headers["Content-Type"], "image/png")
-        self.assertEqual(headers["Content-Length"], str(len(PNG)))
-        self.assertEqual(headers[view_protocol.FRAME_HEADER], "3")
-        self.assertEqual(headers["Cache-Control"], "no-store")
-        self.assertEqual(handler.wfile.getvalue(), PNG)
-        audit.record.assert_called_once_with("browser-view-frame", result="ok", team_id="team_1", detail="frame=3")
+    def test_an_exact_upgrade_is_carried_and_its_101_written(self):
+        service = FakeService()
+        handler, audit = self.stream(service)
+        self.assertEqual(service.carried, [("team_1", VIEW, mock.sentinel.connection, KEY)])
+        self.assertEqual(handler.wfile.getvalue(), b"HTTP/1.1 101 Switching Protocols\r\n\r\n")
+        self.assertTrue(handler.close_connection)
+        audit.record.assert_called_once_with("browser-view-stream", result="ok", team_id="team_1", detail="upgraded")
 
-    def test_no_newer_frame_is_an_empty_answer(self):
-        handler, audit = self.frame(FakeService())
-        handler.send_response.assert_called_once_with(HTTPStatus.NO_CONTENT)
-        self.assertEqual(handler.wfile.getvalue(), b"")
-        audit.record.assert_called_once_with("browser-view-frame", result="ok", team_id="team_1", detail="unchanged")
+    def test_a_failure_after_the_upgrade_only_ends_the_stream(self):
+        handler, _audit = self.stream(FakeService(after=BrowserError(view_protocol.UNAVAILABLE)))
+        self.assertTrue(handler.close_connection)
 
-    def test_a_path_that_names_no_view_or_cursor_is_not_running(self):
-        for path in ({"view_id": VIEW.upper()}, {"view_id": "a" * 31}, {"after": "01"}, {"after": "-1"}):
-            with self.subTest(path=path):
-                problem = self.refused(FakeService(), **path)
-                self.assertEqual((problem.status, problem.code), (HTTPStatus.NOT_FOUND, view_protocol.NOT_RUNNING))
+    def test_anything_but_the_exact_upgrade_is_refused_before_any_carrying(self):
+        broken = (
+            {**UPGRADE, "Upgrade": "h2c"},
+            {**UPGRADE, "Connection": "keep-alive"},
+            {**UPGRADE, "Sec-WebSocket-Version": "8"},
+            {**UPGRADE, "Sec-WebSocket-Protocol": "base64"},
+            {**UPGRADE, "Sec-WebSocket-Key": "AAAAAAAAAAAAAAAAAAAAAB=="},
+            {name: value for name, value in UPGRADE.items() if name != "Sec-WebSocket-Key"},
+        )
+        for values in broken:
+            with self.subTest(values=values):
+                service = FakeService()
+                problem = self.refused(service, request_headers=headers(values))
+                self.assertEqual(
+                    (problem.status, problem.code), (HTTPStatus.BAD_REQUEST, view_protocol.INVALID_UPGRADE)
+                )
+                self.assertEqual(service.carried, [])
+        for extra in (("Sec-WebSocket-Extensions", "permessage-deflate"), ("Sec-WebSocket-Key", KEY)):
+            with self.subTest(extra=extra):
+                problem = self.refused(FakeService(), request_headers=headers(UPGRADE, extra))
+                self.assertEqual(problem.code, view_protocol.INVALID_UPGRADE)
 
-    def test_each_refusal_is_closed(self):
+    def test_each_refusal_before_the_upgrade_is_closed(self):
         cases = (
-            (FakeService(busy=True), HTTPStatus.SERVICE_UNAVAILABLE, view_protocol.BUSY),
+            ({"view_id": VIEW.upper()}, FakeService(), HTTPStatus.NOT_FOUND, view_protocol.NOT_RUNNING),
+            ({}, FakeService(busy=True), HTTPStatus.SERVICE_UNAVAILABLE, view_protocol.BUSY),
             (
+                {},
                 FakeService(error=BrowserError(view_protocol.NOT_RUNNING)),
                 HTTPStatus.NOT_FOUND,
                 view_protocol.NOT_RUNNING,
             ),
             (
+                {},
                 FakeService(error=BrowserError("browser-lost")),
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 view_protocol.UNAVAILABLE,
             ),
-            # Team never sends a frame outside its framing.
             (
-                FakeService(frame=local_view.Frame(1, b"GIF89a")),
+                {},
+                FakeService(upgrade=False, after=BrowserError(view_protocol.UNAVAILABLE)),
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 view_protocol.UNAVAILABLE,
             ),
-            (FakeService(frame=local_view.Frame(0, PNG)), HTTPStatus.SERVICE_UNAVAILABLE, view_protocol.UNAVAILABLE),
         )
-        for service, status, code in cases:
-            with self.subTest(code=code):
-                problem = self.refused(service)
+        for arguments, service, status, code in cases:
+            with self.subTest(code=code, arguments=arguments):
+                problem = self.refused(service, **arguments)
                 self.assertEqual((problem.status, problem.code), (status, code))
 
     def test_opening_answers_the_running_tasks_view(self):
