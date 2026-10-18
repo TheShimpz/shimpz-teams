@@ -276,11 +276,13 @@ fn plain_name(name: &str) -> bool {
         && !name.chars().any(char::is_control)
 }
 
-/// Write `{"files":[{"name":…,"size":…}],"skipped":n}`: every complete regular single-link file under `root`.
-/// A name that is not plain UTF-8, a file over the read bound, and entries past the listing bound are counted as
-/// skipped, so Team can say what it did not keep.
+/// Write `{"files":[{"name":…,"size":…}],"refused":[{"name":…,"reason":…,"size":…}],"skipped":n}` for every regular
+/// single-link file under `root`. A complete file within the read bound is listed; a partial `.crdownload` is refused
+/// as `incomplete` and a file over the bound as `over-limit`, by name, so Team can say what it did not keep without
+/// ever reading either. A name that is not plain UTF-8 and every entry past either list's bound are only counted.
 fn list(root: &Path, out: &mut impl Write) -> Result<(), String> {
     let mut files: Vec<(String, u64)> = Vec::new();
+    let mut refused: Vec<(String, &str, u64)> = Vec::new();
     let mut skipped = 0usize;
     let entries =
         fs::read_dir(root).map_err(|error| format!("cannot list the downloads: {error}"))?;
@@ -292,28 +294,47 @@ fn list(root: &Path, out: &mut impl Write) -> Result<(), String> {
         if !metadata.file_type().is_file() || metadata.nlink() != 1 {
             continue;
         }
+        let size = metadata.len();
         let name = entry.file_name();
-        match name.to_str() {
-            Some(name) if name.ends_with(PARTIAL_SUFFIX) => {}
-            Some(name)
-                if plain_name(name)
-                    && metadata.len() <= MAX_FILE_BYTES
-                    && files.len() < MAX_LISTED =>
-            {
-                files.push((name.to_owned(), metadata.len()));
+        let Some(name) = name.to_str().filter(|name| plain_name(name)) else {
+            skipped += 1;
+            continue;
+        };
+        let refusal = if name.ends_with(PARTIAL_SUFFIX) {
+            Some("incomplete")
+        } else if size > MAX_FILE_BYTES {
+            Some("over-limit")
+        } else {
+            None
+        };
+        match refusal {
+            None if files.len() < MAX_LISTED => files.push((name.to_owned(), size)),
+            Some(reason) if refused.len() < MAX_LISTED => {
+                refused.push((name.to_owned(), reason, size))
             }
             _ => skipped += 1,
         }
     }
     files.sort();
+    refused.sort();
     let listed: Vec<String> = files
         .iter()
         .map(|(name, size)| format!("{{\"name\":{},\"size\":{size}}}", json_string(name)))
         .collect();
+    let refused: Vec<String> = refused
+        .iter()
+        .map(|(name, reason, size)| {
+            format!(
+                "{{\"name\":{},\"reason\":\"{reason}\",\"size\":{size}}}",
+                json_string(name)
+            )
+        })
+        .collect();
     writeln!(
         out,
-        "{{\"files\":[{}],\"skipped\":{skipped}}}",
-        listed.join(",")
+        "{{\"files\":[{}],\"refused\":[{}],\"skipped\":{skipped}}}",
+        listed.join(","),
+        refused.join(",")
     )
     .map_err(|error| format!("cannot write the listing: {error}"))
 }
@@ -455,7 +476,7 @@ mod tests {
         list(root, &mut out).unwrap();
         assert_eq!(
             String::from_utf8(out).unwrap(),
-            "{\"files\":[{\"name\":\"dados \\\"2026\\\".csv\",\"size\":3},{\"name\":\"edital.pdf\",\"size\":8}],\"skipped\":0}\n"
+            "{\"files\":[{\"name\":\"dados \\\"2026\\\".csv\",\"size\":3},{\"name\":\"edital.pdf\",\"size\":8}],\"refused\":[{\"name\":\"Unconfirmed 1.crdownload\",\"reason\":\"incomplete\",\"size\":7}],\"skipped\":0}\n"
         );
         fs::remove_dir_all(root).unwrap();
     }
@@ -468,10 +489,19 @@ mod tests {
             fs::write(root.join(format!("file-{index:03}")), b"x").unwrap();
         }
         fs::write(root.join("tab\tname"), b"x").unwrap();
+        let large = File::create(root.join("large.iso")).unwrap();
+        large.set_len(MAX_FILE_BYTES + 1).unwrap();
         let mut out = Vec::new();
         list(root, &mut out).unwrap();
         let listing = String::from_utf8(out).unwrap();
-        assert_eq!(listing.matches("\"name\"").count(), MAX_LISTED);
+        assert_eq!(listing.matches("\"name\"").count(), MAX_LISTED + 1);
+        assert!(
+            listing.contains(&format!(
+                "\"refused\":[{{\"name\":\"large.iso\",\"reason\":\"over-limit\",\"size\":{}}}]",
+                MAX_FILE_BYTES + 1
+            )),
+            "{listing}"
+        );
         assert!(listing.ends_with("\"skipped\":3}\n"), "{listing}");
         fs::remove_dir_all(root).unwrap();
     }

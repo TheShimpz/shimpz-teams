@@ -20,22 +20,29 @@ ADD --checksum=sha256:05dae2160c86bdf4855c279d30898213d7a150edb1992b7470afdd69f0
 RUN test "${TARGETARCH}" = amd64 && mkdir /cua && tar -xzf /tmp/cua.tar.gz -C /cua cua-driver && chmod 0555 /cua/cua-driver
 
 FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS runtime
-# Every package comes from one fixed Debian snapshot, so a rebuild installs the same Chromium; a newer Chromium enters
-# only by moving this date in a reviewed change (ADR-0117 §9). APT checks the snapshot's signed release files.
+# Every package comes from one fixed Debian snapshot over HTTPS, so a rebuild installs the same Chromium and no older
+# signed index can be replayed; a newer Chromium enters only by moving the date and the pinned version together in a
+# reviewed change (ADR-0117 §9). The base has no CA bundle yet, so APT reads the builder stage's for this one step.
 ARG DEBIAN_SNAPSHOT=20261017T000000Z
-RUN rm -f /etc/apt/sources.list.d/debian.sources && \
-    printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/%s/%s %s main\n' \
+ARG CHROMIUM_VERSION=155.0.8059.79-1~deb13u1
+RUN --mount=type=bind,from=host,source=/etc/ssl/certs/ca-certificates.crt,target=/run/bootstrap-ca.crt \
+    rm -f /etc/apt/sources.list.d/debian.sources && \
+    printf 'deb https://snapshot.debian.org/archive/%s/%s %s main\n' \
         debian "${DEBIAN_SNAPSHOT}" trixie \
         debian "${DEBIAN_SNAPSHOT}" trixie-updates \
         debian-security "${DEBIAN_SNAPSHOT}" trixie-security > /etc/apt/sources.list && \
-    apt-get update && \
+    printf 'Acquire::Check-Valid-Until "false";\nAcquire::https::CaInfo "/run/bootstrap-ca.crt";\n' \
+        > /etc/apt/apt.conf.d/99snapshot && \
+    apt-get update --error-on=any && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        chromium xvfb at-spi2-core dbus-daemon ca-certificates fonts-liberation fonts-noto-core \
+        "chromium=${CHROMIUM_VERSION}" xvfb at-spi2-core dbus-daemon ca-certificates fonts-liberation fonts-noto-core \
         libx11-6 libxi6 libxkbcommon0 libxext6 && \
+    test "$(dpkg-query -W -f '${Version}' chromium)" = "${CHROMIUM_VERSION}" && \
     groupadd --gid 10031 shimpz-browser && \
     useradd --uid 10031 --gid 10031 --no-create-home --home-dir /tmp --shell /usr/sbin/nologin shimpz-browser && \
     mkdir -p /etc/chromium/policies/managed /profile /downloads && \
-    rm -rf /var/lib/apt/lists/* /var/cache/apt /var/cache/debconf /var/log/* /etc/apt/sources.list && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt /var/cache/debconf /var/log/* /etc/apt/sources.list \
+        /etc/apt/apt.conf.d/99snapshot && \
     # Only /bin/sh stays, because Xvfb runs xkbcomp through it to compile the keyboard map; no other shell, package
     # manager, or language interpreter remains.
     rm -f /bin/bash /usr/bin/bash /usr/bin/rbash /usr/bin/bashbug /usr/bin/perl /usr/bin/perl5* \
