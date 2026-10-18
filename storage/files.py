@@ -10,8 +10,9 @@ idle for the grace period, so a file removed from a message by mistake can be up
 stored copy without charging the quota twice (ADR-0093, amended 2026-10-03).
 
 A file the Browser downloaded is marked as from the web in its own row, so its marker exists exactly as long as the file
-does; an identical upload of it keeps the mark. Its original leaves Team only for a Supervisor who acknowledged that
-exact file, and each acknowledgement goes with its file (ADR-0117 §7).
+does. The mark follows the bytes: every file of the Team with the same digest carries it, whatever its name or type,
+and a later upload of the same bytes is marked too. Its original leaves Team only for a Supervisor who acknowledged
+that exact file, and each acknowledgement goes with its file (ADR-0117 §7).
 """
 
 import builtins
@@ -310,7 +311,8 @@ class TeamStorage:
     ) -> dict[str, object]:
         """Store one file, or reuse the identical one the Team still holds without charging its quota again.
 
-        A file from the web is marked in the same write that stores it; a reused file that was marked stays marked.
+        A file from the web is marked in the same write that stores it, and so is every file of the same bytes; a file
+        of bytes already marked is marked too.
         """
         team_id = _team_id(team_id)
         limit_bytes = self._limit(team_id)
@@ -324,6 +326,12 @@ class TeamStorage:
         now = self._now()
         with self._transaction(team_id, create=True, limit_bytes=limit_bytes) as connection:
             self._sweep(connection, now)
+            web = (
+                web
+                or connection.execute("SELECT 1 FROM files WHERE sha256=? AND web=1", (digest,)).fetchone() is not None
+            )
+            if web:
+                connection.execute("UPDATE files SET web=1 WHERE sha256=?", (digest,))
             existing = connection.execute(
                 "SELECT id,created_at FROM files WHERE sha256=? AND name=? AND media_type=?",
                 (digest, safe_name, safe_media_type),
@@ -331,10 +339,7 @@ class TeamStorage:
             if existing is not None:
                 file_id, created_at = existing
                 # An identical upload restarts the grace period of a file no turn references.
-                connection.execute(
-                    "UPDATE files SET idle_since=max(idle_since, ?), web=max(web, ?) WHERE id=?",
-                    (now, int(web), file_id),
-                )
+                connection.execute("UPDATE files SET idle_since=max(idle_since, ?) WHERE id=?", (now, file_id))
             else:
                 file_id, created_at = secrets.token_hex(16), now
                 count, used = self._usage(connection)

@@ -15,6 +15,7 @@ from storage import files as team_storage
 LEASE = runtime.Lease("team_1", "c" * 64, "172.30.0.9", runtime.Generation("e" * 64, "2026-10-17T00:00:01Z", "9" * 32))
 CONTEXT = brain_runtime_client.RuntimeContext("thread", "Team", (), "openai", "gpt-6-luna", "test-key")
 STOPPED_TURN = "0" * 32
+TURN = "7" * 32
 REQUEST = brain_runtime_client.BrowserRequest("interrupt-1", "Veja o prazo do edital.")
 
 
@@ -101,7 +102,7 @@ class BrowserServiceTests(unittest.TestCase):
         session.start()
         self.addCleanup(session.stop)
         self.brain = mock.Mock()
-        self.turn = service.BrowserTurn("team_1", "d" * 64, "pt-BR", self.brain, lambda: False)
+        self.turn = service.BrowserTurn("team_1", "d" * 64, TURN, "pt-BR", self.brain, lambda: False)
 
     def make(self, fake):
         self.runtime, self.storage = fake, FakeStorage()
@@ -251,18 +252,22 @@ class BrowserServiceTests(unittest.TestCase):
         def run(_task):
             # Stop arrives while the task runs: the running Browser is removed at once.
             stopped[0] = True
-            browser_service.interrupt("team_1")
-            browser_service.interrupt("team_2")
+            # Another turn's Stop, and another Team's, reach nothing.
+            before = list(self.runtime.events)
+            browser_service.interrupt("team_1", "1" * 32)
+            browser_service.interrupt("team_2", TURN)
+            self.assertEqual(self.runtime.events, before)
+            browser_service.interrupt("team_1", TURN)
             return task.Outcome("done", summary="x", steps=1)
 
-        turn = service.BrowserTurn("team_1", "d" * 64, "pt-BR", self.brain, lambda: stopped[0])
+        turn = service.BrowserTurn("team_1", "d" * 64, TURN, "pt-BR", self.brain, lambda: stopped[0])
         with mock.patch.object(service.browser_task.Task, "run", autospec=True, side_effect=run):
             _result, terminal = browser_service.run(turn, CONTEXT, REQUEST)
         self.assertEqual(terminal, {"files": [], "lost": [], "skipped": 0})
         self.assertEqual(self.storage.stored, [])
         self.assertIn(("kill", LEASE.container_id), self.runtime.events)
         # Once the task ended, Stop finds no Browser of the Team; a removal that failed leaves the release to prove it.
-        browser_service.interrupt("team_1")
+        browser_service.interrupt("team_1", TURN)
         self.assertEqual(self.runtime.events.count(("kill", LEASE.container_id)), 1)
         self.runtime.kill_error = True
         with mock.patch.object(service.browser_task.Task, "run", autospec=True, side_effect=run):
@@ -285,7 +290,9 @@ class BrowserServiceTests(unittest.TestCase):
         request = mock.Mock(team_id="team_1", locale="pt-BR", token=STOPPED_TURN, routine=None, recording=None)
         self.assertEqual(local_chat_segment._browser_runner(controller, request)(CONTEXT, REQUEST), ("r", "t"))
         [turn] = seen
-        self.assertEqual((turn.team_id, turn.incarnation, turn.locale), ("team_1", "d" * 64, "pt-BR"))
+        self.assertEqual(
+            (turn.team_id, turn.incarnation, turn.token, turn.locale), ("team_1", "d" * 64, STOPPED_TURN, "pt-BR")
+        )
         self.assertIs(turn.runtime, controller.brain_runtime)
         self.assertTrue(turn.cancelled())
 

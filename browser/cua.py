@@ -51,7 +51,7 @@ class Channel(Protocol):
     Either raises OSError when the channel failed, closed, or missed the deadline.
     """
 
-    def send(self, data: bytes) -> None: ...
+    def send(self, data: bytes, deadline: float) -> None: ...
 
     def receive_line(self, deadline: float, limit: int) -> bytes: ...
 
@@ -99,7 +99,11 @@ class CuaSession:
     def open(self) -> None:
         client = {"name": "shimpz-team", "version": "1"}
         self._request("initialize", {"protocolVersion": PROTOCOL_VERSION, "capabilities": {}, "clientInfo": client})
-        self._channel.send(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}).encode() + b"\n")
+        initialized = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}).encode() + b"\n"
+        try:
+            self._channel.send(initialized, self._call_deadline())
+        except OSError as exc:
+            raise CuaError("channel-lost") from exc
         windows = self._call("list_windows", {}).get("windows")
         if not isinstance(windows, list) or len(windows) != 1 or not isinstance(windows[0], dict):
             raise CuaError("browser-window-unavailable")
@@ -190,14 +194,21 @@ class CuaSession:
         self._identifier += 1
         identifier = self._identifier
         message = {"jsonrpc": "2.0", "id": identifier, "method": method, "params": params}
-        deadline = self._clock() + CALL_SECONDS
-        if self.deadline is not None:
-            deadline = min(deadline, self.deadline)
+        deadline = self._call_deadline()
         try:
-            self._channel.send(json.dumps(message, separators=(",", ":")).encode() + b"\n")
+            self._channel.send(json.dumps(message, separators=(",", ":")).encode() + b"\n", deadline)
             return self._answer(identifier, deadline)
         except OSError as exc:
             raise CuaError("channel-lost") from exc
+
+    def _call_deadline(self) -> float:
+        """When the next call must have ended: its own bound, never past the task's; a passed one sends nothing."""
+        deadline = self._clock() + CALL_SECONDS
+        if self.deadline is not None:
+            deadline = min(deadline, self.deadline)
+        if deadline <= self._clock():
+            raise CuaError("deadline-passed")
+        return deadline
 
     def _answer(self, identifier: int, deadline: float) -> dict[str, object]:
         while True:

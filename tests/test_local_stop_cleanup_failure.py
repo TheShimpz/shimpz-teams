@@ -46,7 +46,7 @@ class LocalStopCleanupFailureTests(unittest.TestCase):
         service._brain_aborts[TOKEN].abort.assert_called_once_with()
         service.assistant_lifecycle._fail_stop_action.assert_called_once_with("action-container")
         # The stopped turn's Browser, if it runs one, is removed however the cleanup ended.
-        service._interrupt_browser.assert_called_once_with("team_1")
+        service._interrupt_browser.assert_called_once_with("team_1", TOKEN)
 
     def test_a_failing_continuation_deletion_still_interrupts_the_turn(self) -> None:
         failure = ApiProblem(HTTPStatus.SERVICE_UNAVAILABLE, "chat state is unavailable", code="unavailable")

@@ -45,7 +45,7 @@ NO_BROWSER = SimpleNamespace(
     remove_team=lambda _team_id: None,
     clean=lambda: None,
     startup=lambda: True,
-    interrupt=lambda _team_id: None,
+    interrupt=lambda _team_id, _token: None,
 )
 
 

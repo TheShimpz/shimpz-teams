@@ -119,14 +119,15 @@ class ChatTurnService:
 
     def _cancel_chat_for_destroy(self, team_id: str) -> None:
         """Prevent another Action and synchronously stop one already executing, a Routine run's included."""
-        _token, brain_abort, active_action = local_chat_resume.cancel_active_turn(self, team_id, spare_routine=False)
+        token, brain_abort, active_action = local_chat_resume.cancel_active_turn(self, team_id, spare_routine=False)
         local_chat_resume.interrupt_turn(self, brain_abort, active_action)
-        self._interrupt_browser(team_id)
+        if token is not None:
+            self._interrupt_browser(team_id, token)
 
-    def _interrupt_browser(self, team_id: str) -> None:
-        """Remove the Team's running Browser, where this service runs Browser tasks at all (ADR-0117)."""
+    def _interrupt_browser(self, team_id: str, token: str) -> None:
+        """Remove the stopped turn's running Browser, where this service runs Browser tasks at all (ADR-0117)."""
         if self.browser_service is not None:
-            self.browser_service.interrupt(team_id)
+            self.browser_service.interrupt(team_id, token)
 
     @contextmanager
     def _drained_chat(self):

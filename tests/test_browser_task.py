@@ -140,8 +140,9 @@ class BrowserTaskTests(unittest.TestCase):
         self.assertEqual(_run(FakeSession(), _steps(done)[0], cancelled=lambda: True)[0], task.Outcome("stopped"))
         ticks = iter([0.0, task.MAX_SECONDS])
         self.assertEqual(_run(FakeSession(), _steps(done)[0], clock=lambda: next(ticks))[0], task.Outcome("budget"))
-        spent = task.Budget(input_tokens=task.STEP_INPUT_RESERVE + 1500)
-        outcome, _ = _run(FakeSession(), _steps(wait, wait, done)[0], budget=spent)
+        # Each step is asked only while its own request's bound, at least the fixed prompt's, still fits the budget.
+        spent = task.Budget(input_tokens=24_000)
+        outcome, _ = _run(FakeSession(), _steps(wait, wait, done, tokens=10_000)[0], budget=spent)
         self.assertEqual(outcome, task.Outcome("budget", steps=2))
         outcome, _ = _run(FakeSession(), _steps(wait, wait)[0], budget=task.Budget(steps=2))
         self.assertEqual(outcome, task.Outcome("budget", steps=2))
@@ -195,9 +196,36 @@ class BrowserTaskTests(unittest.TestCase):
         outcome, _ = _run(session, _steps(navigate)[0], intact=lambda: not lost())
         self.assertEqual((outcome, session.calls), (task.Outcome("failed", reason="browser-lost", steps=1), []))
 
+    def test_a_final_step_counts_only_if_the_task_could_still_act_on_it(self):
+        done = {"kind": "done", "summary": "ok"}
+
+        def after(calls):
+            count = iter(range(1, 100))
+            return lambda: next(count) >= calls
+
+        self.assertEqual(_run(FakeSession(), _steps(done)[0], cancelled=after(3))[0], task.Outcome("stopped", steps=1))
+        lost = after(3)
+        self.assertEqual(
+            _run(FakeSession(), _steps(done)[0], intact=lambda: not lost())[0],
+            task.Outcome("failed", reason="browser-lost", steps=1),
+        )
+        self.assertEqual(
+            _run(FakeSession(), _steps(done, tokens=task.MAX_INPUT_TOKENS + 1)[0])[0],
+            task.Outcome("budget", steps=1),
+        )
+
+    def test_a_requests_input_bound_counts_its_bytes_its_screenshot_and_the_prompt(self):
+        request = {"objective": "é", "language": "pt-BR", "history": [], "observation": "x", "screenshot": None}
+        text = '{"objective":"é","language":"pt-BR","history":[],"observation":"x","screenshot":null}'
+        self.assertEqual(task._input_bound(request), len(text.encode()) + task.PROMPT_TOKENS)
+        self.assertEqual(
+            task._input_bound({**request, "screenshot": "AAAA"}),
+            len(text.encode()) + task.PROMPT_TOKENS + task.IMAGE_TOKENS,
+        )
+
     def test_no_call_outlives_the_task_deadline(self):
         seconds = []
-        ticks = iter([10.0, 10.0, 10.0, 25.0, 25.0, 30.0, 30.0, 30.0])
+        ticks = iter([10.0, 10.0, 10.0, 25.0, 25.0, 30.0, 30.0, 30.0, 30.0])
         session = FakeSession()
         _run(
             session,

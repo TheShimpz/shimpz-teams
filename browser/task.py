@@ -10,6 +10,7 @@ left, and the Browser still on the egress process it started on. No call outlive
 from __future__ import annotations
 
 import base64
+import json
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -21,9 +22,11 @@ MAX_STEPS = 40
 MAX_SECONDS = 600.0
 # Input tokens the Brain may spend for one task, across its steps; about US$0.25 on the pinned Browser models.
 MAX_INPUT_TOKENS = 400_000
-# The most input tokens one step can take: its bounded observation, one screenshot, the history, and the prompt. A step
-# is asked only while this much budget remains.
-STEP_INPUT_RESERVE = 16_000
+# A step is asked only while its own request's bound remains: no token encodes less than one UTF-8 byte of its text, a
+# screenshot of the Browser's fixed 1280x800 window costs at most IMAGE_TOKENS on either provider, and the Brain's fixed
+# system prompt and step schema at most PROMPT_TOKENS.
+IMAGE_TOKENS = 3_000
+PROMPT_TOKENS = 4_000
 SCREENSHOT_EVERY = 3
 WAIT_SECONDS = 2.0
 # Which observed action a step needs on the ref it names.
@@ -79,7 +82,7 @@ class Task:
         deadline = self.clock() + self.budget.seconds
         self.session.deadline = deadline
         for index in range(self.budget.steps):
-            ended = self._halted(index, deadline, STEP_INPUT_RESERVE) or self._turn(index, deadline)
+            ended = self._halted(index, deadline, 0) or self._turn(index, deadline)
             if ended is not None:
                 return ended
         return Outcome("budget", steps=self.budget.steps)
@@ -108,22 +111,30 @@ class Task:
         return self._act(index, decision, observation)
 
     def _decide(self, index: int, deadline: float, observation: cua.Observation) -> Outcome | dict[str, object]:
-        """The page step the Brain chose, admitted only while the task may still act on it, or how the task ends."""
-        ended = self._halted(index, deadline, STEP_INPUT_RESERVE)
+        """The page step the Brain chose, admitted only while the task may still act on it, or how the task ends.
+
+        Even a final step counts only if the task could still have acted on it: no Stop, time and budget left, and the
+        same egress process.
+        """
+        request = self._request(observation)
+        ended = self._halted(index, deadline, _input_bound(request))
         if ended is not None:
             return ended
         try:
-            raw, tokens = self.step(self._request(observation), deadline - self.clock())
+            raw, tokens = self.step(request, deadline - self.clock())
         except StepFailedError:
             # Stop aborts the Brain request in flight, which then fails: that task was stopped, not failed.
             if self.cancelled():
                 return Outcome("stopped", steps=index)
             return Outcome("failed", reason="model-unavailable", steps=index)
         self.budget.spent += max(0, tokens)
+        ended = self._halted(index + 1, deadline, 0)
+        if ended is not None:
+            return ended
         decision = browser_protocol.canonical_step(raw)
         if decision is None or decision["kind"] in {"done", "needs_person"}:
             return _terminal(decision, index + 1)
-        return self._halted(index + 1, deadline, 0) or decision
+        return decision
 
     def _act(self, index: int, decision: dict[str, object], observation: cua.Observation) -> Outcome | None:
         """Run one admitted page step and record its outcome; the outcome that ends the task, or None."""
@@ -147,6 +158,12 @@ class Task:
             "observation": observation.text,
             "screenshot": screenshot,
         }
+
+
+def _input_bound(request: Mapping[str, object]) -> int:
+    """The most input tokens `request` can cost: its text's UTF-8 bytes, its one screenshot, and the fixed prompt."""
+    text = json.dumps({**request, "screenshot": None}, ensure_ascii=False, separators=(",", ":"))
+    return len(text.encode()) + (IMAGE_TOKENS if request["screenshot"] is not None else 0) + PROMPT_TOKENS
 
 
 def _terminal(decision: Mapping[str, object] | None, steps: int) -> Outcome:

@@ -107,10 +107,23 @@ class IngestTests(unittest.TestCase):
 
     def test_a_stop_ends_the_ingest_before_the_next_file(self):
         recorder = Recorder({"a.pdf": PDF, "b.pdf": PDF})
-        stops = iter((False, True))
+        # Each file is checked before it is read and again before it is stored.
+        stops = iter((False, False, True))
         result = ingest.ingest(_listing([("a.pdf", 9), ("b.pdf", 9)]), recorder.read, recorder.put, lambda: next(stops))
         self.assertEqual([item["name"] for item in result.kept], ["a.pdf"])
         self.assertNotIn(("read", "b.pdf", 9), recorder.events)
+
+    def test_a_stop_during_a_read_stores_nothing(self):
+        stopped = [False]
+
+        class Stopping(Recorder):
+            def read(self, name, size):
+                stopped[0] = True
+                return super().read(name, size)
+
+        recorder = Stopping({"a.pdf": PDF})
+        result = ingest.ingest(_listing([("a.pdf", 9)]), recorder.read, recorder.put, lambda: stopped[0])
+        self.assertEqual((result.kept, [event[0] for event in recorder.events]), ((), ["read"]))
 
     def test_a_malformed_listing_is_refused_whole(self):
         for listing in (

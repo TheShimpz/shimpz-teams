@@ -153,6 +153,17 @@ class WebProvenanceTests(unittest.TestCase):
         with self.assertRaises(team_storage.StorageNotFoundError):
             self.storage.acknowledge("team_1", stored["id"], SUPERVISOR, lambda _file_id: None)
 
+    def test_the_web_mark_follows_the_bytes_whatever_their_name(self):
+        upload = self.storage.put("team_1", "nota.pdf", PDF, "application/pdf")
+        self.assertTrue(self.storage.released("team_1", upload["id"], None))
+        self.storage.put("team_1", "edital.pdf", PDF, "application/pdf", web=True)
+        # The earlier upload of the same bytes is marked with them, and so is a later one under any name.
+        self.assertFalse(self.storage.released("team_1", upload["id"], None))
+        later = self.storage.put("team_1", "copia.bin", PDF, "application/octet-stream")
+        self.assertFalse(self.storage.released("team_1", later["id"], None))
+        other = self.storage.put("team_1", "outro.txt", b"other bytes", "text/plain")
+        self.assertTrue(self.storage.released("team_1", other["id"], None))
+
     def test_an_absent_store_or_principal_outside_its_form_refuses(self):
         with self.assertRaises(team_storage.StorageNotFoundError):
             self.storage.released("team_1", "f" * 32, SUPERVISOR)

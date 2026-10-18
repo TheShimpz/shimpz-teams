@@ -34,10 +34,9 @@ class ExecStream:
         self._closed = False
         raw.setblocking(False)
 
-    def send(self, data: bytes) -> None:
-        """Write all of `data`, waiting at most a few seconds for room."""
+    def send(self, data: bytes, deadline: float) -> None:
+        """Write all of `data` before the absolute `deadline`."""
         view = memoryview(data)
-        deadline = self._clock() + 5
         while view:
             remaining = deadline - self._clock()
             if remaining <= 0:

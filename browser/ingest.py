@@ -87,6 +87,9 @@ def ingest(
         except ReadLostError:
             lost.extend({"name": later, "reason": "browser-lost"} for later, _size in named[index:])
             break
+        if cancelled():
+            # Stop arrived while the file was read: nothing more is stored.
+            break
         media_type = detect.detect(name, data).media_type
         try:
             stored = put(name, data, media_type)

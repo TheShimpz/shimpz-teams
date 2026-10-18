@@ -3,6 +3,7 @@
 import socket
 import struct
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -56,7 +57,7 @@ class ExecStreamTests(unittest.TestCase):
 
         reader = threading.Thread(target=drain)
         reader.start()
-        self.stream.send(b"x" * 300_000)
+        self.stream.send(b"x" * 300_000, time.monotonic() + 10)
         reader.join(10)
         self.assertEqual(len(received), 300_000)
         self.stream.close_input()
@@ -78,14 +79,18 @@ class ExecStreamTests(unittest.TestCase):
         stream = channel.ExecStream(self.team, clock=lambda: 0.0)
         stream._raw = type("Raw", (), {"send": staticmethod(send)})()
         with mock.patch.object(channel.select, "select", side_effect=lambda *_: next(waits)):
-            stream.send(b"abc")
+            stream.send(b"abc", 5.0)
         self.assertEqual(sent, [b"abc"])
 
     def test_a_full_input_buffer_outlives_no_deadline(self):
         ticks = iter([0.0, 0.0])
         stream = channel.ExecStream(self.team, clock=lambda: next(ticks, 100.0))
         with self.assertRaises(channel.ChannelError):
-            stream.send(b"x" * 10_000_000)
+            stream.send(b"x" * 10_000_000, 5.0)
+        # A deadline already past writes nothing.
+        stream = channel.ExecStream(self.team, clock=lambda: 100.0)
+        with self.assertRaises(channel.ChannelError):
+            stream.send(b"x", 5.0)
 
     def test_bounds_framing_and_endings_are_enforced(self):
         cases = [

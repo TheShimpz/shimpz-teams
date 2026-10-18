@@ -24,7 +24,7 @@ def stop_chat(self, team_id: str) -> dict[str, object]:
         interrupt_turn(self, brain_abort, active_action)
         if token is not None:
             # The stopped turn's Browser, if it runs one: no call of its task reaches the page again (ADR-0117).
-            self._interrupt_browser(team_id)
+            self._interrupt_browser(team_id, token)
     accepted = token is not None or integration is not None or human is not None or continuation_cancelled
     return {
         "team_id": team_id,

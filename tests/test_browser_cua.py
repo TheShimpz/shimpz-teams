@@ -23,7 +23,8 @@ class FakeChannel:
         self.raw = list(raw)
         self.sent = []
 
-    def send(self, data):
+    def send(self, data, deadline):
+        assert deadline > 0
         self.sent.append(json.loads(data))
 
     def receive_line(self, deadline, limit):
@@ -289,6 +290,24 @@ class CuaSessionTests(unittest.TestCase):
         with self.assertRaises(cua.CuaError):
             session._request("initialize", {})
         self.assertEqual(channel.deadlines[-1], 100.0 + cua.CALL_SECONDS)
+        # Once the task's deadline passed, nothing more is sent.
+        session.deadline = 100.0
+        sent = len(channel.sent)
+        with self.assertRaises(cua.CuaError) as raised:
+            session._request("initialize", {})
+        self.assertEqual((raised.exception.code, len(channel.sent)), ("deadline-passed", sent))
+
+    def test_a_channel_that_refuses_the_initialized_notification_is_lost(self):
+        class Refusing(FakeChannel):
+            def send(self, data, deadline):
+                if b"notifications/initialized" in data:
+                    raise OSError("closed")
+                super().send(data, deadline)
+
+        session = cua.CuaSession(Refusing({"result": {"capabilities": {}}}), clock=lambda: 100.0)
+        with self.assertRaises(cua.CuaError) as raised:
+            session.open()
+        self.assertEqual(raised.exception.code, "channel-lost")
 
     def test_the_protocol_admits_only_the_answer_to_the_current_request(self):
         notification = json.dumps({"jsonrpc": "2.0", "method": "notifications/progress"}).encode()

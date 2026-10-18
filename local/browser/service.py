@@ -26,10 +26,11 @@ from storage import files as team_storage
 
 @dataclass(frozen=True, slots=True)
 class BrowserTurn:
-    """What one turn's task runs with: its Team and incarnation, language, the Brain client, and the turn's Stop."""
+    """What one turn's task runs with: its Team and incarnation, the turn's token, language, Brain client, and Stop."""
 
     team_id: str
     incarnation: str
+    token: str
     locale: str | None
     runtime: brain_runtime_client.BrainRuntimeClient
     cancelled: Callable[[], bool]
@@ -47,8 +48,8 @@ class BrowserService:
         self._runtime = runtime
         self._storage = storage
         self._guard = threading.Lock()
-        # The lease each Team's running task holds, so its Stop can reach it.
-        self._running: dict[str, Lease] = {}
+        # The lease each Team's running task holds, with its turn's token, so that turn's Stop, and only it, reaches it.
+        self._running: dict[str, tuple[str, Lease]] = {}
 
     @property
     def available(self) -> bool:
@@ -63,19 +64,23 @@ class BrowserService:
     def clean(self) -> None:
         self._runtime.clean()
 
-    def interrupt(self, team_id: str) -> None:
-        """Stop: remove the Team's running Browser at once; its task then ends stopped and its release proves it."""
+    def interrupt(self, team_id: str, token: str) -> None:
+        """Stop of the turn `token`: remove its running Browser at once; the task ends stopped, its release proves it.
+
+        A turn that started since keeps its own Browser.
+        """
         with self._guard:
-            lease = self._running.get(team_id)
+            held = self._running.get(team_id)
+        lease = held[1] if held is not None and held[0] == token else None
         if lease is not None:
             # A failed removal leaves the release to prove it, which keeps the Space refusing tasks until it does.
             with suppress(BrowserError):
                 self._runtime.kill(lease)
 
     @contextmanager
-    def _held(self, lease: Lease) -> Iterator[None]:
+    def _held(self, token: str, lease: Lease) -> Iterator[None]:
         with self._guard:
-            self._running[lease.team_id] = lease
+            self._running[lease.team_id] = (token, lease)
         try:
             yield
         finally:
@@ -98,7 +103,7 @@ class BrowserService:
         outcome, ingested = browser_task.Outcome("failed", reason="browser-lost"), None
         # From the moment it is held, the lease is released however the task ends, its audit included.
         try:
-            with self._held(lease):
+            with self._held(turn.token, lease):
                 _audit(turn, lease, "started")
                 outcome = self._task(turn, context, request, lease, page_language)
                 if outcome.status != "stopped" and not turn.cancelled():

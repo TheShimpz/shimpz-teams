@@ -489,6 +489,7 @@ def _browser_runner(self, request: SegmentRequest):
         turn = local_browser_service.BrowserTurn(
             request.team_id,
             self.assistant_lifecycle._network(request.team_id).id,
+            request.token,
             request.locale,
             _runtime(self, request),
             lambda: self._chat_cancelled(request.token),
