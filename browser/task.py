@@ -202,5 +202,5 @@ def _execute(
     except cua.CuaError as exc:
         if exc.fatal:
             raise
-        return "refused"
+        return "navigation-failed" if exc.code == "navigation-failed" else "refused"
     return "ok"

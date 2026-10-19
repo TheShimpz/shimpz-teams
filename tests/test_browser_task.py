@@ -8,9 +8,10 @@ PNG = cua.PNG_SIGNATURE + b"pixels"
 
 
 class FakeSession:
-    def __init__(self, refs=None, *, fail_observe=False, refuse=(), fatal=()):
+    def __init__(self, refs=None, *, fail_observe=False, refuse=(), fatal=(), unloaded=()):
         self.refs = refs if refs is not None else {"p1:0": frozenset({"type"}), "p1:1": frozenset({"click"})}
         self.fail_observe, self.refuse, self.fatal = fail_observe, set(refuse), set(fatal)
+        self.unloaded = set(unloaded)
         self.calls, self.screenshots = [], []
 
     def observe(self, *, screenshot=False):
@@ -27,6 +28,8 @@ class FakeSession:
             raise cua.CuaError("tool-failed")
         if name in self.refuse:
             raise cua.CuaError("action-refused", fatal=False)
+        if name in self.unloaded:
+            raise cua.CuaError("navigation-failed", fatal=False)
 
     def navigate(self, url):
         self._act("navigate", url)
@@ -107,6 +110,18 @@ class BrowserTaskTests(unittest.TestCase):
             (requests[0]["objective"], requests[0]["language"], requests[0]["screenshot"]),
             ("Veja o prazo.", "pt-BR", None),
         )
+
+    def test_a_navigation_that_did_not_load_is_an_outcome_the_agent_sees_after_looking_again(self):
+        session = FakeSession(unloaded={"navigate"})
+        step, requests = _steps(
+            {"kind": "navigate", "url": "https://www.python.org"},
+            {"kind": "done", "summary": "Não carregou."},
+        )
+        outcome, _ = _run(session, step)
+        self.assertEqual(outcome, task.Outcome("done", summary="Não carregou.", steps=2))
+        self.assertEqual(requests[-1]["history"][0]["outcome"], "navigation-failed")
+        # The next step was chosen on a fresh observation, as after any step.
+        self.assertEqual(len(session.screenshots), 2)
 
     def test_a_ref_not_offered_for_its_action_and_a_refused_page_action_are_outcomes_not_failures(self):
         session = FakeSession(refuse={"navigate"})

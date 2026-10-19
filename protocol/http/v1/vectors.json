@@ -7499,6 +7499,19 @@
               "title": "Edital 2026"
             }
           }
+        ],
+        [
+          {
+            "step": {
+              "kind": "navigate",
+              "url": "https://www.python.org/"
+            },
+            "outcome": "navigation-failed",
+            "page": {
+              "url": "about:blank",
+              "title": ""
+            }
+          }
         ]
       ],
       "invalid": [

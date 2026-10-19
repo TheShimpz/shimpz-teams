@@ -313,6 +313,32 @@ class CuaSessionTests(unittest.TestCase):
             ],
         )
 
+    def test_a_navigation_that_failed_for_a_network_error_is_its_own_outcome_not_a_loss(self):
+        def failed(text):
+            return {
+                "result": {
+                    "content": [{"type": "text", "text": text}],
+                    "isError": True,
+                    "structuredContent": {"code": "tool_invocation_failed"},
+                }
+            }
+
+        session, _channel = _opened(failed("navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED"))
+        with self.assertRaises(cua.CuaError) as raised:
+            session.navigate("https://www.python.org")
+        self.assertEqual((raised.exception.code, raised.exception.fatal), ("navigation-failed", False))
+        # Any other failure text, or the same text on another action, may mean the Browser is lost.
+        for action, result in (
+            (lambda s: s.navigate("https://example.com"), failed("navigation failed: something else")),
+            (lambda s: s.navigate("https://example.com"), failed("navigation failed: net::ERR_X\nmore")),
+            (lambda s: s.click("p1:1"), failed("navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED")),
+        ):
+            with self.subTest(result=result):
+                session, _channel = _opened(result)
+                with self.assertRaises(cua.CuaError) as raised:
+                    action(session)
+                self.assertEqual((raised.exception.code, raised.exception.fatal), ("tool-failed", True))
+
     def test_only_an_explicitly_refused_page_action_is_not_fatal(self):
         for result in (
             _tool({"effect": "refused"}),

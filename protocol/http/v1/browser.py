@@ -29,7 +29,8 @@ MAX_OBSERVATION_BYTES = 24 * 1024
 LANGUAGES = frozenset({"en", "pt-BR"})
 REASONS = ("sign-in", "captcha", "payment", "confirmation", "blocked")
 DIRECTIONS = ("up", "down")
-OUTCOMES = ("ok", "refused")
+# A step's outcome: done, refused with no effect, or a navigation whose page did not load for a network error.
+OUTCOMES = ("ok", "refused", "navigation-failed")
 REF_RE = re.compile(r"p[0-9]{1,6}:[0-9]{1,6}")
 # Every field each step kind carries besides `kind`.
 FIELDS = {

@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -49,6 +50,9 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 # A page action the Driver explicitly refused leaves the Browser usable and the agent may try another; any other
 # failure, an error that names no refusal included, may have had an effect and ends the task.
 ACTIONS = frozenset({"browser_navigate", "browser_click", "browser_type", "browser_pointer"})
+# A navigation the Driver reports as a Chromium network error left no page loaded but the Browser sound; the agent may
+# look again and retry or go another way. The page may still have changed, so it is its own outcome, not a refusal.
+NETWORK_FAILURE = re.compile(r"navigation failed: net::ERR_[A-Z0-9_]{1,64}")
 
 
 class Channel(Protocol):
@@ -207,6 +211,8 @@ class CuaSession:
         if result.get("isError") is True or not isinstance(structured, dict):
             if tool in ACTIONS and isinstance(structured, dict) and _refused(structured):
                 raise CuaError("action-refused", fatal=False)
+            if tool == "browser_navigate" and _network_failure(result):
+                raise CuaError("navigation-failed", fatal=False)
             raise CuaError("tool-failed")
         if images:
             structured = {**structured, "_screenshot": _screenshot(result.get("content"))}
@@ -249,6 +255,16 @@ class CuaSession:
             if "error" in answer or not isinstance(answer.get("result"), dict):
                 raise CuaError("protocol-error")
             return answer["result"]
+
+
+def _network_failure(result: dict[str, object]) -> bool:
+    """Whether the Driver says only that the page did not load for a network error, the Browser itself still sound.
+
+    The text is matched, never forwarded: the agent learns only that the navigation failed.
+    """
+    content = result.get("content")
+    texts = [item.get("text") for item in content if isinstance(item, dict)] if isinstance(content, list) else []
+    return len(texts) == 1 and isinstance(texts[0], str) and NETWORK_FAILURE.fullmatch(texts[0]) is not None
 
 
 def _refused(structured: dict[str, object]) -> bool:
