@@ -18,6 +18,8 @@ CONTEXT = brain_runtime_client.RuntimeContext("thread", "Team", (), "openai", "g
 STOPPED_TURN = "0" * 32
 TURN = "7" * 32
 REQUEST = brain_runtime_client.BrowserRequest("interrupt-1", "Veja o prazo do edital.")
+# The real Driver session, before each test replaces it with a fake.
+DRIVER_SESSION = cua.CuaSession
 
 
 class FakeRuntime:
@@ -288,6 +290,40 @@ class BrowserServiceTests(unittest.TestCase):
             result, _ = self.make(fake).run(stopped_turn, CONTEXT, REQUEST)
         self.assertEqual(result["status"], "stopped")
         self.assertEqual([event for event in fake.events if event[0] == "stream"], [("stream", "exec-0")])
+
+    def test_no_driver_command_is_sent_once_stop_came_even_mid_initialization(self):
+        stopping = []
+
+        class Stream:
+            """The Driver's stdio: answers each request, and Stop comes while `initialize` is answered."""
+
+            def __init__(self):
+                self.sent, self.pending = [], []
+
+            def send(self, data, deadline):
+                message = json.loads(data)
+                self.sent.append(message.get("method"))
+                if "id" in message:
+                    self.pending.append(message["id"])
+
+            def receive_line(self, deadline, limit):
+                stopping.append(True)
+                return json.dumps({"jsonrpc": "2.0", "id": self.pending.pop(0), "result": {}}).encode()
+
+            def close(self):
+                pass
+
+        stream = Stream()
+
+        class Driving(FakeRuntime):
+            def open_stream(self, lease, deadline, wanted):
+                return "exec-0", stream
+
+        turn = service.BrowserTurn("team_1", "d" * 64, TURN, "pt-BR", self.brain, lambda: bool(stopping))
+        with mock.patch.object(service.cua, "CuaSession", DRIVER_SESSION):
+            result, _ = self.make(Driving()).run(turn, CONTEXT, REQUEST)
+        self.assertEqual(result["status"], "stopped")
+        self.assertEqual(stream.sent, ["initialize"])
 
     def test_the_language_follows_the_turn_and_lifecycle_calls_reach_the_runtime(self):
         self.assertEqual(

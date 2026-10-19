@@ -25,7 +25,7 @@ from inference import client as brain_runtime_client
 from inference.errors import BrainRuntimeError
 from local import audit as local_audit
 from local.browser import view as local_view
-from local.browser.channel import ExecStream
+from local.browser.channel import ChannelError, ExecStream
 from local.browser.runtime import BrowserError, BrowserRuntime, Lease
 from protocol.http.v1 import browser_view as view_protocol
 from storage import files as team_storage
@@ -165,7 +165,7 @@ class BrowserService:
         except BrowserError as exc:
             outcome = _lost(outcome, f"runtime/{exc.code}")
         except cua.CuaError as exc:
-            outcome = _lost(outcome, f"driver/{exc.code}")
+            outcome = browser_task.Outcome("stopped") if turn.cancelled() else _lost(outcome, f"driver/{exc.code}")
         finally:
             released = self._release(lease)
             _audit(turn, lease, f"{_ending(outcome)}:released={int(released)}")
@@ -223,7 +223,7 @@ class BrowserService:
             if not held():
                 stream.close()
                 raise cua.CuaError("stopped")
-            session = cua.CuaSession(stream)
+            session = cua.CuaSession(_Held(stream, held))
             drivers[session] = (exec_id, stream)
             session.deadline = deadline
             session.open()
@@ -286,6 +286,22 @@ class BrowserService:
             # The runtime stays dirty and refuses every later task until a cleanup proves the Space clean again.
             return False
         return True
+
+
+class _Held:
+    """A Driver session's channel that sends nothing once the turn no longer holds its Browser (Stop)."""
+
+    def __init__(self, stream: ExecStream, held: Callable[[], bool]) -> None:
+        self._stream = stream
+        self._held = held
+
+    def send(self, data: bytes, deadline: float) -> None:
+        if not self._held():
+            raise ChannelError("the task no longer holds its Browser")
+        self._stream.send(data, deadline)
+
+    def receive_line(self, deadline: float, limit: int) -> bytes:
+        return self._stream.receive_line(deadline, limit)
 
 
 def _audit(turn: BrowserTurn, lease: Lease, state: str) -> None:
