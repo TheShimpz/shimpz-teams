@@ -36,9 +36,9 @@ class FakeRuntime:
             raise runtime.BrowserError(self.acquire_error)
         return LEASE
 
-    def open_stream(self, lease):
+    def open_stream(self, lease, deadline):
         self.events.append(("stream", lease.container_id))
-        return "stream"
+        return "exec-mcp", "stream"
 
     def files(self, lease):
         if self.files_error:
@@ -155,7 +155,7 @@ class BrowserServiceTests(unittest.TestCase):
             "started:incarnation=dddddddddddd:container=cccccccccccc:address=172.30.0.9"
             f":egress=eeeeeeeeeeee@2026-10-17T00:00:01Z:generation={'9' * 32}",
         )
-        self.assertTrue(details[1].startswith("done:steps=4:released=1:incarnation=dddddddddddd"))
+        self.assertTrue(details[1].startswith("done:steps=4:recovered=0:released=1:incarnation=dddddddddddd"))
         self.assertNotIn("edital", json.dumps(self.audit))
 
     def test_a_stopped_task_ingests_nothing_and_a_needs_person_task_says_why(self):
@@ -192,7 +192,7 @@ class BrowserServiceTests(unittest.TestCase):
         result, _terminal = self.run_with(browser_service, task.Outcome("done", summary="x", steps=1))
         self.assertEqual(result, {"status": "failed", "reason": "browser-lost", "files": []})
         detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
-        self.assertTrue(detail.startswith("failed:steps=1:released=0"))
+        self.assertTrue(detail.startswith("failed:steps=1:recovered=0:cause=ingest:released=0"))
         # A Browser that could not be proven removed never ends its task as done, whatever it found.
         unreleased = self.make(FakeRuntime(release="browser-lost"))
         result, _terminal = self.run_with(unreleased, task.Outcome("done", summary="x", steps=1))
@@ -227,6 +227,52 @@ class BrowserServiceTests(unittest.TestCase):
         with mock.patch.object(service.cua, "CuaSession", return_value=session):
             result, _ = browser_service.run(self.turn, CONTEXT, REQUEST)
         self.assertEqual((result["status"], result["reason"]), ("failed", "model-unavailable"))
+
+    def test_a_failed_driver_session_is_replaced_only_once_its_exec_is_proven_ended(self):
+        class Stream:
+            def __init__(self, exec_id, events):
+                self.exec_id, self.events = exec_id, events
+
+            def shutdown(self):
+                self.events.append(("shutdown", self.exec_id))
+
+            def close(self):
+                self.events.append(("close", self.exec_id))
+
+        class Driving(FakeRuntime):
+            ended = True
+
+            def open_stream(self, lease, deadline):
+                exec_id = f"exec-{sum(event[0] == 'stream' for event in self.events)}"
+                self.events.append(("stream", exec_id))
+                return exec_id, Stream(exec_id, self.events)
+
+            def exited(self, exec_id, deadline):
+                self.events.append(("exited", exec_id))
+                return self.ended
+
+        page = cua.Observation("u", "t", "url: u", {})
+        self.brain.browser_step.return_value = ({"kind": "done", "summary": "ok"}, 120)
+        for ended, status in ((True, "done"), (False, "failed")):
+            with self.subTest(ended=ended):
+                fake = Driving()
+                fake.ended = ended
+                failed, fresh = mock.Mock(), mock.Mock()
+                failed.observe.side_effect = cua.CuaError("channel-lost")
+                fresh.observe.return_value = page
+                with mock.patch.object(service.cua, "CuaSession", side_effect=[failed, fresh]):
+                    result, _ = self.make(fake).run(self.turn, CONTEXT, REQUEST)
+                self.assertEqual(result["status"], status)
+                driven = [event for event in fake.events if event[0] in {"stream", "shutdown", "exited", "close"}]
+                ending = [("stream", "exec-0"), ("shutdown", "exec-0"), ("exited", "exec-0"), ("close", "exec-0")]
+                self.assertEqual(driven, [*ending, ("stream", "exec-1")] if ended else ending)
+                detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
+                expected = (
+                    "done:steps=2:recovered=1:released=1"
+                    if ended
+                    else "failed:steps=0:recovered=0:cause=observe/channel-lost/reopen/driver-not-ended:released=1"
+                )
+                self.assertTrue(detail.startswith(expected), detail)
 
     def test_the_language_follows_the_turn_and_lifecycle_calls_reach_the_runtime(self):
         self.assertEqual(

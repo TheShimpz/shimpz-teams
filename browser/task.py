@@ -5,6 +5,10 @@ bounded observation, admits exactly one step from the closed set, checks a targe
 was chosen from, executes it, and loops, until `done`, `needs_person`, Stop, a budget, or a failure ends the task.
 Before every Brain call and every page action the task proves it may continue: no Stop, time and a step's token reserve
 left, and the Browser still on the egress process it started on. No call outlives the task's deadline.
+
+A Cua Driver session that fails while the Browser is intact is replaced by a fresh one on the same Browser, at most
+MAX_RECOVERIES times, and the task continues where it was with its whole history: an action under way when it failed
+is recorded as `interrupted`, since its effect is unknown. Every failure keeps its closed cause for the audit.
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ import base64
 import json
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from browser import cua
 from protocol.http.v1 import browser as browser_protocol
@@ -29,19 +33,26 @@ IMAGE_TOKENS = 3_000
 PROMPT_TOKENS = 4_000
 SCREENSHOT_EVERY = 3
 WAIT_SECONDS = 2.0
+MAX_RECOVERIES = 3
 # Which observed action a step needs on the ref it names.
 REF_ACTIONS = {"click": "click", "type": "type"}
 
 
 @dataclass(frozen=True, slots=True)
 class Outcome:
-    """How a task ended: `done`, `needs-person`, `stopped`, `budget`, or `failed`, with its closed details."""
+    """How a task ended: `done`, `needs-person`, `stopped`, `budget`, or `failed`, with its closed details.
+
+    `cause` names, for the audit only, where a failure came from and its closed code; `recovered` counts the Driver
+    sessions replaced on the way.
+    """
 
     status: str
     summary: str | None = None
     reason: str | None = None
     sentence: str | None = None
     steps: int = 0
+    cause: str | None = None
+    recovered: int = 0
 
 
 @dataclass(slots=True)
@@ -58,11 +69,17 @@ class StepFailedError(RuntimeError):
 
 # One `browser-step` request and the seconds left for it, answered with the raw step and its input tokens.
 Step = Callable[[Mapping[str, object], float], tuple[object, int]]
+# A fresh Driver session on the same Browser in place of the failed one, opened by the task's absolute deadline; raises
+# CuaError when the failed one could not be proven ended or the new one did not open.
+Reopen = Callable[[cua.CuaSession, float], cua.CuaSession]
 
 
 @dataclass(slots=True)
 class Task:
-    """One task's loop; `intact` says whether the Browser still runs on the egress process it started on."""
+    """One task's loop; `intact` says whether the Browser still runs on the egress process it started on.
+
+    Without `reopen`, a failed Driver session ends the task.
+    """
 
     objective: str
     language: str
@@ -73,6 +90,8 @@ class Task:
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
     budget: Budget = field(default_factory=Budget)
+    reopen: Reopen | None = None
+    recovered: int = 0
     history: list[dict[str, object]] = field(default_factory=list)
     screenshot_at: int = -SCREENSHOT_EVERY
     wants_screenshot: bool = False
@@ -84,8 +103,8 @@ class Task:
         for index in range(self.budget.steps):
             ended = self._halted(index, deadline, 0) or self._turn(index, deadline)
             if ended is not None:
-                return ended
-        return Outcome("budget", steps=self.budget.steps)
+                return replace(ended, recovered=self.recovered)
+        return Outcome("budget", steps=self.budget.steps, recovered=self.recovered)
 
     def _halted(self, steps: int, deadline: float, reserve: int) -> Outcome | None:
         """Why the task makes no further call: Stop, no time or `reserve` tokens left, or a Browser no longer intact."""
@@ -94,21 +113,22 @@ class Task:
         if self.clock() >= deadline or self.budget.spent + reserve > self.budget.input_tokens:
             return Outcome("budget", steps=steps)
         if not self.intact():
-            return Outcome("failed", reason="browser-lost", steps=steps)
+            return Outcome("failed", reason="browser-lost", steps=steps, cause="runtime/not-intact")
         return None
 
     def _turn(self, index: int, deadline: float) -> Outcome | None:
         """Observe, ask for one step, and act on it; the outcome that ends the task, or None to continue."""
         try:
             observation = self.session.observe(screenshot=self.wants_screenshot)
-        except cua.CuaError:
-            return Outcome("failed", reason="browser-lost", steps=index)
+        except cua.CuaError as exc:
+            # Nothing was done on the page: the next step looks at it again on the fresh session.
+            return self._recover(index, deadline, f"observe/{exc.code}")
         if self.wants_screenshot:
             self.screenshot_at, self.wants_screenshot = index, False
         decision = self._decide(index, deadline, observation)
         if isinstance(decision, Outcome):
             return decision
-        return self._act(index, decision, observation)
+        return self._act(index, deadline, decision, observation)
 
     def _decide(self, index: int, deadline: float, observation: cua.Observation) -> Outcome | dict[str, object]:
         """The page step the Brain chose, admitted only while the task may still act on it, or how the task ends.
@@ -136,19 +156,38 @@ class Task:
             return _terminal(decision, index + 1)
         return decision
 
-    def _act(self, index: int, decision: dict[str, object], observation: cua.Observation) -> Outcome | None:
+    def _act(
+        self, index: int, deadline: float, decision: dict[str, object], observation: cua.Observation
+    ) -> Outcome | None:
         """Run one admitted page step and record its outcome; the outcome that ends the task, or None."""
+        failure = None
         if decision["kind"] == "screenshot":
             self.wants_screenshot = index - self.screenshot_at >= SCREENSHOT_EVERY
             outcome = "ok" if self.wants_screenshot else "refused"
         else:
             try:
                 outcome = _execute(self.session, decision, observation, self.sleep)
-            except cua.CuaError:
-                return Outcome("failed", reason="browser-lost", steps=index + 1)
+            except cua.CuaError as exc:
+                outcome, failure = "interrupted", f"act/{exc.code}"
         # The page the step was chosen on, and the agent's note from it, so it never returns to recall what it read.
         page = {"url": observation.url, "title": observation.title}
         self.history.append({"step": decision, "outcome": outcome, "page": page})
+        return None if failure is None else self._recover(index + 1, deadline, failure)
+
+    def _recover(self, steps: int, deadline: float, cause: str) -> Outcome | None:
+        """Replace the failed Driver session while the task may continue; how the task ends when it cannot."""
+        lost = Outcome("failed", reason="browser-lost", steps=steps, cause=cause)
+        if self.reopen is None or self.recovered >= MAX_RECOVERIES:
+            return lost
+        ended = self._halted(steps, deadline, 0)
+        if ended is not None:
+            return ended
+        try:
+            self.session = self.reopen(self.session, deadline)
+        except cua.CuaError as exc:
+            # Stop and the deadline win over a recovery they cut short.
+            return self._halted(steps, deadline, 0) or replace(lost, cause=f"{cause}/reopen/{exc.code}")
+        self.recovered += 1
         return None
 
     def _request(self, observation: cua.Observation) -> dict[str, object]:

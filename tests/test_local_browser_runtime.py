@@ -4,6 +4,7 @@ import json
 import socket as sockets
 import struct
 import threading
+import time
 import unittest
 from pathlib import PurePosixPath
 from unittest import mock
@@ -201,6 +202,8 @@ class Api:
         _identifier, arguments = self.execs[exec_id]
         if self.docker.fail.get("start"):
             raise APIError("start failed")
+        if self.docker.fail.get("stall-start"):
+            self.docker.fail["stall-start"].wait()
         if self.docker.fail.get("no-socket"):
             return object()
         team, docker = sockets.socketpair()
@@ -660,7 +663,8 @@ class BrowserRuntimeTests(unittest.TestCase):
 
     def test_the_mcp_stream_and_program_failures(self):
         lease = self.runtime.acquire("team_1", "en")
-        stream = self.runtime.open_stream(lease)
+        exec_id, stream = self.runtime.open_stream(lease, self.now[0] + 10)
+        self.assertTrue(exec_id)
         self.assertIsNotNone(stream)
         self.assertEqual(self.runtime.program(lease.container_id, ["ready"], deadline=10)[0], 0)
         self.docker.programs[("ready",)] = (0, b"unexpected")
@@ -670,10 +674,31 @@ class BrowserRuntimeTests(unittest.TestCase):
                 self.docker.fail = {failure: True}
                 self.assertEqual(self.runtime.program(lease.container_id, ["ready"], deadline=10)[0], -1)
                 with self.assertRaises(runtime.BrowserError):
-                    self.runtime.open_stream(lease)
+                    self.runtime.open_stream(lease, self.now[0] + 10)
         self.docker.fail = {}
         self.docker.api.exec_inspect = lambda _exec: {"ExitCode": None}
         self.assertEqual(self.runtime.program(lease.container_id, ["ready"], deadline=10)[0], -1)
+        self.runtime.release(lease)
+
+    def test_a_driver_session_docker_opens_too_late_is_closed_unused(self):
+        lease = self.runtime.acquire("team_1", "en")
+        stalled = threading.Event()
+        self.addCleanup(stalled.set)
+        self.docker.fail = {"stall-start": stalled}
+        with self.assertRaises(runtime.BrowserError) as raised:
+            self.runtime.open_stream(lease, self.now[0] + 0.2)
+        self.assertEqual(raised.exception.code, "browser-lost")
+        # Docker opens it after the deadline: the session's channel is closed before anything reaches it.
+        opened = len(self.docker.sockets)
+        stalled.set()
+        deadline = time.monotonic() + 5
+        while len(self.docker.sockets) == opened and time.monotonic() < deadline:
+            time.sleep(0.01)
+        team = self.docker.sockets[opened]
+        while team.fileno() != -1 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(team.fileno(), -1)
+        self.docker.fail = {}
         self.runtime.release(lease)
 
     def test_the_team_reads_its_browser_from_its_own_image_and_starts_clean(self):

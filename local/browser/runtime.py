@@ -500,9 +500,39 @@ class BrowserRuntime:
 
     # The exec channels
 
-    def open_stream(self, lease: Lease) -> ExecStream:
-        """The Cua Driver's stdio MCP session in this Browser."""
-        return ExecStream(self._exec(lease.container_id, ["mcp"])[1], self._clock)
+    def open_stream(self, lease: Lease, deadline: float) -> tuple[str, ExecStream]:
+        """The Cua Driver's stdio MCP session in this Browser, opened by `deadline`: its exec id and its channel.
+
+        A session Docker opens only after the deadline is closed unused, so nothing ever reaches it.
+        """
+        guard = threading.Lock()
+        opened: list[tuple[str, object] | BrowserError] = []
+        late = threading.Event()
+
+        def run() -> None:
+            try:
+                answer: tuple[str, object] | BrowserError = self._exec(lease.container_id, ["mcp"])
+            except BrowserError as exc:
+                answer = exc
+            with guard:
+                if not late.is_set():
+                    opened.append(answer)
+                    return
+            if isinstance(answer, tuple):
+                with contextlib.suppress(OSError):
+                    answer[1].close()
+
+        worker = threading.Thread(target=run, name="browser-driver", daemon=True)
+        worker.start()
+        worker.join(max(deadline - self._clock(), 0.0))
+        with guard:
+            if not opened:
+                late.set()
+                raise BrowserError("browser-lost")
+        answer = opened[0]
+        if isinstance(answer, BrowserError):
+            raise answer
+        return answer[0], ExecStream(answer[1], self._clock)
 
     def open_relay(self, lease: Lease) -> tuple[str, ExecStream]:
         """One viewer's relay into this Browser's display: its exec id and its channel."""

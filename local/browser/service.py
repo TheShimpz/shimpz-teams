@@ -2,18 +2,21 @@
 
 Team acquires the Space's one Browser on a fresh egress generation, opens the Cua Driver's MCP session, runs the
 task loop with the turn's Admin-delivered key, ingests the downloads, and always releases the Browser, which removes
-it and ends its egress generation. A Browser that could not be proven removed fails the task. Stop removes the running
-Browser at once, so none of its calls reaches the page again. Each task is audited with its Team and incarnation, the
-container, the Browser address, and the egress process and generation its audit lines carry, never a URL or page text.
-While a task runs, the Supervisor may watch its screen through the task's own view, which ends with the task.
+it and ends its egress generation. A Driver session that fails mid-task is replaced on the same Browser only once its
+exec is proven ended, so the failed one can never act beside its replacement. A Browser that could not be proven
+removed fails the task. Stop removes the running Browser at once, so none of its calls reaches the page again. Each
+task is audited with its Team and incarnation, the container, the Browser address, and the egress process and
+generation its audit lines carry, with its closed ending and recoveries, never a URL or page text. While a task runs,
+the Supervisor may watch its screen through the task's own view, which ends with the task.
 """
 
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from browser import cua
 from browser import ingest as browser_ingest
@@ -22,6 +25,7 @@ from inference import client as brain_runtime_client
 from inference.errors import BrainRuntimeError
 from local import audit as local_audit
 from local.browser import view as local_view
+from local.browser.channel import ExecStream
 from local.browser.runtime import BrowserError, BrowserRuntime, Lease
 from protocol.http.v1 import browser_view as view_protocol
 from storage import files as team_storage
@@ -46,6 +50,8 @@ def language(locale: str | None) -> str:
 
 # Streams of watched screens the Space carries at once.
 VIEWS = 2
+# The deadline to prove a failed Driver session's exec ended once its channel is shut.
+DRIVER_END_SECONDS = 5.0
 
 
 class BrowserService:
@@ -156,13 +162,15 @@ class BrowserService:
         try:
             with self._held(turn.token, lease):
                 outcome, ingested = self._work(turn, context, request, lease, page_language)
-        except BrowserError, cua.CuaError:
-            outcome = browser_task.Outcome("failed", reason="browser-lost", steps=outcome.steps)
+        except BrowserError as exc:
+            outcome = _lost(outcome, f"runtime/{exc.code}")
+        except cua.CuaError as exc:
+            outcome = _lost(outcome, f"driver/{exc.code}")
         finally:
             released = self._release(lease)
-            _audit(turn, lease, f"{outcome.status}:steps={outcome.steps}:released={int(released)}")
+            _audit(turn, lease, f"{_ending(outcome)}:released={int(released)}")
         if not released:
-            outcome = browser_task.Outcome("failed", reason="browser-lost", steps=outcome.steps)
+            outcome = _lost(outcome, "release")
         return _result(outcome, ingested), _terminal(ingested)
 
     def _work(
@@ -184,9 +192,9 @@ class BrowserService:
         try:
             ingested = self._ingest(turn, lease)
         except BrowserError, browser_ingest.ListingError:
-            return browser_task.Outcome("failed", reason="browser-lost", steps=outcome.steps), None
+            return _lost(outcome, "ingest"), None
         if not self._runtime.intact(lease):
-            return browser_task.Outcome("failed", reason="browser-lost", steps=outcome.steps), ingested
+            return _lost(outcome, "runtime/not-intact"), ingested
         return outcome, ingested
 
     def _task(
@@ -197,8 +205,33 @@ class BrowserService:
         lease: Lease,
         page_language: str,
     ) -> browser_task.Outcome:
-        session = cua.CuaSession(self._runtime.open_stream(lease))
-        session.open()
+        drivers: dict[cua.CuaSession, tuple[str, ExecStream]] = {}
+
+        def driver(deadline: float) -> cua.CuaSession:
+            """One Driver session on the task's Browser, opened by `deadline`."""
+            exec_id, stream = self._runtime.open_stream(lease, deadline)
+            session = cua.CuaSession(stream)
+            drivers[session] = (exec_id, stream)
+            session.deadline = deadline
+            session.open()
+            return session
+
+        def reopen(failed: cua.CuaSession, deadline: float) -> cua.CuaSession:
+            """A fresh Driver session in place of `failed`, once Docker proved the failed one's exec ended."""
+            exec_id, stream = drivers.pop(failed)
+            stream.shutdown()
+            try:
+                ended = self._runtime.exited(exec_id, min(deadline, time.monotonic() + DRIVER_END_SECONDS))
+            finally:
+                stream.close()
+            if not ended:
+                raise cua.CuaError("driver-not-ended")
+            try:
+                return driver(deadline)
+            except BrowserError as exc:
+                raise cua.CuaError("driver-unavailable") from exc
+
+        session = driver(time.monotonic() + cua.CALL_SECONDS)
 
         def step(payload, seconds: float):
             try:
@@ -207,7 +240,13 @@ class BrowserService:
                 raise browser_task.StepFailedError(str(exc)) from exc
 
         return browser_task.Task(
-            request.objective, page_language, session, step, turn.cancelled, lambda: self._runtime.intact(lease)
+            request.objective,
+            page_language,
+            session,
+            step,
+            turn.cancelled,
+            lambda: self._runtime.intact(lease),
+            reopen=reopen,
         ).run()
 
     def _ingest(self, turn: BrowserTurn, lease: Lease) -> browser_ingest.Ingested:
@@ -243,6 +282,17 @@ def _audit(turn: BrowserTurn, lease: Lease, state: str) -> None:
         f":egress={egress.container_id[:12]}@{egress.started}:generation={egress.generation}"
     )
     local_audit.record_request("browser-task", result="ok", team_id=turn.team_id, detail=detail)
+
+
+def _lost(outcome: browser_task.Outcome, cause: str) -> browser_task.Outcome:
+    """The task lost its Browser after `outcome`: its steps and recoveries kept, and where it was lost."""
+    return replace(outcome, status="failed", summary=None, reason="browser-lost", sentence=None, cause=cause)
+
+
+def _ending(outcome: browser_task.Outcome) -> str:
+    """How the task ended, for its audit line: closed words and counts only, never page content."""
+    ending = f"{outcome.status}:steps={outcome.steps}:recovered={outcome.recovered}"
+    return ending if outcome.cause is None else f"{ending}:cause={outcome.cause}"
 
 
 def _audit_view(lease: Lease, state: str) -> None:

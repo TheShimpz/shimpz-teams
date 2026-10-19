@@ -166,7 +166,8 @@ class BrowserTaskTests(unittest.TestCase):
         outcome, _ = _run(FakeSession(), _steps(wait, wait)[0], budget=task.Budget(steps=2))
         self.assertEqual(outcome, task.Outcome("budget", steps=2))
         self.assertEqual(
-            _run(FakeSession(fail_observe=True), _steps(done)[0])[0], task.Outcome("failed", reason="browser-lost")
+            _run(FakeSession(fail_observe=True), _steps(done)[0])[0],
+            task.Outcome("failed", reason="browser-lost", cause="observe/tool-failed"),
         )
         self.assertEqual(
             _run(FakeSession(), _steps(task.StepFailedError("down"))[0])[0],
@@ -178,7 +179,7 @@ class BrowserTaskTests(unittest.TestCase):
         )
         self.assertEqual(
             _run(FakeSession(fatal={"click"}), _steps({"kind": "click", "ref": "p1:1"})[0])[0],
-            task.Outcome("failed", reason="browser-lost", steps=1),
+            task.Outcome("failed", reason="browser-lost", steps=1, cause="act/tool-failed"),
         )
 
     def test_every_call_and_action_waits_for_proof_that_the_task_may_continue(self):
@@ -209,11 +210,14 @@ class BrowserTaskTests(unittest.TestCase):
         self.assertEqual((outcome, session.calls), (task.Outcome("budget", steps=1), []))
         # The Browser left the egress process it started on.
         outcome, _ = _run(FakeSession(), _steps(navigate)[0], intact=lambda: False)
-        self.assertEqual(outcome, task.Outcome("failed", reason="browser-lost"))
+        self.assertEqual(outcome, task.Outcome("failed", reason="browser-lost", cause="runtime/not-intact"))
         session = FakeSession()
         lost = after(3)
         outcome, _ = _run(session, _steps(navigate)[0], intact=lambda: not lost())
-        self.assertEqual((outcome, session.calls), (task.Outcome("failed", reason="browser-lost", steps=1), []))
+        self.assertEqual(
+            (outcome, session.calls),
+            (task.Outcome("failed", reason="browser-lost", steps=1, cause="runtime/not-intact"), []),
+        )
 
     def test_a_final_step_counts_only_if_the_task_could_still_act_on_it(self):
         done = {"kind": "done", "summary": "ok"}
@@ -226,7 +230,7 @@ class BrowserTaskTests(unittest.TestCase):
         lost = after(3)
         self.assertEqual(
             _run(FakeSession(), _steps(done)[0], intact=lambda: not lost())[0],
-            task.Outcome("failed", reason="browser-lost", steps=1),
+            task.Outcome("failed", reason="browser-lost", steps=1, cause="runtime/not-intact"),
         )
         self.assertEqual(
             _run(FakeSession(), _steps(done, tokens=task.MAX_INPUT_TOKENS + 1)[0])[0],
@@ -241,6 +245,73 @@ class BrowserTaskTests(unittest.TestCase):
             task._input_bound({**request, "screenshot": "AAAA"}),
             len(text.encode()) + task.PROMPT_TOKENS + task.IMAGE_TOKENS,
         )
+
+    def test_a_failed_driver_session_is_replaced_and_the_task_continues_where_it_was(self):
+        failed = FakeSession(fatal={"click"})
+        fresh = FakeSession()
+        reopened = []
+
+        def reopen(session, deadline):
+            reopened.append((session, deadline))
+            return fresh
+
+        step, requests = _steps(
+            {"kind": "click", "ref": "p1:1"},
+            {"kind": "scroll", "direction": "down"},
+            {"kind": "done", "summary": "ok"},
+        )
+        outcome, _ = _run(failed, step, reopen=reopen)
+        self.assertEqual(outcome, task.Outcome("done", summary="ok", steps=3, recovered=1))
+        self.assertEqual(reopened, [(failed, task.MAX_SECONDS)])
+        # The failed session is never used again, and the click whose effect is unknown is in the history as such.
+        self.assertEqual((failed.calls, fresh.calls), ([("click", "p1:1")], [("scroll", "down")]))
+        self.assertEqual([entry["outcome"] for entry in requests[-1]["history"]], ["interrupted", "ok"])
+
+    def test_an_observation_that_failed_is_looked_at_again_on_a_fresh_session(self):
+        fresh = FakeSession()
+        step, requests = _steps({"kind": "done", "summary": "ok"})
+        outcome, _ = _run(FakeSession(fail_observe=True), step, reopen=lambda _session, _deadline: fresh)
+        self.assertEqual(outcome, task.Outcome("done", summary="ok", steps=2, recovered=1))
+        self.assertEqual((requests[0]["history"], len(fresh.screenshots)), ([], 1))
+
+    def test_recoveries_are_bounded_and_a_failed_one_ends_the_task_with_its_cause(self):
+        outcome, _ = _run(
+            FakeSession(fail_observe=True),
+            _steps({"kind": "done", "summary": "ok"})[0],
+            reopen=lambda _session, _deadline: FakeSession(fail_observe=True),
+        )
+        self.assertEqual(
+            outcome,
+            task.Outcome(
+                "failed", reason="browser-lost", steps=task.MAX_RECOVERIES, cause="observe/tool-failed", recovered=3
+            ),
+        )
+
+        def refused(_session, _deadline):
+            raise cua.CuaError("driver-not-ended")
+
+        outcome, _ = _run(FakeSession(fail_observe=True), _steps()[0], reopen=refused)
+        self.assertEqual(
+            outcome,
+            task.Outcome("failed", reason="browser-lost", cause="observe/tool-failed/reopen/driver-not-ended"),
+        )
+
+    def test_stop_and_a_lost_egress_win_over_a_recovery(self):
+        reopened = []
+
+        def reopen(_session, _deadline):
+            reopened.append(True)
+            raise cua.CuaError("driver-unavailable")
+
+        # Stop came while the session was being replaced.
+        stopped = iter([False, False, True])
+        outcome, _ = _run(FakeSession(fail_observe=True), _steps()[0], reopen=reopen, cancelled=lambda: next(stopped))
+        self.assertEqual((outcome, reopened), (task.Outcome("stopped"), [True]))
+        # The egress was lost before the session failed: no session is replaced.
+        lost = iter([True, False])
+        outcome, _ = _run(FakeSession(fail_observe=True), _steps()[0], reopen=reopen, intact=lambda: next(lost))
+        self.assertEqual(outcome, task.Outcome("failed", reason="browser-lost", cause="runtime/not-intact"))
+        self.assertEqual(reopened, [True])
 
     def test_no_call_outlives_the_task_deadline(self):
         seconds = []

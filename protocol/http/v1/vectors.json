@@ -7512,6 +7512,19 @@
               "title": ""
             }
           }
+        ],
+        [
+          {
+            "step": {
+              "kind": "click",
+              "ref": "p1:0"
+            },
+            "outcome": "interrupted",
+            "page": {
+              "url": "https://example.com/edital",
+              "title": "Edital 2026"
+            }
+          }
         ]
       ],
       "invalid": [
