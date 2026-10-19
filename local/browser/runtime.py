@@ -298,19 +298,23 @@ class BrowserRuntime:
         return egress
 
     def _generation(self, egress) -> Generation:
-        """The running, healthy egress process, named by the generation its latest passing probe printed."""
+        """The running, healthy egress process, named by the generation its latest passing probe printed.
+
+        A probe that failed since, a slow one on a loaded host, names no other process: Docker keeps the egress healthy
+        until its retries run out, and a restart changes its start time.
+        """
         state = egress.attrs.get("State") or {}
         health = state.get("Health") or {}
         started = state.get("StartedAt")
         probes = health.get("Log")
-        latest = probes[-1] if isinstance(probes, list) and probes and isinstance(probes[-1], dict) else {}
+        recorded = [probe for probe in (probes if isinstance(probes, list) else ()) if isinstance(probe, dict)]
+        latest = next((probe for probe in reversed(recorded) if probe.get("ExitCode") == 0), {})
         output = latest.get("Output")
         printed = GENERATION_RE.fullmatch(output) if isinstance(output, str) else None
         if (
             state.get("Running") is not True
             or health.get("Status") != "healthy"
             or not isinstance(started, str)
-            or latest.get("ExitCode") != 0
             or printed is None
         ):
             raise BrowserError("browser-unavailable")

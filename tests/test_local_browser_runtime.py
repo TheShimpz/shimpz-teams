@@ -396,6 +396,16 @@ class BrowserRuntimeTests(unittest.TestCase):
         self.docker.fail["get"] = True
         self.assertFalse(self.runtime.intact(lease))
 
+    def test_a_probe_that_failed_since_leaves_the_lease_on_its_egress_process(self):
+        lease = self.runtime.acquire("team_1", "en")
+        health = self.docker.egress.attrs["State"]["Health"]
+        # A slow probe on a loaded host fails while Docker still keeps the egress healthy: the same process runs.
+        health["Log"] = [*health["Log"], {"ExitCode": -1, "Output": "Health check exceeded timeout (3s)"}]
+        self.assertTrue(self.runtime.intact(lease))
+        # Once its retries run out, the egress is unhealthy and the task's Browser lost.
+        health["Status"] = "unhealthy"
+        self.assertFalse(self.runtime.intact(lease))
+
     def test_one_browser_per_space_and_a_second_task_is_busy(self):
         lease = self.runtime.acquire("team_1", "en")
         with self.assertRaises(runtime.BrowserError) as raised:
