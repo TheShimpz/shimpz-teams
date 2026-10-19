@@ -12,6 +12,7 @@
   "EncryptedClientHelloEnabled": false,
   "ExtensionInstallBlocklist": ["*"],
   "HttpsOnlyMode": "force_enabled",
+  "MaxConnectionsPerProxy": 32,
   "MetricsReportingEnabled": false,
   "PasswordManagerEnabled": false,
   "PrintingEnabled": false,

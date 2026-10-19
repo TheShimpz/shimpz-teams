@@ -23,7 +23,8 @@ image for each Browser task and removes it when the task ends.
   and a file over the bound are listed as refused by name and size (`incomplete`, `over-limit`) and never read.
 
 `policy.json` is Chromium's managed policy: HTTPS only, downloads to `/downloads` without a prompt and with dangerous
-files blocked, QUIC, DNS over HTTPS, and Encrypted Client Hello off, WebRTC limited to the proxy, and sign-in, sync,
+files blocked, at most 32 connections to the proxy (more filled the egress on a heavy page), QUIC, DNS over HTTPS, and
+Encrypted Client Hello off, WebRTC limited to the proxy, and sign-in, sync,
 password manager, autofill, printing, notifications, geolocation, extensions, file dialogs, and internal schemes off.
 
 `seccomp.json` is Docker's default profile (moby/profiles `6fe7deb1b9fb7c0397a4593480d7d22b9ee8caef`) plus `chroot`,
