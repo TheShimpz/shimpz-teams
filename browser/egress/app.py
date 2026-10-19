@@ -20,10 +20,12 @@ import healthcheck
 LISTEN_PORT = 3128
 ALLOWED_PORT = 443
 MAX_HOST_LENGTH = 253
-# Chromium keeps at most 32 sockets per proxy; the bound leaves room for the loopback healthcheck.
-MAX_CONCURRENCY = 40
-MAX_SOURCE_CONCURRENCY = 40
-LISTEN_BACKLOG = 40
+# One Chromium on a heavy page plus its speculative tunnels (each held until its ClientHello deadline) filled 40 slots
+# and was answered 503, failing the next navigation (measured 2026-10-18). 96 handlers, the resolvers, and the main
+# thread stay inside the service's pids_limit of 128.
+MAX_CONCURRENCY = 96
+MAX_SOURCE_CONCURRENCY = 96
+LISTEN_BACKLOG = 96
 # One LDH label: letters, digits, and inner hyphens, at most 63 characters.
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 

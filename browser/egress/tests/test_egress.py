@@ -84,7 +84,7 @@ class BrowserEgressTests(unittest.TestCase):
         )
         self.assertEqual(
             (app.Server.max_concurrency, app.Server.max_source_concurrency, app.Server.request_queue_size),
-            (40, 40, 40),
+            (96, 96, 96),
         )
 
     def test_admission_takes_any_public_hostname_on_443_in_canonical_form(self) -> None:
