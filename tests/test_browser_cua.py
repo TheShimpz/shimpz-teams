@@ -327,6 +327,20 @@ class CuaSessionTests(unittest.TestCase):
         with self.assertRaises(cua.CuaError) as raised:
             session.navigate("https://www.python.org")
         self.assertEqual((raised.exception.code, raised.exception.fatal), ("navigation-failed", False))
+        # Only the Driver's exact error envelope: an answer not marked an error, an image, or an extra item is a loss.
+        text = "navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED"
+        for result in (
+            {"result": {"content": [{"type": "text", "text": text}], "isError": False}},
+            {"result": {"content": [{"type": "text", "text": text}]}},
+            {"result": {"content": [{"type": "image", "text": text}], "isError": True}},
+            {"result": {"content": [{"type": "text", "text": text}, "x"], "isError": True}},
+            {"result": {"content": [{"type": "text", "text": text}, {"type": "text", "text": text}], "isError": True}},
+        ):
+            with self.subTest(result=result):
+                session, _channel = _opened(result)
+                with self.assertRaises(cua.CuaError) as raised:
+                    session.navigate("https://example.com")
+                self.assertEqual((raised.exception.code, raised.exception.fatal), ("tool-failed", True))
         # Any other failure text, or the same text on another action, may mean the Browser is lost.
         for action, result in (
             (lambda s: s.navigate("https://example.com"), failed("navigation failed: something else")),

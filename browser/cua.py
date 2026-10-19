@@ -263,8 +263,15 @@ def _network_failure(result: dict[str, object]) -> bool:
     The text is matched, never forwarded: the agent learns only that the navigation failed.
     """
     content = result.get("content")
-    texts = [item.get("text") for item in content if isinstance(item, dict)] if isinstance(content, list) else []
-    return len(texts) == 1 and isinstance(texts[0], str) and NETWORK_FAILURE.fullmatch(texts[0]) is not None
+    if result.get("isError") is not True or not isinstance(content, list) or len(content) != 1:
+        return False
+    item = content[0]
+    return (
+        isinstance(item, dict)
+        and item.get("type") == "text"
+        and isinstance(item.get("text"), str)
+        and NETWORK_FAILURE.fullmatch(item["text"]) is not None
+    )
 
 
 def _refused(structured: dict[str, object]) -> bool:
