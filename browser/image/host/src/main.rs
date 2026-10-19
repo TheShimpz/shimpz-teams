@@ -11,6 +11,7 @@
 //! here again; nothing is ever passed to a shell.
 
 use std::collections::HashMap;
+mod compositor;
 mod display;
 
 use std::ffi::OsStr;
@@ -180,6 +181,15 @@ fn start_all(settings: &Settings, children: &mut Vec<Child>) -> Result<(), Strin
     children.push(display);
     display::record(pid)?;
     wait_until(children, "the display", display_answers)?;
+    // The compositor composites before any window opens, so a Cua Driver session draws its cursor for a composited
+    // screen.
+    children.push(spawn(
+        command(compositor::COMPOSITOR).args(compositor::ARGUMENTS),
+        "the compositor",
+    )?);
+    wait_until(children, "the compositor", || {
+        compositor::active(display::X_SOCKET)
+    })?;
     children.push(spawn(
         command(DBUS_DAEMON).args([
             "--session",
@@ -231,8 +241,9 @@ fn exited(children: &mut [Child]) -> Option<usize> {
 }
 
 fn supervise(children: &mut [Child]) -> Result<(), String> {
-    const NAMES: [&str; 4] = [
+    const NAMES: [&str; 5] = [
         "the display",
+        "the compositor",
         "the session bus",
         "the accessibility bus",
         "Chromium",

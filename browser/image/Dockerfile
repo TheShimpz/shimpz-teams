@@ -54,7 +54,7 @@ RUN --mount=type=bind,from=host,source=/etc/ssl/certs/ca-certificates.crt,target
     apt-get update --error-on=any && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         "chromium=${CHROMIUM_VERSION}" at-spi2-core dbus-daemon ca-certificates fonts-liberation fonts-noto-core \
-        fonts-noto-cjk libx11-6 libxi6 libxkbcommon0 libxext6 \
+        fonts-noto-cjk xcompmgr libx11-6 libxi6 libxkbcommon0 libxext6 \
         libbsd0 libfreetype6 libgbm1 libgl1 libpixman-1-0 libpng16-16t64 libssl3t64 libunwind8 libxau6 libxcursor1 \
         libxdmcp6 libxfixes3 libxfont2 libxrandr2 libxshmfence1 libxtst6 xkb-data x11-xkb-utils && \
     test "$(dpkg-query -W -f '${Version}' chromium)" = "${CHROMIUM_VERSION}" && \
