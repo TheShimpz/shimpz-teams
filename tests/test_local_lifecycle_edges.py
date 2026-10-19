@@ -294,6 +294,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             storage=types.SimpleNamespace(destroy_all=lambda: True),
             inference_store=types.SimpleNamespace(delete_all=lambda: events.append("inference-delete")),
             team_names=types.SimpleNamespace(delete_all=lambda: events.append("names-delete")),
+            chat_limit=types.SimpleNamespace(delete=lambda: events.append("chat-limit-delete")),
             _clear_team_runtime_state=lambda team_id: events.append(("runtime-clear", team_id)),
         )
 

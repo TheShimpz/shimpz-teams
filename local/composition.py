@@ -29,6 +29,8 @@ class ChatTurnDependencies:
     storage: object | None = None
     inference_store: object | None = None
     team_names: object | None = None
+    # The Space chat execution limit (ADR-0119).
+    chat_limit: object | None = None
     brain_runtime: object | None = None
     action_state: object | None = None
     assistant_integrations: object | None = None

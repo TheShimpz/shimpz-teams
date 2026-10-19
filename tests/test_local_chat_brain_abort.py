@@ -71,6 +71,7 @@ class LocalStopAbortTests(unittest.TestCase):
                 integration_challenges=SimpleNamespace(withdraw_team=lambda _team_id: None),
                 oauth_pkce=SimpleNamespace(cancel_team=lambda _team_id: None),
                 lock_for=lambda _team_id: team_lock,
+                chat_limit=SimpleNamespace(current=lambda: 2),
             )
         )
         self.service._delete_chat_continuation = lambda _team_id: False

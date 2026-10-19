@@ -329,6 +329,7 @@ def remove_space_resources(
     absent.add("team_storage")
     # Every owned file goes, even for a Team whose network a crash already removed.
     self.inference_store.delete_all()
+    self.chat_limit.delete()
     absent.add("inference_configuration")
     for network in networks:
         network.remove()

@@ -115,7 +115,8 @@ COPY --link local/assistant/__init__.py local/assistant/api.py local/assistant/e
     local/assistant/rpc.py ./local/assistant/
 COPY --link local/chat/__init__.py local/chat/api.py local/chat/attachments.py local/chat/capabilities.py \
     local/chat/continuation.py \
-    local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/pause.py \
+    local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/limit.py \
+    local/chat/pause.py \
     local/chat/private.py local/chat/resume.py local/chat/segment.py local/chat/service.py \
     local/chat/state.py local/chat/types.py ./local/chat/
 COPY --link local/routine/__init__.py local/routine/card.py local/routine/replay.py local/routine/contracts.py \

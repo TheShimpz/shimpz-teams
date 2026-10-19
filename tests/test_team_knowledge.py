@@ -316,6 +316,7 @@ class CommitTests(unittest.TestCase):
                 integration_challenges=SimpleNamespace(cancel_team=lambda _team_id: False),
                 oauth_pkce=SimpleNamespace(cancel_team=lambda _team_id: None),
                 inference_store=self.store,
+                chat_limit=SimpleNamespace(current=lambda: 2),
             )
         )
         self.service._delete_chat_continuation = lambda _team_id: False

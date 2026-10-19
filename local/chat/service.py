@@ -22,7 +22,7 @@ from local.chat import segment as local_chat_segment
 from local.chat import state as local_chat_state
 from local.composition import ChatTurnDependencies
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import chat_active, chat_stop_timeout, routine_active
+from local.errors import chat_active, chat_stop_timeout, routine_active, space_busy
 from local.routine import card as local_routine_card
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import human as local_routine_human
@@ -49,6 +49,7 @@ class ChatTurnService:
         self.storage = dependencies.storage
         self.inference_store = dependencies.inference_store
         self.team_names = dependencies.team_names
+        self.chat_limit = dependencies.chat_limit
         self.brain_runtime = dependencies.brain_runtime
         self.action_state = dependencies.action_state
         self.assistant_integrations = dependencies.assistant_integrations
@@ -191,18 +192,11 @@ class ChatTurnService:
         token = secrets.token_hex(16)
         # Registered before any Brain request of the turn, so Stop can always reach the one in flight (ADR-0079).
         brain_abort = request_abort.RequestAbort()
-        with self._active_chat_guard:
-            closed = self._chat_closed
-            if not closed:
-                self._active_chat_tokens[team_id] = token
-                self._brain_aborts[token] = brain_abort
-                if routine_id is not None:
-                    self._routine_holders[team_id] = routine_id
-                else:
-                    self._chat_demand.pop(team_id, None)
-        if closed:
+        try:
+            self._register_execution(team_id, token, brain_abort, routine_id)
+        except ApiProblem:
             lock.release()
-            raise ApiProblem(HTTPStatus.CONFLICT, "the Space is being reset", code="space-resetting")
+            raise
         try:
             with request_abort.abortable(brain_abort):
                 yield token
@@ -220,6 +214,30 @@ class ChatTurnService:
                     self._active_action_containers.pop(team_id, None)
                 self._cancelled_chat_tokens.discard(token)
             lock.release()
+
+    def _register_execution(
+        self, team_id: str, token: str, brain_abort: request_abort.RequestAbort, routine_id: str | None
+    ) -> None:
+        """Register the Team's execution, or refuse it while the Space resets or runs as many chat turns as its limit.
+
+        A chat turn is counted against the Space's current limit in the same step that registers it, so no request,
+        however delayed, starts beside as many turns as the limit (ADR-0119).
+        """
+        with self._active_chat_guard:
+            if self._chat_closed:
+                raise ApiProblem(HTTPStatus.CONFLICT, "the Space is being reset", code="space-resetting")
+            if routine_id is None and self._chat_executions() >= self.chat_limit.current():
+                raise space_busy()
+            self._active_chat_tokens[team_id] = token
+            self._brain_aborts[token] = brain_abort
+            if routine_id is not None:
+                self._routine_holders[team_id] = routine_id
+            else:
+                self._chat_demand.pop(team_id, None)
+
+    def _chat_executions(self) -> int:
+        """The chat turns holding an execution slot now, a Routine run's segment not among them; under the guard."""
+        return sum(1 for team_id in self._active_chat_tokens if team_id not in self._routine_holders)
 
     _pending_chat_continuation = local_chat_api.pending_chat_continuation
     _turn_started = local_chat_attachments.turn_started

@@ -22,7 +22,8 @@ from storage import files as team_storage
 
 class LocalChatServiceEdgeTests(unittest.TestCase):
     def test_terminal_commit_exclusive_conflict_and_cleanup_paths(self) -> None:
-        service = local_app.ChatTurnService(local_app.ChatTurnDependencies())
+        limit = types.SimpleNamespace(current=lambda: 2)
+        service = local_app.ChatTurnService(local_app.ChatTurnDependencies(chat_limit=limit))
         self.assertFalse(service._commit_chat_terminal("team_1", "missing"))
 
         lock = service._chat_lock("team_1")

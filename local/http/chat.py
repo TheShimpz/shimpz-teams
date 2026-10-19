@@ -2,7 +2,8 @@
 
 A Supervisor session starts a turn, reads and answers its pending human and Integration requests, opens the pending
 human challenge in one interface language (ADR-0091), stops the turn, and asks for the Brain's capability plan and
-intent route. A turn and its answers stream metadata-only progress before their one terminal record.
+intent route. A turn and its answers stream metadata-only progress before their one terminal record. The Supervisor
+also reads and sets how many chat turns the Space runs at once (ADR-0119).
 """
 
 from http import HTTPStatus
@@ -13,8 +14,9 @@ from core.http import strict as strict_http
 from local.errors import ApiProblemError as ApiProblem
 from local.http import stream as local_http_stream
 from local.http.audit import RequestAudit
-from local.http.dispatch import MAX_BODY_BYTES, MAX_HUMAN_RESPONSE_BODY_BYTES, Operation, team_operation
+from local.http.dispatch import MAX_BODY_BYTES, MAX_HUMAN_RESPONSE_BODY_BYTES, Operation, Result, team_operation
 from local.validation import validate_team_id
+from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import turn as http_turn
 
 MAX_CHAT_BODY_BYTES = 128 * 1024
@@ -29,6 +31,7 @@ BODY_LIMITS = {
     "chat-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
     "chat-human-open": MAX_BODY_BYTES,
     "chat-stop": MAX_BODY_BYTES,
+    "chat-limit-save": MAX_BODY_BYTES,
 }
 
 
@@ -85,6 +88,21 @@ def _intent_route(handler, team_id: str) -> dict[str, object]:
     return handler.server.controller.chat_turn_service.intent_route(team_id, body, provider, api_key, decision_key)
 
 
+def _limit(handler, route: strict_http.ControllerRouteMatch) -> Result:
+    """The Space's chat limit, or, for a save, the limit just committed."""
+    store = handler.server.controller.chat_limit
+    if route.operation == "chat-limit-read":
+        return HTTPStatus.OK, {"limit": store.current()}, route.operation, None, None
+    body = http_payload.canonical_chat_limit(handler.body())
+    if body is None:
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            f"chat limit must be exactly {{limit}} from 1 to {http_payload.MAX_CHAT_LIMIT}",
+            code="invalid-body",
+        )
+    return HTTPStatus.OK, {"limit": store.save(body["limit"])}, route.operation, None, None
+
+
 # The non-streamed chat operations; a turn and the answers to it stream instead.
 OPERATIONS: dict[str, Operation] = {
     "chat-human-pending": team_operation(
@@ -97,6 +115,8 @@ OPERATIONS: dict[str, Operation] = {
     "chat-stop": team_operation(_stop),
     "chat-capability-plan": team_operation(_capability_plan),
     "chat-intent-route": team_operation(_intent_route),
+    "chat-limit-read": _limit,
+    "chat-limit-save": _limit,
 }
 
 

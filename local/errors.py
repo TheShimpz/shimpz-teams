@@ -108,6 +108,10 @@ assistant_install_rollback_incomplete = _problem(
 chat_stop_timeout = _problem(_CONFLICT, "active Team chat did not stop in time", "chat-active")
 routine_active = _problem(_CONFLICT, "Team is running a Routine", "routine-active")
 chat_active = _problem(_CONFLICT, "Team already has an active chat turn", "chat-active")
+# The Space already runs as many chat turns as its limit allows (ADR-0119); Admin keeps the turn queued.
+space_busy = _problem(
+    HTTPStatus.TOO_MANY_REQUESTS, "the Space runs as many chat turns as its limit allows", "space-busy"
+)
 invalid_locale = _problem(_INVALID, "locale must be one interface language", "invalid-locale")
 assistant_limit_reached = _problem(
     _CONFLICT, "Team already has the maximum number of Assistants", "assistant_limit_reached"

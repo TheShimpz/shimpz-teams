@@ -804,6 +804,22 @@ def canonical_team_name(value: object) -> str | None:
     return value
 
 
+# How many chat turns the Space runs at once (ADR-0119): Team's own limit, never above the ceiling proven so far.
+MAX_CHAT_LIMIT = 2
+
+
+def canonical_chat_limit(value: object) -> dict[str, int] | None:
+    """A chat limit body or answer: exactly ``{"limit": n}``, ``n`` an integer from 1 to MAX_CHAT_LIMIT."""
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"limit"}
+        or type(value["limit"]) is not int
+        or not 1 <= value["limit"] <= MAX_CHAT_LIMIT
+    ):
+        return None
+    return {"limit": value["limit"]}
+
+
 def canonical_local_team_name(value: object) -> str | None:
     """A Local Team display name (ADR-0088): the shared bounds, already NFC so names compare exactly, and public text.
 

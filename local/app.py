@@ -58,6 +58,7 @@ from local.browser import runtime as local_browser_runtime
 from local.browser import service as local_browser_service
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat import execution as local_chat_execution
+from local.chat import limit as local_chat_limit
 from local.chat import state as local_chat_state
 from local.chat.service import ChatTurnService
 from local.composition import AssistantLifecycleDependencies, ChatTurnDependencies
@@ -232,6 +233,7 @@ class LocalControllerDependencies:
     routine_store: local_routine_store.RoutineStore | None = None
     routine_diagnostics: local_routine_diagnostics.DiagnosticStore | None = None
     team_names: local_names.TeamNameStore | None = None
+    chat_limit: local_chat_limit.ChatLimitStore | None = None
     # The exact Browser image this Team image names (ADR-0117 §9); None leaves the Browser unavailable.
     browser_image: str | None = None
 
@@ -289,6 +291,7 @@ class LocalController:
         self.storage = storage
         self.inference_store = dependencies.inference_store or inference_config.InferenceConfigStore(INFERENCE_ROOT)
         self.team_names = dependencies.team_names or local_names.TeamNameStore(INFERENCE_ROOT)
+        self.chat_limit = dependencies.chat_limit or local_chat_limit.ChatLimitStore(INFERENCE_ROOT)
         self.routine_store = dependencies.routine_store or local_routine_store.RoutineStore()
         self.routine_diagnostics = dependencies.routine_diagnostics or local_routine_diagnostics.DiagnosticStore()
         self.brain_runtime = dependencies.brain_runtime or brain_runtime_client.BrainRuntimeClient()
@@ -387,6 +390,7 @@ class LocalController:
                 storage=self.storage,
                 inference_store=self.inference_store,
                 team_names=self.team_names,
+                chat_limit=self.chat_limit,
                 brain_runtime=self.brain_runtime,
                 action_state=self.action_state,
                 assistant_integrations=self.assistant_integrations,

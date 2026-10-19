@@ -172,6 +172,14 @@ for kind, validator in validators.items():
     if any(validator(value) is not None for value in cases.get("invalid", [])):
         fail(f"Team HTTP {kind} negative vector differs")
 
+chat_limits = vectors.get("chat_limit", {})
+if not chat_limits.get("valid") or not chat_limits.get("invalid"):
+    fail("Team HTTP chat limit vectors are missing")
+if any(payload.canonical_chat_limit(value) != value for value in chat_limits["valid"]):
+    fail("Team HTTP chat limit positive vector differs")
+if any(payload.canonical_chat_limit(value) is not None for value in chat_limits["invalid"]):
+    fail("Team HTTP chat limit negative vector differs")
+
 clarifications = vectors.get("clarification", {})
 if not clarifications.get("valid") or not clarifications.get("invalid"):
     fail("clarification vectors are missing")

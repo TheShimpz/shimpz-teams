@@ -441,6 +441,10 @@
       "invalid": ["", "sha256:abc", "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
     }
   },
+  "chat_limit": {
+    "valid": [{"limit": 1}, {"limit": 2}],
+    "invalid": [{}, {"limit": 0}, {"limit": 3}, {"limit": true}, {"limit": 1.0}, {"limit": "2"}, {"limit": 2, "extra": 1}, [2], 2, null]
+  },
   "chat_locale": {
     "valid": ["ar", "de", "en", "es", "fr", "ja", "pt", "zh"],
     "invalid": ["EN", "pt-BR", "it", "", " en", null, 1]

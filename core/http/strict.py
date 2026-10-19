@@ -305,6 +305,9 @@ CONTROLLER_ROUTES = (
         "chat-human-open",
     ),
     _controller_route("POST", "/v1/teams/:team_id/chat/stop", "chat-stop"),
+    # How many chat turns the Space runs at once (ADR-0119).
+    _controller_route("GET", "/v1/chat/limit", "chat-limit-read"),
+    _controller_route("PUT", "/v1/chat/limit", "chat-limit-save"),
     _controller_route("GET", "/v1/teams/:team_id/assistant-integrations", "assistant-integration-list"),
     _controller_route(
         "POST",

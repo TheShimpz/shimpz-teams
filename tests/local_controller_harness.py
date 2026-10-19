@@ -25,6 +25,7 @@ from local import labels as local_labels
 from local import names as local_names
 from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
+from local.chat import limit as local_chat_limit
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
 from local.routine import diagnostics as local_routine_diagnostics
@@ -94,6 +95,9 @@ def wire_collaborators(controller) -> None:
     for name in _COLLABORATOR_INPUTS:
         if not hasattr(controller, name):
             setattr(controller, name, None)
+    if not hasattr(controller, "chat_limit"):
+        # The Space's chat limit at its default, never saved (ADR-0119).
+        controller.chat_limit = SimpleNamespace(current=lambda: local_chat_limit.DEFAULT, delete=lambda: None)
     controller._wire_collaborators()
 
 

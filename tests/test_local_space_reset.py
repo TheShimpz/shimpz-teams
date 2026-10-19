@@ -37,6 +37,7 @@ def _controller(events: list[object], assistants: dict[str, object], networks: l
     controller._locks = (threading.RLock(),)
     controller._names_lock = threading.RLock()
     controller.team_names = SimpleNamespace(delete_all=lambda: events.append("delete-names"))
+    controller.chat_limit = SimpleNamespace(delete=lambda: events.append("delete-chat-limit"))
     controller.registry = TestAssistantRegistry(assistants)
     controller.client = SimpleNamespace(
         containers=SimpleNamespace(list=lambda **_kwargs: []),
