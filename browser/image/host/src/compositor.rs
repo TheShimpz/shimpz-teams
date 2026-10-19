@@ -6,27 +6,62 @@
 
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const COMPOSITOR: &str = "/usr/bin/xcompmgr";
 /// Plain compositing: no shadows or fades to draw.
 pub const ARGUMENTS: &[&str] = &["-n"];
 const SELECTION: &[u8] = b"_NET_WM_CM_S0";
-const TIMEOUT: Duration = Duration::from_secs(2);
+/// One check, connection to answer, ends by this bound however slowly the display answers.
+const CHECK: Duration = Duration::from_secs(2);
 /// The connection setup's extra data the check reads at most; a display's is a few kilobytes.
 const MAX_SETUP_BYTES: usize = 1024 * 1024;
 const INTERN_ATOM: u8 = 16;
 const GET_SELECTION_OWNER: u8 = 23;
 
-/// Whether a compositor owns the display's compositing selection now.
+/// Whether a compositor owns the display's compositing selection now, answered within CHECK.
 pub fn active(socket: &str) -> bool {
+    let deadline = Instant::now() + CHECK;
     UnixStream::connect(socket)
-        .and_then(|stream| {
-            stream.set_read_timeout(Some(TIMEOUT))?;
-            stream.set_write_timeout(Some(TIMEOUT))?;
-            selection_owned(stream, SELECTION)
-        })
+        .and_then(|stream| selection_owned(Bounded { stream, deadline }, SELECTION))
         .unwrap_or(false)
+}
+
+/// A display connection whose every read and write waits only for what is left of one absolute deadline.
+struct Bounded {
+    stream: UnixStream,
+    deadline: Instant,
+}
+
+impl Bounded {
+    fn left(&self) -> io::Result<Duration> {
+        let left = self.deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "the display did not answer in time",
+            ));
+        }
+        Ok(left)
+    }
+}
+
+impl Read for Bounded {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.stream.set_read_timeout(Some(self.left()?))?;
+        self.stream.read(buffer)
+    }
+}
+
+impl Write for Bounded {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        self.stream.set_write_timeout(Some(self.left()?))?;
+        self.stream.write(data)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.stream.flush()
+    }
 }
 
 /// Ask an X server, over a fresh connection, whether `selection` has an owner.
@@ -129,10 +164,45 @@ mod tests {
             // The X11 core protocol's own opcodes: InternAtom is 16, GetSelectionOwner 23.
             assert_eq!(&seen[12..20], &[16, 0, 6, 0, 13, 0, 0, 0]);
             assert_eq!(&seen[20..33], SELECTION);
-            assert_eq!(
-                &seen[36..44],
-                &[GET_SELECTION_OWNER, 0, 2, 0, 0x77, 0, 0, 0]
+            assert_eq!(&seen[36..44], &[23, 0, 2, 0, 0x77, 0, 0, 0]);
+        }
+    }
+
+    /// A display that accepts the connection, then answers nothing or one byte at a time, forever.
+    fn slow_display(drip: bool) -> (std::path::PathBuf, thread::JoinHandle<()>) {
+        let path =
+            std::env::temp_dir().join(format!("compositor-{}-{drip}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let handle = thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            let mut setup = [0u8; 12];
+            let _ = peer.read_exact(&mut setup);
+            let mut answer = [1u8, 0, 11, 0, 0, 0, 0, 0].into_iter().cycle();
+            for _ in 0..30 {
+                thread::sleep(Duration::from_millis(100));
+                if drip && peer.write_all(&[answer.next().unwrap()]).is_err() {
+                    return;
+                }
+            }
+        });
+        (path, handle)
+    }
+
+    #[test]
+    fn a_display_that_stalls_or_drips_is_given_up_on_at_the_check_bound() {
+        for drip in [false, true] {
+            let (path, handle) = slow_display(drip);
+            let started = Instant::now();
+            assert!(!active(path.to_str().unwrap()));
+            let took = started.elapsed();
+            assert!(
+                took >= CHECK - Duration::from_millis(200),
+                "{drip}: {took:?}"
             );
+            assert!(took < CHECK + Duration::from_secs(1), "{drip}: {took:?}");
+            handle.join().unwrap();
+            let _ = std::fs::remove_file(&path);
         }
     }
 
