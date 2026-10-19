@@ -235,6 +235,14 @@ class ChatTurnService:
             else:
                 self._chat_demand.pop(team_id, None)
 
+    def save_chat_limit(self, limit: int) -> int:
+        """Commit the Space's chat limit under the guard admissions register under, so none counts against an older one.
+
+        A turn that registered before the save keeps running; every admission after it counts against the new limit.
+        """
+        with self._active_chat_guard:
+            return self.chat_limit.save(limit)
+
     def _chat_executions(self) -> int:
         """The chat turns holding an execution slot now, a Routine run's segment not among them; under the guard."""
         return sum(1 for team_id in self._active_chat_tokens if team_id not in self._routine_holders)

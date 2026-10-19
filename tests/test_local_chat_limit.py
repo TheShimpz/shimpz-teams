@@ -122,6 +122,18 @@ class ChatLimitAdmissionTests(unittest.TestCase):
         for thread in threads:
             thread.join(5)
 
+    def test_a_save_is_never_interleaved_with_an_admission(self) -> None:
+        # The save waits for the guard an admission holds while it counts and registers, and the reverse.
+        self.service._active_chat_guard.acquire()
+        saved = threading.Event()
+        saver = threading.Thread(target=lambda: (self.service.save_chat_limit(1), saved.set()))
+        saver.start()
+        self.assertFalse(saved.wait(0.2))
+        self.service._active_chat_guard.release()
+        self.assertTrue(saved.wait(5))
+        saver.join(5)
+        self.assertEqual(self.limit.current(), 1)
+
     def test_an_unreadable_limit_refuses_the_turn_and_frees_its_team(self) -> None:
         unreadable = mock.patch.object(self.limit, "current", side_effect=local_chat_limit._unavailable())
         with unreadable, self.assertRaises(ApiProblemError) as refused, self.service._exclusive_chat_turn("team_1"):
@@ -138,6 +150,7 @@ class ChatLimitRouteTests(unittest.TestCase):
             store = local_chat_limit.ChatLimitStore(Path(directory))
             handler = mock.Mock()
             handler.server.controller.chat_limit = store
+            handler.server.controller.chat_turn_service = ChatTurnService(ChatTurnDependencies(chat_limit=store))
             read = strict_http.resolve_controller_route("GET", ("v1", "chat", "limit"))
             save = strict_http.resolve_controller_route("PUT", ("v1", "chat", "limit"))
             self.assertEqual(

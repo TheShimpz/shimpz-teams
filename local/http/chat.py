@@ -90,9 +90,9 @@ def _intent_route(handler, team_id: str) -> dict[str, object]:
 
 def _limit(handler, route: strict_http.ControllerRouteMatch) -> Result:
     """The Space's chat limit, or, for a save, the limit just committed."""
-    store = handler.server.controller.chat_limit
+    controller = handler.server.controller
     if route.operation == "chat-limit-read":
-        return HTTPStatus.OK, {"limit": store.current()}, route.operation, None, None
+        return HTTPStatus.OK, {"limit": controller.chat_limit.current()}, route.operation, None, None
     body = http_payload.canonical_chat_limit(handler.body())
     if body is None:
         raise ApiProblem(
@@ -100,7 +100,8 @@ def _limit(handler, route: strict_http.ControllerRouteMatch) -> Result:
             f"chat limit must be exactly {{limit}} from 1 to {http_payload.MAX_CHAT_LIMIT}",
             code="invalid-body",
         )
-    return HTTPStatus.OK, {"limit": store.save(body["limit"])}, route.operation, None, None
+    saved = controller.chat_turn_service.save_chat_limit(body["limit"])
+    return HTTPStatus.OK, {"limit": saved}, route.operation, None, None
 
 
 # The non-streamed chat operations; a turn and the answers to it stream instead.
