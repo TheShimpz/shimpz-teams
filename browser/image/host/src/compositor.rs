@@ -6,6 +6,8 @@
 
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 pub const COMPOSITOR: &str = "/usr/bin/xcompmgr";
@@ -22,9 +24,27 @@ const GET_SELECTION_OWNER: u8 = 23;
 /// Whether a compositor owns the display's compositing selection now, answered within CHECK.
 pub fn active(socket: &str) -> bool {
     let deadline = Instant::now() + CHECK;
-    UnixStream::connect(socket)
+    connect(socket, deadline)
         .and_then(|stream| selection_owned(Bounded { stream, deadline }, SELECTION))
         .unwrap_or(false)
+}
+
+/// Connect to `socket` by `deadline`: a display whose accept queue is full blocks a connection, which is then given
+/// up on and finishes, or not, on its own thread.
+fn connect(socket: &str, deadline: Instant) -> io::Result<UnixStream> {
+    let (sender, receiver) = mpsc::channel();
+    let socket = socket.to_owned();
+    thread::spawn(move || {
+        let _ = sender.send(UnixStream::connect(socket));
+    });
+    receiver
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .unwrap_or_else(|_| {
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "the display did not accept in time",
+            ))
+        })
 }
 
 /// A display connection whose every read and write waits only for what is left of one absolute deadline.
@@ -118,7 +138,6 @@ fn reply(stream: &mut impl Read) -> io::Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
 
     fn answer(value: u32) -> [u8; 32] {
         let mut reply = [0u8; 32];
@@ -204,6 +223,29 @@ mod tests {
             handle.join().unwrap();
             let _ = std::fs::remove_file(&path);
         }
+    }
+
+    #[test]
+    fn a_display_whose_accept_queue_is_full_is_given_up_on_at_the_check_bound() {
+        let path =
+            std::env::temp_dir().join(format!("compositor-full-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let _listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        // Fill the queue the listener never accepts from, until one more connection would block.
+        let mut held = Vec::new();
+        while let Ok(stream) = connect(
+            path.to_str().unwrap(),
+            Instant::now() + Duration::from_millis(200),
+        ) {
+            held.push(stream);
+            assert!(held.len() < 100_000, "the accept queue never filled");
+        }
+        let started = Instant::now();
+        assert!(!active(path.to_str().unwrap()));
+        let took = started.elapsed();
+        assert!(took >= CHECK - Duration::from_millis(200), "{took:?}");
+        assert!(took < CHECK + Duration::from_secs(1), "{took:?}");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
