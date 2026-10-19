@@ -94,6 +94,18 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             refusal=(SystemExit, ValueError),
         )
 
+    def test_rejects_missing_or_drifted_chat_limit_vectors(self) -> None:
+        def missing(value: dict[str, object]) -> None:
+            value.pop("chat_limit")
+
+        def invalid_positive(value: dict[str, object]) -> None:
+            value["chat_limit"]["valid"] = [{"limit": 3}]
+
+        def valid_negative(value: dict[str, object]) -> None:
+            value["chat_limit"]["invalid"] = [{"limit": 1}]
+
+        self._assert_vector_mutations_refused(missing, invalid_positive, valid_negative, refusal=(SystemExit,))
+
     def test_rejects_missing_or_drifted_chat_conversation_vectors(self) -> None:
         def missing(value: dict[str, object]) -> None:
             value["chat_conversation"]["invalid"] = []
