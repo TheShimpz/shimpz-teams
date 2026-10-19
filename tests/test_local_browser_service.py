@@ -247,7 +247,11 @@ class BrowserServiceTests(unittest.TestCase):
             ended = True
             stop_while_ending = ()
 
+            open_failure = None
+
             def open_stream(self, lease, deadline, wanted):
+                if self.open_failure is not None and any(event[0] == "stream" for event in self.events):
+                    raise self.open_failure
                 exec_id = f"exec-{sum(event[0] == 'stream' for event in self.events)}"
                 self.events.append(("stream", exec_id))
                 return exec_id, Stream(exec_id, self.events)
@@ -280,6 +284,16 @@ class BrowserServiceTests(unittest.TestCase):
                 )
                 self.assertTrue(detail.startswith(expected), detail)
 
+        # The replacement could not be opened: the task is lost, and says why.
+        fake = Driving()
+        fake.open_failure = runtime.BrowserError("browser-lost")
+        failed = mock.Mock()
+        failed.observe.side_effect = cua.CuaError("channel-lost")
+        with mock.patch.object(service.cua, "CuaSession", side_effect=[failed]):
+            result, _ = self.make(fake).run(self.turn, CONTEXT, REQUEST)
+        self.assertEqual(result["status"], "failed")
+        detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
+        self.assertIn(":cause=observe/channel-lost/reopen/driver-unavailable:", detail)
         # Stop came while the failed session was ending: no replacement is opened, and the task was stopped.
         fake = Driving()
         fake.stop_while_ending = (True,)
@@ -324,6 +338,39 @@ class BrowserServiceTests(unittest.TestCase):
             result, _ = self.make(Driving()).run(turn, CONTEXT, REQUEST)
         self.assertEqual(result["status"], "stopped")
         self.assertEqual(stream.sent, ["initialize"])
+
+    def test_a_driver_session_that_cannot_open_or_opens_after_stop_drives_nothing(self):
+        stopping, closed = [], []
+
+        class Stream:
+            def close(self):
+                closed.append(True)
+
+        class Opening(FakeRuntime):
+            failures = ()
+            stop_while_opening = ()
+
+            def open_stream(self, lease, deadline, wanted):
+                self.events.append(("stream", lease.container_id))
+                if self.failures:
+                    raise self.failures.pop(0)
+                stopping.extend(self.stop_while_opening)
+                return "exec-0", Stream()
+
+        # Docker could not open the first session: the task is lost where the runtime says.
+        fake = Opening()
+        fake.failures = [runtime.BrowserError("browser-lost")]
+        result, _ = self.make(fake).run(self.turn, CONTEXT, REQUEST)
+        self.assertEqual((result["status"], result["reason"]), ("failed", "browser-lost"))
+        detail = [fields["detail"] for operation, fields in self.audit if operation == "browser-task"][-1]
+        self.assertTrue(detail.startswith("failed:steps=0:recovered=0:cause=runtime/browser-lost:"), detail)
+        # Stop came while Docker opened it: the session is closed unused and the task stopped.
+        fake = Opening()
+        fake.stop_while_opening = (True,)
+        turn = service.BrowserTurn("team_1", "d" * 64, TURN, "pt-BR", self.brain, lambda: bool(stopping))
+        with mock.patch.object(service.cua, "CuaSession", side_effect=AssertionError("no session")):
+            result, _ = self.make(fake).run(turn, CONTEXT, REQUEST)
+        self.assertEqual((result["status"], closed), ("stopped", [True]))
 
     def test_the_language_follows_the_turn_and_lifecycle_calls_reach_the_runtime(self):
         self.assertEqual(

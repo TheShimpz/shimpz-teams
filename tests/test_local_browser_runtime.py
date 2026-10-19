@@ -200,10 +200,10 @@ class Api:
     def exec_start(self, exec_id, socket):
         assert socket is True
         _identifier, arguments = self.execs[exec_id]
-        if self.docker.fail.get("start"):
-            raise APIError("start failed")
         if self.docker.fail.get("stall-start"):
             self.docker.fail["stall-start"].wait()
+        if self.docker.fail.get("start"):
+            raise APIError("start failed")
         if self.docker.fail.get("no-socket"):
             return object()
         team, docker = sockets.socketpair()
@@ -704,6 +704,22 @@ class BrowserRuntimeTests(unittest.TestCase):
         while team.fileno() != -1 and time.monotonic() < deadline:
             time.sleep(0.01)
         self.assertEqual(team.fileno(), -1)
+        self.docker.fail = {}
+        self.runtime.release(lease)
+
+    def test_a_driver_session_that_fails_after_its_wait_ended_leaves_nothing_open(self):
+        lease = self.runtime.acquire("team_1", "en")
+        stalled = threading.Event()
+        self.addCleanup(stalled.set)
+        self.docker.fail = {"stall-start": stalled, "start": True}
+        with self.assertRaises(runtime.BrowserError):
+            self.runtime.open_stream(lease, self.now[0] + 3600, lambda: False)
+        opened = len(self.docker.sockets)
+        stalled.set()
+        deadline = time.monotonic() + 5
+        while any(thread.name == "browser-driver" for thread in threading.enumerate()) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(len(self.docker.sockets), opened)
         self.docker.fail = {}
         self.runtime.release(lease)
 
