@@ -44,7 +44,6 @@ class ChatLimitStore:
         """Durably replace the limit; admissions see it once the record is committed."""
         with self._lock:
             try:
-                self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                 private_state.write_json_record(self._path, {"schema": SCHEMA, "limit": limit}, MAX_RECORD_BYTES)
             except (OSError, ValueError) as exc:
                 raise _unavailable() from exc
@@ -67,9 +66,9 @@ class ChatLimitStore:
             raise _unavailable() from exc
         if value is None:
             return DEFAULT
-        if not isinstance(value, dict) or set(value) != {"schema", "limit"} or value["schema"] != SCHEMA:
+        if not isinstance(value, dict) or set(value) != {"schema", "limit"} or type(value["schema"]) is not int:
             raise _unavailable()
         admitted = http_payload.canonical_chat_limit({"limit": value["limit"]})
-        if admitted is None or type(value["schema"]) is not int:
+        if value["schema"] != SCHEMA or admitted is None:
             raise _unavailable()
         return admitted["limit"]

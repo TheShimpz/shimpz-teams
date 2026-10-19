@@ -510,7 +510,8 @@ class BrowserRuntime:
         """
         guard = threading.Lock()
         opened: list[tuple[str, object] | BrowserError] = []
-        late = threading.Event()
+        # The wait ended without a session, under `guard`: one Docker opens afterwards is closed unused.
+        ended = False
 
         def run() -> None:
             try:
@@ -518,7 +519,7 @@ class BrowserRuntime:
             except BrowserError as exc:
                 answer = exc
             with guard:
-                if not late.is_set():
+                if not ended:
                     opened.append(answer)
                     return
             if isinstance(answer, tuple):
@@ -531,7 +532,7 @@ class BrowserRuntime:
             worker.join(min(left, DRIVER_POLL_SECONDS))
         with guard:
             if not opened:
-                late.set()
+                ended = True
                 raise BrowserError("browser-lost")
         answer = opened[0]
         if isinstance(answer, BrowserError):
