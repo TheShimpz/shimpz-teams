@@ -12,9 +12,10 @@ class FakeSession:
         self.refs = refs if refs is not None else {"p1:0": frozenset({"type"}), "p1:1": frozenset({"click"})}
         self.fail_observe, self.refuse, self.fatal = fail_observe, set(refuse), set(fatal)
         self.unloaded = set(unloaded)
-        self.calls, self.screenshots = [], []
+        self.calls, self.screenshots, self.observed = [], [], 0
 
     def observe(self, *, screenshot=False):
+        self.observed += 1
         if self.fail_observe:
             raise cua.CuaError("tool-failed")
         self.screenshots.append(screenshot)
@@ -307,6 +308,20 @@ class BrowserTaskTests(unittest.TestCase):
         stopped = iter([False, False, True])
         outcome, _ = _run(FakeSession(fail_observe=True), _steps()[0], reopen=reopen, cancelled=lambda: next(stopped))
         self.assertEqual((outcome, reopened), (task.Outcome("stopped"), [True]))
+        # Stop during the failure after the last allowed recovery still ends the task stopped, not lost.
+        sessions = []
+
+        def failing(_session, _deadline):
+            sessions.append(FakeSession(fail_observe=True))
+            return sessions[-1]
+
+        outcome, _ = _run(
+            FakeSession(fail_observe=True),
+            _steps()[0],
+            reopen=failing,
+            cancelled=lambda: len(sessions) == task.MAX_RECOVERIES and sessions[-1].observed > 0,
+        )
+        self.assertEqual(outcome, task.Outcome("stopped", steps=task.MAX_RECOVERIES, recovered=task.MAX_RECOVERIES))
         # The egress was lost before the session failed: no session is replaced.
         lost = iter([True, False])
         outcome, _ = _run(FakeSession(fail_observe=True), _steps()[0], reopen=reopen, intact=lambda: next(lost))

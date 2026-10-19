@@ -207,9 +207,22 @@ class BrowserService:
     ) -> browser_task.Outcome:
         drivers: dict[cua.CuaSession, tuple[str, ExecStream]] = {}
 
+        def held() -> bool:
+            """The turn still runs and still holds this very lease; Stop revokes it."""
+            if turn.cancelled():
+                return False
+            with self._guard:
+                running = self._running.get(lease.team_id)
+            return running is not None and running[0] == turn.token and running[1] is lease
+
         def driver(deadline: float) -> cua.CuaSession:
-            """One Driver session on the task's Browser, opened by `deadline`."""
-            exec_id, stream = self._runtime.open_stream(lease, deadline)
+            """One Driver session on the task's Browser, opened by `deadline`; none reaches a Browser Stop revoked."""
+            if not held():
+                raise cua.CuaError("stopped")
+            exec_id, stream = self._runtime.open_stream(lease, deadline, held)
+            if not held():
+                stream.close()
+                raise cua.CuaError("stopped")
             session = cua.CuaSession(stream)
             drivers[session] = (exec_id, stream)
             session.deadline = deadline

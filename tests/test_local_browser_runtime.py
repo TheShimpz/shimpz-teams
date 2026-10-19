@@ -663,7 +663,7 @@ class BrowserRuntimeTests(unittest.TestCase):
 
     def test_the_mcp_stream_and_program_failures(self):
         lease = self.runtime.acquire("team_1", "en")
-        exec_id, stream = self.runtime.open_stream(lease, self.now[0] + 10)
+        exec_id, stream = self.runtime.open_stream(lease, self.now[0] + 10, lambda: True)
         self.assertTrue(exec_id)
         self.assertIsNotNone(stream)
         self.assertEqual(self.runtime.program(lease.container_id, ["ready"], deadline=10)[0], 0)
@@ -674,20 +674,26 @@ class BrowserRuntimeTests(unittest.TestCase):
                 self.docker.fail = {failure: True}
                 self.assertEqual(self.runtime.program(lease.container_id, ["ready"], deadline=10)[0], -1)
                 with self.assertRaises(runtime.BrowserError):
-                    self.runtime.open_stream(lease, self.now[0] + 10)
+                    self.runtime.open_stream(lease, self.now[0] + 10, lambda: True)
         self.docker.fail = {}
         self.docker.api.exec_inspect = lambda _exec: {"ExitCode": None}
         self.assertEqual(self.runtime.program(lease.container_id, ["ready"], deadline=10)[0], -1)
         self.runtime.release(lease)
 
-    def test_a_driver_session_docker_opens_too_late_is_closed_unused(self):
+    def test_a_stalled_driver_session_ends_at_stop_and_opens_too_late_unused(self):
         lease = self.runtime.acquire("team_1", "en")
-        stalled = threading.Event()
+        stalled, stop = threading.Event(), threading.Event()
         self.addCleanup(stalled.set)
         self.docker.fail = {"stall-start": stalled}
+        timer = threading.Timer(0.2, stop.set)
+        timer.start()
+        self.addCleanup(timer.cancel)
+        started = time.monotonic()
+        # The task's deadline is far: Stop alone ends the wait.
         with self.assertRaises(runtime.BrowserError) as raised:
-            self.runtime.open_stream(lease, self.now[0] + 0.2)
+            self.runtime.open_stream(lease, self.now[0] + 3600, lambda: not stop.is_set())
         self.assertEqual(raised.exception.code, "browser-lost")
+        self.assertLess(time.monotonic() - started, 2)
         # Docker opens it after the deadline: the session's channel is closed before anything reaches it.
         opened = len(self.docker.sockets)
         stalled.set()

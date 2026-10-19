@@ -36,6 +36,8 @@ IMAGE_RE = re.compile(rf"(?:localhost/shimpz-browser|{re.escape(PUBLISHED)})@sha
 USER = "10031:10031"
 MEMORY = 2 * 1024 * 1024 * 1024
 NANO_CPUS = 1_000_000_000
+# How often a Driver session's opening checks that it is still wanted.
+DRIVER_POLL_SECONDS = 0.1
 PIDS = 512
 NOFILE = 4096
 SHM = 256 * 1024 * 1024
@@ -500,10 +502,11 @@ class BrowserRuntime:
 
     # The exec channels
 
-    def open_stream(self, lease: Lease, deadline: float) -> tuple[str, ExecStream]:
+    def open_stream(self, lease: Lease, deadline: float, wanted: Callable[[], bool]) -> tuple[str, ExecStream]:
         """The Cua Driver's stdio MCP session in this Browser, opened by `deadline`: its exec id and its channel.
 
-        A session Docker opens only after the deadline is closed unused, so nothing ever reaches it.
+        The wait ends as soon as the session is no longer `wanted` (Stop); a session Docker opens only after the wait
+        ended is closed unused, so nothing ever reaches it.
         """
         guard = threading.Lock()
         opened: list[tuple[str, object] | BrowserError] = []
@@ -524,7 +527,8 @@ class BrowserRuntime:
 
         worker = threading.Thread(target=run, name="browser-driver", daemon=True)
         worker.start()
-        worker.join(max(deadline - self._clock(), 0.0))
+        while worker.is_alive() and (left := deadline - self._clock()) > 0 and wanted():
+            worker.join(min(left, DRIVER_POLL_SECONDS))
         with guard:
             if not opened:
                 late.set()

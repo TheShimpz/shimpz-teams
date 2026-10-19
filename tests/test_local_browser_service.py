@@ -36,7 +36,7 @@ class FakeRuntime:
             raise runtime.BrowserError(self.acquire_error)
         return LEASE
 
-    def open_stream(self, lease, deadline):
+    def open_stream(self, lease, deadline, wanted):
         self.events.append(("stream", lease.container_id))
         return "exec-mcp", "stream"
 
@@ -239,16 +239,20 @@ class BrowserServiceTests(unittest.TestCase):
             def close(self):
                 self.events.append(("close", self.exec_id))
 
+        stopping = []
+
         class Driving(FakeRuntime):
             ended = True
+            stop_while_ending = ()
 
-            def open_stream(self, lease, deadline):
+            def open_stream(self, lease, deadline, wanted):
                 exec_id = f"exec-{sum(event[0] == 'stream' for event in self.events)}"
                 self.events.append(("stream", exec_id))
                 return exec_id, Stream(exec_id, self.events)
 
             def exited(self, exec_id, deadline):
                 self.events.append(("exited", exec_id))
+                stopping.extend(self.stop_while_ending)
                 return self.ended
 
         page = cua.Observation("u", "t", "url: u", {})
@@ -273,6 +277,17 @@ class BrowserServiceTests(unittest.TestCase):
                     else "failed:steps=0:recovered=0:cause=observe/channel-lost/reopen/driver-not-ended:released=1"
                 )
                 self.assertTrue(detail.startswith(expected), detail)
+
+        # Stop came while the failed session was ending: no replacement is opened, and the task was stopped.
+        fake = Driving()
+        fake.stop_while_ending = (True,)
+        failed = mock.Mock()
+        failed.observe.side_effect = cua.CuaError("channel-lost")
+        stopped_turn = service.BrowserTurn("team_1", "d" * 64, TURN, "pt-BR", self.brain, lambda: bool(stopping))
+        with mock.patch.object(service.cua, "CuaSession", side_effect=[failed]):
+            result, _ = self.make(fake).run(stopped_turn, CONTEXT, REQUEST)
+        self.assertEqual(result["status"], "stopped")
+        self.assertEqual([event for event in fake.events if event[0] == "stream"], [("stream", "exec-0")])
 
     def test_the_language_follows_the_turn_and_lifecycle_calls_reach_the_runtime(self):
         self.assertEqual(

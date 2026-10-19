@@ -176,12 +176,13 @@ class Task:
 
     def _recover(self, steps: int, deadline: float, cause: str) -> Outcome | None:
         """Replace the failed Driver session while the task may continue; how the task ends when it cannot."""
-        lost = Outcome("failed", reason="browser-lost", steps=steps, cause=cause)
-        if self.reopen is None or self.recovered >= MAX_RECOVERIES:
-            return lost
+        # Stop, the deadline, and a lost egress win over the failure itself.
         ended = self._halted(steps, deadline, 0)
         if ended is not None:
             return ended
+        lost = Outcome("failed", reason="browser-lost", steps=steps, cause=cause)
+        if self.reopen is None or self.recovered >= MAX_RECOVERIES:
+            return lost
         try:
             self.session = self.reopen(self.session, deadline)
         except cua.CuaError as exc:
