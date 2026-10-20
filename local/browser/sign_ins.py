@@ -196,7 +196,8 @@ class SignInStore:
         with self._lock:
             if len(self._state().get(team_id, {})) >= MAX_SIGN_INS:
                 raise SignInError("the Team keeps as many Sign-ins as it may")
-            return Draft(self, team_id, incarnation, self._fences.get(team_id, 0))
+            # The fence is registered with the draft, so a reset that finds no Sign-in of the Team still advances it.
+            return Draft(self, team_id, incarnation, self._fences.setdefault(team_id, 0))
 
     def capsule(self, team_id: str, sign_in_id: str) -> Iterator[bytes]:
         """The Sign-in's capsule, chunk by chunk, each authenticated before it is handed out."""

@@ -319,6 +319,13 @@ class SignInStoreTests(unittest.TestCase):
             self.save()
         self.assertEqual(self.store.list(TEAM), [])
 
+    def test_a_teams_first_draft_is_fenced_by_a_reset_that_found_none_of_its_sign_ins(self):
+        draft = self.store.draft("trinity", INCARNATION)
+        self.store.delete_all()
+        with self.assertRaises(sign_ins.SignInError):
+            draft.add(b"after the reset")
+        self.assertFalse((self.root / "state" / "drafts").exists())
+
     def test_a_reset_deletes_every_sign_in_and_every_capsule(self):
         self.save()
         self.save(team="trinity")
