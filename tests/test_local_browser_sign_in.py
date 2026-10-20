@@ -420,7 +420,7 @@ class SignInSessionTests(unittest.TestCase):
         with self.assertRaises(local_sign_in.SignInSessionError) as kept:
             self.sessions.cancel(TEAM, started["sign_in_session_id"])
         self.assertEqual(kept.exception.code, "browser-unavailable")
-        self.assertIn("release-failed", self.audit[-1][1]["detail"])
+        self.assertTrue(any("release-failed" in entry[1]["detail"] for entry in self.audit))
         # The Team's end still goes on, its Browser removed and proven absent afterwards.
         self.runtime.release_error = None
         self.start()

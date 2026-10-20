@@ -85,6 +85,8 @@ class DockerFlow:
     stored_input_key_volume: str
     routine_state_volume: str
     routine_key_volume: str
+    sign_in_state_volume: str
+    sign_in_key_volume: str
     supervisor_key_volume: str
     account_egress_capability_volume: str
     egress_policy_volume: str
@@ -170,6 +172,8 @@ def new_flow(run: Callable[..., CompletedProcess[str]]) -> DockerFlow:
         stored_input_key_volume=f"shimpz-local-stored-input-key-{unique}",
         routine_state_volume=f"shimpz-local-routine-state-{unique}",
         routine_key_volume=f"shimpz-local-routine-key-{unique}",
+        sign_in_state_volume=f"shimpz-local-sign-in-state-{unique}",
+        sign_in_key_volume=f"shimpz-local-sign-in-key-{unique}",
         supervisor_key_volume=f"shimpz-local-supervisor-key-{unique}",
         account_egress_capability_volume=f"shimpz-account-egress-capability-{unique}",
         egress_policy_volume=f"shimpz-local-egress-policy-{unique}",
