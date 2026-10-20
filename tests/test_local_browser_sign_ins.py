@@ -255,12 +255,46 @@ class SignInStoreTests(unittest.TestCase):
         self.assertEqual(self.store.list(TEAM), [])
         self.assertEqual(list((self.root / "state" / "capsules").iterdir()), [])
 
+    def test_a_team_deleted_during_a_save_takes_its_chunks_and_a_failed_removal_keeps_the_record(self):
+        draft = self.store.draft(TEAM, INCARNATION)
+        draft.add(b"first")
+        self.assertTrue(any((self.root / "state" / "drafts" / TEAM).iterdir()))
+        self.assertTrue(self.store.delete_team(TEAM))
+        self.assertFalse((self.root / "state" / "drafts" / TEAM).exists())
+        with self.assertRaises(sign_ins.SignInError):
+            draft.commit("www.linkedin.com", "Work", "image", lambda: True)
+        saved = self.save()
+        with (
+            mock.patch.object(sign_ins.shutil, "rmtree", side_effect=PermissionError("held")),
+            self.assertRaises(sign_ins.SignInError),
+        ):
+            self.store.forget(TEAM, saved["sign_in_id"])
+        # Nothing was proven gone, so the Sign-in is still listed and can be forgotten again.
+        self.assertEqual(self.store.list(TEAM), [saved])
+        self.assertTrue(self.store.forget(TEAM, saved["sign_in_id"]))
+
+    def test_a_starting_team_deletes_what_an_interrupted_save_left_and_keeps_every_sign_in(self):
+        saved = self.save()
+        draft = self.store.draft(TEAM, INCARNATION)
+        draft.add(b"interrupted")
+        orphan = self.root / "state" / "capsules" / f"{'d' * 32}-1"
+        orphan.mkdir(mode=0o700)
+        (orphan / "00000.chunk").write_bytes(b"left")
+        self.store.reconcile()
+        self.assertFalse((self.root / "state" / "drafts").exists())
+        self.assertFalse(orphan.exists())
+        self.assertEqual(list(self.store.capsule(TEAM, saved["sign_in_id"])), [b"first", b"second"])
+        self.store.delete_all()
+        self.store.reconcile()
+
     def test_a_reset_deletes_every_sign_in_and_every_capsule(self):
         self.save()
         self.save(team="trinity")
+        self.store.draft(TEAM, INCARNATION).add(b"under way")
         self.store.delete_all()
         self.assertEqual((self.store.list(TEAM), self.store.list("trinity")), ([], []))
         self.assertFalse((self.root / "state" / "capsules").exists())
+        self.assertFalse((self.root / "state" / "drafts").exists())
 
     def test_only_an_admissible_site_label_and_bounded_capsule_are_kept(self):
         for site, label in (("localhost", "Work"), ("www.linkedin.com", ""), ("www.linkedin.com", "x" * 65)):

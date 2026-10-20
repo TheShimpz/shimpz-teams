@@ -789,6 +789,11 @@ def main() -> int:
         result="ok",
         principal=local_audit.TEAM,
     )
+    # What an interrupted Save of a Sign-in left is deleted; a failure keeps it for the next start (ADR-0117, Sign-ins).
+    try:
+        controller.sign_in_store.reconcile()
+    except local_sign_ins.SignInError as exc:
+        print(f"team-local: sign-in residue remains: {exc}", file=sys.stderr, flush=True)
     # A Browser a previous Team process left is removed before any task (ADR-0117 §8); a failure keeps tasks refused.
     threading.Thread(target=controller.browser_service.startup, name="browser-startup", daemon=True).start()
     # Nothing runs a Routine segment after a restart: recover every leased run before serving (ADR-0086).

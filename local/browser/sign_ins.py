@@ -6,6 +6,11 @@ chunk never moves between capsules. Its record (site, label, times, chunk count,
 the Team and the Sign-in, so neither the capsule nor its metadata can be altered without the key. A Sign-in lives 30
 days at most and 7 days unused; an expired one is deleted when read. A Save fences against Forget, the Team's deletion,
 and a Space reset: a commit whose Team was cleared meanwhile, or that its caller no longer admits, keeps nothing.
+
+A Save writes its chunks under its Team's drafts and moves them into place only as it commits, so a Team's deletion
+takes a Save's chunks too. A deletion removes a capsule before the record naming it and proves it gone, so a failure
+leaves the record to delete again. A Team process starting holds no Save, so it deletes every draft and every capsule
+no record names: what an interrupted Save or deletion of this store left behind.
 """
 
 from __future__ import annotations
@@ -143,14 +148,29 @@ class SignInStore:
     def _capsule_dir(self, sign_in_id: str, generation: int) -> Path:
         return self._root / "capsules" / f"{sign_in_id}-{generation}"
 
+    def _drafts(self, team_id: str) -> Path:
+        return self._root / "drafts" / team_id
+
+    @staticmethod
+    def _remove(directory: Path) -> None:
+        """Delete one directory and prove it gone; one already absent is no failure."""
+        try:
+            shutil.rmtree(directory)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise SignInError("a Sign-in's capsule could not be deleted") from exc
+        if directory.exists():
+            raise SignInError("a Sign-in's capsule could not be deleted")
+
     def _expired(self, record: dict[str, object]) -> bool:
         now = self._now()
         return now >= float(record["expires_at"]) or now >= float(record["last_used_at"]) + IDLE_SECONDS
 
     def _drop(self, teams: dict[str, dict[str, object]], team_id: str, sign_in_id: str, generation: int) -> None:
+        self._remove(self._capsule_dir(sign_in_id, generation))
         teams.get(team_id, {}).pop(sign_in_id, None)
         self._write(teams)
-        shutil.rmtree(self._capsule_dir(sign_in_id, generation), ignore_errors=True)
 
     # Reading
 
@@ -217,10 +237,11 @@ class SignInStore:
         with self._lock:
             self._fences[team_id] = self._fences.get(team_id, 0) + 1
             teams = self._state()
-            records = teams.pop(team_id, {})
-            for sign_in_id, envelope in records.items():
+            for sign_in_id, envelope in teams.get(team_id, {}).items():
                 record = self._open(team_id, sign_in_id, envelope)
-                shutil.rmtree(self._capsule_dir(sign_in_id, int(record["generation"])), ignore_errors=True)
+                self._remove(self._capsule_dir(sign_in_id, int(record["generation"])))
+            self._remove(self._drafts(team_id))
+            teams.pop(team_id, None)
             self._write(teams)
             return team_id not in self._state()
 
@@ -229,10 +250,21 @@ class SignInStore:
         with self._lock:
             for team_id in set(self._fences) | set(self._state()):
                 self._fences[team_id] = self._fences.get(team_id, 0) + 1
-            shutil.rmtree(self._root / "capsules", ignore_errors=True)
+            self._remove(self._root / "capsules")
+            self._remove(self._root / "drafts")
             self._index.unlink(missing_ok=True)
-            if (self._root / "capsules").exists() or self._index.exists():
+            if self._index.exists():
                 raise SignInError("the Sign-ins were not all deleted")
+
+    def reconcile(self) -> None:
+        """At Team startup: delete every draft and every capsule no record names, left by an interrupted Save."""
+        with self._lock:
+            named = {sign_in_id for records in self._state().values() for sign_in_id in records}
+            self._remove(self._root / "drafts")
+            capsules = self._root / "capsules"
+            for directory in capsules.iterdir() if capsules.is_dir() else ():
+                if directory.name.rpartition("-")[0] not in named:
+                    self._remove(directory)
 
 
 class Draft:
@@ -255,7 +287,7 @@ class Draft:
             "chunks": 0,
             "writer": "",
         }
-        self._directory = store._capsule_dir(str(self.record["sign_in_id"]), 1)
+        self._directory = store._drafts(team_id) / str(self.record["sign_in_id"])
         self._cipher: AESGCM | None = None
 
     def add(self, chunk: bytes) -> None:
@@ -265,10 +297,15 @@ class Draft:
             raise SignInError("the capsule is not within its bounds")
         if self._cipher is None:
             self._cipher = AESGCM(self._store._key(create=True))
-            self._directory.mkdir(parents=True, mode=0o700)
+            self._directory.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+            self._directory.mkdir(mode=0o700)
         nonce = os.urandom(12)
         sealed = nonce + self._cipher.encrypt(nonce, chunk, _chunk_aad(self.record, count))
-        private_state.replace_durably(self._directory / f"{count:05d}.chunk", sealed)
+        try:
+            # A Team deleted meanwhile took the draft's directory: the chunk has nowhere to go.
+            private_state.replace_durably(self._directory / f"{count:05d}.chunk", sealed)
+        except OSError as exc:
+            raise SignInError("the capsule could not be kept") from exc
         self.record["chunks"] = count + 1
 
     def commit(self, site: object, label: object, writer: str, admitted: Callable[[], bool]) -> dict[str, object]:
@@ -282,12 +319,21 @@ class Draft:
             if store._fences.get(team_id, 0) != self._fence or not admitted():
                 raise SignInError("the Sign-in was revoked before it was kept")
             private_state.fsync_directory(self._directory)
+            capsule = store._capsule_dir(str(self.record["sign_in_id"]), int(self.record["generation"]))
+            capsule.parent.mkdir(mode=0o700, exist_ok=True)
+            try:
+                self._directory.rename(capsule)
+                private_state.fsync_directory(capsule.parent)
+            except OSError as exc:
+                raise SignInError("the Sign-in's capsule could not be put in place") from exc
+            self._directory = capsule
             teams = store._state()
             teams.setdefault(team_id, {})[str(self.record["sign_in_id"])] = store._seal(self.record)
             store._write(teams)
         return _public(self.record)
 
     def discard(self) -> None:
+        """Delete what the Save wrote; anything left is deleted when the Team process next starts."""
         shutil.rmtree(self._directory, ignore_errors=True)
 
 
