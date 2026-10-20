@@ -61,8 +61,6 @@ START, SAVE, CANCEL, DELETE, EXPIRE = (
 )
 # The origin of what Team does on its own, beside the verified Admin Origin of what a person asked (ADR-0120).
 TEAM_ORIGIN = "team"
-# The residue of the Browsers a previous Team process may have left, until a cleanup proves none is left.
-STARTUP_RESIDUE = "startup"
 log = logging.getLogger("shimpz.team.local.browser.sign_in")
 
 # The Team's current incarnation (its network id), or None once it is gone.
@@ -142,6 +140,9 @@ class SignInSessions:
         self._starting: set[str] = set()
         # Each residue is one Browser, by its Team and container, so a removal proven later clears only its own.
         self._residue: set[tuple[str, str]] = set()
+        # Cleared while the Browsers a previous Team process left are not proven gone; no deletion completes meanwhile.
+        self._cleaned = threading.Event()
+        self._cleaned.set()
         store.expired = self._expired
 
     def start(
@@ -492,7 +493,7 @@ class SignInSessions:
         """Complete the deletion if it can be proven now: whether its completion was recorded and its fence dropped."""
         team_id = deletion.team_id
         with self._guard:
-            residue = any(owner == team_id for owner, _container in self._residue)
+            residue = not self._cleaned.is_set() or any(owner == team_id for owner, _container in self._residue)
             if team_id in self._starting or team_id in self._sessions or residue:
                 return False
         try:
@@ -541,13 +542,11 @@ class SignInSessions:
         """
         # Cleanup never waits on the Sign-ins' metadata: a previous process's Browser is removed first, whatever it is,
         # and a cleanup that failed is tried again until it is proven, whether or not a deletion waits on it.
-        proven = self._service.startup()
-        pending = self._pending()
-        if not proven:
-            with self._guard:
-                self._residue.update((deletion.team_id, STARTUP_RESIDUE) for deletion in pending)
+        if not self._service.startup():
+            self._cleaned.clear()
             name = "browser-sign-in-recover"
             threading.Thread(target=self._recover_startup, name=name, daemon=True).start()
+        pending = self._pending()
         for deletion in pending:
             if not self._settle(deletion, background=True):
                 self._later(deletion)
@@ -642,8 +641,7 @@ class SignInSessions:
         while True:
             time.sleep(RECOVER_SECONDS)
             if self._runtime.recover():
-                with self._guard:
-                    self._residue = {key for key in self._residue if key[1] != STARTUP_RESIDUE}
+                self._cleaned.set()
                 return
 
     def _recover(self, team_id: str, lease: Lease) -> None:

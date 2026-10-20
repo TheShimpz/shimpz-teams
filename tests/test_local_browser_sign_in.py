@@ -730,12 +730,18 @@ class SignInSessionTests(unittest.TestCase):
 
     def test_a_restarted_team_whose_cleanup_failed_keeps_cleaning_with_no_deletion_pending(self):
         self.runtime.recovers = [False, True]
-        with mock.patch.object(self.service, "startup", return_value=False):
+        unreadable = sign_in_store.SignInError("unreadable")
+        # The cleanup is retried before, and whatever, the Sign-ins' metadata reads.
+        with (
+            mock.patch.object(self.service, "startup", return_value=False),
+            mock.patch.object(self.store, "deletions", side_effect=[unreadable, unreadable, []]),
+        ):
             self.sessions.startup()
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline and self.runtime.events.count(("recover",)) < 2:
-            time.sleep(0.01)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and not self.sessions._cleaned.is_set():
+                time.sleep(0.01)
         self.assertEqual(self.runtime.events.count(("recover",)), 2)
+        self.assertTrue(self.sessions._cleaned.is_set())
 
     def test_a_restarted_team_removes_earlier_browsers_before_reading_its_sign_ins(self):
         order = []
@@ -757,10 +763,16 @@ class SignInSessionTests(unittest.TestCase):
         for proven in (False, True):
             with self.subTest(proven=proven):
                 restarted = local_sign_in.SignInSessions(self.service, self.runtime, self.store)
-                self.runtime.recovers = [False]
-                with mock.patch.object(self.service, "startup", return_value=proven):
+                cleaned = threading.Event()
+                with (
+                    mock.patch.object(self.service, "startup", return_value=proven),
+                    mock.patch.object(self.runtime, "recover", side_effect=cleaned.is_set),
+                ):
                     restarted.startup()
-                self.until(("browser-sign-in-delete", "completed"))
+                    # Until the earlier Browsers are proven gone, no deletion completes.
+                    self.assertEqual(("browser-sign-in-delete", "completed") in self.activity, proven)
+                    cleaned.set()
+                    self.until(("browser-sign-in-delete", "completed"))
                 _operation, principal, completed = self.recorded[-1]
                 self.assertEqual(
                     (principal, completed["event_id"], completed["initiator_id"], completed["factor"]),
