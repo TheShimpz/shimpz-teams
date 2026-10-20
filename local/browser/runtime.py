@@ -15,7 +15,7 @@ import re
 import socket
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -24,6 +24,7 @@ from docker.types import LogConfig, Ulimit
 
 from local import labels as local_labels
 from local.browser.channel import ChannelError, ExecStream
+from local.browser.credentials import Credentials
 from local.validation import space_prefix
 
 KIND = "browser"
@@ -55,6 +56,16 @@ REMOVE_SECONDS = 30.0
 REMOVE_POLL_SECONDS = 0.1
 EGRESS_SECONDS = 30.0
 PROGRAM_SECONDS = 30.0
+# Who drives a Browser (ADR-0117, Sign-ins amendment): the agent alone, a person signing in, or a task restored from a
+# Sign-in, which a person may take over. Only the last two hold display credentials and keep a profile.
+AGENT, PERSON, SIGNED_IN = "agent", "person", "signed-in"
+# Chromium's clean stop, and the capsule's export, each bounded (`browser-host stop`, `profile export`).
+STOP_SECONDS = 40.0
+CAPSULE_SECONDS = 30.0
+# The largest export: 128 MiB of files, a header for each of at most 4,096 entries, padding, and the end blocks.
+MAX_CAPSULE_BYTES = 128 * 1024 * 1024 + 4096 * 1024 + 1024
+# The capsule crosses in chunks of this size, so Team never holds more than one at a time.
+CHUNK_BYTES = 1024 * 1024
 SECCOMP = Path(__file__).resolve().parents[2] / "browser" / "image" / "seccomp.json"
 LANGUAGE_RE = re.compile(r"[a-z]{2}(?:-[A-Z]{2})?")
 # What the egress healthcheck prints: the random generation of the process that accepted its connection.
@@ -88,12 +99,15 @@ class Generation:
 
 @dataclass(frozen=True, slots=True)
 class Lease:
-    """One running Browser: its Team, container, address, and the egress generation it runs on."""
+    """One running Browser: its Team, container, address, the egress generation it runs on, and who drives it."""
 
     team_id: str
     container_id: str
     address: str
     egress: Generation
+    mode: str = AGENT
+    # The display's viewer credentials, for a Browser a person may control.
+    credentials: Credentials | None = None
 
 
 def browser_image(labels: object) -> str | None:
@@ -187,9 +201,26 @@ class BrowserRuntime:
 
     # Admission and creation
 
-    def acquire(self, team_id: str, language: str) -> Lease:
-        """Create this task's Browser on a fresh egress generation; the caller releases the returned lease."""
-        if self._image is None or not LANGUAGE_RE.fullmatch(language):
+    def acquire(
+        self,
+        team_id: str,
+        language: str,
+        *,
+        mode: str = AGENT,
+        url: str | None = None,
+        capsule: Iterable[bytes] | None = None,
+    ) -> Lease:
+        """Create this task's Browser on a fresh egress generation; the caller releases the returned lease.
+
+        A person's sign-in starts at `url`; a signed-in Browser restores the capsule's chunks before Chromium starts.
+        """
+        if (
+            self._image is None
+            or not LANGUAGE_RE.fullmatch(language)
+            or mode not in {AGENT, PERSON, SIGNED_IN}
+            or (url is not None) != (mode == PERSON)
+            or (capsule is not None) != (mode == SIGNED_IN)
+        ):
             raise BrowserError("browser-unavailable")
         if not self._slot.acquire(blocking=False):
             raise BrowserError("browser-busy")
@@ -198,7 +229,7 @@ class BrowserRuntime:
                 self.clean()
             self._prove_clean()
             egress = self._fresh_egress()
-            lease = self._create(team_id, language, egress)
+            lease = self._create(team_id, language, egress, mode, url, capsule)
         except BaseException:
             self._dirty = True
             self._slot.release()
@@ -370,7 +401,15 @@ class BrowserRuntime:
             raise BrowserError("browser-unavailable")
         return _network_address(networks)
 
-    def _create(self, team_id: str, language: str, egress: Generation) -> Lease:
+    def _create(
+        self,
+        team_id: str,
+        language: str,
+        egress: Generation,
+        mode: str,
+        url: str | None,
+        capsule: Iterable[bytes] | None,
+    ) -> Lease:
         # The egress has its outbound network too; the Browser reaches it only on the Browser network.
         proxy = _network_address((self._egress().attrs.get("NetworkSettings") or {}).get("Networks") or {})
         labels = {**local_labels.ownership_labels(self._space_id, KIND, team_id), local_labels.IMAGE_LABEL: self._image}
@@ -390,7 +429,12 @@ class BrowserRuntime:
                 user=USER,
                 network=NETWORK,
                 labels=labels,
-                environment={"BROWSER_PROXY": proxy, "BROWSER_LANG": language},
+                environment={
+                    "BROWSER_PROXY": proxy,
+                    "BROWSER_LANG": language,
+                    "BROWSER_MODE": mode,
+                    **({"BROWSER_URL": url} if url is not None else {}),
+                },
                 read_only=True,
                 cap_drop=["ALL"],
                 security_opt=["no-new-privileges:true", f"seccomp={SECCOMP.read_text(encoding='utf-8')}"],
@@ -418,8 +462,14 @@ class BrowserRuntime:
             container.start()
             container.reload()
             self._validate(container, team_id, labels)
+            credentials = None
+            if mode != AGENT:
+                credentials = Credentials.draw()
+                self._feed(container.id, ["credentials"], (credentials.file(),))
+            if capsule is not None:
+                self._feed(container.id, ["profile", "import"], capsule)
             self._wait_ready(container)
-            return Lease(team_id, container.id, self._address(container), egress)
+            return Lease(team_id, container.id, self._address(container), egress, mode, credentials)
         except BaseException:
             self._remove(container.id)
             raise
@@ -565,6 +615,57 @@ class BrowserRuntime:
             return -1, None
         code = details.get("ExitCode")
         return (code if isinstance(code, int) else -1), stream
+
+    def _feed(self, container_id: str, arguments: list[str], chunks: Iterable[bytes]) -> None:
+        """Run one `browser-host` program on `chunks` as its input; it must end with status 0."""
+        try:
+            exec_id, raw = self._exec(container_id, arguments)
+            stream = ExecStream(raw, self._clock)
+            deadline = self._clock() + CAPSULE_SECONDS
+            for chunk in chunks:
+                stream.send(chunk, deadline)
+            stream.close_input()
+            stream.receive_end(deadline)
+            details = self._client.api.exec_inspect(exec_id)
+        except (DockerException, ChannelError, OSError) as exc:
+            raise BrowserError("browser-unavailable") from exc
+        if details.get("ExitCode") != 0:
+            raise BrowserError("browser-unavailable")
+
+    def stop(self, lease: Lease) -> None:
+        """End the Browser's Chromium session cleanly, keeping its container for the export; any doubt is a failure."""
+        try:
+            exec_id, raw = self._exec(lease.container_id, ["stop"])
+            stream = ExecStream(raw, self._clock)
+            stream.close_input()
+            deadline = self._clock() + STOP_SECONDS
+            answer = stream.receive_line(deadline, 16)
+            stream.receive_end(deadline)
+            details = self._client.api.exec_inspect(exec_id)
+        except (DockerException, ChannelError, OSError) as exc:
+            raise BrowserError("browser-lost") from exc
+        if answer != b"stopped" or details.get("ExitCode") != 0:
+            raise BrowserError("browser-lost")
+
+    def export(self, lease: Lease, sink: Callable[[bytes], None]) -> int:
+        """Hand the stopped Browser's capsule to `sink` as it arrives; its size, once the export ended with status 0."""
+        try:
+            exec_id, raw = self._exec(lease.container_id, ["profile", "export"])
+            stream = ExecStream(raw, self._clock)
+            stream.close_input()
+            deadline = self._clock() + CAPSULE_SECONDS
+            total = 0
+            while chunk := stream.receive_chunk(CHUNK_BYTES, deadline):
+                total += len(chunk)
+                if total > MAX_CAPSULE_BYTES:
+                    raise BrowserError("browser-lost")
+                sink(chunk)
+            details = self._client.api.exec_inspect(exec_id)
+        except (DockerException, ChannelError, OSError) as exc:
+            raise BrowserError("browser-lost") from exc
+        if details.get("ExitCode") != 0:
+            raise BrowserError("browser-lost")
+        return total
 
     def files(self, lease: Lease) -> dict[str, object]:
         """The downloads listing `browser-host files list` returns, strictly parsed."""

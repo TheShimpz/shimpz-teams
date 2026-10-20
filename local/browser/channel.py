@@ -123,6 +123,14 @@ class ExecStream:
         del self._stdout[:size]
         return data
 
+    def receive_chunk(self, size: int, deadline: float) -> bytes:
+        """The next stdout bytes, at most `size` and at least one, or nothing once the stream ended."""
+        while len(self._stdout) < size and not self._closed:
+            self._fill(deadline, size)
+        data = bytes(self._stdout[:size])
+        del self._stdout[:size]
+        return data
+
     def receive_end(self, deadline: float) -> None:
         """Wait for the end of the stream; any further stdout is refused."""
         while not self._closed:

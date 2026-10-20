@@ -210,6 +210,14 @@ class Api:
         self.docker.sockets.extend((team, docker))
         code, output = self.docker.programs.get(arguments, (0, b""))
         self.execs[exec_id] = (code, arguments)
+        received = self.docker.inputs.setdefault(arguments, bytearray())
+
+        def take_input():
+            # Everything Team writes to the program's input, until it closes it.
+            while chunk := docker.recv(65536):
+                received.extend(chunk)
+
+        threading.Thread(target=take_input, daemon=True).start()
         docker.sendall(_frame(output) if output else b"")
         docker.shutdown(sockets.SHUT_WR)
         return Raw(team)
@@ -229,6 +237,7 @@ class FakeDocker:
         self.probe_lag = 0
         self.images = {IMAGE: "sha256:image", PUBLISHED: "sha256:published"}
         self.programs = {("ready",): (0, b"")}
+        self.inputs = {}
         self.containers_by_id = {}
         self.containers = Containers(self)
         self.networks = Networks(self)
@@ -349,7 +358,9 @@ class BrowserRuntimeTests(unittest.TestCase):
         seccomp = created["security_opt"][1]
         self.assertTrue(seccomp.startswith("seccomp={"))
         self.assertIn('"unshare"', seccomp)
-        self.assertEqual(created["environment"], {"BROWSER_PROXY": "172.30.0.2", "BROWSER_LANG": "pt-BR"})
+        self.assertEqual(
+            created["environment"], {"BROWSER_PROXY": "172.30.0.2", "BROWSER_LANG": "pt-BR", "BROWSER_MODE": "agent"}
+        )
         self.assertEqual(created["name"], f"shimpz-local-{space_prefix(SPACE)}-team_1-browser")
         self.assertEqual(created["labels"][local_labels.KIND_LABEL], "browser")
         self.assertEqual(created["labels"][local_labels.TEAM_LABEL], "team_1")
@@ -360,6 +371,86 @@ class BrowserRuntimeTests(unittest.TestCase):
         self.runtime.release(lease)
         self.assertEqual(self.browsers(), [])
         self.assertEqual(self.docker.egress.restarts, 2)
+
+    def test_a_person_signs_in_on_a_controlled_browser_whose_display_holds_drawn_credentials(self):
+        browser = self.make()
+        lease = browser.acquire("neo", "pt-BR", mode=runtime.PERSON, url="https://www.linkedin.com/login")
+        created = self.docker.created[-1]
+        self.assertEqual(created["environment"]["BROWSER_MODE"], "person")
+        self.assertEqual(created["environment"]["BROWSER_URL"], "https://www.linkedin.com/login")
+        self.assertEqual(lease.mode, runtime.PERSON)
+        written = self.wait_input(("credentials",))
+        self.assertEqual(written, lease.credentials.file())
+        viewer, controller = written.decode().splitlines()
+        self.assertTrue(viewer.startswith("viewer:$5$kasm$") and viewer.endswith(":r"))
+        self.assertTrue(controller.startswith("controller:$5$kasm$") and controller.endswith(":rw"))
+        browser.release(lease)
+
+    def test_a_signed_in_browser_restores_its_capsule_before_chromium_starts(self):
+        browser = self.make()
+        lease = browser.acquire("neo", "en", mode=runtime.SIGNED_IN, capsule=iter((b"first", b"second")))
+        self.assertEqual(self.wait_input(("profile", "import")), b"firstsecond")
+        self.assertIsNotNone(lease.credentials)
+        self.assertNotIn("BROWSER_URL", self.docker.created[-1]["environment"])
+        browser.release(lease)
+
+    def test_only_a_mode_with_exactly_its_own_inputs_is_created(self):
+        browser = self.make()
+        for options in (
+            {"mode": "root"},
+            {"mode": runtime.PERSON},
+            {"mode": runtime.AGENT, "url": "https://example.com"},
+            {"mode": runtime.SIGNED_IN},
+            {"mode": runtime.PERSON, "url": "https://example.com", "capsule": iter(())},
+        ):
+            with self.subTest(options=options), self.assertRaises(runtime.BrowserError) as raised:
+                browser.acquire("neo", "en", **options)
+            self.assertEqual(raised.exception.code, "browser-unavailable")
+        self.assertEqual(self.docker.created, [])
+
+    def test_a_restore_or_credentials_the_browser_refuses_removes_it(self):
+        for program in (("credentials",), ("profile", "import")):
+            with self.subTest(program=program):
+                self.setUp()
+                self.docker.programs[program] = (1, b"")
+                browser = self.make()
+                with self.assertRaises(runtime.BrowserError):
+                    browser.acquire("neo", "en", mode=runtime.SIGNED_IN, capsule=iter((b"capsule",)))
+                self.assertEqual(self.browsers(), [])
+
+    def test_a_clean_stop_keeps_the_browser_and_any_doubt_is_a_lost_browser(self):
+        browser = self.make()
+        lease = browser.acquire("neo", "en", mode=runtime.PERSON, url="https://example.com")
+        self.docker.programs[("stop",)] = (0, b"stopped\n")
+        browser.stop(lease)
+        for answer in ((1, b"stopped\n"), (0, b""), (0, b"stopped\nmore\n")):
+            with self.subTest(answer=answer), self.assertRaises(runtime.BrowserError):
+                self.docker.programs[("stop",)] = answer
+                browser.stop(lease)
+        browser.release(lease)
+
+    def test_an_export_streams_the_capsule_and_refuses_a_failed_or_oversized_one(self):
+        browser = self.make()
+        lease = browser.acquire("neo", "en", mode=runtime.PERSON, url="https://example.com")
+        self.docker.programs[("profile", "export")] = (0, b"x" * 3000)
+        chunks = []
+        self.assertEqual(browser.export(lease, chunks.append), 3000)
+        self.assertEqual(b"".join(chunks), b"x" * 3000)
+        self.docker.programs[("profile", "export")] = (1, b"partial")
+        with self.assertRaises(runtime.BrowserError):
+            browser.export(lease, chunks.append)
+        self.docker.programs[("profile", "export")] = (0, b"x" * 3000)
+        with mock.patch.object(runtime, "MAX_CAPSULE_BYTES", 2999), self.assertRaises(runtime.BrowserError):
+            browser.export(lease, chunks.append)
+        browser.release(lease)
+
+    def wait_input(self, program):
+        for _ in range(200):
+            if self.docker.inputs.get(program):
+                time.sleep(0.05)
+                return bytes(self.docker.inputs[program])
+            time.sleep(0.01)
+        return bytes(self.docker.inputs.get(program, b""))
 
     def test_a_second_task_never_shares_the_generation_an_earlier_one_used(self):
         first = self.runtime.acquire("team_1", "en")
