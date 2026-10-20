@@ -4,7 +4,9 @@
 the same rules the Browser imports it under: regular files and directories only, admissible paths, each entry once,
 within the entry, file, and total bounds, and a well-formed end. It also keeps the profile's cookie store, the only
 file it reads, to refuse a profile that holds a session at a known identity provider's sign-in host: the cookie
-store names every host a cookie belongs to in plain text, so a profile that signed in there holds that host.
+store names every host a cookie belongs to in plain text, so a profile that signed in there holds a cookie that host
+receives. The store is untrusted: it is read in memory, defensively, within a bound of work, and only as Chromium's own
+table; a capsule with no store, another store, or one that cannot be read so is held to name every such host.
 """
 
 from __future__ import annotations
@@ -18,6 +20,9 @@ MAX_FILE_BYTES = 32 * 1024 * 1024
 MAX_DEPTH = 16
 MAX_PATH_BYTES = 255
 COOKIES = "Default/Cookies"
+# The most SQLite steps reading the cookie store may take, far beyond what a real store of 32 MiB needs.
+MAX_SQL_STEPS = 50_000_000
+_PROGRESS_EVERY = 10_000
 # The sign-in hosts of the identity providers a profile must not carry a session for (partial coverage, stated).
 IDENTITY_HOSTS = frozenset(
     {
@@ -135,6 +140,8 @@ class Check:
             raise CapsuleError("the capsule names one path twice")
         if path.rpartition("/")[0] not in self._directories:
             raise CapsuleError("a capsule entry comes before its directory")
+        if path.rpartition("/")[2] == "Cookies" and path != COOKIES:
+            raise CapsuleError("the capsule holds a cookie store Team does not check")
         self._seen.add(path)
         if len(self._seen) > MAX_ENTRIES:
             raise CapsuleError("the capsule holds more entries than allowed")
@@ -152,15 +159,45 @@ class Check:
             raise CapsuleError("the capsule ended early or has bytes after its end")
 
     def identity_hosts(self) -> frozenset[str]:
-        """The identity providers' sign-in hosts the profile holds a cookie for; an unreadable store holds them all."""
+        """The identity providers' sign-in hosts some cookie of the profile is sent to; all of them when unreadable."""
         if not self.cookies:
-            return frozenset()
-        connection = sqlite3.connect(":memory:")
-        try:
-            connection.deserialize(bytes(self.cookies))
-            hosts = {str(row[0]).lstrip(".").lower() for row in connection.execute("SELECT host_key FROM cookies")}
-        except sqlite3.DatabaseError:
             return IDENTITY_HOSTS
-        finally:
-            connection.close()
-        return frozenset(hosts & IDENTITY_HOSTS)
+        try:
+            hosts = _cookie_hosts(bytes(self.cookies))
+        except sqlite3.Error:
+            return IDENTITY_HOSTS
+        return frozenset(host for host in IDENTITY_HOSTS if any(_sent_to(cookie, host) for cookie in hosts))
+
+
+def _cookie_hosts(store: bytes) -> set[str]:
+    """Every first-party cookie's `host_key`, read only as Chromium's own `cookies` table, within MAX_SQL_STEPS."""
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.setconfig(sqlite3.SQLITE_DBCONFIG_DEFENSIVE, True)
+        connection.setconfig(sqlite3.SQLITE_DBCONFIG_TRUSTED_SCHEMA, False)
+        steps = 0
+
+        def bounded() -> int:
+            nonlocal steps
+            steps += _PROGRESS_EVERY
+            return int(steps > MAX_SQL_STEPS)
+
+        connection.set_progress_handler(bounded, _PROGRESS_EVERY)
+        connection.deserialize(store)
+        kind = connection.execute("SELECT type FROM sqlite_schema WHERE name = 'cookies'").fetchall()
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(cookies)")}
+        if kind != [("table",)] or not {"host_key", "top_frame_site_key"} <= columns:
+            raise sqlite3.DatabaseError("the cookie store is not Chromium's")
+        # A partitioned cookie was set under another top-level site and is never sent to the provider's own pages.
+        rows = connection.execute("SELECT host_key FROM cookies WHERE top_frame_site_key = ''")
+        return {str(row[0]).lower() for row in rows}
+    finally:
+        connection.close()
+
+
+def _sent_to(cookie_host: str, host: str) -> bool:
+    """Whether a cookie of `cookie_host` is sent to `host`: its own host, or a domain cookie of a parent domain."""
+    if cookie_host.startswith("."):
+        domain = cookie_host[1:]
+        return host == domain or host.endswith(f".{domain}")
+    return host == cookie_host

@@ -16,10 +16,12 @@ TEAM = "neo"
 INCARNATION = "n" * 64
 
 
-def _cookie_store(*hosts: str) -> bytes:
+def _cookie_store(*hosts: str, partitioned: tuple[str, ...] = ()) -> bytes:
+    """A cookie store with Chromium's table: each host's first-party cookie, and partitioned ones set under a site."""
     connection = sqlite3.connect(":memory:")
-    connection.execute("CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT)")
-    connection.executemany("INSERT INTO cookies VALUES (?, 'sid', '')", [(host,) for host in hosts])
+    connection.execute("CREATE TABLE cookies (host_key TEXT, top_frame_site_key TEXT, name TEXT, value TEXT)")
+    rows = [(host, "") for host in hosts] + [(host, "https://site.example") for host in partitioned]
+    connection.executemany("INSERT INTO cookies VALUES (?, ?, 'sid', '')", rows)
     connection.commit()
     data = connection.serialize()
     connection.close()
@@ -60,11 +62,57 @@ class CapsuleCheckTests(unittest.TestCase):
             self.assertEqual(bytes(check.cookies), cookies)
             self.assertEqual(check.identity_hosts(), frozenset())
 
-    def test_a_session_at_an_identity_providers_sign_in_host_is_found(self):
-        data = _archive([("Default", None), ("Default/Cookies", _cookie_store(".accounts.google.com", "x.com"))])
-        self.assertEqual(_checked(data).identity_hosts(), {"accounts.google.com"})
-        unreadable = _archive([("Default", None), ("Default/Cookies", b"not a database")])
-        self.assertEqual(_checked(unreadable).identity_hosts(), capsule_check.IDENTITY_HOSTS)
+    def test_a_cookie_an_identity_providers_sign_in_host_receives_is_found(self):
+        def found(store: bytes) -> frozenset[str]:
+            return _checked(_archive([("Default", None), ("Default/Cookies", store)])).identity_hosts()
+
+        self.assertEqual(found(_cookie_store(".accounts.google.com", "x.com")), {"accounts.google.com"})
+        # A parent domain's cookie is sent to the sign-in host too; a sibling's or a partitioned one is not.
+        self.assertEqual(found(_cookie_store(".google.com")), {"accounts.google.com"})
+        self.assertEqual(
+            found(_cookie_store(".live.com", ".apple.com")), {"login.live.com", "appleid.apple.com", "idmsa.apple.com"}
+        )
+        self.assertEqual(
+            found(_cookie_store("google.com", "mail.google.com", partitioned=(".google.com",))), frozenset()
+        )
+
+    def test_a_store_that_is_not_chromiums_table_names_every_identity_provider(self):
+        def view_store() -> bytes:
+            connection = sqlite3.connect(":memory:")
+            connection.execute("CREATE TABLE real (host_key TEXT, top_frame_site_key TEXT)")
+            connection.execute("CREATE VIEW cookies AS SELECT * FROM real")
+            data = connection.serialize()
+            connection.close()
+            return data
+
+        def legacy_store() -> bytes:
+            connection = sqlite3.connect(":memory:")
+            connection.execute("CREATE TABLE cookies (host_key TEXT)")
+            data = connection.serialize()
+            connection.close()
+            return data
+
+        for store in (b"not a database", view_store(), legacy_store()):
+            with self.subTest(store=store[:16]):
+                check = _checked(_archive([("Default", None), ("Default/Cookies", store)]))
+                self.assertEqual(check.identity_hosts(), capsule_check.IDENTITY_HOSTS)
+        # A query that would run past its bound of work names every provider too.
+        with (
+            mock.patch.object(capsule_check, "MAX_SQL_STEPS", 0),
+            mock.patch.object(capsule_check, "_PROGRESS_EVERY", 1),
+        ):
+            check = _checked(_archive([("Default", None), ("Default/Cookies", _cookie_store("x.com"))]))
+            self.assertEqual(check.identity_hosts(), capsule_check.IDENTITY_HOSTS)
+        # So does a profile without its cookie store, and another store is never let through unchecked.
+        self.assertEqual(_checked(_archive([("Default", None)])).identity_hosts(), capsule_check.IDENTITY_HOSTS)
+        for other in ("Default/Network/Cookies", "Profile 1/Cookies"):
+            parent = other.rpartition("/")[0]
+            entries = [("Default", None), ("Default/Cookies", _cookie_store())]
+            entries += [(parent, None)] if parent != "Default" else []
+            entries += [("Default/Network", None)] if other.startswith("Default/Network") else []
+            entries.append((other, _cookie_store()))
+            with self.subTest(other=other), self.assertRaises(capsule_check.CapsuleError):
+                _checked(_archive(entries))
 
     def test_every_hostile_or_malformed_capsule_is_refused(self):
         valid = _archive([("Default", None), ("Default/Cookies", b"c")])
@@ -134,7 +182,6 @@ class CapsuleCheckTests(unittest.TestCase):
                 self.assertRaises(capsule_check.CapsuleError),
             ):
                 _checked(valid)
-        self.assertEqual(_checked(_archive([("Default", None)])).identity_hosts(), frozenset())
 
 
 class SignInStoreTests(unittest.TestCase):
