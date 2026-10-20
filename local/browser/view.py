@@ -86,6 +86,12 @@ class View:
                     return False
             return not self._unavailable
 
+    @property
+    def unavailable(self) -> bool:
+        """Whether a stream or a release could not be proven ended: the view admits no stream any more."""
+        with self._lock:
+            return self._unavailable
+
     def quiet_for(self) -> float:
         """How long no person has controlled the Browser; 0 while one does."""
         with self._lock:

@@ -290,10 +290,14 @@ class SignInSessions:
             self._runtime.exited(exec_id, self._clock() + 5.0)
 
     def _watch(self, session: _Session) -> None:
-        """End the session at its limit or once the person left it alone too long."""
+        """End the session at its limit, once the person left it alone too long, or once its screen is lost.
+
+        A screen is lost when its Browser failed: a session no one can drive any more is never left running.
+        """
         while not session.ended.wait(WATCH_SECONDS):
-            if self._clock() - session.started >= SESSION_SECONDS or session.view.quiet_for() >= IDLE_SECONDS:
-                _audit(session.lease, "expired", background=True)
+            lost = session.view.unavailable
+            if lost or self._clock() - session.started >= SESSION_SECONDS or session.view.quiet_for() >= IDLE_SECONDS:
+                _audit(session.lease, "lost" if lost else "expired", background=True)
                 try:
                     self.cancel(session.team_id, session.id, background=True)
                 except SignInSessionError:

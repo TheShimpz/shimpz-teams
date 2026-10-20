@@ -471,6 +471,17 @@ class SignInSessionTests(unittest.TestCase):
                 self.assertTrue(any(entry[1]["detail"].startswith(outcome) for entry in self.audit))
                 self.runtime.events.clear()
 
+    def test_a_session_whose_screen_is_lost_ends(self):
+        with mock.patch.object(local_sign_in, "WATCH_SECONDS", 0.01):
+            started = self.start()
+            self.sessions._sessions[TEAM].view._unavailable = True
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and TEAM in self.sessions._sessions:
+                time.sleep(0.01)
+        self.assertNotIn(TEAM, self.sessions._sessions)
+        self.assertFalse(self.held(started))
+        self.assertTrue(any(entry[1]["detail"].startswith("lost") for entry in self.audit))
+
     def test_dropping_another_browsers_view_keeps_the_running_one(self):
         started = self.start()
         self.service.drop(TEAM, object())
