@@ -216,8 +216,60 @@ class ControlTests(ViewCase):
         self.assertIn(f"Authorization: {self.credentials.authorization(False)}".encode(), self.requests[0])
         self.assertIn(f"Authorization: {self.credentials.authorization(True)}".encode(), self.requests[1])
         released.assert_called_once()
-        self.assertEqual(released.call_args.args[1], self.credentials.authorization(True))
+        self.assertEqual(released.call_args.args[2], self.credentials.authorization(True))
         self.assertIn("control-ended:released=1", self.records)
+
+    def test_a_watcher_whose_relay_opened_as_control_began_is_refused_before_any_frame(self):
+        screen = self.make()
+        opening, admitted = threading.Event(), threading.Event()
+        plain_open = self.open_relay
+
+        def slow_open():
+            # The watcher was admitted; its relay opens only once the person took control.
+            admitted.set()
+            opening.wait(5)
+            return plain_open()
+
+        self.open_relay = slow_open
+        watcher, watched = self.carry_in_background(screen, [])
+        admitted.wait(5)
+        self.open_relay = plain_open
+        with mock.patch.object(view.input_release, "release"):
+            controlling, _ = self.carry_in_background(screen, [], control=True)
+            self.answered(1)
+            opening.set()
+            watcher.join(5)
+            self.assertEqual(watched, {"error": "browser-view-busy"})
+            screen.end()
+            controlling.join(5)
+        self.assertTrue(screen.quiesce(time.monotonic() + 5))
+
+    def test_a_private_view_admits_its_person_alone_and_quiesces_only_once_released(self):
+        self.credentials = Credentials.draw()
+        screen = view.View(
+            lambda: self.open_relay(),
+            self.exited,
+            self.records.append,
+            authorization=self.credentials.authorization,
+            private=True,
+        )
+        with self.assertRaises(BrowserError) as refused:
+            screen.carry(self.team_viewer, KEY, lambda _first: None)
+        self.assertEqual(refused.exception.code, "browser-not-running")
+        gate = threading.Event()
+
+        def held_release(*_args, **_kwargs):
+            gate.wait(5)
+
+        with mock.patch.object(view.input_release, "release", side_effect=held_release):
+            controlling, _ = self.carry_in_background(screen, [], control=True)
+            self.answered(1)
+            screen.end()
+            # Control is still being released: the view is not quiet yet.
+            self.assertFalse(screen.quiesce(time.monotonic() + 0.2))
+            gate.set()
+            self.assertTrue(screen.quiesce(time.monotonic() + 5))
+            controlling.join(5)
 
     def test_a_release_that_fails_leaves_the_view_unavailable(self):
         screen = self.make()
@@ -230,6 +282,8 @@ class ControlTests(ViewCase):
         with self.assertRaises(BrowserError) as refused:
             screen.carry(self.viewer, KEY, lambda _first: None)
         self.assertEqual(refused.exception.code, "browser-view-unavailable")
+        screen.end()
+        self.assertFalse(screen.quiesce(time.monotonic() + 1))
 
 
 if __name__ == "__main__":

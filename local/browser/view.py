@@ -9,7 +9,8 @@ not come, the view stays unavailable for the rest of the task.
 A Browser a person may control (ADR-0117, Sign-ins amendment item 3) authenticates every stream: watching carries the
 read-only credential and control the read-write one. One person controls at a time; taking control ends every other
 stream of the view and admits none while it lasts, and when control ends Team releases every held key and button
-before anything else acts. A release that cannot be proven leaves the view unavailable.
+before anything else acts. A release that cannot be proven leaves the view unavailable. A private view (a sign-in
+session's) admits its person's control alone, never a watcher.
 """
 
 from __future__ import annotations
@@ -50,15 +51,18 @@ class View:
         record: Record,
         *,
         authorization: Authorization | None = None,
+        private: bool = False,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.id = secrets.token_hex(16)
+        self.private = private
         self._open = open_relay
         self._exited = exited
         self._record = record
         self._authorization = authorization
         self._clock = clock
-        self._lock = threading.Lock()
+        # Guards the state below; waited on until control and every stream ended (`quiesce`).
+        self._lock = threading.Condition()
         self._ended = False
         self._unavailable = False
         self._controlled = False
@@ -73,6 +77,14 @@ class View:
             tunnels = tuple(self._tunnels)
         for tunnel in tunnels:
             tunnel.interrupt()
+
+    def quiesce(self, deadline: float) -> bool:
+        """Once the view ended: whether every stream ended and the person's input was proven released by `deadline`."""
+        with self._lock:
+            while self._controlled or self._tunnels:
+                if (left := deadline - self._clock()) <= 0 or not self._lock.wait(left):
+                    return False
+            return not self._unavailable
 
     def quiet_for(self) -> float:
         """How long no person has controlled the Browser; 0 while one does."""
@@ -92,6 +104,8 @@ class View:
         """
         with self._lock:
             self._admit()
+            if self.private and not control:
+                raise BrowserError(view_protocol.NOT_RUNNING)
             if control and self._authorization is None:
                 raise BrowserError(view_protocol.UNAVAILABLE)
             if self._controlled:
@@ -113,7 +127,7 @@ class View:
     def _release(self) -> None:
         """Release what the person held before anything else acts; an unproven release leaves the view unavailable."""
         try:
-            input_release.release(self._open, self._authorization(True), clock=self._clock)
+            input_release.release(self._open, self._exited, self._authorization(True), clock=self._clock)
             released = True
         except input_release.ReleaseError, BrowserError, ChannelError, OSError:
             released = False
@@ -122,6 +136,7 @@ class View:
             self._quiet_since = self._clock()
             if not released:
                 self._unavailable = True
+            self._lock.notify_all()
         self._record(f"control-ended:released={int(released)}")
 
     def _carry(self, client: socket, key: str, upgraded: Callable[[bytes], None], control: bool) -> None:
@@ -139,9 +154,13 @@ class View:
         with self._lock:
             self._tunnels.add(tunnel)
             ended = self._ended
+            # A watcher whose relay opened while a person took control is refused here, before any frame reaches it.
+            busy = self._controlled and not control
         try:
             if ended:
                 raise BrowserError(view_protocol.NOT_RUNNING)
+            if busy:
+                raise BrowserError(view_protocol.BUSY)
             self._record("started")
             try:
                 authorization = self._authorization(control) if self._authorization is not None else None
@@ -154,9 +173,10 @@ class View:
             with suppress(TunnelError, ChannelError, OSError):
                 tunnel.splice(lambda: self._ended)
         finally:
+            self._finish(exec_id, display, tunnel)
             with self._lock:
                 self._tunnels.discard(tunnel)
-            self._finish(exec_id, display, tunnel)
+                self._lock.notify_all()
 
     def _finish(self, exec_id: str, display: ExecStream, tunnel: Tunnel) -> None:
         """End the relay's input and prove its exec ended before the deadline; then close the channel."""

@@ -130,10 +130,10 @@ class BrowserService:
                 del self._running[team_id]
 
     def open_view(self, team_id: str) -> str:
-        """The id of the screen view of the task the Team runs now; refused when it runs none."""
+        """The id of the screen view of the task the Team runs now; refused when it runs none or only a private one."""
         with self._guard:
             held = self._running.get(team_id)
-            if held is None:
+            if held is None or held[2].private:
                 raise BrowserError(view_protocol.NOT_RUNNING)
             return held[2].id
 
