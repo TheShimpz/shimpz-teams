@@ -252,9 +252,10 @@ class SignInStore:
                 self._fences[team_id] = self._fences.get(team_id, 0) + 1
             self._remove(self._root / "capsules")
             self._remove(self._root / "drafts")
-            self._index.unlink(missing_ok=True)
-            if self._index.exists():
-                raise SignInError("the Sign-ins were not all deleted")
+            try:
+                self._index.unlink(missing_ok=True)
+            except OSError as exc:
+                raise SignInError("the Sign-ins were not all deleted") from exc
 
     def reconcile(self) -> None:
         """At Team startup: delete every draft and every capsule no record names, left by an interrupted Save."""

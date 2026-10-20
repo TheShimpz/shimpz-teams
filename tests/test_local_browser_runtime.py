@@ -423,7 +423,7 @@ class BrowserRuntimeTests(unittest.TestCase):
         lease = browser.acquire("neo", "en", mode=runtime.PERSON, url="https://example.com")
         self.docker.programs[("stop",)] = (0, b"stopped\n")
         browser.stop(lease)
-        for answer in ((1, b"stopped\n"), (0, b""), (0, b"stopped\nmore\n")):
+        for answer in ((1, b"stopped\n"), (0, b""), (0, b"stopped\nmore\n"), (0, b"running\n")):
             with self.subTest(answer=answer), self.assertRaises(runtime.BrowserError):
                 self.docker.programs[("stop",)] = answer
                 browser.stop(lease)
@@ -455,6 +455,13 @@ class BrowserRuntimeTests(unittest.TestCase):
             with self.assertRaises(runtime.BrowserError) as exported:
                 browser.export(lease, lambda _chunk: None)
             self.assertEqual(exported.exception.code, "browser-lost")
+        # A program Docker cannot even start fails as its own operation does.
+        with (
+            mock.patch.object(browser, "_exec", side_effect=runtime.BrowserError("browser-lost")),
+            self.assertRaises(runtime.BrowserError) as unstarted,
+        ):
+            browser._feed(lease.container_id, ["credentials"], (b"x",))
+        self.assertEqual(unstarted.exception.code, "browser-unavailable")
         # An inspection that never answers cannot hold a Save past the program's own deadline.
         stalled = threading.Event()
         self.addCleanup(stalled.set)

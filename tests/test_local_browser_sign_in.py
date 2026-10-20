@@ -184,6 +184,37 @@ class SignInSessionTests(unittest.TestCase):
         self.assertEqual(late.exception.code, "sign-in-unsaved")
         self.assertEqual(self.store.list(TEAM), [])
 
+    def test_a_session_ended_as_its_save_begins_or_before_it_commits_keeps_nothing(self):
+        started = self.start()
+        counted = self.sessions._windows
+
+        def cancelled_while_counting(lease):
+            self.sessions.cancel(TEAM, started["sign_in_session_id"])
+            return counted(lease)
+
+        with (
+            mock.patch.object(self.sessions, "_windows", side_effect=cancelled_while_counting),
+            self.assertRaises(local_sign_in.SignInSessionError) as ended,
+        ):
+            self.save(started)
+        self.assertEqual(ended.exception.code, "sign-in-not-running")
+        started = self.start()
+        exported = self.runtime.export
+
+        def cancelled_while_exporting(lease, sink):
+            size = exported(lease, sink)
+            self.sessions.cancel(TEAM, started["sign_in_session_id"])
+            return size
+
+        with (
+            mock.patch.object(self.runtime, "export", side_effect=cancelled_while_exporting),
+            self.assertRaises(local_sign_in.SignInSessionError) as late,
+        ):
+            self.save(started)
+        self.assertEqual(late.exception.code, "sign-in-unsaved")
+        self.assertEqual(self.store.list(TEAM), [])
+        self.assertEqual(self.runtime.events[-1], ("release",))
+
     def test_a_save_waits_for_the_persons_control_to_end_released_or_keeps_nothing(self):
         started = self.start()
         with (

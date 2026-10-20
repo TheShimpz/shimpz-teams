@@ -286,6 +286,19 @@ class SignInStoreTests(unittest.TestCase):
         self.assertEqual(list(self.store.capsule(TEAM, saved["sign_in_id"])), [b"first", b"second"])
         self.store.delete_all()
         self.store.reconcile()
+        with (
+            mock.patch.object(sign_ins.Path, "unlink", side_effect=PermissionError("held")),
+            self.assertRaises(sign_ins.SignInError),
+        ):
+            self.store.delete_all()
+
+    def test_a_capsule_that_cannot_be_put_in_place_is_not_kept(self):
+        with (
+            mock.patch.object(sign_ins.Path, "rename", side_effect=OSError("cross-device")),
+            self.assertRaises(sign_ins.SignInError),
+        ):
+            self.save()
+        self.assertEqual(self.store.list(TEAM), [])
 
     def test_a_reset_deletes_every_sign_in_and_every_capsule(self):
         self.save()

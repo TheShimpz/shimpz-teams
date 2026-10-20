@@ -184,9 +184,9 @@ class SignInSessions:
         try:
             saved = self._persist(session, label, incarnation)
         finally:
+            # Nothing else takes a saving session away: it leaves here, ended.
             with self._guard:
-                if self._sessions.get(team_id) is session:
-                    del self._sessions[team_id]
+                del self._sessions[team_id]
             session.ended.set()
             self._fence(session)
             released = self._release(session.lease)

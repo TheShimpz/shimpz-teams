@@ -226,6 +226,7 @@ class LocalContractTests(LocalContractCase):
                         ),
                         chat_turn_service=mock.sentinel.chat,
                         browser_service=SimpleNamespace(startup=lambda: events.append("browser-startup")),
+                        sign_in_store=SimpleNamespace(reconcile=lambda: events.append("sign-ins-reconciled")),
                     )
                 ),
             ),
@@ -273,6 +274,7 @@ class LocalContractTests(LocalContractCase):
                 "server",
                 "snapshots-warm",
                 "updates",
+                "sign-ins-reconciled",
                 "browser-startup",
                 ("routines-recover", mock.sentinel.chat, True),
                 "updates-start",
