@@ -1,4 +1,4 @@
-//! An Acesso's profile capsule (ADR-0117, Acessos amendment items 4 and 6): Chromium's `/profile`, exported as one
+//! A Sign-in's profile capsule (ADR-0117, Sign-ins amendment items 4 and 6): Chromium's `/profile`, exported as one
 //! bounded ustar archive after a proven clean stop and imported into a fresh Browser's empty `/profile` before
 //! Chromium starts. Only regular files and directories cross, under fixed bounds; the transient locks and the render
 //! and HTTP caches stay behind. Every archive this program reads is validated whole before anything is written.

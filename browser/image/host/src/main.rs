@@ -2,13 +2,13 @@
 //!
 //! `launch` is the container's command: it starts the display, the session and accessibility buses, and Chromium,
 //! and exits as soon as any of them stops, so the container ends with it, unless Team asked for the clean stop that
-//! keeps an Acesso (`stop`), after which it waits for Team to export the profile and remove the container. `mcp` replaces itself with the Cua Driver's
+//! keeps an Sign-in (`stop`), after which it waits for Team to export the profile and remove the container. `mcp` replaces itself with the Cua Driver's
 //! stdio MCP server, the only instrument Team drives. `ready` proves Chromium's loopback DevTools endpoint answers.
 //! `files list` and `files read NAME` are the only way Team reads `/downloads`: regular files with one link, opened
 //! without following links, never a partial `.crdownload`. `relay` carries one viewer's WebSocket to the display,
 //! KasmVNC's X server confined to its own namespaces (`display.rs`). A Browser a person may control (`BROWSER_MODE`
-//! `person` or `account`, ADR-0117 Acessos amendment) also takes `credentials` (the display's two viewer credentials),
-//! `stop` (Chromium's clean stop), `profile export`, and, in `account` mode before Chromium starts, `profile import`
+//! `person` or `signed-in`, ADR-0117 Sign-ins amendment) also takes `credentials` (the display's two viewer credentials),
+//! `stop` (Chromium's clean stop), `profile export`, and, in `signed-in` mode before Chromium starts, `profile import`
 //! (`profile.rs`).
 //!
 //! Every input comes from Team through the container's environment or the exec argument vector and is validated
@@ -48,7 +48,7 @@ const MAX_FILE_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_NAME_BYTES: usize = 255;
 const PARTIAL_SUFFIX: &str = ".crdownload";
 const START_DEADLINE: Duration = Duration::from_secs(10);
-/// How long an `account` Browser waits for Team to restore its profile before Chromium starts.
+/// How long a `signed-in` Browser waits for Team to restore its profile before Chromium starts.
 const RESTORE_DEADLINE: Duration = Duration::from_secs(60);
 /// How long Chromium has to end every process after its clean stop is asked.
 const STOP_DEADLINE: Duration = Duration::from_secs(30);
@@ -86,7 +86,7 @@ fn main() -> ExitCode {
         }),
         ["stop"] => controlled().and_then(|()| stop()),
         ["profile", "export"] => controlled().and_then(|()| export()),
-        ["profile", "import"] => account().and_then(|()| import()),
+        ["profile", "import"] => signed_in().and_then(|()| import()),
         _ => Err(
             "usage: browser-host launch | mcp | ready | relay | files list | files read NAME | credentials | stop \
              | profile export | profile import"
@@ -102,13 +102,13 @@ fn main() -> ExitCode {
     }
 }
 
-/// Who drives the Browser: the agent alone; a person signing in, starting at `url`; or an account task restored from
-/// an Acesso, which a person may take over.
+/// Who drives the Browser: the agent alone; a person signing in, starting at `url`; or a signed-in task restored from
+/// a Sign-in, which a person may take over.
 #[derive(Debug, PartialEq, Eq)]
 enum Mode {
     Agent,
     Person(String),
-    Account,
+    SignedIn,
 }
 
 /// The settings Team gives one Browser: the egress proxy's address, the page language, and its mode.
@@ -132,13 +132,13 @@ fn start_url(value: &str) -> bool {
 fn mode(environment: &HashMap<String, String>) -> Result<Mode, String> {
     match environment.get("BROWSER_MODE").map(String::as_str) {
         Some("agent") => Ok(Mode::Agent),
-        Some("account") => Ok(Mode::Account),
+        Some("signed-in") => Ok(Mode::SignedIn),
         Some("person") => environment
             .get("BROWSER_URL")
             .filter(|url| start_url(url))
             .map(|url| Mode::Person(url.clone()))
             .ok_or_else(|| "BROWSER_URL must be the https URL a sign-in starts at".into()),
-        _ => Err("BROWSER_MODE must be agent, person, or account".into()),
+        _ => Err("BROWSER_MODE must be agent, person, or signed-in".into()),
     }
 }
 
@@ -173,10 +173,10 @@ fn controlled() -> Result<(), String> {
     }
 }
 
-fn account() -> Result<(), String> {
+fn signed_in() -> Result<(), String> {
     match current_mode()? {
-        Mode::Account => Ok(()),
-        _ => Err("only an account Browser restores a profile".into()),
+        Mode::SignedIn => Ok(()),
+        _ => Err("only a signed-in Browser restores a profile".into()),
     }
 }
 
@@ -232,7 +232,7 @@ fn chromium_arguments(settings: &Settings) -> Vec<String> {
         // A person signing in reads the real address in Chromium's own bar.
         Mode::Person(url) => arguments.push(url.clone()),
         // The restored session's tabs, each with its own session storage, and no extra tab beside them.
-        Mode::Account => arguments.extend(["--kiosk".into(), "--restore-last-session".into()]),
+        Mode::SignedIn => arguments.extend(["--kiosk".into(), "--restore-last-session".into()]),
     }
     arguments
 }
@@ -298,7 +298,7 @@ fn start_all(settings: &Settings, children: &mut Vec<Child>) -> Result<(), Strin
     if !telemetry.is_ok_and(|output| output.status.success()) {
         return Err("cannot turn the Cua Driver's telemetry off".into());
     }
-    if settings.mode == Mode::Account {
+    if settings.mode == Mode::SignedIn {
         // Chromium starts only on the profile Team restored.
         let deadline = Instant::now() + RESTORE_DEADLINE;
         while !Path::new(RESTORED).exists() {
@@ -672,7 +672,7 @@ mod tests {
     #[test]
     fn each_mode_starts_chromium_its_own_way() {
         let of = |pairs: &[(&str, &str)]| mode(&environment_of(pairs));
-        assert_eq!(of(&[("BROWSER_MODE", "account")]), Ok(Mode::Account));
+        assert_eq!(of(&[("BROWSER_MODE", "signed-in")]), Ok(Mode::SignedIn));
         assert_eq!(
             of(&[
                 ("BROWSER_MODE", "person"),
@@ -711,9 +711,9 @@ mod tests {
         let person = with(Mode::Person("https://example.com/login".into()));
         assert_eq!(person.last().unwrap(), "https://example.com/login");
         assert!(!person.contains(&"--kiosk".to_owned()));
-        let account = with(Mode::Account);
-        assert!(account.ends_with(&["--kiosk".to_owned(), "--restore-last-session".to_owned()]));
-        assert!(!account.contains(&"about:blank".to_owned()));
+        let signed_in = with(Mode::SignedIn);
+        assert!(signed_in.ends_with(&["--kiosk".to_owned(), "--restore-last-session".to_owned()]));
+        assert!(!signed_in.contains(&"about:blank".to_owned()));
     }
 
     #[test]

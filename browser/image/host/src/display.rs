@@ -78,7 +78,7 @@ pub const PASSWORD_FILE: &str = "/tmp/run/kasmpasswd";
 ///
 /// An agent's Browser authenticates no viewer (only the relay reaches it) and refuses every input. A Browser a person
 /// may control authenticates every viewer against the credentials Team writes, and applies pointer and key input only
-/// from the read-write one (ADR-0117, Acessos amendment item 3); until Team writes them, every viewer is refused.
+/// from the read-write one (ADR-0117, Sign-ins amendment item 3); until Team writes them, every viewer is refused.
 pub fn arguments(controlled: bool) -> Vec<&'static str> {
     let mut arguments = vec![
         ":99",
