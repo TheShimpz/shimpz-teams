@@ -61,6 +61,8 @@ START, SAVE, CANCEL, DELETE, EXPIRE = (
 )
 # The origin of what Team does on its own, beside the verified Admin Origin of what a person asked (ADR-0120).
 TEAM_ORIGIN = "team"
+# The residue of the Browsers a previous Team process may have left, until a cleanup proves none is left.
+STARTUP_RESIDUE = "startup"
 log = logging.getLogger("shimpz.team.local.browser.sign_in")
 
 # The Team's current incarnation (its network id), or None once it is gone.
@@ -138,7 +140,8 @@ class SignInSessions:
         self._epoch = 0
         # Teams with a sign-in session starting, and Teams whose sign-in Browser's removal is not proven yet.
         self._starting: set[str] = set()
-        self._residue: set[str] = set()
+        # Each residue is one Browser, by its Team and container, so a removal proven later clears only its own.
+        self._residue: set[tuple[str, str]] = set()
         store.expired = self._expired
 
     def start(
@@ -205,7 +208,7 @@ class SignInSessions:
                 if admitted and owned:
                     del self._sessions[team_id]
                 if owned:
-                    self._residue.add(team_id)
+                    self._residue.add((team_id, lease.container_id))
             if owned:
                 session.ended.set()
                 self._fence(session)
@@ -283,7 +286,7 @@ class SignInSessions:
                 return session, True
             del self._sessions[team_id]
             # Until its release proves the Browser gone, no deletion of the Sign-in it restored is complete.
-            self._residue.add(team_id)
+            self._residue.add((team_id, session.lease.container_id))
         session.ended.set()
         self._fence(session)
         return session, False
@@ -350,7 +353,7 @@ class SignInSessions:
             # Nothing else takes a saving session away: it leaves here, ended.
             with self._guard:
                 del self._sessions[team_id]
-                self._residue.add(team_id)
+                self._residue.add((team_id, session.lease.container_id))
             session.ended.set()
             self._fence(session)
             session.removed = self._release(session.lease)
@@ -489,7 +492,8 @@ class SignInSessions:
         """Complete the deletion if it can be proven now: whether its completion was recorded and its fence dropped."""
         team_id = deletion.team_id
         with self._guard:
-            if team_id in self._starting or team_id in self._sessions or team_id in self._residue:
+            residue = any(owner == team_id for owner, _container in self._residue)
+            if team_id in self._starting or team_id in self._sessions or residue:
                 return False
         try:
             if not self._store.purge(team_id, deletion.event_id):
@@ -535,15 +539,12 @@ class SignInSessions:
         Sign-in it may have restored is reported complete. Pending deletions the store cannot read yet are read again
         until it can.
         """
+        # Cleanup never waits on the Sign-ins' metadata: a previous process's Browser is removed first, whatever it is.
+        proven = self._service.startup()
         pending = self._pending()
-        with self._guard:
-            self._residue.update(deletion.team_id for deletion in pending)
-        if self._service.startup():
-            with self._guard:
-                self._residue.difference_update(deletion.team_id for deletion in pending)
-        else:
+        if not proven:
             for team_id in {deletion.team_id for deletion in pending}:
-                self._recovering(team_id, None)
+                self._recovering(team_id, STARTUP_RESIDUE)
         for deletion in pending:
             if not self._settle(deletion, background=True):
                 self._later(deletion)
@@ -622,24 +623,27 @@ class SignInSessions:
             self._recovering(lease.team_id, lease)
             return False
         with self._guard:
-            self._residue.discard(lease.team_id)
+            self._residue.discard((lease.team_id, lease.container_id))
         return True
 
-    def _recovering(self, team_id: str, lease: Lease | None) -> None:
+    def _recovering(self, team_id: str, lease: Lease | str) -> None:
+        """Clean `lease`'s Browser (or the Browsers a previous process left) in the background until proven gone."""
+        container = lease if isinstance(lease, str) else lease.container_id
         with self._guard:
-            self._residue.add(team_id)
+            self._residue.add((team_id, container))
         threading.Thread(
             target=self._recover, args=(team_id, lease), name="browser-sign-in-recover", daemon=True
         ).start()
 
-    def _recover(self, team_id: str, lease: Lease | None) -> None:
+    def _recover(self, team_id: str, lease: Lease | str) -> None:
         """Clean again until no residue is proven left; a restarted Team process cleans up after a stopped one."""
+        container = lease if isinstance(lease, str) else lease.container_id
         while True:
             time.sleep(RECOVER_SECONDS)
             if self._runtime.recover():
                 with self._guard:
-                    self._residue.discard(team_id)
-                if lease is not None:
+                    self._residue.discard((team_id, container))
+                if not isinstance(lease, str):
                     _audit(lease, "recovered", background=True)
                 return
 

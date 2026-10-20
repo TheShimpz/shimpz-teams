@@ -718,6 +718,28 @@ class SignInSessionTests(unittest.TestCase):
             ("browser-sign-in-expire", local_sign_in.local_audit.TEAM, "team", "expired", 1),
         )
 
+    def test_a_proven_removal_clears_only_its_own_browsers_residue(self):
+        saved = self.save(self.start())
+        self.sessions._residue.update({(TEAM, "older"), (TEAM, "newer")})
+        self.sessions._recover(TEAM, "older")
+        self.assertEqual(self.sessions._residue, {(TEAM, "newer")})
+        self.assertEqual(self.sessions.delete(TEAM, self.confirmed(saved)), "pending")
+        self.sessions._residue.clear()
+        self.until(("browser-sign-in-delete", "completed"))
+
+    def test_a_restarted_team_removes_earlier_browsers_before_reading_its_sign_ins(self):
+        order = []
+        with (
+            mock.patch.object(self.service, "startup", side_effect=lambda: order.append("cleanup") or True),
+            mock.patch.object(
+                self.store,
+                "deletions",
+                side_effect=lambda: order.append("read") or [],
+            ),
+        ):
+            self.sessions.startup()
+        self.assertEqual(order, ["cleanup", "read"])
+
     def test_a_restarted_team_completes_and_records_every_deletion_left_pending(self):
         saved = self.save(self.start())
         metadata = {"event_id": "e" * 32, "initiator_id": "s" * 32, "factor": "passkey", "origin": ORIGIN}

@@ -134,6 +134,8 @@ class SignInStore:
         self._lock = threading.RLock()
         # Each Team's in-process fence: a Save writes and commits only if no deletion or reset came since it began.
         self._fences: dict[str, int] = {}
+        # Each Team's generation whose publication is unknown: it needs a person until that is durably recorded.
+        self._quarantine: dict[str, int] = {}
         # Told of each expired Sign-in deleted as it was read: its Team, generation, and incarnation.
         self.expired: Callable[[str, int, str], None] = lambda _team_id, _generation, _incarnation: None
 
@@ -220,6 +222,23 @@ class SignInStore:
     def _expired(self, record: dict[str, object]) -> bool:
         return bool(record["generation"]) and self._now() >= _expires(record)
 
+    def _settle_quarantine(self, team_id: str) -> None:
+        """Record a generation whose publication was unknown as needing a person, durably; until then it stays held.
+
+        Published after all, it needs a person's Save before an agent uses it; not published, there is nothing to hold.
+        """
+        generation = self._quarantine.get(team_id)
+        if generation is None:
+            return
+        teams, record = self._record(team_id)
+        if record is not None and record["generation"] == generation and record["state"] != NEEDS_PERSON:
+            record["state"] = NEEDS_PERSON
+            try:
+                self._put(teams, record)
+            except SignInError:
+                return
+        del self._quarantine[team_id]
+
     def _expire(self, team_id: str, record: dict[str, object]) -> bool:
         """Delete an expired Sign-in, and tell `expired` once it is gone; whether it is."""
         gone = self._delete(team_id)
@@ -236,6 +255,7 @@ class SignInStore:
         """
         team_id = validate_team_id(team_id)
         with self._lock:
+            self._settle_quarantine(team_id)
             _teams, record = self._record(team_id)
             if record is None or record["deleting"] or not record["generation"]:
                 return None
@@ -243,7 +263,7 @@ class SignInStore:
                 self._expire(team_id, record)
                 return None
             public = _public(record)
-            if record["writer"] != reader:
+            if record["writer"] != reader or team_id in self._quarantine:
                 public["state"] = NEEDS_PERSON
             return public
 
@@ -253,6 +273,7 @@ class SignInStore:
         """Check the Team's Sign-in out, durably, before its Browser starts; a first one has no generation yet."""
         team_id = validate_team_id(team_id)
         with self._lock:
+            self._settle_quarantine(team_id)
             teams, record = self._record(team_id)
             if record is not None and record["deleting"]:
                 raise SignInError("the Sign-in is being deleted", sign_in_protocol.BUSY)
@@ -264,7 +285,11 @@ class SignInStore:
                 teams, record = self._record(team_id)
             if record is not None and record["checkout"] is not None:
                 raise SignInError("the Sign-in is checked out", sign_in_protocol.BUSY)
-            if record is not None and kind == AGENT and record["state"] == NEEDS_PERSON:
+            if (
+                record is not None
+                and kind == AGENT
+                and (record["state"] == NEEDS_PERSON or team_id in self._quarantine)
+            ):
                 raise SignInError("the Sign-in needs a person", sign_in_protocol.BUSY)
             now = self._now()
             if record is None:
@@ -418,6 +443,7 @@ class SignInStore:
         """
         teams, record = self._record(team_id)
         self._fences[team_id] = self._fences.get(team_id, 0) + 1
+        self._quarantine.pop(team_id, None)
         if record is not None:
             self._fence(teams, record, dict(_INTERNAL))
         if not self._purge(team_id, record):
@@ -570,6 +596,9 @@ class Draft:
             except SignInError:
                 if not self._published(record):
                     raise
+            if checkout.kind == PERSON:
+                # A person's Save resolves whatever an earlier unknown publication left.
+                store._quarantine.pop(checkout.team_id, None)
         if earlier:
             # The generation this one replaced; one left behind is deleted at the next Team start.
             shutil.rmtree(store._capsule_dir(checkout.sign_in_id, earlier), ignore_errors=True)
@@ -588,6 +617,7 @@ class Draft:
             private_state.fsync_directory(self._store._index.parent)
         except (SignInError, OSError) as exc:
             self._uncertain = True
+            self._store._quarantine[self._checkout.team_id] = self.generation
             raise SignInError("the Sign-in's publication is unknown") from exc
         return True
 

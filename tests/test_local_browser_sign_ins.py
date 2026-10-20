@@ -562,6 +562,15 @@ class SignInStoreTests(unittest.TestCase):
             draft2.commit(["linkedin.com"], False, WRITER, lambda: True)
         draft2.discard()
         self.assertIn(f"{checkout2.sign_in_id}-1", self.capsules())
+        # Published after all, that generation needs a person: no agent takes it, even before that is recorded.
+        with mock.patch.object(sign_ins.SignInStore, "_put", side_effect=failed):
+            self.assertEqual(self.current("trinity")["state"], "needs-person")
+            with self.assertRaises(sign_ins.SignInError) as held:
+                self.store.checkout("trinity", INCARNATION, sign_ins.AGENT)
+        self.assertEqual(held.exception.code, "sign-in-busy")
+        self.assertEqual(self.current("trinity")["state"], "needs-person")
+        self.assertEqual(self.store._record("trinity")[1]["state"], "needs-person")
+        self.assertNotIn("trinity", self.store._quarantine)
         self.store.delete_team("trinity")
         # Not named after all: the next start deletes it, and a refused write that named nothing is discarded at once.
         self.store.reconcile()
@@ -576,6 +585,21 @@ class SignInStoreTests(unittest.TestCase):
             draft.commit(["linkedin.com"], False, WRITER, lambda: True)
         draft.discard()
         self.assertEqual(self.capsules(), [f"{checkout.sign_in_id}-1"])
+
+    def test_only_a_persons_save_resolves_a_held_generation(self):
+        self.save()
+        agent = self.checkout(kind=sign_ins.AGENT)
+        self.store._quarantine[TEAM] = 7
+        draft = self.store.draft(agent)
+        draft.add(b"agent")
+        draft.commit(["linkedin.com"], False, WRITER, lambda: True)
+        self.assertEqual(self.store._quarantine, {TEAM: 7})
+        person = self.checkout()
+        self.store._quarantine[TEAM] = 7
+        draft = self.store.draft(person)
+        draft.add(b"person")
+        draft.commit(["linkedin.com"], False, WRITER, lambda: True)
+        self.assertEqual(self.store._quarantine, {})
 
     def test_a_state_or_record_not_this_stores_own_is_refused(self):
         index = self.root / "state" / "index.json"
