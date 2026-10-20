@@ -195,6 +195,11 @@ class BrowserRuntime:
         self._dirty = True
 
     @property
+    def image(self) -> str | None:
+        """The exact Browser image this Team runs, which a Sign-in records as its writer."""
+        return self._image
+
+    @property
     def available(self) -> bool:
         """Whether this Team image names a Browser it can run: an exact image on amd64."""
         return self._image is not None

@@ -1,21 +1,48 @@
-"""The Browser's watched screen over HTTP: opening the running task's view and carrying its stream (ADR-0117).
+"""The Browser over HTTP: its watched screen, a person's control of it, and a Team's Sign-ins (ADR-0117).
 
-A stream request is one exact WebSocket upgrade. Team admits it only for the view of the very task it names, holds one
-of the Space's stream slots for the whole stream, and answers 101 only after the display itself answered the same
-upgrade exactly; before that, every refusal is a closed JSON answer, and after it the stream just ends.
+A stream request is one exact WebSocket upgrade. Team admits it only for the view of the very Browser it names, holds
+one of the Space's stream slots for the whole stream, and answers 101 only after the display itself answered the same
+upgrade exactly; before that, every refusal is a closed JSON answer, and after it the stream just ends. A control
+stream is the person's own control of a Browser that offers it (a sign-in session).
+
+A person signs in to a site in a sign-in session and Saves it as a Sign-in; the Team lists and forgets its Sign-ins
+(Sign-ins amendment). Every body and answer has the exact form of `protocol/http/v1/sign_in.py`.
 """
 
 from http import HTTPStatus
 
 from core.http import strict as strict_http
+from local.browser import sign_in as local_sign_in
+from local.browser import sign_ins as sign_in_store
 from local.browser.runtime import BrowserError
 from local.errors import ApiProblemError as ApiProblem
 from local.http.audit import RequestAudit
-from local.http.dispatch import team_operation
+from local.http.dispatch import MAX_BODY_BYTES, team_operation
 from local.validation import validate_team_id
 from protocol.http.v1 import browser_view as view_protocol
+from protocol.http.v1 import sign_in as sign_in_protocol
 
 STREAM_OPERATION = "browser-view-stream"
+CONTROL_OPERATION = "browser-view-control"
+BODY_LIMITS = {
+    "browser-sign-in-start": MAX_BODY_BYTES,
+    "browser-sign-in-save": MAX_BODY_BYTES,
+    "browser-sign-in-cancel": MAX_BODY_BYTES,
+    "browser-sign-in-forget": MAX_BODY_BYTES,
+}
+_SIGN_IN_MESSAGES = {
+    sign_in_protocol.NOT_RUNNING: (HTTPStatus.NOT_FOUND, "the sign-in session is not running"),
+    sign_in_protocol.URL_INVALID: (HTTPStatus.BAD_REQUEST, "the sign-in URL is not admissible"),
+    sign_in_protocol.LABEL_INVALID: (HTTPStatus.BAD_REQUEST, "the Sign-in label is not admissible"),
+    sign_in_protocol.WINDOWS: (HTTPStatus.CONFLICT, "close every window but one before saving"),
+    sign_in_protocol.IDENTITY_PROVIDER: (
+        HTTPStatus.CONFLICT,
+        "the profile holds a session at an identity provider; sign out of it before saving",
+    ),
+    sign_in_protocol.UNSAVED: (HTTPStatus.SERVICE_UNAVAILABLE, "the Sign-in could not be saved"),
+    "browser-busy": (HTTPStatus.CONFLICT, "the Space's Browser is busy"),
+    "browser-unavailable": (HTTPStatus.SERVICE_UNAVAILABLE, "the Browser is unavailable"),
+}
 _MESSAGES = {
     view_protocol.NOT_RUNNING: (HTTPStatus.NOT_FOUND, "the Browser task is not running"),
     view_protocol.BUSY: (HTTPStatus.SERVICE_UNAVAILABLE, "the Browser view is busy"),
@@ -36,7 +63,85 @@ def _open(handler, team_id: str) -> dict[str, object]:
         raise _problem(exc) from exc
 
 
-OPERATIONS = {"browser-view-open": team_operation(_open)}
+def _sign_in_problem(exc: local_sign_in.SignInSessionError) -> ApiProblem:
+    code = exc.code if exc.code in _SIGN_IN_MESSAGES else "browser-unavailable"
+    status, message = _SIGN_IN_MESSAGES[code]
+    return ApiProblem(status, message, code=code)
+
+
+def _body(handler, admit) -> dict[str, object]:
+    body = admit(handler.body())
+    if body is None:
+        raise ApiProblem(HTTPStatus.BAD_REQUEST, "the request body is not admissible", code="invalid-body")
+    return body
+
+
+def _incarnation(handler, team_id: str) -> str:
+    return handler.server.controller.assistant_lifecycle._network(team_id).id
+
+
+def _start(handler, team_id: str) -> dict[str, object]:
+    body = _body(handler, sign_in_protocol.canonical_start)
+    try:
+        return handler.server.controller.sign_in_sessions.start(
+            team_id, _incarnation(handler, team_id), body["url"], body["locale"]
+        )
+    except local_sign_in.SignInSessionError as exc:
+        raise _sign_in_problem(exc) from exc
+
+
+def _save(handler, team_id: str) -> dict[str, object]:
+    body = _body(handler, sign_in_protocol.canonical_save)
+    controller = handler.server.controller
+
+    def current() -> str | None:
+        try:
+            return _incarnation(handler, team_id)
+        except ApiProblem:
+            return None
+
+    try:
+        return controller.sign_in_sessions.save(team_id, body["sign_in_session_id"], body["label"], current)
+    except local_sign_in.SignInSessionError as exc:
+        raise _sign_in_problem(exc) from exc
+
+
+def _cancel(handler, team_id: str) -> dict[str, object]:
+    body = _body(handler, sign_in_protocol.canonical_session)
+    try:
+        handler.server.controller.sign_in_sessions.cancel(team_id, body["sign_in_session_id"])
+    except local_sign_in.SignInSessionError as exc:
+        raise _sign_in_problem(exc) from exc
+    return {"cancelled": True}
+
+
+def _sign_ins_unavailable() -> ApiProblem:
+    return ApiProblem(HTTPStatus.SERVICE_UNAVAILABLE, "the Sign-ins are unavailable", code="sign-ins-unavailable")
+
+
+def _list(handler, team_id: str) -> dict[str, object]:
+    try:
+        return {"sign_ins": handler.server.controller.sign_in_store.list(team_id)}
+    except sign_in_store.SignInError as exc:
+        raise _sign_ins_unavailable() from exc
+
+
+def _forget(handler, team_id: str) -> dict[str, object]:
+    body = _body(handler, sign_in_protocol.canonical_forget)
+    try:
+        return {"forgotten": handler.server.controller.sign_in_store.forget(team_id, body["sign_in_id"])}
+    except sign_in_store.SignInError as exc:
+        raise _sign_ins_unavailable() from exc
+
+
+OPERATIONS = {
+    "browser-view-open": team_operation(_open),
+    "browser-sign-in-start": team_operation(_start),
+    "browser-sign-in-save": team_operation(_save),
+    "browser-sign-in-cancel": team_operation(_cancel),
+    "browser-sign-ins": team_operation(_list),
+    "browser-sign-in-forget": team_operation(_forget),
+}
 
 
 def upgrade_key(headers) -> str | None:
@@ -60,7 +165,7 @@ def upgrade_key(headers) -> str | None:
 
 
 def send_stream(handler, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
-    """Carry one viewer's stream of the watched task's screen, holding a stream slot until it ends."""
+    """Carry one viewer's stream of the watched Browser's screen, or a person's control of it, until it ends."""
     team_id = validate_team_id(route.params["team_id"])
     view_id = route.params["view_id"]
     if view_protocol.VIEW_ID_RE.fullmatch(view_id) is None:
@@ -76,11 +181,13 @@ def send_stream(handler, route: strict_http.ControllerRouteMatch, request_audit:
         handler.wfile.write(first)
         handler.wfile.flush()
         upgraded = True
-        request_audit.record(STREAM_OPERATION, result="ok", team_id=team_id, detail="upgraded")
+        request_audit.record(route.operation, result="ok", team_id=team_id, detail="upgraded")
 
     try:
         with service.view_slot():
-            service.carry_view(team_id, view_id, handler.connection, key, answer)
+            service.carry_view(
+                team_id, view_id, handler.connection, key, answer, control=route.operation == CONTROL_OPERATION
+            )
     except BrowserError as exc:
         if not upgraded:
             raise _problem(exc) from exc

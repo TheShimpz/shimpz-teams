@@ -13,6 +13,7 @@ from local import labels as local_labels
 from local import names as local_names
 from local import prepare as local_prepare
 from local.browser import runtime as local_browser_runtime
+from local.browser import sign_ins as local_sign_ins
 from local.errors import (
     DOCKER_ERRORS,
     action_state_unavailable,
@@ -51,6 +52,7 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
         "publication_bindings",
         "routines",
         "runtime_state",
+        "sign_ins",
         "team_networks",
         "team_names",
         "team_storage",
@@ -94,9 +96,20 @@ def delete_team_conversation(self, team_id: str, network) -> None:
 
 def _remove_team_browser(self, team_id: str) -> None:
     """A deleted Team's Browser goes with it; the static Browser network and its egress stay (ADR-0117 §8)."""
+    # A sign-in session ends first, keeping nothing; then any Browser the Team still holds is removed.
+    self.sign_in_sessions.end_team(team_id)
     try:
         self.browser_service.remove_team(team_id)
     except local_browser_runtime.BrowserError as exc:
+        raise team_destroy_failed() from exc
+
+
+def _delete_team_sign_ins(self, team_id: str) -> None:
+    """A deleted Team's Sign-ins go with it, and a Save under way keeps nothing (ADR-0117, Sign-ins item 11)."""
+    try:
+        if not self.sign_in_store.delete_team(team_id):
+            raise team_destroy_failed()
+    except local_sign_ins.SignInError as exc:
         raise team_destroy_failed() from exc
 
 
@@ -218,6 +231,8 @@ def _destroy_confirmed_team(self, team_id: str) -> dict[str, object]:
             residue_absent.add("preparation_helpers")
             _remove_team_browser(self, team_id)
             residue_absent.add("browsers")
+            _delete_team_sign_ins(self, team_id)
+            residue_absent.add("sign_ins")
             self._delete_team_routines(team_id)
             residue_absent.add("routines")
             removed = self._remove_team_assistants(team_id, containers)
@@ -380,10 +395,16 @@ def reset_space(self) -> dict[str, object]:
         residue_absent.add("preparation_helpers")
         try:
             # Every Browser of the Space, and its egress generation, ends with the reset (ADR-0117 §8).
+            self.sign_in_sessions.end_all()
             self.browser_service.clean()
         except local_browser_runtime.BrowserError as exc:
             raise space_reset_failed() from exc
         residue_absent.add("browsers")
+        try:
+            self.sign_in_store.delete_all()
+        except local_sign_ins.SignInError as exc:
+            raise space_reset_failed() from exc
+        residue_absent.add("sign_ins")
         if residue_absent != _TEAM_RESIDUE_ABSENCE:
             raise ApiProblem(
                 HTTPStatus.INTERNAL_SERVER_ERROR,

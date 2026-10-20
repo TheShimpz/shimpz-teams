@@ -7,6 +7,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from local.browser import capsule as capsule_check
 from local.browser import sign_ins
@@ -86,6 +87,54 @@ class CapsuleCheckTests(unittest.TestCase):
         ):
             with self.subTest(data=data[:20]), self.assertRaises(capsule_check.CapsuleError):
                 _checked(data)
+
+    def test_every_malformed_header_or_bound_is_refused(self):
+        valid = _archive([("Default", None), ("Default/Cookies", b"cookie")])
+
+        def with_header(change):
+            data = bytearray(valid)
+            change(data)
+            header = data[:512]
+            header[148:156] = b" " * 8
+            data[148:156] = f"{sum(header):06o}\0 ".encode()
+            return bytes(data)
+
+        def device(data):
+            data[156:157] = b"3"
+
+        def not_utf8(data):
+            data[0:2] = b"\xff\xfe"
+
+        def not_octal(data):
+            data[124:136] = b"zzzzzzzzzzz\0"
+
+        def not_ustar(data):
+            data[257:263] = b"gnutar"
+
+        padding = bytearray(valid)
+        padding[512 + 512 + 6] = 1
+        end_then_entry = valid[: len(valid) - 1024] + bytes(512) + valid[512:1024] + bytes(1024)
+        for data in (
+            with_header(device),
+            with_header(not_utf8),
+            with_header(not_octal),
+            with_header(not_ustar),
+            bytes(padding),
+            end_then_entry,
+        ):
+            with self.subTest(data=data[:8]), self.assertRaises(capsule_check.CapsuleError):
+                _checked(data, len(data))
+        check = _checked(valid)
+        with self.assertRaises(capsule_check.CapsuleError):
+            check.feed(b"\0")
+        for bound, value in (("MAX_ENTRIES", 1), ("MAX_TOTAL_BYTES", 2)):
+            with (
+                self.subTest(bound=bound),
+                mock.patch.object(capsule_check, bound, value),
+                self.assertRaises(capsule_check.CapsuleError),
+            ):
+                _checked(valid)
+        self.assertEqual(_checked(_archive([("Default", None)])).identity_hosts(), frozenset())
 
 
 class SignInStoreTests(unittest.TestCase):
@@ -176,6 +225,46 @@ class SignInStoreTests(unittest.TestCase):
             with self.subTest(chunks=len(chunks)), self.assertRaises(sign_ins.SignInError):
                 self.save(chunks)
         self.assertEqual(self.store.list(TEAM), [])
+
+    def test_a_state_or_record_not_this_stores_own_is_refused(self):
+        index = self.root / "state" / "index.json"
+        for written in (b"not json", b"[]", b'{"schema": 1, "teams": {"neo": []}}'):
+            with self.subTest(written=written):
+                index.write_bytes(written)
+                index.chmod(0o600)
+                with self.assertRaises(sign_ins.SignInError):
+                    self.store.list(TEAM)
+        index.unlink()
+        sign_in_id = "a" * 32
+        key = self.store._key(create=True)
+        aad = sign_ins._record_aad(TEAM, sign_in_id)
+        for plaintext in (b"not json", b'{"team_id": "neo"}'):
+            with self.subTest(plaintext=plaintext):
+                envelope = sign_ins.private_state.seal_identified(key, plaintext, aad)
+                index.write_text(json.dumps({"schema": 1, "teams": {TEAM: {sign_in_id: envelope}}}))
+                index.chmod(0o600)
+                with self.assertRaises(sign_ins.SignInError):
+                    self.store.list(TEAM)
+        index.unlink()
+
+    def test_its_bounds_and_absences_are_answered_exactly(self):
+        with mock.patch.object(sign_ins, "MAX_SIGN_INS", 1):
+            self.save()
+            with self.assertRaises(sign_ins.SignInError):
+                self.store.draft(TEAM, INCARNATION)
+        with self.assertRaises(sign_ins.SignInError):
+            list(self.store.capsule(TEAM, "c" * 32))
+        with self.assertRaises(sign_ins.SignInError):
+            self.store.forget(TEAM, "../escape")
+
+    def test_a_deleted_team_takes_every_sign_in_and_a_reset_that_leaves_any_fails(self):
+        self.save()
+        self.save()
+        self.assertTrue(self.store.delete_team(TEAM))
+        self.assertEqual(list((self.root / "state" / "capsules").iterdir()), [])
+        self.save()
+        with mock.patch.object(sign_ins.shutil, "rmtree"), self.assertRaises(sign_ins.SignInError):
+            self.store.delete_all()
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ LOCAL_TEAM_RESIDUES = [
     "publication_bindings",
     "routines",
     "runtime_state",
+    "sign_ins",
     "stored_inputs",
     "team_names",
     "team_networks",

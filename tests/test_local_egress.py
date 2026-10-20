@@ -27,7 +27,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
         self.policy_root.mkdir(mode=0o750)
         self.policy_root.chmod(0o750)
         self.controller = object.__new__(local_app.LocalController)
-        self.controller.browser_service = browser_fixtures.no_browser()
+        browser_fixtures.attach(self.controller)
         self.controller.space_id = "local-space"
         self.controller.client = types.SimpleNamespace()
         self.spec = types.SimpleNamespace(

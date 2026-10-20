@@ -632,7 +632,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 exec_start=lambda *_args, **_kwargs: stream,
             )
             controller = object.__new__(local_app.LocalController)
-            controller.browser_service = browser_fixtures.no_browser()
+            browser_fixtures.attach(controller)
             controller.client = SimpleNamespace(api=api)
             wire_collaborators(controller)
             controller.assistant_lifecycle._fail_stop_action = mock.Mock()
@@ -663,7 +663,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         # docker-py raises requests' ConnectionError, an OSError and no DockerException, when its socket is down.
         api.exec_inspect.side_effect = requests.exceptions.ConnectionError("socket down")
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service = browser_fixtures.no_browser()
+        browser_fixtures.attach(controller)
         controller.client = SimpleNamespace(api=api)
         wire_collaborators(controller)
         controller.assistant_lifecycle._fail_stop_action = mock.Mock()

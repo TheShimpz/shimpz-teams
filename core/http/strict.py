@@ -282,6 +282,13 @@ CONTROLLER_ROUTES = (
     # The Supervisor watches the screen of the Browser task its Team runs now (ADR-0117, M2 Watch).
     _controller_route("POST", "/v1/teams/:team_id/browser/view", "browser-view-open"),
     _controller_route("GET", "/v1/teams/:team_id/browser/views/:view_id/stream", "browser-view-stream"),
+    # A person's own control of a Browser that offers it, and a Team's Sign-ins (ADR-0117, Sign-ins amendment).
+    _controller_route("GET", "/v1/teams/:team_id/browser/views/:view_id/control", "browser-view-control"),
+    _controller_route("POST", "/v1/teams/:team_id/browser/sign-in", "browser-sign-in-start"),
+    _controller_route("POST", "/v1/teams/:team_id/browser/sign-in/save", "browser-sign-in-save"),
+    _controller_route("POST", "/v1/teams/:team_id/browser/sign-in/cancel", "browser-sign-in-cancel"),
+    _controller_route("GET", "/v1/teams/:team_id/browser/sign-ins", "browser-sign-ins"),
+    _controller_route("POST", "/v1/teams/:team_id/browser/sign-ins/forget", "browser-sign-in-forget"),
     _controller_route("GET", "/v1/teams/:team_id/inference", "inference-status"),
     _controller_route("PUT", "/v1/teams/:team_id/inference", "inference-configure"),
     _controller_route("POST", "/v1/teams/:team_id/chat", "chat"),

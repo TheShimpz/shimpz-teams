@@ -107,7 +107,7 @@ def _segment_strategy(
 
 def _local_controller(local_active, config, events: list[str], fail):
     controller = object.__new__(local_app.LocalController)
-    controller.browser_service = browser_fixtures.no_browser()
+    browser_fixtures.attach(controller)
     controller.space_id = "local-space"
     controller.brain_runtime = SimpleNamespace()
     controller.team_names = SimpleNamespace(load=lambda _team_id, _network_id: None)

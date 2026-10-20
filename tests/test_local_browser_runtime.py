@@ -444,6 +444,19 @@ class BrowserRuntimeTests(unittest.TestCase):
             browser.export(lease, chunks.append)
         browser.release(lease)
 
+    def test_a_program_docker_cannot_carry_fails_as_unavailable_or_lost(self):
+        browser = self.make()
+        self.assertEqual(browser.image, IMAGE)
+        lease = browser.acquire("neo", "en", mode=runtime.PERSON, url="https://example.com")
+        with mock.patch.object(self.docker.api, "exec_inspect", side_effect=APIError("inspect failed")):
+            with self.assertRaises(runtime.BrowserError) as fed:
+                browser._feed(lease.container_id, ["credentials"], (b"x",))
+            self.assertEqual(fed.exception.code, "browser-unavailable")
+            with self.assertRaises(runtime.BrowserError) as exported:
+                browser.export(lease, lambda _chunk: None)
+            self.assertEqual(exported.exception.code, "browser-lost")
+        browser.release(lease)
+
     def wait_input(self, program):
         for _ in range(200):
             if self.docker.inputs.get(program):

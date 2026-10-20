@@ -50,8 +50,9 @@ class FakeService:
             raise BrowserError(view_protocol.BUSY)
         yield
 
-    def carry_view(self, team_id, view_id, client, key, upgraded):
+    def carry_view(self, team_id, view_id, client, key, upgraded, *, control=False):
         self.carried.append((team_id, view_id, client, key))
+        self.control = control
         if self.error is not None:
             raise self.error
         if self.upgrade:
@@ -61,13 +62,21 @@ class FakeService:
 
 
 class BrowserStreamHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
-    def stream(self, service, *, view_id=VIEW, request_headers=None):
+    def stream(self, service, *, view_id=VIEW, request_headers=None, operation="browser-view-stream"):
         handler = self.handler(controller=SimpleNamespace(browser_service=service))
         handler.headers = request_headers if request_headers is not None else headers(UPGRADE)
         handler.connection = mock.sentinel.connection
         audit = mock.Mock()
-        handler._session_route(self.route("browser-view-stream", team_id="team_1", view_id=view_id), audit)
+        handler._session_route(self.route(operation, team_id="team_1", view_id=view_id), audit)
         return handler, audit
+
+    def test_only_a_control_stream_asks_for_the_persons_control(self):
+        for operation, control in (("browser-view-stream", False), ("browser-view-control", True)):
+            with self.subTest(operation=operation):
+                service = FakeService()
+                _handler, audit = self.stream(service, operation=operation)
+                self.assertIs(service.control, control)
+                audit.record.assert_called_once_with(operation, result="ok", team_id="team_1", detail="upgraded")
 
     def refused(self, service, **arguments):
         with self.assertRaises(ApiProblemError) as raised:

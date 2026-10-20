@@ -112,7 +112,8 @@ class CuaSession:
         self._window: dict[str, object] | None = None
         self._target: tuple[str, str] | None = None
 
-    def open(self) -> None:
+    def initialize(self) -> None:
+        """The MCP handshake; nothing is bound yet."""
         client = {"name": "shimpz-team", "version": "1"}
         self._request("initialize", {"protocolVersion": PROTOCOL_VERSION, "capabilities": {}, "clientInfo": client})
         initialized = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}).encode() + b"\n"
@@ -120,6 +121,16 @@ class CuaSession:
             self._channel.send(initialized, self._call_deadline())
         except OSError as exc:
             raise CuaError("channel-lost") from exc
+
+    def chromium_windows(self) -> int:
+        """How many top-level Chromium windows the display shows (the Driver's own cursor overlay is not one)."""
+        windows = self._call("list_windows", {}).get("windows")
+        if not isinstance(windows, list) or not all(isinstance(window, dict) for window in windows):
+            raise CuaError("browser-window-unavailable")
+        return sum(str(window.get("app_name", "")).startswith("Chromium") for window in windows)
+
+    def open(self) -> None:
+        self.initialize()
         windows = self._call("list_windows", {}).get("windows")
         if not isinstance(windows, list) or len(windows) != 1 or not isinstance(windows[0], dict):
             raise CuaError("browser-window-unavailable")

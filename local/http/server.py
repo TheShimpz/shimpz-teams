@@ -65,6 +65,7 @@ _JSON_BODY_LIMITS = {
     "team-destroy": MAX_BODY_BYTES,
     "team-rename": MAX_BODY_BYTES,
     **local_http_chat.BODY_LIMITS,
+    **local_http_browser.BODY_LIMITS,
     **local_http_routine.BODY_LIMITS,
 }
 
@@ -755,4 +756,5 @@ _SENT_OPERATIONS: dict[str, Callable[[Handler, strict_http.ControllerRouteMatch,
     ),
     **dict.fromkeys(("file-preview", "file-page-preview", "file-content"), Handler._file_bytes),
     local_http_browser.STREAM_OPERATION: local_http_browser.send_stream,
+    local_http_browser.CONTROL_OPERATION: local_http_browser.send_stream,
 }

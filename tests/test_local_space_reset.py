@@ -23,13 +23,14 @@ from integrations import pkce as integration_pkce
 from local import app as local_app
 from local import labels as local_labels
 from local.browser import runtime as local_browser_runtime
+from local.browser import sign_ins as local_sign_ins
 from local.errors import ApiProblemError
 
 
 def _controller(events: list[object], assistants: dict[str, object], networks: list[object]):
     """A bare Local controller whose Space reset reaches only these Assistants and networks."""
     controller = object.__new__(local_app.LocalController)
-    controller.browser_service = browser_fixtures.no_browser()
+    browser_fixtures.attach(controller)
     controller.space_id = "local-space"
     controller.chat_continuations = SimpleNamespace(clear=lambda: 0)
     controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
@@ -99,6 +100,17 @@ class LocalSpaceResetTests(LocalContractCase):
             raise local_browser_runtime.BrowserError("browser-lost")
 
         controller.browser_service = SimpleNamespace(clean=unproven)
+        with self.assertRaises(ApiProblemError) as caught:
+            controller.reset_space()
+        self.assertEqual(caught.exception.code, "docker-reset-failed")
+
+    def test_sign_ins_that_cannot_be_proved_deleted_fail_the_reset(self) -> None:
+        controller = _controller([], {}, [])
+
+        def unproven() -> None:
+            raise local_sign_ins.SignInError("left")
+
+        controller.sign_in_store = SimpleNamespace(delete_all=unproven)
         with self.assertRaises(ApiProblemError) as caught:
             controller.reset_space()
         self.assertEqual(caught.exception.code, "docker-reset-failed")

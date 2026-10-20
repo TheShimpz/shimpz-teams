@@ -62,6 +62,8 @@ class View:
         self._ended = False
         self._unavailable = False
         self._controlled = False
+        # When the view last had no person in control: a sign-in session idles out from it.
+        self._quiet_since = clock()
         self._tunnels: set[Tunnel] = set()
 
     def end(self) -> None:
@@ -71,6 +73,11 @@ class View:
             tunnels = tuple(self._tunnels)
         for tunnel in tunnels:
             tunnel.interrupt()
+
+    def quiet_for(self) -> float:
+        """How long no person has controlled the Browser; 0 while one does."""
+        with self._lock:
+            return 0.0 if self._controlled else self._clock() - self._quiet_since
 
     def _admit(self) -> None:
         if self._ended:
@@ -112,6 +119,7 @@ class View:
             released = False
         with self._lock:
             self._controlled = False
+            self._quiet_since = self._clock()
             if not released:
                 self._unavailable = True
         self._record(f"control-ended:released={int(released)}")

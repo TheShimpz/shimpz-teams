@@ -26,6 +26,7 @@ from local import labels as local_labels
 from local import lifecycle as local_lifecycle
 from local import validation as local_validation
 from local.browser import runtime as local_browser_runtime
+from local.browser import sign_ins as local_sign_ins
 from local.chat.types import PendingLocalChat
 from local.errors import ApiProblemError
 from routine import record as routine_record
@@ -58,7 +59,7 @@ def _destroy_controller(
 ) -> tuple[local_app.LocalController, threading.Lock]:
     """Team team_1 ("Team One") with one Assistant, recording teardown; returns it and its chat lock."""
     controller = object.__new__(local_app.LocalController)
-    controller.browser_service = browser_fixtures.no_browser()
+    browser_fixtures.attach(controller)
     controller.space_id = "local-space"
     controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
     controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
@@ -100,7 +101,7 @@ class LocalTeamDestroyTests(LocalContractCase):
     def test_destroy_drains_chat_and_deletes_generation_before_teardown(self) -> None:
         events: list[object] = []
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service = browser_fixtures.no_browser()
+        browser_fixtures.attach(controller)
         controller.space_id = "local-space"
         controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
         controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
@@ -292,12 +293,28 @@ class LocalTeamDestroyTests(LocalContractCase):
         self.assertFalse(lock.locked())
 
 
+class TeamSignInTeardownTests(unittest.TestCase):
+    def test_sign_ins_that_cannot_be_proved_deleted_fail_the_teardown(self) -> None:
+        def refused(_team_id: str) -> bool:
+            raise local_sign_ins.SignInError("unreadable")
+
+        for delete_team in (lambda _team_id: False, refused):
+            with self.subTest(delete_team=delete_team):
+                controller = SimpleNamespace(sign_in_store=SimpleNamespace(delete_team=delete_team))
+                with self.assertRaises(ApiProblemError) as caught:
+                    local_lifecycle._delete_team_sign_ins(controller, "team_1")
+                self.assertEqual(caught.exception.code, "docker-remove-failed")
+
+
 class TeamBrowserTeardownTests(unittest.TestCase):
     def test_a_teams_browser_that_cannot_be_removed_fails_the_teardown(self) -> None:
         def unproven(_team_id: str) -> None:
             raise local_browser_runtime.BrowserError("browser-lost")
 
-        controller = SimpleNamespace(browser_service=SimpleNamespace(remove_team=unproven))
+        controller = SimpleNamespace(
+            browser_service=SimpleNamespace(remove_team=unproven),
+            sign_in_sessions=SimpleNamespace(end_team=lambda _team_id: None),
+        )
         with self.assertRaises(ApiProblemError) as caught:
             local_lifecycle._remove_team_browser(controller, "team_1")
         self.assertEqual(caught.exception.code, "docker-remove-failed")

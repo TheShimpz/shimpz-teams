@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import secrets
 import shutil
 import threading
@@ -24,22 +23,19 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from local.validation import validate_team_id
+from protocol.http.v1 import sign_in as sign_in_protocol
 from storage import private_state
 
 STATE_ROOT = Path("/var/lib/shimpz-local/browser-sign-ins/state")
 KEY_PATH = Path("/var/lib/shimpz-local/browser-sign-ins/key/aes256.key")
 SCHEMA = 1
-MAX_SIGN_INS = 16
+MAX_SIGN_INS = sign_in_protocol.MAX_SIGN_INS
 MAX_STATE_BYTES = 1024 * 1024
 MAX_RECORD_BYTES = 4096
 CHUNK_BYTES = 1024 * 1024
 MAX_CHUNKS = 160
 LIFETIME_SECONDS = 30 * 24 * 3600
 IDLE_SECONDS = 7 * 24 * 3600
-SIGN_IN_ID_RE = re.compile(r"[0-9a-f]{32}")
-# A site is one lowercase DNS hostname; the label is the person's own name for the account, shown only.
-SITE_RE = re.compile(r"(?=.{4,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
-MAX_LABEL_CHARS = 64
 _RECORD_KEYS = frozenset(
     {
         "team_id",
@@ -67,18 +63,6 @@ _PRIVATE = private_state.PrivateState(
     "a Sign-in record is malformed",
     MAX_RECORD_BYTES * 2 + 128,
 )
-
-
-def canonical_site(value: object) -> str | None:
-    return value if isinstance(value, str) and SITE_RE.fullmatch(value) else None
-
-
-def canonical_label(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    label = value.strip()
-    printable = all(character.isprintable() for character in label)
-    return label if 0 < len(label) <= MAX_LABEL_CHARS and printable else None
 
 
 def _record_aad(team_id: str, sign_in_id: str) -> bytes:
@@ -216,7 +200,7 @@ class SignInStore:
     def forget(self, team_id: str, sign_in_id: str) -> bool:
         """Delete one Sign-in; whether it existed. An absent one is no failure."""
         team_id = validate_team_id(team_id)
-        if not SIGN_IN_ID_RE.fullmatch(sign_in_id):
+        if not sign_in_protocol.ID_RE.fullmatch(sign_in_id):
             raise SignInError("the Sign-in id is not admissible")
         with self._lock:
             teams = self._state()
@@ -289,7 +273,7 @@ class Draft:
 
     def commit(self, site: object, label: object, writer: str, admitted: Callable[[], bool]) -> dict[str, object]:
         """Keep the Sign-in, only if `admitted()` holds and no clear of its Team came since the draft began."""
-        site, label = canonical_site(site), canonical_label(label)
+        site, label = sign_in_protocol.canonical_site(site), sign_in_protocol.canonical_label(label)
         if site is None or label is None or not self.record["chunks"]:
             raise SignInError("the Sign-in's site, label, or capsule is not admissible")
         self.record.update(site=site, label=label, writer=writer)

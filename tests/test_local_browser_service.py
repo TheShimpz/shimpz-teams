@@ -491,7 +491,7 @@ class BrowserServiceTests(unittest.TestCase):
                 self.assertEqual(refused.exception.code, "browser-not-running")
             with mock.patch.object(local_view.View, "carry") as carried:
                 browser_service.carry_view("team_1", view_id, "client", "key", "upgraded")
-                carried.assert_called_once_with("client", "key", "upgraded")
+                carried.assert_called_once_with("client", "key", "upgraded", control=False)
             return task.Outcome("done", summary="x", steps=1)
 
         with mock.patch.object(service.browser_task.Task, "run", autospec=True, side_effect=run):

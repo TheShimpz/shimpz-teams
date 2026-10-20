@@ -10,6 +10,7 @@ from types import SimpleNamespace
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
+import browser_fixtures
 from local_assistant_fixture import PACK as FIXTURE_PACK
 from local_assistant_fixture import assistant_spec
 
@@ -39,15 +40,6 @@ TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123
 CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "b" * 64
 OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 64
 TEST_ASSISTANT_VERSION = "0.1.0"
-
-# A Local Team without a usable Browser image: no turn is offered the Browser, and teardown has none to remove.
-NO_BROWSER = SimpleNamespace(
-    available=False,
-    remove_team=lambda _team_id: None,
-    clean=lambda: None,
-    startup=lambda: True,
-    interrupt=lambda _team_id, _token: None,
-)
 
 
 def routine_books(controller) -> None:
@@ -232,7 +224,7 @@ class LocalContractCase(unittest.TestCase):
         image = "sha256:" + "a" * 64
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
-        controller.browser_service = NO_BROWSER
+        browser_fixtures.attach(controller)
         controller.registry = self._registry(image)
         controller.registry["shimpz-cloudflare"] = replace(
             controller.registry["shimpz-cloudflare"],
@@ -317,7 +309,7 @@ class LocalContractCase(unittest.TestCase):
         events: list[object] = []
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
-        controller.browser_service = NO_BROWSER
+        browser_fixtures.attach(controller)
         controller.cpuset_cpus = "0"
         controller._locks = tuple(threading.RLock() for _ in range(64))
         state_directory = tempfile.TemporaryDirectory()

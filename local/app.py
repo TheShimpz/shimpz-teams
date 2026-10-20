@@ -56,6 +56,8 @@ from local.assistant import resources as local_assistant_resources
 from local.assistant import rpc as local_assistant_rpc
 from local.browser import runtime as local_browser_runtime
 from local.browser import service as local_browser_service
+from local.browser import sign_in as local_sign_in
+from local.browser import sign_ins as local_sign_ins
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat import execution as local_chat_execution
 from local.chat import limit as local_chat_limit
@@ -234,6 +236,7 @@ class LocalControllerDependencies:
     routine_diagnostics: local_routine_diagnostics.DiagnosticStore | None = None
     team_names: local_names.TeamNameStore | None = None
     chat_limit: local_chat_limit.ChatLimitStore | None = None
+    sign_in_store: local_sign_ins.SignInStore | None = None
     # The exact Browser image this Team image names (ADR-0117 §9); None leaves the Browser unavailable.
     browser_image: str | None = None
 
@@ -348,16 +351,7 @@ class LocalController:
             local_platform = local_snapshots.platform_from_info(daemon_info)
         except local_snapshots.LocalSnapshotError as exc:
             raise RuntimeError("the Docker daemon architecture is unsupported") from exc
-        self.browser_service = local_browser_service.BrowserService(
-            local_browser_runtime.BrowserRuntime(
-                client,
-                self.space_id,
-                self.cpuset_cpus,
-                dependencies.browser_image,
-                architecture=local_platform.removeprefix("linux/"),
-            ),
-            storage,
-        )
+        self._compose_browser(client, storage, dependencies, local_platform.removeprefix("linux/"))
         self.local_snapshot_inventory = local_snapshot_inventory.LocalSnapshotInventory(client, local_platform)
         self.local_snapshot_previews = local_snapshot_preview.LocalSnapshotPreviewCache(client, local_platform)
         self.local_snapshot_admissions = local_snapshot_admission.LocalSnapshotAdmissions(client)
@@ -366,6 +360,15 @@ class LocalController:
         self.assistant_lifecycle.recover_updates()
         self.assistant_lifecycle.resume_assistants()
         self.chat_turn_service._restore_all_chat_continuations()
+
+    def _compose_browser(self, client, storage, dependencies: LocalControllerDependencies, architecture: str) -> None:
+        """The Team Browser (ADR-0117): its runtime and tasks, a Team's Sign-ins, and the sessions that create them."""
+        runtime = local_browser_runtime.BrowserRuntime(
+            client, self.space_id, self.cpuset_cpus, dependencies.browser_image, architecture=architecture
+        )
+        self.browser_service = local_browser_service.BrowserService(runtime, storage)
+        self.sign_in_store = dependencies.sign_in_store or local_sign_ins.SignInStore()
+        self.sign_in_sessions = local_sign_in.SignInSessions(self.browser_service, runtime, self.sign_in_store)
 
     def _wire_collaborators(self) -> None:
         assistant_lifecycle = AssistantLifecycle(

@@ -354,7 +354,7 @@ class LocalContractTests(LocalContractCase):
 
     def test_ambiguous_action_rpc_is_fail_stopped_or_permanently_blocked(self) -> None:
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service = browser_fixtures.no_browser()
+        browser_fixtures.attach(controller)
         wire_collaborators(controller)
 
         class Stoppable:
@@ -404,7 +404,7 @@ class LocalContractTests(LocalContractCase):
 
     def test_unprovable_action_stop_is_permanently_blocked(self) -> None:
         controller = object.__new__(local_app.LocalController)
-        controller.browser_service = browser_fixtures.no_browser()
+        browser_fixtures.attach(controller)
         wire_collaborators(controller)
 
         class Ambiguous:
@@ -455,7 +455,7 @@ class LocalContractTests(LocalContractCase):
     def test_inference_configuration_persists_only_provider_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
-            controller.browser_service = browser_fixtures.no_browser()
+            browser_fixtures.attach(controller)
             controller._locks = tuple(__import__("threading").RLock() for _ in range(64))
             controller.inference_store = inference_config.InferenceConfigStore(Path(directory) / "inference")
             wire_collaborators(controller)

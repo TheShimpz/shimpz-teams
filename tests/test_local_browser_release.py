@@ -35,7 +35,17 @@ class ReleaseTests(unittest.TestCase):
         self.addCleanup(self.display.close)
         self.credentials = Credentials.draw()
 
-    def play(self, *, upgrade_status: str = "101", update: bool = True) -> dict[str, object]:
+    def play(
+        self,
+        *,
+        upgrade_status: str = "101",
+        update: bool = True,
+        version: bytes = b"RFB 003.008\n",
+        security: bytes = b"\x01\x01",
+        result: bytes = b"\x00\x00\x00\x00",
+        first: bytes = b"\x00\x00\x00\x00",
+        raw_frames: bytes = b"",
+    ) -> dict[str, object]:
         """Answer as KasmVNC: the upgrade, the RFB handshake, and one update; record what Team sent."""
         seen: dict[str, object] = {}
 
@@ -50,18 +60,25 @@ class ReleaseTests(unittest.TestCase):
             init = struct.pack(">HH", 1280, 800) + bytes(16) + struct.pack(">I", 4) + b"test"
             self.display.write(
                 admitted_answer(key)
-                + _server_frame(b"RFB 003.008\n")
-                + _server_frame(b"\x01\x01")
-                + _server_frame(b"\x00\x00\x00\x00")
+                + raw_frames
+                + _server_frame(version)
+                + _server_frame(security)
+                + _server_frame(result)
                 + _server_frame(init)
             )
             received = b""
             self.display.display_side.settimeout(5)
-            while len(_client_frames(received)) < 6:
-                received += self.display.display_side.recv(4096)
+            try:
+                while len(_client_frames(received)) < 6:
+                    chunk = self.display.display_side.recv(4096)
+                    if not chunk:
+                        return
+                    received += chunk
+            except OSError:
+                return
             seen["frames"] = _client_frames(received)
             if update:
-                self.display.write(_server_frame(b"\x00\x00\x00\x00"))
+                self.display.write(_server_frame(first))
             else:
                 self.display.display_side.shutdown(2)
 
@@ -90,6 +107,30 @@ class ReleaseTests(unittest.TestCase):
                 with self.assertRaises(release.ReleaseError):
                     release.release(lambda: ("exec-1", self.display.stream), self.credentials.authorization(True))
                 self.worker.join(5)
+
+    def test_a_display_that_speaks_other_than_kasm_does_is_no_release(self):
+        long_frame = bytes([0x82, 126]) + struct.pack(">H", 2) + b"\x00\x00"
+        huge_frame = bytes([0x82, 127]) + struct.pack(">Q", 1 << 21)
+        for options in (
+            {"version": b"HTTP/1.1 200\n"},
+            {"security": b"\x01\x02"},
+            {"result": b"\x00\x00\x00\x01"},
+            {"first": b"\x02\x00\x00\x00"},
+            {"raw_frames": bytes([0x81, 1]) + b"x"},
+            {"raw_frames": huge_frame},
+        ):
+            with self.subTest(options=list(options)):
+                self.setUp()
+                self.play(**options)
+                with self.assertRaises(release.ReleaseError):
+                    release.release(lambda: ("exec-1", self.display.stream), self.credentials.authorization(True))
+                self.display.display_side.close()
+                self.worker.join(5)
+        # A 16-bit length is read as one: two bytes the handshake does not ask for are kept until it does.
+        self.setUp()
+        self.play(raw_frames=long_frame, version=b"FB 003.008\n")
+        with self.assertRaises(release.ReleaseError):
+            release.release(lambda: ("exec-1", self.display.stream), self.credentials.authorization(True))
 
 
 if __name__ == "__main__":

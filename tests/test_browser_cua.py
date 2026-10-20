@@ -65,6 +65,21 @@ def _opened(*results):
 
 
 class CuaSessionTests(unittest.TestCase):
+    def test_counting_windows_binds_nothing_and_skips_the_drivers_own_overlay(self):
+        overlay = {"pid": 21, "window_id": 9, "app_name": ""}
+        channel = FakeChannel({"result": {"capabilities": {}}}, _tool({"windows": [WINDOW, WINDOW, overlay]}))
+        session = cua.CuaSession(channel, clock=lambda: 100.0)
+        session.initialize()
+        self.assertEqual(session.chromium_windows(), 2)
+        self.assertEqual(channel.calls(), [("list_windows", {})])
+        for answer in ({"windows": "none"}, {"windows": [WINDOW, "window"]}):
+            with self.subTest(answer=answer):
+                channel = FakeChannel({"result": {"capabilities": {}}}, _tool(answer))
+                session = cua.CuaSession(channel, clock=lambda: 100.0)
+                session.initialize()
+                with self.assertRaises(cua.CuaError):
+                    session.chromium_windows()
+
     def test_opening_binds_the_one_chromium_window_exactly(self):
         session, channel = _opened()
         self.assertEqual(channel.sent[0]["method"], "initialize")

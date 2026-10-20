@@ -115,6 +115,20 @@ class BrowserService:
                     del self._running[lease.team_id]
             view.end()
 
+    def hold(self, team_id: str, token: str, lease: Lease, view: local_view.View) -> None:
+        """Make `lease` the Team's running Browser, watched through `view`; refused while the Team runs another."""
+        with self._guard:
+            if team_id in self._running:
+                raise BrowserError("browser-busy")
+            self._running[team_id] = (token, lease, view)
+
+    def drop(self, team_id: str, view: local_view.View) -> None:
+        """No longer hold the Team's Browser watched through `view`; another one stays."""
+        with self._guard:
+            held = self._running.get(team_id)
+            if held is not None and held[2] is view:
+                del self._running[team_id]
+
     def open_view(self, team_id: str) -> str:
         """The id of the screen view of the task the Team runs now; refused when it runs none."""
         with self._guard:
@@ -133,9 +147,12 @@ class BrowserService:
         finally:
             self._views.release()
 
-    def carry_view(self, team_id: str, view_id: str, client, key: str, upgraded) -> None:
-        """Carry one viewer's stream of that very task's screen, until the stream or the task ends."""
-        self._view(team_id, view_id).carry(client, key, upgraded)
+    def carry_view(self, team_id: str, view_id: str, client, key: str, upgraded, *, control: bool = False) -> None:
+        """Carry one viewer's stream of that very Browser's screen, until the stream or the Browser ends.
+
+        `control` asks for the person's own control, which only a Browser a person may control offers.
+        """
+        self._view(team_id, view_id).carry(client, key, upgraded, control=control)
 
     def _view(self, team_id: str, view_id: str) -> local_view.View:
         with self._guard:
