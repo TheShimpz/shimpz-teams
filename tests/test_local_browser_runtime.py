@@ -455,6 +455,17 @@ class BrowserRuntimeTests(unittest.TestCase):
             with self.assertRaises(runtime.BrowserError) as exported:
                 browser.export(lease, lambda _chunk: None)
             self.assertEqual(exported.exception.code, "browser-lost")
+        # An inspection that never answers cannot hold a Save past the program's own deadline.
+        stalled = threading.Event()
+        self.addCleanup(stalled.set)
+        self.docker.programs[("stop",)] = (0, b"stopped\n")
+        with (
+            mock.patch.object(self.docker.api, "exec_inspect", side_effect=lambda _id: stalled.wait(30)),
+            mock.patch.object(runtime, "STOP_SECONDS", 0.2),
+            self.assertRaises(runtime.BrowserError) as stopped,
+        ):
+            browser.stop(lease)
+        self.assertEqual(stopped.exception.code, "browser-lost")
         browser.release(lease)
 
     def wait_input(self, program):

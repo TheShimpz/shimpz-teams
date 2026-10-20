@@ -621,56 +621,69 @@ class BrowserRuntime:
         code = details.get("ExitCode")
         return (code if isinstance(code, int) else -1), stream
 
-    def _feed(self, container_id: str, arguments: list[str], chunks: Iterable[bytes]) -> None:
-        """Run one `browser-host` program on `chunks` as its input; it must end with status 0."""
+    def _bounded_program[T](
+        self, container_id: str, arguments: list[str], seconds: float, code: str, body: Callable[[ExecStream, float], T]
+    ) -> T:
+        """Run one `browser-host` program for `body` to speak with, all of it before one deadline `seconds` away.
+
+        Its exit status 0 must be proven by that deadline too; the channel is closed however it ends, and any failure
+        or doubt is `code`.
+        """
+        deadline = self._clock() + seconds
         try:
             exec_id, raw = self._exec(container_id, arguments)
-            stream = ExecStream(raw, self._clock)
-            deadline = self._clock() + CAPSULE_SECONDS
+        except BrowserError as exc:
+            raise BrowserError(code) from exc
+        stream = ExecStream(raw, self._clock)
+        try:
+            result = body(stream, deadline)
+            details = _bounded(lambda: self._client.api.exec_inspect(exec_id), deadline - self._clock())
+        except (DockerException, ChannelError, OSError) as exc:
+            raise BrowserError(code) from exc
+        finally:
+            stream.close()
+        if not isinstance(details, dict) or details.get("ExitCode") != 0:
+            raise BrowserError(code)
+        return result
+
+    def _feed(self, container_id: str, arguments: list[str], chunks: Iterable[bytes]) -> None:
+        """Run one `browser-host` program on `chunks` as its input; it must end with status 0."""
+
+        def send(stream: ExecStream, deadline: float) -> None:
             for chunk in chunks:
                 stream.send(chunk, deadline)
             stream.close_input()
             stream.receive_end(deadline)
-            details = self._client.api.exec_inspect(exec_id)
-        except (DockerException, ChannelError, OSError) as exc:
-            raise BrowserError("browser-unavailable") from exc
-        if details.get("ExitCode") != 0:
-            raise BrowserError("browser-unavailable")
+
+        self._bounded_program(container_id, arguments, CAPSULE_SECONDS, "browser-unavailable", send)
 
     def stop(self, lease: Lease) -> None:
         """End the Browser's Chromium session cleanly, keeping its container for the export; any doubt is a failure."""
-        try:
-            exec_id, raw = self._exec(lease.container_id, ["stop"])
-            stream = ExecStream(raw, self._clock)
+
+        def stopped(stream: ExecStream, deadline: float) -> bytes:
             stream.close_input()
-            deadline = self._clock() + STOP_SECONDS
             answer = stream.receive_line(deadline, 16)
             stream.receive_end(deadline)
-            details = self._client.api.exec_inspect(exec_id)
-        except (DockerException, ChannelError, OSError) as exc:
-            raise BrowserError("browser-lost") from exc
-        if answer != b"stopped" or details.get("ExitCode") != 0:
+            return answer
+
+        if self._bounded_program(lease.container_id, ["stop"], STOP_SECONDS, "browser-lost", stopped) != b"stopped":
             raise BrowserError("browser-lost")
 
     def export(self, lease: Lease, sink: Callable[[bytes], None]) -> int:
         """Hand the stopped Browser's capsule to `sink` as it arrives; its size, once the export ended with status 0."""
-        try:
-            exec_id, raw = self._exec(lease.container_id, ["profile", "export"])
-            stream = ExecStream(raw, self._clock)
+
+        def exported(stream: ExecStream, deadline: float) -> int:
             stream.close_input()
-            deadline = self._clock() + CAPSULE_SECONDS
             total = 0
             while chunk := stream.receive_chunk(CHUNK_BYTES, deadline):
                 total += len(chunk)
                 if total > MAX_CAPSULE_BYTES:
                     raise BrowserError("browser-lost")
                 sink(chunk)
-            details = self._client.api.exec_inspect(exec_id)
-        except (DockerException, ChannelError, OSError) as exc:
-            raise BrowserError("browser-lost") from exc
-        if details.get("ExitCode") != 0:
-            raise BrowserError("browser-lost")
-        return total
+            return total
+
+        arguments = ["profile", "export"]
+        return self._bounded_program(lease.container_id, arguments, CAPSULE_SECONDS, "browser-lost", exported)
 
     def files(self, lease: Lease) -> dict[str, object]:
         """The downloads listing `browser-host files list` returns, strictly parsed."""
