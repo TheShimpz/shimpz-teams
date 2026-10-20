@@ -68,13 +68,19 @@ unsafe extern "C" {
     fn prctl(option: c_int, ...) -> c_int;
 }
 
-/// The display server's fixed arguments: one 1280x800 screen, the WebSocket port on its own loopback only, no
-/// authentication there (only the relay reaches it), and every input, clipboard, and resize from a viewer refused.
-/// The server's own 1-bit pointer is not drawn (the Cua Driver draws its smooth agent cursor), and every update is
-/// sent at the top JPEG quality: measured while the Driver scrolled a long page for two viewers, it cost 30% more
-/// bytes (about 500 KiB/s per viewer) and no more CPU than qualities 7 to 9.
-pub fn arguments() -> &'static [&'static str] {
-    &[
+/// Where Team writes a controlled Browser's viewer credentials (`browser-host credentials`).
+pub const PASSWORD_FILE: &str = "/tmp/run/kasmpasswd";
+
+/// The display server's arguments: one 1280x800 screen, the WebSocket port on its own loopback only, and every
+/// clipboard and resize from a viewer refused. The server's own 1-bit pointer is not drawn (the Cua Driver draws its
+/// smooth agent cursor), and every update is sent at the top JPEG quality: measured while the Driver scrolled a long
+/// page for two viewers, it cost 30% more bytes (about 500 KiB/s per viewer) and no more CPU than qualities 7 to 9.
+///
+/// An agent's Browser authenticates no viewer (only the relay reaches it) and refuses every input. A Browser a person
+/// may control authenticates every viewer against the credentials Team writes, and applies pointer and key input only
+/// from the read-write one (ADR-0117, Acessos amendment item 3); until Team writes them, every viewer is refused.
+pub fn arguments(controlled: bool) -> Vec<&'static str> {
+    let mut arguments = vec![
         ":99",
         "-geometry",
         "1280x800",
@@ -121,7 +127,21 @@ pub fn arguments() -> &'static [&'static str] {
         "1",
         "-DisconnectClients",
         "0",
-    ]
+    ];
+    if controlled {
+        let set = |arguments: &mut Vec<&'static str>, name: &str, value: &'static str| {
+            let index = arguments
+                .iter()
+                .position(|argument| *argument == name)
+                .unwrap();
+            arguments[index + 1] = value;
+        };
+        set(&mut arguments, "-DisableBasicAuth", "0");
+        set(&mut arguments, "-AcceptPointerEvents", "1");
+        set(&mut arguments, "-AcceptKeyEvents", "1");
+        arguments.extend(["-KasmPasswordFile", PASSWORD_FILE]);
+    }
+    arguments
 }
 
 /// Start `command` confined: in a new user namespace mapping only this uid and gid, and a new network namespace
@@ -340,7 +360,7 @@ mod tests {
 
     #[test]
     fn the_display_refuses_every_viewer_input_and_listens_on_its_own_loopback() {
-        let arguments = arguments();
+        let arguments = arguments(false);
         let value = |name: &str| {
             let index = arguments
                 .iter()
@@ -348,6 +368,8 @@ mod tests {
                 .unwrap();
             arguments[index + 1]
         };
+        assert_eq!(value("-DisableBasicAuth"), "1");
+        assert!(!arguments.contains(&"-KasmPasswordFile"));
         for refused in [
             "-AcceptPointerEvents",
             "-AcceptKeyEvents",
@@ -366,6 +388,32 @@ mod tests {
         assert_eq!(value("-websocketPort"), PORT.to_string());
         assert_eq!(value("-AlwaysShared"), "1");
         assert!(!arguments.contains(&"unix"));
+    }
+
+    #[test]
+    fn a_controlled_display_authenticates_every_viewer_and_still_refuses_clipboard_and_resize() {
+        let arguments = arguments(true);
+        let value = |name: &str| {
+            let index = arguments
+                .iter()
+                .position(|argument| *argument == name)
+                .unwrap();
+            arguments[index + 1]
+        };
+        assert_eq!(value("-DisableBasicAuth"), "0");
+        assert_eq!(value("-KasmPasswordFile"), PASSWORD_FILE);
+        assert_eq!(value("-AcceptPointerEvents"), "1");
+        assert_eq!(value("-AcceptKeyEvents"), "1");
+        for refused in [
+            "-AcceptSetDesktopSize",
+            "-AcceptCutText",
+            "-SendCutText",
+            "-SendPrimary",
+            "-SetPrimary",
+        ] {
+            assert_eq!(value(refused), "0", "{refused}");
+        }
+        assert_eq!(value("-interface"), "127.0.0.1");
     }
 
     #[test]
