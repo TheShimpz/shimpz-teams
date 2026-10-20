@@ -255,12 +255,12 @@ class BrowserRuntime:
             self._slot.release()
 
     def recover(self) -> bool:
-        """Clean up after a removal that failed, unless a task holds the Browser; whether no residue is left to clean.
+        """Clean up after a removal that failed; whether no residue is left, proven.
 
-        A task that holds the slot cleaned a dirty runtime before its own Browser started, so it leaves nothing either.
+        While a task holds the slot, only its own cleanup can prove that: until it did, nothing is proven yet.
         """
         if not self._slot.acquire(blocking=False):
-            return True
+            return not self._dirty
         try:
             if self._dirty:
                 self.clean()

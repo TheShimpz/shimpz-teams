@@ -42,9 +42,8 @@ QUIESCE_SECONDS = 15.0
 # The longest a Cancel waits for a Save under way to release the Browser: its quiesce, stop, export, and removal.
 SAVE_SECONDS = 150.0
 UNAVAILABLE = "browser-unavailable"
-# A Browser whose removal failed is cleaned again in the background, this often and this many times.
+# A Browser whose removal failed is cleaned again in the background this often, until its absence is proven.
 RECOVER_SECONDS = 30.0
-RECOVER_ATTEMPTS = 10
 TEAM_NOT_FOUND = "team-not-found"
 
 # The Team's current incarnation (its network id), or None once it is gone.
@@ -325,7 +324,8 @@ class SignInSessions:
         """Remove the session's Browser; whether it was proven gone.
 
         A failure leaves the runtime to clean every Browser before the next one starts, and meanwhile it is cleaned
-        again in the background, so the person's signed-in Browser never outlives its session.
+        again in the background until its absence is proven, so the person's signed-in Browser never outlives its
+        session for longer than Docker refuses to remove it.
         """
         try:
             self._runtime.release(lease)
@@ -336,12 +336,12 @@ class SignInSessions:
         return True
 
     def _recover(self, lease: Lease) -> None:
-        for _attempt in range(RECOVER_ATTEMPTS):
+        """Clean again until no residue is proven left; a restarted Team process cleans up after a stopped one."""
+        while True:
             time.sleep(RECOVER_SECONDS)
             if self._runtime.recover():
                 _audit(lease, "recovered", background=True)
                 return
-        _audit(lease, "recovery-failed", background=True)
 
 
 def _audit(lease: Lease, state: str, *, background: bool = False) -> None:

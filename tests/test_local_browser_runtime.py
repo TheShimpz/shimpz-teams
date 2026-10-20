@@ -431,8 +431,12 @@ class BrowserRuntimeTests(unittest.TestCase):
             self.assertTrue(browser.recover())
         untouched.assert_not_called()
         lease = browser.acquire("neo", "en")
-        # The task holding the Browser cleaned first: nothing is left to recover.
+        # The task holding the Browser cleaned first: nothing is left to recover. Until a holder's own cleanup proved
+        # that, nothing is proven.
         self.assertTrue(browser.recover())
+        browser._dirty = True
+        self.assertFalse(browser.recover())
+        browser._dirty = False
         browser.release(lease)
 
     def test_a_clean_stop_keeps_the_browser_and_any_doubt_is_a_lost_browser(self):

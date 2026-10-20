@@ -453,9 +453,9 @@ class SignInSessionTests(unittest.TestCase):
         self.sessions._sessions.clear()
         self.service._running.clear()
 
-    def test_a_browser_whose_removal_failed_is_cleaned_again_in_the_background(self):
-        for recovers, outcome in (([False, True], "recovered"), ([False, False], "recovery-failed")):
-            with self.subTest(outcome=outcome), mock.patch.object(local_sign_in, "RECOVER_ATTEMPTS", 2):
+    def test_a_browser_whose_removal_failed_is_cleaned_again_until_its_absence_is_proven(self):
+        for recovers, outcome in (([False, True], "recovered"),):
+            with self.subTest(outcome=outcome):
                 self.runtime.recovers = list(recovers)
                 self.runtime.release_error = runtime.BrowserError("browser-lost")
                 started = self.start()
