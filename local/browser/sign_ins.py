@@ -296,17 +296,21 @@ class Draft:
         count = int(self.record["chunks"])
         if not chunk or len(chunk) > CHUNK_BYTES or count >= MAX_CHUNKS:
             raise SignInError("the capsule is not within its bounds")
-        if self._cipher is None:
-            self._cipher = AESGCM(self._store._key(create=True))
-            self._directory.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-            self._directory.mkdir(mode=0o700)
-        nonce = os.urandom(12)
-        sealed = nonce + self._cipher.encrypt(nonce, chunk, _chunk_aad(self.record, count))
-        try:
-            # A Team deleted meanwhile took the draft's directory: the chunk has nowhere to go.
-            private_state.replace_durably(self._directory / f"{count:05d}.chunk", sealed)
-        except OSError as exc:
-            raise SignInError("the capsule could not be kept") from exc
+        store, team_id = self._store, str(self.record["team_id"])
+        # Under the store's lock, against its Team's fence: a chunk never lands after its Team's deletion or a reset.
+        with store._lock:
+            if store._fences.get(team_id, 0) != self._fence:
+                raise SignInError("the Sign-in was revoked before it was kept")
+            if self._cipher is None:
+                self._cipher = AESGCM(store._key(create=True))
+                self._directory.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+                self._directory.mkdir(mode=0o700)
+            nonce = os.urandom(12)
+            sealed = nonce + self._cipher.encrypt(nonce, chunk, _chunk_aad(self.record, count))
+            try:
+                private_state.replace_durably(self._directory / f"{count:05d}.chunk", sealed)
+            except OSError as exc:
+                raise SignInError("the capsule could not be kept") from exc
         self.record["chunks"] = count + 1
 
     def commit(self, site: object, label: object, writer: str, admitted: Callable[[], bool]) -> dict[str, object]:
@@ -324,10 +328,11 @@ class Draft:
             capsule.parent.mkdir(mode=0o700, exist_ok=True)
             try:
                 self._directory.rename(capsule)
+                # From here a discard deletes the capsule where it now is.
+                self._directory = capsule
                 private_state.fsync_directory(capsule.parent)
             except OSError as exc:
                 raise SignInError("the Sign-in's capsule could not be put in place") from exc
-            self._directory = capsule
             teams = store._state()
             teams.setdefault(team_id, {})[str(self.record["sign_in_id"])] = store._seal(self.record)
             store._write(teams)

@@ -16,11 +16,14 @@ TEAM = "neo"
 INCARNATION = "n" * 64
 
 
-def _cookie_store(*hosts: str, partitioned: tuple[str, ...] = ()) -> bytes:
+def _cookie_store(
+    *hosts: str, partitioned: tuple[str, ...] = (), partitioned_under_provider: tuple[str, ...] = ()
+) -> bytes:
     """A cookie store with Chromium's table: each host's first-party cookie, and partitioned ones set under a site."""
     connection = sqlite3.connect(":memory:")
     connection.execute("CREATE TABLE cookies (host_key TEXT, top_frame_site_key TEXT, name TEXT, value TEXT)")
     rows = [(host, "") for host in hosts] + [(host, "https://site.example") for host in partitioned]
+    rows += [(host, "https://google.com") for host in partitioned_under_provider]
     connection.executemany("INSERT INTO cookies VALUES (?, ?, 'sid', '')", rows)
     connection.commit()
     data = connection.serialize()
@@ -75,6 +78,8 @@ class CapsuleCheckTests(unittest.TestCase):
         self.assertEqual(
             found(_cookie_store("google.com", "mail.google.com", partitioned=(".google.com",))), frozenset()
         )
+        # A cookie partitioned under the provider's own site reaches its sign-in pages.
+        self.assertEqual(found(_cookie_store(partitioned_under_provider=(".google.com",))), {"accounts.google.com"})
 
     def test_a_store_that_is_not_chromiums_table_names_every_identity_provider(self):
         def view_store() -> bytes:
@@ -258,11 +263,16 @@ class SignInStoreTests(unittest.TestCase):
     def test_a_team_deleted_during_a_save_takes_its_chunks_and_a_failed_removal_keeps_the_record(self):
         draft = self.store.draft(TEAM, INCARNATION)
         draft.add(b"first")
+        unwritten = self.store.draft(TEAM, INCARNATION)
         self.assertTrue(any((self.root / "state" / "drafts" / TEAM).iterdir()))
         self.assertTrue(self.store.delete_team(TEAM))
         self.assertFalse((self.root / "state" / "drafts" / TEAM).exists())
         with self.assertRaises(sign_ins.SignInError):
             draft.commit("www.linkedin.com", "Work", "image", lambda: True)
+        # A draft begun before the deletion never writes its first chunk after it, nor brings the Team's drafts back.
+        with self.assertRaises(sign_ins.SignInError):
+            unwritten.add(b"late")
+        self.assertFalse((self.root / "state" / "drafts" / TEAM).exists())
         saved = self.save()
         with (
             mock.patch.object(sign_ins.shutil, "rmtree", side_effect=PermissionError("held")),
@@ -291,6 +301,15 @@ class SignInStoreTests(unittest.TestCase):
             self.assertRaises(sign_ins.SignInError),
         ):
             self.store.delete_all()
+
+    def test_a_chunk_that_cannot_be_written_is_not_kept(self):
+        kept = self.save()
+        with (
+            mock.patch.object(sign_ins.private_state, "replace_durably", side_effect=OSError("full")),
+            self.assertRaises(sign_ins.SignInError),
+        ):
+            self.save()
+        self.assertEqual(self.store.list(TEAM), [kept])
 
     def test_a_capsule_that_cannot_be_put_in_place_is_not_kept(self):
         with (
