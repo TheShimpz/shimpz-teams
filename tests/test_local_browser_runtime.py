@@ -392,6 +392,17 @@ class BrowserRuntimeTests(unittest.TestCase):
         self.assertEqual(self.wait_input(("profile", "import")), b"firstsecond")
         self.assertIsNotNone(lease.credentials)
         self.assertNotIn("BROWSER_URL", self.docker.created[-1]["environment"])
+        self.assertNotIn("BROWSER_RESTORE", self.docker.created[-1]["environment"])
+        browser.release(lease)
+
+    def test_a_persons_browser_restores_the_teams_sign_in_when_it_has_one(self):
+        browser = self.make()
+        lease = browser.acquire(
+            "neo", "en", mode=runtime.PERSON, url="https://example.com", capsule=iter((b"first", b"second"))
+        )
+        self.assertEqual(self.wait_input(("profile", "import")), b"firstsecond")
+        environment = self.docker.created[-1]["environment"]
+        self.assertEqual((environment["BROWSER_URL"], environment["BROWSER_RESTORE"]), ("https://example.com", "1"))
         browser.release(lease)
 
     def test_only_a_mode_with_exactly_its_own_inputs_is_created(self):
@@ -401,7 +412,7 @@ class BrowserRuntimeTests(unittest.TestCase):
             {"mode": runtime.PERSON},
             {"mode": runtime.AGENT, "url": "https://example.com"},
             {"mode": runtime.SIGNED_IN},
-            {"mode": runtime.PERSON, "url": "https://example.com", "capsule": iter(())},
+            {"mode": runtime.AGENT, "capsule": iter(())},
         ):
             with self.subTest(options=options), self.assertRaises(runtime.BrowserError) as raised:
                 browser.acquire("neo", "en", **options)

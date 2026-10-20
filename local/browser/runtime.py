@@ -217,14 +217,16 @@ class BrowserRuntime:
     ) -> Lease:
         """Create this task's Browser on a fresh egress generation; the caller releases the returned lease.
 
-        A person's sign-in starts at `url`; a signed-in Browser restores the capsule's chunks before Chromium starts.
+        A person's sign-in starts at `url`; a signed-in Browser, and a person's when the Team has a Sign-in, restores the
+        capsule's chunks before Chromium starts.
         """
         if (
             self._image is None
             or not LANGUAGE_RE.fullmatch(language)
             or mode not in {AGENT, PERSON, SIGNED_IN}
             or (url is not None) != (mode == PERSON)
-            or (capsule is not None) != (mode == SIGNED_IN)
+            or (capsule is None and mode == SIGNED_IN)
+            or (capsule is not None and mode == AGENT)
         ):
             raise BrowserError("browser-unavailable")
         if not self._slot.acquire(blocking=False):
@@ -455,6 +457,7 @@ class BrowserRuntime:
                     "BROWSER_LANG": language,
                     "BROWSER_MODE": mode,
                     **({"BROWSER_URL": url} if url is not None else {}),
+                    **({"BROWSER_RESTORE": "1"} if mode == PERSON and capsule is not None else {}),
                 },
                 read_only=True,
                 cap_drop=["ALL"],
