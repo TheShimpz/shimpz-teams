@@ -7798,5 +7798,53 @@
     ]
   },
   "browser_blank_note": [{"step": {"kind": "wait", "note": "   "}, "canonical": {"kind": "wait"}}],
-  "browser_view_accept": [{"key": "AAAAAAAAAAAAAAAAAAAAAA==", "accept": "ICX+Yqv66kxgM0FcWaLWlFLwTAI="}]
+  "browser_view_accept": [{"key": "AAAAAAAAAAAAAAAAAAAAAA==", "accept": "ICX+Yqv66kxgM0FcWaLWlFLwTAI="}],
+  "sign_in_start": {
+    "valid": [{"url": "https://www.linkedin.com/login", "locale": "pt"}, {"url": "https://example.com:443/a?b=c", "locale": "en"}],
+    "invalid": [
+      {"url": "http://example.com/login", "locale": "en"}, {"url": "https://user:pw@example.com/", "locale": "en"},
+      {"url": "https://example.com:8443/", "locale": "en"}, {"url": "https://localhost/", "locale": "en"},
+      {"url": "https://example.com:99999/", "locale": "en"},
+      {"url": "https://example.com/a b", "locale": "en"}, {"url": "https://example.com/", "locale": "pt-BR"},
+      {"url": "https://example.com/"}, {"url": "https://example.com/", "locale": "en", "extra": 1}, "https://example.com/"
+    ]
+  },
+  "sign_in_save": {
+    "valid": [{"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": "Work"}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": "Conta pessoal"}],
+    "invalid": [
+      {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": " Work"}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": ""},
+      {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": "a\nb"},
+      {"sign_in_session_id": "short", "label": "Work"}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": 7}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+    ]
+  },
+  "sign_in_session": {
+    "valid": [{"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],
+    "invalid": [{"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaax"}, {"sign_in_session_id": 1}, {}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "x": 1}]
+  },
+  "sign_in_forget": {
+    "valid": [{"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],
+    "invalid": [{"sign_in_id": "ABC"}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, []]
+  },
+  "sign_in_started": {
+    "valid": [{"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "view_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "site": "www.linkedin.com"}],
+    "invalid": [
+      {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "view_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "site": "localhost"},
+      {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "view_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "view_id": "x", "site": "a.com"}
+    ]
+  },
+  "sign_ins": {
+    "valid": [
+      {"sign_ins": []},
+      {"sign_ins": [{"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "site": "www.linkedin.com", "label": "Work", "created_at": "2026-10-19T12:00:00Z", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-10-26T12:00:00Z"}]}
+    ],
+    "invalid": [
+      {"sign_ins": [{"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "site": "www.linkedin.com", "label": "Work", "created_at": "2026-10-19T12:00:00Z", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-10-19T12:00:00Z"}]},
+      {"sign_ins": [{"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "site": "www.linkedin.com", "label": "Work", "created_at": "2026-10-19", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-10-26T12:00:00Z"}]},
+      {"sign_ins": [{"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "site": "www.linkedin.com", "label": "Work", "created_at": "2026-10-19T12:00:00Z", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-10-26T12:00:00Z", "capsule": "x"}]},
+      {"sign_ins": [{"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "site": "www.linkedin.com", "label": "Work", "created_at": "2026-10-19T12:00:00Z", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-10-26T12:00:00Z"}, {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "site": "www.linkedin.com", "label": "Work", "created_at": "2026-10-19T12:00:00Z", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-10-26T12:00:00Z"}]},
+      {"sign_ins": "none"}, {}
+    ]
+  },
+  "sign_in_forgotten": {"valid": [{"forgotten": true}, {"forgotten": false}], "invalid": [{"forgotten": 1}, {}]},
+  "sign_in_cancelled": {"valid": [{"cancelled": true}], "invalid": [{"cancelled": false}, {}]}
 }

@@ -20,6 +20,7 @@ import routine_context
 import routine_notice
 import routine_proposal
 import routine_run
+import sign_in
 import supervisor
 import websocket
 
@@ -238,6 +239,14 @@ for name, admit in (
     ("file_content", content.canonical_framing),
     ("browser_view", browser_view.canonical_view),
     ("browser_view_key", browser_view.canonical_key),
+    ("sign_in_start", sign_in.canonical_start),
+    ("sign_in_save", sign_in.canonical_save),
+    ("sign_in_session", sign_in.canonical_session),
+    ("sign_in_forget", sign_in.canonical_forget),
+    ("sign_in_started", sign_in.canonical_started),
+    ("sign_ins", sign_in.canonical_sign_ins),
+    ("sign_in_forgotten", sign_in.canonical_forgotten),
+    ("sign_in_cancelled", sign_in.canonical_cancelled),
 ):
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):
