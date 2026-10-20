@@ -16,7 +16,7 @@ TEAM = "neo"
 INCARNATION = "n" * 64
 WRITER = "image@sha256:x"
 EVENT = "e" * 32
-DELETING = {"event_id": EVENT, "initiator_id": "s" * 32, "factor": "totp", "origin": "supervisor-session"}
+DELETING = {"event_id": EVENT, "initiator_id": "s" * 32, "factor": "totp", "origin": "https://admin.example"}
 
 
 def _cookie_store(
@@ -455,6 +455,38 @@ class SignInStoreTests(unittest.TestCase):
             self.store.checkout("trinity", "m" * 64, sign_ins.PERSON)
         self.assertEqual(busy.exception.code, "sign-in-busy")
 
+    def test_a_team_deletion_or_a_reset_keeps_only_a_pending_deletions_metadata(self):
+        saved = self.save()
+        self.save(team="trinity")
+        self.store.begin_delete(TEAM, (saved["sign_in_id"], 1, INCARNATION), DELETING)
+        self.assertTrue(self.store.delete_team(TEAM))
+        named = {"generation": 1, "incarnation": INCARNATION}
+        self.assertEqual(self.store.deletions(), [(TEAM, {**DELETING, **named})])
+        self.store.delete_all()
+        self.assertEqual((self.capsules(), list(self.store._state())), ([], [TEAM]))
+        self.assertEqual(self.store.deletions(), [(TEAM, {**DELETING, **named})])
+        self.assertTrue(self.store.settle(TEAM, EVENT))
+        self.store.delete_all()
+        self.assertFalse((self.root / "state" / "index.json").exists())
+
+    def test_an_expired_sign_in_deleted_as_it_is_read_is_told(self):
+        told = []
+        self.store.expired = lambda *expired: told.append(expired)
+        self.save()
+        self.now += sign_ins.IDLE_SECONDS
+        self.assertIsNone(self.current())
+        self.save()
+        self.now += sign_ins.IDLE_SECONDS
+        self.assertEqual(self.checkout().generation, 0)
+        self.assertEqual(told, [(TEAM, 1, INCARNATION)] * 2)
+        # An expired Sign-in whose deletion is not proven is not told gone, and keeps a new checkout out.
+        self.store.delete_team(TEAM)
+        self.save()
+        self.now += sign_ins.IDLE_SECONDS
+        with mock.patch.object(sign_ins.shutil, "rmtree"), self.assertRaises(sign_ins.SignInError) as busy:
+            self.checkout()
+        self.assertEqual((busy.exception.code, len(told)), ("sign-in-busy", 2))
+
     def test_a_first_checkout_deletes_cleanly_and_a_starting_team_leaves_a_ready_sign_in(self):
         self.checkout()
         self.assertTrue(self.store.delete_team(TEAM))
@@ -505,6 +537,32 @@ class SignInStoreTests(unittest.TestCase):
             draft.commit(["linkedin.com"], False, WRITER, lambda: True)
         draft.discard()
         self.assertIn(f"{checkout.sign_in_id}-2", self.capsules())
+        # Named but not proven durable: the capsule stays as well.
+        checkout2 = self.store.checkout("trinity", INCARNATION, sign_ins.PERSON)
+        draft2 = self.store.draft(checkout2)
+        draft2.add(b"named")
+        written = sign_ins.SignInStore._write
+
+        def written_then_failed(store, teams):
+            written(store, teams)
+            raise failed
+
+        synced = sign_ins.private_state.fsync_directory
+
+        def index_unsynced(path):
+            if path == self.root / "state":
+                raise OSError("unsynced")
+            synced(path)
+
+        with (
+            mock.patch.object(sign_ins.SignInStore, "_write", written_then_failed),
+            mock.patch.object(sign_ins.private_state, "fsync_directory", side_effect=index_unsynced),
+            self.assertRaises(sign_ins.SignInError),
+        ):
+            draft2.commit(["linkedin.com"], False, WRITER, lambda: True)
+        draft2.discard()
+        self.assertIn(f"{checkout2.sign_in_id}-1", self.capsules())
+        self.store.delete_team("trinity")
         # Not named after all: the next start deletes it, and a refused write that named nothing is discarded at once.
         self.store.reconcile()
         self.assertEqual(self.capsules(), [f"{checkout.sign_in_id}-1"])

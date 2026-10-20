@@ -143,7 +143,7 @@ COPY --link protocol/http/v1/challenge.py protocol/http/v1/content.py protocol/h
     protocol/http/v1/purpose.py protocol/http/v1/routine.py protocol/http/v1/routine_context.py protocol/http/v1/routine_notice.py \
     protocol/http/v1/routine_proposal.py protocol/http/v1/routine_run.py protocol/http/v1/strict_json.py \
     protocol/http/v1/supervisor.py protocol/http/v1/turn.py protocol/http/v1/browser.py protocol/http/v1/browser_view.py \
-    protocol/http/v1/sign_in.py ./protocol/http/v1/
+    protocol/http/v1/sign_in.py protocol/http/v1/websocket.py ./protocol/http/v1/
 COPY --link protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
     protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
     protocol/assistant/v1/validators/message_catalog.py protocol/assistant/v1/validators/route.py \

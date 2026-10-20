@@ -102,7 +102,7 @@ def _start(handler, team_id: str) -> dict[str, object]:
     handler.server.controller.assistant_lifecycle._network(team_id)
     try:
         return handler.server.controller.sign_in_sessions.start(
-            team_id, _incarnation(handler, team_id), body["url"], body["locale"]
+            team_id, _incarnation(handler, team_id), body["url"], body["locale"], body["origin"]
         )
     except local_sign_in.SignInSessionError as exc:
         raise _sign_in_problem(exc) from exc
@@ -112,7 +112,7 @@ def _save(handler, team_id: str) -> dict[str, object]:
     body = _body(handler, sign_in_protocol.canonical_session)
     sessions = handler.server.controller.sign_in_sessions
     try:
-        return sessions.save(team_id, body["sign_in_session_id"], _incarnation(handler, team_id))
+        return sessions.save(team_id, body["sign_in_session_id"], _incarnation(handler, team_id), body["origin"])
     except local_sign_in.SignInSessionError as exc:
         raise _sign_in_problem(exc) from exc
 
@@ -120,7 +120,7 @@ def _save(handler, team_id: str) -> dict[str, object]:
 def _cancel(handler, team_id: str) -> dict[str, object]:
     body = _body(handler, sign_in_protocol.canonical_session)
     try:
-        handler.server.controller.sign_in_sessions.cancel(team_id, body["sign_in_session_id"])
+        handler.server.controller.sign_in_sessions.cancel(team_id, body["sign_in_session_id"], origin=body["origin"])
     except local_sign_in.SignInSessionError as exc:
         raise _sign_in_problem(exc) from exc
     return {"cancelled": True}

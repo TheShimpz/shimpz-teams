@@ -26,6 +26,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
+from protocol.http.v1 import websocket
 from storage import private_state
 
 AUDIT_PATH = Path("/var/log/shimpz-local/audit.jsonl")
@@ -53,6 +54,8 @@ _ACTIVITY_KEYS = frozenset(
 )
 _ACTIVITY_PHASES = frozenset({"requested", "completed", "failed"})
 _ACTIVITY_TEXT = re.compile(r"^[0-9a-z][0-9a-z-]{0,127}$")
+# An activity event's origin: the verified Admin Origin a person's request came from, or Team's own work.
+MAX_ACTIVITY_ORIGIN_CHARS = 255
 _CREDENTIAL_STATES = frozenset(
     {
         "assertion_absent_or_malformed",
@@ -126,17 +129,30 @@ def request_principal() -> AuditPrincipal:
 
 
 def _admissible_activity(activity: dict[str, object]) -> bool:
-    """An activity event's fields: a closed set, each a bounded lowercase identifier or a non-negative integer."""
+    """An activity event's fields: a closed set, each a bounded lowercase identifier or a non-negative integer.
+
+    Its origin is `team` or one exact, bounded HTTP(S) Origin.
+    """
     return (
         isinstance(activity, dict)
         and "event_id" in activity
         and activity.get("phase") in _ACTIVITY_PHASES
         and set(activity) <= _ACTIVITY_KEYS
         and all(
-            (isinstance(value, str) and _ACTIVITY_TEXT.fullmatch(value) is not None)
+            _admissible_origin(value)
+            if key == "origin"
+            else (isinstance(value, str) and _ACTIVITY_TEXT.fullmatch(value) is not None)
             or (type(value) is int and 0 <= value < 2**31)
-            for value in activity.values()
+            for key, value in activity.items()
         )
+    )
+
+
+def _admissible_origin(value: object) -> bool:
+    return value == "team" or (
+        isinstance(value, str)
+        and len(value) <= MAX_ACTIVITY_ORIGIN_CHARS
+        and websocket.canonical_origin(value) == value
     )
 
 

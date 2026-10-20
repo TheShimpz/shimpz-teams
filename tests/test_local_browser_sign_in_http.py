@@ -17,6 +17,7 @@ TEAM = "team_1"
 SESSION = "a" * 32
 SIGN_IN = "b" * 32
 INCARNATION = "c" * 64
+ORIGIN = "https://admin.example"
 STARTED = {"sign_in_session_id": SESSION, "view_id": "c" * 32, "site": "www.linkedin.com"}
 SIGN_IN_VIEW = {
     "sign_in_id": SIGN_IN,
@@ -31,7 +32,13 @@ SIGN_IN_VIEW = {
     "expires_at": "2026-10-26T12:00:00Z",
 }
 SAVED = {"sign_in": SIGN_IN_VIEW, "recorded": True}
-CONFIRMED = {"sign_in_id": SIGN_IN, "generation": 1, "team_incarnation": INCARNATION, "factor": "totp"}
+CONFIRMED = {
+    "sign_in_id": SIGN_IN,
+    "generation": 1,
+    "team_incarnation": INCARNATION,
+    "factor": "totp",
+    "origin": ORIGIN,
+}
 
 
 class FakeSessions:
@@ -51,14 +58,14 @@ class FakeSessions:
             raise self.error
         return answer
 
-    def start(self, team_id, incarnation, url, locale):
-        return self._answer(("start", team_id, incarnation(), url, locale), STARTED)
+    def start(self, team_id, incarnation, url, locale, origin):
+        return self._answer(("start", team_id, incarnation(), url, locale, origin), STARTED)
 
-    def save(self, team_id, session_id, incarnation):
-        return self._answer(("save", team_id, session_id, incarnation()), SAVED)
+    def save(self, team_id, session_id, incarnation, origin):
+        return self._answer(("save", team_id, session_id, incarnation(), origin), SAVED)
 
-    def cancel(self, team_id, session_id):
-        return self._answer(("cancel", team_id, session_id), None)
+    def cancel(self, team_id, session_id, *, origin):
+        return self._answer(("cancel", team_id, session_id, origin), None)
 
     def delete(self, team_id, confirmed):
         return self._answer(("delete", team_id, confirmed), "deleted")
@@ -92,32 +99,33 @@ class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
 
     def test_a_session_starts_saves_and_cancels_with_the_teams_current_incarnation(self):
         started, controller = self.call(
-            "browser-sign-in-start", {"url": "https://www.linkedin.com/login", "locale": "pt"}
+            "browser-sign-in-start", {"url": "https://www.linkedin.com/login", "locale": "pt", "origin": ORIGIN}
         )
         self.assertEqual(started, STARTED)
         self.assertEqual(
             controller.sign_in_sessions.calls,
-            [("start", TEAM, INCARNATION, "https://www.linkedin.com/login", "pt")],
+            [("start", TEAM, INCARNATION, "https://www.linkedin.com/login", "pt", ORIGIN)],
         )
-        saved, controller = self.call("browser-sign-in-save", {"sign_in_session_id": SESSION})
+        saved, controller = self.call("browser-sign-in-save", {"sign_in_session_id": SESSION, "origin": ORIGIN})
         self.assertEqual(saved, SAVED)
-        self.assertEqual(controller.sign_in_sessions.calls, [("save", TEAM, SESSION, INCARNATION)])
-        cancelled, _controller = self.call("browser-sign-in-cancel", {"sign_in_session_id": SESSION})
+        self.assertEqual(controller.sign_in_sessions.calls, [("save", TEAM, SESSION, INCARNATION, ORIGIN)])
+        cancelled, controller = self.call("browser-sign-in-cancel", {"sign_in_session_id": SESSION, "origin": ORIGIN})
         self.assertEqual(cancelled, {"cancelled": True})
+        self.assertEqual(controller.sign_in_sessions.calls, [("cancel", TEAM, SESSION, ORIGIN)])
 
     def test_a_save_whose_team_is_gone_sees_no_incarnation(self):
         sessions = FakeSessions()
         self.call(
             "browser-sign-in-save",
-            {"sign_in_session_id": SESSION},
+            {"sign_in_session_id": SESSION, "origin": ORIGIN},
             sessions=sessions,
             network=ApiProblemError(HTTPStatus.NOT_FOUND, "gone", code="team-not-found"),
         )
-        self.assertEqual(sessions.calls, [("save", TEAM, SESSION, None)])
+        self.assertEqual(sessions.calls, [("save", TEAM, SESSION, None, ORIGIN)])
         # A start asks for the Team as it is before any Browser starts.
         gone = self.refused(
             "browser-sign-in-start",
-            {"url": "https://www.linkedin.com/login", "locale": "pt"},
+            {"url": "https://www.linkedin.com/login", "locale": "pt", "origin": ORIGIN},
             network=ApiProblemError(HTTPStatus.NOT_FOUND, "gone", code="team-not-found"),
         )
         self.assertEqual(gone.code, "team-not-found")
@@ -131,9 +139,9 @@ class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
 
     def test_every_body_outside_its_exact_form_is_refused(self):
         for operation, body in (
-            ("browser-sign-in-start", {"url": "http://example.com/", "locale": "pt"}),
-            ("browser-sign-in-save", {"sign_in_session_id": SESSION, "label": "Work"}),
-            ("browser-sign-in-cancel", {"sign_in_session_id": "x"}),
+            ("browser-sign-in-start", {"url": "http://example.com/", "locale": "pt", "origin": ORIGIN}),
+            ("browser-sign-in-save", {"sign_in_session_id": SESSION, "origin": ORIGIN, "label": "Work"}),
+            ("browser-sign-in-cancel", {"sign_in_session_id": SESSION, "origin": "https://admin.example/path"}),
             ("browser-sign-in-delete", {**CONFIRMED, "factor": "password"}),
         ):
             with self.subTest(operation=operation):
@@ -155,12 +163,14 @@ class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
         ):
             with self.subTest(code=code):
                 sessions = FakeSessions(local_sign_in.SignInSessionError(code))
-                problem = self.refused("browser-sign-in-cancel", {"sign_in_session_id": SESSION}, sessions=sessions)
+                problem = self.refused(
+                    "browser-sign-in-cancel", {"sign_in_session_id": SESSION, "origin": ORIGIN}, sessions=sessions
+                )
                 expected = code if code != "anything-else" else "browser-unavailable"
                 self.assertEqual((problem.status, problem.code), (status, expected))
         for operation, body in (
-            ("browser-sign-in-start", {"url": "https://a.com/", "locale": "en"}),
-            ("browser-sign-in-save", {"sign_in_session_id": SESSION}),
+            ("browser-sign-in-start", {"url": "https://a.com/", "locale": "en", "origin": ORIGIN}),
+            ("browser-sign-in-save", {"sign_in_session_id": SESSION, "origin": ORIGIN}),
             ("browser-sign-in-delete", CONFIRMED),
         ):
             with self.subTest(operation=operation):

@@ -52,12 +52,15 @@ UNAVAILABLE = "browser-unavailable"
 # A Browser whose removal failed is cleaned again in the background this often, until its absence is proven.
 RECOVER_SECONDS = 30.0
 TEAM_NOT_FOUND = "team-not-found"
-START, SAVE, CANCEL, DELETE = (
+START, SAVE, CANCEL, DELETE, EXPIRE = (
     "browser-sign-in-start",
     "browser-sign-in-save",
     "browser-sign-in-cancel",
     "browser-sign-in-delete",
+    "browser-sign-in-expire",
 )
+# The origin of what Team does on its own, beside the verified Admin Origin of what a person asked (ADR-0120).
+TEAM_ORIGIN = "team"
 log = logging.getLogger("shimpz.team.local.browser.sign_in")
 
 # The Team's current incarnation (its network id), or None once it is gone.
@@ -92,8 +95,9 @@ class _Session:
     # Set once a Save released the Browser, `removed` saying whether its absence was proven.
     released: threading.Event = field(default_factory=threading.Event)
     removed: bool = False
-    # The verified person who started it, whom the events Team records on its own afterwards name.
+    # The verified person who started it, and the Origin they started it from, which Team's own later events name.
     initiator: str = ""
+    origin: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +110,7 @@ class _Deletion:
     incarnation: str
     factor: str
     initiator: str
+    origin: str
 
     def details(self) -> dict[str, object]:
         return {"generation": self.generation, "incarnation": self.incarnation, "factor": self.factor}
@@ -134,8 +139,11 @@ class SignInSessions:
         # Teams with a sign-in session starting, and Teams whose sign-in Browser's removal is not proven yet.
         self._starting: set[str] = set()
         self._residue: set[str] = set()
+        store.expired = self._expired
 
-    def start(self, team_id: str, incarnation: Incarnation, url: object, locale: str | None) -> dict[str, str]:
+    def start(
+        self, team_id: str, incarnation: Incarnation, url: object, locale: str | None, origin: str
+    ) -> dict[str, str]:
         """Open a sign-in session for the Team at `url`; its id and the view the person controls it through."""
         site = sign_in_protocol.start_site(url)
         if site is None:
@@ -146,23 +154,30 @@ class SignInSessions:
             self._starting.add(team_id)
             admission = self._epoch, self._epochs.get(team_id, 0)
         try:
-            return self._start(team_id, incarnation, url, locale, site, admission)
+            return self._start(team_id, incarnation, url, locale, origin, site, admission)
         finally:
             with self._guard:
                 self._starting.discard(team_id)
 
     def _start(
-        self, team_id: str, incarnation: Incarnation, url: object, locale: str | None, site: str, admission: tuple
+        self,
+        team_id: str,
+        incarnation: Incarnation,
+        url: object,
+        locale: str | None,
+        origin: str,
+        site: str,
+        admission: tuple,
     ) -> dict[str, str]:
         current = incarnation()
         if current is None:
             raise SignInSessionError(TEAM_NOT_FOUND)
         event, initiator = secrets.token_hex(16), local_audit.human_principal() or ""
         # Starting delegates the Team's Sign-in to a person: nothing starts unless that is durably recorded first.
-        if not _activity(team_id, START, "requested", event, flush=True, incarnation=current):
+        if not _activity(team_id, START, "requested", event, origin=origin, flush=True, incarnation=current):
             raise SignInSessionError(UNAVAILABLE)
-        checkout = self._checkout(team_id, current, event)
-        details = {"generation": checkout.generation, "incarnation": current}
+        checkout = self._checkout(team_id, current, event, origin)
+        details = {"generation": checkout.generation, "incarnation": current, "origin": origin}
         try:
             capsule = self._store.capsule(checkout, self._runtime.image or "")
             lease = self._runtime.acquire(team_id, language(locale), mode=PERSON, url=str(url), capsule=capsule)
@@ -170,7 +185,7 @@ class SignInSessions:
             self._store.finish(checkout)
             _activity(team_id, START, "failed", event, outcome=exc.code or UNAVAILABLE, **details)
             raise SignInSessionError(exc.code or UNAVAILABLE) from exc
-        session = self._session(team_id, current, site, lease, checkout, initiator)
+        session = self._session(team_id, current, site, lease, checkout, (initiator, origin))
         try:
             self._service.hold(team_id, f"sign-in:{session.id}", lease, session.view)
         except BrowserError as exc:
@@ -189,6 +204,8 @@ class SignInSessions:
                 owned = not admitted or self._sessions.get(team_id) is session
                 if admitted and owned:
                     del self._sessions[team_id]
+                if owned:
+                    self._residue.add(team_id)
             if owned:
                 session.ended.set()
                 self._fence(session)
@@ -201,7 +218,7 @@ class SignInSessions:
         if not _activity(team_id, START, "completed", event, flush=True, **details):
             # A delegation the journal could not record does not stand: the session ends at once, keeping nothing.
             with contextlib.suppress(SignInSessionError):
-                self.cancel(team_id, session.id)
+                self.cancel(team_id, session.id, reason="unrecorded")
             raise SignInSessionError(UNAVAILABLE)
         _audit(lease, f"started:site={site}")
         return {"sign_in_session_id": session.id, "view_id": session.view.id, "site": site}
@@ -213,7 +230,7 @@ class SignInSessions:
         site: str,
         lease: Lease,
         checkout: sign_in_store.Checkout,
-        initiator: str,
+        started_by: tuple[str, str],
     ) -> _Session:
         credentials = lease.credentials
         view = local_view.View(
@@ -223,15 +240,26 @@ class SignInSessions:
             authorization=credentials.authorization if credentials is not None else None,
             private=True,
         )
+        initiator, origin = started_by
         return _Session(
-            secrets.token_hex(16), team_id, incarnation, site, lease, view, self._clock(), checkout, initiator=initiator
+            secrets.token_hex(16),
+            team_id,
+            incarnation,
+            site,
+            lease,
+            view,
+            self._clock(),
+            checkout,
+            initiator=initiator,
+            origin=origin,
         )
 
-    def _checkout(self, team_id: str, incarnation: str, event: str) -> sign_in_store.Checkout:
+    def _checkout(self, team_id: str, incarnation: str, event: str, origin: str) -> sign_in_store.Checkout:
         try:
             return self._store.checkout(team_id, incarnation, sign_in_store.PERSON)
         except sign_in_store.SignInError as exc:
-            _activity(team_id, START, "failed", event, incarnation=incarnation, outcome=exc.code or UNAVAILABLE)
+            code = exc.code or UNAVAILABLE
+            _activity(team_id, START, "failed", event, origin=origin, incarnation=incarnation, outcome=code)
             raise SignInSessionError(exc.code or UNAVAILABLE) from exc
 
     def _fence(self, session: _Session) -> None:
@@ -254,15 +282,26 @@ class SignInSessions:
                 session.ended.set()
                 return session, True
             del self._sessions[team_id]
+            # Until its release proves the Browser gone, no deletion of the Sign-in it restored is complete.
+            self._residue.add(team_id)
         session.ended.set()
         self._fence(session)
         return session, False
 
-    def cancel(self, team_id: str, session_id: object, *, background: bool = False) -> None:
+    def cancel(
+        self,
+        team_id: str,
+        session_id: object,
+        *,
+        origin: str = "",
+        background: bool = False,
+        reason: str = "cancelled",
+    ) -> None:
         """End the session, keeping nothing, once its Browser was proven removed; else it is refused as unavailable.
 
         A Save under way removes the Browser itself: Cancel answers once it did. A removal that failed leaves the
-        Space's Browser to be cleaned and proven absent before the next one starts.
+        Space's Browser to be cleaned and proven absent before the next one starts. Its activity event names why it
+        ended (`reason`) and fails when the removal was not proven; without its own Origin, it names the session's.
         """
         session, saving = self._end(team_id, session_id)
         _audit(session.lease, "cancelled", background=background)
@@ -274,18 +313,18 @@ class SignInSessions:
         _activity(
             team_id,
             CANCEL,
-            "completed",
+            "completed" if removed else "failed",
             session.id,
-            background=background,
-            initiator=session.initiator,
+            origin=origin or session.origin,
+            own=session.initiator if background else None,
             generation=session.checkout.generation,
             incarnation=session.incarnation,
-            outcome="released" if removed else UNAVAILABLE,
+            outcome=reason,
         )
         if not removed:
             raise SignInSessionError(UNAVAILABLE)
 
-    def save(self, team_id: str, session_id: object, incarnation: Incarnation) -> dict[str, object]:
+    def save(self, team_id: str, session_id: object, incarnation: Incarnation, origin: str) -> dict[str, object]:
         """Keep the session's profile as the Team's Sign-in's next generation; the Browser is released however it ends.
 
         Saving delegates the logins it holds, so nothing is saved unless that is durably recorded first. A completion
@@ -294,7 +333,7 @@ class SignInSessions:
         session = self._running(team_id, session_id)
         if self._windows(session.lease) != 1:
             raise SignInSessionError(sign_in_protocol.WINDOWS)
-        details = {"generation": session.checkout.generation, "incarnation": session.incarnation}
+        details = {"generation": session.checkout.generation, "incarnation": session.incarnation, "origin": origin}
         if not _activity(team_id, SAVE, "requested", session.id, flush=True, **details):
             raise SignInSessionError(UNAVAILABLE)
         with self._guard:
@@ -311,6 +350,7 @@ class SignInSessions:
             # Nothing else takes a saving session away: it leaves here, ended.
             with self._guard:
                 del self._sessions[team_id]
+                self._residue.add(team_id)
             session.ended.set()
             self._fence(session)
             session.removed = self._release(session.lease)
@@ -414,21 +454,24 @@ class SignInSessions:
             str(confirmed["team_incarnation"]),
             str(confirmed["factor"]),
             local_audit.human_principal() or "",
+            str(confirmed["origin"]),
         )
         # Deleting is protective: an activity journal that cannot record it never stops it (ADR-0120).
-        _activity(team_id, DELETE, "requested", deletion.event_id, **deletion.details())
+        _activity(team_id, DELETE, "requested", deletion.event_id, origin=deletion.origin, **deletion.details())
         metadata = {
             "event_id": deletion.event_id,
             "initiator_id": deletion.initiator,
             "factor": deletion.factor,
-            "origin": _origin(background=False),
+            "origin": deletion.origin,
         }
         expected = (str(confirmed["sign_in_id"]), deletion.generation, deletion.incarnation)
         try:
             self._store.begin_delete(team_id, expected, metadata)
         except sign_in_store.SignInError as exc:
             code = exc.code or UNAVAILABLE
-            _activity(team_id, DELETE, "failed", deletion.event_id, outcome=code, **deletion.details())
+            _activity(
+                team_id, DELETE, "failed", deletion.event_id, origin=deletion.origin, outcome=code, **deletion.details()
+            )
             raise SignInSessionError(code) from exc
         with self._guard:
             # A session still starting never becomes one; one running ends now, and the fence keeps its Save out.
@@ -436,7 +479,7 @@ class SignInSessions:
             session = self._sessions.get(team_id)
         if session is not None:
             with contextlib.suppress(SignInSessionError):
-                self.cancel(team_id, session.id)
+                self.cancel(team_id, session.id, origin=deletion.origin, reason="deleted")
         if self._settle(deletion, background=False):
             return "deleted"
         self._later(deletion)
@@ -458,9 +501,9 @@ class SignInSessions:
             DELETE,
             "completed",
             deletion.event_id,
+            origin=deletion.origin,
             flush=True,
-            background=background,
-            initiator=deletion.initiator,
+            own=deletion.initiator if background else None,
             outcome="deleted",
             **deletion.details(),
         ):
@@ -489,23 +532,10 @@ class SignInSessions:
         """At Team start, after the store reconciled: prove no Browser is left, then resume every pending deletion.
 
         A Browser a previous Team process left is removed first (ADR-0117 §8); until that is proven, no deletion of a
-        Sign-in it may have restored is reported complete.
+        Sign-in it may have restored is reported complete. Pending deletions the store cannot read yet are read again
+        until it can.
         """
-        try:
-            pending = [
-                _Deletion(
-                    team_id,
-                    str(meta["event_id"]),
-                    int(meta["generation"]),
-                    str(meta["incarnation"]),
-                    str(meta["factor"]),
-                    str(meta["initiator_id"]),
-                )
-                for team_id, meta in self._store.deletions()
-            ]
-        except sign_in_store.SignInError as exc:
-            log.warning("pending Sign-in deletions are unreadable: %s", exc)
-            pending = []
+        pending = self._pending()
         with self._guard:
             self._residue.update(deletion.team_id for deletion in pending)
         if self._service.startup():
@@ -518,17 +548,42 @@ class SignInSessions:
             if not self._settle(deletion, background=True):
                 self._later(deletion)
 
+    def _pending(self) -> list[_Deletion]:
+        while True:
+            try:
+                return [
+                    _Deletion(
+                        team_id,
+                        str(meta["event_id"]),
+                        int(meta["generation"]),
+                        str(meta["incarnation"]),
+                        str(meta["factor"]),
+                        str(meta["initiator_id"]),
+                        str(meta["origin"]),
+                    )
+                    for team_id, meta in self._store.deletions()
+                ]
+            except sign_in_store.SignInError as exc:
+                log.warning("pending Sign-in deletions are unreadable, read again shortly: %s", exc)
+                time.sleep(RECOVER_SECONDS)
+
+    def _expired(self, team_id: str, generation: int, incarnation: str) -> None:
+        """The store deleted the Team's expired Sign-in as it read it: Team records so on its own (ADR-0117 item 7)."""
+        details = {"generation": generation, "incarnation": incarnation, "outcome": "expired"}
+        _activity(team_id, EXPIRE, "completed", secrets.token_hex(16), origin=TEAM_ORIGIN, own="", **details)
+
     def _watch(self, session: _Session) -> None:
         """End the session at its limit, once the person left it alone too long, or once its screen is lost.
 
         A screen is lost when its Browser failed: a session no one can drive any more is never left running.
         """
         while not session.ended.wait(WATCH_SECONDS):
-            lost = session.view.unavailable
-            if lost or self._clock() - session.started >= SESSION_SECONDS or session.view.quiet_for() >= IDLE_SECONDS:
-                _audit(session.lease, "lost" if lost else "expired", background=True)
+            limit = self._clock() - session.started >= SESSION_SECONDS
+            reason = "lost" if session.view.unavailable else "session-limit" if limit else "idle"
+            if reason != "idle" or session.view.quiet_for() >= IDLE_SECONDS:
+                _audit(session.lease, "lost" if reason == "lost" else "expired", background=True)
                 try:
-                    self.cancel(session.team_id, session.id, background=True)
+                    self.cancel(session.team_id, session.id, background=True, reason=reason)
                 except SignInSessionError:
                     return
                 return
@@ -540,7 +595,7 @@ class SignInSessions:
             session = self._sessions.get(team_id)
         if session is not None:
             try:
-                self.cancel(team_id, session.id)
+                self.cancel(team_id, session.id, reason="team-deleted")
             except SignInSessionError:
                 # The Team's Browser is removed and proven absent next, whatever this removal did.
                 return
@@ -566,6 +621,8 @@ class SignInSessions:
             _audit(lease, "release-failed", background=background)
             self._recovering(lease.team_id, lease)
             return False
+        with self._guard:
+            self._residue.discard(lease.team_id)
         return True
 
     def _recovering(self, team_id: str, lease: Lease | None) -> None:
@@ -610,21 +667,23 @@ def _activity(
     phase: str,
     event_id: str,
     *,
-    background: bool = False,
+    origin: str,
+    own: str | None = None,
     flush: bool = False,
-    initiator: str = "",
     **details: object,
 ) -> bool:
     """Record one activity event of the Team's Sign-in (ADR-0120); whether it was recorded, durably when `flush`.
 
-    The actor is the request's verified principal, or Team itself on a background thread, which names the verified
-    person who began it as its initiator; never a cookie, input, or URL.
+    The actor is the request's verified principal, and the origin the verified Admin Origin it came from. An event
+    Team records on its own (`own`, on a background thread) has Team as its actor and origin, and names the verified
+    person who began it as its initiator (`own`, empty when none). Never a cookie, input, or URL.
     """
-    activity = {"event_id": event_id, "phase": phase, "subject": "sign-in", "origin": _origin(background), **details}
-    if background and initiator:
-        activity["initiator_id"] = initiator
+    activity = {"event_id": event_id, "phase": phase, "subject": "sign-in", **details}
+    activity["origin"] = origin if own is None else TEAM_ORIGIN
+    if own:
+        activity["initiator_id"] = own
     try:
-        principal = local_audit.TEAM if background else local_audit.request_principal()
+        principal = local_audit.TEAM if own is not None else local_audit.request_principal()
         local_audit.record_activity(
             operation,
             result="error" if phase == "failed" else "ok",
@@ -637,10 +696,3 @@ def _activity(
     except RuntimeError:
         return False
     return True
-
-
-def _origin(background: bool) -> str:
-    """The verified channel an event came through: Team's own work, or the request's authority (ADR-0120)."""
-    if background:
-        return "team"
-    return "supervisor-session" if local_audit.human_principal() is not None else "admin"

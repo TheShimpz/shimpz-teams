@@ -17,6 +17,7 @@ from tests.test_local_browser_sign_ins import _archive, _cookie_store
 TEAM = "neo"
 INCARNATION = "n" * 64
 URL = "https://www.linkedin.com/login"
+ORIGIN = "https://admin.example"
 GENERATION = runtime.Generation("egress", "2026-10-19T00:00:00Z", "f" * 32)
 
 
@@ -147,10 +148,10 @@ class SignInSessionTests(unittest.TestCase):
         return session
 
     def start(self, incarnation=INCARNATION):
-        return self.sessions.start(TEAM, lambda: incarnation, URL, "pt")
+        return self.sessions.start(TEAM, lambda: incarnation, URL, "pt", ORIGIN)
 
     def save(self, started, incarnation=INCARNATION):
-        return self.sessions.save(TEAM, started["sign_in_session_id"], lambda: incarnation)["sign_in"]
+        return self.sessions.save(TEAM, started["sign_in_session_id"], lambda: incarnation, ORIGIN)["sign_in"]
 
     def held(self, started) -> bool:
         """Whether the Team still holds the session's Browser through its view."""
@@ -178,7 +179,7 @@ class SignInSessionTests(unittest.TestCase):
 
     def test_a_session_whose_team_is_deleted_or_reset_while_it_starts_never_runs(self):
         with self.assertRaises(local_sign_in.SignInSessionError) as gone:
-            self.sessions.start(TEAM, lambda: None, URL, "pt")
+            self.sessions.start(TEAM, lambda: None, URL, "pt", ORIGIN)
         self.assertEqual(gone.exception.code, "team-not-found")
         for end in (lambda: self.sessions.end_team(TEAM), self.sessions.end_all, None):
             plain = self.runtime.acquire
@@ -194,7 +195,7 @@ class SignInSessionTests(unittest.TestCase):
                 mock.patch.object(self.runtime, "acquire", side_effect=acquiring),
                 self.assertRaises(local_sign_in.SignInSessionError) as refused,
             ):
-                self.sessions.start(TEAM, lambda incarnations=incarnations: next(incarnations), URL, "pt")
+                self.sessions.start(TEAM, lambda incarnations=incarnations: next(incarnations), URL, "pt", ORIGIN)
             self.assertEqual(refused.exception.code, "sign-in-not-running")
             # Released once, by the start alone, and never left registered for a later Cancel to release again.
             self.assertEqual(self.runtime.events.count(("release",)), 1)
@@ -214,7 +215,7 @@ class SignInSessionTests(unittest.TestCase):
             return INCARNATION
 
         with self.assertRaises(local_sign_in.SignInSessionError):
-            self.sessions.start(TEAM, incarnation, URL, "pt")
+            self.sessions.start(TEAM, incarnation, URL, "pt", ORIGIN)
         self.assertEqual(self.runtime.events.count(("release",)), 1)
         self.assertNotIn(TEAM, self.sessions._sessions)
 
@@ -430,7 +431,7 @@ class SignInSessionTests(unittest.TestCase):
 
     def test_only_an_admissible_url_is_taken(self):
         with self.assertRaises(local_sign_in.SignInSessionError) as url:
-            self.sessions.start(TEAM, lambda: INCARNATION, "http://www.linkedin.com/", "en")
+            self.sessions.start(TEAM, lambda: INCARNATION, "http://www.linkedin.com/", "en", ORIGIN)
         self.assertEqual(url.exception.code, "sign-in-url-invalid")
 
     def test_a_browser_driver_or_release_that_fails_is_answered_and_nothing_kept(self):
@@ -525,6 +526,7 @@ class SignInSessionTests(unittest.TestCase):
             "generation": saved["generation"],
             "team_incarnation": INCARNATION,
             "factor": factor,
+            "origin": ORIGIN,
             **changes,
         }
 
@@ -670,9 +672,55 @@ class SignInSessionTests(unittest.TestCase):
             self.until(("browser-sign-in-delete", "completed"))
         self.assertGreaterEqual(self.runtime.events.count(("recover",)), 1)
 
+    def test_a_deletion_while_a_cancel_still_removes_the_browser_waits_for_that_removal(self):
+        saved = self.save(self.start())
+        started = self.start()
+        releasing, removed = threading.Event(), threading.Event()
+        release = self.runtime.release
+
+        def slow_release(lease):
+            releasing.set()
+            removed.wait(5)
+            release(lease)
+
+        with mock.patch.object(self.runtime, "release", side_effect=slow_release):
+            cancel = threading.Thread(target=self.sessions.cancel, args=(TEAM, started["sign_in_session_id"]))
+            cancel.start()
+            releasing.wait(5)
+            self.assertEqual(self.sessions.delete(TEAM, self.confirmed(saved)), "pending")
+            removed.set()
+            cancel.join(5)
+            self.until(("browser-sign-in-delete", "completed"))
+
+    def test_every_event_names_its_origin_and_why_a_session_ended(self):
+        self.save(self.start())
+        requested = [activity for operation, _principal, activity in self.recorded]
+        self.assertEqual({activity["origin"] for activity in requested}, {ORIGIN})
+        self.assertEqual({activity["incarnation"] for activity in requested}, {INCARNATION})
+        with (
+            mock.patch.object(local_sign_in.local_audit, "human_principal", return_value="s" * 32),
+            mock.patch.object(local_sign_in, "SESSION_SECONDS", 0.0),
+            mock.patch.object(local_sign_in, "WATCH_SECONDS", 0.01),
+        ):
+            self.start()
+            self.until(("browser-sign-in-cancel", "completed"))
+        operation, principal, ended = self.recorded[-1]
+        self.assertEqual(
+            (operation, principal, ended["origin"], ended["outcome"], ended["initiator_id"]),
+            ("browser-sign-in-cancel", local_sign_in.local_audit.TEAM, "team", "session-limit", "s" * 32),
+        )
+        # A Sign-in that expired is recorded by Team as it is deleted.
+        with mock.patch.object(self.store, "_now", return_value=time.time() + sign_in_store.LIFETIME_SECONDS):
+            self.assertIsNone(self.sessions.current(TEAM))
+        operation, principal, expired = self.recorded[-1]
+        self.assertEqual(
+            (operation, principal, expired["origin"], expired["outcome"], expired["generation"]),
+            ("browser-sign-in-expire", local_sign_in.local_audit.TEAM, "team", "expired", 1),
+        )
+
     def test_a_restarted_team_completes_and_records_every_deletion_left_pending(self):
         saved = self.save(self.start())
-        metadata = {"event_id": "e" * 32, "initiator_id": "s" * 32, "factor": "passkey", "origin": "supervisor-session"}
+        metadata = {"event_id": "e" * 32, "initiator_id": "s" * 32, "factor": "passkey", "origin": ORIGIN}
         self.store.begin_delete(TEAM, (saved["sign_in_id"], 1, INCARNATION), metadata)
         for proven in (False, True):
             with self.subTest(proven=proven):
@@ -693,8 +741,13 @@ class SignInSessionTests(unittest.TestCase):
                 saved = self.save(self.start())
                 self.store.begin_delete(TEAM, (saved["sign_in_id"], 1, INCARNATION), metadata)
                 self.activity.clear()
-        with mock.patch.object(self.store, "deletions", side_effect=sign_in_store.SignInError("unreadable")):
+        # Pending deletions the store cannot read yet are read again until it can.
+        unreadable = mock.patch.object(
+            self.store, "deletions", side_effect=[sign_in_store.SignInError("unreadable"), []]
+        )
+        with unreadable as deletions:
             local_sign_in.SignInSessions(self.service, self.runtime, self.store).startup()
+        self.assertEqual(deletions.call_count, 2)
 
     def test_a_journal_that_cannot_record_never_stops_a_cancel_or_a_sessions_limit(self):
         failing = mock.patch.object(
@@ -737,7 +790,7 @@ class SignInSessionTests(unittest.TestCase):
         self.store.begin_delete(
             TEAM,
             (saved["sign_in_id"], 1, INCARNATION),
-            {"event_id": "e" * 32, "initiator_id": "", "factor": "totp", "origin": "supervisor-session"},
+            {"event_id": "e" * 32, "initiator_id": "", "factor": "totp", "origin": ORIGIN},
         )
         with self.assertRaises(local_sign_in.SignInSessionError) as deleting:
             self.start()
@@ -768,7 +821,7 @@ class SignInSessionTests(unittest.TestCase):
                 raise outcome
 
         with mock.patch.object(local_sign_in.local_audit, "flush", side_effect=flush):
-            answer = self.sessions.save(TEAM, started["sign_in_session_id"], lambda: INCARNATION)
+            answer = self.sessions.save(TEAM, started["sign_in_session_id"], lambda: INCARNATION, ORIGIN)
         self.assertEqual((answer["recorded"], answer["sign_in"]["generation"]), (False, 1))
 
     def test_dropping_another_browsers_view_keeps_the_running_one(self):

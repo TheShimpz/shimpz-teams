@@ -50,6 +50,7 @@ LOCAL_PROTOCOL_DATA = {
     "protocol/http/v1/browser.py",
     "protocol/http/v1/browser_view.py",
     "protocol/http/v1/sign_in.py",
+    "protocol/http/v1/websocket.py",
     "protocol/http/v1/challenge.py",
     "protocol/http/v1/content.py",
     "protocol/http/v1/identifiers.py",

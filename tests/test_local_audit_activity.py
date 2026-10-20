@@ -23,7 +23,7 @@ class ActivityEventTests(unittest.TestCase):
                     "incarnation": "c" * 64,
                     "factor": "passkey",
                     "initiator_id": "b" * 32,
-                    "origin": "supervisor-session",
+                    "origin": "https://admin.example:8443",
                     "outcome": "sign-in-changed",
                 },
             )
@@ -34,6 +34,9 @@ class ActivityEventTests(unittest.TestCase):
                 {"event_id": "a" * 32, "phase": "requested", "subject": "Has Space"},
                 {"event_id": "a" * 32, "phase": "requested", "generation": -1},
                 {"event_id": "a" * 32, "phase": "requested", "generation": True},
+                {"event_id": "a" * 32, "phase": "requested", "origin": "https://admin.example/path"},
+                {"event_id": "a" * 32, "phase": "requested", "origin": "admin"},
+                {"event_id": "a" * 32, "phase": "requested", "origin": "https://" + "a" * 250 + ".example"},
                 "not a mapping",
             ):
                 with self.subTest(activity=activity), self.assertRaises(ValueError):
@@ -45,6 +48,14 @@ class ActivityEventTests(unittest.TestCase):
                         activity=activity,
                     )
         self.assertEqual(appended[0][3]["activity"]["generation"], 2)
+        with mock.patch.object(local_audit, "_append", return_value="trace"):
+            local_audit.record_activity(
+                "browser-sign-in-expire",
+                result="ok",
+                principal=local_audit.TEAM,
+                team_id="neo",
+                activity={"event_id": "a" * 32, "phase": "completed", "origin": "team"},
+            )
 
 
 if __name__ == "__main__":

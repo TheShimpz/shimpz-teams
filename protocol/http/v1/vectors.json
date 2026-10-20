@@ -7800,18 +7800,41 @@
   "browser_blank_note": [{"step": {"kind": "wait", "note": "   "}, "canonical": {"kind": "wait"}}],
   "browser_view_accept": [{"key": "AAAAAAAAAAAAAAAAAAAAAA==", "accept": "ICX+Yqv66kxgM0FcWaLWlFLwTAI="}],
   "sign_in_start": {
-    "valid": [{"url": "https://www.linkedin.com/login", "locale": "pt"}, {"url": "https://example.com:443/a?b=c", "locale": "en"}],
+    "valid": [
+      {"url": "https://www.linkedin.com/login", "locale": "pt", "origin": "https://admin.example"},
+      {"url": "https://example.com:443/a?b=c", "locale": "en", "origin": "https://admin.example"},
+      {"url": "https://example.com/", "locale": "en", "origin": "http://127.0.0.1:8443"}
+    ],
     "invalid": [
-      {"url": "http://example.com/login", "locale": "en"}, {"url": "https://user:pw@example.com/", "locale": "en"},
-      {"url": "https://example.com:8443/", "locale": "en"}, {"url": "https://localhost/", "locale": "en"},
-      {"url": "https://example.com:99999/", "locale": "en"},
-      {"url": "https://example.com/a b", "locale": "en"}, {"url": "https://example.com/", "locale": "pt-BR"},
-      {"url": "https://example.com/"}, {"url": "https://example.com/", "locale": "en", "extra": 1}, "https://example.com/"
+      {"url": "http://example.com/login", "locale": "en", "origin": "https://admin.example"},
+      {"url": "https://user:pw@example.com/", "locale": "en", "origin": "https://admin.example"},
+      {"url": "https://example.com:8443/", "locale": "en", "origin": "https://admin.example"},
+      {"url": "https://localhost/", "locale": "en", "origin": "https://admin.example"},
+      {"url": "https://example.com:99999/", "locale": "en", "origin": "https://admin.example"},
+      {"url": "https://example.com/a b", "locale": "en", "origin": "https://admin.example"},
+      {"url": "https://example.com/", "locale": "pt-BR", "origin": "https://admin.example"},
+      {"url": "https://example.com/", "origin": "https://admin.example"},
+      {"url": "https://example.com/", "locale": "en", "extra": 1, "origin": "https://admin.example"},
+      "https://example.com/",
+      {"url": "https://example.com/", "locale": "en"},
+      {"url": "https://example.com/", "locale": "en", "origin": "https://admin.example/path"},
+      {"url": "https://example.com/", "locale": "en", "origin": "null"},
+      {"url": "https://example.com/", "locale": "en", "origin": "HTTPS://Admin.example"},
+      {"url": "https://example.com/", "locale": "en", "origin": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example"}
     ]
   },
   "sign_in_session": {
-    "valid": [{"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],
-    "invalid": [{"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaax"}, {"sign_in_session_id": 1}, {}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "x": 1}]
+    "valid": [
+      {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "origin": "https://admin.example"}
+    ],
+    "invalid": [
+      {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaax", "origin": "https://admin.example"},
+      {"sign_in_session_id": 1, "origin": "https://admin.example"},
+      {"origin": "https://admin.example"},
+      {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "x": 1, "origin": "https://admin.example"},
+      {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "origin": 1}
+    ]
   },
   "sign_in_started": {
     "valid": [{"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "view_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "site": "www.linkedin.com"}],
@@ -7823,16 +7846,18 @@
   "sign_in_cancelled": {"valid": [{"cancelled": true}], "invalid": [{"cancelled": false}, {}]},
   "sign_in_delete": {
     "valid": [
-      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 3, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp"},
-      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "passkey"}
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 3, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp", "origin": "https://admin.example"},
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "passkey", "origin": "https://admin.example"}
     ],
     "invalid": [
-      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 0, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp"},
-      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": true, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp"},
-      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 1, "team_incarnation": "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp"},
-      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "password"},
-      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
-      {"sign_in_id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp"}
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 0, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp", "origin": "https://admin.example"},
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": true, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp", "origin": "https://admin.example"},
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 1, "team_incarnation": "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp", "origin": "https://admin.example"},
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "password", "origin": "https://admin.example"},
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "origin": "https://admin.example"},
+      {"sign_in_id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp", "origin": "https://admin.example"},
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 3, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp"},
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 3, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp", "origin": "ftp://admin.example"}
     ]
   },
   "sign_in_current": {

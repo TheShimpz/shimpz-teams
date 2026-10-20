@@ -74,7 +74,8 @@ _RECORD_KEYS = frozenset(
 
 
 # A deletion's activity metadata (ADR-0120), kept in its fence until its completion is recorded; an empty event id marks
-# a deletion of the Team's own lifecycle (expiry, a new incarnation, the Team's deletion), which records no activity.
+# a deletion of the Team's own lifecycle (expiry, a new incarnation, the Team's deletion), which records its own event
+# where it has one (an expiry, through `SignInStore.expired`; the Team's deletion, in its own operation).
 DELETING_KEYS = frozenset({"event_id", "initiator_id", "factor", "origin"})
 _INTERNAL = dict.fromkeys(DELETING_KEYS, "")
 
@@ -133,6 +134,8 @@ class SignInStore:
         self._lock = threading.RLock()
         # Each Team's in-process fence: a Save writes and commits only if no deletion or reset came since it began.
         self._fences: dict[str, int] = {}
+        # Told of each expired Sign-in deleted as it was read: its Team, generation, and incarnation.
+        self.expired: Callable[[str, int, str], None] = lambda _team_id, _generation, _incarnation: None
 
     # State
 
@@ -217,6 +220,13 @@ class SignInStore:
     def _expired(self, record: dict[str, object]) -> bool:
         return bool(record["generation"]) and self._now() >= _expires(record)
 
+    def _expire(self, team_id: str, record: dict[str, object]) -> bool:
+        """Delete an expired Sign-in, and tell `expired` once it is gone; whether it is."""
+        gone = self._delete(team_id)
+        if gone:
+            self.expired(team_id, int(record["generation"]), str(record["incarnation"]))
+        return gone
+
     # Reading
 
     def current(self, team_id: str, reader: str | None) -> dict[str, object] | None:
@@ -230,7 +240,7 @@ class SignInStore:
             if record is None or record["deleting"] or not record["generation"]:
                 return None
             if self._expired(record):
-                self._delete(team_id)
+                self._expire(team_id, record)
                 return None
             public = _public(record)
             if record["writer"] != reader:
@@ -248,7 +258,8 @@ class SignInStore:
                 raise SignInError("the Sign-in is being deleted", sign_in_protocol.BUSY)
             if record is not None and (self._expired(record) or record["incarnation"] != incarnation):
                 # An expired or earlier incarnation's Sign-in is gone before anything new is checked out.
-                if not self._delete(team_id):
+                gone = self._expire(team_id, record) if self._expired(record) else self._delete(team_id)
+                if not gone:
                     raise SignInError("the Sign-in is being deleted", sign_in_protocol.BUSY)
                 teams, record = self._record(team_id)
             if record is not None and record["checkout"] is not None:
@@ -400,13 +411,19 @@ class SignInStore:
         return True
 
     def _delete(self, team_id: str) -> bool:
-        """Delete the Team's Sign-in for its own lifecycle, whatever fences it: capsules, drafts, and record."""
+        """Delete the Team's Sign-in for its own lifecycle: capsules, drafts, and record; whether nothing is left.
+
+        A Supervisor's deletion under way keeps its fenced record, which holds nothing but its activity metadata, until
+        its completion is recorded.
+        """
         teams, record = self._record(team_id)
         self._fences[team_id] = self._fences.get(team_id, 0) + 1
         if record is not None:
             self._fence(teams, record, dict(_INTERNAL))
         if not self._purge(team_id, record):
             return False
+        if record is not None and record["deleting"]["event_id"]:
+            return True
         teams, _record = self._record(team_id)
         if teams.pop(team_id, None) is not None:
             self._write(teams)
@@ -425,12 +442,21 @@ class SignInStore:
             return self._delete(team_id)
 
     def delete_all(self) -> None:
-        """A Space reset: every Sign-in and every capsule is deleted, and every Save under way fenced."""
+        """A Space reset: every Sign-in and every capsule is deleted, and every Save under way fenced.
+
+        Only the fenced records of Supervisor deletions under way stay, holding nothing but their activity metadata,
+        until their completions are recorded.
+        """
         with self._lock:
-            for team_id in set(self._fences) | set(self._state()):
+            teams = self._state()
+            for team_id in set(self._fences) | set(teams):
                 self._fences[team_id] = self._fences.get(team_id, 0) + 1
+            pending = {team_id for team_id, _metadata in self.deletions()}
             self._remove(self._root / "capsules")
             self._remove(self._root / "drafts")
+            if pending:
+                self._write({team_id: teams[team_id] for team_id in pending})
+                return
             try:
                 self._index.unlink(missing_ok=True)
             except OSError as exc:
@@ -556,10 +582,14 @@ class Draft:
         """
         try:
             _teams, kept = self._store._record(self._checkout.team_id)
-        except SignInError:
+            if kept != record:
+                return False
+            # Named, it is kept only once that naming is durable too.
+            private_state.fsync_directory(self._store._index.parent)
+        except (SignInError, OSError) as exc:
             self._uncertain = True
-            raise
-        return kept == record
+            raise SignInError("the Sign-in's publication is unknown") from exc
+        return True
 
     def discard(self) -> None:
         """Delete what the Save wrote; anything left is deleted when the Team process next starts."""
@@ -588,11 +618,11 @@ def _first(team_id: str, incarnation: str, now: float) -> dict[str, object]:
 
 
 def _deleting_admitted(value: object) -> bool:
-    """A fence's metadata: none, or exactly its keys, each a bounded lowercase identifier or empty."""
+    """A fence's metadata: none, or exactly its keys, each a bounded string (empty for a lifecycle deletion)."""
     return value is None or (
         isinstance(value, dict)
         and set(value) == DELETING_KEYS
-        and all(isinstance(item, str) and len(item) <= 128 for item in value.values())
+        and all(isinstance(item, str) and len(item) <= 255 for item in value.values())
     )
 
 

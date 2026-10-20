@@ -3,9 +3,10 @@
 Each Team has at most one Sign-in: the sealed browser session a person saved their logins into. A person adds logins
 in a sign-in session, a Browser only they drive, restored from the Sign-in when there is one, and Saves it as the next
 generation; Admin reads the Sign-in, starts, saves, and cancels a session, and deletes the Sign-in after the
-Supervisor's second factor, binding the exact Sign-in, generation, and Team incarnation it confirmed. Team owns this
-module; Admin consumes it whole as a pinned mirror. Every body and answer has one exact form, and a Sign-in is shown by
-its state, the sites found in its saved cookies, and its times, never its capsule.
+Supervisor's second factor, binding the exact Sign-in, generation, and Team incarnation it confirmed. Each request a
+person makes names the verified Origin of their Admin page, which Team records in its activity events (ADR-0120). Team
+owns this module; Admin consumes it whole as a pinned mirror. Every body and answer has one exact form, and a Sign-in is
+shown by its state, the sites found in its saved cookies, and its times, never its capsule.
 """
 
 from __future__ import annotations
@@ -14,9 +15,10 @@ import re
 from urllib.parse import urlsplit
 
 if __package__:
-    from . import payload
+    from . import payload, websocket
 else:  # The protocol verifier runs every module of this directory flat.
     import payload
+    import websocket
 
 ID_RE = re.compile(r"[0-9a-f]{32}")
 # A Team incarnation: the Team network's Docker id.
@@ -25,6 +27,7 @@ INCARNATION_RE = re.compile(r"[0-9a-f]{64}")
 SITE_RE = re.compile(r"(?=.{4,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 TIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 MAX_URL_CHARS = 2_048
+MAX_ORIGIN_CHARS = 255
 # The sites a Sign-in shows: those found in its saved cookies, at most this many, the rest marked as truncated.
 MAX_SITES = 64
 MAX_GENERATION = 2**31 - 1
@@ -86,29 +89,48 @@ def _generation(value: object) -> bool:
     return type(value) is int and 1 <= value <= MAX_GENERATION
 
 
+def canonical_origin(value: object) -> str | None:
+    """The exact, bounded Origin of the Admin page a person made a request from, as Admin verified it."""
+    if not isinstance(value, str) or len(value) > MAX_ORIGIN_CHARS or websocket.canonical_origin(value) != value:
+        return None
+    return value
+
+
 def _time(value: object) -> bool:
     return isinstance(value, str) and TIME_RE.fullmatch(value) is not None
 
 
 def canonical_start(value: object) -> dict[str, object] | None:
-    """`{url, locale}`: where the sign-in starts, and the interface language its Browser's pages follow."""
-    if not isinstance(value, dict) or set(value) != {"url", "locale"}:
+    """`{url, locale, origin}`: where the sign-in starts, the language its Browser's pages follow, and its Origin."""
+    if not isinstance(value, dict) or set(value) != {"url", "locale", "origin"}:
         return None
-    if start_site(value["url"]) is None or payload.canonical_locale(value["locale"]) is None:
+    if (
+        start_site(value["url"]) is None
+        or payload.canonical_locale(value["locale"]) is None
+        or canonical_origin(value["origin"]) is None
+    ):
         return None
     return value
 
 
 def canonical_session(value: object) -> dict[str, object] | None:
-    """`{sign_in_session_id}`: the session a Save or a Cancel ends."""
-    if not isinstance(value, dict) or set(value) != {"sign_in_session_id"} or not _id(value["sign_in_session_id"]):
+    """`{sign_in_session_id, origin}`: the session a Save or a Cancel ends, and the request's Origin."""
+    if not isinstance(value, dict) or set(value) != {"sign_in_session_id", "origin"}:
+        return None
+    if not _id(value["sign_in_session_id"]) or canonical_origin(value["origin"]) is None:
         return None
     return value
 
 
 def canonical_delete(value: object) -> dict[str, object] | None:
-    """The exact Sign-in, generation, and Team incarnation the Supervisor confirmed, and the second factor they used."""
-    if not isinstance(value, dict) or set(value) != {"sign_in_id", "generation", "team_incarnation", "factor"}:
+    """The exact Sign-in, generation, and Team incarnation confirmed, the second factor used, and the Origin."""
+    if not isinstance(value, dict) or set(value) != {
+        "sign_in_id",
+        "generation",
+        "team_incarnation",
+        "factor",
+        "origin",
+    }:
         return None
     if (
         not _id(value["sign_in_id"])
@@ -116,6 +138,7 @@ def canonical_delete(value: object) -> dict[str, object] | None:
         or not isinstance(value["team_incarnation"], str)
         or INCARNATION_RE.fullmatch(value["team_incarnation"]) is None
         or value["factor"] not in FACTORS
+        or canonical_origin(value["origin"]) is None
     ):
         return None
     return value
