@@ -140,9 +140,8 @@ class SignInSessions:
         self._starting: set[str] = set()
         # Each residue is one Browser, by its Team and container, so a removal proven later clears only its own.
         self._residue: set[tuple[str, str]] = set()
-        # Cleared while the Browsers a previous Team process left are not proven gone; no deletion completes meanwhile.
+        # Set once the Browsers a previous Team process left are proven gone; until then no deletion completes.
         self._cleaned = threading.Event()
-        self._cleaned.set()
         store.expired = self._expired
 
     def start(
@@ -542,8 +541,9 @@ class SignInSessions:
         """
         # Cleanup never waits on the Sign-ins' metadata: a previous process's Browser is removed first, whatever it is,
         # and a cleanup that failed is tried again until it is proven, whether or not a deletion waits on it.
-        if not self._service.startup():
-            self._cleaned.clear()
+        if self._service.startup():
+            self._cleaned.set()
+        else:
             name = "browser-sign-in-recover"
             threading.Thread(target=self._recover_startup, name=name, daemon=True).start()
         pending = self._pending()

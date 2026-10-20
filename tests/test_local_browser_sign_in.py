@@ -87,6 +87,7 @@ class SignInSessionTests(unittest.TestCase):
         self.runtime = FakeRuntime()
         self.service = local_service.BrowserService(self.runtime, storage=None)
         self.sessions = local_sign_in.SignInSessions(self.service, self.runtime, self.store)
+        self.sessions.startup()
         self.audit = []
         self.activity = []
         self.recorded = []
@@ -742,6 +743,25 @@ class SignInSessionTests(unittest.TestCase):
                 time.sleep(0.01)
         self.assertEqual(self.runtime.events.count(("recover",)), 2)
         self.assertTrue(self.sessions._cleaned.is_set())
+
+    def test_no_deletion_completes_while_the_teams_first_cleanup_runs(self):
+        saved = self.save(self.start())
+        restarted = local_sign_in.SignInSessions(self.service, self.runtime, self.store)
+        cleaning, cleaned = threading.Event(), threading.Event()
+
+        def startup():
+            cleaning.set()
+            cleaned.wait(5)
+            return True
+
+        with mock.patch.object(self.service, "startup", side_effect=startup):
+            starting = threading.Thread(target=restarted.startup)
+            starting.start()
+            cleaning.wait(5)
+            self.assertEqual(restarted.delete(TEAM, self.confirmed(saved)), "pending")
+            cleaned.set()
+            starting.join(5)
+        self.until(("browser-sign-in-delete", "completed"))
 
     def test_a_restarted_team_removes_earlier_browsers_before_reading_its_sign_ins(self):
         order = []
