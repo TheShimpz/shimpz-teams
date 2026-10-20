@@ -560,17 +560,27 @@ class BrowserRuntime:
     def open_stream(self, lease: Lease, deadline: float, wanted: Callable[[], bool]) -> tuple[str, ExecStream]:
         """The Cua Driver's stdio MCP session in this Browser, opened by `deadline`: its exec id and its channel.
 
-        The wait ends as soon as the session is no longer `wanted` (Stop); a session Docker opens only after the wait
-        ended is closed unused, so nothing ever reaches it.
+        The wait ends as soon as the session is no longer `wanted` (Stop).
+        """
+        exec_id, raw = self._open_exec(lease.container_id, ["mcp"], deadline, wanted)
+        return exec_id, ExecStream(raw, self._clock)
+
+    def _open_exec(
+        self, container_id: str, arguments: list[str], deadline: float, wanted: Callable[[], bool] = lambda: True
+    ) -> tuple[str, object]:
+        """One `browser-host` exec opened by `deadline` while still `wanted`: its id and its socket.
+
+        Docker's own request timeout does not bound the whole opening; this does. An exec Docker opens only after the
+        wait ended is closed unused, so nothing ever reaches it.
         """
         guard = threading.Lock()
         opened: list[tuple[str, object] | BrowserError] = []
-        # The wait ended without a session, under `guard`: one Docker opens afterwards is closed unused.
+        # The wait ended without an exec, under `guard`: one Docker opens afterwards is closed unused.
         ended = False
 
         def run() -> None:
             try:
-                answer: tuple[str, object] | BrowserError = self._exec(lease.container_id, ["mcp"])
+                answer: tuple[str, object] | BrowserError = self._exec(container_id, arguments)
             except BrowserError as exc:
                 answer = exc
             with guard:
@@ -581,7 +591,7 @@ class BrowserRuntime:
                 with contextlib.suppress(OSError):
                     answer[1].close()
 
-        worker = threading.Thread(target=run, name="browser-driver", daemon=True)
+        worker = threading.Thread(target=run, name="browser-exec", daemon=True)
         worker.start()
         while worker.is_alive() and (left := deadline - self._clock()) > 0 and wanted():
             worker.join(min(left, DRIVER_POLL_SECONDS))
@@ -592,7 +602,7 @@ class BrowserRuntime:
         answer = opened[0]
         if isinstance(answer, BrowserError):
             raise answer
-        return answer[0], ExecStream(answer[1], self._clock)
+        return answer
 
     def open_relay(self, lease: Lease) -> tuple[str, ExecStream]:
         """One viewer's relay into this Browser's display: its exec id and its channel."""
@@ -631,7 +641,7 @@ class BrowserRuntime:
         """
         deadline = self._clock() + seconds
         try:
-            exec_id, raw = self._exec(container_id, arguments)
+            exec_id, raw = self._open_exec(container_id, arguments, deadline)
         except BrowserError as exc:
             raise BrowserError(code) from exc
         stream = ExecStream(raw, self._clock)

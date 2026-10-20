@@ -455,6 +455,23 @@ class BrowserRuntimeTests(unittest.TestCase):
             with self.assertRaises(runtime.BrowserError) as exported:
                 browser.export(lease, lambda _chunk: None)
             self.assertEqual(exported.exception.code, "browser-lost")
+        # An opening Docker never answers is no longer waited for once the program's deadline passed.
+        opening = threading.Event()
+        self.addCleanup(opening.set)
+
+        def stalled(*_args):
+            # Docker takes past the program's whole deadline, and longer still.
+            self.now[0] += 60
+            opening.wait(30)
+            raise runtime.BrowserError("browser-lost")
+
+        with (
+            mock.patch.object(browser, "_exec", side_effect=stalled),
+            mock.patch.object(runtime, "STOP_SECONDS", 0.2),
+            self.assertRaises(runtime.BrowserError) as unopened,
+        ):
+            browser.stop(lease)
+        self.assertEqual(unopened.exception.code, "browser-lost")
         # A program Docker cannot even start fails as its own operation does.
         with (
             mock.patch.object(browser, "_exec", side_effect=runtime.BrowserError("browser-lost")),
