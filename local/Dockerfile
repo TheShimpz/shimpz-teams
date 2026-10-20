@@ -61,7 +61,8 @@ RUN test -x /usr/bin/timeout && \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
         /var/lib/shimpz-local/assistant-stored-inputs/state /var/lib/shimpz-local/assistant-stored-inputs/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key \
-        /var/lib/shimpz-local/routines/state /var/lib/shimpz-local/routines/key && \
+        /var/lib/shimpz-local/routines/state /var/lib/shimpz-local/routines/key \
+        /var/lib/shimpz-local/browser-sign-ins/state /var/lib/shimpz-local/browser-sign-ins/key && \
     mkdir -p /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
     chown shimpzlocal:shimpzteam-token /run/shimpz-local && chmod 2750 /run/shimpz-local && \
     chown shimpzlocal:shimpzbrain-runtime-token /run/shimpz-brain-runtime && \
@@ -73,7 +74,8 @@ RUN test -x /usr/bin/timeout && \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
         /var/lib/shimpz-local/assistant-stored-inputs/state /var/lib/shimpz-local/assistant-stored-inputs/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key \
-        /var/lib/shimpz-local/routines/state /var/lib/shimpz-local/routines/key && \
+        /var/lib/shimpz-local/routines/state /var/lib/shimpz-local/routines/key \
+        /var/lib/shimpz-local/browser-sign-ins/state /var/lib/shimpz-local/browser-sign-ins/key && \
     chown shimpzlocal:shimpzlocal /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
     chown shimpzlocal:shimpzassistant-egress-policy /var/lib/shimpz-local/assistant-egress && \
     chmod 0750 /var/lib/shimpz-local/assistant-egress && \
@@ -83,6 +85,7 @@ RUN test -x /usr/bin/timeout && \
         /var/lib/shimpz-local/assistant-stored-inputs/state /var/lib/shimpz-local/assistant-stored-inputs/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key \
         /var/lib/shimpz-local/routines/state /var/lib/shimpz-local/routines/key \
+        /var/lib/shimpz-local/browser-sign-ins/state /var/lib/shimpz-local/browser-sign-ins/key \
         /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign
 
 WORKDIR /app
