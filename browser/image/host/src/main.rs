@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 mod compositor;
 mod display;
+mod keyboard;
 mod profile;
 
 use std::ffi::OsStr;
@@ -32,6 +33,8 @@ use std::time::{Duration, Instant};
 
 const DISPLAY: &str = ":99";
 const RUNTIME_DIR: &str = "/tmp/run";
+/// Where the keyboard symbols a person's display loads are written.
+const KEYBOARD_DIR: &str = "/tmp/run/xkb";
 const SESSION_BUS: &str = "/tmp/run/bus";
 const HOME: &str = "/tmp";
 const DOWNLOADS: &str = "/downloads";
@@ -274,6 +277,10 @@ fn start_all(settings: &Settings, children: &mut Vec<Child>) -> Result<(), Strin
     children.push(display);
     display::record(pid)?;
     wait_until(children, "the display", display_answers)?;
+    if settings.mode != Mode::Agent {
+        // A person types here: every accented letter has its keycode before anything is typed (keyboard.rs).
+        keyboard::load(DISPLAY, Path::new(KEYBOARD_DIR), &environment())?;
+    }
     // The compositor composites before any window opens, so a Cua Driver session draws its cursor for a composited
     // screen.
     children.push(spawn(
