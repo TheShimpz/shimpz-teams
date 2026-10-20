@@ -24,15 +24,15 @@ COOKIES = "Default/Cookies"
 MAX_SQL_STEPS = 50_000_000
 _PROGRESS_EVERY = 10_000
 # The sign-in hosts of the identity providers a profile must not carry a session for (partial coverage, stated).
-IDENTITY_HOSTS = frozenset(
-    {
-        "accounts.google.com",
-        "login.microsoftonline.com",
-        "login.live.com",
-        "appleid.apple.com",
-        "idmsa.apple.com",
-    }
-)
+# Each with its own top-level site: a cookie partitioned under that site reaches the sign-in host's own pages too.
+IDENTITY_SITES = {
+    "accounts.google.com": "https://google.com",
+    "login.microsoftonline.com": "https://microsoftonline.com",
+    "login.live.com": "https://live.com",
+    "appleid.apple.com": "https://apple.com",
+    "idmsa.apple.com": "https://apple.com",
+}
+IDENTITY_HOSTS = frozenset(IDENTITY_SITES)
 
 
 class CapsuleError(ValueError):
@@ -163,14 +163,14 @@ class Check:
         if not self.cookies:
             return IDENTITY_HOSTS
         try:
-            hosts = _cookie_hosts(bytes(self.cookies))
+            cookies = _cookies(bytes(self.cookies))
         except sqlite3.Error:
             return IDENTITY_HOSTS
-        return frozenset(host for host in IDENTITY_HOSTS if any(_sent_to(cookie, host) for cookie in hosts))
+        return frozenset(host for host in IDENTITY_HOSTS if any(_sent_to(cookie, host) for cookie in cookies))
 
 
-def _cookie_hosts(store: bytes) -> set[str]:
-    """Every first-party cookie's `host_key`, read only as Chromium's own `cookies` table, within MAX_SQL_STEPS."""
+def _cookies(store: bytes) -> set[tuple[str, str]]:
+    """Every cookie's host and partition, read only as Chromium's own `cookies` table, within MAX_SQL_STEPS."""
     connection = sqlite3.connect(":memory:")
     try:
         connection.setconfig(sqlite3.SQLITE_DBCONFIG_DEFENSIVE, True)
@@ -188,15 +188,21 @@ def _cookie_hosts(store: bytes) -> set[str]:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(cookies)")}
         if kind != [("table",)] or not {"host_key", "top_frame_site_key"} <= columns:
             raise sqlite3.DatabaseError("the cookie store is not Chromium's")
-        # A partitioned cookie was set under another top-level site and is never sent to the provider's own pages.
-        rows = connection.execute("SELECT host_key FROM cookies WHERE top_frame_site_key = ''")
-        return {str(row[0]).lower() for row in rows}
+        rows = connection.execute("SELECT host_key, top_frame_site_key FROM cookies")
+        return {(str(host).lower(), str(partition)) for host, partition in rows}
     finally:
         connection.close()
 
 
-def _sent_to(cookie_host: str, host: str) -> bool:
-    """Whether a cookie of `cookie_host` is sent to `host`: its own host, or a domain cookie of a parent domain."""
+def _sent_to(cookie: tuple[str, str], host: str) -> bool:
+    """Whether a cookie reaches the sign-in `host`'s own pages.
+
+    It does when set for that host or a parent domain, and either not partitioned or partitioned under the provider's
+    own top-level site.
+    """
+    cookie_host, partition = cookie
+    if partition not in {"", IDENTITY_SITES[host]}:
+        return False
     if cookie_host.startswith("."):
         domain = cookie_host[1:]
         return host == domain or host.endswith(f".{domain}")
