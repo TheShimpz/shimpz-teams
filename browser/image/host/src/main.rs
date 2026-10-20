@@ -57,6 +57,8 @@ const RESTORED: &str = "/tmp/run/restored";
 const STOPPING: &str = "/tmp/run/stopping";
 const STOPPED: &str = "/tmp/run/stopped";
 const CHROMIUM_PID: &str = "/tmp/run/chromium.pid";
+/// How many times a person's sign-in Browser opens again after its last window closed; past it, it has crashed instead.
+const MAX_REOPENED: u32 = 20;
 const MAX_URL_BYTES: usize = 2048;
 const SIGTERM: i32 = 15;
 const POLL: Duration = Duration::from_millis(50);
@@ -246,7 +248,7 @@ fn launch() -> Result<(), String> {
         .map_err(|error| format!("cannot create the runtime directory: {error}"))?;
     let mut children = Vec::new();
     let started = start_all(&settings, &mut children);
-    let outcome = started.and_then(|()| supervise(&mut children));
+    let outcome = started.and_then(|()| supervise(&settings, &mut children));
     for child in &mut children {
         let _ = child.kill();
         let _ = child.wait();
@@ -308,14 +310,19 @@ fn start_all(settings: &Settings, children: &mut Vec<Child>) -> Result<(), Strin
             thread::sleep(POLL);
         }
     }
-    let chromium = spawn(
-        command(CHROMIUM).args(chromium_arguments(settings)),
-        "Chromium",
-    )?;
+    children.push(start_chromium(settings)?);
+    Ok(())
+}
+
+/// Start Chromium for this Browser's mode and record its process, for a clean stop to signal.
+fn start_chromium(settings: &Settings) -> Result<Child, String> {
+    let chromium = command(CHROMIUM)
+        .args(chromium_arguments(settings))
+        .spawn()
+        .map_err(|error| format!("cannot start Chromium: {error}"))?;
     fs::write(CHROMIUM_PID, chromium.id().to_string())
         .map_err(|error| format!("cannot record Chromium: {error}"))?;
-    children.push(chromium);
-    Ok(())
+    Ok(chromium)
 }
 
 fn display_answers() -> bool {
@@ -340,7 +347,7 @@ fn exited(children: &mut [Child]) -> Option<usize> {
         .position(|child| !matches!(child.try_wait(), Ok(None)))
 }
 
-fn supervise(children: &mut [Child]) -> Result<(), String> {
+fn supervise(settings: &Settings, children: &mut [Child]) -> Result<(), String> {
     const NAMES: [&str; 5] = [
         "the display",
         "the compositor",
@@ -348,9 +355,22 @@ fn supervise(children: &mut [Child]) -> Result<(), String> {
         "the accessibility bus",
         "Chromium",
     ];
+    let mut reopened = 0;
     loop {
         if let Some(index) = exited(children) {
-            if index == NAMES.len() - 1 && Path::new(STOPPING).exists() {
+            let chromium = index == NAMES.len() - 1;
+            if chromium
+                && matches!(settings.mode, Mode::Person(_))
+                && !Path::new(STOPPING).exists()
+                && reopened < MAX_REOPENED
+            {
+                // The person closed the last window of their sign-in Browser: it opens again at the start URL, on the
+                // same profile, so the session goes on instead of ending with a screen that shows nothing.
+                reopened += 1;
+                children[index] = start_chromium(settings)?;
+                continue;
+            }
+            if chromium && Path::new(STOPPING).exists() {
                 // Team asked for the clean stop: the container stays, with its profile, until Team removes it.
                 for child in children.iter_mut() {
                     let _ = child.kill();
