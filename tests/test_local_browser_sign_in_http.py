@@ -3,10 +3,13 @@
 import unittest
 from http import HTTPStatus
 from types import SimpleNamespace
+from unittest import mock
 
 from local.browser import sign_in as local_sign_in
 from local.browser import sign_ins as sign_in_store
 from local.errors import ApiProblemError
+from local.http import audit as http_audit
+from local.http import dispatch as local_dispatch
 from local.http import server
 from tests.test_local_http_server_edges import LocalHttpEdgeHelpers
 
@@ -32,9 +35,15 @@ CONFIRMED = {"sign_in_id": SIGN_IN, "generation": 1, "team_incarnation": INCARNA
 
 
 class FakeSessions:
-    def __init__(self, error=None):
+    def __init__(self, error=None, read_error=None):
         self.error = error
+        self.read_error = read_error
         self.calls = []
+
+    def current(self, team_id):
+        if self.read_error is not None:
+            raise self.read_error
+        return SIGN_IN_VIEW
 
     def _answer(self, call, answer):
         self.calls.append(call)
@@ -55,18 +64,8 @@ class FakeSessions:
         return self._answer(("delete", team_id, confirmed), "deleted")
 
 
-class FakeStore:
-    def __init__(self, error=None):
-        self.error = error
-
-    def current(self, team_id):
-        if self.error is not None:
-            raise self.error
-        return SIGN_IN_VIEW
-
-
 class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
-    def call(self, operation, body=None, *, sessions=None, store=None, network=None):
+    def call(self, operation, body=None, *, sessions=None, network=None):
         def network_of(team_id, *, required=True):
             if network is not None:
                 raise network
@@ -74,7 +73,6 @@ class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
 
         controller = SimpleNamespace(
             sign_in_sessions=sessions or FakeSessions(),
-            sign_in_store=store or FakeStore(),
             assistant_lifecycle=SimpleNamespace(_network=network_of),
         )
         handler = self.handler("POST", controller=controller)
@@ -170,8 +168,34 @@ class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
                 self.assertEqual(self.refused(operation, body, sessions=sessions).code, "sign-in-unsaved")
 
     def test_an_unreadable_sign_in_is_unavailable(self):
-        problem = self.refused("browser-sign-in", store=FakeStore(sign_in_store.SignInError("unreadable")))
+        unreadable = FakeSessions(read_error=sign_in_store.SignInError("unreadable"))
+        problem = self.refused("browser-sign-in", sessions=unreadable)
         self.assertEqual((problem.status, problem.code), (HTTPStatus.SERVICE_UNAVAILABLE, "sign-ins-unavailable"))
+
+
+class JournalToleranceTests(unittest.TestCase):
+    def test_a_protective_or_committed_answer_reaches_the_supervisor_when_the_journal_fails(self):
+        sent = []
+        down = mock.patch.object(http_audit.local_audit, "record", side_effect=RuntimeError("journal down"))
+        for operation in ("browser-sign-in-save", "browser-sign-in-cancel", "browser-sign-in-delete"):
+            with self.subTest(operation=operation), down:
+                audit = http_audit.RequestAudit(operation=operation, tolerant=True)
+                self.assertRegex(audit.record("human-authority", result="ok"), "^[0-9a-f]{32}$")
+                local_dispatch.dispatch_route(
+                    lambda operation=operation: (HTTPStatus.OK, {"deletion": "deleted"}, operation, TEAM, None),
+                    audit.record,
+                    lambda status, payload: sent.append((status, payload["deletion"])),
+                    ApiProblemError,
+                    (),
+                )
+        self.assertEqual(sent, [(HTTPStatus.OK, "deleted")] * 3)
+        # Every other operation still refuses to run unrecorded, and only these three are tolerated.
+        with down, self.assertRaises(RuntimeError):
+            http_audit.RequestAudit(operation="browser-sign-in-start").record("human-authority", result="ok")
+        self.assertEqual(
+            server.local_http_browser.JOURNAL_TOLERANT,
+            {"browser-sign-in-save", "browser-sign-in-cancel", "browser-sign-in-delete"},
+        )
 
 
 if __name__ == "__main__":

@@ -12,10 +12,15 @@ Any other end of a checkout that restored a generation keeps that generation's b
 end of a Team's first checkout leaves no Sign-in. A stale end, of a checkout no longer current, changes nothing. A
 Sign-in lives 30 days from its last Save and 7 days unused; an expired one is deleted when read.
 
-Deletion records a durable fence first, then removes every capsule and draft and the record, and proves them gone; a
-removal it cannot prove leaves the fence for the next attempt. A Team process starting holds no checkout and no Save,
-so it ends every open checkout as failed, completes every fenced deletion, and deletes every draft and every capsule
-no record names.
+A capsule restores only into the exact Browser image that wrote it (ADR-0117 item 6 allows the same Chromium version or
+one the reading image proves; no image proves another yet). A person's checkout of a capsule another image wrote starts
+with no capsule and needs a new sign-in, and such a Sign-in shows as needing a person.
+
+A Supervisor's deletion records a durable fence first, holding the deletion's activity metadata (ADR-0120), then removes
+every capsule and draft and proves them gone; the fenced record stays, as a tombstone no checkout passes, until its
+completion is recorded, so a Team that restarts meanwhile still records it. A Team process starting holds no checkout
+and no Save, so it ends every open checkout as failed, removes what every fenced deletion left, and deletes every draft
+and every capsule no record names.
 """
 
 from __future__ import annotations
@@ -66,6 +71,12 @@ _RECORD_KEYS = frozenset(
         "deleting",
     }
 )
+
+
+# A deletion's activity metadata (ADR-0120), kept in its fence until its completion is recorded; an empty event id marks
+# a deletion of the Team's own lifecycle (expiry, a new incarnation, the Team's deletion), which records no activity.
+DELETING_KEYS = frozenset({"event_id", "initiator_id", "factor", "origin"})
+_INTERNAL = dict.fromkeys(DELETING_KEYS, "")
 
 
 class SignInError(RuntimeError):
@@ -173,6 +184,7 @@ class SignInStore:
             or set(record) != _RECORD_KEYS
             or record["team_id"] != team_id
             or record["sign_in_id"] != sign_in_id
+            or not _deleting_admitted(record["deleting"])
         ):
             raise SignInError("a Sign-in record is invalid")
         return teams, record
@@ -207,15 +219,23 @@ class SignInStore:
 
     # Reading
 
-    def current(self, team_id: str) -> dict[str, object] | None:
-        """The Team's Sign-in as Admin shows it, or None; an expired one is deleted as it is read."""
+    def current(self, team_id: str, reader: str | None) -> dict[str, object] | None:
+        """The Team's Sign-in as Admin shows it, or None; an expired one is deleted as it is read.
+
+        One the `reader` image cannot restore shows as needing a person.
+        """
         team_id = validate_team_id(team_id)
         with self._lock:
             _teams, record = self._record(team_id)
-            if record is not None and (record["deleting"] or self._expired(record)):
+            if record is None or record["deleting"] or not record["generation"]:
+                return None
+            if self._expired(record):
                 self._delete(team_id)
                 return None
-            return _public(record) if record is not None and record["generation"] else None
+            public = _public(record)
+            if record["writer"] != reader:
+                public["state"] = NEEDS_PERSON
+            return public
 
     # Checkout
 
@@ -224,10 +244,10 @@ class SignInStore:
         team_id = validate_team_id(team_id)
         with self._lock:
             teams, record = self._record(team_id)
-            if record is not None and (
-                record["deleting"] or self._expired(record) or record["incarnation"] != incarnation
-            ):
-                # A fenced, expired, or earlier incarnation's Sign-in is gone before anything new is checked out.
+            if record is not None and record["deleting"]:
+                raise SignInError("the Sign-in is being deleted", sign_in_protocol.BUSY)
+            if record is not None and (self._expired(record) or record["incarnation"] != incarnation):
+                # An expired or earlier incarnation's Sign-in is gone before anything new is checked out.
                 if not self._delete(team_id):
                     raise SignInError("the Sign-in is being deleted", sign_in_protocol.BUSY)
                 teams, record = self._record(team_id)
@@ -260,13 +280,21 @@ class SignInStore:
             return None
         return teams, record
 
-    def capsule(self, checkout: Checkout) -> Iterator[bytes] | None:
-        """The checked-out generation's capsule, chunk by chunk, each authenticated; None for a first checkout."""
+    def capsule(self, checkout: Checkout, reader: str) -> Iterator[bytes] | None:
+        """The checked-out generation's capsule, chunk by chunk, each authenticated, for the `reader` image to restore.
+
+        None for a first checkout, and for a person's checkout of a capsule another image wrote: they sign in anew.
+        """
         with self._lock:
             held = self._held(checkout)
             if held is None:
                 raise SignInError("the checkout is no longer current", sign_in_protocol.NOT_RUNNING)
-            chunks = int(held[1]["chunks"])
+            record = held[1]
+            if checkout.generation and record["writer"] != reader:
+                if checkout.kind != PERSON:
+                    raise SignInError("the Sign-in needs a person", sign_in_protocol.BUSY)
+                return None
+            chunks = int(record["chunks"])
         return self._chunks(checkout, chunks) if checkout.generation else None
 
     def _chunks(self, checkout: Checkout, chunks: int) -> Iterator[bytes]:
@@ -303,44 +331,81 @@ class SignInStore:
 
     # Deleting
 
-    def begin_delete(self, team_id: str, expected: tuple[str, int, str]) -> None:
-        """Fence the exact Sign-in the Supervisor confirmed (its id, generation, and Team incarnation) for deletion."""
+    def begin_delete(self, team_id: str, expected: tuple[str, int, str], deleting: dict[str, str]) -> None:
+        """Fence the exact Sign-in the Supervisor confirmed (its id, generation, and Team incarnation) for deletion.
+
+        The fence keeps the deletion's activity metadata until its completion is recorded.
+        """
         team_id = validate_team_id(team_id)
+        if not deleting.get("event_id") or not _deleting_admitted(deleting):
+            raise SignInError("the deletion's metadata is not admissible")
         with self._lock:
             teams, record = self._record(team_id)
-            if record is None or not record["generation"]:
+            if record is None or not record["generation"] or record["deleting"]:
                 raise SignInError("the Team has no Sign-in", sign_in_protocol.ABSENT)
             if (record["sign_in_id"], record["generation"], record["incarnation"]) != expected:
                 raise SignInError("the Sign-in changed since it was confirmed", sign_in_protocol.CHANGED)
-            self._fence(teams, record)
+            self._fence(teams, record, dict(deleting))
 
-    def _fence(self, teams: dict[str, object], record: dict[str, object]) -> None:
+    def _fence(self, teams: dict[str, object], record: dict[str, object], deleting: dict[str, str]) -> None:
         team_id = str(record["team_id"])
         self._fences[team_id] = self._fences.get(team_id, 0) + 1
         if not record["deleting"]:
-            record["deleting"] = True
+            record["deleting"] = deleting
             self._put(teams, record)
 
-    def complete_delete(self, team_id: str) -> bool:
-        """Remove a fenced Sign-in's capsules, drafts, and record; whether they were all proven gone.
+    def deletions(self) -> list[tuple[str, dict[str, object]]]:
+        """Every Supervisor deletion not recorded as completed yet: its Team, metadata, generation, and incarnation."""
+        with self._lock:
+            pending = []
+            for team_id in self._state():
+                _teams, record = self._record(team_id)
+                deleting = record["deleting"]
+                if deleting and deleting["event_id"]:
+                    named = {"generation": record["generation"], "incarnation": record["incarnation"]}
+                    pending.append((team_id, {**deleting, **named}))
+            return pending
 
-        A Sign-in no longer fenced was already deleted, and the one there now was started afterwards: it stays.
+    def purge(self, team_id: str, event_id: str) -> bool:
+        """Remove what the deletion `event_id` fenced, its capsules and drafts; whether nothing of it is left.
+
+        Its record stays, fenced, until `settle`. A Sign-in no longer fenced by it was already deleted, and one there
+        now was started afterwards: it stays.
         """
         team_id = validate_team_id(team_id)
         with self._lock:
             _teams, record = self._record(team_id)
-            return (record is not None and not record["deleting"]) or self._delete(team_id)
+            if record is None or not record["deleting"] or record["deleting"]["event_id"] != event_id:
+                return True
+            return self._purge(team_id, record)
 
-    def _delete(self, team_id: str) -> bool:
-        teams, record = self._record(team_id)
-        self._fences[team_id] = self._fences.get(team_id, 0) + 1
+    def settle(self, team_id: str, event_id: str) -> bool:
+        """Drop the deletion `event_id`'s fenced record once its completion is recorded; whether it is gone."""
+        team_id = validate_team_id(team_id)
+        with self._lock:
+            teams, record = self._record(team_id)
+            if record is None or not record["deleting"] or record["deleting"]["event_id"] != event_id:
+                return True
+            del teams[team_id]
+            self._write(teams)
+            return team_id not in self._state()
+
+    def _purge(self, team_id: str, record: dict[str, object] | None) -> bool:
         try:
-            if record is not None:
-                self._fence(teams, record)
-                for directory in self._capsules_of(str(record["sign_in_id"])):
-                    self._remove(directory)
+            for directory in self._capsules_of(str(record["sign_in_id"])) if record is not None else ():
+                self._remove(directory)
             self._remove(self._drafts(team_id))
         except SignInError:
+            return False
+        return True
+
+    def _delete(self, team_id: str) -> bool:
+        """Delete the Team's Sign-in for its own lifecycle, whatever fences it: capsules, drafts, and record."""
+        teams, record = self._record(team_id)
+        self._fences[team_id] = self._fences.get(team_id, 0) + 1
+        if record is not None:
+            self._fence(teams, record, dict(_INTERNAL))
+        if not self._purge(team_id, record):
             return False
         teams, _record = self._record(team_id)
         if teams.pop(team_id, None) is not None:
@@ -372,14 +437,17 @@ class SignInStore:
                 raise SignInError("the Sign-ins were not all deleted") from exc
 
     def reconcile(self) -> None:
-        """At Team startup, end every open checkout as failed and complete every fenced deletion.
+        """At Team startup, end every open checkout as failed and remove what every fenced deletion left.
 
-        Then every draft and every capsule no record names is deleted.
+        A Supervisor's deletion keeps its fenced record until its completion is recorded. Then every draft and every
+        capsule no record names is deleted.
         """
         with self._lock:
             for team_id in list(self._state()):
                 _teams, record = self._record(team_id)
-                if record["deleting"]:
+                if record["deleting"] and record["deleting"]["event_id"]:
+                    self._purge(team_id, record)
+                elif record["deleting"]:
                     self._delete(team_id)
                 elif record["checkout"] is not None:
                     self.finish(
@@ -414,6 +482,8 @@ class Draft:
         self.chunks = 0
         self._directory = store._drafts(checkout.team_id) / checkout.id
         self._cipher: AESGCM | None = None
+        # Set when the commit's outcome is unknown: what it wrote stays for the next Team start to reconcile.
+        self._uncertain = False
 
     def add(self, chunk: bytes) -> None:
         """Seal one more chunk of the capsule, under the store's lock and its Team's fence."""
@@ -469,15 +539,32 @@ class Draft:
                 writer=writer,
                 checkout=None,
             )
-            store._put(teams, record)
+            try:
+                store._put(teams, record)
+            except SignInError:
+                if not self._published(record):
+                    raise
         if earlier:
             # The generation this one replaced; one left behind is deleted at the next Team start.
             shutil.rmtree(store._capsule_dir(checkout.sign_in_id, earlier), ignore_errors=True)
         return _public(record)
 
+    def _published(self, record: dict[str, object]) -> bool:
+        """After a failed write of the index: whether it names this generation anyway (its replacement happened).
+
+        Unknowable, the capsule stays where it is and the Save is refused; the next Team start keeps or deletes it.
+        """
+        try:
+            _teams, kept = self._store._record(self._checkout.team_id)
+        except SignInError:
+            self._uncertain = True
+            raise
+        return kept == record
+
     def discard(self) -> None:
         """Delete what the Save wrote; anything left is deleted when the Team process next starts."""
-        shutil.rmtree(self._directory, ignore_errors=True)
+        if not self._uncertain:
+            shutil.rmtree(self._directory, ignore_errors=True)
 
 
 def _first(team_id: str, incarnation: str, now: float) -> dict[str, object]:
@@ -496,8 +583,17 @@ def _first(team_id: str, incarnation: str, now: float) -> dict[str, object]:
         "chunks": 0,
         "writer": "",
         "checkout": None,
-        "deleting": False,
+        "deleting": None,
     }
+
+
+def _deleting_admitted(value: object) -> bool:
+    """A fence's metadata: none, or exactly its keys, each a bounded lowercase identifier or empty."""
+    return value is None or (
+        isinstance(value, dict)
+        and set(value) == DELETING_KEYS
+        and all(isinstance(item, str) and len(item) <= 128 for item in value.values())
+    )
 
 
 def _expires(record: dict[str, object]) -> float:

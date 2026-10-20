@@ -795,7 +795,8 @@ def main() -> int:
     except local_sign_ins.SignInError as exc:
         print(f"team-local: sign-in residue remains: {exc}", file=sys.stderr, flush=True)
     # A Browser a previous Team process left is removed before any task (ADR-0117 §8); a failure keeps tasks refused.
-    threading.Thread(target=controller.browser_service.startup, name="browser-startup", daemon=True).start()
+    # Then every Sign-in deletion a previous process left pending completes and is recorded.
+    threading.Thread(target=controller.sign_in_sessions.startup, name="browser-startup", daemon=True).start()
     # Nothing runs a Routine segment after a restart: recover every leased run before serving (ADR-0086).
     local_routine_watchdog.check(controller.chat_turn_service, startup=True)
     watchdog = local_routine_watchdog.RoutineWatchdog(controller.chat_turn_service)

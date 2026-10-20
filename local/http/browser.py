@@ -31,6 +31,9 @@ BODY_LIMITS = {
     "browser-sign-in-cancel": MAX_BODY_BYTES,
     "browser-sign-in-delete": MAX_BODY_BYTES,
 }
+# Operations the journal never blocks (ADR-0120): a Cancel and a deletion protect the Team, and a Save's own flushed
+# request decides whether it delegates, while its committed answer must still reach the Supervisor.
+JOURNAL_TOLERANT = frozenset({"browser-sign-in-save", "browser-sign-in-cancel", "browser-sign-in-delete"})
 _SIGN_IN_MESSAGES = {
     sign_in_protocol.NOT_RUNNING: (HTTPStatus.NOT_FOUND, "the sign-in session is not running"),
     sign_in_protocol.URL_INVALID: (HTTPStatus.BAD_REQUEST, "the sign-in URL is not admissible"),
@@ -125,7 +128,7 @@ def _cancel(handler, team_id: str) -> dict[str, object]:
 
 def _current(handler, team_id: str) -> dict[str, object]:
     try:
-        return {"sign_in": handler.server.controller.sign_in_store.current(team_id)}
+        return {"sign_in": handler.server.controller.sign_in_sessions.current(team_id)}
     except sign_in_store.SignInError as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE, "the Sign-in is unavailable", code="sign-ins-unavailable"

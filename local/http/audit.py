@@ -1,10 +1,14 @@
 """Per-request audit state for the Local Team HTTP boundary."""
 
+import logging
+import uuid
 from dataclasses import dataclass
 
 from inference import usage as brain_usage
 from local import audit as local_audit
 from local import authority as local_authority
+
+log = logging.getLogger("shimpz.team.local.http.audit")
 
 
 @dataclass(slots=True)
@@ -14,6 +18,8 @@ class RequestAudit:
     principal_class: str = "absent"
     credential_state: str = "machine_bearer_present"
     trace_id: str | None = None
+    # An operation the journal never blocks (ADR-0120): its request events are recorded when the journal can.
+    tolerant: bool = False
 
     def machine(self) -> None:
         self.principal_id = "admin"
@@ -54,14 +60,20 @@ class RequestAudit:
         detail: str | None = None,
     ) -> str:
         selected_operation = self.operation if operation == "request" else operation
-        self.trace_id = local_audit.record(
-            selected_operation,
-            result=result,
-            principal=self.principal(),
-            team_id=team_id,
-            assistant=assistant,
-            detail=detail,
-            # The Brain usage of this request so far rides on its next event, never on a later one (ADR-0082).
-            model_usage=brain_usage.drain(),
-        )
+        try:
+            self.trace_id = local_audit.record(
+                selected_operation,
+                result=result,
+                principal=self.principal(),
+                team_id=team_id,
+                assistant=assistant,
+                detail=detail,
+                # The Brain usage of this request so far rides on its next event, never on a later one (ADR-0082).
+                model_usage=brain_usage.drain(),
+            )
+        except RuntimeError:
+            if not self.tolerant:
+                raise
+            log.warning("the journal could not record %s; it proceeds unrecorded", selected_operation)
+            self.trace_id = self.trace_id or uuid.uuid4().hex
         return self.trace_id

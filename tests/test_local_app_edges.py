@@ -724,7 +724,7 @@ class LocalAppMainEdgeTests(unittest.TestCase):
                 return_value=types.SimpleNamespace(
                     local_snapshot_inventory=types.SimpleNamespace(warm=mock.Mock()),
                     chat_turn_service=object(),
-                    browser_service=types.SimpleNamespace(startup=mock.Mock(return_value=True)),
+                    sign_in_sessions=types.SimpleNamespace(startup=mock.Mock()),
                     # Residue an interrupted Save left that cannot be deleted now waits for the next start.
                     sign_in_store=types.SimpleNamespace(
                         reconcile=mock.Mock(side_effect=local_app.local_sign_ins.SignInError("held"))

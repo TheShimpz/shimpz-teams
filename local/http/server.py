@@ -282,6 +282,7 @@ class Handler(http_deadline.DeadlineRequestHandler):
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         parts, route = self._resolved_route()
         request_audit.operation = route.operation
+        request_audit.tolerant = route.operation in local_http_browser.JOURNAL_TOLERANT
         self._response_limit = _RESPONSE_LIMITS.get(route.operation, MAX_API_RESPONSE_BYTES)
         decision = decision_binding(self.decision_key(route.operation))
         if route.operation in _MACHINE_ONLY_OPERATIONS:
