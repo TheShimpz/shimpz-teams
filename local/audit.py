@@ -47,6 +47,10 @@ _MACHINE_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 _TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
 _PRINCIPAL_CLASSES = frozenset({"absent", "human", "machine"})
 _RESULTS = frozenset({"denied", "error", "ok"})
+# An activity event's own fields (ADR-0120), beside the line's principal, Team, operation, result, and trace id.
+_ACTIVITY_KEYS = frozenset({"event_id", "phase", "subject", "generation", "incarnation", "factor", "initiator_id"})
+_ACTIVITY_PHASES = frozenset({"requested", "completed", "failed"})
+_ACTIVITY_TEXT = re.compile(r"^[0-9a-z][0-9a-z-]{0,127}$")
 _CREDENTIAL_STATES = frozenset(
     {
         "assertion_absent_or_malformed",
@@ -101,16 +105,36 @@ def record_request(
     detail: str | None = None,
 ) -> None:
     """Record an internal security event under the verified request principal."""
-    principal = _REQUEST_PRINCIPAL.get()
-    if principal is None:
-        raise RuntimeError("Local request audit principal is unavailable")
     record(
         operation,
         result=result,
-        principal=principal,
+        principal=request_principal(),
         team_id=team_id,
         assistant=assistant,
         detail=detail,
+    )
+
+
+def request_principal() -> AuditPrincipal:
+    """The verified principal of the current request."""
+    principal = _REQUEST_PRINCIPAL.get()
+    if principal is None:
+        raise RuntimeError("Local request audit principal is unavailable")
+    return principal
+
+
+def _admissible_activity(activity: dict[str, object]) -> bool:
+    """An activity event's fields: a closed set, each a bounded lowercase identifier or a non-negative integer."""
+    return (
+        isinstance(activity, dict)
+        and "event_id" in activity
+        and activity.get("phase") in _ACTIVITY_PHASES
+        and set(activity) <= _ACTIVITY_KEYS
+        and all(
+            (isinstance(value, str) and _ACTIVITY_TEXT.fullmatch(value) is not None)
+            or (type(value) is int and 0 <= value < 2**31)
+            for value in activity.values()
+        )
     )
 
 
@@ -297,6 +321,20 @@ def record(
     model_usage: list[dict[str, object]] | None = None,
 ) -> str:
     """Append one metadata-only event and return its correlation id."""
+    fields = {"team_id": team_id, "assistant": assistant, "detail": detail, "model_usage": model_usage}
+    return _append(operation, result, principal, fields)
+
+
+def record_activity(
+    operation: str, *, result: str, principal: AuditPrincipal, team_id: str, activity: dict[str, object]
+) -> str:
+    """Append one activity event (ADR-0120): who changed a Team's protected state, and its phase and subject."""
+    if not _admissible_activity(activity):
+        raise ValueError("invalid Local activity event")
+    return _append(operation, result, principal, {"team_id": team_id, "activity": activity})
+
+
+def _append(operation: str, result: str, principal: AuditPrincipal, fields: dict[str, object]) -> str:
     principal_id = principal.principal_id
     principal_class = principal.principal_class
     credential_state = principal.credential_state
@@ -328,15 +366,8 @@ def record(
         "result": result,
         "principal_id": principal_id,
         "principal_class": principal_class,
+        **{name: value for name, value in fields.items() if value is not None},
     }
-    if team_id is not None:
-        event["team_id"] = team_id
-    if assistant is not None:
-        event["assistant"] = assistant
-    if detail is not None:
-        event["detail"] = detail
-    if model_usage is not None:
-        event["model_usage"] = model_usage
     if credential_state is not None:
         event["credential_state"] = credential_state
 
