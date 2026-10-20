@@ -7809,21 +7809,9 @@
       {"url": "https://example.com/"}, {"url": "https://example.com/", "locale": "en", "extra": 1}, "https://example.com/"
     ]
   },
-  "sign_in_save": {
-    "valid": [{"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": "Work"}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": "Conta pessoal"}],
-    "invalid": [
-      {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": " Work"}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": ""},
-      {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": "a\nb"},
-      {"sign_in_session_id": "short", "label": "Work"}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "label": 7}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
-    ]
-  },
   "sign_in_session": {
     "valid": [{"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],
     "invalid": [{"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaax"}, {"sign_in_session_id": 1}, {}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "x": 1}]
-  },
-  "sign_in_forget": {
-    "valid": [{"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],
-    "invalid": [{"sign_in_id": "ABC"}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, []]
   },
   "sign_in_started": {
     "valid": [{"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "view_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "site": "www.linkedin.com"}],
@@ -7832,19 +7820,62 @@
       {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "view_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, {"sign_in_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "view_id": "x", "site": "a.com"}
     ]
   },
-  "sign_ins": {
+  "sign_in_cancelled": {"valid": [{"cancelled": true}], "invalid": [{"cancelled": false}, {}]},
+  "sign_in_delete": {
     "valid": [
-      {"sign_ins": []},
-      {"sign_ins": [{"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "site": "www.linkedin.com", "label": "Work", "created_at": "2026-10-19T12:00:00Z", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-10-26T12:00:00Z"}]}
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 3, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp"},
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "passkey"}
     ],
     "invalid": [
-      {"sign_ins": [{"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "site": "www.linkedin.com", "label": "Work", "created_at": "2026-10-19T12:00:00Z", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-10-19T12:00:00Z"}]},
-      {"sign_ins": [{"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "site": "www.linkedin.com", "label": "Work", "created_at": "2026-10-19", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-10-26T12:00:00Z"}]},
-      {"sign_ins": [{"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "site": "www.linkedin.com", "label": "Work", "created_at": "2026-10-19T12:00:00Z", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-10-26T12:00:00Z", "capsule": "x"}]},
-      {"sign_ins": [{"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "site": "www.linkedin.com", "label": "Work", "created_at": "2026-10-19T12:00:00Z", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-10-26T12:00:00Z"}, {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "site": "www.linkedin.com", "label": "Work", "created_at": "2026-10-19T12:00:00Z", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-10-26T12:00:00Z"}]},
-      {"sign_ins": "none"}, {}
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 0, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp"},
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": true, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp"},
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 1, "team_incarnation": "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp"},
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "password"},
+      {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+      {"sign_in_id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "factor": "totp"}
     ]
   },
-  "sign_in_forgotten": {"valid": [{"forgotten": true}, {"forgotten": false}], "invalid": [{"forgotten": 1}, {}]},
-  "sign_in_cancelled": {"valid": [{"cancelled": true}], "invalid": [{"cancelled": false}, {}]}
+  "sign_in_current": {
+    "valid": [
+      {"sign_in": null},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "linkedin.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "needs-person", "generation": 4, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": [], "sites_truncated": true, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-21T08:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}}
+    ],
+    "invalid": [
+      {},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "checked-out", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "linkedin.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["linkedin.com", "example.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "example.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["Example.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 0, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "linkedin.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "linkedin.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-10-20T12:00:00Z"}},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "linkedin.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-19T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "linkedin.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-19T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "linkedin.com"], "sites_truncated": 0, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "linkedin.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z", "capsule": "x"}},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["s0.example.com", "s1.example.com", "s2.example.com", "s3.example.com", "s4.example.com", "s5.example.com", "s6.example.com", "s7.example.com", "s8.example.com", "s9.example.com", "s10.example.com", "s11.example.com", "s12.example.com", "s13.example.com", "s14.example.com", "s15.example.com", "s16.example.com", "s17.example.com", "s18.example.com", "s19.example.com", "s20.example.com", "s21.example.com", "s22.example.com", "s23.example.com", "s24.example.com", "s25.example.com", "s26.example.com", "s27.example.com", "s28.example.com", "s29.example.com", "s30.example.com", "s31.example.com", "s32.example.com", "s33.example.com", "s34.example.com", "s35.example.com", "s36.example.com", "s37.example.com", "s38.example.com", "s39.example.com", "s40.example.com", "s41.example.com", "s42.example.com", "s43.example.com", "s44.example.com", "s45.example.com", "s46.example.com", "s47.example.com", "s48.example.com", "s49.example.com", "s50.example.com", "s51.example.com", "s52.example.com", "s53.example.com", "s54.example.com", "s55.example.com", "s56.example.com", "s57.example.com", "s58.example.com", "s59.example.com", "s60.example.com", "s61.example.com", "s62.example.com", "s63.example.com", "s64.example.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}}
+    ]
+  },
+  "sign_in_saved": {
+    "valid": [
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "linkedin.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}, "recorded": true},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "linkedin.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}, "recorded": false}
+    ],
+    "invalid": [
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "linkedin.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}},
+      {"sign_in": null, "recorded": true},
+      {"sign_in": {"sign_in_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "ready", "generation": 1, "team_incarnation": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "sites": ["example.com", "linkedin.com"], "sites_truncated": false, "created_at": "2026-10-20T12:00:00Z", "saved_at": "2026-10-20T12:00:00Z", "last_used_at": "2026-10-20T12:00:00Z", "expires_at": "2026-11-19T12:00:00Z"}, "recorded": 1}
+    ]
+  },
+  "sign_in_deleted": {
+    "valid": [
+      {"deletion": "deleted"},
+      {"deletion": "pending"}
+    ],
+    "invalid": [
+      {"deletion": "forgotten"},
+      {"deleted": true},
+      {"deletion": "deleted", "extra": 1}
+    ]
+  }
 }
