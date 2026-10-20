@@ -15,7 +15,17 @@ class ActivityEventTests(unittest.TestCase):
                 result="ok",
                 principal=local_audit.TEAM,
                 team_id="neo",
-                activity={"event_id": "a" * 32, "phase": "requested", "subject": "sign-in", "generation": 2},
+                activity={
+                    "event_id": "a" * 32,
+                    "phase": "failed",
+                    "subject": "sign-in",
+                    "generation": 2,
+                    "incarnation": "c" * 64,
+                    "factor": "passkey",
+                    "initiator_id": "b" * 32,
+                    "origin": "supervisor-session",
+                    "outcome": "sign-in-changed",
+                },
             )
             for activity in (
                 {"phase": "requested"},

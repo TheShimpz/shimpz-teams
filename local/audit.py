@@ -48,7 +48,9 @@ _TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
 _PRINCIPAL_CLASSES = frozenset({"absent", "human", "machine"})
 _RESULTS = frozenset({"denied", "error", "ok"})
 # An activity event's own fields (ADR-0120), beside the line's principal, Team, operation, result, and trace id.
-_ACTIVITY_KEYS = frozenset({"event_id", "phase", "subject", "generation", "incarnation", "factor", "initiator_id"})
+_ACTIVITY_KEYS = frozenset(
+    {"event_id", "phase", "subject", "generation", "incarnation", "factor", "initiator_id", "origin", "outcome"}
+)
 _ACTIVITY_PHASES = frozenset({"requested", "completed", "failed"})
 _ACTIVITY_TEXT = re.compile(r"^[0-9a-z][0-9a-z-]{0,127}$")
 _CREDENTIAL_STATES = frozenset(
