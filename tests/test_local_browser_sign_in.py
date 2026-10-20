@@ -97,27 +97,66 @@ class SignInSessionTests(unittest.TestCase):
 
     def fake_cua(self, stream):
         session = mock.Mock()
-        if isinstance(self.runtime.windows, Exception):
-            session.chromium_windows.side_effect = self.runtime.windows
+        windows = self.runtime.windows
+        # A list answers each count in turn.
+        if isinstance(windows, list):
+            windows = windows.pop(0)
+        if isinstance(windows, Exception):
+            session.chromium_windows.side_effect = windows
         else:
-            session.chromium_windows.return_value = self.runtime.windows
+            session.chromium_windows.return_value = windows
         return session
 
-    def start(self):
-        return self.sessions.start(TEAM, INCARNATION, URL, "pt")
+    def start(self, incarnation=INCARNATION):
+        return self.sessions.start(TEAM, lambda: incarnation, URL, "pt")
 
     def save(self, started, label="Work", incarnation=INCARNATION):
         return self.sessions.save(TEAM, started["sign_in_session_id"], label, lambda: incarnation)
 
-    def test_a_session_runs_a_persons_browser_watched_through_its_own_view(self):
+    def held(self, started) -> bool:
+        """Whether the Team still holds the session's Browser through its view."""
+        try:
+            self.service._view(TEAM, started["view_id"])
+        except runtime.BrowserError:
+            return False
+        return True
+
+    def test_a_session_runs_a_persons_browser_through_a_view_no_one_can_watch(self):
         started = self.start()
         self.assertEqual(started["site"], "www.linkedin.com")
         self.assertEqual(self.runtime.events, [("acquire", TEAM, "pt-BR", runtime.PERSON, URL)])
-        self.assertEqual(self.service.open_view(TEAM), started["view_id"])
+        self.assertTrue(self.held(started))
+        # The chat's watch never finds a sign-in session's screen.
+        with self.assertRaises(runtime.BrowserError) as unwatched:
+            self.service.open_view(TEAM)
+        self.assertEqual(unwatched.exception.code, "browser-not-running")
         with self.assertRaises(local_sign_in.SignInSessionError) as busy:
             self.start()
         self.assertEqual(busy.exception.code, "browser-busy")
         self.assertEqual(self.runtime.events[-1], ("release",))
+
+    def test_a_session_whose_team_is_deleted_or_reset_while_it_starts_never_runs(self):
+        with self.assertRaises(local_sign_in.SignInSessionError) as gone:
+            self.sessions.start(TEAM, lambda: None, URL, "pt")
+        self.assertEqual(gone.exception.code, "team-not-found")
+        for end in (lambda: self.sessions.end_team(TEAM), self.sessions.end_all, None):
+            plain = self.runtime.acquire
+            incarnations = iter((INCARNATION, INCARNATION if end else "after deletion"))
+
+            def acquiring(*args, end=end, plain=plain, **kwargs):
+                if end is not None:
+                    end()
+                return plain(*args, **kwargs)
+
+            with (
+                self.subTest(end=end),
+                mock.patch.object(self.runtime, "acquire", side_effect=acquiring),
+                self.assertRaises(local_sign_in.SignInSessionError) as refused,
+            ):
+                self.sessions.start(TEAM, lambda incarnations=incarnations: next(incarnations), URL, "pt")
+            self.assertEqual(refused.exception.code, "sign-in-not-running")
+            self.assertEqual(self.runtime.events[-1], ("release",))
+            self.assertNotIn(TEAM, self.service._running)
 
     def test_saving_keeps_the_profile_as_a_sign_in_and_releases_the_browser(self):
         started = self.start()
@@ -126,8 +165,10 @@ class SignInSessionTests(unittest.TestCase):
         self.assertEqual(self.store.list(TEAM), [saved])
         self.assertEqual(b"".join(self.store.capsule(TEAM, saved["sign_in_id"])), self.runtime.capsule)
         self.assertEqual(self.runtime.events[-2:], [("stop",), ("release",)])
-        with self.assertRaises(runtime.BrowserError):
-            self.service.open_view(TEAM)
+        self.assertFalse(self.held(started))
+        with self.assertRaises(local_sign_in.SignInSessionError) as saved_already:
+            self.sessions.cancel(TEAM, started["sign_in_session_id"])
+        self.assertEqual(saved_already.exception.code, "sign-in-not-running")
 
     def test_more_than_one_window_is_refused_and_the_session_goes_on(self):
         started = self.start()
@@ -135,7 +176,60 @@ class SignInSessionTests(unittest.TestCase):
         with self.assertRaises(local_sign_in.SignInSessionError) as refused:
             self.save(started)
         self.assertEqual(refused.exception.code, "sign-in-windows")
-        self.assertEqual(self.service.open_view(TEAM), started["view_id"])
+        self.assertTrue(self.held(started))
+        # A window the person opened as the Save began is found once their control ended: nothing is kept.
+        self.runtime.windows = [1, 2]
+        with self.assertRaises(local_sign_in.SignInSessionError) as late:
+            self.save(started)
+        self.assertEqual(late.exception.code, "sign-in-unsaved")
+        self.assertEqual(self.store.list(TEAM), [])
+
+    def test_a_save_waits_for_the_persons_control_to_end_released_or_keeps_nothing(self):
+        started = self.start()
+        with (
+            mock.patch.object(local_sign_in.local_view.View, "quiesce", return_value=False),
+            self.assertRaises(local_sign_in.SignInSessionError) as unproven,
+        ):
+            self.save(started)
+        self.assertEqual(unproven.exception.code, "sign-in-unsaved")
+        self.assertNotIn(("stop",), self.runtime.events)
+        self.assertEqual(self.runtime.events[-1], ("release",))
+
+    def test_cancel_or_the_teams_end_during_a_save_keeps_nothing(self):
+        for end in ("cancel", "team", "limit"):
+            with self.subTest(end=end), mock.patch.object(local_sign_in, "REST_SECONDS", 5):
+                started = self.start()
+                outcome = {}
+
+                def saving(started=started, outcome=outcome):
+                    try:
+                        outcome["saved"] = self.save(started)
+                    except local_sign_in.SignInSessionError as exc:
+                        outcome["code"] = exc.code
+
+                worker = threading.Thread(target=saving)
+                begun = time.monotonic()
+                worker.start()
+                deadline = time.monotonic() + 5
+                while not self.sessions._sessions[TEAM].saving and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                if end == "cancel":
+                    self.sessions.cancel(TEAM, started["sign_in_session_id"])
+                elif end == "team":
+                    self.sessions.end_team(TEAM)
+                else:
+                    with (
+                        mock.patch.object(local_sign_in, "SESSION_SECONDS", 0.0),
+                        mock.patch.object(local_sign_in, "WATCH_SECONDS", 0.01),
+                    ):
+                        self.sessions._watch(self.sessions._sessions[TEAM])
+                worker.join(5)
+                self.assertLess(time.monotonic() - begun, 4)
+                self.assertEqual(outcome, {"code": "sign-in-not-running"})
+                self.assertEqual(self.store.list(TEAM), [])
+                self.assertNotIn(("stop",), self.runtime.events[-2:])
+                self.assertEqual(self.runtime.events[-1], ("release",))
+                self.runtime.events.clear()
 
     def test_nothing_is_kept_when_the_profile_or_the_stop_or_the_team_does_not_allow_it(self):
         cases = (
@@ -176,12 +270,11 @@ class SignInSessionTests(unittest.TestCase):
             with self.assertRaises(local_sign_in.SignInSessionError) as gone:
                 call()
             self.assertEqual(gone.exception.code, "sign-in-not-running")
-        self.start()
+        again = self.start()
         self.sessions.end_team(TEAM)
         self.sessions.end_team(TEAM)
         self.assertEqual(self.runtime.events[-1], ("release",))
-        with self.assertRaises(runtime.BrowserError):
-            self.service.open_view(TEAM)
+        self.assertFalse(self.held(again))
 
     def test_a_session_ends_at_its_limit_or_left_alone(self):
         for limit in ("SESSION_SECONDS", "IDLE_SECONDS"):
@@ -200,13 +293,12 @@ class SignInSessionTests(unittest.TestCase):
 
     def test_only_an_admissible_url_or_label_is_taken(self):
         with self.assertRaises(local_sign_in.SignInSessionError) as url:
-            self.sessions.start(TEAM, INCARNATION, "http://www.linkedin.com/", "en")
+            self.sessions.start(TEAM, lambda: INCARNATION, "http://www.linkedin.com/", "en")
         self.assertEqual(url.exception.code, "sign-in-url-invalid")
         started = self.start()
         with self.assertRaises(local_sign_in.SignInSessionError) as label:
             self.save(started, label="")
         self.assertEqual(label.exception.code, "sign-in-label-invalid")
-        self.assertEqual(threading.active_count() > 0, True)
 
     def test_a_browser_driver_or_release_that_fails_is_answered_and_nothing_kept(self):
         self.runtime.acquire_error = runtime.BrowserError("browser-unavailable")
@@ -228,22 +320,32 @@ class SignInSessionTests(unittest.TestCase):
         self.runtime.stream_error, self.runtime.windows = None, 1
         self.runtime.release_error = runtime.BrowserError("browser-lost")
         started = self.start()
-        self.sessions.cancel(TEAM, started["sign_in_session_id"])
+        # A Browser whose removal failed is no cancelled session.
+        with self.assertRaises(local_sign_in.SignInSessionError) as kept:
+            self.sessions.cancel(TEAM, started["sign_in_session_id"])
+        self.assertEqual(kept.exception.code, "browser-unavailable")
         self.assertIn("release-failed", self.audit[-1][1]["detail"])
+        # The Team's end still goes on, its Browser removed and proven absent afterwards.
+        self.runtime.release_error = None
+        self.start()
+        self.runtime.release_error = runtime.BrowserError("browser-lost")
+        self.sessions.end_team(TEAM)
+        self.assertNotIn(TEAM, self.sessions._sessions)
+        self.runtime.release_error = None
 
     def test_the_watch_waits_while_the_person_works_and_yields_to_whoever_ended_the_session(self):
         with mock.patch.object(local_sign_in, "WATCH_SECONDS", 0.01):
             started = self.start()
             time.sleep(0.05)
             # Working within both limits, the session goes on.
-            self.assertEqual(self.service.open_view(TEAM), started["view_id"])
+            self.assertTrue(self.held(started))
             self.sessions.cancel(TEAM, started["sign_in_session_id"])
         with (
             mock.patch.object(local_sign_in, "WATCH_SECONDS", 0.01),
             mock.patch.object(local_sign_in, "SESSION_SECONDS", 0.0),
             mock.patch.object(
                 local_sign_in.SignInSessions,
-                "_take",
+                "_end",
                 side_effect=local_sign_in.SignInSessionError("sign-in-not-running"),
             ),
         ):
@@ -251,12 +353,14 @@ class SignInSessionTests(unittest.TestCase):
             time.sleep(0.05)
             # Someone else ended it first: the watch leaves it to them, and so does the Team's end.
             self.sessions.end_team(TEAM)
-        self.assertNotEqual(self.audit[-1][1]["detail"].split(":")[0], "expired")
+        self.assertNotEqual(self.audit[-1][1]["detail"].split(":")[0], "cancelled")
+        self.sessions._sessions.clear()
+        self.service._running.clear()
 
     def test_dropping_another_browsers_view_keeps_the_running_one(self):
         started = self.start()
         self.service.drop(TEAM, object())
-        self.assertEqual(self.service.open_view(TEAM), started["view_id"])
+        self.assertTrue(self.held(started))
 
 
 if __name__ == "__main__":

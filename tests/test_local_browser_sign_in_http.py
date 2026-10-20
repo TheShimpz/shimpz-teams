@@ -37,7 +37,7 @@ class FakeSessions:
         return answer
 
     def start(self, team_id, incarnation, url, locale):
-        return self._answer(("start", team_id, incarnation, url, locale), STARTED)
+        return self._answer(("start", team_id, incarnation(), url, locale), STARTED)
 
     def save(self, team_id, session_id, label, incarnation):
         return self._answer(("save", team_id, session_id, label, incarnation()), SAVED)
@@ -63,7 +63,7 @@ class FakeStore:
 
 class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
     def call(self, operation, body=None, *, sessions=None, store=None, network=None):
-        def network_of(team_id):
+        def network_of(team_id, *, required=True):
             if network is not None:
                 raise network
             return SimpleNamespace(id=INCARNATION)
@@ -112,6 +112,13 @@ class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
             network=ApiProblemError(HTTPStatus.NOT_FOUND, "gone", code="team-not-found"),
         )
         self.assertEqual(sessions.calls, [("save", TEAM, SESSION, "Work", None)])
+        # A start asks for the Team as it is before any Browser starts.
+        gone = self.refused(
+            "browser-sign-in-start",
+            {"url": "https://www.linkedin.com/login", "locale": "pt"},
+            network=ApiProblemError(HTTPStatus.NOT_FOUND, "gone", code="team-not-found"),
+        )
+        self.assertEqual(gone.code, "team-not-found")
 
     def test_sign_ins_are_listed_and_forgotten(self):
         listed, _controller = self.call("browser-sign-ins")
@@ -137,6 +144,7 @@ class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
             ("sign-in-identity-provider", HTTPStatus.CONFLICT),
             ("sign-in-unsaved", HTTPStatus.SERVICE_UNAVAILABLE),
             ("browser-busy", HTTPStatus.CONFLICT),
+            ("team-not-found", HTTPStatus.NOT_FOUND),
             ("anything-else", HTTPStatus.SERVICE_UNAVAILABLE),
         ):
             with self.subTest(code=code):

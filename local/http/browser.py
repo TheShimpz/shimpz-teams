@@ -42,6 +42,7 @@ _SIGN_IN_MESSAGES = {
     sign_in_protocol.UNSAVED: (HTTPStatus.SERVICE_UNAVAILABLE, "the Sign-in could not be saved"),
     "browser-busy": (HTTPStatus.CONFLICT, "the Space's Browser is busy"),
     "browser-unavailable": (HTTPStatus.SERVICE_UNAVAILABLE, "the Browser is unavailable"),
+    local_sign_in.TEAM_NOT_FOUND: (HTTPStatus.NOT_FOUND, "the Team does not exist"),
 }
 _MESSAGES = {
     view_protocol.NOT_RUNNING: (HTTPStatus.NOT_FOUND, "the Browser task is not running"),
@@ -76,12 +77,23 @@ def _body(handler, admit) -> dict[str, object]:
     return body
 
 
-def _incarnation(handler, team_id: str) -> str:
-    return handler.server.controller.assistant_lifecycle._network(team_id).id
+def _incarnation(handler, team_id: str) -> local_sign_in.Incarnation:
+    """The Team's current incarnation, its network's id, read anew each time; None once it is gone or unknowable."""
+
+    def current() -> str | None:
+        try:
+            network = handler.server.controller.assistant_lifecycle._network(team_id, required=False)
+        except ApiProblem:
+            return None
+        return None if network is None else network.id
+
+    return current
 
 
 def _start(handler, team_id: str) -> dict[str, object]:
     body = _body(handler, sign_in_protocol.canonical_start)
+    # A Team that does not exist, or a Docker that cannot say, is answered as such before any Browser starts.
+    handler.server.controller.assistant_lifecycle._network(team_id)
     try:
         return handler.server.controller.sign_in_sessions.start(
             team_id, _incarnation(handler, team_id), body["url"], body["locale"]
@@ -92,16 +104,9 @@ def _start(handler, team_id: str) -> dict[str, object]:
 
 def _save(handler, team_id: str) -> dict[str, object]:
     body = _body(handler, sign_in_protocol.canonical_save)
-    controller = handler.server.controller
-
-    def current() -> str | None:
-        try:
-            return _incarnation(handler, team_id)
-        except ApiProblem:
-            return None
-
+    sessions = handler.server.controller.sign_in_sessions
     try:
-        return controller.sign_in_sessions.save(team_id, body["sign_in_session_id"], body["label"], current)
+        return sessions.save(team_id, body["sign_in_session_id"], body["label"], _incarnation(handler, team_id))
     except local_sign_in.SignInSessionError as exc:
         raise _sign_in_problem(exc) from exc
 

@@ -1,12 +1,18 @@
 """A person signing in to a site in a Browser only they drive, and saving it as a Sign-in (ADR-0117, Sign-ins 2-5).
 
 A sign-in session holds the Space's Browser in `person` mode: it starts at the URL the person chose, shows Chromium's
-own address bar, runs no agent and sends nothing to Brain. The person watches and controls it through its view. It
-ends by Save, Cancel, its 30-minute limit, or 10 minutes without the person in control. Save checks that one window is
-open, fences the session, lets Chromium rest so its stores commit, stops it cleanly, and streams its profile through
-the capsule check into a sealed draft; a profile that holds a session at a known identity provider's sign-in host is
-refused, and the Sign-in is kept only if its Team is still the same incarnation and the session was not ended meanwhile.
-Whatever happens, the Browser is released.
+own address bar, runs no agent and sends nothing to Brain. The person controls it through its private view, which no
+one can watch. It ends by Save, Cancel, its 30-minute limit, or 10 minutes without the person connected to it.
+
+Save checks that one window is open, then fences the session: the person's control ends and its release must be
+proven before anything else acts, and the window count must still be one. Chromium rests so its stores commit, stops
+cleanly, and its profile streams through the capsule check into a sealed draft; a profile with a session at a known
+identity provider's sign-in host is refused. While it saves, the session stays registered: Cancel, the limit, the
+Team's deletion, or a reset still end it, and then nothing is kept. The Sign-in is committed only if the session was
+not ended meanwhile and its Team is still the same incarnation. Whatever happens, the Browser is released.
+
+A session that began starting before its Team was deleted or the Space reset is never registered: each end bumps an
+epoch that a starting session must still see unchanged once its Browser exists.
 """
 
 from __future__ import annotations
@@ -31,6 +37,13 @@ REST_SECONDS = 31.0
 SESSION_SECONDS = 30 * 60.0
 IDLE_SECONDS = 10 * 60.0
 WATCH_SECONDS = 5.0
+# How long Save waits for the person's control to end and its release to be proven.
+QUIESCE_SECONDS = 15.0
+UNAVAILABLE = "browser-unavailable"
+TEAM_NOT_FOUND = "team-not-found"
+
+# The Team's current incarnation (its network id), or None once it is gone.
+Incarnation = Callable[[], str | None]
 
 
 class SignInSessionError(RuntimeError):
@@ -50,7 +63,12 @@ class _Session:
     lease: Lease
     view: local_view.View
     started: float
+    # Set once the session ends, however it ends; a Save under way sees it and keeps nothing.
     ended: threading.Event = field(default_factory=threading.Event)
+    # Under the sessions' guard: a Save holds the session, then commits it unless it was cancelled first.
+    saving: bool = False
+    cancelled: bool = False
+    committed: bool = False
 
 
 class SignInSessions:
@@ -70,12 +88,23 @@ class SignInSessions:
         self._clock = clock
         self._guard = threading.Lock()
         self._sessions: dict[str, _Session] = {}
+        # Bumped by every end of a Team's sessions (its deletion) and of all of them (a reset).
+        self._epochs: dict[str, int] = {}
+        self._epoch = 0
 
-    def start(self, team_id: str, incarnation: str, url: object, locale: str | None) -> dict[str, str]:
+    def _admission(self, team_id: str) -> tuple[int, int]:
+        with self._guard:
+            return self._epoch, self._epochs.get(team_id, 0)
+
+    def start(self, team_id: str, incarnation: Incarnation, url: object, locale: str | None) -> dict[str, str]:
         """Open a sign-in session for the Team at `url`; its id and the view the person controls it through."""
         site = sign_in_protocol.start_site(url)
         if site is None:
             raise SignInSessionError(sign_in_protocol.URL_INVALID)
+        admission = self._admission(team_id)
+        current = incarnation()
+        if current is None:
+            raise SignInSessionError(TEAM_NOT_FOUND)
         try:
             lease = self._runtime.acquire(team_id, language(locale), mode=PERSON, url=str(url))
         except BrowserError as exc:
@@ -86,55 +115,106 @@ class SignInSessions:
             lambda exec_id, deadline: self._runtime.exited(exec_id, deadline),
             lambda state: _audit(lease, f"view:{state}"),
             authorization=credentials.authorization if credentials is not None else None,
+            private=True,
         )
-        session = _Session(secrets.token_hex(16), team_id, incarnation, site, lease, view, self._clock())
+        session = _Session(secrets.token_hex(16), team_id, current, site, lease, view, self._clock())
         try:
             self._service.hold(team_id, f"sign-in:{session.id}", lease, view)
         except BrowserError as exc:
             self._release(lease)
             raise SignInSessionError(exc.code) from exc
         with self._guard:
-            self._sessions[team_id] = session
+            admitted = (self._epoch, self._epochs.get(team_id, 0)) == admission
+            if admitted:
+                self._sessions[team_id] = session
+        if not admitted or incarnation() != current:
+            # The Team was deleted or the Space reset while this Browser started: it never becomes a session.
+            session.ended.set()
+            self._fence(session)
+            self._release(session.lease)
+            raise SignInSessionError(sign_in_protocol.NOT_RUNNING)
         _audit(lease, f"started:site={site}")
         threading.Thread(target=self._watch, args=(session,), name="browser-sign-in", daemon=True).start()
         return {"sign_in_session_id": session.id, "view_id": view.id, "site": site}
 
-    def _take(self, team_id: str, session_id: object) -> _Session:
-        """End the session's hold now: no other caller and no limit can act on it afterwards."""
+    def _fence(self, session: _Session) -> None:
+        """No one acts on the session's Browser any more: its hold and its view end."""
+        self._service.drop(session.team_id, session.view)
+        session.view.end()
+
+    def _end(self, team_id: str, session_id: object) -> _Session | None:
+        """End the session; the session for its caller to release, or None when a Save holds it.
+
+        A session not saving is taken at once. One saving is marked cancelled instead, so its Save keeps nothing and
+        releases the Browser itself; a Save that already committed is no longer ended.
+        """
         with self._guard:
             session = self._sessions.get(team_id)
-            if session is None or session.id != session_id:
+            if session is None or session.id != session_id or session.committed:
                 raise SignInSessionError(sign_in_protocol.NOT_RUNNING)
+            if session.saving:
+                session.cancelled = True
+                session.ended.set()
+                return None
             del self._sessions[team_id]
         session.ended.set()
-        self._service.drop(team_id, session.view)
-        session.view.end()
+        self._fence(session)
         return session
 
-    def cancel(self, team_id: str, session_id: object) -> None:
-        session = self._take(team_id, session_id)
-        _audit(session.lease, "cancelled")
-        self._release(session.lease)
+    def cancel(self, team_id: str, session_id: object, *, background: bool = False) -> None:
+        """End the session, keeping nothing; a Browser whose removal failed is refused as unavailable."""
+        session = self._end(team_id, session_id)
+        if session is None:
+            return
+        _audit(session.lease, "cancelled", background=background)
+        if not self._release(session.lease, background=background):
+            raise SignInSessionError(UNAVAILABLE)
 
-    def save(
-        self, team_id: str, session_id: object, label: object, incarnation: Callable[[], str | None]
-    ) -> dict[str, object]:
+    def save(self, team_id: str, session_id: object, label: object, incarnation: Incarnation) -> dict[str, object]:
         """Keep the session's profile as a Sign-in; the Browser is released however it ends."""
         if sign_in_protocol.canonical_label(label) is None:
             raise SignInSessionError(sign_in_protocol.LABEL_INVALID)
-        with self._guard:
-            session = self._sessions.get(team_id)
-            if session is None or session.id != session_id:
-                raise SignInSessionError(sign_in_protocol.NOT_RUNNING)
+        session = self._running(team_id, session_id)
         if self._windows(session.lease) != 1:
             raise SignInSessionError(sign_in_protocol.WINDOWS)
-        session = self._take(team_id, session_id)
+        with self._guard:
+            if self._sessions.get(team_id) is not session or session.saving or session.ended.is_set():
+                raise SignInSessionError(sign_in_protocol.NOT_RUNNING)
+            session.saving = True
+        try:
+            saved = self._persist(session, label, incarnation)
+        finally:
+            with self._guard:
+                if self._sessions.get(team_id) is session:
+                    del self._sessions[team_id]
+            session.ended.set()
+            self._fence(session)
+            released = self._release(session.lease)
+        _audit(session.lease, f"saved:released={int(released)}")
+        return saved
+
+    def _running(self, team_id: str, session_id: object) -> _Session:
+        with self._guard:
+            session = self._sessions.get(team_id)
+            if session is None or session.id != session_id or session.saving:
+                raise SignInSessionError(sign_in_protocol.NOT_RUNNING)
+            return session
+
+    def _persist(self, session: _Session, label: object, incarnation: Incarnation) -> dict[str, object]:
+        """Fence, rest, stop, export, check, and commit; anything short of a commit keeps nothing."""
+        self._fence(session)
         draft = None
         try:
-            # The rest is the session's own: nothing else acts on the Browser meanwhile.
-            time.sleep(REST_SECONDS)
+            # Nothing acts on the Browser until the person's control ended and what they held was proven released.
+            if not session.view.quiesce(self._clock() + QUIESCE_SECONDS):
+                raise BrowserError("browser-lost")
+            if self._windows(session.lease) != 1:
+                raise BrowserError("browser-lost")
+            # The rest is the session's own; an end meanwhile (Cancel, the limit, the Team's deletion) cuts it short.
+            if session.ended.wait(REST_SECONDS):
+                raise SignInSessionError(sign_in_protocol.NOT_RUNNING)
             self._runtime.stop(session.lease)
-            draft = self._store.draft(team_id, session.incarnation)
+            draft = self._store.draft(session.team_id, session.incarnation)
             check = capsule_check.Check()
 
             def keep(chunk: bytes) -> None:
@@ -145,23 +225,30 @@ class SignInSessions:
             check.finish()
             if check.identity_hosts():
                 raise SignInSessionError(sign_in_protocol.IDENTITY_PROVIDER)
-            saved = draft.commit(
-                session.site, label, self._runtime.image or "", lambda: incarnation() == session.incarnation
+            return draft.commit(
+                session.site,
+                label,
+                self._runtime.image or "",
+                lambda: incarnation() == session.incarnation and self._commits(session),
             )
-        except (BrowserError, capsule_check.CapsuleError, sign_in_store.SignInError) as exc:
+        except SignInSessionError as exc:
+            if draft is not None:
+                draft.discard()
+            _audit(session.lease, f"refused:{exc.code}")
+            raise
+        except Exception as exc:
             if draft is not None:
                 draft.discard()
             _audit(session.lease, f"unsaved:{type(exc).__name__}")
             raise SignInSessionError(sign_in_protocol.UNSAVED) from exc
-        except SignInSessionError as exc:
-            # Only the capsule's own refusal comes here, after its draft began.
-            draft.discard()
-            _audit(session.lease, f"refused:{exc.code}")
-            raise
-        finally:
-            self._release(session.lease)
-        _audit(session.lease, "saved")
-        return saved
+
+    def _commits(self, session: _Session) -> bool:
+        """Under the store's commit: whether the session may still be kept, after which it can no longer be ended."""
+        with self._guard:
+            if session.cancelled:
+                return False
+            session.committed = True
+            return True
 
     def _windows(self, lease: Lease) -> int:
         """How many Chromium windows the person's Browser shows, through a Driver session that binds nothing."""
@@ -186,36 +273,41 @@ class SignInSessions:
         """End the session at its limit or once the person left it alone too long."""
         while not session.ended.wait(WATCH_SECONDS):
             if self._clock() - session.started >= SESSION_SECONDS or session.view.quiet_for() >= IDLE_SECONDS:
+                _audit(session.lease, "expired", background=True)
                 try:
-                    taken = self._take(session.team_id, session.id)
+                    self.cancel(session.team_id, session.id, background=True)
                 except SignInSessionError:
                     return
-                _audit(taken.lease, "expired", background=True)
-                self._release(taken.lease, background=True)
                 return
 
     def end_team(self, team_id: str) -> None:
-        """The Team is deleted or the Space resets: its sign-in session ends at once, keeping nothing."""
+        """The Team is deleted: its sign-in session ends at once, keeping nothing, and one still starting never runs."""
         with self._guard:
+            self._epochs[team_id] = self._epochs.get(team_id, 0) + 1
             session = self._sessions.get(team_id)
         if session is not None:
             try:
                 self.cancel(team_id, session.id)
             except SignInSessionError:
+                # The Team's Browser is removed and proven absent next, whatever this removal did.
                 return
 
     def end_all(self) -> None:
-        """A Space reset: every sign-in session ends at once, keeping nothing."""
+        """A Space reset: every sign-in session ends at once, keeping nothing, and none still starting runs."""
         with self._guard:
+            self._epoch += 1
             teams = list(self._sessions)
         for team_id in teams:
             self.end_team(team_id)
 
-    def _release(self, lease: Lease, *, background: bool = False) -> None:
+    def _release(self, lease: Lease, *, background: bool = False) -> bool:
+        """Remove the session's Browser; whether it was proven gone. A failure leaves the runtime cleaning first."""
         try:
             self._runtime.release(lease)
         except BrowserError:
             _audit(lease, "release-failed", background=background)
+            return False
+        return True
 
 
 def _audit(lease: Lease, state: str, *, background: bool = False) -> None:
