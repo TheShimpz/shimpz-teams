@@ -112,6 +112,9 @@ fn walk(
             return Err("the profile holds more entries than a capsule keeps".into());
         }
         *total += BLOCK as u64;
+        if *total > MAX_TOTAL_BYTES {
+            return Err("the profile is larger than a capsule keeps".into());
+        }
         if metadata.file_type().is_dir() {
             found.push(Entry::Directory(name));
             walk(root, &path, found, total)?;
