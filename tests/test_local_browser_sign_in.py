@@ -155,8 +155,27 @@ class SignInSessionTests(unittest.TestCase):
             ):
                 self.sessions.start(TEAM, lambda incarnations=incarnations: next(incarnations), URL, "pt")
             self.assertEqual(refused.exception.code, "sign-in-not-running")
-            self.assertEqual(self.runtime.events[-1], ("release",))
+            # Released once, by the start alone, and never left registered for a later Cancel to release again.
+            self.assertEqual(self.runtime.events.count(("release",)), 1)
             self.assertNotIn(TEAM, self.service._running)
+            self.assertNotIn(TEAM, self.sessions._sessions)
+            self.runtime.events.clear()
+
+    def test_a_start_whose_session_was_cancelled_as_it_was_rejected_is_released_once(self):
+        asked = []
+
+        def incarnation():
+            asked.append(1)
+            if len(asked) == 2:
+                # The Team's end took the registered session just before the start looked again.
+                self.sessions.end_team(TEAM)
+                return "after deletion"
+            return INCARNATION
+
+        with self.assertRaises(local_sign_in.SignInSessionError):
+            self.sessions.start(TEAM, incarnation, URL, "pt")
+        self.assertEqual(self.runtime.events.count(("release",)), 1)
+        self.assertNotIn(TEAM, self.sessions._sessions)
 
     def test_saving_keeps_the_profile_as_a_sign_in_and_releases_the_browser(self):
         started = self.start()
@@ -200,10 +219,17 @@ class SignInSessionTests(unittest.TestCase):
         self.assertEqual(ended.exception.code, "sign-in-not-running")
         started = self.start()
         exported = self.runtime.export
+        cancelling = []
 
         def cancelled_while_exporting(lease, sink):
             size = exported(lease, sink)
-            self.sessions.cancel(TEAM, started["sign_in_session_id"])
+            # The person cancels from elsewhere; that Cancel answers once this Save removed the Browser.
+            cancel = threading.Thread(target=self.sessions.cancel, args=(TEAM, started["sign_in_session_id"]))
+            cancelling.append(cancel)
+            cancel.start()
+            deadline = time.monotonic() + 5
+            while not self.sessions._sessions[TEAM].cancelled and time.monotonic() < deadline:
+                time.sleep(0.01)
             return size
 
         with (
@@ -211,6 +237,8 @@ class SignInSessionTests(unittest.TestCase):
             self.assertRaises(local_sign_in.SignInSessionError) as late,
         ):
             self.save(started)
+        cancelling[0].join(5)
+        self.assertFalse(cancelling[0].is_alive())
         self.assertEqual(late.exception.code, "sign-in-unsaved")
         self.assertEqual(self.store.list(TEAM), [])
         self.assertEqual(self.runtime.events[-1], ("release",))
@@ -261,6 +289,29 @@ class SignInSessionTests(unittest.TestCase):
                 self.assertNotIn(("stop",), self.runtime.events[-2:])
                 self.assertEqual(self.runtime.events[-1], ("release",))
                 self.runtime.events.clear()
+        # A Cancel during a Save whose Browser could not be removed is no cancelled session.
+        started = self.start()
+        self.runtime.release_error = runtime.BrowserError("browser-lost")
+        outcome = {}
+        with mock.patch.object(local_sign_in, "REST_SECONDS", 5):
+            worker = threading.Thread(target=lambda: outcome.setdefault("error", self._save_error(started)))
+            worker.start()
+            deadline = time.monotonic() + 5
+            while not self.sessions._sessions[TEAM].saving and time.monotonic() < deadline:
+                time.sleep(0.01)
+            with self.assertRaises(local_sign_in.SignInSessionError) as kept:
+                self.sessions.cancel(TEAM, started["sign_in_session_id"])
+            worker.join(5)
+        self.assertEqual(kept.exception.code, "browser-unavailable")
+        self.assertEqual(outcome["error"], "sign-in-not-running")
+        self.runtime.release_error = None
+
+    def _save_error(self, started) -> str:
+        try:
+            self.save(started)
+        except local_sign_in.SignInSessionError as exc:
+            return exc.code
+        return ""
 
     def test_nothing_is_kept_when_the_profile_or_the_stop_or_the_team_does_not_allow_it(self):
         cases = (

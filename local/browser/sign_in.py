@@ -39,6 +39,8 @@ IDLE_SECONDS = 10 * 60.0
 WATCH_SECONDS = 5.0
 # How long Save waits for the person's control to end and its release to be proven.
 QUIESCE_SECONDS = 15.0
+# The longest a Cancel waits for a Save under way to release the Browser: its quiesce, stop, export, and removal.
+SAVE_SECONDS = 150.0
 UNAVAILABLE = "browser-unavailable"
 TEAM_NOT_FOUND = "team-not-found"
 
@@ -69,6 +71,9 @@ class _Session:
     saving: bool = False
     cancelled: bool = False
     committed: bool = False
+    # Set once a Save released the Browser, `removed` saying whether its absence was proven.
+    released: threading.Event = field(default_factory=threading.Event)
+    removed: bool = False
 
 
 class SignInSessions:
@@ -128,10 +133,16 @@ class SignInSessions:
             if admitted:
                 self._sessions[team_id] = session
         if not admitted or incarnation() != current:
-            # The Team was deleted or the Space reset while this Browser started: it never becomes a session.
-            session.ended.set()
-            self._fence(session)
-            self._release(session.lease)
+            # The Team was deleted or the Space reset while this Browser started: it never becomes a session. Its
+            # removal has one owner: this start, unless a Cancel or the Team's end already took it.
+            with self._guard:
+                owned = not admitted or self._sessions.get(team_id) is session
+                if admitted and owned:
+                    del self._sessions[team_id]
+            if owned:
+                session.ended.set()
+                self._fence(session)
+                self._release(session.lease)
             raise SignInSessionError(sign_in_protocol.NOT_RUNNING)
         _audit(lease, f"started:site={site}")
         threading.Thread(target=self._watch, args=(session,), name="browser-sign-in", daemon=True).start()
@@ -142,11 +153,11 @@ class SignInSessions:
         self._service.drop(session.team_id, session.view)
         session.view.end()
 
-    def _end(self, team_id: str, session_id: object) -> _Session | None:
-        """End the session; the session for its caller to release, or None when a Save holds it.
+    def _end(self, team_id: str, session_id: object) -> tuple[_Session, bool]:
+        """End the session: it, and whether a Save holds it.
 
-        A session not saving is taken at once. One saving is marked cancelled instead, so its Save keeps nothing and
-        releases the Browser itself; a Save that already committed is no longer ended.
+        A session not saving is taken at once, for its caller to release. One saving is marked cancelled instead, so its
+        Save keeps nothing and releases the Browser itself; a Save that already committed is no longer ended.
         """
         with self._guard:
             session = self._sessions.get(team_id)
@@ -155,19 +166,25 @@ class SignInSessions:
             if session.saving:
                 session.cancelled = True
                 session.ended.set()
-                return None
+                return session, True
             del self._sessions[team_id]
         session.ended.set()
         self._fence(session)
-        return session
+        return session, False
 
     def cancel(self, team_id: str, session_id: object, *, background: bool = False) -> None:
-        """End the session, keeping nothing; a Browser whose removal failed is refused as unavailable."""
-        session = self._end(team_id, session_id)
-        if session is None:
-            return
+        """End the session, keeping nothing, once its Browser was proven removed; else it is refused as unavailable.
+
+        A Save under way removes the Browser itself: Cancel answers once it did. A removal that failed leaves the
+        Space's Browser to be cleaned and proven absent before the next one starts.
+        """
+        session, saving = self._end(team_id, session_id)
         _audit(session.lease, "cancelled", background=background)
-        if not self._release(session.lease, background=background):
+        if saving:
+            removed = session.released.wait(SAVE_SECONDS) and session.removed
+        else:
+            removed = self._release(session.lease, background=background)
+        if not removed:
             raise SignInSessionError(UNAVAILABLE)
 
     def save(self, team_id: str, session_id: object, label: object, incarnation: Incarnation) -> dict[str, object]:
@@ -189,8 +206,9 @@ class SignInSessions:
                 del self._sessions[team_id]
             session.ended.set()
             self._fence(session)
-            released = self._release(session.lease)
-        _audit(session.lease, f"saved:released={int(released)}")
+            session.removed = self._release(session.lease)
+            session.released.set()
+        _audit(session.lease, f"saved:released={int(session.removed)}")
         return saved
 
     def _running(self, team_id: str, session_id: object) -> _Session:
