@@ -242,8 +242,9 @@ class SignInStore:
                 record = self._open(team_id, sign_in_id, envelope)
                 self._remove(self._capsule_dir(sign_in_id, int(record["generation"])))
             self._remove(self._drafts(team_id))
-            teams.pop(team_id, None)
-            self._write(teams)
+            # A Team with no Sign-in leaves the state untouched: there is nothing to write.
+            if teams.pop(team_id, None) is not None:
+                self._write(teams)
             return team_id not in self._state()
 
     def delete_all(self) -> None:

@@ -283,6 +283,11 @@ class SignInStoreTests(unittest.TestCase):
         self.assertEqual(self.store.list(TEAM), [saved])
         self.assertTrue(self.store.forget(TEAM, saved["sign_in_id"]))
 
+    def test_deleting_a_team_without_sign_ins_writes_nothing(self):
+        with mock.patch.object(self.store, "_write") as written:
+            self.assertTrue(self.store.delete_team("trinity"))
+        written.assert_not_called()
+
     def test_a_starting_team_deletes_what_an_interrupted_save_left_and_keeps_every_sign_in(self):
         saved = self.save()
         draft = self.store.draft(TEAM, INCARNATION)
