@@ -62,8 +62,8 @@ AGENT, PERSON, SIGNED_IN = "agent", "person", "signed-in"
 # Chromium's clean stop, and the capsule's export, each bounded (`browser-host stop`, `profile export`).
 STOP_SECONDS = 40.0
 CAPSULE_SECONDS = 30.0
-# The largest export: 128 MiB of files, a header for each of at most 4,096 entries, padding, and the end blocks.
-MAX_CAPSULE_BYTES = 128 * 1024 * 1024 + 4096 * 1024 + 1024
+# The longest export: the whole archive, headers, padding, and end blocks included, is at most 128 MiB (item 6).
+MAX_CAPSULE_BYTES = 128 * 1024 * 1024
 # The capsule crosses in chunks of this size, so Team never holds more than one at a time.
 CHUNK_BYTES = 1024 * 1024
 SECCOMP = Path(__file__).resolve().parents[2] / "browser" / "image" / "seccomp.json"

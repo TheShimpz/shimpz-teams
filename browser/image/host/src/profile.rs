@@ -12,6 +12,7 @@ const BLOCK: usize = 512;
 /// The directory inside an empty profile where an import is written before it is complete.
 const STAGING: &str = ".capsule";
 pub const MAX_ENTRIES: usize = 4096;
+/// The longest archive an export writes, and the most file bytes an import restores.
 pub const MAX_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
 pub const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
 pub const MAX_DEPTH: usize = 16;
@@ -78,7 +79,8 @@ fn admissible(relative: &str) -> bool {
 /// files and directories and every bound.
 fn entries(root: &Path) -> Result<Vec<Entry>, String> {
     let mut found = Vec::new();
-    let mut total = 0u64;
+    // The archive's own length: its two end blocks, then each entry's header, content, and padding.
+    let mut total = 2 * BLOCK as u64;
     walk(root, Path::new(""), &mut found, &mut total)?;
     Ok(found)
 }
@@ -109,12 +111,13 @@ fn walk(
         if found.len() >= MAX_ENTRIES {
             return Err("the profile holds more entries than a capsule keeps".into());
         }
+        *total += BLOCK as u64;
         if metadata.file_type().is_dir() {
             found.push(Entry::Directory(name));
             walk(root, &path, found, total)?;
         } else if metadata.file_type().is_file() && metadata.nlink() == 1 {
             let size = metadata.len();
-            *total += size;
+            *total += size + padding(size) as u64;
             if size > MAX_FILE_BYTES || *total > MAX_TOTAL_BYTES {
                 return Err("the profile is larger than a capsule keeps".into());
             }
@@ -137,8 +140,11 @@ fn header(name: &str, size: u64, directory: bool) -> Result<[u8; BLOCK], String>
     let (prefix, base) = if name.len() <= 100 {
         ("", name)
     } else {
-        let split = name[..name.len().min(156)]
-            .rfind('/')
+        // Bytes, not characters: a cut inside a multi-byte character would be no string at all.
+        let bytes = name.as_bytes();
+        let split = bytes[..bytes.len().min(156)]
+            .iter()
+            .rposition(|&byte| byte == b'/')
             .filter(|&index| name.len() - index - 1 <= 100)
             .ok_or("a profile path cannot be written in ustar")?;
         (&name[..split], &name[split + 1..])
@@ -432,6 +438,16 @@ mod tests {
             .unwrap();
         assert!(export(&source, &mut Vec::new()).is_err());
         fs::remove_dir_all(&source).unwrap();
+    }
+
+    #[test]
+    fn a_long_path_of_multibyte_names_splits_at_a_slash_without_panicking() {
+        let name = format!("{}/{}", "é".repeat(70), "ü".repeat(40));
+        let block = header(&name, 0, true).unwrap();
+        assert_eq!(&block[345..345 + 140], "é".repeat(70).as_bytes());
+        assert_eq!(&block[..80], "ü".repeat(40).as_bytes());
+        let unsplittable = "é".repeat(120);
+        assert!(header(&unsplittable, 0, true).is_err());
     }
 
     fn archive_of(entries: &[(&str, &[u8], bool)]) -> Vec<u8> {
