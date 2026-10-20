@@ -98,9 +98,15 @@ class SignInStoreTests(unittest.TestCase):
         self.now = 1_800_000_000.0
         self.store = sign_ins.SignInStore(self.root / "state", self.root / "key" / "aes256.key", now=lambda: self.now)
 
-    def save(self, chunks=(b"first", b"second"), admitted=lambda: True, team=TEAM):
-        site, label = "www.linkedin.com", " Work "
-        return self.store.save(team, INCARNATION, site, label, iter(chunks), "image@sha256:x", admitted)
+    def save(self, chunks=(b"first", b"second"), admitted=lambda: True, team=TEAM, site="www.linkedin.com"):
+        draft = self.store.draft(team, INCARNATION)
+        try:
+            for chunk in chunks:
+                draft.add(chunk)
+            return draft.commit(site, " Work ", "image@sha256:x", admitted)
+        except BaseException:
+            draft.discard()
+            raise
 
     def test_a_saved_sign_in_lists_without_its_capsule_and_restores_exactly(self):
         saved = self.save()
@@ -163,7 +169,9 @@ class SignInStoreTests(unittest.TestCase):
     def test_only_an_admissible_site_label_and_bounded_capsule_are_kept(self):
         for site, label in (("localhost", "Work"), ("www.linkedin.com", ""), ("www.linkedin.com", "x" * 65)):
             with self.subTest(site=site, label=label), self.assertRaises(sign_ins.SignInError):
-                self.store.save(TEAM, INCARNATION, site, label, iter((b"x",)), "image", lambda: True)
+                draft = self.store.draft(TEAM, INCARNATION)
+                draft.add(b"x")
+                draft.commit(site, label, "image", lambda: True)
         for chunks in ((), (b"",), (b"x" * (sign_ins.CHUNK_BYTES + 1),)):
             with self.subTest(chunks=len(chunks)), self.assertRaises(sign_ins.SignInError):
                 self.save(chunks)

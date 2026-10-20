@@ -17,7 +17,7 @@ import secrets
 import shutil
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
@@ -186,68 +186,13 @@ class SignInStore:
 
     # Saving
 
-    def save(
-        self,
-        team_id: str,
-        incarnation: str,
-        site: object,
-        label: object,
-        chunks: Iterable[bytes],
-        writer: str,
-        admitted: Callable[[], bool],
-    ) -> dict[str, object]:
-        """Seal `chunks` as a new Sign-in and commit it only if `admitted()` still holds and no clear came between."""
+    def draft(self, team_id: str, incarnation: str) -> Draft:
+        """A new Sign-in's capsule, sealed chunk by chunk as it arrives; nothing is kept until it commits."""
         team_id = validate_team_id(team_id)
-        site, label = canonical_site(site), canonical_label(label)
-        if site is None or label is None:
-            raise SignInError("the Sign-in's site or label is not admissible")
         with self._lock:
-            fence = self._fences.get(team_id, 0)
             if len(self._state().get(team_id, {})) >= MAX_SIGN_INS:
                 raise SignInError("the Team keeps as many Sign-ins as it may")
-        now = self._now()
-        record: dict[str, object] = {
-            "team_id": team_id,
-            "sign_in_id": secrets.token_hex(16),
-            "incarnation": incarnation,
-            "generation": 1,
-            "site": site,
-            "label": label,
-            "created_at": now,
-            "last_used_at": now,
-            "expires_at": now + LIFETIME_SECONDS,
-            "chunks": 0,
-            "writer": writer,
-        }
-        directory = self._capsule_dir(str(record["sign_in_id"]), 1)
-        try:
-            record["chunks"] = self._seal_chunks(record, directory, chunks)
-            with self._lock:
-                if self._fences.get(team_id, 0) != fence or not admitted():
-                    raise SignInError("the Sign-in was revoked before it was kept")
-                teams = self._state()
-                teams.setdefault(team_id, {})[str(record["sign_in_id"])] = self._seal(record)
-                self._write(teams)
-        except BaseException:
-            shutil.rmtree(directory, ignore_errors=True)
-            raise
-        return _public(record)
-
-    def _seal_chunks(self, record: dict[str, object], directory: Path, chunks: Iterable[bytes]) -> int:
-        cipher = AESGCM(self._key(create=True))
-        directory.mkdir(parents=True, mode=0o700)
-        count = 0
-        for chunk in chunks:
-            if not chunk or len(chunk) > CHUNK_BYTES or count >= MAX_CHUNKS:
-                raise SignInError("the capsule is not within its bounds")
-            nonce = os.urandom(12)
-            sealed = nonce + cipher.encrypt(nonce, chunk, _chunk_aad(record, count))
-            private_state.replace_durably(directory / f"{count:05d}.chunk", sealed)
-            count += 1
-        if not count:
-            raise SignInError("the capsule is empty")
-        private_state.fsync_directory(directory)
-        return count
+            return Draft(self, team_id, incarnation, self._fences.get(team_id, 0))
 
     def capsule(self, team_id: str, sign_in_id: str) -> Iterator[bytes]:
         """The Sign-in's capsule, chunk by chunk, each authenticated before it is handed out."""
@@ -304,6 +249,62 @@ class SignInStore:
             self._index.unlink(missing_ok=True)
             if (self._root / "capsules").exists() or self._index.exists():
                 raise SignInError("the Sign-ins were not all deleted")
+
+
+class Draft:
+    """One Sign-in being saved: its chunks sealed as they arrive, its record written only by `commit`."""
+
+    def __init__(self, store: SignInStore, team_id: str, incarnation: str, fence: int) -> None:
+        self._store = store
+        self._fence = fence
+        now = store._now()
+        self.record: dict[str, object] = {
+            "team_id": team_id,
+            "sign_in_id": secrets.token_hex(16),
+            "incarnation": incarnation,
+            "generation": 1,
+            "site": "",
+            "label": "",
+            "created_at": now,
+            "last_used_at": now,
+            "expires_at": now + LIFETIME_SECONDS,
+            "chunks": 0,
+            "writer": "",
+        }
+        self._directory = store._capsule_dir(str(self.record["sign_in_id"]), 1)
+        self._cipher: AESGCM | None = None
+
+    def add(self, chunk: bytes) -> None:
+        """Seal one more chunk of the capsule."""
+        count = int(self.record["chunks"])
+        if not chunk or len(chunk) > CHUNK_BYTES or count >= MAX_CHUNKS:
+            raise SignInError("the capsule is not within its bounds")
+        if self._cipher is None:
+            self._cipher = AESGCM(self._store._key(create=True))
+            self._directory.mkdir(parents=True, mode=0o700)
+        nonce = os.urandom(12)
+        sealed = nonce + self._cipher.encrypt(nonce, chunk, _chunk_aad(self.record, count))
+        private_state.replace_durably(self._directory / f"{count:05d}.chunk", sealed)
+        self.record["chunks"] = count + 1
+
+    def commit(self, site: object, label: object, writer: str, admitted: Callable[[], bool]) -> dict[str, object]:
+        """Keep the Sign-in, only if `admitted()` holds and no clear of its Team came since the draft began."""
+        site, label = canonical_site(site), canonical_label(label)
+        if site is None or label is None or not self.record["chunks"]:
+            raise SignInError("the Sign-in's site, label, or capsule is not admissible")
+        self.record.update(site=site, label=label, writer=writer)
+        store, team_id = self._store, str(self.record["team_id"])
+        with store._lock:
+            if store._fences.get(team_id, 0) != self._fence or not admitted():
+                raise SignInError("the Sign-in was revoked before it was kept")
+            private_state.fsync_directory(self._directory)
+            teams = store._state()
+            teams.setdefault(team_id, {})[str(self.record["sign_in_id"])] = store._seal(self.record)
+            store._write(teams)
+        return _public(self.record)
+
+    def discard(self) -> None:
+        shutil.rmtree(self._directory, ignore_errors=True)
 
 
 def _public(record: dict[str, object]) -> dict[str, object]:
