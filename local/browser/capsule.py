@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import sqlite3
 
+from protocol.http.v1 import sign_in as sign_in_protocol
+
 BLOCK = 512
 MAX_ENTRIES = 4096
 MAX_TOTAL_BYTES = 128 * 1024 * 1024
@@ -20,6 +22,8 @@ MAX_FILE_BYTES = 32 * 1024 * 1024
 MAX_DEPTH = 16
 MAX_PATH_BYTES = 255
 COOKIES = "Default/Cookies"
+# Second-level labels under a country code that, with it, form a public suffix (com.br, co.uk, ...): presentation only.
+_SECOND_LEVEL = frozenset({"ac", "co", "com", "edu", "go", "gov", "ne", "net", "or", "org"})
 # The most SQLite steps reading the cookie store may take, far beyond what a real store of 32 MiB needs.
 MAX_SQL_STEPS = 50_000_000
 _PROGRESS_EVERY = 10_000
@@ -158,15 +162,31 @@ class Check:
         if not self._done or self._pending:
             raise CapsuleError("the capsule ended early or has bytes after its end")
 
+    def _read(self) -> set[tuple[str, str]] | None:
+        """The profile's cookies as host and partition, or None when there is no store or it cannot be read so."""
+        if not self.cookies:
+            return None
+        try:
+            return _cookies(bytes(self.cookies))
+        except sqlite3.Error:
+            return None
+
     def identity_hosts(self) -> frozenset[str]:
         """The identity providers' sign-in hosts some cookie of the profile is sent to; all of them when unreadable."""
-        if not self.cookies:
-            return IDENTITY_HOSTS
-        try:
-            cookies = _cookies(bytes(self.cookies))
-        except sqlite3.Error:
+        cookies = self._read()
+        if cookies is None:
             return IDENTITY_HOSTS
         return frozenset(host for host in IDENTITY_HOSTS if any(_sent_to(cookie, host) for cookie in cookies))
+
+    def sites(self) -> tuple[list[str], bool]:
+        """The sites found in the profile's first-party cookies, at most MAX_SITES in order, and whether more exist.
+
+        An incomplete inventory for the person to read (ADR-0117, 2026-10-20 item 4), never a scope or every identity.
+        """
+        found = sorted(
+            {site for host, partition in self._read() or () if not partition and (site := _registrable(host))}
+        )
+        return found[: sign_in_protocol.MAX_SITES], len(found) > sign_in_protocol.MAX_SITES
 
 
 def _cookies(store: bytes) -> set[tuple[str, str]]:
@@ -207,3 +227,10 @@ def _sent_to(cookie: tuple[str, str], host: str) -> bool:
         domain = cookie_host[1:]
         return host == domain or host.endswith(f".{domain}")
     return host == cookie_host
+
+
+def _registrable(host: str) -> str | None:
+    """A cookie host's registrable domain, by the last two labels or three under a known country second level."""
+    labels = host.lstrip(".").lower().split(".")
+    keep = 3 if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in _SECOND_LEVEL else 2
+    return sign_in_protocol.canonical_site(".".join(labels[-keep:]))

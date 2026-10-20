@@ -199,197 +199,277 @@ class SignInStoreTests(unittest.TestCase):
         self.now = 1_800_000_000.0
         self.store = sign_ins.SignInStore(self.root / "state", self.root / "key" / "aes256.key", now=lambda: self.now)
 
-    def save(self, chunks=(b"first", b"second"), admitted=lambda: True, team=TEAM, site="www.linkedin.com"):
-        draft = self.store.draft(team, INCARNATION)
+    def checkout(self, team=TEAM, kind=sign_ins.PERSON):
+        return self.store.checkout(team, INCARNATION, kind)
+
+    def save(self, chunks=(b"first", b"second"), admitted=lambda: True, team=TEAM, sites=("linkedin.com",)):
+        """Check the Team's Sign-in out and Save its next generation."""
+        checkout = self.checkout(team)
+        draft = self.store.draft(checkout)
         try:
             for chunk in chunks:
                 draft.add(chunk)
-            return draft.commit(site, " Work ", "image@sha256:x", admitted)
+            return draft.commit(list(sites), False, "image@sha256:x", admitted)
         except BaseException:
             draft.discard()
+            self.store.finish(checkout)
             raise
 
-    def test_a_saved_sign_in_lists_without_its_capsule_and_restores_exactly(self):
-        saved = self.save()
-        self.assertEqual(set(saved), {"sign_in_id", "site", "label", "created_at", "last_used_at", "expires_at"})
-        self.assertEqual((saved["site"], saved["label"]), ("www.linkedin.com", "Work"))
-        self.assertEqual(self.store.list(TEAM), [saved])
-        self.assertEqual(list(self.store.capsule(TEAM, saved["sign_in_id"])), [b"first", b"second"])
-        self.assertEqual(self.store.list("other"), [])
+    def capsules(self):
+        directory = self.root / "state" / "capsules"
+        return sorted(path.name for path in directory.iterdir()) if directory.is_dir() else []
+
+    def test_a_saved_sign_in_shows_without_its_capsule_and_restores_exactly(self):
+        self.assertIsNone(self.store.current(TEAM))
+        saved = self.save(sites=("linkedin.com", "example.com"))
+        self.assertEqual(
+            set(saved),
+            {
+                "sign_in_id",
+                "state",
+                "generation",
+                "team_incarnation",
+                "sites",
+                "sites_truncated",
+                "created_at",
+                "saved_at",
+                "last_used_at",
+                "expires_at",
+            },
+        )
+        self.assertEqual(
+            (saved["state"], saved["generation"], saved["sites"], saved["team_incarnation"]),
+            ("ready", 1, ["example.com", "linkedin.com"], INCARNATION),
+        )
+        self.assertEqual(self.store.current(TEAM), saved)
+        self.assertIsNone(self.store.current("other"))
+        checkout = self.checkout()
+        self.assertEqual(checkout.generation, 1)
+        self.assertEqual(list(self.store.capsule(checkout)), [b"first", b"second"])
         # Nothing of the capsule or the record is readable without the key.
         stored = b"".join(path.read_bytes() for path in (self.root / "state").rglob("*") if path.is_file())
         self.assertNotIn(b"first", stored)
-        self.assertNotIn(b"Work", stored)
+        self.assertNotIn(b"linkedin", stored)
 
-    def test_an_altered_record_or_a_moved_chunk_is_refused(self):
-        saved = self.save()
-        sign_in_id = saved["sign_in_id"]
-        chunks = sorted((self.root / "state" / "capsules").rglob("*.chunk"))
-        first, second = chunks[0].read_bytes(), chunks[1].read_bytes()
-        chunks[0].write_bytes(second)
-        chunks[1].write_bytes(first)
-        with self.assertRaises(sign_ins.SignInError):
-            list(self.store.capsule(TEAM, sign_in_id))
-        index = self.root / "state" / "index.json"
-        state = json.loads(index.read_bytes())
-        state["teams"]["other"] = state["teams"].pop(TEAM)
-        index.write_text(json.dumps(state))
-        with self.assertRaises(sign_ins.SignInError):
-            self.store.list("other")
+    def test_a_save_writes_the_next_generation_and_replaces_the_one_it_restored(self):
+        first = self.save()
+        second = self.save(chunks=(b"third",), sites=("github.com",))
+        self.assertEqual(
+            (second["sign_in_id"], second["generation"], second["sites"]), (first["sign_in_id"], 2, ["github.com"])
+        )
+        self.assertEqual(self.capsules(), [f"{first['sign_in_id']}-2"])
+        self.assertEqual(list(self.store.capsule(self.checkout())), [b"third"])
 
-    def test_a_sign_in_expires_after_its_lifetime_or_a_week_unused(self):
+    def test_the_sign_in_has_one_checkout_at_a_time_and_a_stale_end_changes_nothing(self):
+        self.save()
+        checkout = self.checkout()
+        with self.assertRaises(sign_ins.SignInError) as busy:
+            self.checkout()
+        self.assertEqual(busy.exception.code, "sign-in-busy")
+        draft = self.store.draft(checkout)
+        draft.add(b"x")
+        self.store.finish(checkout)
+        # An end without a Save leaves the restored generation needing a person; a Save of that checkout is refused.
+        self.assertEqual(
+            (self.store.current(TEAM)["state"], self.store.current(TEAM)["generation"]), ("needs-person", 1)
+        )
+        with self.assertRaises(sign_ins.SignInError):
+            draft.commit(["linkedin.com"], False, "image", lambda: True)
+        self.store.finish(checkout)
+        with self.assertRaises(sign_ins.SignInError) as refused:
+            self.checkout(kind=sign_ins.AGENT)
+        self.assertEqual(refused.exception.code, "sign-in-busy")
+        # A person reconciles it: their Save makes it ready again.
+        self.assertEqual(self.save()["state"], "ready")
+        for stale in (self.store.capsule, self.store.draft):
+            with self.subTest(stale=stale.__name__), self.assertRaises(sign_ins.SignInError):
+                stale(checkout)
+
+    def test_a_teams_first_checkout_that_ends_without_a_save_leaves_no_sign_in(self):
+        checkout = self.checkout()
+        self.assertEqual(checkout.generation, 0)
+        self.assertIsNone(self.store.capsule(checkout))
+        self.assertIsNone(self.store.current(TEAM))
+        self.store.finish(checkout)
+        self.assertEqual(self.store._state(), {})
+
+    def test_a_sign_in_expires_after_a_month_from_its_save_or_a_week_unused(self):
         self.save()
         self.now += sign_ins.IDLE_SECONDS
-        self.assertEqual(self.store.list(TEAM), [])
-        self.assertEqual(list((self.root / "state" / "capsules").iterdir()), [])
+        self.assertIsNone(self.store.current(TEAM))
+        self.assertEqual(self.capsules(), [])
+        self.save()
+        for _week in range(4):
+            self.now += sign_ins.IDLE_SECONDS - 60
+            self.store.finish(self.checkout())
+        self.now += 4 * 24 * 3600
+        self.assertIsNone(self.store.current(TEAM))
 
-    def test_forget_and_team_deletion_leave_nothing_and_fence_a_save_under_way(self):
+    def test_deletion_needs_the_exact_confirmed_sign_in_and_fences_a_save_under_way(self):
         saved = self.save()
-        self.assertTrue(self.store.forget(TEAM, saved["sign_in_id"]))
-        self.assertFalse(self.store.forget(TEAM, saved["sign_in_id"]))
-
-        def deleted_meanwhile():
-            yield b"first"
-            self.store.delete_team(TEAM)
-            yield b"second"
-
-        with self.assertRaises(sign_ins.SignInError):
-            self.save(deleted_meanwhile())
-        with self.assertRaises(sign_ins.SignInError):
-            self.save(admitted=lambda: False)
-        self.assertEqual(self.store.list(TEAM), [])
-        self.assertEqual(list((self.root / "state" / "capsules").iterdir()), [])
-
-    def test_a_team_deleted_during_a_save_takes_its_chunks_and_a_failed_removal_keeps_the_record(self):
-        draft = self.store.draft(TEAM, INCARNATION)
-        draft.add(b"first")
-        unwritten = self.store.draft(TEAM, INCARNATION)
-        self.assertTrue(any((self.root / "state" / "drafts" / TEAM).iterdir()))
-        self.assertTrue(self.store.delete_team(TEAM))
-        self.assertFalse((self.root / "state" / "drafts" / TEAM).exists())
-        with self.assertRaises(sign_ins.SignInError):
-            draft.commit("www.linkedin.com", "Work", "image", lambda: True)
-        # A draft begun before the deletion never writes its first chunk after it, nor brings the Team's drafts back.
-        with self.assertRaises(sign_ins.SignInError):
-            unwritten.add(b"late")
-        self.assertFalse((self.root / "state" / "drafts" / TEAM).exists())
-        saved = self.save()
-        with (
-            mock.patch.object(sign_ins.shutil, "rmtree", side_effect=PermissionError("held")),
-            self.assertRaises(sign_ins.SignInError),
+        confirmed = (saved["sign_in_id"], saved["generation"], INCARNATION)
+        for expected, code in (
+            ((saved["sign_in_id"], 2, INCARNATION), "sign-in-changed"),
+            (("b" * 32, 1, INCARNATION), "sign-in-changed"),
+            ((saved["sign_in_id"], 1, "m" * 64), "sign-in-changed"),
         ):
-            self.store.forget(TEAM, saved["sign_in_id"])
-        # Nothing was proven gone, so the Sign-in is still listed and can be forgotten again.
-        self.assertEqual(self.store.list(TEAM), [saved])
-        self.assertTrue(self.store.forget(TEAM, saved["sign_in_id"]))
-
-    def test_deleting_a_team_without_sign_ins_writes_nothing(self):
-        with mock.patch.object(self.store, "_write") as written:
-            self.assertTrue(self.store.delete_team("trinity"))
-        written.assert_not_called()
-
-    def test_a_starting_team_deletes_what_an_interrupted_save_left_and_keeps_every_sign_in(self):
+            with self.subTest(expected=expected), self.assertRaises(sign_ins.SignInError) as refused:
+                self.store.begin_delete(TEAM, expected)
+            self.assertEqual(refused.exception.code, code)
+        checkout = self.checkout()
+        draft = self.store.draft(checkout)
+        draft.add(b"under way")
+        self.store.begin_delete(TEAM, confirmed)
+        with self.assertRaises(sign_ins.SignInError):
+            draft.add(b"after the fence")
+        self.assertTrue(self.store.complete_delete(TEAM))
+        self.assertIsNone(self.store.current(TEAM))
+        self.assertEqual(self.capsules(), [])
+        self.assertFalse((self.root / "state" / "drafts" / TEAM).exists())
+        with self.assertRaises(sign_ins.SignInError) as absent:
+            self.store.begin_delete(TEAM, confirmed)
+        self.assertEqual(absent.exception.code, "sign-in-absent")
+        # A session started while a deletion was fenced finds it completed first, and a late completion keeps it.
         saved = self.save()
-        draft = self.store.draft(TEAM, INCARNATION)
-        draft.add(b"interrupted")
+        self.store.begin_delete(TEAM, (saved["sign_in_id"], 1, INCARNATION))
+        fresh = self.checkout()
+        self.assertEqual(fresh.generation, 0)
+        self.assertTrue(self.store.complete_delete(TEAM))
+        self.assertIsNone(self.store.capsule(fresh))
+
+    def test_a_deletion_it_cannot_prove_keeps_its_fence_and_completes_later(self):
+        saved = self.save()
+        self.store.begin_delete(TEAM, (saved["sign_in_id"], 1, INCARNATION))
+        with mock.patch.object(sign_ins.shutil, "rmtree", side_effect=PermissionError("held")):
+            self.assertFalse(self.store.complete_delete(TEAM))
+        # The fence survives a restart: reading or starting finishes the deletion first.
+        restarted = sign_ins.SignInStore(self.root / "state", self.root / "key" / "aes256.key", now=lambda: self.now)
+        self.assertIsNone(restarted.current(TEAM))
+        self.assertEqual(self.capsules(), [])
+
+    def test_a_starting_team_ends_open_checkouts_and_deletes_what_was_left(self):
+        self.save()
+        self.checkout()
         orphan = self.root / "state" / "capsules" / f"{'d' * 32}-1"
         orphan.mkdir(mode=0o700)
-        (orphan / "00000.chunk").write_bytes(b"left")
+        draft = self.store.draft(self.store.checkout("trinity", INCARNATION, sign_ins.PERSON))
+        draft.add(b"interrupted")
         self.store.reconcile()
-        self.assertFalse((self.root / "state" / "drafts").exists())
+        self.assertEqual(self.store.current(TEAM)["state"], "needs-person")
+        self.assertNotIn("trinity", self.store._state())
         self.assertFalse(orphan.exists())
-        self.assertEqual(list(self.store.capsule(TEAM, saved["sign_in_id"])), [b"first", b"second"])
+        self.assertFalse((self.root / "state" / "drafts").exists())
+        saved = self.save()
+        self.store.begin_delete(TEAM, (saved["sign_in_id"], 2, INCARNATION))
+        with mock.patch.object(sign_ins.shutil, "rmtree", side_effect=PermissionError("held")):
+            self.store.complete_delete(TEAM)
+        self.store.reconcile()
+        self.assertEqual(self.store._state(), {})
         self.store.delete_all()
         self.store.reconcile()
+
+    def test_a_sign_in_of_an_earlier_team_incarnation_is_gone_before_a_new_checkout(self):
+        self.save()
+        checkout = self.store.checkout(TEAM, "m" * 64, sign_ins.PERSON)
+        self.assertEqual(checkout.generation, 0)
+        self.assertEqual(self.capsules(), [])
+
+    def test_a_team_deletion_and_a_reset_take_everything_and_fence_saves(self):
+        self.save()
+        draft = self.store.draft(self.checkout())
+        draft.add(b"under way")
+        self.assertTrue(self.store.delete_team(TEAM))
+        with self.assertRaises(sign_ins.SignInError):
+            draft.commit(["linkedin.com"], False, "image", lambda: True)
+        self.assertTrue(self.store.delete_team("nobody"))
+        self.save()
+        self.save(team="trinity")
+        late = self.store.draft(self.store.checkout("neo2", INCARNATION, sign_ins.PERSON))
+        self.store.delete_all()
+        self.assertEqual((self.store.current(TEAM), self.store.current("trinity")), (None, None))
+        self.assertFalse((self.root / "state" / "capsules").exists())
+        with self.assertRaises(sign_ins.SignInError):
+            late.add(b"after the reset")
         with (
             mock.patch.object(sign_ins.Path, "unlink", side_effect=PermissionError("held")),
             self.assertRaises(sign_ins.SignInError),
         ):
             self.store.delete_all()
 
-    def test_a_chunk_that_cannot_be_written_is_not_kept(self):
-        kept = self.save()
+    def test_only_an_admissible_bounded_capsule_with_admissible_sites_is_kept(self):
+        for sites in ((), ("Example.com",)):
+            with self.subTest(sites=sites), self.assertRaises(sign_ins.SignInError):
+                self.save(chunks=() if not sites else (b"x",), sites=sites or ("linkedin.com",))
+        for chunks in ((b"",), (b"x" * (sign_ins.CHUNK_BYTES + 1),)):
+            with self.subTest(chunks=len(chunks)), self.assertRaises(sign_ins.SignInError):
+                self.save(chunks)
+        with self.assertRaises(sign_ins.SignInError):
+            self.save(admitted=lambda: False)
+        checkout = self.checkout()
+        draft = self.store.draft(checkout)
         with (
             mock.patch.object(sign_ins.private_state, "replace_durably", side_effect=OSError("full")),
             self.assertRaises(sign_ins.SignInError),
         ):
-            self.save()
-        self.assertEqual(self.store.list(TEAM), [kept])
-
-    def test_a_capsule_that_cannot_be_put_in_place_is_not_kept(self):
+            draft.add(b"x")
+        draft.discard()
+        self.store.finish(checkout)
         with (
             mock.patch.object(sign_ins.Path, "rename", side_effect=OSError("cross-device")),
             self.assertRaises(sign_ins.SignInError),
         ):
             self.save()
-        self.assertEqual(self.store.list(TEAM), [])
+        self.assertIsNone(self.store.current(TEAM))
 
-    def test_a_teams_first_draft_is_fenced_by_a_reset_that_found_none_of_its_sign_ins(self):
-        draft = self.store.draft("trinity", INCARNATION)
+    def test_a_deletion_left_undone_keeps_new_checkouts_out_and_a_first_checkout_deletes_cleanly(self):
+        saved = self.save()
+        self.store.begin_delete(TEAM, (saved["sign_in_id"], 1, INCARNATION))
+        with mock.patch.object(sign_ins.shutil, "rmtree"), self.assertRaises(sign_ins.SignInError) as busy:
+            # A removal that leaves the capsule in place proves nothing: the Sign-in stays fenced.
+            self.checkout()
+        self.assertEqual(busy.exception.code, "sign-in-busy")
+        self.assertTrue(self.store.complete_delete(TEAM))
         self.store.delete_all()
-        with self.assertRaises(sign_ins.SignInError):
-            draft.add(b"after the reset")
-        self.assertFalse((self.root / "state" / "drafts").exists())
-
-    def test_a_reset_deletes_every_sign_in_and_every_capsule(self):
+        self.checkout()
+        self.assertTrue(self.store.delete_team(TEAM))
+        self.assertEqual(self.store._state(), {})
+        # A starting Team leaves a ready Sign-in as it is.
         self.save()
-        self.save(team="trinity")
-        self.store.draft(TEAM, INCARNATION).add(b"under way")
-        self.store.delete_all()
-        self.assertEqual((self.store.list(TEAM), self.store.list("trinity")), ([], []))
-        self.assertFalse((self.root / "state" / "capsules").exists())
-        self.assertFalse((self.root / "state" / "drafts").exists())
-
-    def test_only_an_admissible_site_label_and_bounded_capsule_are_kept(self):
-        for site, label in (("localhost", "Work"), ("www.linkedin.com", ""), ("www.linkedin.com", "x" * 65)):
-            with self.subTest(site=site, label=label), self.assertRaises(sign_ins.SignInError):
-                draft = self.store.draft(TEAM, INCARNATION)
-                draft.add(b"x")
-                draft.commit(site, label, "image", lambda: True)
-        for chunks in ((), (b"",), (b"x" * (sign_ins.CHUNK_BYTES + 1),)):
-            with self.subTest(chunks=len(chunks)), self.assertRaises(sign_ins.SignInError):
-                self.save(chunks)
-        self.assertEqual(self.store.list(TEAM), [])
+        self.store.reconcile()
+        self.assertEqual(self.store.current(TEAM)["state"], "ready")
 
     def test_a_state_or_record_not_this_stores_own_is_refused(self):
         index = self.root / "state" / "index.json"
-        for written in (b"not json", b"[]", b'{"schema": 1, "teams": {"neo": []}}'):
+        for written in (b"not json", b"[]", b'{"schema": 2, "teams": []}', b'{"schema": 1, "teams": {}}'):
             with self.subTest(written=written):
                 index.write_bytes(written)
                 index.chmod(0o600)
                 with self.assertRaises(sign_ins.SignInError):
-                    self.store.list(TEAM)
-        index.unlink()
+                    self.store.current(TEAM)
         sign_in_id = "a" * 32
         key = self.store._key(create=True)
         aad = sign_ins._record_aad(TEAM, sign_in_id)
-        for plaintext in (b"not json", b'{"team_id": "neo"}'):
-            with self.subTest(plaintext=plaintext):
-                envelope = sign_ins.private_state.seal_identified(key, plaintext, aad)
-                index.write_text(json.dumps({"schema": 1, "teams": {TEAM: {sign_in_id: envelope}}}))
+        for envelope in (
+            {"sign_in_id": sign_in_id},
+            {"sign_in_id": "nope", "record": {}},
+            {"sign_in_id": sign_in_id, "record": sign_ins.private_state.seal_identified(key, b"not json", aad)},
+            {
+                "sign_in_id": sign_in_id,
+                "record": sign_ins.private_state.seal_identified(key, b'{"team_id": "neo"}', aad),
+            },
+        ):
+            with self.subTest(envelope=str(envelope)[:40]):
+                index.write_text(json.dumps({"schema": 2, "teams": {TEAM: envelope}}))
                 index.chmod(0o600)
                 with self.assertRaises(sign_ins.SignInError):
-                    self.store.list(TEAM)
+                    self.store.current(TEAM)
         index.unlink()
-
-    def test_its_bounds_and_absences_are_answered_exactly(self):
-        with mock.patch.object(sign_ins, "MAX_SIGN_INS", 1):
-            self.save()
-            with self.assertRaises(sign_ins.SignInError):
-                self.store.draft(TEAM, INCARNATION)
+        saved = self.save()
+        chunk = next((self.root / "state" / "capsules").rglob("*.chunk"))
+        chunk.write_bytes(b"\0" * 40)
         with self.assertRaises(sign_ins.SignInError):
-            list(self.store.capsule(TEAM, "c" * 32))
-        with self.assertRaises(sign_ins.SignInError):
-            self.store.forget(TEAM, "../escape")
-
-    def test_a_deleted_team_takes_every_sign_in_and_a_reset_that_leaves_any_fails(self):
-        self.save()
-        self.save()
-        self.assertTrue(self.store.delete_team(TEAM))
-        self.assertEqual(list((self.root / "state" / "capsules").iterdir()), [])
-        self.save()
-        with mock.patch.object(sign_ins.shutil, "rmtree"), self.assertRaises(sign_ins.SignInError):
-            self.store.delete_all()
+            list(self.store.capsule(self.checkout()))
+        self.assertEqual(saved["generation"], 1)
 
 
 if __name__ == "__main__":

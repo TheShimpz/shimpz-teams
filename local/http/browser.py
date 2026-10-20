@@ -5,8 +5,9 @@ one of the Space's stream slots for the whole stream, and answers 101 only after
 upgrade exactly; before that, every refusal is a closed JSON answer, and after it the stream just ends. A control
 stream is the person's own control of a Browser that offers it (a sign-in session).
 
-A person signs in to a site in a sign-in session and Saves it as a Sign-in; the Team lists and forgets its Sign-ins
-(Sign-ins amendment). Every body and answer has the exact form of `protocol/http/v1/sign_in.py`.
+A person adds logins to the Team's one Sign-in in a sign-in session and Saves it; Admin reads the Sign-in and deletes
+it after the Supervisor's second factor (ADR-0117, 2026-10-20 amendment). Every body and answer has the exact form of
+`protocol/http/v1/sign_in.py`.
 """
 
 from http import HTTPStatus
@@ -28,12 +29,14 @@ BODY_LIMITS = {
     "browser-sign-in-start": MAX_BODY_BYTES,
     "browser-sign-in-save": MAX_BODY_BYTES,
     "browser-sign-in-cancel": MAX_BODY_BYTES,
-    "browser-sign-in-forget": MAX_BODY_BYTES,
+    "browser-sign-in-delete": MAX_BODY_BYTES,
 }
 _SIGN_IN_MESSAGES = {
     sign_in_protocol.NOT_RUNNING: (HTTPStatus.NOT_FOUND, "the sign-in session is not running"),
     sign_in_protocol.URL_INVALID: (HTTPStatus.BAD_REQUEST, "the sign-in URL is not admissible"),
-    sign_in_protocol.LABEL_INVALID: (HTTPStatus.BAD_REQUEST, "the Sign-in label is not admissible"),
+    sign_in_protocol.BUSY: (HTTPStatus.CONFLICT, "the Team's Sign-in is in use or being deleted"),
+    sign_in_protocol.CHANGED: (HTTPStatus.CONFLICT, "the Team's Sign-in changed since it was confirmed"),
+    sign_in_protocol.ABSENT: (HTTPStatus.NOT_FOUND, "the Team has no Sign-in"),
     sign_in_protocol.WINDOWS: (HTTPStatus.CONFLICT, "close every window but one before saving"),
     sign_in_protocol.IDENTITY_PROVIDER: (
         HTTPStatus.CONFLICT,
@@ -103,10 +106,10 @@ def _start(handler, team_id: str) -> dict[str, object]:
 
 
 def _save(handler, team_id: str) -> dict[str, object]:
-    body = _body(handler, sign_in_protocol.canonical_save)
+    body = _body(handler, sign_in_protocol.canonical_session)
     sessions = handler.server.controller.sign_in_sessions
     try:
-        return sessions.save(team_id, body["sign_in_session_id"], body["label"], _incarnation(handler, team_id))
+        return sessions.save(team_id, body["sign_in_session_id"], _incarnation(handler, team_id))
     except local_sign_in.SignInSessionError as exc:
         raise _sign_in_problem(exc) from exc
 
@@ -120,23 +123,21 @@ def _cancel(handler, team_id: str) -> dict[str, object]:
     return {"cancelled": True}
 
 
-def _sign_ins_unavailable() -> ApiProblem:
-    return ApiProblem(HTTPStatus.SERVICE_UNAVAILABLE, "the Sign-ins are unavailable", code="sign-ins-unavailable")
-
-
-def _list(handler, team_id: str) -> dict[str, object]:
+def _current(handler, team_id: str) -> dict[str, object]:
     try:
-        return {"sign_ins": handler.server.controller.sign_in_store.list(team_id)}
+        return {"sign_in": handler.server.controller.sign_in_store.current(team_id)}
     except sign_in_store.SignInError as exc:
-        raise _sign_ins_unavailable() from exc
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE, "the Sign-in is unavailable", code="sign-ins-unavailable"
+        ) from exc
 
 
-def _forget(handler, team_id: str) -> dict[str, object]:
-    body = _body(handler, sign_in_protocol.canonical_forget)
+def _delete(handler, team_id: str) -> dict[str, object]:
+    body = _body(handler, sign_in_protocol.canonical_delete)
     try:
-        return {"forgotten": handler.server.controller.sign_in_store.forget(team_id, body["sign_in_id"])}
-    except sign_in_store.SignInError as exc:
-        raise _sign_ins_unavailable() from exc
+        return {"deletion": handler.server.controller.sign_in_sessions.delete(team_id, body)}
+    except local_sign_in.SignInSessionError as exc:
+        raise _sign_in_problem(exc) from exc
 
 
 OPERATIONS = {
@@ -144,8 +145,8 @@ OPERATIONS = {
     "browser-sign-in-start": team_operation(_start),
     "browser-sign-in-save": team_operation(_save),
     "browser-sign-in-cancel": team_operation(_cancel),
-    "browser-sign-ins": team_operation(_list),
-    "browser-sign-in-forget": team_operation(_forget),
+    "browser-sign-in": team_operation(_current),
+    "browser-sign-in-delete": team_operation(_delete),
 }
 
 

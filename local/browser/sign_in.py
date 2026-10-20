@@ -17,6 +17,7 @@ epoch that a starting session must still see unchanged once its Browser exists.
 
 from __future__ import annotations
 
+import contextlib
 import secrets
 import threading
 import time
@@ -67,6 +68,8 @@ class _Session:
     lease: Lease
     view: local_view.View
     started: float
+    # The Team's Sign-in, checked out to this session before its Browser started.
+    checkout: sign_in_store.Checkout
     # Set once the session ends, however it ends; a Save under way sees it and keeps nothing.
     ended: threading.Event = field(default_factory=threading.Event)
     # Under the sessions' guard: a Save holds the session, then commits it unless it was cancelled first.
@@ -112,10 +115,18 @@ class SignInSessions:
         current = incarnation()
         if current is None:
             raise SignInSessionError(TEAM_NOT_FOUND)
+        event = secrets.token_hex(16)
+        # Starting delegates the Team's Sign-in to a person: nothing starts unless that is durably recorded first.
+        if not _activity(team_id, "browser-sign-in-start", "requested", event, flush=True):
+            raise SignInSessionError(UNAVAILABLE)
+        checkout = self._checkout(team_id, current)
         try:
-            lease = self._runtime.acquire(team_id, language(locale), mode=PERSON, url=str(url))
-        except BrowserError as exc:
-            raise SignInSessionError(exc.code) from exc
+            capsule = self._store.capsule(checkout)
+            lease = self._runtime.acquire(team_id, language(locale), mode=PERSON, url=str(url), capsule=capsule)
+        except (BrowserError, sign_in_store.SignInError) as exc:
+            self._store.finish(checkout)
+            _activity(team_id, "browser-sign-in-start", "failed", event, generation=checkout.generation)
+            raise SignInSessionError(exc.code or UNAVAILABLE) from exc
         credentials = lease.credentials
         view = local_view.View(
             lambda: self._runtime.open_relay(lease),
@@ -124,11 +135,12 @@ class SignInSessions:
             authorization=credentials.authorization if credentials is not None else None,
             private=True,
         )
-        session = _Session(secrets.token_hex(16), team_id, current, site, lease, view, self._clock())
+        session = _Session(secrets.token_hex(16), team_id, current, site, lease, view, self._clock(), checkout)
         try:
             self._service.hold(team_id, f"sign-in:{session.id}", lease, view)
         except BrowserError as exc:
             self._release(lease)
+            self._store.finish(checkout)
             raise SignInSessionError(exc.code) from exc
         with self._guard:
             admitted = (self._epoch, self._epochs.get(team_id, 0)) == admission
@@ -145,10 +157,18 @@ class SignInSessions:
                 session.ended.set()
                 self._fence(session)
                 self._release(session.lease)
+                self._store.finish(checkout)
             raise SignInSessionError(sign_in_protocol.NOT_RUNNING)
+        _activity(team_id, "browser-sign-in-start", "completed", event, generation=checkout.generation)
         _audit(lease, f"started:site={site}")
         threading.Thread(target=self._watch, args=(session,), name="browser-sign-in", daemon=True).start()
         return {"sign_in_session_id": session.id, "view_id": view.id, "site": site}
+
+    def _checkout(self, team_id: str, incarnation: str) -> sign_in_store.Checkout:
+        try:
+            return self._store.checkout(team_id, incarnation, sign_in_store.PERSON)
+        except sign_in_store.SignInError as exc:
+            raise SignInSessionError(exc.code or UNAVAILABLE) from exc
 
     def _fence(self, session: _Session) -> None:
         """No one acts on the session's Browser any more: its hold and its view end."""
@@ -186,22 +206,36 @@ class SignInSessions:
             removed = session.released.wait(SAVE_SECONDS) and session.removed
         else:
             removed = self._release(session.lease, background=background)
+            self._store.finish(session.checkout)
+        _activity(
+            team_id,
+            "browser-sign-in-cancel",
+            "completed",
+            session.id,
+            generation=session.checkout.generation,
+            background=background,
+        )
         if not removed:
             raise SignInSessionError(UNAVAILABLE)
 
-    def save(self, team_id: str, session_id: object, label: object, incarnation: Incarnation) -> dict[str, object]:
-        """Keep the session's profile as a Sign-in; the Browser is released however it ends."""
-        if sign_in_protocol.canonical_label(label) is None:
-            raise SignInSessionError(sign_in_protocol.LABEL_INVALID)
+    def save(self, team_id: str, session_id: object, incarnation: Incarnation) -> dict[str, object]:
+        """Keep the session's profile as the Team's Sign-in's next generation; the Browser is released however it ends.
+
+        Saving delegates the logins it holds, so nothing is saved unless that is durably recorded first. A completion
+        that could not be recorded after the commit is answered as committed, with `recorded` false (ADR-0120).
+        """
         session = self._running(team_id, session_id)
         if self._windows(session.lease) != 1:
             raise SignInSessionError(sign_in_protocol.WINDOWS)
+        if not _activity(team_id, "browser-sign-in-save", "requested", session.id, flush=True):
+            raise SignInSessionError(UNAVAILABLE)
         with self._guard:
             if self._sessions.get(team_id) is not session or session.saving or session.ended.is_set():
                 raise SignInSessionError(sign_in_protocol.NOT_RUNNING)
             session.saving = True
+        saved = None
         try:
-            saved = self._persist(session, label, incarnation)
+            saved = self._persist(session, incarnation)
         finally:
             # Nothing else takes a saving session away: it leaves here, ended.
             with self._guard:
@@ -209,9 +243,15 @@ class SignInSessions:
             session.ended.set()
             self._fence(session)
             session.removed = self._release(session.lease)
+            if saved is None:
+                self._store.finish(session.checkout)
+                _activity(team_id, "browser-sign-in-save", "failed", session.id)
             session.released.set()
+        recorded = _activity(
+            team_id, "browser-sign-in-save", "completed", session.id, generation=int(saved["generation"]), flush=True
+        )
         _audit(session.lease, f"saved:released={int(session.removed)}")
-        return saved
+        return {"sign_in": saved, "recorded": recorded}
 
     def _running(self, team_id: str, session_id: object) -> _Session:
         with self._guard:
@@ -220,7 +260,7 @@ class SignInSessions:
                 raise SignInSessionError(sign_in_protocol.NOT_RUNNING)
             return session
 
-    def _persist(self, session: _Session, label: object, incarnation: Incarnation) -> dict[str, object]:
+    def _persist(self, session: _Session, incarnation: Incarnation) -> dict[str, object]:
         """Fence, rest, stop, export, check, and commit; anything short of a commit keeps nothing."""
         self._fence(session)
         draft = None
@@ -234,7 +274,7 @@ class SignInSessions:
             if session.ended.wait(REST_SECONDS):
                 raise SignInSessionError(sign_in_protocol.NOT_RUNNING)
             self._runtime.stop(session.lease)
-            draft = self._store.draft(session.team_id, session.incarnation)
+            draft = self._store.draft(session.checkout)
             check = capsule_check.Check()
 
             def keep(chunk: bytes) -> None:
@@ -245,9 +285,10 @@ class SignInSessions:
             check.finish()
             if check.identity_hosts():
                 raise SignInSessionError(sign_in_protocol.IDENTITY_PROVIDER)
+            sites, truncated = check.sites()
             return draft.commit(
-                session.site,
-                label,
+                sites,
+                truncated,
                 self._runtime.image or "",
                 lambda: incarnation() == session.incarnation and self._commits(session),
             )
@@ -288,6 +329,50 @@ class SignInSessions:
             stream.close_input()
             stream.close()
             self._runtime.exited(exec_id, self._clock() + 5.0)
+
+    def delete(self, team_id: str, confirmed: dict[str, object]) -> str:
+        """Delete the Team's Sign-in exactly as the Supervisor confirmed it with a second factor (ADR-0117 item 6).
+
+        Team re-checks the confirmed Sign-in, generation, and incarnation, fences the Sign-in durably, ends a session
+        using it, and removes everything: `deleted` once proven, else `pending` while it retries in the background.
+        """
+        event, generation = secrets.token_hex(16), int(confirmed["generation"])
+        details = {"generation": generation, "factor": str(confirmed["factor"])}
+        # Deleting is protective: an activity journal that cannot record it never stops it (ADR-0120).
+        _activity(team_id, "browser-sign-in-delete", "requested", event, **details)
+        expected = (str(confirmed["sign_in_id"]), generation, str(confirmed["team_incarnation"]))
+        try:
+            self._store.begin_delete(team_id, expected)
+        except sign_in_store.SignInError as exc:
+            _activity(team_id, "browser-sign-in-delete", "failed", event, **details)
+            raise SignInSessionError(exc.code or UNAVAILABLE) from exc
+        with self._guard:
+            session = self._sessions.get(team_id)
+        if session is not None:
+            # The Browser of a session using the Sign-in ends now; the fence already keeps its Save from committing.
+            with contextlib.suppress(SignInSessionError):
+                self.cancel(team_id, session.id)
+        if self._deleted(team_id):
+            _activity(team_id, "browser-sign-in-delete", "completed", event, **details)
+            return "deleted"
+        threading.Thread(
+            target=self._delete_later, args=(team_id, event, details), name="browser-sign-in-delete", daemon=True
+        ).start()
+        return "pending"
+
+    def _deleted(self, team_id: str) -> bool:
+        try:
+            return self._store.complete_delete(team_id)
+        except sign_in_store.SignInError:
+            return False
+
+    def _delete_later(self, team_id: str, event: str, details: dict[str, object]) -> None:
+        """Retry a fenced deletion until its absence is proven; a restarted Team process completes it at its start."""
+        while True:
+            time.sleep(RECOVER_SECONDS)
+            if self._deleted(team_id):
+                _activity(team_id, "browser-sign-in-delete", "completed", event, background=True, **details)
+                return
 
     def _watch(self, session: _Session) -> None:
         """End the session at its limit, once the person left it alone too long, or once its screen is lost.
@@ -357,3 +442,34 @@ def _audit(lease: Lease, state: str, *, background: bool = False) -> None:
         )
     else:
         local_audit.record_request("browser-sign-in", result="ok", team_id=lease.team_id, detail=detail)
+
+
+def _activity(
+    team_id: str,
+    operation: str,
+    phase: str,
+    event_id: str,
+    *,
+    background: bool = False,
+    flush: bool = False,
+    **details: object,
+) -> bool:
+    """Record one activity event of the Team's Sign-in (ADR-0120); whether it was recorded, durably when `flush`.
+
+    The actor is the request's verified principal, or Team itself on a background thread; never a cookie, input, or URL.
+    """
+    activity = {"event_id": event_id, "phase": phase, "subject": "sign-in", **details}
+    try:
+        principal = local_audit.TEAM if background else local_audit.request_principal()
+        local_audit.record_activity(
+            operation,
+            result="error" if phase == "failed" else "ok",
+            principal=principal,
+            team_id=team_id,
+            activity=activity,
+        )
+        if flush:
+            local_audit.flush()
+    except RuntimeError:
+        return False
+    return True

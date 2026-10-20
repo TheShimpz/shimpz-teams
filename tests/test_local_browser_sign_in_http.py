@@ -1,4 +1,4 @@
-"""A Team's Sign-ins over HTTP: starting, saving, and cancelling a sign-in session, listing and forgetting Sign-ins."""
+"""A Team's Sign-in over HTTP: starting, saving, and cancelling a sign-in session, reading and deleting the Sign-in."""
 
 import unittest
 from http import HTTPStatus
@@ -13,16 +13,22 @@ from tests.test_local_http_server_edges import LocalHttpEdgeHelpers
 TEAM = "team_1"
 SESSION = "a" * 32
 SIGN_IN = "b" * 32
-INCARNATION = "n" * 64
+INCARNATION = "c" * 64
 STARTED = {"sign_in_session_id": SESSION, "view_id": "c" * 32, "site": "www.linkedin.com"}
-SAVED = {
+SIGN_IN_VIEW = {
     "sign_in_id": SIGN_IN,
-    "site": "www.linkedin.com",
-    "label": "Work",
+    "state": "ready",
+    "generation": 1,
+    "team_incarnation": INCARNATION,
+    "sites": ["linkedin.com"],
+    "sites_truncated": False,
     "created_at": "2026-10-19T12:00:00Z",
+    "saved_at": "2026-10-19T12:00:00Z",
     "last_used_at": "2026-10-19T12:00:00Z",
     "expires_at": "2026-10-26T12:00:00Z",
 }
+SAVED = {"sign_in": SIGN_IN_VIEW, "recorded": True}
+CONFIRMED = {"sign_in_id": SIGN_IN, "generation": 1, "team_incarnation": INCARNATION, "factor": "totp"}
 
 
 class FakeSessions:
@@ -39,26 +45,24 @@ class FakeSessions:
     def start(self, team_id, incarnation, url, locale):
         return self._answer(("start", team_id, incarnation(), url, locale), STARTED)
 
-    def save(self, team_id, session_id, label, incarnation):
-        return self._answer(("save", team_id, session_id, label, incarnation()), SAVED)
+    def save(self, team_id, session_id, incarnation):
+        return self._answer(("save", team_id, session_id, incarnation()), SAVED)
 
     def cancel(self, team_id, session_id):
         return self._answer(("cancel", team_id, session_id), None)
+
+    def delete(self, team_id, confirmed):
+        return self._answer(("delete", team_id, confirmed), "deleted")
 
 
 class FakeStore:
     def __init__(self, error=None):
         self.error = error
 
-    def list(self, team_id):
+    def current(self, team_id):
         if self.error is not None:
             raise self.error
-        return [SAVED]
-
-    def forget(self, team_id, sign_in_id):
-        if self.error is not None:
-            raise self.error
-        return sign_in_id == SIGN_IN
+        return SIGN_IN_VIEW
 
 
 class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
@@ -97,9 +101,9 @@ class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
             controller.sign_in_sessions.calls,
             [("start", TEAM, INCARNATION, "https://www.linkedin.com/login", "pt")],
         )
-        saved, controller = self.call("browser-sign-in-save", {"sign_in_session_id": SESSION, "label": "Work"})
+        saved, controller = self.call("browser-sign-in-save", {"sign_in_session_id": SESSION})
         self.assertEqual(saved, SAVED)
-        self.assertEqual(controller.sign_in_sessions.calls, [("save", TEAM, SESSION, "Work", INCARNATION)])
+        self.assertEqual(controller.sign_in_sessions.calls, [("save", TEAM, SESSION, INCARNATION)])
         cancelled, _controller = self.call("browser-sign-in-cancel", {"sign_in_session_id": SESSION})
         self.assertEqual(cancelled, {"cancelled": True})
 
@@ -107,11 +111,11 @@ class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
         sessions = FakeSessions()
         self.call(
             "browser-sign-in-save",
-            {"sign_in_session_id": SESSION, "label": "Work"},
+            {"sign_in_session_id": SESSION},
             sessions=sessions,
             network=ApiProblemError(HTTPStatus.NOT_FOUND, "gone", code="team-not-found"),
         )
-        self.assertEqual(sessions.calls, [("save", TEAM, SESSION, "Work", None)])
+        self.assertEqual(sessions.calls, [("save", TEAM, SESSION, None)])
         # A start asks for the Team as it is before any Browser starts.
         gone = self.refused(
             "browser-sign-in-start",
@@ -120,18 +124,19 @@ class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
         )
         self.assertEqual(gone.code, "team-not-found")
 
-    def test_sign_ins_are_listed_and_forgotten(self):
-        listed, _controller = self.call("browser-sign-ins")
-        self.assertEqual(listed, {"sign_ins": [SAVED]})
-        forgotten, _controller = self.call("browser-sign-in-forget", {"sign_in_id": SIGN_IN})
-        self.assertEqual(forgotten, {"forgotten": True})
+    def test_the_sign_in_is_read_and_deleted_as_confirmed(self):
+        current, _controller = self.call("browser-sign-in")
+        self.assertEqual(current, {"sign_in": SIGN_IN_VIEW})
+        deleted, controller = self.call("browser-sign-in-delete", CONFIRMED)
+        self.assertEqual(deleted, {"deletion": "deleted"})
+        self.assertEqual(controller.sign_in_sessions.calls, [("delete", TEAM, CONFIRMED)])
 
     def test_every_body_outside_its_exact_form_is_refused(self):
         for operation, body in (
             ("browser-sign-in-start", {"url": "http://example.com/", "locale": "pt"}),
-            ("browser-sign-in-save", {"sign_in_session_id": SESSION, "label": " Work"}),
+            ("browser-sign-in-save", {"sign_in_session_id": SESSION, "label": "Work"}),
             ("browser-sign-in-cancel", {"sign_in_session_id": "x"}),
-            ("browser-sign-in-forget", {"sign_in_id": SIGN_IN, "extra": 1}),
+            ("browser-sign-in-delete", {**CONFIRMED, "factor": "password"}),
         ):
             with self.subTest(operation=operation):
                 problem = self.refused(operation, body)
@@ -144,6 +149,9 @@ class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
             ("sign-in-identity-provider", HTTPStatus.CONFLICT),
             ("sign-in-unsaved", HTTPStatus.SERVICE_UNAVAILABLE),
             ("browser-busy", HTTPStatus.CONFLICT),
+            ("sign-in-busy", HTTPStatus.CONFLICT),
+            ("sign-in-changed", HTTPStatus.CONFLICT),
+            ("sign-in-absent", HTTPStatus.NOT_FOUND),
             ("team-not-found", HTTPStatus.NOT_FOUND),
             ("anything-else", HTTPStatus.SERVICE_UNAVAILABLE),
         ):
@@ -154,20 +162,16 @@ class SignInHttpTests(LocalHttpEdgeHelpers, unittest.TestCase):
                 self.assertEqual((problem.status, problem.code), (status, expected))
         for operation, body in (
             ("browser-sign-in-start", {"url": "https://a.com/", "locale": "en"}),
-            ("browser-sign-in-save", {"sign_in_session_id": SESSION, "label": "Work"}),
+            ("browser-sign-in-save", {"sign_in_session_id": SESSION}),
+            ("browser-sign-in-delete", CONFIRMED),
         ):
             with self.subTest(operation=operation):
                 sessions = FakeSessions(local_sign_in.SignInSessionError("sign-in-unsaved"))
                 self.assertEqual(self.refused(operation, body, sessions=sessions).code, "sign-in-unsaved")
 
-    def test_unreadable_sign_ins_are_unavailable(self):
-        store = FakeStore(sign_in_store.SignInError("unreadable"))
-        for operation, body in (("browser-sign-ins", None), ("browser-sign-in-forget", {"sign_in_id": SIGN_IN})):
-            with self.subTest(operation=operation):
-                problem = self.refused(operation, body, store=store)
-                self.assertEqual(
-                    (problem.status, problem.code), (HTTPStatus.SERVICE_UNAVAILABLE, "sign-ins-unavailable")
-                )
+    def test_an_unreadable_sign_in_is_unavailable(self):
+        problem = self.refused("browser-sign-in", store=FakeStore(sign_in_store.SignInError("unreadable")))
+        self.assertEqual((problem.status, problem.code), (HTTPStatus.SERVICE_UNAVAILABLE, "sign-ins-unavailable"))
 
 
 if __name__ == "__main__":

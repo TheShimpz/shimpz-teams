@@ -217,8 +217,8 @@ class BrowserRuntime:
     ) -> Lease:
         """Create this task's Browser on a fresh egress generation; the caller releases the returned lease.
 
-        A person's sign-in starts at `url`; a signed-in Browser, and a person's when the Team has a Sign-in, restores the
-        capsule's chunks before Chromium starts.
+        A person's sign-in starts at `url`; a signed-in Browser, and a person's when the Team has a Sign-in, restores
+        the capsule's chunks before Chromium starts.
         """
         if (
             self._image is None

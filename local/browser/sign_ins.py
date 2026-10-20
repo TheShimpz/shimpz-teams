@@ -1,16 +1,21 @@
-"""A Team's Sign-ins: sealed Chrome profiles a person signed in with (ADR-0117, Sign-ins amendment items 1, 5, 6, 11).
+"""A Team's Sign-in: the sealed browser session a person saved their logins into (ADR-0117, 2026-10-20 amendment).
 
-Each Sign-in's capsule is kept as numbered chunk files, each sealed (AES-256-GCM) under a keyring apart from the state
-and bound to the Team, its incarnation (the Team network's id), the Sign-in, its generation, and the chunk's place, so a
-chunk never moves between capsules. Its record (site, label, times, chunk count, writer image) is sealed too, bound to
-the Team and the Sign-in, so neither the capsule nor its metadata can be altered without the key. A Sign-in lives 30
-days at most and 7 days unused; an expired one is deleted when read. A Save fences against Forget, the Team's deletion,
-and a Space reset: a commit whose Team was cleared meanwhile, or that its caller no longer admits, keeps nothing.
+Each Team has at most one Sign-in. Its capsule is kept as numbered chunk files, each sealed (AES-256-GCM) under a
+keyring apart from the state and bound to the Team, its incarnation (the Team network's id), the Sign-in, its
+generation, and the chunk's place, so a chunk never moves between capsules. Its record (state, sites found in its
+cookies, times, chunk count, writer image, open checkout, deletion fence) is sealed too, bound to the Team and the
+Sign-in, so neither the capsule nor its metadata can be altered without the key.
 
-A Save writes its chunks under its Team's drafts and moves them into place only as it commits, so a Team's deletion
-takes a Save's chunks too. A deletion removes a capsule before the record naming it and proves it gone, so a failure
-leaves the record to delete again. A Team process starting holds no Save, so it deletes every draft and every capsule
-no record names: what an interrupted Save or deletion of this store left behind.
+The Sign-in has one exclusive checkout at a time, recorded before its Browser starts. Only a Save commits: it writes the
+next generation with compare-and-swap on the checkout and the generation it restored, and leaves the Sign-in `ready`.
+Any other end of a checkout that restored a generation keeps that generation's bytes but marks it `needs-person`; the
+end of a Team's first checkout leaves no Sign-in. A stale end, of a checkout no longer current, changes nothing. A
+Sign-in lives 30 days from its last Save and 7 days unused; an expired one is deleted when read.
+
+Deletion records a durable fence first, then removes every capsule and draft and the record, and proves them gone; a
+removal it cannot prove leaves the fence for the next attempt. A Team process starting holds no checkout and no Save,
+so it ends every open checkout as failed, completes every fenced deletion, and deletes every draft and every capsule
+no record names.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ import shutil
 import threading
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
@@ -33,33 +39,41 @@ from storage import private_state
 
 STATE_ROOT = Path("/var/lib/shimpz-local/browser-sign-ins/state")
 KEY_PATH = Path("/var/lib/shimpz-local/browser-sign-ins/key/aes256.key")
-SCHEMA = 1
-MAX_SIGN_INS = sign_in_protocol.MAX_SIGN_INS
+SCHEMA = 2
 MAX_STATE_BYTES = 1024 * 1024
-MAX_RECORD_BYTES = 4096
+MAX_RECORD_BYTES = 8192
 CHUNK_BYTES = 1024 * 1024
 MAX_CHUNKS = 160
 LIFETIME_SECONDS = 30 * 24 * 3600
 IDLE_SECONDS = 7 * 24 * 3600
+READY, NEEDS_PERSON = "ready", "needs-person"
+PERSON, AGENT = "person", "agent"
 _RECORD_KEYS = frozenset(
     {
         "team_id",
         "sign_in_id",
         "incarnation",
         "generation",
-        "site",
-        "label",
+        "state",
+        "sites",
+        "sites_truncated",
         "created_at",
+        "saved_at",
         "last_used_at",
-        "expires_at",
         "chunks",
         "writer",
+        "checkout",
+        "deleting",
     }
 )
 
 
 class SignInError(RuntimeError):
-    """The Sign-ins could not be read or kept as their contract requires."""
+    """The Sign-in could not be read or kept as its contract requires; `code` names a closed refusal if one applies."""
+
+    def __init__(self, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 _PRIVATE = private_state.PrivateState(
@@ -70,17 +84,29 @@ _PRIVATE = private_state.PrivateState(
 )
 
 
+@dataclass(frozen=True, slots=True)
+class Checkout:
+    """One exclusive checkout of a Team's Sign-in: whose it is, and the generation it restored (0 for a first one)."""
+
+    id: str
+    team_id: str
+    sign_in_id: str
+    incarnation: str
+    kind: str
+    generation: int
+
+
 def _record_aad(team_id: str, sign_in_id: str) -> bytes:
     return "\0".join(("shimpz-sign-in-record", team_id, sign_in_id)).encode()
 
 
-def _chunk_aad(record: dict[str, object], index: int) -> bytes:
-    parts = ("shimpz-sign-in-capsule", record["team_id"], record["incarnation"], record["sign_in_id"])
-    return "\0".join((*parts, str(record["generation"]), str(index))).encode()
+def _chunk_aad(checkout: Checkout, generation: int, index: int) -> bytes:
+    parts = ("shimpz-sign-in-capsule", checkout.team_id, checkout.incarnation, checkout.sign_in_id)
+    return "\0".join((*parts, str(generation), str(index))).encode()
 
 
 class SignInStore:
-    """Every Team's Sign-ins on this Local."""
+    """Every Team's Sign-in on this Local."""
 
     def __init__(
         self,
@@ -94,7 +120,7 @@ class SignInStore:
         self._index = index
         self._now = now
         self._lock = threading.RLock()
-        # Each Team's fence: a Save commits only if no Forget-all, Team deletion, or reset cleared that Team meanwhile.
+        # Each Team's in-process fence: a Save writes and commits only if no deletion or reset came since it began.
         self._fences: dict[str, int] = {}
 
     # State
@@ -102,7 +128,7 @@ class SignInStore:
     def _key(self, *, create: bool = False) -> bytes:
         return _PRIVATE.key(self._key_path, "Sign-ins keyring", allow_create=create)
 
-    def _state(self) -> dict[str, dict[str, object]]:
+    def _state(self) -> dict[str, object]:
         payload = _PRIVATE.read_private_file(self._index, MAX_STATE_BYTES, "Sign-ins state")
         if payload is None:
             return {}
@@ -112,19 +138,31 @@ class SignInStore:
             raise SignInError("the Sign-ins state is malformed") from exc
         if not isinstance(value, dict) or set(value) != {"schema", "teams"} or value["schema"] != SCHEMA:
             raise SignInError("the Sign-ins state is malformed")
-        teams = value["teams"]
-        if not isinstance(teams, dict) or not all(isinstance(records, dict) for records in teams.values()):
+        if not isinstance(value["teams"], dict):
             raise SignInError("the Sign-ins state is malformed")
-        return teams
+        return value["teams"]
 
-    def _write(self, teams: dict[str, dict[str, object]]) -> None:
-        kept = {team: records for team, records in teams.items() if records}
-        _PRIVATE.write_json(self._index, {"schema": SCHEMA, "teams": kept}, MAX_STATE_BYTES, "Sign-ins state")
+    def _write(self, teams: dict[str, object]) -> None:
+        _PRIVATE.write_json(self._index, {"schema": SCHEMA, "teams": teams}, MAX_STATE_BYTES, "Sign-ins state")
 
-    def _open(self, team_id: str, sign_in_id: str, envelope: object) -> dict[str, object]:
-        _PRIVATE.check_identified_envelope(envelope, MAX_RECORD_BYTES, "a Sign-in record is malformed")
+    def _record(self, team_id: str) -> tuple[dict[str, object], dict[str, object] | None]:
+        """The state, and the Team's record opened and checked, or None when it has none."""
+        teams = self._state()
+        envelope = teams.get(team_id)
+        if envelope is None:
+            return teams, None
+        if not isinstance(envelope, dict) or set(envelope) != {"sign_in_id", "record"}:
+            raise SignInError("a Sign-in record is malformed")
+        sign_in_id = envelope["sign_in_id"]
+        if not isinstance(sign_in_id, str) or not sign_in_protocol.ID_RE.fullmatch(sign_in_id):
+            raise SignInError("a Sign-in record is malformed")
+        _PRIVATE.check_identified_envelope(envelope["record"], MAX_RECORD_BYTES, "a Sign-in record is malformed")
         plaintext = _PRIVATE.open_identified_envelope(
-            self._key(), envelope, _record_aad(team_id, sign_in_id), MAX_RECORD_BYTES, "a Sign-in record is invalid"
+            self._key(),
+            envelope["record"],
+            _record_aad(team_id, sign_in_id),
+            MAX_RECORD_BYTES,
+            "a Sign-in record is invalid",
         )
         try:
             record = json.loads(plaintext)
@@ -137,13 +175,14 @@ class SignInStore:
             or record["sign_in_id"] != sign_in_id
         ):
             raise SignInError("a Sign-in record is invalid")
-        return record
+        return teams, record
 
-    def _seal(self, record: dict[str, object]) -> dict[str, str]:
+    def _put(self, teams: dict[str, object], record: dict[str, object]) -> None:
         plaintext = json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
-        return private_state.seal_identified(
-            self._key(create=True), plaintext, _record_aad(str(record["team_id"]), str(record["sign_in_id"]))
-        )
+        team_id, sign_in_id = str(record["team_id"]), str(record["sign_in_id"])
+        sealed = private_state.seal_identified(self._key(create=True), plaintext, _record_aad(team_id, sign_in_id))
+        teams[team_id] = {"sign_in_id": sign_in_id, "record": sealed}
+        self._write(teams)
 
     def _capsule_dir(self, sign_in_id: str, generation: int) -> Path:
         return self._root / "capsules" / f"{sign_in_id}-{generation}"
@@ -164,88 +203,161 @@ class SignInStore:
             raise SignInError("a Sign-in's capsule could not be deleted")
 
     def _expired(self, record: dict[str, object]) -> bool:
-        now = self._now()
-        return now >= float(record["expires_at"]) or now >= float(record["last_used_at"]) + IDLE_SECONDS
-
-    def _drop(self, teams: dict[str, dict[str, object]], team_id: str, sign_in_id: str, generation: int) -> None:
-        self._remove(self._capsule_dir(sign_in_id, generation))
-        teams.get(team_id, {}).pop(sign_in_id, None)
-        self._write(teams)
+        return bool(record["generation"]) and self._now() >= _expires(record)
 
     # Reading
 
-    def list(self, team_id: str) -> list[dict[str, object]]:
-        """The Team's current Sign-ins, newest first; an expired one is deleted as it is read."""
+    def current(self, team_id: str) -> dict[str, object] | None:
+        """The Team's Sign-in as Admin shows it, or None; an expired one is deleted as it is read."""
         team_id = validate_team_id(team_id)
         with self._lock:
-            teams = self._state()
-            listed = []
-            for sign_in_id, envelope in sorted(teams.get(team_id, {}).items()):
-                record = self._open(team_id, sign_in_id, envelope)
-                if self._expired(record):
-                    self._drop(teams, team_id, sign_in_id, int(record["generation"]))
-                    continue
-                listed.append(_public(record))
-            return sorted(listed, key=lambda item: item["created_at"], reverse=True)
+            _teams, record = self._record(team_id)
+            if record is not None and (record["deleting"] or self._expired(record)):
+                self._delete(team_id)
+                return None
+            return _public(record) if record is not None and record["generation"] else None
 
-    # Saving
+    # Checkout
 
-    def draft(self, team_id: str, incarnation: str) -> Draft:
-        """A new Sign-in's capsule, sealed chunk by chunk as it arrives; nothing is kept until it commits."""
+    def checkout(self, team_id: str, incarnation: str, kind: str) -> Checkout:
+        """Check the Team's Sign-in out, durably, before its Browser starts; a first one has no generation yet."""
         team_id = validate_team_id(team_id)
         with self._lock:
-            if len(self._state().get(team_id, {})) >= MAX_SIGN_INS:
-                raise SignInError("the Team keeps as many Sign-ins as it may")
-            # The fence is registered with the draft, so a reset that finds no Sign-in of the Team still advances it.
-            return Draft(self, team_id, incarnation, self._fences.setdefault(team_id, 0))
+            teams, record = self._record(team_id)
+            if record is not None and (
+                record["deleting"] or self._expired(record) or record["incarnation"] != incarnation
+            ):
+                # A fenced, expired, or earlier incarnation's Sign-in is gone before anything new is checked out.
+                if not self._delete(team_id):
+                    raise SignInError("the Sign-in is being deleted", sign_in_protocol.BUSY)
+                teams, record = self._record(team_id)
+            if record is not None and record["checkout"] is not None:
+                raise SignInError("the Sign-in is checked out", sign_in_protocol.BUSY)
+            if record is not None and kind == AGENT and record["state"] == NEEDS_PERSON:
+                raise SignInError("the Sign-in needs a person", sign_in_protocol.BUSY)
+            now = self._now()
+            if record is None:
+                record = _first(team_id, incarnation, now)
+            checkout = Checkout(
+                secrets.token_hex(16), team_id, str(record["sign_in_id"]), incarnation, kind, int(record["generation"])
+            )
+            record["checkout"] = {"id": checkout.id, "kind": kind}
+            record["last_used_at"] = max(now, float(record["last_used_at"]))
+            self._put(teams, record)
+            self._fences.setdefault(team_id, 0)
+            return checkout
 
-    def capsule(self, team_id: str, sign_in_id: str) -> Iterator[bytes]:
-        """The Sign-in's capsule, chunk by chunk, each authenticated before it is handed out."""
-        team_id = validate_team_id(team_id)
+    def _held(self, checkout: Checkout) -> tuple[dict[str, object], dict[str, object]] | None:
+        """The state and record while `checkout` is still the Sign-in's current one, else None."""
+        teams, record = self._record(checkout.team_id)
+        if (
+            record is None
+            or record["deleting"]
+            or record["checkout"] is None
+            or record["checkout"]["id"] != checkout.id
+            or record["generation"] != checkout.generation
+        ):
+            return None
+        return teams, record
+
+    def capsule(self, checkout: Checkout) -> Iterator[bytes] | None:
+        """The checked-out generation's capsule, chunk by chunk, each authenticated; None for a first checkout."""
         with self._lock:
-            envelope = self._state().get(team_id, {}).get(sign_in_id)
-            if envelope is None:
-                raise SignInError("the Sign-in is absent")
-            record = self._open(team_id, sign_in_id, envelope)
+            held = self._held(checkout)
+            if held is None:
+                raise SignInError("the checkout is no longer current", sign_in_protocol.NOT_RUNNING)
+            chunks = int(held[1]["chunks"])
+        return self._chunks(checkout, chunks) if checkout.generation else None
+
+    def _chunks(self, checkout: Checkout, chunks: int) -> Iterator[bytes]:
         cipher = AESGCM(self._key())
-        directory = self._capsule_dir(sign_in_id, int(record["generation"]))
-        for index in range(int(record["chunks"])):
+        directory = self._capsule_dir(checkout.sign_in_id, checkout.generation)
+        for index in range(chunks):
             try:
                 sealed = (directory / f"{index:05d}.chunk").read_bytes()
-                yield cipher.decrypt(sealed[:12], sealed[12:], _chunk_aad(record, index))
+                yield cipher.decrypt(sealed[:12], sealed[12:], _chunk_aad(checkout, checkout.generation, index))
             except (OSError, InvalidTag) as exc:
                 raise SignInError("the Sign-in's capsule is unreadable or not its own") from exc
 
-    # Forgetting
-
-    def forget(self, team_id: str, sign_in_id: str) -> bool:
-        """Delete one Sign-in; whether it existed. An absent one is no failure."""
-        team_id = validate_team_id(team_id)
-        if not sign_in_protocol.ID_RE.fullmatch(sign_in_id):
-            raise SignInError("the Sign-in id is not admissible")
+    def draft(self, checkout: Checkout) -> Draft:
+        """The next generation's capsule, sealed chunk by chunk as it arrives; nothing is kept until it commits."""
         with self._lock:
-            teams = self._state()
-            envelope = teams.get(team_id, {}).get(sign_in_id)
-            if envelope is None:
-                return False
-            record = self._open(team_id, sign_in_id, envelope)
-            self._drop(teams, team_id, sign_in_id, int(record["generation"]))
-            return True
+            if self._held(checkout) is None:
+                raise SignInError("the checkout is no longer current", sign_in_protocol.NOT_RUNNING)
+            return Draft(self, checkout, self._fences.setdefault(checkout.team_id, 0))
+
+    def finish(self, checkout: Checkout) -> None:
+        """End a checkout without a Save: a restored generation now needs a person; a first one leaves nothing."""
+        with self._lock:
+            held = self._held(checkout)
+            if held is None:
+                return
+            teams, record = held
+            if not record["generation"]:
+                teams.pop(checkout.team_id, None)
+                self._write(teams)
+                return
+            record["checkout"] = None
+            record["state"] = NEEDS_PERSON
+            self._put(teams, record)
+
+    # Deleting
+
+    def begin_delete(self, team_id: str, expected: tuple[str, int, str]) -> None:
+        """Fence the exact Sign-in the Supervisor confirmed (its id, generation, and Team incarnation) for deletion."""
+        team_id = validate_team_id(team_id)
+        with self._lock:
+            teams, record = self._record(team_id)
+            if record is None or not record["generation"]:
+                raise SignInError("the Team has no Sign-in", sign_in_protocol.ABSENT)
+            if (record["sign_in_id"], record["generation"], record["incarnation"]) != expected:
+                raise SignInError("the Sign-in changed since it was confirmed", sign_in_protocol.CHANGED)
+            self._fence(teams, record)
+
+    def _fence(self, teams: dict[str, object], record: dict[str, object]) -> None:
+        team_id = str(record["team_id"])
+        self._fences[team_id] = self._fences.get(team_id, 0) + 1
+        if not record["deleting"]:
+            record["deleting"] = True
+            self._put(teams, record)
+
+    def complete_delete(self, team_id: str) -> bool:
+        """Remove a fenced Sign-in's capsules, drafts, and record; whether they were all proven gone.
+
+        A Sign-in no longer fenced was already deleted, and the one there now was started afterwards: it stays.
+        """
+        team_id = validate_team_id(team_id)
+        with self._lock:
+            _teams, record = self._record(team_id)
+            return (record is not None and not record["deleting"]) or self._delete(team_id)
+
+    def _delete(self, team_id: str) -> bool:
+        teams, record = self._record(team_id)
+        self._fences[team_id] = self._fences.get(team_id, 0) + 1
+        try:
+            if record is not None:
+                self._fence(teams, record)
+                for directory in self._capsules_of(str(record["sign_in_id"])):
+                    self._remove(directory)
+            self._remove(self._drafts(team_id))
+        except SignInError:
+            return False
+        teams, _record = self._record(team_id)
+        if teams.pop(team_id, None) is not None:
+            self._write(teams)
+        return team_id not in self._state()
+
+    def _capsules_of(self, sign_in_id: str) -> list[Path]:
+        capsules = self._root / "capsules"
+        if not capsules.is_dir():
+            return []
+        return [path for path in capsules.iterdir() if path.name.rpartition("-")[0] == sign_in_id]
 
     def delete_team(self, team_id: str) -> bool:
-        """Delete every Sign-in of a deleted Team and fence its Saves under way; prove none is left."""
+        """A deleted Team's Sign-in goes with it, fencing a Save under way; whether nothing is left."""
         team_id = validate_team_id(team_id)
         with self._lock:
-            self._fences[team_id] = self._fences.get(team_id, 0) + 1
-            teams = self._state()
-            for sign_in_id, envelope in teams.get(team_id, {}).items():
-                record = self._open(team_id, sign_in_id, envelope)
-                self._remove(self._capsule_dir(sign_in_id, int(record["generation"])))
-            self._remove(self._drafts(team_id))
-            # A Team with no Sign-in leaves the state untouched: there is nothing to write.
-            if teams.pop(team_id, None) is not None:
-                self._write(teams)
-            return team_id not in self._state()
+            return self._delete(team_id)
 
     def delete_all(self) -> None:
         """A Space reset: every Sign-in and every capsule is deleted, and every Save under way fenced."""
@@ -260,73 +372,82 @@ class SignInStore:
                 raise SignInError("the Sign-ins were not all deleted") from exc
 
     def reconcile(self) -> None:
-        """At Team startup: delete every draft and every capsule no record names, left by an interrupted Save."""
+        """At Team startup, end every open checkout as failed and complete every fenced deletion.
+
+        Then every draft and every capsule no record names is deleted.
+        """
         with self._lock:
-            named = {sign_in_id for records in self._state().values() for sign_in_id in records}
+            for team_id in list(self._state()):
+                _teams, record = self._record(team_id)
+                if record["deleting"]:
+                    self._delete(team_id)
+                elif record["checkout"] is not None:
+                    self.finish(
+                        Checkout(
+                            str(record["checkout"]["id"]),
+                            team_id,
+                            str(record["sign_in_id"]),
+                            str(record["incarnation"]),
+                            str(record["checkout"]["kind"]),
+                            int(record["generation"]),
+                        )
+                    )
+            named = set()
+            for team_id in self._state():
+                _teams, record = self._record(team_id)
+                named.add(f"{record['sign_in_id']}-{record['generation']}")
             self._remove(self._root / "drafts")
             capsules = self._root / "capsules"
             for directory in capsules.iterdir() if capsules.is_dir() else ():
-                if directory.name.rpartition("-")[0] not in named:
+                if directory.name not in named:
                     self._remove(directory)
 
 
 class Draft:
-    """One Sign-in being saved: its chunks sealed as they arrive, its record written only by `commit`."""
+    """One Save of a checked-out Sign-in: its chunks sealed as they arrive, its record written only by `commit`."""
 
-    def __init__(self, store: SignInStore, team_id: str, incarnation: str, fence: int) -> None:
+    def __init__(self, store: SignInStore, checkout: Checkout, fence: int) -> None:
         self._store = store
+        self._checkout = checkout
         self._fence = fence
-        now = store._now()
-        self.record: dict[str, object] = {
-            "team_id": team_id,
-            "sign_in_id": secrets.token_hex(16),
-            "incarnation": incarnation,
-            "generation": 1,
-            "site": "",
-            "label": "",
-            "created_at": now,
-            "last_used_at": now,
-            "expires_at": now + LIFETIME_SECONDS,
-            "chunks": 0,
-            "writer": "",
-        }
-        self._directory = store._drafts(team_id) / str(self.record["sign_in_id"])
+        self.generation = checkout.generation + 1
+        self.chunks = 0
+        self._directory = store._drafts(checkout.team_id) / checkout.id
         self._cipher: AESGCM | None = None
 
     def add(self, chunk: bytes) -> None:
-        """Seal one more chunk of the capsule."""
-        count = int(self.record["chunks"])
-        if not chunk or len(chunk) > CHUNK_BYTES or count >= MAX_CHUNKS:
+        """Seal one more chunk of the capsule, under the store's lock and its Team's fence."""
+        if not chunk or len(chunk) > CHUNK_BYTES or self.chunks >= MAX_CHUNKS:
             raise SignInError("the capsule is not within its bounds")
-        store, team_id = self._store, str(self.record["team_id"])
-        # Under the store's lock, against its Team's fence: a chunk never lands after its Team's deletion or a reset.
+        store = self._store
         with store._lock:
-            if store._fences.get(team_id, 0) != self._fence:
+            if store._fences.get(self._checkout.team_id, 0) != self._fence:
                 raise SignInError("the Sign-in was revoked before it was kept")
             if self._cipher is None:
                 self._cipher = AESGCM(store._key(create=True))
                 self._directory.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
                 self._directory.mkdir(mode=0o700)
             nonce = os.urandom(12)
-            sealed = nonce + self._cipher.encrypt(nonce, chunk, _chunk_aad(self.record, count))
+            aad = _chunk_aad(self._checkout, self.generation, self.chunks)
+            sealed = nonce + self._cipher.encrypt(nonce, chunk, aad)
             try:
-                private_state.replace_durably(self._directory / f"{count:05d}.chunk", sealed)
+                private_state.replace_durably(self._directory / f"{self.chunks:05d}.chunk", sealed)
             except OSError as exc:
                 raise SignInError("the capsule could not be kept") from exc
-        self.record["chunks"] = count + 1
+        self.chunks += 1
 
-    def commit(self, site: object, label: object, writer: str, admitted: Callable[[], bool]) -> dict[str, object]:
-        """Keep the Sign-in, only if `admitted()` holds and no clear of its Team came since the draft began."""
-        site, label = sign_in_protocol.canonical_site(site), sign_in_protocol.canonical_label(label)
-        if site is None or label is None or not self.record["chunks"]:
-            raise SignInError("the Sign-in's site, label, or capsule is not admissible")
-        self.record.update(site=site, label=label, writer=writer)
-        store, team_id = self._store, str(self.record["team_id"])
+    def commit(self, sites: list[str], truncated: bool, writer: str, admitted: Callable[[], bool]) -> dict[str, object]:
+        """Commit the next generation, only if the checkout is still current, nothing fenced it, and `admitted()`."""
+        if not self.chunks or not all(sign_in_protocol.canonical_site(site) for site in sites):
+            raise SignInError("the Sign-in's capsule or sites are not admissible")
+        store, checkout = self._store, self._checkout
         with store._lock:
-            if store._fences.get(team_id, 0) != self._fence or not admitted():
+            held = store._held(checkout)
+            if held is None or store._fences.get(checkout.team_id, 0) != self._fence or not admitted():
                 raise SignInError("the Sign-in was revoked before it was kept")
+            teams, record = held
             private_state.fsync_directory(self._directory)
-            capsule = store._capsule_dir(str(self.record["sign_in_id"]), int(self.record["generation"]))
+            capsule = store._capsule_dir(checkout.sign_in_id, self.generation)
             capsule.parent.mkdir(mode=0o700, exist_ok=True)
             try:
                 self._directory.rename(capsule)
@@ -335,26 +456,67 @@ class Draft:
                 private_state.fsync_directory(capsule.parent)
             except OSError as exc:
                 raise SignInError("the Sign-in's capsule could not be put in place") from exc
-            teams = store._state()
-            teams.setdefault(team_id, {})[str(self.record["sign_in_id"])] = store._seal(self.record)
-            store._write(teams)
-        return _public(self.record)
+            now = store._now()
+            earlier = int(record["generation"])
+            record.update(
+                generation=self.generation,
+                state=READY,
+                sites=sorted(sites)[: sign_in_protocol.MAX_SITES],
+                sites_truncated=truncated,
+                saved_at=now,
+                last_used_at=now,
+                chunks=self.chunks,
+                writer=writer,
+                checkout=None,
+            )
+            store._put(teams, record)
+        if earlier:
+            # The generation this one replaced; one left behind is deleted at the next Team start.
+            shutil.rmtree(store._capsule_dir(checkout.sign_in_id, earlier), ignore_errors=True)
+        return _public(record)
 
     def discard(self) -> None:
         """Delete what the Save wrote; anything left is deleted when the Team process next starts."""
         shutil.rmtree(self._directory, ignore_errors=True)
 
 
+def _first(team_id: str, incarnation: str, now: float) -> dict[str, object]:
+    """A Team's first Sign-in, before any Save: generation 0, shown to no one."""
+    return {
+        "team_id": team_id,
+        "sign_in_id": secrets.token_hex(16),
+        "incarnation": incarnation,
+        "generation": 0,
+        "state": READY,
+        "sites": [],
+        "sites_truncated": False,
+        "created_at": now,
+        "saved_at": now,
+        "last_used_at": now,
+        "chunks": 0,
+        "writer": "",
+        "checkout": None,
+        "deleting": False,
+    }
+
+
+def _expires(record: dict[str, object]) -> float:
+    return min(float(record["saved_at"]) + LIFETIME_SECONDS, float(record["last_used_at"]) + IDLE_SECONDS)
+
+
 def _public(record: dict[str, object]) -> dict[str, object]:
-    """What a Supervisor sees of one Sign-in: never the capsule or the incarnation."""
-    expires = min(float(record["expires_at"]), float(record["last_used_at"]) + IDLE_SECONDS)
+    """What a Supervisor sees of the Sign-in: never its capsule."""
     return {
         "sign_in_id": record["sign_in_id"],
-        "site": record["site"],
-        "label": record["label"],
+        "state": record["state"],
+        "generation": record["generation"],
+        "team_incarnation": record["incarnation"],
+        "sites": list(record["sites"]),
+        "sites_truncated": record["sites_truncated"],
         "created_at": _iso(float(record["created_at"])),
+        "saved_at": _iso(float(record["saved_at"])),
         "last_used_at": _iso(float(record["last_used_at"])),
-        "expires_at": _iso(expires),
+        "expires_at": _iso(_expires(record)),
     }
 
 
