@@ -95,7 +95,7 @@ fn main() -> ExitCode {
         }),
         ["stop"] => controlled().and_then(|()| stop()),
         ["profile", "export"] => controlled().and_then(|()| export()),
-        ["profile", "import"] => signed_in().and_then(|()| import()),
+        ["profile", "import"] => restoring().and_then(|()| import()),
         _ => Err(
             "usage: browser-host launch | mcp | ready | relay | files list | files read NAME | credentials | stop \
              | profile export | profile import"
@@ -111,13 +111,20 @@ fn main() -> ExitCode {
     }
 }
 
-/// Who drives the Browser: the agent alone; a person signing in, starting at `url`; or a signed-in task restored from
-/// a Sign-in, which a person may take over.
+/// Who drives the Browser: the agent alone; a person signing in, starting at `url` and restored from the Team's Sign-in
+/// when it has one (`restore`); or a signed-in task restored from it, which a person may take over.
 #[derive(Debug, PartialEq, Eq)]
 enum Mode {
     Agent,
-    Person(String),
+    Person { url: String, restore: bool },
     SignedIn,
+}
+
+impl Mode {
+    /// Whether Chromium starts only on a profile Team restored first.
+    fn restores(&self) -> bool {
+        matches!(self, Mode::SignedIn | Mode::Person { restore: true, .. })
+    }
 }
 
 /// The settings Team gives one Browser: the egress proxy's address, the page language, and its mode.
@@ -142,11 +149,21 @@ fn mode(environment: &HashMap<String, String>) -> Result<Mode, String> {
     match environment.get("BROWSER_MODE").map(String::as_str) {
         Some("agent") => Ok(Mode::Agent),
         Some("signed-in") => Ok(Mode::SignedIn),
-        Some("person") => environment
-            .get("BROWSER_URL")
-            .filter(|url| start_url(url))
-            .map(|url| Mode::Person(url.clone()))
-            .ok_or_else(|| "BROWSER_URL must be the https URL a sign-in starts at".into()),
+        Some("person") => {
+            let url = environment
+                .get("BROWSER_URL")
+                .filter(|url| start_url(url))
+                .ok_or("BROWSER_URL must be the https URL a sign-in starts at")?;
+            let restore = match environment.get("BROWSER_RESTORE").map(String::as_str) {
+                None => false,
+                Some("1") => true,
+                Some(_) => return Err("BROWSER_RESTORE must be 1 or absent".into()),
+            };
+            Ok(Mode::Person {
+                url: url.clone(),
+                restore,
+            })
+        }
         _ => Err("BROWSER_MODE must be agent, person, or signed-in".into()),
     }
 }
@@ -182,10 +199,11 @@ fn controlled() -> Result<(), String> {
     }
 }
 
-fn signed_in() -> Result<(), String> {
-    match current_mode()? {
-        Mode::SignedIn => Ok(()),
-        _ => Err("only a signed-in Browser restores a profile".into()),
+fn restoring() -> Result<(), String> {
+    if current_mode()?.restores() {
+        Ok(())
+    } else {
+        Err("only a Browser restored from the Team's Sign-in imports a profile".into())
     }
 }
 
@@ -238,8 +256,13 @@ fn chromium_arguments(settings: &Settings) -> Vec<String> {
     match &settings.mode {
         // Only the page: no tab strip and no address bar on the watched screen.
         Mode::Agent => arguments.extend(["--kiosk".into(), "about:blank".into()]),
-        // A person signing in reads the real address in Chromium's own bar.
-        Mode::Person(url) => arguments.push(url.clone()),
+        // A person signing in reads the real address in Chromium's own bar; a restored session's tabs come back too.
+        Mode::Person { url, restore } => {
+            if *restore {
+                arguments.push("--restore-last-session".into());
+            }
+            arguments.push(url.clone());
+        }
         // The restored session's tabs, each with its own session storage, and no extra tab beside them.
         Mode::SignedIn => arguments.extend(["--kiosk".into(), "--restore-last-session".into()]),
     }
@@ -311,7 +334,7 @@ fn start_all(settings: &Settings, children: &mut Vec<Child>) -> Result<(), Strin
     if !telemetry.is_ok_and(|output| output.status.success()) {
         return Err("cannot turn the Cua Driver's telemetry off".into());
     }
-    if settings.mode == Mode::SignedIn {
+    if settings.mode.restores() {
         // Chromium starts only on the profile Team restored.
         let deadline = Instant::now() + RESTORE_DEADLINE;
         while !Path::new(RESTORED).exists() {
@@ -387,7 +410,7 @@ fn supervise(settings: &Settings, children: &mut [Child]) -> Result<(), String> 
             // Held while deciding and reopening, so a clean stop either came first or finds the new Chromium.
             let _lifecycle = lifecycle(Path::new(LIFECYCLE_LOCK))?;
             if chromium
-                && matches!(settings.mode, Mode::Person(_))
+                && matches!(settings.mode, Mode::Person { .. })
                 && !Path::new(STOPPING).exists()
                 && reopened < MAX_REOPENED
             {
@@ -733,7 +756,21 @@ mod tests {
                 ("BROWSER_MODE", "person"),
                 ("BROWSER_URL", "https://www.linkedin.com/login")
             ]),
-            Ok(Mode::Person("https://www.linkedin.com/login".into()))
+            Ok(Mode::Person {
+                url: "https://www.linkedin.com/login".into(),
+                restore: false
+            })
+        );
+        assert_eq!(
+            of(&[
+                ("BROWSER_MODE", "person"),
+                ("BROWSER_URL", "https://www.linkedin.com/login"),
+                ("BROWSER_RESTORE", "1")
+            ]),
+            Ok(Mode::Person {
+                url: "https://www.linkedin.com/login".into(),
+                restore: true
+            })
         );
         for refused in [
             vec![],
@@ -749,6 +786,11 @@ mod tests {
                 ("BROWSER_MODE", "person"),
                 ("BROWSER_URL", "javascript:alert(1)"),
             ],
+            vec![
+                ("BROWSER_MODE", "person"),
+                ("BROWSER_URL", "https://example.com"),
+                ("BROWSER_RESTORE", "yes"),
+            ],
         ] {
             assert!(of(&refused).is_err(), "{refused:?}");
         }
@@ -763,9 +805,23 @@ mod tests {
                 mode,
             })
         };
-        let person = with(Mode::Person("https://example.com/login".into()));
+        let person = with(Mode::Person {
+            url: "https://example.com/login".into(),
+            restore: false,
+        });
         assert_eq!(person.last().unwrap(), "https://example.com/login");
         assert!(!person.contains(&"--kiosk".to_owned()));
+        assert!(!person.contains(&"--restore-last-session".to_owned()));
+        let restored = with(Mode::Person {
+            url: "https://example.com/login".into(),
+            restore: true,
+        });
+        assert!(restored.ends_with(&[
+            "--restore-last-session".to_owned(),
+            "https://example.com/login".to_owned()
+        ]));
+        assert!(!restored.contains(&"--kiosk".to_owned()));
+        assert!(Mode::SignedIn.restores() && !Mode::Agent.restores());
         let signed_in = with(Mode::SignedIn);
         assert!(signed_in.ends_with(&["--kiosk".to_owned(), "--restore-last-session".to_owned()]));
         assert!(!signed_in.contains(&"about:blank".to_owned()));
