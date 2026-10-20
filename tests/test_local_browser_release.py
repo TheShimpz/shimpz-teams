@@ -29,25 +29,34 @@ def _client_frames(data: bytes) -> list[bytes]:
     return frames
 
 
+# How the scripted display answers unless a test says otherwise.
+DISPLAY_ANSWER = {
+    "upgrade_status": "101",
+    "update": True,
+    "version": b"RFB 003.008\n",
+    "security": b"\x01\x01",
+    "result": b"\x00\x00\x00\x00",
+    "first": b"\x00\x00\x00\x00",
+    "raw_frames": b"",
+    "extra_headers": 0,
+    "name_length": 4,
+}
+
+
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
         self.display = Display()
         self.addCleanup(self.display.close)
         self.credentials = Credentials.draw()
 
-    def play(
-        self,
-        *,
-        upgrade_status: str = "101",
-        update: bool = True,
-        version: bytes = b"RFB 003.008\n",
-        security: bytes = b"\x01\x01",
-        result: bytes = b"\x00\x00\x00\x00",
-        first: bytes = b"\x00\x00\x00\x00",
-        raw_frames: bytes = b"",
-    ) -> dict[str, object]:
+    def play(self, **changes: object) -> dict[str, object]:
         """Answer as KasmVNC: the upgrade, the RFB handshake, and one update; record what Team sent."""
         seen: dict[str, object] = {}
+        answer_with = {**DISPLAY_ANSWER, **changes}
+        upgrade_status, update = answer_with["upgrade_status"], answer_with["update"]
+        version, security, result = answer_with["version"], answer_with["security"], answer_with["result"]
+        first, raw_frames = answer_with["first"], answer_with["raw_frames"]
+        extra_headers, name_length = answer_with["extra_headers"], answer_with["name_length"]
 
         def serve():
             request = self.display.read_request().decode()
@@ -57,9 +66,11 @@ class ReleaseTests(unittest.TestCase):
                 self.display.write(b"HTTP/1.1 401 Forbidden\r\n\r\n")
                 self.display.display_side.shutdown(2)
                 return
-            init = struct.pack(">HH", 1280, 800) + bytes(16) + struct.pack(">I", 4) + b"test"
+            init = struct.pack(">HH", 1280, 800) + bytes(16) + struct.pack(">I", name_length) + b"test"
+            answer = admitted_answer(key)
+            answer = answer[:-2] + b"X-Extra: 1\r\n" * extra_headers + b"\r\n"
             self.display.write(
-                admitted_answer(key)
+                answer
                 + raw_frames
                 + _server_frame(version)
                 + _server_frame(security)
@@ -87,9 +98,19 @@ class ReleaseTests(unittest.TestCase):
         self.worker = worker
         return seen
 
+    def release(self, *, proven: bool = True) -> None:
+        """Release through the test display, its relay exec proven ended (or not) as `proven` says."""
+        self.exits: list[str] = []
+
+        def exited(exec_id: str, _deadline: float) -> bool:
+            self.exits.append(exec_id)
+            return proven
+
+        release.release(lambda: ("exec-1", self.display.stream), exited, self.credentials.authorization(True))
+
     def test_team_releases_every_button_as_the_writer_and_presses_nothing(self):
         seen = self.play()
-        release.release(lambda: ("exec-1", self.display.stream), self.credentials.authorization(True))
+        self.release()
         self.worker.join(5)
         self.assertIn(f"Authorization: {self.credentials.authorization(True)}", seen["request"])
         version, security, shared, encodings, pointer, update = seen["frames"]
@@ -98,6 +119,13 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(pointer, struct.pack(">BHHHhh", 5, 0, 0, 0, 0, 0))
         self.assertEqual(update[0], 3)
         self.assertFalse(any(frame[:1] == b"\x04" for frame in seen["frames"]))
+        self.assertEqual(self.exits, ["exec-1"])
+
+    def test_a_release_whose_relay_is_not_proven_ended_is_no_release(self):
+        self.play()
+        with self.assertRaises(release.ReleaseError):
+            self.release(proven=False)
+        self.worker.join(5)
 
     def test_a_refused_stream_or_a_display_that_never_answers_is_no_release(self):
         for options in ({"upgrade_status": "401"}, {"update": False}):
@@ -105,7 +133,7 @@ class ReleaseTests(unittest.TestCase):
                 self.setUp()
                 self.play(**options)
                 with self.assertRaises(release.ReleaseError):
-                    release.release(lambda: ("exec-1", self.display.stream), self.credentials.authorization(True))
+                    self.release()
                 self.worker.join(5)
 
     def test_a_display_that_speaks_other_than_kasm_does_is_no_release(self):
@@ -118,19 +146,21 @@ class ReleaseTests(unittest.TestCase):
             {"first": b"\x02\x00\x00\x00"},
             {"raw_frames": bytes([0x81, 1]) + b"x"},
             {"raw_frames": huge_frame},
+            {"extra_headers": release.MAX_HEADER_LINES},
+            {"name_length": release.MAX_NAME_BYTES + 1},
         ):
             with self.subTest(options=list(options)):
                 self.setUp()
                 self.play(**options)
                 with self.assertRaises(release.ReleaseError):
-                    release.release(lambda: ("exec-1", self.display.stream), self.credentials.authorization(True))
+                    self.release()
                 self.display.display_side.close()
                 self.worker.join(5)
         # A 16-bit length is read as one: two bytes the handshake does not ask for are kept until it does.
         self.setUp()
         self.play(raw_frames=long_frame, version=b"FB 003.008\n")
         with self.assertRaises(release.ReleaseError):
-            release.release(lambda: ("exec-1", self.display.stream), self.credentials.authorization(True))
+            self.release()
 
 
 if __name__ == "__main__":

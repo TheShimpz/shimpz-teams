@@ -4,7 +4,8 @@ A person's control stream can end with a pointer button still pressed in the dis
 stream's keys itself, but keeps its buttons held (measured on the shipped image: a button pressed by a stream that
 then closed stayed down). Before anything else acts on the Browser, Team opens its own read-write stream through the
 relay, completes the RFB handshake, sends a pointer event with no button pressed, and waits for one screen update,
-which proves the display handled it, then closes the stream. It never presses anything.
+which proves the display handled it, then closes the stream and proves its relay exec ended. It never presses
+anything, and it reads only what fits its bounds: the display is never trusted to size Team's memory.
 """
 
 from __future__ import annotations
@@ -19,6 +20,11 @@ from local.browser.channel import ChannelError, ExecStream
 from local.browser.tunnel import MAX_UPGRADE_BYTES, admitted, upgrade_request
 
 RELEASE_SECONDS = 5.0
+# The deadline to prove the release's own relay exec ended, once its stream closed.
+EXIT_SECONDS = 2.0
+# The upgrade answer's lines, and the desktop name the display announces, each read only within these bounds.
+MAX_HEADER_LINES = 32
+MAX_NAME_BYTES = 4096
 # KasmVNC's pointer event: type 5, a 16-bit button mask, the position, and two scroll deltas.
 _POINTER = struct.Struct(">BHHHhh")
 # A full update request of one pixel: its answer comes only after the display handled everything sent before it.
@@ -77,42 +83,56 @@ class _Rfb:
 
 def release(
     open_relay: Callable[[], tuple[str, ExecStream]],
+    exited: Callable[[str, float], bool],
     authorization: str,
     *,
     clock: Callable[[], float] = time.monotonic,
 ) -> None:
     """Release every modifier and pointer button in the display, as the read-write user; raise if it was not done."""
-    _exec_id, display = open_relay()
+    exec_id, display = open_relay()
     deadline = clock() + RELEASE_SECONDS
     try:
-        key = base64.b64encode(os.urandom(16)).decode()
-        display.send(upgrade_request(key, authorization), deadline)
-        head = []
-        while line := display.receive_line(deadline, MAX_UPGRADE_BYTES).decode("latin-1").removesuffix("\r"):
-            head.append(line)
-        if not admitted(head, key):
-            raise ReleaseError("the display refused Team's own stream")
-        rfb = _Rfb(display, deadline, display.take(display.buffered()))
-        if not rfb.read(12).startswith(b"RFB 003."):
-            raise ReleaseError("the display did not speak RFB")
-        rfb.send(b"RFB 003.008\n")
-        types = rfb.read(rfb.read(1)[0])
-        if 1 not in types:
-            raise ReleaseError("the display offered no security type Team's stream uses")
-        rfb.send(b"\x01")
-        if rfb.read(4) != b"\x00\x00\x00\x00":
-            raise ReleaseError("the display refused Team's stream")
-        rfb.send(b"\x01")
-        rfb.read(20)
-        rfb.read(struct.unpack(">I", rfb.read(4))[0])
-        rfb.send(_RAW_ENCODINGS)
-        rfb.send(_POINTER.pack(5, 0, 0, 0, 0, 0))
-        rfb.send(_UPDATE_REQUEST)
-        # Server messages before the update (a bell, a colour map, cut text) are not expected from this display.
-        if rfb.read(1) != b"\x00":
-            raise ReleaseError("the display did not answer with a screen update")
+        _release(display, authorization, deadline)
     except ChannelError as exc:
         raise ReleaseError("Team's own stream to the display failed") from exc
     finally:
         display.close_input()
         display.close()
+        if not exited(exec_id, clock() + EXIT_SECONDS):
+            raise ReleaseError("Team's own relay to the display was not proven ended")
+
+
+def _release(display: ExecStream, authorization: str, deadline: float) -> None:
+    key = base64.b64encode(os.urandom(16)).decode()
+    display.send(upgrade_request(key, authorization), deadline)
+    head: list[str] = []
+    received = 0
+    while line := display.receive_line(deadline, MAX_UPGRADE_BYTES).decode("latin-1").removesuffix("\r"):
+        head.append(line)
+        received += len(line) + 2
+        if len(head) > MAX_HEADER_LINES or received > MAX_UPGRADE_BYTES:
+            raise ReleaseError("the display's upgrade answer is larger than allowed")
+    if not admitted(head, key):
+        raise ReleaseError("the display refused Team's own stream")
+    rfb = _Rfb(display, deadline, display.take(display.buffered()))
+    if not rfb.read(12).startswith(b"RFB 003."):
+        raise ReleaseError("the display did not speak RFB")
+    rfb.send(b"RFB 003.008\n")
+    types = rfb.read(rfb.read(1)[0])
+    if 1 not in types:
+        raise ReleaseError("the display offered no security type Team's stream uses")
+    rfb.send(b"\x01")
+    if rfb.read(4) != b"\x00\x00\x00\x00":
+        raise ReleaseError("the display refused Team's stream")
+    rfb.send(b"\x01")
+    rfb.read(20)
+    name_length = struct.unpack(">I", rfb.read(4))[0]
+    if name_length > MAX_NAME_BYTES:
+        raise ReleaseError("the display's name is longer than allowed")
+    rfb.read(name_length)
+    rfb.send(_RAW_ENCODINGS)
+    rfb.send(_POINTER.pack(5, 0, 0, 0, 0, 0))
+    rfb.send(_UPDATE_REQUEST)
+    # Server messages before the update (a bell, a colour map, cut text) are not expected from this display.
+    if rfb.read(1) != b"\x00":
+        raise ReleaseError("the display did not answer with a screen update")
