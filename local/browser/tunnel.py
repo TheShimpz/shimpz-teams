@@ -34,8 +34,12 @@ class TunnelError(RuntimeError):
     """The display did not answer the upgrade exactly, or a side of the stream failed."""
 
 
-def upgrade_request(key: str) -> bytes:
-    """The one upgrade request the display receives, whatever the viewer sent."""
+def upgrade_request(key: str, authorization: str | None = None) -> bytes:
+    """The one upgrade request the display receives, whatever the viewer sent.
+
+    A controlled Browser's display authenticates every stream: Team adds the credential of the stream's role
+    (ADR-0117, Sign-ins amendment item 3), which never comes from the viewer.
+    """
     lines = (
         "GET /websockify HTTP/1.1",
         "Host: 127.0.0.1:6901",
@@ -45,6 +49,7 @@ def upgrade_request(key: str) -> bytes:
         f"Sec-WebSocket-Key: {key}",
         f"Sec-WebSocket-Version: {view_protocol.WEBSOCKET_VERSION}",
         f"Sec-WebSocket-Protocol: {view_protocol.SUBPROTOCOL}",
+        *((f"Authorization: {authorization}",) if authorization is not None else ()),
     )
     return ("\r\n".join(lines) + "\r\n\r\n").encode("ascii")
 
@@ -99,11 +104,11 @@ class Tunnel:
         with suppress(OSError):
             self._client.shutdown(socket.SHUT_RDWR)
 
-    def upgrade(self, key: str) -> tuple[bytes, bytes]:
+    def upgrade(self, key: str, authorization: str | None = None) -> tuple[bytes, bytes]:
         """Upgrade the display with the viewer's key; the 101 to send the viewer, and any display bytes already read."""
         deadline = self._clock() + UPGRADE_SECONDS
         try:
-            self._display.send(upgrade_request(key), deadline)
+            self._display.send(upgrade_request(key, authorization), deadline)
             head: list[str] = []
             size = 0
             while True:

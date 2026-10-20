@@ -7,11 +7,14 @@ import unittest
 from unittest import mock
 
 from local.browser import view
+from local.browser.credentials import Credentials
 from local.browser.runtime import BrowserError, ExecStartError
 from tests.test_local_browser_tunnel import KEY, Display, admitted_answer
 
 
-class ViewTests(unittest.TestCase):
+class ViewCase(unittest.TestCase):
+    """A view over scripted displays: each relay the view opens is a fresh `Display` the test answers."""
+
     def setUp(self):
         self.records: list[str] = []
         self.exited = mock.Mock(return_value=True)
@@ -29,6 +32,8 @@ class ViewTests(unittest.TestCase):
         self.displays.append(display)
         return f"exec-{len(self.displays)}", display.stream
 
+
+class ViewTests(ViewCase):
     def make(self) -> view.View:
         return view.View(lambda: self.open_relay(), self.exited, self.records.append)
 
@@ -144,6 +149,87 @@ class ViewTests(unittest.TestCase):
             screen.carry(self.team_viewer, KEY, lambda _first: None)
         self.assertEqual(refused.exception.code, "browser-not-running")
         self.exited.assert_called_once()
+
+
+class ControlTests(ViewCase):
+    """A Browser a person may control: credentials per role, one controller, private control, and the release."""
+
+    def make(self) -> view.View:
+        self.credentials = Credentials.draw()
+        return view.View(
+            lambda: self.open_relay(), self.exited, self.records.append, authorization=self.credentials.authorization
+        )
+
+    def carry_in_background(self, screen, answers, control=False, client=None):
+        outcome: dict[str, object] = {}
+
+        def run():
+            try:
+                screen.carry(client or self.team_viewer, KEY, answers.append, control=control)
+            except BrowserError as exc:
+                outcome["error"] = exc.code
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        return worker, outcome
+
+    def answered(self, count: int) -> Display:
+        deadline = time.monotonic() + 5
+        while len(self.displays) < count and time.monotonic() < deadline:
+            time.sleep(0.01)
+        display = self.displays[count - 1]
+        self.requests.append(display.read_request())
+        display.write(admitted_answer() + b"RFB")
+        return display
+
+    def setUp(self):
+        super().setUp()
+        self.requests: list[bytes] = []
+
+    def test_an_agents_view_offers_no_control(self):
+        screen = view.View(lambda: self.open_relay(), self.exited, self.records.append)
+        with self.assertRaises(BrowserError) as refused:
+            screen.carry(self.team_viewer, KEY, lambda _first: None, control=True)
+        self.assertEqual(refused.exception.code, "browser-view-unavailable")
+
+    def test_control_is_private_and_ends_with_every_button_released(self):
+        screen = self.make()
+        watcher_answers: list[bytes] = []
+        watcher, watched = self.carry_in_background(screen, watcher_answers)
+        self.answered(1)
+        controller_side, controller_team = socket.socketpair()
+        self.addCleanup(controller_side.close)
+        self.addCleanup(controller_team.close)
+        with mock.patch.object(view.input_release, "release") as released:
+            controlling, controlled = self.carry_in_background(screen, [], control=True, client=controller_team)
+            self.answered(2)
+            # Taking control ended the watcher's stream at once.
+            watcher.join(5)
+            self.assertFalse(watcher.is_alive())
+            self.assertEqual(watched, {})
+            with self.assertRaises(BrowserError) as busy:
+                screen.carry(self.viewer, KEY, lambda _first: None)
+            self.assertEqual(busy.exception.code, "browser-view-busy")
+            screen.end()
+            controlling.join(5)
+        self.assertEqual(controlled, {})
+        self.assertIn(f"Authorization: {self.credentials.authorization(False)}".encode(), self.requests[0])
+        self.assertIn(f"Authorization: {self.credentials.authorization(True)}".encode(), self.requests[1])
+        released.assert_called_once()
+        self.assertEqual(released.call_args.args[1], self.credentials.authorization(True))
+        self.assertIn("control-ended:released=1", self.records)
+
+    def test_a_release_that_fails_leaves_the_view_unavailable(self):
+        screen = self.make()
+        with mock.patch.object(view.input_release, "release", side_effect=view.input_release.ReleaseError("held")):
+            controlling, _controlled = self.carry_in_background(screen, [], control=True)
+            display = self.answered(1)
+            display.display_side.shutdown(socket.SHUT_RDWR)
+            controlling.join(5)
+        self.assertIn("control-ended:released=0", self.records)
+        with self.assertRaises(BrowserError) as refused:
+            screen.carry(self.viewer, KEY, lambda _first: None)
+        self.assertEqual(refused.exception.code, "browser-view-unavailable")
 
 
 if __name__ == "__main__":
