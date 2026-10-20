@@ -443,16 +443,19 @@ class SignInStore:
         """
         teams, record = self._record(team_id)
         self._fences[team_id] = self._fences.get(team_id, 0) + 1
-        self._quarantine.pop(team_id, None)
         if record is not None:
             self._fence(teams, record, dict(_INTERNAL))
+        # From the durable fence on, nothing checks the held generation out; the hold goes only once it is gone.
         if not self._purge(team_id, record):
             return False
         if record is not None and record["deleting"]["event_id"]:
+            self._quarantine.pop(team_id, None)
             return True
         teams, _record = self._record(team_id)
         if teams.pop(team_id, None) is not None:
             self._write(teams)
+        # The record's removal is durable here (a failed write raised): nothing is left to hold.
+        self._quarantine.pop(team_id, None)
         return team_id not in self._state()
 
     def _capsules_of(self, sign_in_id: str) -> list[Path]:

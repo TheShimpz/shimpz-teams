@@ -571,7 +571,18 @@ class SignInStoreTests(unittest.TestCase):
         self.assertEqual(self.current("trinity")["state"], "needs-person")
         self.assertEqual(self.store._record("trinity")[1]["state"], "needs-person")
         self.assertNotIn("trinity", self.store._quarantine)
+        # A lifecycle deletion that could not be fenced or proven keeps a hold it had.
+        self.store._quarantine["trinity"] = 1
+        with (
+            mock.patch.object(sign_ins.SignInStore, "_put", side_effect=failed),
+            self.assertRaises(sign_ins.SignInError),
+        ):
+            self.store.delete_team("trinity")
+        with mock.patch.object(sign_ins.shutil, "rmtree"):
+            self.assertFalse(self.store.delete_team("trinity"))
+        self.assertIn("trinity", self.store._quarantine)
         self.store.delete_team("trinity")
+        self.assertNotIn("trinity", self.store._quarantine)
         # Not named after all: the next start deletes it, and a refused write that named nothing is discarded at once.
         self.store.reconcile()
         self.assertEqual(self.capsules(), [f"{checkout.sign_in_id}-1"])

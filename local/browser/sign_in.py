@@ -539,12 +539,15 @@ class SignInSessions:
         Sign-in it may have restored is reported complete. Pending deletions the store cannot read yet are read again
         until it can.
         """
-        # Cleanup never waits on the Sign-ins' metadata: a previous process's Browser is removed first, whatever it is.
+        # Cleanup never waits on the Sign-ins' metadata: a previous process's Browser is removed first, whatever it is,
+        # and a cleanup that failed is tried again until it is proven, whether or not a deletion waits on it.
         proven = self._service.startup()
         pending = self._pending()
         if not proven:
-            for team_id in {deletion.team_id for deletion in pending}:
-                self._recovering(team_id, STARTUP_RESIDUE)
+            with self._guard:
+                self._residue.update((deletion.team_id, STARTUP_RESIDUE) for deletion in pending)
+            name = "browser-sign-in-recover"
+            threading.Thread(target=self._recover_startup, name=name, daemon=True).start()
         for deletion in pending:
             if not self._settle(deletion, background=True):
                 self._later(deletion)
@@ -626,25 +629,31 @@ class SignInSessions:
             self._residue.discard((lease.team_id, lease.container_id))
         return True
 
-    def _recovering(self, team_id: str, lease: Lease | str) -> None:
-        """Clean `lease`'s Browser (or the Browsers a previous process left) in the background until proven gone."""
-        container = lease if isinstance(lease, str) else lease.container_id
+    def _recovering(self, team_id: str, lease: Lease) -> None:
+        """Clean `lease`'s Browser in the background until it is proven gone."""
         with self._guard:
-            self._residue.add((team_id, container))
+            self._residue.add((team_id, lease.container_id))
         threading.Thread(
             target=self._recover, args=(team_id, lease), name="browser-sign-in-recover", daemon=True
         ).start()
 
-    def _recover(self, team_id: str, lease: Lease | str) -> None:
-        """Clean again until no residue is proven left; a restarted Team process cleans up after a stopped one."""
-        container = lease if isinstance(lease, str) else lease.container_id
+    def _recover_startup(self) -> None:
+        """Clean again until no Browser a previous Team process left is proven left."""
         while True:
             time.sleep(RECOVER_SECONDS)
             if self._runtime.recover():
                 with self._guard:
-                    self._residue.discard((team_id, container))
-                if not isinstance(lease, str):
-                    _audit(lease, "recovered", background=True)
+                    self._residue = {key for key in self._residue if key[1] != STARTUP_RESIDUE}
+                return
+
+    def _recover(self, team_id: str, lease: Lease) -> None:
+        """Clean again until no residue is proven left; a restarted Team process cleans up after a stopped one."""
+        while True:
+            time.sleep(RECOVER_SECONDS)
+            if self._runtime.recover():
+                with self._guard:
+                    self._residue.discard((team_id, lease.container_id))
+                _audit(lease, "recovered", background=True)
                 return
 
 

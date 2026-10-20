@@ -721,11 +721,21 @@ class SignInSessionTests(unittest.TestCase):
     def test_a_proven_removal_clears_only_its_own_browsers_residue(self):
         saved = self.save(self.start())
         self.sessions._residue.update({(TEAM, "older"), (TEAM, "newer")})
-        self.sessions._recover(TEAM, "older")
+        older = runtime.Lease(TEAM, "older", "172.30.0.3", GENERATION, runtime.PERSON, None)
+        self.sessions._recover(TEAM, older)
         self.assertEqual(self.sessions._residue, {(TEAM, "newer")})
         self.assertEqual(self.sessions.delete(TEAM, self.confirmed(saved)), "pending")
         self.sessions._residue.clear()
         self.until(("browser-sign-in-delete", "completed"))
+
+    def test_a_restarted_team_whose_cleanup_failed_keeps_cleaning_with_no_deletion_pending(self):
+        self.runtime.recovers = [False, True]
+        with mock.patch.object(self.service, "startup", return_value=False):
+            self.sessions.startup()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and self.runtime.events.count(("recover",)) < 2:
+            time.sleep(0.01)
+        self.assertEqual(self.runtime.events.count(("recover",)), 2)
 
     def test_a_restarted_team_removes_earlier_browsers_before_reading_its_sign_ins(self):
         order = []
