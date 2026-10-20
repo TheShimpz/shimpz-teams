@@ -418,6 +418,23 @@ class BrowserRuntimeTests(unittest.TestCase):
                     browser.acquire("neo", "en", mode=runtime.SIGNED_IN, capsule=iter((b"capsule",)))
                 self.assertEqual(self.browsers(), [])
 
+    def test_recovery_cleans_a_dirty_runtime_unless_a_task_holds_the_browser(self):
+        browser = self.make()
+        self.assertTrue(browser.recover())
+        browser._dirty = True
+        with mock.patch.object(browser, "clean", side_effect=runtime.BrowserError("browser-lost")):
+            self.assertFalse(browser.recover())
+        self.assertTrue(browser.recover())
+        self.assertFalse(browser._dirty)
+        # A clean runtime has nothing to recover.
+        with mock.patch.object(browser, "clean") as untouched:
+            self.assertTrue(browser.recover())
+        untouched.assert_not_called()
+        lease = browser.acquire("neo", "en")
+        # The task holding the Browser cleaned first: nothing is left to recover.
+        self.assertTrue(browser.recover())
+        browser.release(lease)
+
     def test_a_clean_stop_keeps_the_browser_and_any_doubt_is_a_lost_browser(self):
         browser = self.make()
         lease = browser.acquire("neo", "en", mode=runtime.PERSON, url="https://example.com")

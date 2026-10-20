@@ -31,6 +31,8 @@ class FakeRuntime:
         self.acquire_error = None
         self.stream_error = None
         self.release_error = None
+        # What each background recovery answers in turn; True once the list is spent.
+        self.recovers = []
 
     def acquire(self, team_id, language, *, mode, url):
         self.events.append(("acquire", team_id, language, mode, url))
@@ -64,6 +66,10 @@ class FakeRuntime:
         if self.release_error is not None:
             raise self.release_error
 
+    def recover(self):
+        self.events.append(("recover",))
+        return self.recovers.pop(0) if self.recovers else True
+
 
 class SignInSessionTests(unittest.TestCase):
     def setUp(self):
@@ -79,6 +85,7 @@ class SignInSessionTests(unittest.TestCase):
         self.audit = []
         for patcher in (
             mock.patch.object(local_sign_in, "REST_SECONDS", 0),
+            mock.patch.object(local_sign_in, "RECOVER_SECONDS", 0),
             mock.patch.object(
                 local_sign_in.local_audit,
                 "record_request",
@@ -94,6 +101,13 @@ class SignInSessionTests(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.addCleanup(self.sessions.end_all)
+        # Background recoveries finish while their audit is still this test's (cleanups run last-added first).
+        self.addCleanup(self._join_recoveries)
+
+    def _join_recoveries(self):
+        for thread in threading.enumerate():
+            if thread.name == "browser-sign-in-recover":
+                thread.join(5)
 
     def fake_cua(self, stream):
         session = mock.Mock()
@@ -438,6 +452,24 @@ class SignInSessionTests(unittest.TestCase):
         self.assertNotEqual(self.audit[-1][1]["detail"].split(":")[0], "cancelled")
         self.sessions._sessions.clear()
         self.service._running.clear()
+
+    def test_a_browser_whose_removal_failed_is_cleaned_again_in_the_background(self):
+        for recovers, outcome in (([False, True], "recovered"), ([False, False], "recovery-failed")):
+            with self.subTest(outcome=outcome), mock.patch.object(local_sign_in, "RECOVER_ATTEMPTS", 2):
+                self.runtime.recovers = list(recovers)
+                self.runtime.release_error = runtime.BrowserError("browser-lost")
+                started = self.start()
+                with self.assertRaises(local_sign_in.SignInSessionError):
+                    self.sessions.cancel(TEAM, started["sign_in_session_id"])
+                self.runtime.release_error = None
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and not any(
+                    entry[1]["detail"].startswith(outcome) for entry in self.audit
+                ):
+                    time.sleep(0.01)
+                self.assertEqual(self.runtime.events.count(("recover",)), 2)
+                self.assertTrue(any(entry[1]["detail"].startswith(outcome) for entry in self.audit))
+                self.runtime.events.clear()
 
     def test_dropping_another_browsers_view_keeps_the_running_one(self):
         started = self.start()

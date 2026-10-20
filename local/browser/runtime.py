@@ -254,6 +254,22 @@ class BrowserRuntime:
         finally:
             self._slot.release()
 
+    def recover(self) -> bool:
+        """Clean up after a removal that failed, unless a task holds the Browser; whether no residue is left to clean.
+
+        A task that holds the slot cleaned a dirty runtime before its own Browser started, so it leaves nothing either.
+        """
+        if not self._slot.acquire(blocking=False):
+            return True
+        try:
+            if self._dirty:
+                self.clean()
+        except BrowserError:
+            return False
+        finally:
+            self._slot.release()
+        return True
+
     def startup(self) -> bool:
         """Remove every Browser a previous Team process left; whether it proved none is left.
 
