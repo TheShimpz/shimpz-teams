@@ -56,6 +56,10 @@ const STOP_DEADLINE: Duration = Duration::from_secs(30);
 const RESTORED: &str = "/tmp/run/restored";
 const STOPPING: &str = "/tmp/run/stopping";
 const STOPPED: &str = "/tmp/run/stopped";
+/// Orders a clean stop against reopening Chromium: whichever holds it first, the other sees its whole effect.
+const LIFECYCLE_LOCK: &str = "/tmp/run/lifecycle.lock";
+/// `kill`'s answer for a process that no longer exists.
+const NO_SUCH_PROCESS: i32 = 3;
 const CHROMIUM_PID: &str = "/tmp/run/chromium.pid";
 /// How many times a person's sign-in Browser opens again after its last window closed; past it, it has crashed instead.
 const MAX_REOPENED: u32 = 20;
@@ -314,6 +318,20 @@ fn start_all(settings: &Settings, children: &mut Vec<Child>) -> Result<(), Strin
     Ok(())
 }
 
+/// The lifecycle lock at `path`, held until the returned file is dropped.
+fn lifecycle(path: &Path) -> Result<File, String> {
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|error| format!("cannot open the lifecycle lock: {error}"))?;
+    file.lock()
+        .map_err(|error| format!("cannot take the lifecycle lock: {error}"))?;
+    Ok(file)
+}
+
 /// Start Chromium for this Browser's mode and record its process, for a clean stop to signal.
 fn start_chromium(settings: &Settings) -> Result<Child, String> {
     let chromium = command(CHROMIUM)
@@ -359,6 +377,8 @@ fn supervise(settings: &Settings, children: &mut [Child]) -> Result<(), String> 
     loop {
         if let Some(index) = exited(children) {
             let chromium = index == NAMES.len() - 1;
+            // Held while deciding and reopening, so a clean stop either came first or finds the new Chromium.
+            let _lifecycle = lifecycle(Path::new(LIFECYCLE_LOCK))?;
             if chromium
                 && matches!(settings.mode, Mode::Person(_))
                 && !Path::new(STOPPING).exists()
@@ -376,6 +396,7 @@ fn supervise(settings: &Settings, children: &mut [Child]) -> Result<(), String> 
                     let _ = child.kill();
                     let _ = child.wait();
                 }
+                drop(_lifecycle);
                 loop {
                     thread::sleep(Duration::from_secs(3600));
                 }
@@ -449,13 +470,20 @@ fn chromium_running() -> bool {
 /// Ask Chromium to end the session (SIGTERM), wait for every one of its processes, and prove the profile records a
 /// clean session end; the container stays for the export.
 fn stop() -> Result<(), String> {
-    let pid: i32 = fs::read_to_string(CHROMIUM_PID)
-        .ok()
-        .and_then(|text| text.trim().parse().ok())
-        .ok_or("Chromium is not running")?;
-    fs::write(STOPPING, b"").map_err(|error| format!("cannot mark the stop: {error}"))?;
-    if unsafe { kill(pid, SIGTERM) } != 0 {
-        return Err("Chromium could not be asked to stop".into());
+    {
+        // Under the lifecycle lock: no reopening is under way, and none starts once the stop is marked.
+        let _lifecycle = lifecycle(Path::new(LIFECYCLE_LOCK))?;
+        fs::write(STOPPING, b"").map_err(|error| format!("cannot mark the stop: {error}"))?;
+        let pid: i32 = fs::read_to_string(CHROMIUM_PID)
+            .ok()
+            .and_then(|text| text.trim().parse().ok())
+            .ok_or("Chromium is not running")?;
+        // A Chromium that already ended on its own is no failure: its end is proven below like any other.
+        if unsafe { kill(pid, SIGTERM) } != 0
+            && io::Error::last_os_error().raw_os_error() != Some(NO_SUCH_PROCESS)
+        {
+            return Err("Chromium could not be asked to stop".into());
+        }
     }
     let deadline = Instant::now() + STOP_DEADLINE;
     while chromium_running() {
@@ -861,5 +889,17 @@ mod tests {
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir(&directory).unwrap();
         directory
+    }
+
+    #[test]
+    fn the_lifecycle_lock_admits_one_holder_at_a_time() {
+        let path =
+            std::env::temp_dir().join(format!("browser-host-lifecycle-{}", std::process::id()));
+        let held = lifecycle(&path).unwrap();
+        let other = OpenOptions::new().write(true).open(&path).unwrap();
+        assert!(other.try_lock().is_err());
+        drop(held);
+        assert!(other.try_lock().is_ok());
+        fs::remove_file(&path).unwrap();
     }
 }
