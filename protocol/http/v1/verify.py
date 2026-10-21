@@ -445,6 +445,7 @@ admit_browser = {
     "history": browser.canonical_history,
     "observation": browser.canonical_observation,
     "terminal": browser.canonical_terminal,
+    "downloads": browser.canonical_downloads,
 }
 if set(browser_vectors) != set(admit_browser) or any(
     not browser_vectors[kind].get("valid") or not browser_vectors[kind].get("invalid") for kind in browser_vectors
@@ -473,6 +474,12 @@ over_bounds = (
     (browser.canonical_terminal, {**kept, "files": kept["files"] * (browser.MAX_TERMINAL_FILES + 1)}),
     (browser.canonical_terminal, {**kept, "lost": kept["lost"] * (browser.MAX_TERMINAL_LOSSES + 1)}),
     (browser.canonical_terminal, {**kept, "lost": [{"name": "a" * (browser.MAX_NAME_BYTES + 1), "reason": "empty"}]}),
+    (
+        browser.canonical_downloads,
+        {"files": [f"f{n:02d}" for n in range(browser.MAX_DOWNLOAD_NAMES + 1)], "pending": 0, "truncated": True},
+    ),
+    (browser.canonical_downloads, {"files": ["\u00e9" * 128], "pending": 0, "truncated": False}),
+    (browser.canonical_downloads, {"files": [], "pending": browser.MAX_PENDING_DOWNLOADS + 1, "truncated": False}),
 )
 if any(admit(value) is not None for admit, value in over_bounds):
     fail("a Browser value past its bound was admitted")

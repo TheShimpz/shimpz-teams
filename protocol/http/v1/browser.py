@@ -195,6 +195,34 @@ def canonical_observation(value: object) -> str | None:
     return value
 
 
+# The downloads a step sees: at most this many completed file names, and at most this many still downloading counted.
+MAX_DOWNLOAD_NAMES = 20
+MAX_PENDING_DOWNLOADS = 1_000
+
+
+def canonical_downloads(value: object) -> dict[str, object] | None:
+    """The completed files present in the task's Browser, how many still download, and whether names were left out.
+
+    Names come from websites: untrusted, each one plain line of at most 255 UTF-8 bytes, sorted and distinct. A
+    listing Team could not read is null in the request, never an empty one.
+    """
+    if not isinstance(value, dict) or set(value) != {"files", "pending", "truncated"}:
+        return None
+    files, pending, truncated = value["files"], value["pending"], value["truncated"]
+    if (
+        not isinstance(files, list)
+        or len(files) > MAX_DOWNLOAD_NAMES
+        or not all(isinstance(name, str) and name and _plain(name, MAX_NAME_BYTES) for name in files)
+        or any(len(name.encode()) > MAX_NAME_BYTES for name in files)
+        or files != sorted(set(files))
+        or type(pending) is not int
+        or not 0 <= pending <= MAX_PENDING_DOWNLOADS
+        or type(truncated) is not bool
+    ):
+        return None
+    return {"files": list(files), "pending": pending, "truncated": truncated}
+
+
 TERMINAL_LOSSES = frozenset(
     {"incomplete", "over-limit", "empty", "quota-exceeded", "name-refused", "store-unavailable", "browser-lost"}
 )

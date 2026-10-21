@@ -7654,6 +7654,23 @@
         null
       ]
     },
+    "downloads": {
+      "valid": [
+        {"files": [], "pending": 0, "truncated": false},
+        {"files": ["report (1).csv", "report.csv"], "pending": 1, "truncated": true}
+      ],
+      "invalid": [
+        null,
+        {"files": ["b.csv", "a.csv"], "pending": 0, "truncated": false},
+        {"files": ["a.csv", "a.csv"], "pending": 0, "truncated": false},
+        {"files": [""], "pending": 0, "truncated": false},
+        {"files": ["a\nb.csv"], "pending": 0, "truncated": false},
+        {"files": [], "pending": -1, "truncated": false},
+        {"files": [], "pending": true, "truncated": false},
+        {"files": [], "pending": 0, "truncated": "no"},
+        {"files": [], "pending": 0}
+      ]
+    },
     "terminal": {
       "valid": [
         {
