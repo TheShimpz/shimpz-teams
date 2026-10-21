@@ -238,8 +238,10 @@ class BrowserServiceTests(unittest.TestCase):
     def test_a_step_sees_the_downloads_present_and_unknown_when_they_cannot_be_read(self):
         listing = {
             "files": [{"name": "b.csv", "size": 3}, {"name": "a.csv", "size": 2}],
-            "refused": [{"name": "c.csv.crdownload", "reason": "incomplete", "size": 1},
-                        {"name": "big.zip", "reason": "over-limit", "size": 9}],
+            "refused": [
+                {"name": "c.csv.crdownload", "reason": "incomplete", "size": 1},
+                {"name": "big.zip", "reason": "over-limit", "size": 9},
+            ],
             "skipped": 0,
         }
         session = mock.Mock()
@@ -260,22 +262,26 @@ class BrowserServiceTests(unittest.TestCase):
                 self.make(fake).run(self.turn, CONTEXT, REQUEST)
                 self.assertEqual(seen[-1], expected)
 
-    def test_a_stopped_turn_reads_no_downloads(self):
-        stopped = []
-        turn = service.BrowserTurn("team_1", "d" * 64, TURN, "pt-BR", self.brain, lambda: bool(stopped))
+    def test_a_browser_no_longer_held_reads_no_downloads(self):
         session = mock.Mock()
         session.observe.return_value = cua.Observation("u", "t", "url: u", {})
+        seen = []
+        fake = FakeRuntime()
+        browser_service = self.make(fake)
 
-        def step(_context, _payload, *, deadline):
-            stopped.append(True)
-            return {"kind": "wait"}, 10
+        def step(_context, payload, *, deadline):
+            seen.append(payload["downloads"])
+            if len(seen) == 1:
+                # The turn's Stop takes the Browser away while the task still runs its loop.
+                browser_service.interrupt("team_1", TURN)
+                return {"kind": "wait"}, 10
+            return {"kind": "done", "summary": "ok"}, 10
 
         self.brain.browser_step.side_effect = step
-        fake = FakeRuntime()
         with mock.patch.object(service.cua, "CuaSession", return_value=session):
-            result, _ = self.make(fake).run(turn, CONTEXT, REQUEST)
-        # The step after Stop asks nothing of the Browser, however its request was being built.
-        self.assertEqual((result["status"], len(fake.listed)), ("stopped", 1))
+            browser_service.run(self.turn, CONTEXT, REQUEST)
+        # Only the first step read the listing; the final ingest reads its own, with no step deadline.
+        self.assertEqual((seen[1:], sum(deadline is not None for deadline in fake.listed)), ([None], 1))
 
     def test_a_failed_driver_session_is_replaced_only_once_its_exec_is_proven_ended(self):
         class Stream:
