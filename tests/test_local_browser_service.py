@@ -43,7 +43,7 @@ class FakeRuntime:
         self.events.append(("stream", lease.container_id))
         return "exec-mcp", "stream"
 
-    def files(self, lease, deadline=None):
+    def files(self, lease, deadline=None, wanted=None):
         self.listed.append(deadline)
         if self.files_error:
             raise self.files_error

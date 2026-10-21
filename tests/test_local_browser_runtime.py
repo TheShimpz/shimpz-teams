@@ -792,6 +792,13 @@ class BrowserRuntimeTests(unittest.TestCase):
                 self.docker.programs[("files", "list")] = (0, output)
                 self.runtime.files(lease)
             self.assertEqual(raised.exception.code, "browser-lost")
+        # A listing asked by a deadline already past, or after Stop, never answers as one that was read.
+        self.docker.programs[("files", "list")] = (0, json.dumps(listing).encode() + b"\n")
+        for arguments in ((self.runtime._clock() - 1,), (None, lambda: False)):
+            with self.subTest(arguments=arguments), self.assertRaises(runtime.BrowserError) as raised:
+                self.runtime.files(lease, *arguments)
+            self.assertEqual(raised.exception.code, "browser-lost")
+        self.assertEqual(self.runtime.files(lease, self.runtime._clock() + 30), listing)
         for output in (b"8\n%PDF-1.4\n", b"9\nshort", b"9\n%PDF-1.4\nextra"):
             with self.subTest(output=output), self.assertRaises(runtime.BrowserError):
                 self.docker.programs[("files", "read", "edital.pdf")] = (0, output)

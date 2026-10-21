@@ -714,16 +714,27 @@ class BrowserRuntime:
         arguments = ["profile", "export"]
         return self._bounded_program(lease.container_id, arguments, CAPSULE_SECONDS, "browser-lost", exported)
 
-    def files(self, lease: Lease, deadline: float | None = None) -> dict[str, object]:
-        """The downloads listing `browser-host files list` returns, strictly parsed, by `deadline` when one is given."""
-        stream = ExecStream(self._exec(lease.container_id, ["files", "list"])[1], self._clock)
-        stream.close_input()
-        deadline = min(self._clock() + PROGRAM_SECONDS, deadline if deadline is not None else float("inf"))
+    def files(
+        self, lease: Lease, deadline: float | None = None, wanted: Callable[[], bool] = lambda: True
+    ) -> dict[str, object]:
+        """The downloads listing `browser-host files list` returns, strictly parsed.
+
+        Opening and reading it end by one deadline, `deadline` when one is given, and the opening ends early once it is
+        no longer `wanted` (Stop); the channel is closed however it ends.
+        """
+        end = self._clock() + PROGRAM_SECONDS
+        if deadline is not None:
+            end = min(end, deadline)
+        _exec_id, raw = self._open_exec(lease.container_id, ["files", "list"], end, wanted)
+        stream = ExecStream(raw, self._clock)
         try:
-            listing = json.loads(stream.receive_line(deadline, 256 * 1024))
-            stream.receive_end(deadline)
-        except (ChannelError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            stream.close_input()
+            listing = json.loads(stream.receive_line(end, 256 * 1024))
+            stream.receive_end(end)
+        except (ChannelError, UnicodeDecodeError, json.JSONDecodeError, OSError) as exc:
             raise BrowserError("browser-lost") from exc
+        finally:
+            stream.close()
         if not isinstance(listing, dict) or set(listing) != {"files", "refused", "skipped"}:
             raise BrowserError("browser-lost")
         return listing

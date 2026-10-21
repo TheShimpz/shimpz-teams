@@ -268,7 +268,7 @@ class BrowserService:
             if not held():
                 return None
             try:
-                return browser_ingest.present(self._runtime.files(lease, deadline))
+                return browser_ingest.present(self._runtime.files(lease, deadline, held))
             except BrowserError, browser_ingest.ListingError:
                 return None
 
