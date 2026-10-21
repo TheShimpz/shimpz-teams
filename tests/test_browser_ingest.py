@@ -151,7 +151,6 @@ class IngestTests(unittest.TestCase):
                 ingest.ingest(listing, None, None, None)
 
 
-
 class PresentTests(unittest.TestCase):
     def listing(self, files=(), refused=(), skipped=0):
         return {

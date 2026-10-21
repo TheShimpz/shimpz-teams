@@ -19,9 +19,11 @@ MAX_KNOWLEDGE_BYTES = 1024 * 1024
 
 
 _MODEL_CATALOG = json.loads(Path(__file__).with_name("model_catalog.json").read_text(encoding="utf-8"))
-# Each catalog provider's id and the exact model ids it admits.
+# Each catalog provider's id and the exact model ids a person may choose for a Team's chat; a non-chat catalog model is
+# one Brain runs itself (the Browser's), never a Team's configuration.
 PROVIDERS: dict[str, frozenset[str]] = {
-    provider["id"]: frozenset(model["id"] for model in provider["models"]) for provider in _MODEL_CATALOG["providers"]
+    provider["id"]: frozenset(model["id"] for model in provider["models"] if model["chat"] is True)
+    for provider in _MODEL_CATALOG["providers"]
 }
 # Every name this store writes: a Team's configuration, its learned knowledge, and their interrupted temp files.
 OWNED_NAME_RE = re.compile(

@@ -27,13 +27,15 @@ class InferenceConfigTests(unittest.TestCase):
             ("openai", ""),
             ("openai", "gpt-6-luna "),
             ("openai", 7),
+            # A catalog model Brain runs itself is never a Team's chat model.
+            ("anthropic", "claude-haiku-5-5"),
         ):
             with self.subTest(provider=provider, model=model), self.assertRaises(inference_config.InferenceConfigError):
                 inference_config.normalize(provider, model)
 
     def test_exact_provider_catalog_is_accepted(self):
         expected = {
-            provider["id"]: {model["id"] for model in provider["models"]}
+            provider["id"]: {model["id"] for model in provider["models"] if model["chat"]}
             for provider in inference_config._MODEL_CATALOG["providers"]
         }
 

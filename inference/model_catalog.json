@@ -15,13 +15,15 @@
           "id": "gpt-6.1-sol",
           "title": "GPT-6.1 Sol",
           "input_usd_per_million_cents": 200,
-          "output_usd_per_million_cents": 1000
+          "output_usd_per_million_cents": 1000,
+          "chat": true
         },
         {
           "id": "gpt-6-luna",
           "title": "GPT-6 Luna",
           "input_usd_per_million_cents": 10,
-          "output_usd_per_million_cents": 50
+          "output_usd_per_million_cents": 50,
+          "chat": true
         }
       ]
     },
@@ -38,13 +40,22 @@
           "id": "claude-opus-5-5",
           "title": "Claude Opus 5.5",
           "input_usd_per_million_cents": 400,
-          "output_usd_per_million_cents": 2000
+          "output_usd_per_million_cents": 2000,
+          "chat": true
         },
         {
           "id": "claude-sonnet-5-5",
           "title": "Claude Sonnet 5.5",
           "input_usd_per_million_cents": 200,
-          "output_usd_per_million_cents": 1000
+          "output_usd_per_million_cents": 1000,
+          "chat": true
+        },
+        {
+          "id": "claude-haiku-5-5",
+          "title": "Claude Haiku 5.5",
+          "input_usd_per_million_cents": 10,
+          "output_usd_per_million_cents": 50,
+          "chat": false
         }
       ]
     }
