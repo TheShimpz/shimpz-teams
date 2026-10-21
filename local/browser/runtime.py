@@ -737,6 +737,9 @@ class BrowserRuntime:
             stream.close()
         if not isinstance(listing, dict) or set(listing) != {"files", "refused", "skipped"}:
             raise BrowserError("browser-lost")
+        # A Stop that came while the listing was read leaves nothing of it.
+        if not wanted():
+            raise BrowserError("browser-lost")
         return listing
 
     def read(self, lease: Lease, name: str, size: int) -> bytes:

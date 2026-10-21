@@ -799,6 +799,10 @@ class BrowserRuntimeTests(unittest.TestCase):
                 self.runtime.files(lease, *arguments)
             self.assertEqual(raised.exception.code, "browser-lost")
         self.assertEqual(self.runtime.files(lease, self.runtime._clock() + 30), listing)
+        # A Stop that comes once the listing was opened leaves nothing of it.
+        answers = iter((True, False))
+        with self.assertRaises(runtime.BrowserError):
+            self.runtime.files(lease, None, lambda: next(answers, False))
         for output in (b"8\n%PDF-1.4\n", b"9\nshort", b"9\n%PDF-1.4\nextra"):
             with self.subTest(output=output), self.assertRaises(runtime.BrowserError):
                 self.docker.programs[("files", "read", "edital.pdf")] = (0, output)
