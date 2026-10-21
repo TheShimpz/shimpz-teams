@@ -151,5 +151,31 @@ class IngestTests(unittest.TestCase):
                 ingest.ingest(listing, None, None, None)
 
 
+
+class PresentTests(unittest.TestCase):
+    def listing(self, files=(), refused=(), skipped=0):
+        return {
+            "files": [{"name": name, "size": 1} for name in files],
+            "refused": [{"name": name, "reason": reason, "size": 1} for name, reason in refused],
+            "skipped": skipped,
+        }
+
+    def test_a_step_sees_completed_and_over_limit_files_and_counts_the_ones_still_downloading(self):
+        listing = self.listing(["b.csv", "a.csv"], [("c.crdownload", "incomplete"), ("big.zip", "over-limit")])
+        self.assertEqual(
+            ingest.present(listing), {"files": ["a.csv", "b.csv", "big.zip"], "pending": 1, "truncated": False}
+        )
+
+    def test_names_left_out_mark_the_list_truncated(self):
+        many = [f"f{index:02d}.csv" for index in range(25)]
+        shown = ingest.present(self.listing(many))
+        self.assertEqual((len(shown["files"]), shown["truncated"]), (20, True))
+        self.assertTrue(ingest.present(self.listing(["ok.csv", "bad\nname.csv"]))["truncated"])
+        self.assertEqual(ingest.present(self.listing(["ok.csv", "bad\nname.csv"]))["files"], ["ok.csv"])
+        self.assertTrue(ingest.present(self.listing(skipped=2))["truncated"])
+        with self.assertRaises(ingest.ListingError):
+            ingest.present({"files": "x", "refused": [], "skipped": 0})
+
+
 if __name__ == "__main__":
     unittest.main()

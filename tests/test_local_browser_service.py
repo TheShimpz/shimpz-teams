@@ -31,6 +31,7 @@ class FakeRuntime:
         self.kill_error = False
         self.intact_after = True
         self.events = []
+        self.listed = []
 
     def acquire(self, team_id, language):
         self.events.append(("acquire", team_id, language))
@@ -42,7 +43,8 @@ class FakeRuntime:
         self.events.append(("stream", lease.container_id))
         return "exec-mcp", "stream"
 
-    def files(self, lease):
+    def files(self, lease, deadline=None):
+        self.listed.append(deadline)
         if self.files_error:
             raise self.files_error
         return self.listing
@@ -225,10 +227,55 @@ class BrowserServiceTests(unittest.TestCase):
         self.assertIs(context, CONTEXT)
         self.assertLessEqual(self.brain.browser_step.call_args.kwargs["deadline"], task.MAX_SECONDS)
         self.assertEqual((payload["objective"], payload["language"]), ("Veja o prazo do edital.", "pt-BR"))
+        # Each step sees the downloads present in its Browser, read by the task's deadline.
+        self.assertEqual(payload["downloads"], {"files": [], "pending": 0, "truncated": False})
+        self.assertIsNotNone(browser_service._runtime.listed[0])
         self.brain.browser_step.side_effect = BrainRuntimeError("down")
         with mock.patch.object(service.cua, "CuaSession", return_value=session):
             result, _ = browser_service.run(self.turn, CONTEXT, REQUEST)
         self.assertEqual((result["status"], result["reason"]), ("failed", "model-unavailable"))
+
+    def test_a_step_sees_the_downloads_present_and_unknown_when_they_cannot_be_read(self):
+        listing = {
+            "files": [{"name": "b.csv", "size": 3}, {"name": "a.csv", "size": 2}],
+            "refused": [{"name": "c.csv.crdownload", "reason": "incomplete", "size": 1},
+                        {"name": "big.zip", "reason": "over-limit", "size": 9}],
+            "skipped": 0,
+        }
+        session = mock.Mock()
+        session.observe.return_value = cua.Observation("u", "t", "url: u", {})
+        seen = []
+
+        def step(_context, payload, *, deadline):
+            seen.append(payload["downloads"])
+            return {"kind": "done", "summary": "ok"}, 10
+
+        self.brain.browser_step.side_effect = step
+        for fake, expected in (
+            (FakeRuntime(listing=listing), {"files": ["a.csv", "b.csv", "big.zip"], "pending": 1, "truncated": False}),
+            (FakeRuntime(files_error=runtime.BrowserError("browser-lost")), None),
+            (FakeRuntime(listing={"files": "x", "refused": [], "skipped": 0}), None),
+        ):
+            with self.subTest(expected=expected), mock.patch.object(service.cua, "CuaSession", return_value=session):
+                self.make(fake).run(self.turn, CONTEXT, REQUEST)
+                self.assertEqual(seen[-1], expected)
+
+    def test_a_stopped_turn_reads_no_downloads(self):
+        stopped = []
+        turn = service.BrowserTurn("team_1", "d" * 64, TURN, "pt-BR", self.brain, lambda: bool(stopped))
+        session = mock.Mock()
+        session.observe.return_value = cua.Observation("u", "t", "url: u", {})
+
+        def step(_context, _payload, *, deadline):
+            stopped.append(True)
+            return {"kind": "wait"}, 10
+
+        self.brain.browser_step.side_effect = step
+        fake = FakeRuntime()
+        with mock.patch.object(service.cua, "CuaSession", return_value=session):
+            result, _ = self.make(fake).run(turn, CONTEXT, REQUEST)
+        # The step after Stop asks nothing of the Browser, however its request was being built.
+        self.assertEqual((result["status"], len(fake.listed)), ("stopped", 1))
 
     def test_a_failed_driver_session_is_replaced_only_once_its_exec_is_proven_ended(self):
         class Stream:

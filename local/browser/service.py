@@ -263,6 +263,15 @@ class BrowserService:
 
         session = driver(time.monotonic() + cua.CALL_SECONDS)
 
+        def downloads(deadline: float) -> dict[str, object] | None:
+            """The downloads present in this very Browser, read while the turn holds it; None when unreadable."""
+            if not held():
+                return None
+            try:
+                return browser_ingest.present(self._runtime.files(lease, deadline))
+            except BrowserError, browser_ingest.ListingError:
+                return None
+
         def step(payload, seconds: float):
             try:
                 return turn.runtime.browser_step(context, payload, deadline=seconds)
@@ -277,6 +286,7 @@ class BrowserService:
             turn.cancelled,
             lambda: self._runtime.intact(lease),
             reopen=reopen,
+            downloads=downloads,
         ).run()
 
     def _ingest(self, turn: BrowserTurn, lease: Lease) -> browser_ingest.Ingested:

@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from prepare import detect
+from protocol.http.v1 import browser as browser_protocol
 from storage import files as team_storage
 
 MAX_FILES = 8
@@ -62,6 +63,24 @@ def _entries(listing: Mapping[str, object]) -> tuple[list[tuple[str, int]], list
             raise ListingError("the downloads listing is malformed")
         reasons.append((entry["name"], entry["reason"]))
     return named, reasons, skipped
+
+
+def present(listing: Mapping[str, object]) -> dict[str, object]:
+    """What a step may know of the task's downloads so far: the completed files present, and how many still download.
+
+    Over-limit files are present too. A name outside the protocol's bound is left out and marks the list truncated,
+    as are names past the protocol's count and the entries the listing could not name. Raises ListingError.
+    """
+    named, refused, skipped = _entries(listing)
+    present_names = {name for name, _size in named} | {name for name, reason in refused if reason == "over-limit"}
+    admitted = sorted(name for name in present_names if browser_protocol.canonical_downloads(_one(name)) is not None)
+    truncated = skipped > 0 or len(admitted) < len(present_names) or len(admitted) > browser_protocol.MAX_DOWNLOAD_NAMES
+    pending = min(sum(reason == "incomplete" for _name, reason in refused), browser_protocol.MAX_PENDING_DOWNLOADS)
+    return {"files": admitted[: browser_protocol.MAX_DOWNLOAD_NAMES], "pending": pending, "truncated": truncated}
+
+
+def _one(name: str) -> dict[str, object]:
+    return {"files": [name], "pending": 0, "truncated": False}
 
 
 def ingest(

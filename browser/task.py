@@ -72,6 +72,8 @@ Step = Callable[[Mapping[str, object], float], tuple[object, int]]
 # A fresh Driver session on the same Browser in place of the failed one, opened by the task's absolute deadline; raises
 # CuaError when the failed one could not be proven ended or the new one did not open.
 Reopen = Callable[[cua.CuaSession, float], cua.CuaSession]
+# The task's downloads so far in the protocol's form, read by the task's absolute deadline; None when unreadable.
+Downloads = Callable[[float], Mapping[str, object] | None]
 
 
 @dataclass(slots=True)
@@ -91,6 +93,7 @@ class Task:
     sleep: Callable[[float], None] = time.sleep
     budget: Budget = field(default_factory=Budget)
     reopen: Reopen | None = None
+    downloads: Downloads | None = None
     recovered: int = 0
     history: list[dict[str, object]] = field(default_factory=list)
     screenshot_at: int = -SCREENSHOT_EVERY
@@ -136,7 +139,7 @@ class Task:
         Even a final step counts only if the task could still have acted on it: no Stop, time and budget left, and the
         same egress process.
         """
-        request = self._request(observation)
+        request = self._request(observation, deadline)
         ended = self._halted(index, deadline, _input_bound(request))
         if ended is not None:
             return ended
@@ -191,7 +194,8 @@ class Task:
         self.recovered += 1
         return None
 
-    def _request(self, observation: cua.Observation) -> dict[str, object]:
+    def _request(self, observation: cua.Observation, deadline: float) -> dict[str, object]:
+        """The step's request: the task, its history, the current page, and the downloads present before it decides."""
         screenshot = base64.b64encode(observation.screenshot).decode() if observation.screenshot else None
         return {
             "objective": self.objective,
@@ -199,6 +203,7 @@ class Task:
             "history": self.history[-browser_protocol.MAX_HISTORY :],
             "observation": observation.text,
             "screenshot": screenshot,
+            "downloads": None if self.downloads is None else self.downloads(deadline),
         }
 
 

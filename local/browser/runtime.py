@@ -714,11 +714,11 @@ class BrowserRuntime:
         arguments = ["profile", "export"]
         return self._bounded_program(lease.container_id, arguments, CAPSULE_SECONDS, "browser-lost", exported)
 
-    def files(self, lease: Lease) -> dict[str, object]:
-        """The downloads listing `browser-host files list` returns, strictly parsed."""
+    def files(self, lease: Lease, deadline: float | None = None) -> dict[str, object]:
+        """The downloads listing `browser-host files list` returns, strictly parsed, by `deadline` when one is given."""
         stream = ExecStream(self._exec(lease.container_id, ["files", "list"])[1], self._clock)
         stream.close_input()
-        deadline = self._clock() + PROGRAM_SECONDS
+        deadline = min(self._clock() + PROGRAM_SECONDS, deadline if deadline is not None else float("inf"))
         try:
             listing = json.loads(stream.receive_line(deadline, 256 * 1024))
             stream.receive_end(deadline)
