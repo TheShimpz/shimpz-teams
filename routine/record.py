@@ -83,6 +83,9 @@ class Routine:
     plan: dict[str, object]
     anchor: int
     next_run_at: int
+    # The confirmed plain-language account of what every run does, which the recording agent wrote (ADR-0122): data
+    # that explains the plan and never adds anything a run may do.
+    description: str = ""
     needs_reconfirm: bool = False
     deleting: bool = False
     # One continuous stretch of missed firings: when it began, how many, and how many a notice already reports.
@@ -325,6 +328,7 @@ def definition_valid(value: Routine) -> bool:
     return (
         http_routine.matches(value.routine_id, http_routine.ROUTINE_ID_RE)
         and http_routine.canonical_name(value.name) is not None
+        and http_routine.exact_description(value.description)
         and http_routine.zoned(value.timezone, value.timezone_source)
         and canonical is not None
         and _permitted(value)

@@ -172,6 +172,7 @@ class RoutineServiceCase(LocalContractCase):
             assistants=tuple(sorted(contracts.items())),
             anchor=int(time.time()) - 3 * 86_400,
             next_run_at=0,
+            description=routine_fixture.DESCRIPTION,
             permitted=self.permitted(service, document),
             confirmation=dict(routine_fixture.CONFIRMATION),
         )

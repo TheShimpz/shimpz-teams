@@ -658,7 +658,7 @@ class SealedStateTests(IncidentCase):
             self.assertEqual(service.routine_store.cursor("team_1", binding).step, 1)
             self.assertIsNone(service.action_state.current_batch(generation))
 
-    def test_routine_state_version_twelve_admits_incidents_plans_confirmations_and_output_digests(
+    def test_routine_state_version_thirteen_admits_incidents_plans_confirmations_descriptions_and_output_digests(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -667,7 +667,8 @@ class SealedStateTests(IncidentCase):
             routine_incident.set_paused(service, "team_1", value.routine_id, True)
             path = service.routine_store._team_dir("team_1") / "state.json"
             document = json.loads(path.read_bytes())
-            self.assertEqual(document["schema"], 12)
+            self.assertEqual(document["schema"], 13)
+            self.assertEqual(document["routines"][0]["description"], routine_fixture.DESCRIPTION)
             self.assertEqual(document["routines"][0]["run_requested"], 0)
             self.assertEqual(document["routines"][0]["output_digest"], "")
             self.assertEqual(document["routines"][0]["plan"]["version"], 4)
@@ -691,6 +692,9 @@ class SealedStateTests(IncidentCase):
                 lambda value: value["routines"][0].update(output_digest="D" * 64),
                 lambda value: value["routines"][0].update(output_digest=None),
                 lambda value: value["routines"][0].update(name=""),
+                lambda value: value["routines"][0].update(description=""),
+                lambda value: value["routines"][0].update(description=" Checks."),
+                lambda value: value["routines"][0].pop("description"),
                 lambda value: value["routines"][0].update(plan={"version": routine_plan.VERSION}),
                 lambda value: value["routines"][0].update(confirmation=None),
                 lambda value: value["routines"][0]["confirmation"].update(proposal_digest="sha256:x"),

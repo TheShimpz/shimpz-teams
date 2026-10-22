@@ -131,6 +131,7 @@ class ServiceLoadTests(RoutineHttpCase):
             assistants=tuple(sorted(contracts.items())),
             anchor=now - 60,
             next_run_at=0,
+            description=routine_fixture.DESCRIPTION,
             permitted=self.permitted(service, plan),
             confirmation=dict(routine_fixture.CONFIRMATION),
         )

@@ -299,6 +299,7 @@ def _candidate(self, response: object, intent: routine_recorder.Intent) -> tuple
         recorded.document,
         anchor=0,
         next_run_at=0,
+        description=intent.description,
         permitted=recorded.permitted,
         timezone_source=recorded.timezone_source,
     )
@@ -343,12 +344,11 @@ def _card_input(member: str, source: dict[str, object], origin: str, positions: 
     }
 
 
-def card(
-    proposal_id: str, candidate: record.Routine, recorded, framing: tuple[str | None, float], description: str
-) -> dict:
+def card(proposal_id: str, candidate: record.Routine, recorded, framing: tuple[str | None, float]) -> dict:
     """The confirmation card: the description, the schedule, zone, and output, and each step with its effect and inputs.
 
-    Its description is the recording agent's plain-language account of the work alone; the schedule, its zone and where
+    Its description is the recording agent's plain-language account of the work alone, which the Routine keeps
+    (ADR-0122); the schedule, its zone and where
     that came from, and the output are the candidate's own, which Admin shows in its fixed words (ADR-0101 amendment,
     2026-10-16), and so are the steps, so model text never stands in for any of them. The confirmation binds the whole
     candidate.
@@ -375,7 +375,7 @@ def card(
         "expires_at": instant.text(int(expires_at)),
         "replaces": replaces,
         "name": candidate.name,
-        "description": description,
+        "description": candidate.description,
         "schedule": dict(candidate.schedule),
         "timezone": document["timezone"],
         "timezone_source": candidate.timezone_source,
@@ -435,7 +435,7 @@ def admit(
         proposal_id = record.new_id()
         expires_at = time.time() + PROPOSAL_SECONDS
         replaces = None if existing is None else existing.routine_id
-        view = card(proposal_id, candidate, recorded, (replaces, expires_at), intent.description)
+        view = card(proposal_id, candidate, recorded, (replaces, expires_at))
         if http_routine.encoded_bytes(view) > http_routine_proposal.MAX_PROPOSAL_BYTES:
             raise RefusedError("routine-proposal-too-large")
         if trace.exposes(view, recording.protection.values):

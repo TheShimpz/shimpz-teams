@@ -51,11 +51,20 @@ CONFIRMATION = {
 }
 
 
+DESCRIPTION = "Checks the DNS zone."
+
+
 def confirmed(value):
-    """A Routine record with the permitted Actions its plan needs, its Assistants pinned, and a confirmation."""
+    """A Routine record with its plan's permitted Actions, its Assistants pinned, a description, and a confirmation."""
     entries = permitted(value.plan)
     assistants = tuple((assistant, SCOPE_PIN) for assistant in sorted({item["assistant"] for item in entries}))
-    return dataclasses.replace(value, permitted=entries, assistants=assistants, confirmation=dict(CONFIRMATION))
+    return dataclasses.replace(
+        value,
+        description=value.description or DESCRIPTION,
+        permitted=entries,
+        assistants=assistants,
+        confirmation=dict(CONFIRMATION),
+    )
 
 
 def routine(

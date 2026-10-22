@@ -286,6 +286,8 @@ class RecordedRoutineTests(RecordingCase):
         self.assertEqual(routine.confirmation["principal"], PRINCIPAL)
         self.assertEqual(routine.confirmation["proposal_id"], card["proposal_id"])
         self.assertEqual(routine.timezone, "America/Sao_Paulo")
+        # The Routine keeps the description its card showed (ADR-0122).
+        self.assertEqual(routine.description, card["description"])
         reference = routine.plan["steps"][1]["input"]["zone_id"]
         self.assertEqual(reference["where"], {"name": "shimpz.com"})
         (notice,) = state.notices

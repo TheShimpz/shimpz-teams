@@ -613,7 +613,15 @@ class CardTests(unittest.TestCase):
         )
         candidate = record.scheduled(
             record.Routine(
-                "d" * 32, "Zonas", {"kind": "daily", "time": "09:00"}, (), document, 0, 0, permitted=permitted
+                "d" * 32,
+                "Zonas",
+                {"kind": "daily", "time": "09:00"},
+                (),
+                document,
+                0,
+                0,
+                description="Lista o DNS.",
+                permitted=permitted,
             ),
             1_800_000_000,
         )
@@ -621,9 +629,11 @@ class CardTests(unittest.TestCase):
         recorded = routine_recording.Recorded(
             document, origins, permitted, {"kind": "daily", "time": "09:00"}, "browser"
         )
-        view = routine_proposal.card("e" * 32, candidate, recorded, (None, 1_800_000_900), "Lista o DNS.")
+        view = routine_proposal.card("e" * 32, candidate, recorded, (None, 1_800_000_900))
         # A confirmation binds the description the person read, like every other part of the card.
-        reworded = routine_proposal.card("e" * 32, candidate, recorded, (None, 1_800_000_900), "Lê o DNS.")
+        reworded = routine_proposal.card(
+            "e" * 32, dataclasses.replace(candidate, description="Lê o DNS."), recorded, (None, 1_800_000_900)
+        )
         self.assertEqual(view["description"], "Lista o DNS.")
         self.assertNotEqual(
             routine_proposal._digest(candidate, view, None), routine_proposal._digest(candidate, reworded, None)
