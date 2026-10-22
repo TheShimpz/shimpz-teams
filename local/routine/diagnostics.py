@@ -376,7 +376,8 @@ class DiagnosticStore:
                 and match["routine"] == routine_id
                 and int(match["at"]) > now - RETENTION_SECONDS
             ]
-        newest = {run for at, run in found if at == max(at for at, _run in found)} if found else set()
+        last = max((at for at, _run in found), default=None)
+        newest = {run for at, run in found if at == last}
         return newest.pop() if len(newest) == 1 else None
 
     def _open(self, path: Path, team: str, incarnation: str, name: str, maximum: int) -> dict[str, object] | None:
